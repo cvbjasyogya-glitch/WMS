@@ -9,6 +9,7 @@
 <div class="split-actions">
     <a href="/so/export?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportSoLink">Export CSV</a>
     <a href="/so/export_report?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportReportLink">Laporan SO</a>
+    <button type="button" id="saveSoHeroBtn" onclick="submitSO()">Simpan Hasil SO</button>
 </div>
 {% endblock %}
 
@@ -29,10 +30,10 @@
         <h3>{{ summary.gudang_qty }}</h3>
         <small class="helper-text">Stok sistem area gudang.</small>
     </div>
-    <div class="card-mini {% if summary.mismatch_count %}warning{% endif %}">
-        <p>Butuh Cek</p>
-        <h3>{{ summary.mismatch_count }}</h3>
-        <small class="helper-text">Item dengan selisih display vs gudang.</small>
+    <div class="card-mini {% if summary.gap_count %}warning{% endif %}">
+        <p>Selisih Lokasi</p>
+        <h3>{{ summary.gap_count }}</h3>
+        <small class="helper-text">Item yang qty display dan gudangnya memang berbeda.</small>
     </div>
 </div>
 
@@ -68,16 +69,16 @@
     </select>
     <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau variant" value="{{ search or '' }}">
     <button type="submit">Cari</button>
-    <button type="button" class="ghost-button" onclick="submitSO()">Simpan SO</button>
+    <button type="button" class="ghost-button" id="saveSoTopBtn" onclick="submitSO()">Simpan SO</button>
 </form>
 
-<small class="helper-text">Display dan gudang otomatis dipisah supaya stock opname tidak tertimpa ke gudang yang sama.</small>
+<small class="helper-text">Display dan gudang otomatis dipisah supaya stock opname tidak tertimpa ke gudang yang sama. Qty sistem di halaman ini mengambil sumber data `stock` yang sama dengan halaman `Stok Gudang` untuk warehouse yang sedang dipilih.</small>
 
 <div class="table-box">
     <div class="section-title">
         <div>
             <h2>Perbandingan Stok Sistem vs Fisik</h2>
-            <p>Masukkan hasil hitungan fisik. Selisih akan dihitung real-time sebelum disimpan ke histori stock opname.</p>
+            <p>Masukkan hasil hitungan fisik. Selisih dihitung real-time, lalu simpan untuk menulis histori stock opname dan menyamakan stok sistem ke angka fisik.</p>
         </div>
     </div>
 
@@ -98,7 +99,7 @@
         </thead>
         <tbody id="soTable">
             {% for item in data %}
-            <tr>
+            <tr data-row="item">
                 <td class="mono">{{ item.sku }}</td>
                 <td>{{ item.name }}</td>
                 <td>{{ item.variant }}</td>
@@ -126,6 +127,17 @@
     <div class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</div>
     {% endif %}
 </div>
+
+<div class="so-save-bar" id="soSaveBar" data-state="clean">
+    <div>
+        <strong id="soPendingCount">0 perubahan</strong>
+        <small id="soPendingHelp" class="helper-text">Belum ada perubahan fisik yang perlu disimpan.</small>
+    </div>
+    <div class="split-actions">
+        <button type="button" class="ghost-button" id="resetSoBtn" onclick="resetSOInputs()">Reset Halaman</button>
+        <button type="button" id="saveSoStickyBtn" onclick="submitSO()" disabled>Simpan Hasil SO</button>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -135,6 +147,7 @@ let totalPages = parseInt("{{ total_pages }}" || "1", 10);
 let currentSearch = {{ (search or '')|tojson }};
 let displayId = {{ display_id|int }};
 let gudangId = {{ gudang_id|int }};
+let soSaving = false;
 
 function syncExportLinks() {
     const exportSoLink = document.getElementById("exportSoLink");
@@ -147,34 +160,133 @@ function syncExportLinks() {
     }
 }
 
+function parseRowNumber(input) {
+    const raw = (input?.value ?? "").toString().trim();
+    if (raw === "") return null;
+    const value = parseInt(raw, 10);
+    return Number.isNaN(value) ? null : value;
+}
+
+function formatDiff(value) {
+    if (value > 0) return "+" + value;
+    return String(value || 0);
+}
+
+function setDiffState(cell, diff) {
+    cell.innerText = formatDiff(diff);
+    cell.className = "mono " + (diff > 0 ? "green" : diff < 0 ? "red" : "");
+}
+
+function syncRowDiff(row) {
+    const displaySystem = parseInt(row.querySelector(".display")?.innerText || "0", 10) || 0;
+    const displayPhysical = parseRowNumber(row.querySelector(".physical_display"));
+    const gudangSystem = parseInt(row.querySelector(".gudang")?.innerText || "0", 10) || 0;
+    const gudangPhysical = parseRowNumber(row.querySelector(".physical_gudang"));
+    const displayCell = row.querySelector(".diff_display");
+    const gudangCell = row.querySelector(".diff_gudang");
+
+    setDiffState(displayCell, (displayPhysical ?? displaySystem) - displaySystem);
+    setDiffState(gudangCell, (gudangPhysical ?? gudangSystem) - gudangSystem);
+}
+
+function collectPendingItems() {
+    const items = [];
+    let invalid = false;
+
+    document.querySelectorAll("#soTable tr[data-row='item']").forEach((row) => {
+        const displaySystem = parseInt(row.querySelector(".display")?.innerText || "0", 10) || 0;
+        const displayPhysical = parseRowNumber(row.querySelector(".physical_display"));
+        const gudangSystem = parseInt(row.querySelector(".gudang")?.innerText || "0", 10) || 0;
+        const gudangPhysical = parseRowNumber(row.querySelector(".physical_gudang"));
+
+        if (displayPhysical === null || gudangPhysical === null || displayPhysical < 0 || gudangPhysical < 0) {
+            invalid = true;
+            return;
+        }
+
+        if (displayPhysical !== displaySystem || gudangPhysical !== gudangSystem) {
+            items.push({
+                product_id: parseInt(row.querySelector(".product_id").value, 10),
+                variant_id: parseInt(row.querySelector(".variant_id").value, 10),
+                display_system: displaySystem,
+                display_physical: displayPhysical,
+                gudang_system: gudangSystem,
+                gudang_physical: gudangPhysical
+            });
+        }
+    });
+
+    return { items, invalid };
+}
+
+function updateSoState() {
+    document.querySelectorAll("#soTable tr[data-row='item']").forEach(syncRowDiff);
+
+    const state = collectPendingItems();
+    const pendingCount = document.getElementById("soPendingCount");
+    const pendingHelp = document.getElementById("soPendingHelp");
+    const saveBar = document.getElementById("soSaveBar");
+    const hasChanges = state.items.length > 0;
+    const disabled = soSaving || state.invalid || !hasChanges;
+
+    if (pendingCount) {
+        pendingCount.innerText = state.invalid
+            ? "Input belum valid"
+            : state.items.length + " perubahan";
+    }
+
+    if (pendingHelp) {
+        pendingHelp.innerText = state.invalid
+            ? "Cek lagi, stok fisik harus angka dan tidak boleh negatif."
+            : hasChanges
+                ? "Perubahan di halaman ini siap disimpan ke hasil stock opname."
+                : "Belum ada perubahan fisik yang perlu disimpan.";
+    }
+
+    if (saveBar) {
+        saveBar.dataset.state = state.invalid ? "invalid" : hasChanges ? "dirty" : "clean";
+    }
+
+    ["saveSoHeroBtn", "saveSoTopBtn", "saveSoStickyBtn", "resetSoBtn"].forEach((id) => {
+        const button = document.getElementById(id);
+        if (!button) return;
+        if (id === "resetSoBtn") {
+            button.disabled = soSaving || !hasChanges;
+            return;
+        }
+        button.disabled = disabled;
+    });
+
+    return state;
+}
+
 function attachEvents() {
-    document.querySelectorAll("#soTable tr").forEach((row) => {
+    document.querySelectorAll("#soTable tr[data-row='item']").forEach((row) => {
         const displayInput = row.querySelector(".physical_display");
         const gudangInput = row.querySelector(".physical_gudang");
         if (!displayInput || !gudangInput) return;
 
-        function calc() {
-            const displaySystem = parseInt(row.querySelector(".display").innerText, 10) || 0;
-            const displayPhysical = parseInt(displayInput.value, 10) || 0;
-            row.querySelector(".diff_display").innerText = displayPhysical - displaySystem;
-
-            const gudangSystem = parseInt(row.querySelector(".gudang").innerText, 10) || 0;
-            const gudangPhysical = parseInt(gudangInput.value, 10) || 0;
-            row.querySelector(".diff_gudang").innerText = gudangPhysical - gudangSystem;
-        }
-
-        displayInput.addEventListener("input", calc);
-        gudangInput.addEventListener("input", calc);
-        calc();
+        displayInput.addEventListener("input", updateSoState);
+        gudangInput.addEventListener("input", updateSoState);
+        syncRowDiff(row);
     });
+
+    updateSoState();
 }
 
 function renderTable(data) {
     const tbody = document.getElementById("soTable");
     tbody.innerHTML = "";
 
+    if (!data.length) {
+        tbody.innerHTML = "<tr><td colspan='9' class='empty-state'>Tidak ada item yang cocok untuk stock opname saat ini.</td></tr>";
+        updateSoState();
+        return;
+    }
+
     data.forEach((item) => {
         const tr = document.createElement("tr");
+        tr.dataset.row = "item";
         tr.innerHTML = `
             <td class="mono">${item.sku}</td>
             <td>${item.name}</td>
@@ -227,45 +339,39 @@ function loadPage(page) {
 function changePage(delta) {
     const nextPage = currentPage + delta;
     if (nextPage < 1 || nextPage > totalPages) return;
+
+    if (collectPendingItems().items.length && !confirm("Perubahan SO di halaman ini belum disimpan. Lanjut pindah halaman?")) {
+        return;
+    }
+
     loadPage(nextPage);
 }
 
-function submitSO() {
-    const items = [];
-    let invalid = false;
-
-    document.querySelectorAll("#soTable tr").forEach((row) => {
-        const displaySystem = parseInt(row.querySelector(".display").innerText, 10) || 0;
-        const displayPhysical = parseInt(row.querySelector(".physical_display").value, 10) || 0;
-        const gudangSystem = parseInt(row.querySelector(".gudang").innerText, 10) || 0;
-        const gudangPhysical = parseInt(row.querySelector(".physical_gudang").value, 10) || 0;
-
-        if (displayPhysical < 0 || gudangPhysical < 0) {
-            invalid = true;
-            return;
-        }
-
-        if (displayPhysical !== displaySystem || gudangPhysical !== gudangSystem) {
-            items.push({
-                product_id: parseInt(row.querySelector(".product_id").value, 10),
-                variant_id: parseInt(row.querySelector(".variant_id").value, 10),
-                display_system: displaySystem,
-                display_physical: displayPhysical,
-                gudang_system: gudangSystem,
-                gudang_physical: gudangPhysical
-            });
-        }
+function resetSOInputs() {
+    document.querySelectorAll("#soTable tr[data-row='item']").forEach((row) => {
+        const displaySystem = parseInt(row.querySelector(".display")?.innerText || "0", 10) || 0;
+        const gudangSystem = parseInt(row.querySelector(".gudang")?.innerText || "0", 10) || 0;
+        row.querySelector(".physical_display").value = displaySystem;
+        row.querySelector(".physical_gudang").value = gudangSystem;
     });
+    updateSoState();
+}
 
-    if (invalid) {
+function submitSO() {
+    const state = updateSoState();
+
+    if (state.invalid) {
         alert("Stock fisik tidak boleh negatif.");
         return;
     }
 
-    if (!items.length) {
+    if (!state.items.length) {
         alert("Tidak ada perubahan yang perlu disimpan.");
         return;
     }
+
+    soSaving = true;
+    updateSoState();
 
     fetch("/so/submit", {
         method: "POST",
@@ -273,19 +379,25 @@ function submitSO() {
         body: JSON.stringify({
             display_id: displayId,
             gudang_id: gudangId,
-            items
+            items: state.items
         })
     })
-    .then((res) => res.json())
-    .then((data) => {
-        if (data.error) {
-            alert(data.error);
-            return;
+    .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || "Gagal menyimpan stock opname.");
         }
+        return data;
+    })
+    .then((data) => {
         alert(data.message || "SO berhasil disimpan.");
         location.reload();
     })
-    .catch(() => alert("Gagal menyimpan stock opname."));
+    .catch((error) => alert(error.message || "Gagal menyimpan stock opname."))
+    .finally(() => {
+        soSaving = false;
+        updateSoState();
+    });
 }
 
 document.getElementById("displaySelect")?.addEventListener("change", function() {
@@ -301,6 +413,12 @@ document.getElementById("gudangSelect")?.addEventListener("change", function() {
 document.getElementById("searchInput")?.addEventListener("change", function() {
     currentSearch = this.value || "";
     syncExportLinks();
+});
+
+document.getElementById("soFilterForm")?.addEventListener("submit", function(event) {
+    if (collectPendingItems().items.length && !confirm("Perubahan SO di halaman ini belum disimpan. Lanjut ganti filter?")) {
+        event.preventDefault();
+    }
 });
 
 attachEvents();

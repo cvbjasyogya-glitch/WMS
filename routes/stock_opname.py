@@ -43,7 +43,7 @@ def _resolve_so_warehouses(db, display_id=None, gudang_id=None):
 
 
 def _build_so_summary(rows):
-    mismatch_count = 0
+    gap_count = 0
     total_display = 0
     total_gudang = 0
 
@@ -51,14 +51,37 @@ def _build_so_summary(rows):
         total_display += int(row["display_qty"] or 0)
         total_gudang += int(row["gudang_qty"] or 0)
         if row["display_qty"] != row["gudang_qty"]:
-            mismatch_count += 1
+            gap_count += 1
 
     return {
         "items": len(rows),
         "display_qty": total_display,
         "gudang_qty": total_gudang,
-        "mismatch_count": mismatch_count,
+        "gap_count": gap_count,
     }
+
+
+def _build_so_base_query(search):
+    base_query = """
+        FROM products p
+        JOIN product_variants pv ON p.id = pv.product_id
+        LEFT JOIN stock sd
+            ON sd.product_id = p.id
+            AND sd.variant_id = pv.id
+            AND sd.warehouse_id = ?
+        LEFT JOIN stock sg
+            ON sg.product_id = p.id
+            AND sg.variant_id = pv.id
+            AND sg.warehouse_id = ?
+        WHERE 1=1
+    """
+    params = []
+
+    if search:
+        base_query += " AND (p.name LIKE ? OR p.sku LIKE ? OR pv.variant LIKE ?)"
+        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
+
+    return base_query, params
 
 
 def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, physical_qty, diff_qty, user_id, note):
@@ -179,27 +202,22 @@ def so_page():
         request.args.get("gudang_id"),
     )
 
-    base_query = """
-        FROM products p
-        JOIN product_variants pv ON p.id = pv.product_id
-        LEFT JOIN stock sd
-            ON sd.product_id = p.id
-            AND sd.variant_id = pv.id
-            AND sd.warehouse_id = ?
-        LEFT JOIN stock sg
-            ON sg.product_id = p.id
-            AND sg.variant_id = pv.id
-            AND sg.warehouse_id = ?
-        WHERE 1=1
-    """
-
-    params = [display_id, gudang_id]
-
-    if search:
-        base_query += " AND (p.name LIKE ? OR p.sku LIKE ? OR pv.variant LIKE ?)"
-        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
+    base_query, extra_params = _build_so_base_query(search)
+    params = [display_id, gudang_id] + extra_params
 
     total = db.execute("SELECT COUNT(*) " + base_query, params).fetchone()[0]
+
+    summary_row = db.execute(
+        """
+        SELECT
+            COUNT(*) as items,
+            COALESCE(SUM(COALESCE(sd.qty, 0)), 0) as display_qty,
+            COALESCE(SUM(COALESCE(sg.qty, 0)), 0) as gudang_qty,
+            COALESCE(SUM(CASE WHEN COALESCE(sd.qty, 0) != COALESCE(sg.qty, 0) THEN 1 ELSE 0 END), 0) as gap_count
+        """
+        + base_query,
+        params,
+    ).fetchone()
 
     rows = db.execute(
         """
@@ -222,7 +240,7 @@ def so_page():
 
     data = [dict(r) for r in rows]
     total_pages = max(1, (total + limit - 1) // limit)
-    summary = _build_so_summary(data)
+    summary = dict(summary_row) if summary_row else _build_so_summary(data)
 
     warehouses = [dict(w) for w in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
     warehouse_lookup = {w["id"]: w["name"] for w in warehouses}

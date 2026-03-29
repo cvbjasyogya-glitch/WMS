@@ -764,10 +764,36 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('name="display_id"', html)
         self.assertIn('name="gudang_id"', html)
         self.assertIn("/so/export?display_id=1&gudang_id=2", html)
+        self.assertIn("Simpan Hasil SO", html)
 
         export = self.client.get("/so/export?display_id=1&gudang_id=2")
         self.assertEqual(export.status_code, 200)
         self.assertIn("Display System Qty", export.get_data(as_text=True))
+
+    def test_stock_opname_summary_counts_all_filtered_rows_not_just_current_page(self):
+        self.login()
+
+        for index in range(21):
+            response, _, _ = self.create_product(
+                sku=f"SO-SUM-{index:02d}",
+                qty=1,
+                variants=f"VAR{index}",
+                warehouse_id="1",
+            )
+            self.assertEqual(response.status_code, 302)
+
+        response = self.client.get(
+            "/so/?display_id=1&gudang_id=2",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+
+        self.assertEqual(len(payload["data"]), 20)
+        self.assertEqual(payload["summary"]["items"], 21)
+        self.assertEqual(payload["summary"]["display_qty"], 21)
+        self.assertEqual(payload["summary"]["gudang_qty"], 0)
+        self.assertEqual(payload["total_pages"], 2)
 
     def test_role_refresh_allows_promoted_user_to_adjust_directly(self):
         self.create_user("Rio", "admin123", "admin", warehouse_id=1)
