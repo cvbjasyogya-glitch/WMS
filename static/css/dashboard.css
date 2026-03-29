@@ -64,6 +64,22 @@ a {
     color: inherit;
 }
 
+body label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-strong);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+body small,
+body .helper-text {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-soft);
+    line-height: 1.5;
+}
+
 body .layout {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr);
@@ -437,6 +453,11 @@ body textarea {
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
+body input::placeholder,
+body textarea::placeholder {
+    color: #7b8ea5;
+}
+
 body input:focus,
 body select:focus,
 body textarea:focus {
@@ -739,6 +760,15 @@ body .floating-toast {
     color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: var(--shadow-lg);
+}
+
+body .login-form-panel {
+    color: var(--text-strong);
+}
+
+body .login-form-panel a {
+    color: var(--accent-strong);
+    font-weight: 600;
 }
 
 @keyframes fade-up {

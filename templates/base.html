@@ -50,11 +50,11 @@
         {% if session.get("role") in ["leader", "owner", "super_admin"] %}
         <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
         {% endif %}
-        {% if session.get("role") == "super_admin" %}
+        {% if session.get("role") in ["super_admin", "admin"] %}
         <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
         {% endif %}
         <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
-        {% if session.get("role") == "super_admin" %}
+        {% if session.get("role") in ["super_admin", "admin"] %}
         <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
         {% endif %}
     </nav>
@@ -99,10 +99,6 @@
 
 </div>
 
-{% if session.get("user_id") %}
-<audio id="notifSound" src="/static/notif.mp3" preload="auto"></audio>
-{% endif %}
-
 <script>
 function toggleMenu() {
     const menu = document.getElementById("menu");
@@ -125,51 +121,6 @@ document.querySelectorAll(".flash").forEach((flash) => {
         setTimeout(() => flash.remove(), 250);
     }, 5000);
 });
-
-{% if session.get("user_id") %}
-let lastRequestId = null;
-let notifInterval = null;
-
-async function initLastRequest() {
-    try {
-        const res = await fetch("/request/check_new?last_id=0");
-        if (!res.ok) return;
-        const data = await res.json();
-        lastRequestId = data.status === "yes" ? data.id : 0;
-        startPolling();
-    } catch (error) {
-        lastRequestId = 0;
-        startPolling();
-    }
-}
-
-async function checkRequestNotif() {
-    try {
-        if (lastRequestId === null) return;
-        const res = await fetch("/request/check_new?last_id=" + lastRequestId);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.status === "yes") {
-            lastRequestId = data.id;
-            document.getElementById("notifSound")?.play().catch(() => {});
-            showToast("Request baru masuk. Qty: " + data.qty);
-        }
-    } catch (error) {
-        console.log("REQUEST POLL ERROR", error);
-    }
-}
-
-function startPolling() {
-    if (notifInterval) return;
-    notifInterval = setInterval(checkRequestNotif, 5000);
-}
-
-document.body.addEventListener("click", () => {
-    document.getElementById("notifSound")?.play().catch(() => {});
-}, { once: true });
-
-initLastRequest();
-{% endif %}
 </script>
 
 {% block extra_scripts %}{% endblock %}

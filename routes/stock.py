@@ -30,11 +30,12 @@ def stock_table():
     search = (request.args.get("q") or "").strip()
     sort = request.args.get("sort", "qty_asc")  # 🔥 TAMBAHAN
 
-    warehouse_id = session.get("warehouse_id")
-
-    if not warehouse_id:
+    role = session.get("role")
+    if role in ["leader", "admin"]:
+        warehouse_id = session.get("warehouse_id")
+    else:
         try:
-            warehouse_id = int(request.args.get("warehouse", 1))
+            warehouse_id = int(request.args.get("warehouse") or session.get("warehouse_id") or 1)
         except:
             warehouse_id = 1
 
@@ -192,6 +193,8 @@ def adjust():
     role = session.get("role")
     user_wh = session.get("warehouse_id")
     if role in ["leader", "admin"] and warehouse_id != user_wh:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"status": "error", "message": "Tidak punya akses ke gudang ini"})
         flash("Tidak punya akses ke gudang ini", "error")
         return redirect("/stock")
 
@@ -304,8 +307,6 @@ def update_field():
 @stock_bp.route("/bulk-adjust", methods=["POST"])
 def bulk_adjust():
 
-    db = get_db()
-
     try:
         data = request.get_json(silent=True) or {}
         items = data.get("items", [])
@@ -315,13 +316,30 @@ def bulk_adjust():
     if not items:
         return jsonify({"status":"error","message":"No data"})
 
+    role = session.get("role")
+    user_wh = session.get("warehouse_id")
+
+    if role == "admin":
+        return jsonify({
+            "status": "error",
+            "message": "Bulk adjust untuk admin dinonaktifkan. Gunakan adjust per item agar approval tercatat."
+        })
+
+    if role not in ["leader", "owner", "super_admin"]:
+        return jsonify({"status":"error","message":"Tidak punya akses"})
+
     try:
         failed = 0
         for it in items:
+            warehouse_id = int(it.get("warehouse_id", 0))
+            if role == "leader" and warehouse_id != user_wh:
+                failed += 1
+                continue
+
             ok = adjust_stock(
                 int(it.get("product_id",0)),
                 int(it.get("variant_id",0)),
-                int(it.get("warehouse_id",0)),
+                warehouse_id,
                 int(it.get("qty",0))
             )
 

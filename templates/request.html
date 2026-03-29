@@ -97,7 +97,7 @@
                     <span class="badge {{ r.status }}">{{ r.status }}</span>
                 </td>
                 <td>
-                    {% if r.status == "pending" and session.get("role") in ["leader", "owner", "super_admin"] %}
+                    {% if r.status == "pending" and session.get("role") in ["leader", "owner", "super_admin", "admin"] %}
                     <form method="POST" action="/request/approve/{{ r.id }}">
                         <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
                     </form>

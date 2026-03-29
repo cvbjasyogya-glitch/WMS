@@ -179,6 +179,7 @@ function changePage(delta) {
 
 function submitSO() {
     const items = [];
+    let invalid = false;
 
     document.querySelectorAll("#soTable tr").forEach((row) => {
         const displaySystem = parseInt(row.querySelector(".display").innerText, 10) || 0;
@@ -187,7 +188,7 @@ function submitSO() {
         const gudangPhysical = parseInt(row.querySelector(".physical_gudang").value, 10) || 0;
 
         if (displayPhysical < 0 || gudangPhysical < 0) {
-            alert("Stock fisik tidak boleh negatif.");
+            invalid = true;
             return;
         }
 
@@ -202,6 +203,11 @@ function submitSO() {
             });
         }
     });
+
+    if (invalid) {
+        alert("Stock fisik tidak boleh negatif.");
+        return;
+    }
 
     if (!items.length) {
         alert("Tidak ada perubahan yang perlu disimpan.");
@@ -219,7 +225,11 @@ function submitSO() {
     })
     .then((res) => res.json())
     .then((data) => {
-        alert(data.message || data.error);
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        alert(data.message || "SO berhasil disimpan.");
         location.reload();
     })
     .catch(() => alert("Gagal menyimpan stock opname."));

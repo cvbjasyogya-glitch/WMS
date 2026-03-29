@@ -1,5 +1,4 @@
 import os
-import tempfile
 import unittest
 from io import BytesIO
 from uuid import uuid4
@@ -8,12 +7,14 @@ import init_db as init_db_module
 from app import create_app
 from config import Config
 from database import get_db
+from werkzeug.security import generate_password_hash
 
 
 class WmsRoutesTestCase(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp_dir.name, "test_database.db")
+        temp_root = os.path.join(os.path.dirname(__file__), ".tmp")
+        os.makedirs(temp_root, exist_ok=True)
+        self.db_path = os.path.join(temp_root, f"test_database_{uuid4().hex}.db")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -24,7 +25,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        for suffix in ("", "-wal", "-shm"):
+            db_file = self.db_path + suffix
+            if os.path.exists(db_file):
+                os.remove(db_file)
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -32,6 +36,21 @@ class WmsRoutesTestCase(unittest.TestCase):
             data={"username": username, "password": password},
             follow_redirects=False,
         )
+
+    def logout(self):
+        return self.client.get("/logout", follow_redirects=False)
+
+    def create_user(self, username, password, role, warehouse_id=None):
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO users(username, password, role, warehouse_id)
+                VALUES (?,?,?,?)
+                """,
+                (username, generate_password_hash(password), role, warehouse_id),
+            )
+            db.commit()
 
     def create_product(self, sku=None, qty=5, variants="M,L"):
         sku = sku or ("AUTO-" + uuid4().hex[:8].upper())
@@ -189,6 +208,107 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
 
         self.assertIsNotNone(product)
+
+    def test_admin_adjust_requires_approval_and_leader_can_approve(self):
+        self.create_user("leader_test", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="ADJ")
+        variant_id = variants_rows[0]["id"]
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-2",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+        self.assertEqual(adjust_response.get_json()["status"], "pending")
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                "SELECT id, status, type FROM approvals WHERE product_id=? ORDER BY id DESC LIMIT 1",
+                (product_id,),
+            ).fetchone()
+
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual(approval["type"], "ADJUST")
+
+        self.logout()
+        self.login("leader_test", "pass1234")
+        approve_response = self.client.post(
+            f"/approvals/approve/{approval['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            approval_after = db.execute(
+                "SELECT status FROM approvals WHERE id=?",
+                (approval["id"],),
+            ).fetchone()
+            stock_after = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(approval_after["status"], "approved")
+        self.assertEqual(stock_after["qty"], 3)
+
+    def test_stock_opname_submit_updates_stock_and_history(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="SO")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "display_id": 1,
+                "gudang_id": 2,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_system": 5,
+                        "display_physical": 3,
+                        "gudang_system": 0,
+                        "gudang_physical": 2,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            display_stock = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            gudang_stock = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=2",
+                (product_id, variant_id),
+            ).fetchone()
+            so_rows = db.execute(
+                "SELECT COUNT(*) FROM stock_opname_results WHERE product_id=? AND variant_id=?",
+                (product_id, variant_id),
+            ).fetchone()[0]
+            history_rows = db.execute(
+                "SELECT COUNT(*) FROM stock_history WHERE product_id=? AND variant_id=? AND action='STOCK_OPNAME'",
+                (product_id, variant_id),
+            ).fetchone()[0]
+
+        self.assertEqual(display_stock["qty"], 3)
+        self.assertEqual(gudang_stock["qty"], 2)
+        self.assertEqual(so_rows, 2)
+        self.assertEqual(history_rows, 2)
 
 
 if __name__ == "__main__":
