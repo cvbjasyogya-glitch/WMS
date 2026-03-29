@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block title %}Produk | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Master Product Control{% endblock %}
+{% block page_title %}Master Produk{% endblock %}
+{% block page_subtitle %}Kelola SKU, kategori, stok awal, dan import massal produk dengan workflow yang tetap cepat saat volume data membesar.{% endblock %}
+
+{% block page_actions %}
+<button type="button" onclick="toggleForm()">Tambah Produk</button>
+{% endblock %}
+
+{% block content %}
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Gudang Aktif</span>
+        <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Produk Tampil</span>
+        <strong>{{ data|length }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Halaman</span>
+        <strong>{{ page }} / {{ total_pages }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Pencarian</span>
+        <strong>{{ request.args.get('search', 'Semua Produk') }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar">
+    <select name="warehouse">
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="search" value="{{ request.args.get('search', '') }}" placeholder="Cari SKU, nama, atau kategori">
+    <button type="submit">Terapkan Filter</button>
+    <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
+</form>
+
+<div class="import-box">
+    <div class="section-title">
+        <div>
+            <h2>Bulk Import</h2>
+            <p>Unggah file Excel atau CSV untuk menambahkan banyak produk dalam satu batch kerja.</p>
+        </div>
+    </div>
+
+    <div class="top-bar">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+        <button type="button" class="ghost-button" onclick="previewImport()">Preview File</button>
+        <button type="button" onclick="submitImport()">Mulai Import</button>
+    </div>
+
+    <div id="previewBox"></div>
+
+    <div id="progressWrapper" style="display:none; margin-top:16px;">
+        <div id="progressText" style="margin-bottom:8px; color:#5f7289;"></div>
+        <div style="width:100%; height:14px; border-radius:999px; background:rgba(10,24,42,0.08); overflow:hidden;">
+            <div id="progressBar" style="width:0%; height:100%; border-radius:999px; background:linear-gradient(90deg, #21c57d, #5db7ff);"></div>
+        </div>
+    </div>
+</div>
+
+<div id="formBox" class="form-box" style="display:none;">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Produk Baru</h2>
+            <p>Masukkan data master dan stok awal agar produk langsung siap dipakai di workflow gudang.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/products/add" onsubmit="return handleSubmit()">
+        <div class="form-grid">
+            <div>
+                <label>SKU</label>
+                <input type="text" name="sku" placeholder="Contoh: MS-SEP-001" required>
+            </div>
+            <div>
+                <label>Nama Produk</label>
+                <input type="text" name="name" placeholder="Masukkan nama produk" required>
+            </div>
+            <div>
+                <label>Kategori</label>
+                <input type="text" name="category_name" placeholder="Sepatu, Jersey, Aksesoris" required>
+            </div>
+            <div>
+                <label>Variant</label>
+                <input type="text" name="variants" placeholder="40, 41, 42 atau kosongkan untuk default">
+            </div>
+            <div>
+                <label>Qty Awal</label>
+                <input type="number" name="qty" id="qtyInput" required min="1">
+            </div>
+            <div>
+                <label>Gudang Awal</label>
+                <select name="warehouse_id">
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Harga Retail</label>
+                <input type="number" step="0.01" name="price_retail" min="0">
+            </div>
+            <div>
+                <label>Harga Discount</label>
+                <input type="number" step="0.01" name="price_discount" min="0">
+            </div>
+            <div>
+                <label>Harga Nett</label>
+                <input type="number" step="0.01" name="price_nett" min="0">
+            </div>
+        </div>
+
+        <div class="split-actions" style="margin-top:16px;">
+            <button id="btnSubmit" type="submit">Simpan Produk</button>
+            <button type="button" class="ghost-button" onclick="toggleForm()">Tutup Form</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Daftar Produk</h2>
+            <p>Produk diurutkan berdasarkan aging batch yang paling lama untuk membantu kontrol inventory lama.</p>
+        </div>
+    </div>
+
+    {% if data %}
+    <table>
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="checkAll"></th>
+                <th>SKU</th>
+                <th>Nama</th>
+                <th>Kategori</th>
+                <th>Qty</th>
+                <th>Aging</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in data %}
+            <tr>
+                <td><input type="checkbox" class="row-check" value="{{ p.id }}"></td>
+                <td class="mono">{{ p.sku }}</td>
+                <td>{{ p.name }}</td>
+                <td>{{ p.category or '-' }}</td>
+                <td>
+                    {% if p.qty == 0 %}
+                    <span class="badge red">{{ p.qty }}</span>
+                    {% else %}
+                    <span class="badge green">{{ p.qty }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% set age = p.age_days or 0 %}
+                    {% if age > 180 %}
+                    <span class="badge red">{{ age }} hari</span>
+                    {% elif age > 90 %}
+                    <span class="badge orange">{{ age }} hari</span>
+                    {% else %}
+                    <span class="badge">{{ age }} hari</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="POST" action="/products/delete/{{ p.id }}" onsubmit="return confirm('Hapus produk ini?')">
+                        <button type="submit" class="ghost-button">Hapus</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page-1 }}&search={{ request.args.get('search', '') }}&warehouse={{ warehouse_id }}"><button type="button" class="ghost-button">Prev</button></a>
+        {% endif %}
+        <span class="status-pill">Page {{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="?page={{ page+1 }}&search={{ request.args.get('search', '') }}&warehouse={{ warehouse_id }}"><button type="button" class="ghost-button">Next</button></a>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada produk yang cocok dengan filter saat ini.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const checkAll = document.getElementById("checkAll");
+if (checkAll) {
+    checkAll.addEventListener("change", function() {
+        document.querySelectorAll(".row-check").forEach((cb) => {
+            cb.checked = this.checked;
+        });
+    });
+}
+
+function toggleForm() {
+    const formBox = document.getElementById("formBox");
+    if (!formBox) return;
+    formBox.style.display = formBox.style.display === "none" || formBox.style.display === "" ? "block" : "none";
+}
+
+function handleSubmit() {
+    const qty = document.getElementById("qtyInput").value;
+    if (!qty || parseInt(qty, 10) <= 0) {
+        alert("Qty harus lebih besar dari 0.");
+        return false;
+    }
+
+    const btn = document.getElementById("btnSubmit");
+    btn.innerText = "Menyimpan...";
+    btn.disabled = true;
+    return true;
+}
+
+function bulkDelete() {
+    const ids = Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => cb.value);
+    if (ids.length === 0) {
+        alert("Pilih produk yang ingin dihapus terlebih dahulu.");
+        return;
+    }
+
+    if (!confirm("Yakin ingin menghapus produk yang dipilih?")) return;
+
+    fetch("/products/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
+    })
+    .then((res) => res.json())
+    .then((data) => {
+        if (data.message === "OK") {
+            location.reload();
+            return;
+        }
+        alert(data.message || "Gagal menghapus produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function buildPreviewTable(rows) {
+    if (!rows.length) {
+        return "<div class='empty-state' style='margin-top:16px;'>Tidak ada data yang bisa dipreview.</div>";
+    }
+
+    const headers = Object.keys(rows[0]);
+    const head = headers.map((header) => "<th>" + header + "</th>").join("");
+    const body = rows.map((row) => {
+        return "<tr>" + headers.map((header) => "<td>" + (row[header] ?? "") + "</td>").join("") + "</tr>";
+    }).join("");
+
+    return "<div class='table-box' style='margin-top:16px; margin-bottom:0;'><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+}
+
+async function previewImport() {
+    const fileInput = document.getElementById("fileInput");
+    const previewBox = document.getElementById("previewBox");
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert("Pilih file import terlebih dahulu.");
+        return;
+    }
+
+    previewBox.innerHTML = "<div class='status-pill'>Membaca file...</div>";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/products/import/preview", {
+            method: "POST",
+            body: formData
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+            previewBox.innerHTML = "<div class='flash error'>" + (data.error || "Gagal membuat preview.") + "</div>";
+            return;
+        }
+
+        previewBox.innerHTML = buildPreviewTable(data.rows || []);
+    } catch (error) {
+        previewBox.innerHTML = "<div class='flash error'>Terjadi error saat membaca file.</div>";
+    }
+}
+
+async function pollImport(jobId) {
+    const wrapper = document.getElementById("progressWrapper");
+    const bar = document.getElementById("progressBar");
+    const text = document.getElementById("progressText");
+    wrapper.style.display = "block";
+
+    const timer = setInterval(async () => {
+        try {
+            const res = await fetch("/products/import/progress/" + jobId);
+            const data = await res.json();
+
+            if (!res.ok || data.error) {
+                clearInterval(timer);
+                text.innerText = "Import gagal dipantau.";
+                return;
+            }
+
+            bar.style.width = (data.percent || 0) + "%";
+            text.innerText = "Memproses " + data.current + " dari " + data.total + " baris";
+
+            if (data.status === "done") {
+                clearInterval(timer);
+                text.innerText = "Import selesai. Halaman akan dimuat ulang.";
+                setTimeout(() => location.reload(), 1200);
+            }
+        } catch (error) {
+            clearInterval(timer);
+            text.innerText = "Monitoring import terputus.";
+        }
+    }, 800);
+}
+
+async function submitImport() {
+    const fileInput = document.getElementById("fileInput");
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert("Pilih file import terlebih dahulu.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/products/import", {
+            method: "POST",
+            body: formData
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            alert(text || "Import gagal dijalankan.");
+            return;
+        }
+
+        const data = await res.json();
+        if (!data.job_id) {
+            alert("Job import tidak berhasil dibuat.");
+            return;
+        }
+
+        pollImport(data.job_id);
+    } catch (error) {
+        alert("Terjadi error saat mengirim file import.");
+    }
+}
+</script>
+{% endblock %}

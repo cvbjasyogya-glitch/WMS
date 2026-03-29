@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Request | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Request Queue{% endblock %}
+{% block page_title %}Request Antar Gudang{% endblock %}
+{% block page_subtitle %}Buat permintaan stok dengan konteks gudang asal dan tujuan yang jelas, lalu pantau status persetujuan dalam satu antrian operasional.{% endblock %}
+
+{% block content %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Buat Request Baru</h2>
+            <p>Request akan divalidasi berdasarkan stok gudang asal dan bisa langsung ditindak oleh admin gudang.</p>
+        </div>
+    </div>
+
+    <form method="POST">
+        <div class="form-grid">
+            <div>
+                <label>Produk</label>
+                <select id="product" name="product_id" required>
+                    <option value="">Pilih produk</option>
+                    {% for p in products %}
+                    <option value="{{ p.id }}">{{ p.sku }} - {{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Variant</label>
+                <select id="variant" name="variant_id" required></select>
+            </div>
+            <div>
+                <label>Dari Gudang</label>
+                <select id="from_wh" name="from_warehouse" required>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if w.id == warehouse_id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Ke Gudang</label>
+                <select id="to_wh" name="to_warehouse" required>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}">{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Stok Tersedia</label>
+                <input id="stock" readonly>
+            </div>
+            <div>
+                <label>Qty Request</label>
+                <input type="number" id="qty" name="qty" min="1" required>
+                <small id="warn" class="stock-empty"></small>
+            </div>
+        </div>
+
+        <div class="split-actions" style="margin-top:16px;">
+            <button id="btn" type="submit">Buat Request</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Antrian Request</h2>
+            <p>Semua request untuk gudang aktif ditampilkan di sini agar operator dan admin melihat konteks yang sama.</p>
+        </div>
+    </div>
+
+    {% if requests %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Produk</th>
+                <th>Variant</th>
+                <th>Dari</th>
+                <th>Ke</th>
+                <th>Qty</th>
+                <th>Status</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in requests %}
+            <tr>
+                <td class="mono">#{{ r.id }}</td>
+                <td>{{ r.product_name }}</td>
+                <td>{{ r.variant }}</td>
+                <td>{{ r.from_name }}</td>
+                <td>{{ r.to_name }}</td>
+                <td class="mono">{{ r.qty }}</td>
+                <td>
+                    <span class="badge {{ r.status }}">{{ r.status }}</span>
+                </td>
+                <td>
+                    {% if r.status == "pending" and session.get("role") in ["leader", "owner", "super_admin"] %}
+                    <form method="POST" action="/request/approve/{{ r.id }}">
+                        <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
+                    </form>
+                    {% else %}
+                    <span class="mono">-</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada request yang tercatat untuk gudang aktif.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const requestProduct = document.getElementById("product");
+const requestVariant = document.getElementById("variant");
+const requestFrom = document.getElementById("from_wh");
+const requestTo = document.getElementById("to_wh");
+const requestStock = document.getElementById("stock");
+const requestQty = document.getElementById("qty");
+const requestWarn = document.getElementById("warn");
+const requestButton = document.getElementById("btn");
+
+function validateRequest() {
+    const stock = parseInt(requestStock.value || 0, 10);
+    const qty = parseInt(requestQty.value || 0, 10);
+
+    if (requestFrom.value === requestTo.value) {
+        requestWarn.innerText = "Gudang asal dan tujuan tidak boleh sama.";
+        requestButton.disabled = true;
+        return false;
+    }
+
+    if (qty > stock) {
+        requestWarn.innerText = "Qty melebihi stok gudang asal.";
+        requestButton.disabled = true;
+        return false;
+    }
+
+    requestWarn.innerText = "";
+    requestButton.disabled = !requestProduct.value || !requestVariant.value || qty <= 0;
+    return !requestButton.disabled;
+}
+
+function loadRequestVariants() {
+    if (!requestProduct.value) return;
+
+    requestVariant.innerHTML = "<option>Loading...</option>";
+    fetch("/products/get_variants/" + requestProduct.value)
+    .then((res) => res.json())
+    .then((data) => {
+        if (!data.length) {
+            requestVariant.innerHTML = "<option value=''>Tidak ada variant</option>";
+            validateRequest();
+            return;
+        }
+
+        requestVariant.innerHTML = data.map((item) => "<option value='" + item.id + "'>" + item.variant + "</option>").join("");
+        loadRequestStock();
+    });
+}
+
+function loadRequestStock() {
+    if (!requestProduct.value || !requestVariant.value) return;
+
+    fetch("/transfers/get_stock?product_id=" + requestProduct.value + "&variant_id=" + requestVariant.value + "&warehouse_id=" + requestFrom.value)
+    .then((res) => res.json())
+    .then((data) => {
+        requestStock.value = data.qty;
+        validateRequest();
+    });
+}
+
+requestProduct.onchange = loadRequestVariants;
+requestVariant.onchange = loadRequestStock;
+requestFrom.onchange = loadRequestStock;
+requestTo.onchange = validateRequest;
+requestQty.oninput = validateRequest;
+validateRequest();
+</script>
+{% endblock %}

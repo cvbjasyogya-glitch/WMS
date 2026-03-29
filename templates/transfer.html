@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}Transfer | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Inter-Warehouse Flow{% endblock %}
+{% block page_title %}Transfer Antar Gudang{% endblock %}
+{% block page_subtitle %}Pindahkan stok antar gudang dengan validasi real-time dan FIFO agar batch tetap terjaga dan histori perpindahan tetap rapi.{% endblock %}
+
+{% block content %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Form Transfer</h2>
+            <p>Pilih gudang asal dan tujuan, lalu sistem akan memeriksa ketersediaan stok sebelum transfer dijalankan.</p>
+        </div>
+    </div>
+
+    <form method="POST" onsubmit="return handleSubmit()">
+        <div class="form-grid">
+            <div>
+                <label>Produk</label>
+                <select id="product_id" name="product_id" required>
+                    <option value="">Pilih produk</option>
+                    {% for p in products %}
+                    <option value="{{ p.id }}">{{ p.sku }} - {{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Variant</label>
+                <select id="variant" name="variant_id" required></select>
+            </div>
+            <div>
+                <label>Dari Gudang</label>
+                <select id="from_wh" name="from_warehouse" required>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}">{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Ke Gudang</label>
+                <select id="to_wh" name="to_warehouse" required>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}">{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Stok Tersedia</label>
+                <input id="stock" readonly>
+                <small id="stockStatus"></small>
+            </div>
+            <div>
+                <label>Qty Transfer</label>
+                <input type="number" id="qty" name="qty" min="1" required>
+                <small id="error" class="stock-empty"></small>
+            </div>
+        </div>
+
+        <div class="split-actions" style="margin-top:16px;">
+            <button id="btn" type="submit" disabled>Transfer Sekarang</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const transferProduct = document.getElementById("product_id");
+const transferVariant = document.getElementById("variant");
+const transferFrom = document.getElementById("from_wh");
+const transferTo = document.getElementById("to_wh");
+const transferStock = document.getElementById("stock");
+const transferStockStatus = document.getElementById("stockStatus");
+const transferQty = document.getElementById("qty");
+const transferError = document.getElementById("error");
+const transferButton = document.getElementById("btn");
+
+function renderTransferStatus(qty) {
+    if (qty === 0) {
+        transferStockStatus.innerText = "Stok habis di gudang asal.";
+        transferStockStatus.className = "stock-empty";
+    } else if (qty < 5) {
+        transferStockStatus.innerText = "Stok menipis. Periksa ulang sebelum transfer.";
+        transferStockStatus.className = "stock-low";
+    } else {
+        transferStockStatus.innerText = "Stok aman untuk dipindahkan.";
+        transferStockStatus.className = "stock-ok";
+    }
+}
+
+function validateTransfer() {
+    const stock = parseInt(transferStock.value || 0, 10);
+    const qty = parseInt(transferQty.value || 0, 10);
+
+    if (!transferProduct.value || !transferVariant.value) {
+        transferButton.disabled = true;
+        transferError.innerText = "";
+        return false;
+    }
+
+    if (transferFrom.value === transferTo.value) {
+        transferError.innerText = "Gudang asal dan tujuan tidak boleh sama.";
+        transferButton.disabled = true;
+        return false;
+    }
+
+    if (qty <= 0) {
+        transferError.innerText = "Qty tidak valid.";
+        transferButton.disabled = true;
+        return false;
+    }
+
+    if (qty > stock) {
+        transferError.innerText = "Qty melebihi stok yang tersedia.";
+        transferButton.disabled = true;
+        return false;
+    }
+
+    transferError.innerText = "";
+    transferButton.disabled = false;
+    return true;
+}
+
+function loadTransferVariants() {
+    if (!transferProduct.value) return;
+
+    transferVariant.innerHTML = "<option>Loading...</option>";
+    fetch("/products/get_variants/" + transferProduct.value)
+    .then((res) => res.json())
+    .then((data) => {
+        if (!data.length) {
+            transferVariant.innerHTML = "<option value=''>Tidak ada variant</option>";
+            validateTransfer();
+            return;
+        }
+
+        transferVariant.innerHTML = data.map((item) => "<option value='" + item.id + "'>" + item.variant + "</option>").join("");
+        loadTransferStock();
+    });
+}
+
+function loadTransferStock() {
+    if (!transferProduct.value || !transferVariant.value) return;
+
+    fetch("/transfers/get_stock?product_id=" + transferProduct.value + "&variant_id=" + transferVariant.value + "&warehouse_id=" + transferFrom.value)
+    .then((res) => res.json())
+    .then((data) => {
+        transferStock.value = data.qty;
+        renderTransferStatus(data.qty || 0);
+        validateTransfer();
+    });
+}
+
+function handleSubmit() {
+    if (!validateTransfer()) return false;
+    transferButton.innerText = "Memproses...";
+    transferButton.disabled = true;
+    return true;
+}
+
+transferProduct.onchange = loadTransferVariants;
+transferVariant.onchange = loadTransferStock;
+transferFrom.onchange = loadTransferStock;
+transferTo.onchange = validateTransfer;
+transferQty.oninput = validateTransfer;
+</script>
+{% endblock %}

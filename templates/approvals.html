@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Approvals | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Approval Queue{% endblock %}
+{% block page_title %}Approval Queue{% endblock %}
+{% block page_subtitle %}Daftar permintaan inbound/outbound/adjust yang menunggu persetujuan leader atau owner.{% endblock %}
+
+{% block content %}
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Antrian Approval</h2>
+            <p>Review dan setujui atau tolak permintaan yang masuk.</p>
+        </div>
+    </div>
+
+    {% if approvals %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Produk</th>
+                <th>Variant</th>
+                <th>Gudang</th>
+                <th>Qty</th>
+                <th>Catatan</th>
+                <th>Requester</th>
+                <th>Waktu</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in approvals %}
+            <tr>
+                <td class="mono">#{{ a.id }}</td>
+                <td>{{ a.type }}</td>
+                <td>{{ a.product_name or '-' }}</td>
+                <td>{{ a.variant_name or '-' }}</td>
+                <td>{{ a.warehouse_name or '-' }}</td>
+                <td class="mono">{{ a.qty }}</td>
+                <td>{{ a.note or '' }}</td>
+                <td>{{ a.requester or '-' }}</td>
+                <td class="mono">{{ a.created_at }}</td>
+                <td>
+                    <form method="POST" action="/approvals/approve/{{ a.id }}" style="display:inline">
+                        <button type="submit" class="ghost-button" onclick="return confirm('Setujui permintaan ini?')">Approve</button>
+                    </form>
+                    <form method="POST" action="/approvals/reject/{{ a.id }}" style="display:inline; margin-top:6px;">
+                        <input name="reason" placeholder="Alasan (opsional)" style="width:140px; margin-right:6px;">
+                        <button type="submit" class="danger-button" onclick="return confirm('Tolak permintaan ini?')">Reject</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Tidak ada approval yang menunggu.</div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Admin | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}System Administration{% endblock %}
+{% block page_title %}Admin Workspace{% endblock %}
+{% block page_subtitle %}Kelola user, role, dan gudang dari satu panel administratif yang lebih rapi dan aman dibaca saat setup maupun maintenance.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total User</p>
+        <h3>{{ users|length }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Total Gudang</p>
+        <h3>{{ warehouses|length }}</h3>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah User</h2>
+            <p>Buat akun baru untuk admin atau staff operasional dengan role yang sesuai.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/admin/add_user">
+        <div class="form-grid">
+            <div>
+                <label>Username</label>
+                <input name="username" placeholder="Masukkan username" required>
+            </div>
+            <div>
+                <label>Password</label>
+                <input type="password" name="password" placeholder="Masukkan password" required>
+            </div>
+            <div>
+                <label>Role</label>
+                <select name="role">
+                    <option value="admin">Admin</option>
+                    <option value="leader">Leader</option>
+                    <option value="owner">Owner</option>
+                    <option value="super_admin">Super Admin</option>
+                </select>
+            </div>
+            <div>
+                <label>Assign Gudang (opsional)</label>
+                <select name="warehouse_id">
+                    <option value="">-- Tidak ada --</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}">{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Email (opsional)</label>
+                <input name="email" placeholder="email@contoh.com">
+            </div>
+            <div>
+                <label>Phone (opsional)</label>
+                <input name="phone" placeholder="62812xxxx">
+            </div>
+            <div>
+                <label><input type="checkbox" name="notify_email" checked> Notifikasi Email</label>
+            </div>
+            <div>
+                <label><input type="checkbox" name="notify_whatsapp"> Notifikasi WhatsApp</label>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah User</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Manajemen User</h2>
+            <p>Perbarui username, role, atau password baru tanpa harus meninggalkan panel admin.</p>
+            <p style="margin-top:6px; color:var(--text-soft);">Catatan: Akun dengan role <strong>leader</strong> dan <strong>admin</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>super_admin</strong> dan <strong>owner</strong> dapat mengakses semua gudang.</p>
+        </div>
+    </div>
+
+    {% if users %}
+    <div style="display:grid; gap:16px;">
+        {% for u in users %}
+        <div class="box" style="margin-bottom:0;">
+            <form method="POST" action="/admin/update_user/{{ u.id }}">
+                        <div class="form-grid">
+                    <div>
+                        <label>ID</label>
+                        <input value="{{ u.id }}" readonly>
+                    </div>
+                    <div>
+                        <label>Gudang Ditugaskan</label>
+                        <input value="{{ u.warehouse_name if u.warehouse_name is defined and u.warehouse_name else '-' }}" readonly>
+                    </div>
+                    <div>
+                        <label>Username</label>
+                        <input name="username" value="{{ u.username }}">
+                    </div>
+                    <div>
+                        <label>Role</label>
+                        <select name="role">
+                            <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
+                                            <option value="leader" {% if u.role == 'leader' %}selected{% endif %}>leader</option>
+                                            <option value="owner" {% if u.role == 'owner' %}selected{% endif %}>owner</option>
+                                            <option value="super_admin" {% if u.role == 'super_admin' %}selected{% endif %}>super_admin</option>
+                        </select>
+                    </div>
+                            <div>
+                                <label>Assign Gudang (opsional)</label>
+                                <select name="warehouse_id">
+                                    <option value="">-- Tidak ada --</option>
+                                    {% for w in warehouses %}
+                                    <option value="{{ w.id }}" {% if u.warehouse_id is defined and u.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label>Email (opsional)</label>
+                                <input name="email" value="{{ u.email if u.email is defined else '' }}">
+                            </div>
+                            <div>
+                                <label>Phone (opsional)</label>
+                                <input name="phone" value="{{ u.phone if u.phone is defined else '' }}">
+                            </div>
+                            <div>
+                                <label><input type="checkbox" name="notify_email" {% if u.notify_email is defined and u.notify_email %}checked{% endif %}> Notifikasi Email</label>
+                            </div>
+                            <div>
+                                <label><input type="checkbox" name="notify_whatsapp" {% if u.notify_whatsapp is defined and u.notify_whatsapp %}checked{% endif %}> Notifikasi WhatsApp</label>
+                            </div>
+                    <div>
+                        <label>Password Baru</label>
+                        <input type="password" name="password" placeholder="Opsional">
+                    </div>
+                </div>
+                <div class="split-actions" style="margin-top:16px;">
+                    <button type="submit">Update User</button>
+                </div>
+            </form>
+            <form method="POST" action="/admin/delete_user/{{ u.id }}" style="margin-top:12px;">
+                <button type="submit" class="danger-button" onclick="return confirm('Hapus user ini?')">Hapus</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada user terdaftar.</div>
+    {% endif %}
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Gudang</h2>
+            <p>Kelola warehouse aktif yang dipakai sistem untuk distribusi dan stock opname.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/admin/add_warehouse">
+        <div class="form-grid">
+            <div>
+                <label>Nama Gudang</label>
+                <input name="name" placeholder="Masukkan nama gudang" required>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Gudang</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Daftar Gudang</h2>
+            <p>Gudang yang sudah dipakai stok tidak bisa dihapus untuk menjaga integritas data.</p>
+        </div>
+    </div>
+
+    {% if warehouses %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nama Gudang</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in warehouses %}
+            <tr>
+                <td class="mono">#{{ w.id }}</td>
+                <td>{{ w.name }}</td>
+                <td>
+                    <form method="POST" action="/admin/delete_warehouse/{{ w.id }}">
+                        <button type="submit" class="danger-button" onclick="return confirm('Hapus gudang ini?')">Hapus</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada gudang yang terdaftar.</div>
+    {% endif %}
+</div>
+{% endblock %}

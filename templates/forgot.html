@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Forgot Password | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Reset Password{% endblock %}
+{% block page_title %}Lupa Password{% endblock %}
+{% block page_subtitle %}Masukkan username, email, atau nomor telepon terdaftar untuk menerima kode reset.{% endblock %}
+
+{% block content %}
+<div class="form-box">
+    <form method="POST">
+        <div class="form-grid">
+            <div>
+                <label>Username / Email / Phone</label>
+                <input name="identifier" placeholder="username atau email atau nomor telepon" required>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Kirim Kode Reset</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

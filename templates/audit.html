@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Audit | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Operational Trace{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+{% block page_subtitle %}Lacak histori perubahan stok, aktivitas user, dan jejak transaksi untuk investigasi operasional yang lebih cepat dan rapi.{% endblock %}
+
+{% block page_actions %}
+<a class="btn-link" href="/audit/export?q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}">Export CSV</a>
+{% endblock %}
+
+{% block content %}
+<form method="GET" class="top-bar">
+    <input name="q" placeholder="Cari produk atau SKU" value="{{ request.args.get('q', '') }}">
+    <select name="action">
+        <option value="">Semua Aksi</option>
+        <option value="INBOUND" {% if request.args.get('action') == 'INBOUND' %}selected{% endif %}>INBOUND</option>
+        <option value="OUTBOUND" {% if request.args.get('action') == 'OUTBOUND' %}selected{% endif %}>OUTBOUND</option>
+        <option value="TRANSFER" {% if request.args.get('action') == 'TRANSFER' %}selected{% endif %}>TRANSFER</option>
+        <option value="STOCK_OPNAME" {% if request.args.get('action') == 'STOCK_OPNAME' %}selected{% endif %}>STOCK_OPNAME</option>
+        <option value="ADJUST" {% if request.args.get('action') == 'ADJUST' %}selected{% endif %}>ADJUST</option>
+        <option value="EDIT_PRODUCT" {% if request.args.get('action') == 'EDIT_PRODUCT' %}selected{% endif %}>EDIT_PRODUCT</option>
+    </select>
+    <input type="text" name="user" placeholder="Filter user" value="{{ request.args.get('user', '') }}">
+    <input type="date" name="start_date" value="{{ request.args.get('start_date', '') }}">
+    <input type="date" name="end_date" value="{{ request.args.get('end_date', '') }}">
+    <button type="submit">Terapkan Filter</button>
+</form>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Riwayat Aktivitas</h2>
+            <p>Gunakan filter untuk menyempitkan histori ke aksi, user, atau rentang waktu tertentu.</p>
+        </div>
+    </div>
+
+    {% if data %}
+    <table>
+        <thead>
+            <tr>
+                <th>Tanggal</th>
+                <th>User</th>
+                <th>Aksi</th>
+                <th>Produk</th>
+                <th>Variant</th>
+                <th>Gudang</th>
+                <th>Qty</th>
+                <th>Note</th>
+                <th>IP</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in data %}
+            <tr>
+                <td>{{ r.date or '-' }}</td>
+                <td>{{ r.username or 'System' }}</td>
+                <td><span class="badge">{{ r.action or '-' }}</span></td>
+                <td>{{ r.sku or '-' }} - {{ r.product_name or '-' }}</td>
+                <td>{{ r.variant or '-' }}</td>
+                <td>{{ r.warehouse_name or '-' }}</td>
+                <td class="mono">{{ r.qty or 0 }}</td>
+                <td>{{ r.note or '-' }}</td>
+                <td>{{ r.ip_address or '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada data audit untuk filter yang dipilih.</div>
+    {% endif %}
+
+    <div class="pagination">
+        <a href="?page={{ page-1 if page > 1 else 1 }}&q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}"><button type="button" class="ghost-button">Prev</button></a>
+        <span class="status-pill">Page {{ page }}</span>
+        <a href="?page={{ page+1 }}&q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}"><button type="button" class="ghost-button">Next</button></a>
+    </div>
+</div>
+{% endblock %}

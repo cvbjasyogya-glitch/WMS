@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Mataram Sports WMS{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/dashboard.css">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<div class="mobile-nav">
+    <button type="button" class="ghost-button" onclick="toggleMenu()">Navigasi</button>
+    <div class="mobile-brand">
+        <div class="mobile-brand-mark">
+            <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+        </div>
+        <div>
+            <strong>Mataram Sports</strong>
+            <span>Operations Suite</span>
+        </div>
+    </div>
+</div>
+
+<div class="layout">
+
+<aside class="sidebar" id="menu">
+    <div class="brand-block">
+        <div class="brand-lockup">
+            <div class="brand-mark">
+                <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+            </div>
+            <div class="brand-meta">
+                <p class="brand-kicker">Operations Suite</p>
+                <h2 class="brand-title">Mataram Sports</h2>
+                <span class="suite-chip">WMS Core</span>
+            </div>
+        </div>
+        <p class="brand-copy">Warehouse management core yang siap berkembang ke finance flow dan modul HRIS di fase berikutnya.</p>
+    </div>
+
+    <nav>
+        <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+        <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
+        <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
+        <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
+        <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
+        <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
+        <a href="/request" class="{% if request.path.startswith('/request') %}active{% endif %}">Request</a>
+        {% if session.get("role") in ["leader", "owner", "super_admin"] %}
+        <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
+        {% endif %}
+        {% if session.get("role") == "super_admin" %}
+        <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
+        {% endif %}
+        <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
+        {% if session.get("role") == "super_admin" %}
+        <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
+        {% endif %}
+    </nav>
+
+    <div class="sidebar-footer">
+        <p>Gunakan panel ini untuk menjaga akurasi stok, kelancaran transfer, dan visibilitas aktivitas gudang harian.</p>
+        <div class="status-row">
+            <span class="status-pill">Role: {{ session.get("role", "guest") }}</span>
+            <span class="status-pill">Warehouse: {{ session.get("warehouse_id", "-") }}</span>
+            <span class="status-pill">HRIS Ready</span>
+        </div>
+        <form method="GET" action="/logout" style="margin-top:14px;">
+            <button type="submit" class="ghost-button" style="width:100%;">Keluar</button>
+        </form>
+    </div>
+</aside>
+
+<main class="main">
+    <section class="page-hero">
+        <div class="page-hero-text">
+            <p class="page-eyebrow">{% block eyebrow %}Operational Workspace{% endblock %}</p>
+            <h1>{% block page_title %}Mataram Sports WMS{% endblock %}</h1>
+            <p class="page-subtitle">{% block page_subtitle %}Satu workspace terpadu untuk memonitor stok, transaksi barang, dan kualitas operasional gudang.{% endblock %}</p>
+        </div>
+        <div class="page-actions">
+            {% block page_actions %}{% endblock %}
+        </div>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+
+</div>
+
+{% if session.get("user_id") %}
+<audio id="notifSound" src="/static/notif.mp3" preload="auto"></audio>
+{% endif %}
+
+<script>
+function toggleMenu() {
+    const menu = document.getElementById("menu");
+    if (!menu) return;
+    menu.style.display = menu.style.display === "flex" ? "none" : "flex";
+}
+
+function showToast(text) {
+    const div = document.createElement("div");
+    div.className = "floating-toast";
+    div.textContent = text;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+document.querySelectorAll(".flash").forEach((flash) => {
+    setTimeout(() => {
+        flash.style.opacity = "0";
+        flash.style.transform = "translateY(-4px)";
+        setTimeout(() => flash.remove(), 250);
+    }, 5000);
+});
+
+{% if session.get("user_id") %}
+let lastRequestId = null;
+let notifInterval = null;
+
+async function initLastRequest() {
+    try {
+        const res = await fetch("/request/check_new?last_id=0");
+        if (!res.ok) return;
+        const data = await res.json();
+        lastRequestId = data.status === "yes" ? data.id : 0;
+        startPolling();
+    } catch (error) {
+        lastRequestId = 0;
+        startPolling();
+    }
+}
+
+async function checkRequestNotif() {
+    try {
+        if (lastRequestId === null) return;
+        const res = await fetch("/request/check_new?last_id=" + lastRequestId);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === "yes") {
+            lastRequestId = data.id;
+            document.getElementById("notifSound")?.play().catch(() => {});
+            showToast("Request baru masuk. Qty: " + data.qty);
+        }
+    } catch (error) {
+        console.log("REQUEST POLL ERROR", error);
+    }
+}
+
+function startPolling() {
+    if (notifInterval) return;
+    notifInterval = setInterval(checkRequestNotif, 5000);
+}
+
+document.body.addEventListener("click", () => {
+    document.getElementById("notifSound")?.play().catch(() => {});
+}, { once: true });
+
+initLastRequest();
+{% endif %}
+</script>
+
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

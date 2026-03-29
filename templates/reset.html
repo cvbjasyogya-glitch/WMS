@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Reset Password | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Reset Password{% endblock %}
+{% block page_title %}Reset Password{% endblock %}
+{% block page_subtitle %}Masukkan username, kode yang dikirim, dan password baru.{% endblock %}
+
+{% block content %}
+<div class="form-box">
+    <form method="POST">
+        <div class="form-grid">
+            <div>
+                <label>Username</label>
+                <input name="username" placeholder="username" required>
+            </div>
+            <div>
+                <label>Kode Reset</label>
+                <input name="code" placeholder="6 digit kode" required>
+            </div>
+            <div>
+                <label>Password Baru</label>
+                <input type="password" name="password" placeholder="Password baru" required>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Reset Password</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

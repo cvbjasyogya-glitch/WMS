@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Opname | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Physical Count Control{% endblock %}
+{% block page_title %}Stock Opname{% endblock %}
+{% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a href="/so/export" class="btn-link">Export CSV</a>
+    <a href="/so/export_report" class="btn-link">Laporan SO</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Page</p>
+        <h3>{{ page }} / {{ total_pages }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Display ID</p>
+        <h3>{{ display_id }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Gudang ID</p>
+        <h3>{{ gudang_id }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Data Tampil</p>
+        <h3>{{ data|length }}</h3>
+    </div>
+</div>
+
+<form method="GET" class="top-bar">
+    <input type="text" name="q" placeholder="Cari SKU atau nama produk" value="{{ search or '' }}">
+    <button type="submit">Cari</button>
+    <button type="button" class="ghost-button" onclick="submitSO()">Simpan SO</button>
+</form>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Perbandingan Stok Sistem vs Fisik</h2>
+            <p>Masukkan hasil hitungan fisik dan sistem akan menghitung selisih untuk tiap area secara langsung.</p>
+        </div>
+    </div>
+
+    {% if data %}
+    <table>
+        <thead>
+            <tr>
+                <th>SKU</th>
+                <th>Nama</th>
+                <th>Variant</th>
+                <th>Display Sistem</th>
+                <th>Display Fisik</th>
+                <th>Selisih</th>
+                <th>Gudang Sistem</th>
+                <th>Gudang Fisik</th>
+                <th>Selisih</th>
+            </tr>
+        </thead>
+        <tbody id="soTable">
+            {% for item in data %}
+            <tr>
+                <td class="mono">{{ item.sku }}</td>
+                <td>{{ item.name }}</td>
+                <td>{{ item.variant }}</td>
+                <td class="display">{{ item.display_qty }}</td>
+                <td><input type="number" class="physical_display" value="{{ item.display_qty }}"></td>
+                <td class="diff_display mono">0</td>
+                <td class="gudang">{{ item.gudang_qty }}</td>
+                <td><input type="number" class="physical_gudang" value="{{ item.gudang_qty }}"></td>
+                <td class="diff_gudang mono">0</td>
+                <td style="display:none;">
+                    <input type="hidden" class="product_id" value="{{ item.product_id }}">
+                    <input type="hidden" class="variant_id" value="{{ item.variant_id }}">
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="pagination">
+        <button type="button" class="ghost-button" onclick="changePage(-1)" id="prevBtn">Prev</button>
+        <span id="pageInfo" class="status-pill">Page {{ page }} / {{ total_pages }}</span>
+        <button type="button" class="ghost-button" onclick="changePage(1)" id="nextBtn">Next</button>
+    </div>
+    {% else %}
+    <div class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentPage = parseInt("{{ page }}" || "1", 10);
+let totalPages = parseInt("{{ total_pages }}" || "1", 10);
+let currentSearch = "{{ search or '' }}";
+
+const DISPLAY_ID = parseInt("{{ display_id }}" || "0", 10);
+const GUDANG_ID = parseInt("{{ gudang_id }}" || "0", 10);
+
+function attachEvents() {
+    document.querySelectorAll("#soTable tr").forEach((row) => {
+        const displayInput = row.querySelector(".physical_display");
+        const gudangInput = row.querySelector(".physical_gudang");
+        if (!displayInput || !gudangInput) return;
+
+        function calc() {
+            const displaySystem = parseInt(row.querySelector(".display").innerText, 10) || 0;
+            const displayPhysical = parseInt(displayInput.value, 10) || 0;
+            row.querySelector(".diff_display").innerText = displayPhysical - displaySystem;
+
+            const gudangSystem = parseInt(row.querySelector(".gudang").innerText, 10) || 0;
+            const gudangPhysical = parseInt(gudangInput.value, 10) || 0;
+            row.querySelector(".diff_gudang").innerText = gudangPhysical - gudangSystem;
+        }
+
+        displayInput.addEventListener("input", calc);
+        gudangInput.addEventListener("input", calc);
+        calc();
+    });
+}
+
+function renderTable(data) {
+    const tbody = document.getElementById("soTable");
+    tbody.innerHTML = "";
+
+    data.forEach((item) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td class="mono">${item.sku}</td>
+            <td>${item.name}</td>
+            <td>${item.variant}</td>
+            <td class="display">${item.display_qty}</td>
+            <td><input type="number" class="physical_display" value="${item.display_qty}"></td>
+            <td class="diff_display mono">0</td>
+            <td class="gudang">${item.gudang_qty}</td>
+            <td><input type="number" class="physical_gudang" value="${item.gudang_qty}"></td>
+            <td class="diff_gudang mono">0</td>
+            <td style="display:none;">
+                <input type="hidden" class="product_id" value="${item.product_id}">
+                <input type="hidden" class="variant_id" value="${item.variant_id}">
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    attachEvents();
+}
+
+function loadPage(page) {
+    fetch("/so?page=" + page + "&q=" + encodeURIComponent(currentSearch), {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then((res) => {
+        if (!res.ok) throw new Error("Server error");
+        return res.json();
+    })
+    .then((data) => {
+        currentPage = data.page;
+        totalPages = data.total_pages;
+        renderTable(data.data);
+
+        document.getElementById("pageInfo").innerText = "Page " + currentPage + " / " + totalPages;
+        document.getElementById("prevBtn").disabled = currentPage <= 1;
+        document.getElementById("nextBtn").disabled = currentPage >= totalPages;
+    })
+    .catch(() => alert("Gagal memuat data stock opname."));
+}
+
+function changePage(delta) {
+    const nextPage = currentPage + delta;
+    if (nextPage < 1 || nextPage > totalPages) return;
+    loadPage(nextPage);
+}
+
+function submitSO() {
+    const items = [];
+
+    document.querySelectorAll("#soTable tr").forEach((row) => {
+        const displaySystem = parseInt(row.querySelector(".display").innerText, 10) || 0;
+        const displayPhysical = parseInt(row.querySelector(".physical_display").value, 10) || 0;
+        const gudangSystem = parseInt(row.querySelector(".gudang").innerText, 10) || 0;
+        const gudangPhysical = parseInt(row.querySelector(".physical_gudang").value, 10) || 0;
+
+        if (displayPhysical < 0 || gudangPhysical < 0) {
+            alert("Stock fisik tidak boleh negatif.");
+            return;
+        }
+
+        if (displayPhysical !== displaySystem || gudangPhysical !== gudangSystem) {
+            items.push({
+                product_id: parseInt(row.querySelector(".product_id").value, 10),
+                variant_id: parseInt(row.querySelector(".variant_id").value, 10),
+                display_system: displaySystem,
+                display_physical: displayPhysical,
+                gudang_system: gudangSystem,
+                gudang_physical: gudangPhysical
+            });
+        }
+    });
+
+    if (!items.length) {
+        alert("Tidak ada perubahan yang perlu disimpan.");
+        return;
+    }
+
+    fetch("/so/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            display_id: DISPLAY_ID,
+            gudang_id: GUDANG_ID,
+            items
+        })
+    })
+    .then((res) => res.json())
+    .then((data) => {
+        alert(data.message || data.error);
+        location.reload();
+    })
+    .catch(() => alert("Gagal menyimpan stock opname."));
+}
+
+attachEvents();
+document.getElementById("prevBtn").disabled = currentPage <= 1;
+document.getElementById("nextBtn").disabled = currentPage >= totalPages;
+</script>
+{% endblock %}

@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}Stok Gudang | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Warehouse Inventory Surface{% endblock %}
+{% block page_title %}Stok Gudang{% endblock %}
+{% block page_subtitle %}Workspace inti untuk memantau kuantitas, aging batch, serta melakukan penyesuaian stok dan update atribut produk secara langsung.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Variant</p>
+        <h3>{{ data|length }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Total Qty</p>
+        <h3>{{ data|map(attribute='qty')|sum }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Filter Gudang</p>
+        <h3>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Urutan</p>
+        <h3>{{ sort }}</h3>
+    </div>
+</div>
+
+<form method="GET" class="top-bar">
+    <input type="text" name="q" value="{{ search }}" placeholder="Cari produk atau SKU">
+    <select name="warehouse">
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    <input type="date" name="start_date" value="{{ start_date }}">
+    <input type="date" name="end_date" value="{{ end_date }}">
+    <select name="sort">
+        <option value="qty_asc" {% if sort == 'qty_asc' %}selected{% endif %}>Stok Sedikit</option>
+        <option value="qty_desc" {% if sort == 'qty_desc' %}selected{% endif %}>Stok Banyak</option>
+        <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Nama A-Z</option>
+        <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Nama Z-A</option>
+    </select>
+    <button type="submit">Filter</button>
+    <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
+</form>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Inventori Detail</h2>
+            <p>Edit informasi produk, sesuaikan kuantitas, dan deteksi item yang menipis sebelum mengganggu operasional.</p>
+        </div>
+    </div>
+
+    {% if data %}
+    <table>
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="checkAll"></th>
+                <th>SKU</th>
+                <th>Produk</th>
+                <th>Variant</th>
+                <th>Qty</th>
+                <th>Adjust</th>
+                <th>Retail</th>
+                <th>Discount</th>
+                <th>Nett</th>
+                <th>Aging</th>
+                <th>Tanggal Masuk</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in data %}
+            <tr class="{% if s.qty == 0 %}zero{% elif s.qty < 5 %}warning{% endif %}">
+                <td>
+                    <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
+                </td>
+                <td>
+                    <input class="edit-field" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}">
+                </td>
+                <td>
+                    <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}">
+                </td>
+                <td>
+                    <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}">
+                </td>
+                <td class="qty-text">
+                    {% if s.qty == 0 %}
+                    <span class="badge red">{{ s.qty }}</span>
+                    {% elif s.qty < 5 %}
+                    <span class="badge orange">{{ s.qty }}</span>
+                    {% else %}
+                    <span class="badge green">{{ s.qty }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="split-actions">
+                        <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
+                        <button type="button" onclick="adjustStock(this)">Simpan</button>
+                    </div>
+                </td>
+                <td>
+                    <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}">
+                </td>
+                <td>
+                    <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}">
+                </td>
+                <td>
+                    <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}">
+                </td>
+                <td>{{ s.age_days }} hari</td>
+                <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page-1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Prev</button></a>
+        {% endif %}
+
+        <span class="status-pill">Page {{ page }} / {{ total_pages }}</span>
+
+        {% if page < total_pages %}
+        <a href="?page={{ page+1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Next</button></a>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.getElementById("checkAll")?.addEventListener("change", function() {
+    document.querySelectorAll(".row-check").forEach((cb) => {
+        cb.checked = this.checked;
+    });
+});
+
+document.querySelectorAll(".edit-field").forEach((input) => {
+    input.addEventListener("change", function() {
+        const field = this.dataset.field;
+        const value = this.value.trim();
+
+        if (!value) {
+            alert("Field tidak boleh kosong.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("product_id", this.dataset.product || "");
+        formData.append("variant_id", this.dataset.variant || "");
+        formData.append("field", field);
+        formData.append("value", value);
+
+        fetch("/stock/update-field", {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+            body: formData
+        })
+        .then((res) => res.json())
+        .then((data) => {
+            if (data.status !== "success") {
+                alert(data.message || "Update gagal disimpan.");
+            }
+        })
+        .catch(() => alert("Terjadi error saat update data."));
+    });
+});
+
+function adjustStock(button) {
+    const row = button.closest("tr");
+    const input = row.querySelector(".adjust-input");
+    const qty = parseInt(input.value, 10);
+
+    if (Number.isNaN(qty) || qty === 0) {
+        alert("Masukkan qty adjust yang valid.");
+        return;
+    }
+
+    button.disabled = true;
+
+    const formData = new FormData();
+    formData.append("product_id", input.dataset.product);
+    formData.append("variant_id", input.dataset.variant);
+    formData.append("warehouse_id", input.dataset.warehouse);
+    formData.append("qty", qty);
+
+    fetch("/stock/adjust", {
+        method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        body: formData
+    })
+    .then((res) => res.json())
+    .then((data) => {
+        if (data.status === "success") {
+            location.reload();
+            return;
+        }
+        alert(data.message || "Adjust stok gagal.");
+    })
+    .catch(() => alert("Terjadi error saat adjust stok."))
+    .finally(() => {
+        button.disabled = false;
+    });
+}
+
+function bulkAdjust() {
+    const selected = document.querySelectorAll(".row-check:checked");
+    if (selected.length === 0) {
+        alert("Pilih item yang ingin di-adjust terlebih dahulu.");
+        return;
+    }
+
+    const qty = prompt("Masukkan qty penyesuaian. Gunakan minus untuk pengurangan.");
+    if (!qty || Number.isNaN(parseInt(qty, 10)) || parseInt(qty, 10) === 0) {
+        alert("Qty adjust tidak valid.");
+        return;
+    }
+
+    const payload = Array.from(selected).map((checkbox) => ({
+        product_id: checkbox.dataset.product,
+        variant_id: checkbox.dataset.variant,
+        warehouse_id: "{{ warehouse_id }}",
+        qty: parseInt(qty, 10)
+    }));
+
+    fetch("/stock/bulk-adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: payload })
+    })
+    .then((res) => res.json())
+    .then((data) => {
+        if (data.status === "success") {
+            location.reload();
+            return;
+        }
+        alert(data.message || "Bulk adjust gagal.");
+    })
+    .catch(() => alert("Terjadi error saat bulk adjust."));
+}
+</script>
+{% endblock %}

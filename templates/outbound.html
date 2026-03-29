@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Outbound | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Outbound Flow{% endblock %}
+{% block page_title %}Barang Keluar{% endblock %}
+{% block page_subtitle %}Jalankan pengeluaran stok dengan validasi ketersediaan langsung agar proses pengambilan barang tetap aman dan akurat.{% endblock %}
+
+{% block content %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Form Outbound</h2>
+            <p>Pilih produk dan gudang sumber, lalu sistem akan memvalidasi apakah qty yang diminta masih tersedia.</p>
+        </div>
+    </div>
+
+    <form method="POST" onsubmit="return handleSubmit()">
+        <div class="form-grid">
+            <div>
+                <label>Produk</label>
+                <select id="product" name="product_id" required>
+                    <option value="">Pilih produk</option>
+                    {% for p in products %}
+                    <option value="{{ p.id }}">{{ p.sku }} - {{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Variant</label>
+                <select id="variant" name="variant_id" required></select>
+            </div>
+            <div>
+                <label>Gudang</label>
+                <select id="warehouse" name="warehouse_id" required>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}">{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Stok Tersedia</label>
+                <input id="stock" readonly>
+                <small id="stockStatus"></small>
+            </div>
+            <div>
+                <label>Qty Keluar</label>
+                <input type="number" id="qty" name="qty" min="1" required>
+                <small id="error" class="stock-empty"></small>
+            </div>
+            <div>
+                <label>Catatan</label>
+                <input type="text" name="note" placeholder="Contoh: pengiriman ke toko">
+            </div>
+        </div>
+
+        <div class="split-actions" style="margin-top:16px;">
+            <button id="btn" type="submit" disabled>Keluarkan Barang</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const outboundProduct = document.getElementById("product");
+const outboundVariant = document.getElementById("variant");
+const outboundWarehouse = document.getElementById("warehouse");
+const outboundStock = document.getElementById("stock");
+const outboundStockStatus = document.getElementById("stockStatus");
+const outboundQty = document.getElementById("qty");
+const outboundError = document.getElementById("error");
+const outboundButton = document.getElementById("btn");
+
+function renderOutboundStatus(qty) {
+    if (qty === 0) {
+        outboundStockStatus.innerText = "Stok habis.";
+        outboundStockStatus.className = "stock-empty";
+    } else if (qty < 5) {
+        outboundStockStatus.innerText = "Stok menipis.";
+        outboundStockStatus.className = "stock-low";
+    } else {
+        outboundStockStatus.innerText = "Stok aman.";
+        outboundStockStatus.className = "stock-ok";
+    }
+}
+
+function validateOutbound() {
+    const stock = parseInt(outboundStock.value || 0, 10);
+    const qty = parseInt(outboundQty.value || 0, 10);
+
+    if (!outboundProduct.value || !outboundVariant.value || qty <= 0) {
+        outboundError.innerText = qty <= 0 && outboundQty.value ? "Qty tidak valid." : "";
+        outboundButton.disabled = true;
+        return false;
+    }
+
+    if (qty > stock) {
+        outboundError.innerText = "Qty melebihi stok yang tersedia.";
+        outboundButton.disabled = true;
+        return false;
+    }
+
+    outboundError.innerText = "";
+    outboundButton.disabled = false;
+    return true;
+}
+
+function loadOutboundVariants() {
+    if (!outboundProduct.value) return;
+
+    outboundVariant.innerHTML = "<option>Loading...</option>";
+    fetch("/products/get_variants/" + outboundProduct.value)
+    .then((res) => res.json())
+    .then((data) => {
+        if (!data.length) {
+            outboundVariant.innerHTML = "<option value=''>Tidak ada variant</option>";
+            validateOutbound();
+            return;
+        }
+
+        outboundVariant.innerHTML = data.map((item) => "<option value='" + item.id + "'>" + item.variant + "</option>").join("");
+        loadOutboundStock();
+    });
+}
+
+function loadOutboundStock() {
+    if (!outboundProduct.value || !outboundVariant.value) return;
+
+    fetch("/transfers/get_stock?product_id=" + outboundProduct.value + "&variant_id=" + outboundVariant.value + "&warehouse_id=" + outboundWarehouse.value)
+    .then((res) => res.json())
+    .then((data) => {
+        outboundStock.value = data.qty;
+        renderOutboundStatus(data.qty || 0);
+        validateOutbound();
+    });
+}
+
+function handleSubmit() {
+    if (!validateOutbound()) return false;
+    outboundButton.innerText = "Memproses...";
+    outboundButton.disabled = true;
+    return true;
+}
+
+outboundProduct.onchange = loadOutboundVariants;
+outboundVariant.onchange = loadOutboundStock;
+outboundWarehouse.onchange = loadOutboundStock;
+outboundQty.oninput = validateOutbound;
+</script>
+{% endblock %}
