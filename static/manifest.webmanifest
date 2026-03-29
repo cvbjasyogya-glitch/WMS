@@ -1,0 +1,23 @@
+{
+  "name": "Mataram Sports WMS",
+  "short_name": "Mataram WMS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "description": "Warehouse management system untuk operasi stok, transfer, request, dan stock opname.",
+  "icons": [
+    {
+      "src": "/static/brand/mataram-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/brand/mataram-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

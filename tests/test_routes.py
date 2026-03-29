@@ -480,6 +480,22 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(adjust_response.status_code, 200)
         self.assertEqual(adjust_response.get_json()["status"], "success")
 
+    def test_restore_repair_promotes_rio_to_super_admin(self):
+        self.create_user("Rio", "admin123", "admin", warehouse_id=1)
+
+        repair_restored_data(self.app)
+
+        with self.app.app_context():
+            db = get_db()
+            rio = db.execute(
+                "SELECT role, warehouse_id FROM users WHERE username=?",
+                ("Rio",),
+            ).fetchone()
+
+        self.assertIsNotNone(rio)
+        self.assertEqual(rio["role"], "super_admin")
+        self.assertIsNone(rio["warehouse_id"])
+
     def test_stock_page_renders_rupiah_prefix_and_export(self):
         self.login()
         response, _, _ = self.create_product(variants="PRC")

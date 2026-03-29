@@ -1,5 +1,15 @@
-import sys, os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import os
+import sys
+from uuid import uuid4
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, ROOT_DIR)
+
+temp_root = os.path.join(ROOT_DIR, "scripts", ".tmp")
+os.makedirs(temp_root, exist_ok=True)
+db_path = os.path.join(temp_root, f"smoke_test_{uuid4().hex}.db")
+os.environ["DATABASE_PATH"] = db_path
+
 from app import create_app
 from database import get_db
 from werkzeug.security import generate_password_hash
@@ -7,69 +17,98 @@ from services.request_service import create_request
 from services.notification_service import notify_roles, notify_user
 
 app = create_app()
+
 with app.app_context():
     db = get_db()
-    # warehouses
-    whs = db.execute('SELECT id, name FROM warehouses').fetchall()
-    print('Warehouses:', [dict(w) for w in whs])
+    whs = db.execute("SELECT id, name FROM warehouses").fetchall()
+    print("Warehouses:", [dict(w) for w in whs])
     mega = db.execute("SELECT id FROM warehouses WHERE name LIKE '%Mega%' LIMIT 1").fetchone()
     matar = db.execute("SELECT id FROM warehouses WHERE name LIKE '%Mataram%' LIMIT 1").fetchone()
     if not mega or not matar:
-        raise SystemExit('Expected two warehouses')
-    mega_id = int(mega['id'])
-    matar_id = int(matar['id'])
+        raise SystemExit("Expected two warehouses")
+    mega_id = int(mega["id"])
+    matar_id = int(matar["id"])
 
     def ensure_user(username, role, warehouse_id=None, email=None, phone=None, notify_email=1, notify_whatsapp=0):
-        u = db.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()
-        if u:
-            return u['id']
-        db.execute('INSERT INTO users(username,password,role,email,phone,notify_email,notify_whatsapp,warehouse_id) VALUES (?,?,?,?,?,?,?,?)',
-                   (username, generate_password_hash('pass1234'), role, email, phone, notify_email, notify_whatsapp, warehouse_id))
+        user = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+        if user:
+            return user["id"]
+        db.execute(
+            """
+            INSERT INTO users(username,password,role,email,phone,notify_email,notify_whatsapp,warehouse_id)
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (username, generate_password_hash("pass1234"), role, email, phone, notify_email, notify_whatsapp, warehouse_id),
+        )
         db.commit()
-        return db.execute('SELECT id FROM users WHERE username=?',(username,)).fetchone()['id']
+        return db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()["id"]
 
-    leader_mega = ensure_user('leader_mega','leader', mega_id, 'lmega@example.test', '628111111', 1, 0)
-    admin_mega = ensure_user('admin_mega','admin', mega_id, 'amega@example.test', '628222222', 1, 1)
-    leader_matar = ensure_user('leader_matar','leader', matar_id, 'lmatar@example.test', '628333333', 1, 0)
-    admin_matar = ensure_user('admin_matar','admin', matar_id, 'amatar@example.test', '628444444', 1, 1)
+    ensure_user("leader_mega", "leader", mega_id, "lmega@example.test", "628111111", 1, 0)
+    ensure_user("admin_mega", "admin", mega_id, "amega@example.test", "628222222", 1, 1)
+    ensure_user("leader_matar", "leader", matar_id, "lmatar@example.test", "628333333", 1, 0)
+    ensure_user("admin_matar", "admin", matar_id, "amatar@example.test", "628444444", 1, 1)
 
-    # product
-    p = db.execute("SELECT id FROM products WHERE sku=?", ('TESTSKU',)).fetchone()
-    if not p:
-        db.execute("INSERT INTO products(sku,name,category_id) VALUES (?,?,?)", ('TESTSKU','Product Test', None))
+    product = db.execute("SELECT id FROM products WHERE sku=?", ("TESTSKU",)).fetchone()
+    if not product:
+        db.execute(
+            "INSERT INTO products(sku,name,category_id) VALUES (?,?,?)",
+            ("TESTSKU", "Product Test", None),
+        )
         db.commit()
-        p = db.execute("SELECT id FROM products WHERE sku=?", ('TESTSKU',)).fetchone()
-    pid = p['id']
-    v = db.execute('SELECT id FROM product_variants WHERE product_id=?', (pid,)).fetchone()
-    if not v:
-        db.execute('INSERT INTO product_variants(product_id,variant) VALUES (?,?)', (pid, 'Default'))
-        db.commit()
-        v = db.execute('SELECT id FROM product_variants WHERE product_id=?', (pid,)).fetchone()
-    vid = v['id']
+        product = db.execute("SELECT id FROM products WHERE sku=?", ("TESTSKU",)).fetchone()
+    product_id = product["id"]
 
-    # create stock batch in mega
-    db.execute('INSERT INTO stock_batches(product_id,variant_id,warehouse_id,qty,remaining_qty,cost,expiry_date,created_at) VALUES (?,?,?,?,?,?,?,datetime("now"))', (pid, vid, mega_id, 100, 100, 10000, None))
+    variant = db.execute("SELECT id FROM product_variants WHERE product_id=?", (product_id,)).fetchone()
+    if not variant:
+        db.execute("INSERT INTO product_variants(product_id,variant) VALUES (?,?)", (product_id, "Default"))
+        db.commit()
+        variant = db.execute("SELECT id FROM product_variants WHERE product_id=?", (product_id,)).fetchone()
+    variant_id = variant["id"]
+
+    db.execute(
+        """
+        INSERT INTO stock_batches(product_id,variant_id,warehouse_id,qty,remaining_qty,cost,expiry_date,created_at)
+        VALUES (?,?,?,?,?,?,?,datetime('now'))
+        """,
+        (product_id, variant_id, mega_id, 100, 100, 10000, None),
+    )
     db.commit()
 
-    # create request from mega -> mataram by admin_mega
-    req_id = create_request(pid, vid, mega_id, matar_id, 10)
-    print('Created request id:', req_id)
+    request_id = create_request(product_id, variant_id, mega_id, matar_id, 10)
+    print("Created request id:", request_id)
 
-    subj = 'Request Baru Test'
-    msg = f'Request #{req_id} Produk:{pid} Qty:10 Dari:{mega_id} Ke:{matar_id}'
-    res = notify_roles(['leader','owner','super_admin'], subj, msg, warehouse_id=mega_id)
-    print('notify_roles result:', res)
+    subject = "Request Baru Test"
+    message = f"Request #{request_id} Produk:{product_id} Qty:10 Dari:{mega_id} Ke:{matar_id}"
+    result = notify_roles(["leader", "owner", "super_admin"], subject, message, warehouse_id=mega_id)
+    print("notify_roles result:", result)
 
-    rows = db.execute('SELECT id, user_id, role, channel, recipient, subject, status, created_at FROM notifications ORDER BY id DESC LIMIT 10').fetchall()
-    print('Recent notifications:')
-    for r in rows:
-        print(dict(r))
+    rows = db.execute(
+        """
+        SELECT id, user_id, role, channel, recipient, subject, status, created_at
+        FROM notifications
+        ORDER BY id DESC LIMIT 10
+        """
+    ).fetchall()
+    print("Recent notifications:")
+    for row in rows:
+        print(dict(row))
 
-    # notify requester directly
-    requester = db.execute('SELECT requested_by FROM requests WHERE id=?', (req_id,)).fetchone()['requested_by']
-    print('Requester id:', requester)
-    notify_user(requester, 'Test: your request is pending', 'This is a test message')
-    rows2 = db.execute('SELECT id, user_id, channel, recipient, subject, status FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 5', (requester,)).fetchall()
-    print('Notifications for requester:', [dict(r) for r in rows2])
+    requester = db.execute("SELECT requested_by FROM requests WHERE id=?", (request_id,)).fetchone()["requested_by"]
+    print("Requester id:", requester)
+    notify_user(requester, "Test: your request is pending", "This is a test message")
+    rows2 = db.execute(
+        """
+        SELECT id, user_id, channel, recipient, subject, status
+        FROM notifications
+        WHERE user_id=?
+        ORDER BY id DESC LIMIT 5
+        """,
+        (requester,),
+    ).fetchall()
+    print("Notifications for requester:", [dict(row) for row in rows2])
 
-print('SMOKE TEST DONE')
+print("SMOKE TEST DONE")
+for suffix in ("", "-wal", "-shm"):
+    db_file = db_path + suffix
+    if os.path.exists(db_file):
+        os.remove(db_file)

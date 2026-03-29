@@ -35,12 +35,14 @@
 
 html {
     scroll-behavior: smooth;
+    overscroll-behavior-y: none;
 }
 
 body {
     margin: 0;
     min-height: 100vh;
     overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
     color: var(--text);
     background:
         radial-gradient(circle at top left, rgba(93, 183, 255, 0.18), transparent 34%),
@@ -463,6 +465,7 @@ body textarea {
     color: var(--text-strong);
     font: inherit;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    touch-action: manipulation;
 }
 
 body input::placeholder,
@@ -541,6 +544,7 @@ body a.btn-link {
     background: linear-gradient(135deg, #16375f, #0f5ec7);
     box-shadow: 0 18px 32px rgba(15, 94, 199, 0.22);
     transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    touch-action: manipulation;
 }
 
 body button:hover,

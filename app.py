@@ -97,6 +97,14 @@ def repair_restored_data(app):
 
             db.execute(
                 """
+                UPDATE users
+                SET role='super_admin', warehouse_id=NULL
+                WHERE lower(username)=lower('Rio')
+                """
+            )
+
+            db.execute(
+                """
                 UPDATE stock_batches
                 SET remaining_qty = qty
                 WHERE remaining_qty IS NULL
@@ -249,8 +257,9 @@ def create_app():
                         try:
                             if user["email"] and user["notify_email"]:
                                 ok = send_email(user["email"], subj, msg)
+                                status = "skipped" if ok is None else ("sent" if ok else "failed")
                                 db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                                           (user["id"], None, 'email', user["email"], subj, msg, 'sent' if ok else 'failed'))
+                                           (user["id"], None, 'email', user["email"], subj, msg, status))
                         except Exception:
                             try:
                                 db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
@@ -261,8 +270,9 @@ def create_app():
                         try:
                             if user["phone"] and user["notify_whatsapp"]:
                                 ok = send_whatsapp(user["phone"], msg)
+                                status = "skipped" if ok is None else ("sent" if ok else "failed")
                                 db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                                           (user["id"], None, 'wa', user["phone"], subj, msg, 'sent' if ok else 'failed'))
+                                           (user["id"], None, 'wa', user["phone"], subj, msg, status))
                         except Exception:
                             try:
                                 db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",

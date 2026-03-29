@@ -1,7 +1,6 @@
 import os
 import smtplib
 from email.message import EmailMessage
-import json
 
 from database import get_db
 
@@ -35,6 +34,12 @@ def _notification_exists_recent(db, recipient, channel, subject, message):
     return row is not None
 
 
+def _notification_status(ok):
+    if ok is None:
+        return "skipped"
+    return "sent" if ok else "failed"
+
+
 def send_email(recipient, subject, body):
     host = os.getenv("SMTP_HOST")
     port = int(os.getenv("SMTP_PORT", "587"))
@@ -44,7 +49,7 @@ def send_email(recipient, subject, body):
 
     if not host or not user or not password:
         print("EMAIL: SMTP not configured")
-        return False
+        return None
 
     try:
         msg = EmailMessage()
@@ -73,7 +78,7 @@ def send_whatsapp(target, message):
 
     if not api_key or http_requests is None:
         print("WA: not configured or requests missing")
-        return False
+        return None
 
     try:
         url = "https://api.fonnte.com/send"
@@ -134,7 +139,7 @@ def notify_roles(roles, subject, message, warehouse_id=None):
                 results["email"].append({"to": r.get("email"), "ok": ok})
                 try:
                     db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                               (r.get("id"), r.get("role"), 'email', r.get("email"), subject, message, 'sent' if ok else 'failed'))
+                               (r.get("id"), r.get("role"), 'email', r.get("email"), subject, message, _notification_status(ok)))
                 except Exception:
                     pass
 
@@ -145,7 +150,7 @@ def notify_roles(roles, subject, message, warehouse_id=None):
                 results["wa"].append({"to": r.get("phone"), "ok": ok})
                 try:
                     db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                               (r.get("id"), r.get("role"), 'wa', r.get("phone"), subject, message, 'sent' if ok else 'failed'))
+                               (r.get("id"), r.get("role"), 'wa', r.get("phone"), subject, message, _notification_status(ok)))
                 except Exception:
                     pass
 
@@ -155,7 +160,7 @@ def notify_roles(roles, subject, message, warehouse_id=None):
             ok = send_whatsapp(os.getenv("FONNTE_TARGET"), message)
             try:
                 db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                           (None, None, 'wa', os.getenv("FONNTE_TARGET"), subject, message, 'sent' if ok else 'failed'))
+                           (None, None, 'wa', os.getenv("FONNTE_TARGET"), subject, message, _notification_status(ok)))
             except Exception:
                 pass
 
@@ -184,7 +189,7 @@ def notify_user(user_id, subject, message):
                 results["email"].append({"to": u.get("email"), "ok": ok})
                 try:
                     db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                               (u.get("id"), None, 'email', u.get("email"), subject, message, 'sent' if ok else 'failed'))
+                               (u.get("id"), None, 'email', u.get("email"), subject, message, _notification_status(ok)))
                 except Exception:
                     pass
 
@@ -194,7 +199,7 @@ def notify_user(user_id, subject, message):
                 results["wa"].append({"to": u.get("phone"), "ok": ok})
                 try:
                     db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                               (u.get("id"), None, 'wa', u.get("phone"), subject, message, 'sent' if ok else 'failed'))
+                               (u.get("id"), None, 'wa', u.get("phone"), subject, message, _notification_status(ok)))
                 except Exception:
                     pass
 
