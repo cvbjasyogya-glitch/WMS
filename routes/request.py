@@ -18,7 +18,7 @@ request_bp = Blueprint(
 
 def is_admin():
     # approval rights: leader, owner and super_admin
-    return session.get("role") in ["leader", "owner", "super_admin", "admin"]
+    return session.get("role") in ["leader", "owner", "super_admin"]
 
 
 # ==========================

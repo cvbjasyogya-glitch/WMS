@@ -31,8 +31,6 @@ def login():
             flash("Username / Password salah", "error")
             return redirect(url_for("auth.login"))
 
-        user = dict(user)
-
         try:
             valid = check_password_hash(user["password"], password)
         except:
@@ -110,13 +108,13 @@ def forgot_password():
 
         try:
             if user.get('email') and user.get('notify_email'):
-                send_email(user['email'], subj, msg)
+                send_email(user.get('email'), subj, msg)
         except Exception:
             pass
 
         try:
             if user.get('phone') and user.get('notify_whatsapp'):
-                send_whatsapp(user['phone'], msg)
+                send_whatsapp(user.get('phone'), msg)
         except Exception:
             pass
 

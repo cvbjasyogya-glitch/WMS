@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from io import BytesIO
 from uuid import uuid4
@@ -11,9 +12,8 @@ from database import get_db
 
 class WmsRoutesTestCase(unittest.TestCase):
     def setUp(self):
-        temp_root = os.path.join(os.path.dirname(__file__), ".tmp")
-        os.makedirs(temp_root, exist_ok=True)
-        self.db_path = os.path.join(temp_root, f"test_database_{uuid4().hex}.db")
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "test_database.db")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -24,10 +24,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
-        for suffix in ("", "-wal", "-shm"):
-            db_file = self.db_path + suffix
-            if os.path.exists(db_file):
-                os.remove(db_file)
+        self.temp_dir.cleanup()
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(

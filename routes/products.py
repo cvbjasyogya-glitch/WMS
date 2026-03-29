@@ -1,9 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, jsonify, flash, session
 from database import get_db
 from services.stock_service import add_stock
-import csv
 import uuid
-from io import StringIO
 
 try:
     import pandas as pd
@@ -36,45 +34,6 @@ def _read_import_file(file):
     except Exception:
         file.stream.seek(0)
         return pd.read_csv(file)
-
-
-def _read_import_dataset(file):
-    if pd is not None:
-        df = _read_import_file(file)
-        df.columns = [c.strip().lower() for c in df.columns]
-        df = df.fillna("")
-        return list(df.columns), df.to_dict(orient="records")
-
-    filename = (file.filename or "").lower()
-    if not filename.endswith(".csv"):
-        raise RuntimeError(
-            "Fitur import Excel membutuhkan dependency pandas dan openpyxl."
-        )
-
-    file.stream.seek(0)
-    raw = file.stream.read()
-    text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else str(raw)
-
-    reader = csv.DictReader(StringIO(text))
-    if not reader.fieldnames:
-        raise ValueError("Format tidak valid")
-
-    original_fields = list(reader.fieldnames)
-    normalized_fields = [
-        (field or "").strip().lower()
-        for field in original_fields
-    ]
-
-    rows = []
-    for raw_row in reader:
-        row = {}
-        for original, normalized in zip(original_fields, normalized_fields):
-            if normalized:
-                row[normalized] = raw_row.get(original) or ""
-        rows.append(row)
-
-    file.stream.seek(0)
-    return normalized_fields, rows
 
 
 def _upsert_variant(db, product_id, variant_name, price_retail, price_discount, price_nett):
@@ -264,13 +223,15 @@ def preview_import():
         return jsonify({"error": "File tidak ada"})
 
     try:
-        _, rows = _read_import_dataset(file)
+        df = _read_import_file(file)
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     except Exception:
         return jsonify({"error": "Format tidak valid"}), 400
 
-    return jsonify({"rows": rows[:10]})
+    rows = df.head(10).fillna("").to_dict(orient="records")
+
+    return jsonify({"rows": rows})
 
 
 @products_bp.route("/add", methods=["POST"])
@@ -405,21 +366,24 @@ def import_products():
     user_agent = request.headers.get("User-Agent")
 
     try:
-        columns, rows = _read_import_dataset(file)
+        df = _read_import_file(file)
     except RuntimeError as e:
         return str(e), 500
     except Exception:
         return "Format tidak valid", 400
 
+    df.columns = [c.strip().lower() for c in df.columns]
+    df = df.fillna("")
+
     required = ["sku", "name", "category", "qty"]
     for col in required:
-        if col not in columns:
+        if col not in df.columns:
             return f"Kolom {col} tidak ada", 400
 
     job_id = str(uuid.uuid4())
 
     IMPORT_PROGRESS[job_id] = {
-        "total": len(rows),
+        "total": len(df),
         "current": 0,
         "status": "processing"
     }
@@ -434,16 +398,16 @@ def import_products():
     category_cache = {r["name"]: r["id"] for r in db.execute("SELECT id,name FROM categories")}
     product_cache = {r["sku"]: r["id"] for r in db.execute("SELECT id,sku FROM products")}
 
-    for start in range(0, len(rows), CHUNK_SIZE):
+    for start in range(0, len(df), CHUNK_SIZE):
 
-        chunk = rows[start:start+CHUNK_SIZE]
+        chunk = df.iloc[start:start+CHUNK_SIZE]
 
         try:
             db.execute("BEGIN")
 
             variant_ids = []
 
-            for row in chunk:
+            for i, row in chunk.iterrows():
                 try:
                     sku = str(row.get("sku")).strip()
                     name = str(row.get("name")).strip()

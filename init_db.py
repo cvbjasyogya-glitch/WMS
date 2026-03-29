@@ -9,14 +9,8 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.db")
 
 
-def get_connection(db_path=None):
-    db_path = db_path or DB_PATH
-
-    db_dir = os.path.dirname(db_path)
-    if db_dir and not os.path.exists(db_dir):
-        os.makedirs(db_dir, exist_ok=True)
-
-    conn = sqlite3.connect(db_path)
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
     conn.execute("PRAGMA foreign_keys = ON")
@@ -26,26 +20,12 @@ def get_connection(db_path=None):
     return conn
 
 
-def _table_exists(cursor, table_name):
-    row = cursor.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table_name,),
-    ).fetchone()
-    return row is not None
-
-
 def _column_exists(cursor, table_name, column_name):
-    if not _table_exists(cursor, table_name):
-        return False
-
     rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
     return any(row["name"] == column_name for row in rows)
 
 
 def _ensure_column(cursor, table_name, column_name, definition):
-    if not _table_exists(cursor, table_name):
-        return
-
     if not _column_exists(cursor, table_name, column_name):
         cursor.execute(
             f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"
@@ -72,8 +52,8 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "users", "warehouse_id", "INTEGER")
 
 
-def init_db(db_path=None):
-    conn = get_connection(db_path)
+def init_db():
+    conn = get_connection()
     c = conn.cursor()
 
     # ==========================
@@ -221,6 +201,29 @@ def init_db(db_path=None):
     )
     """)
 
+    migrate_schema(c)
+
+    # ==========================
+    # STOCK OPNAME RESULTS
+    # ==========================
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS stock_opname_results(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER,
+        variant_id INTEGER,
+        warehouse_id INTEGER,
+        system_qty INTEGER DEFAULT 0,
+        physical_qty INTEGER DEFAULT 0,
+        diff_qty INTEGER DEFAULT 0,
+        user_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
+        FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+    """)
+
     # ==========================
     # USERS
     # ==========================
@@ -263,29 +266,6 @@ def init_db(db_path=None):
             c.execute("DROP TABLE users_old")
     except Exception:
         pass
-
-    migrate_schema(c)
-
-    # ==========================
-    # STOCK OPNAME RESULTS
-    # ==========================
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS stock_opname_results(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER,
-        variant_id INTEGER,
-        warehouse_id INTEGER,
-        system_qty INTEGER DEFAULT 0,
-        physical_qty INTEGER DEFAULT 0,
-        diff_qty INTEGER DEFAULT 0,
-        user_id INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
-        FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
-        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )
-    """)
 
     # ==========================
     # INDEX

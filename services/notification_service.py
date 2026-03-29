@@ -141,8 +141,6 @@ def notify_user(user_id, subject, message):
         if not u:
             return {"email": [], "wa": []}
 
-        u = dict(u)
-
         results = {"email": [], "wa": []}
 
         if u.get("email") and u.get("notify_email"):
