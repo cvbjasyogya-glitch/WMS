@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.stock_service import remove_stock
 from services.notification_service import notify_roles
+from services.rbac import has_permission, is_scoped_role
 
 outbound_bp = Blueprint(
     "outbound",
@@ -68,10 +69,10 @@ def outbound():
 
         try:
             user_wh = session.get("warehouse_id")
-            if role in ["leader", "admin"] and warehouse_id != user_wh:
+            if is_scoped_role(role) and warehouse_id != user_wh:
                 flash("Tidak punya akses ke gudang ini", "error")
                 return redirect("/outbound")
-            if role in ["leader", "owner", "super_admin"]:
+            if has_permission(role, "direct_stock_ops"):
                 success = remove_stock(
                     product_id,
                     variant_id,
@@ -85,7 +86,7 @@ def outbound():
                 else:
                     flash("Stok tidak cukup atau terjadi error", "error")
 
-            elif role == "admin":
+            elif has_permission(role, "request_stock_ops"):
                 # create approval record
                 db.execute("""
                 INSERT INTO approvals(type, product_id, variant_id, warehouse_id, qty, note, requested_by)

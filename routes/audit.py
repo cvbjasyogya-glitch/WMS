@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, Response, session, redirect, flash
 from database import get_db
+from services.rbac import has_permission, is_scoped_role
 import csv
 from io import StringIO
 
@@ -68,7 +69,7 @@ def build_query(filters, warehouse_id=None):
 def resolve_audit_warehouse(db):
     role = session.get("role")
 
-    if role == "admin":
+    if is_scoped_role(role):
         warehouse_id = session.get("warehouse_id")
         if warehouse_id:
             return warehouse_id, warehouse_id
@@ -105,7 +106,7 @@ def audit_page():
     if not is_logged_in():
         return redirect("/login")
 
-    if session.get("role") not in ["super_admin", "admin"]:
+    if not has_permission(session.get("role"), "view_audit"):
         flash("Akses ditolak", "error")
         return redirect("/")
 
@@ -162,7 +163,7 @@ def export_csv():
     if not is_logged_in():
         return redirect("/login")
 
-    if session.get("role") not in ["super_admin", "admin"]:
+    if not has_permission(session.get("role"), "view_audit"):
         flash("Akses ditolak", "error")
         return redirect("/")
 

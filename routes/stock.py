@@ -6,6 +6,7 @@ import csv
 
 from services.stock_service import adjust_stock
 from services.notification_service import notify_roles
+from services.rbac import has_permission, is_scoped_role
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/stock")
 LOW_STOCK_THRESHOLD = 5
@@ -29,7 +30,7 @@ def validate_warehouse(db, warehouse_id):
 def _resolve_stock_warehouse(db):
     role = session.get("role")
 
-    if role in ["leader", "admin"]:
+    if is_scoped_role(role):
         warehouse_id = session.get("warehouse_id") or 1
     else:
         try:
@@ -365,14 +366,14 @@ def adjust():
 
     role = session.get("role")
     user_wh = session.get("warehouse_id")
-    if role in ["leader", "admin"] and warehouse_id != user_wh:
+    if is_scoped_role(role) and warehouse_id != user_wh:
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return jsonify({"status": "error", "message": "Tidak punya akses ke gudang ini"})
         flash("Tidak punya akses ke gudang ini", "error")
         return redirect("/stock")
 
     try:
-        if role in ["leader", "owner", "super_admin"]:
+        if has_permission(role, "direct_stock_ops"):
             ok = adjust_stock(product_id, variant_id, warehouse_id, qty)
 
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -385,7 +386,7 @@ def adjust():
             else:
                 flash("Stock gagal / tidak cukup", "error")
 
-        elif role == "admin":
+        elif has_permission(role, "request_stock_ops"):
             db.execute(
                 """
                 INSERT INTO approvals(type, product_id, variant_id, warehouse_id, qty, note, requested_by)
@@ -499,7 +500,7 @@ def bulk_adjust():
     role = session.get("role")
     user_wh = session.get("warehouse_id")
 
-    if role == "admin":
+    if has_permission(role, "request_stock_ops"):
         return jsonify(
             {
                 "status": "error",
@@ -507,7 +508,7 @@ def bulk_adjust():
             }
         )
 
-    if role not in ["leader", "owner", "super_admin"]:
+    if not has_permission(role, "direct_stock_ops"):
         return jsonify({"status": "error", "message": "Tidak punya akses"})
 
     try:

@@ -57,14 +57,14 @@
         <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
         <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
         <a href="/request" class="{% if request.path.startswith('/request') %}active{% endif %}">Request</a>
-        {% if session.get("role") in ["leader", "owner", "super_admin"] %}
+        {% if can("view_approvals") %}
         <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
         {% endif %}
-        {% if session.get("role") in ["super_admin", "owner", "admin"] %}
+        {% if can("view_audit") %}
         <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
         {% endif %}
         <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
-        {% if session.get("role") in ["super_admin", "owner", "admin"] %}
+        {% if can("view_admin") %}
         <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
         {% endif %}
     </nav>

@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.stock_service import add_stock
 from services.notification_service import notify_roles
+from services.rbac import has_permission, is_scoped_role
 
 inbound_bp = Blueprint(
     "inbound",
@@ -66,12 +67,11 @@ def inbound():
             user_wh = session.get("warehouse_id")
 
             # leader/admin are scoped to a single warehouse
-            if role in ["leader", "admin"] and warehouse_id != user_wh:
+            if is_scoped_role(role) and warehouse_id != user_wh:
                 flash("Tidak punya akses ke gudang ini", "error")
                 return redirect("/inbound")
 
-            # direct inbound only for leader, owner and super_admin
-            if role in ["leader", "owner", "super_admin"]:
+            if has_permission(role, "direct_stock_ops"):
                 db.execute("BEGIN")
 
                 success = add_stock(
@@ -91,7 +91,7 @@ def inbound():
                 db.commit()
                 flash("Inbound berhasil", "success")
 
-            elif role == "admin":
+            elif has_permission(role, "request_stock_ops"):
                 # create approval record for leader to process
                 db.execute("""
                 INSERT INTO approvals(type, product_id, variant_id, warehouse_id, qty, note, requested_by)

@@ -2,14 +2,13 @@ from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.stock_service import add_stock, remove_stock, adjust_stock
 from services.notification_service import notify_roles, notify_user
+from services.rbac import has_permission
 
 approvals_bp = Blueprint("approvals", __name__, url_prefix="/approvals")
 
 
 def require_leader():
-    role = session.get("role")
-    # leaders and owners and super_admin can access approval pages
-    if role not in ["leader", "owner", "super_admin"]:
+    if not has_permission(session.get("role"), "approve_stock_ops"):
         flash("Akses ditolak", "error")
         return False
     return True

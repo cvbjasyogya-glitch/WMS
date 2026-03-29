@@ -1,16 +1,16 @@
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
+from services.rbac import has_permission, is_scoped_role
 from werkzeug.security import generate_password_hash
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 # Only roles for now (include owner)
-ALLOWED_ROLES = ["super_admin", "owner", "leader", "admin"]
+ALLOWED_ROLES = ["super_admin", "owner", "leader", "admin", "staff"]
 
 
 def require_admin():
-    role = session.get("role")
-    if role not in ["super_admin", "owner", "admin"]:
+    if not has_permission(session.get("role"), "view_admin"):
         flash("Akses ditolak", "error")
         return False
     return True
@@ -45,7 +45,7 @@ def admin_page():
             """
             SELECT COUNT(*)
             FROM users
-            WHERE role IN ('leader', 'admin') AND warehouse_id IS NULL
+            WHERE role IN ('leader', 'admin', 'staff') AND warehouse_id IS NULL
             """
         ).fetchone()[0],
         "pending_requests": db.execute(
@@ -105,6 +105,13 @@ def add_user():
         flash("Role tidak valid", "error")
         return redirect("/admin")
 
+    if is_scoped_role(role) and not warehouse_id:
+        flash("Role scoped wajib assign gudang", "error")
+        return redirect("/admin")
+
+    if not is_scoped_role(role):
+        warehouse_id = None
+
     exist = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
     if exist:
         flash("Username sudah digunakan", "error")
@@ -161,6 +168,13 @@ def update_user(id):
     if role not in ALLOWED_ROLES:
         flash("Role tidak valid", "error")
         return redirect("/admin")
+
+    if is_scoped_role(role) and not warehouse_id:
+        flash("Role scoped wajib assign gudang", "error")
+        return redirect("/admin")
+
+    if not is_scoped_role(role):
+        warehouse_id = None
 
     if password:
         try:

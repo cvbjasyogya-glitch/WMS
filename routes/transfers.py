@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, flash, jsonify, session
 from database import get_db
 from services.request_service import create_request, approve_request
+from services.rbac import has_permission, is_scoped_role
 
 transfers_bp = Blueprint(
     "transfers",
@@ -63,7 +64,7 @@ def transfer():
 
         # enforce single-warehouse scope for leader/admin: from_wh must match assigned warehouse
         user_wh = session.get("warehouse_id")
-        if role in ["leader", "admin"] and from_wh != user_wh:
+        if is_scoped_role(role) and from_wh != user_wh:
             flash("Tidak punya akses untuk melakukan transfer dari gudang ini", "error")
             return redirect("/transfers")
 
@@ -71,7 +72,7 @@ def transfer():
         # CREATE + APPROVE (leader/owner/super_admin do immediate),
         # admin creates approval record for leader to review
         # ==========================
-        if role in ["leader", "owner", "super_admin"]:
+        if has_permission(role, "direct_transfer"):
             req_id = create_request(
                 product_id,
                 variant_id,
@@ -93,7 +94,7 @@ def transfer():
             flash("Transfer berhasil (FIFO)", "success")
             return redirect("/transfers")
 
-        elif role == "admin":
+        elif has_permission(role, "request_transfer"):
             req_id = create_request(
                 product_id,
                 variant_id,

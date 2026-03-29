@@ -30,12 +30,12 @@
 </div>
 
 <form method="GET" class="top-bar">
-    <select name="warehouse" {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
+    <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
         {% endfor %}
     </select>
-    {% if session.get("role") in ["leader", "admin"] %}
+    {% if is_scoped_user %}
     <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
     {% endif %}
     <input type="text" name="search" value="{{ request.args.get('search', '') }}" placeholder="Cari SKU, nama, atau kategori">
@@ -43,7 +43,7 @@
     <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
 </form>
 
-{% if session.get("role") in ["leader", "admin"] %}
+{% if is_scoped_user %}
 <small class="helper-text">Filter gudang mengikuti gudang akun Anda agar data tetap konsisten.</small>
 {% endif %}
 
@@ -60,6 +60,11 @@
         <button type="button" class="ghost-button" onclick="previewImport()">Preview File</button>
         <button type="button" onclick="submitImport()">Mulai Import</button>
     </div>
+
+    <small class="helper-text">
+        Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
+        Untuk file Excel, angka seperti <span class="mono">1.0</span> akan dibaca otomatis sebagai qty/gudang yang valid.
+    </small>
 
     <div id="previewBox"></div>
 
@@ -103,11 +108,15 @@
             </div>
             <div>
                 <label>Gudang Awal</label>
-                <select name="warehouse_id">
+                <select name="warehouse_id" {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
+                {% if is_scoped_user %}
+                <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}">
+                <small class="helper-text">Gudang awal dikunci mengikuti gudang akun Anda.</small>
+                {% endif %}
             </div>
             <div>
                 <label>Harga Retail</label>

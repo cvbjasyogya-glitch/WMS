@@ -2,6 +2,7 @@ import os
 import unittest
 from io import BytesIO
 from uuid import uuid4
+import zipfile
 
 import init_db as init_db_module
 from app import create_app, repair_restored_data
@@ -112,6 +113,90 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         return response, product["id"], variants_rows
 
+    def build_xlsx_bytes(self, rows):
+        def column_label(index):
+            label = ""
+            while index:
+                index, remainder = divmod(index - 1, 26)
+                label = chr(65 + remainder) + label
+            return label
+
+        shared_strings = []
+        shared_index = {}
+
+        def shared_id(value):
+            text = "" if value is None else str(value)
+            if text not in shared_index:
+                shared_index[text] = len(shared_strings)
+                shared_strings.append(text)
+            return shared_index[text]
+
+        sheet_rows = []
+        for row_idx, row in enumerate(rows, start=1):
+            cells = []
+            for col_idx, value in enumerate(row, start=1):
+                if value in (None, ""):
+                    continue
+                ref = f"{column_label(col_idx)}{row_idx}"
+                cells.append(f'<c r="{ref}" t="s"><v>{shared_id(value)}</v></c>')
+            sheet_rows.append(f'<row r="{row_idx}">{"".join(cells)}</row>')
+
+        shared_xml = "".join(
+            f"<si><t>{text}</t></si>" for text in shared_strings
+        )
+
+        workbook_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>"""
+
+        workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>"""
+
+        content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>"""
+
+        root_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+
+        sheet_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    {''.join(sheet_rows)}
+  </sheetData>
+</worksheet>"""
+
+        shared_strings_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="{len(shared_strings)}" uniqueCount="{len(shared_strings)}">
+  {shared_xml}
+</sst>"""
+
+        output = BytesIO()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", content_types)
+            archive.writestr("_rels/.rels", root_rels)
+            archive.writestr("xl/workbook.xml", workbook_xml)
+            archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+            archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+            archive.writestr("xl/sharedStrings.xml", shared_strings_xml)
+
+        output.seek(0)
+        return output.getvalue()
+
     def test_login_and_protected_pages_render(self):
         login_response = self.login()
         self.assertEqual(login_response.status_code, 302)
@@ -148,6 +233,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(variants_response.get_json()), 2)
 
     def test_request_approval_updates_stock(self):
+        self.create_user("leader_request", "pass1234", "leader", warehouse_id=1)
         self.login()
         _, product_id, variants_rows = self.create_product(variants="XL")
         variant_id = variants_rows[0]["id"]
@@ -174,6 +260,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(request_row["status"], "pending")
 
+        self.logout()
+        self.login("leader_request", "pass1234")
         approve_response = self.client.post(
             f"/request/approve/{request_row['id']}",
             follow_redirects=False,
@@ -198,6 +286,50 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(request_after["status"], "approved")
         self.assertEqual(stock_from["qty"], 4)
         self.assertEqual(stock_to["qty"], 1)
+
+    def test_admin_cannot_approve_request(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="APR")
+        variant_id = variants_rows[0]["id"]
+
+        request_response = self.client.post(
+            "/request/",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "from_warehouse": "1",
+                "to_warehouse": "2",
+                "qty": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                "SELECT id, status FROM requests WHERE product_id=? ORDER BY id DESC LIMIT 1",
+                (product_id,),
+            ).fetchone()
+
+        response = self.client.post(
+            f"/request/approve/{request_row['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        request_page = self.client.get("/request/")
+        html = request_page.get_data(as_text=True)
+        self.assertNotIn(f'/request/approve/{request_row["id"]}', html)
+
+        with self.app.app_context():
+            db = get_db()
+            request_after = db.execute(
+                "SELECT status FROM requests WHERE id=?",
+                (request_row["id"],),
+            ).fetchone()
+
+        self.assertEqual(request_after["status"], "pending")
 
     def test_import_preview_and_import_progress(self):
         self.login()
@@ -236,6 +368,54 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
 
         self.assertIsNotNone(product)
+
+    def test_import_xlsx_template_works_without_openpyxl_dependency(self):
+        self.login()
+        sku = "BED PP-POWERSPIN-00001"
+        xlsx_bytes = self.build_xlsx_bytes(
+            [
+                ["sku", "name", "category", "variant", "qty", "warehouse_id", "price_retail", "price_discount", "price_nett"],
+                [sku, "POWERSPIN 0001", "POWERSPIN", "-", "1.0", "1.0", "0.0", "0.0", "0.0"],
+            ]
+        )
+
+        preview_response = self.client.post(
+            "/products/import/preview",
+            data={"file": (BytesIO(xlsx_bytes), "template.xlsx")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(preview_response.get_json()["rows"][0]["sku"], sku)
+
+        import_response = self.client.post(
+            "/products/import",
+            data={"file": (BytesIO(xlsx_bytes), "template.xlsx")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(import_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                (sku,),
+            ).fetchone()
+            variant = db.execute(
+                "SELECT id, variant FROM product_variants WHERE product_id=?",
+                (product["id"],),
+            ).fetchone()
+            stock = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product["id"], variant["id"]),
+            ).fetchone()
+
+        self.assertIsNotNone(product)
+        self.assertEqual(variant["variant"], "default")
+        self.assertEqual(stock["qty"], 1)
 
     def test_forgot_password_creates_reset_code_without_error(self):
         self.create_user(
@@ -359,20 +539,72 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()["status"], "error")
 
     def test_scoped_role_pages_lock_warehouse_inputs(self):
-        self.create_user("leader_scope", "pass1234", "leader", warehouse_id=1)
-        self.login("leader_scope", "pass1234")
-
-        for path, marker in [
-            ("/products/", 'name="warehouse" disabled'),
-            ("/request/", 'name="from_warehouse" required disabled'),
-            ("/inbound/", 'name="warehouse_id" required disabled'),
-            ("/outbound/", 'name="warehouse_id" required disabled'),
-            ("/transfers/", 'name="from_warehouse" required disabled'),
+        for username, role in [
+            ("leader_scope", "leader"),
+            ("staff_scope", "staff"),
         ]:
+            self.create_user(username, "pass1234", role, warehouse_id=1)
+            self.login(username, "pass1234")
+
+            for path, marker in [
+                ("/products/", 'name="warehouse" disabled'),
+                ("/request/", 'name="from_warehouse" required disabled'),
+                ("/inbound/", 'name="warehouse_id" required disabled'),
+                ("/outbound/", 'name="warehouse_id" required disabled'),
+                ("/transfers/", 'name="from_warehouse" required disabled'),
+                ("/", 'id="warehouseSelect" class="pill-select" disabled'),
+            ]:
+                with self.subTest(role=role, path=path):
+                    response = self.client.get(path)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(marker, response.get_data(as_text=True))
+
+            self.logout()
+
+    def test_staff_cannot_access_admin_surfaces_and_adjust_creates_approval(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="STF")
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.create_user("staff_ops", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_ops", "pass1234")
+
+        for path in ["/admin/", "/audit/", "/approvals/"]:
             with self.subTest(path=path):
-                response = self.client.get(path)
-                self.assertEqual(response.status_code, 200)
-                self.assertIn(marker, response.get_data(as_text=True))
+                response = self.client.get(path, follow_redirects=False)
+                self.assertEqual(response.status_code, 302)
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-1",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+        self.assertEqual(adjust_response.get_json()["status"], "pending")
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                """
+                SELECT status, type
+                FROM approvals
+                WHERE product_id=? AND variant_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertIsNotNone(approval)
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual(approval["type"], "ADJUST")
 
     def test_request_check_new_ignores_restored_pending_requests(self):
         self.login()
@@ -516,6 +748,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.create_user("owner_user", "pass1234", "owner")
         self.login("owner_user", "pass1234")
         response = self.client.get("/admin/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_owner_can_access_audit_page(self):
+        self.create_user("owner_audit", "pass1234", "owner")
+        self.login("owner_audit", "pass1234")
+        response = self.client.get("/audit/")
         self.assertEqual(response.status_code, 200)
 
     def test_stock_opname_page_supports_selected_warehouses_and_exports(self):

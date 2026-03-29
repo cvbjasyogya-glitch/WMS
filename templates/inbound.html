@@ -31,12 +31,12 @@
             </div>
             <div>
                 <label>Gudang</label>
-                <select id="warehouse" name="warehouse_id" required {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
+                <select id="warehouse" name="warehouse_id" required {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
-                {% if session.get("role") in ["leader", "admin"] %}
+                {% if is_scoped_user %}
                 <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}">
                 <small class="helper-text">Gudang inbound dikunci mengikuti gudang akun Anda.</small>
                 {% endif %}

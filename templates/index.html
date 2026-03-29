@@ -6,7 +6,7 @@
 {% block page_subtitle %}Pantau stok aktif, nilai inventory, potensi aging, dan request antar gudang dari satu ruang kerja yang selalu hidup.{% endblock %}
 
 {% block page_actions %}
-<select id="warehouseSelect" class="pill-select" {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
+<select id="warehouseSelect" class="pill-select" {% if is_scoped_user %}disabled{% endif %}>
     {% for w in warehouses %}
     <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
     {% endfor %}
@@ -60,7 +60,7 @@
     </div>
 </div>
 
-{% if session.get("role") in ["leader", "admin"] %}
+{% if is_scoped_user %}
 <small class="helper-text" style="margin-bottom:16px;">Gudang dashboard dikunci mengikuti gudang akun Anda.</small>
 {% endif %}
 

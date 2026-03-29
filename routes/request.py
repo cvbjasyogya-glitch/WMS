@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.request_service import create_request, approve_request
 from services.notification_service import notify_roles
+from services.rbac import has_permission, is_scoped_role
 import os
 
 try:
@@ -16,16 +17,15 @@ request_bp = Blueprint(
 )
 
 
-def is_admin():
-    # approval rights: leader, owner and super_admin
-    return session.get("role") in ["leader", "owner", "super_admin", "admin"]
+def can_approve_request():
+    return has_permission(session.get("role"), "approve_requests")
 
 
 def get_request_scope():
     role = session.get("role")
     warehouse_id = session.get("warehouse_id")
 
-    if role in ["leader", "admin"] and warehouse_id:
+    if is_scoped_role(role) and warehouse_id:
         return warehouse_id
 
     return None
@@ -169,7 +169,7 @@ def request_barang():
         # enforce single-warehouse scope for leader/admin: from_wh must match assigned warehouse
         role = session.get("role")
         user_wh = session.get("warehouse_id")
-        if role in ["leader", "admin"] and from_wh != user_wh:
+        if is_scoped_role(role) and from_wh != user_wh:
             flash("Tidak punya akses untuk membuat request dari gudang ini", "error")
             return redirect("/request")
 
@@ -253,7 +253,7 @@ def request_barang():
 @request_bp.route("/approve/<int:id>", methods=["POST"])
 def approve_request_route(id):
 
-    if not is_admin():
+    if not can_approve_request():
         flash("Tidak punya akses", "error")
         return redirect("/request")
 

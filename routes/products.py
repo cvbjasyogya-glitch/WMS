@@ -1,9 +1,12 @@
 from flask import Blueprint, render_template, request, redirect, jsonify, flash, session
 from database import get_db
+from services.rbac import is_scoped_role
 from services.stock_service import add_stock
 import csv
 import uuid
-from io import StringIO
+from io import BytesIO, StringIO
+import xml.etree.ElementTree as ET
+import zipfile
 
 try:
     import pandas as pd
@@ -22,15 +25,32 @@ def _to_float(value):
         return 0
 
 
+def _to_int(value, default=0):
+    try:
+        if value in (None, ""):
+            return default
+        if isinstance(value, bool):
+            return int(value)
+        return int(float(str(value).strip().replace(",", "")))
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_variant_name(value):
     value = (value or "").strip()
-    return value or "default"
+    if value.lower() in {"", "-", "default", "n/a", "na", "none"}:
+        return "default"
+    return value
+
+
+def _row_has_content(row):
+    return any(str(value or "").strip() for value in row.values())
 
 
 def _resolve_products_warehouse(db):
     role = session.get("role")
 
-    if role in ["leader", "admin"]:
+    if is_scoped_role(role):
         warehouse_id = session.get("warehouse_id") or 1
     else:
         try:
@@ -49,6 +69,123 @@ def _resolve_products_warehouse(db):
     return fallback["id"] if fallback else 1
 
 
+def _resolve_import_warehouse(db, raw_warehouse_id, default_warehouse_id):
+    role = session.get("role")
+    if is_scoped_role(role):
+        return session.get("warehouse_id") or default_warehouse_id
+
+    warehouse_id = _to_int(raw_warehouse_id, default_warehouse_id)
+    warehouse = db.execute(
+        "SELECT id FROM warehouses WHERE id=?",
+        (warehouse_id,),
+    ).fetchone()
+    return warehouse["id"] if warehouse else default_warehouse_id
+
+
+def _xlsx_column_index(cell_ref):
+    letters = "".join(ch for ch in (cell_ref or "") if ch.isalpha()).upper()
+    total = 0
+    for ch in letters:
+        total = total * 26 + (ord(ch) - 64)
+    return max(total - 1, 0)
+
+
+def _xlsx_cell_value(cell, shared_strings, namespace):
+    cell_type = cell.attrib.get("t")
+
+    if cell_type == "inlineStr":
+        texts = [node.text or "" for node in cell.findall(".//a:t", namespace)]
+        return "".join(texts)
+
+    value_node = cell.find("a:v", namespace)
+    value = value_node.text if value_node is not None else ""
+
+    if cell_type == "s" and value:
+        try:
+            return shared_strings[int(value)]
+        except (ValueError, IndexError):
+            return ""
+
+    return value or ""
+
+
+def _read_xlsx_dataset(file):
+    namespace = {
+        "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
+    }
+
+    file.stream.seek(0)
+    raw = file.stream.read()
+    workbook_bytes = BytesIO(raw)
+
+    with zipfile.ZipFile(workbook_bytes) as archive:
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        relation_map = {
+            rel.attrib["Id"]: rel.attrib["Target"]
+            for rel in relations.findall("rel:Relationship", namespace)
+        }
+
+        sheets = workbook.find("a:sheets", namespace)
+        if sheets is None or not list(sheets):
+            raise ValueError("Sheet tidak ditemukan")
+
+        first_sheet = list(sheets)[0]
+        relation_id = first_sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        target = relation_map.get(relation_id)
+        if not target:
+            raise ValueError("Sheet target tidak valid")
+
+        shared_strings = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            for item in shared_root.findall("a:si", namespace):
+                texts = [node.text or "" for node in item.findall(".//a:t", namespace)]
+                shared_strings.append("".join(texts))
+
+        sheet_path = "xl/" + target.lstrip("/")
+        worksheet = ET.fromstring(archive.read(sheet_path))
+        sheet_data = worksheet.find("a:sheetData", namespace)
+        if sheet_data is None:
+            raise ValueError("Data sheet kosong")
+
+        grid_rows = []
+        for row in sheet_data.findall("a:row", namespace):
+            values = []
+            for cell in row.findall("a:c", namespace):
+                index = _xlsx_column_index(cell.attrib.get("r", "A1"))
+                while len(values) <= index:
+                    values.append("")
+                values[index] = _xlsx_cell_value(cell, shared_strings, namespace)
+            grid_rows.append(values)
+
+    if not grid_rows:
+        raise ValueError("Data kosong")
+
+    header_row = [str(value or "").strip() for value in grid_rows[0]]
+    active_columns = []
+    for idx, header in enumerate(header_row):
+        normalized = header.strip().lower()
+        if normalized:
+            active_columns.append((idx, normalized))
+
+    if not active_columns:
+        raise ValueError("Header tidak valid")
+
+    rows = []
+    for source_row in grid_rows[1:]:
+        row = {}
+        for idx, normalized in active_columns:
+            row[normalized] = source_row[idx] if idx < len(source_row) else ""
+        if _row_has_content(row):
+            rows.append(row)
+
+    file.stream.seek(0)
+    return [column for _, column in active_columns], rows
+
+
 def _read_import_file(file):
     if pd is None:
         raise RuntimeError("Fitur import membutuhkan dependency pandas dan openpyxl.")
@@ -61,16 +198,21 @@ def _read_import_file(file):
 
 
 def _read_import_dataset(file):
+    filename = (file.filename or "").lower()
+
+    if filename.endswith(".xlsx"):
+        return _read_xlsx_dataset(file)
+
     if pd is not None:
         df = _read_import_file(file)
         df.columns = [c.strip().lower() for c in df.columns]
         df = df.fillna("")
-        return list(df.columns), df.to_dict(orient="records")
+        rows = [row for row in df.to_dict(orient="records") if _row_has_content(row)]
+        return list(df.columns), rows
 
-    filename = (file.filename or "").lower()
     if not filename.endswith(".csv"):
         raise RuntimeError(
-            "Fitur import Excel membutuhkan dependency pandas dan openpyxl."
+            "Format file belum didukung. Gunakan template .xlsx atau .csv."
         )
 
     file.stream.seek(0)
@@ -90,7 +232,8 @@ def _read_import_dataset(file):
         for original, normalized in zip(original_fields, normalized_fields):
             if normalized:
                 row[normalized] = raw_row.get(original) or ""
-        rows.append(row)
+        if _row_has_content(row):
+            rows.append(row)
 
     file.stream.seek(0)
     return normalized_fields, rows
@@ -316,6 +459,9 @@ def add_product():
         flash("Input tidak valid", "error")
         return redirect("/products")
 
+    if is_scoped_role(session.get("role")):
+        warehouse_id = session.get("warehouse_id") or warehouse_id
+
     if qty <= 0:
         flash("Qty harus > 0", "error")
         return redirect("/products")
@@ -449,7 +595,7 @@ def import_products():
     wh = db.execute("SELECT id FROM warehouses WHERE id=?", (session.get("warehouse_id"),)).fetchone()
     if not wh:
         wh = db.execute("SELECT id FROM warehouses LIMIT 1").fetchone()
-    warehouse_id = wh["id"] if wh else 1
+    default_warehouse_id = wh["id"] if wh else 1
 
     CHUNK_SIZE = 200
 
@@ -463,7 +609,7 @@ def import_products():
         try:
             db.execute("BEGIN")
 
-            variant_ids = []
+            variant_payloads = []
 
             for row in chunk:
                 try:
@@ -472,7 +618,12 @@ def import_products():
                     category_name = str(row.get("category") or "").strip() or "Uncategorized"
                     variant = _normalize_variant_name(str(row.get("variant") or "default"))
 
-                    qty = int(row.get("qty") or 0)
+                    qty = _to_int(row.get("qty"), 0)
+                    warehouse_id = _resolve_import_warehouse(
+                        db,
+                        row.get("warehouse_id"),
+                        default_warehouse_id,
+                    )
                     if not sku or not name or qty <= 0:
                         continue
 
@@ -507,7 +658,7 @@ def import_products():
                         price_discount,
                         price_nett
                     )
-                    variant_ids.append((product_id, variant_id, qty))
+                    variant_payloads.append((product_id, variant_id, warehouse_id, qty))
 
                 except Exception as e:
                     print("ROW ERROR:", e)
@@ -515,7 +666,7 @@ def import_products():
                 IMPORT_PROGRESS[job_id]["current"] += 1
 
             stock_final = []
-            for p_id, v_id, qty in variant_ids:
+            for p_id, v_id, warehouse_id, qty in variant_payloads:
                 stock_final.append((p_id, v_id, warehouse_id, qty, qty))
 
             db.executemany("""

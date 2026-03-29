@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, session, request, jsonify
 from database import get_db
+from services.rbac import is_scoped_role
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -196,7 +197,7 @@ def set_warehouse():
             return jsonify({"status": "error", "message": "Gudang tidak valid"}), 400
 
         role = session.get("role")
-        if role in ["leader", "admin"]:
+        if is_scoped_role(role):
             allowed_warehouse = session.get("warehouse_id")
             session["warehouse_id"] = allowed_warehouse or warehouse_id
             return jsonify({"status": "ok", "warehouse_id": session["warehouse_id"]})

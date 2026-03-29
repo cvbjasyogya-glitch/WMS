@@ -10,7 +10,7 @@
     <div class="section-title">
         <div>
             <h2>Buat Request Baru</h2>
-            <p>Request akan divalidasi berdasarkan stok gudang asal dan bisa langsung ditindak oleh admin gudang.</p>
+            <p>Request akan divalidasi berdasarkan stok gudang asal dan diproses sesuai hak akses role akun yang sedang aktif.</p>
         </div>
     </div>
 
@@ -31,12 +31,12 @@
             </div>
             <div>
                 <label>Dari Gudang</label>
-                <select id="from_wh" name="from_warehouse" required {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
+                <select id="from_wh" name="from_warehouse" required {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if w.id == warehouse_id %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
-                {% if session.get("role") in ["leader", "admin"] %}
+                {% if is_scoped_user %}
                 <input type="hidden" name="from_warehouse" value="{{ warehouse_id }}">
                 <small class="helper-text">Gudang asal dikunci mengikuti gudang akun Anda.</small>
                 {% endif %}
@@ -101,7 +101,7 @@
                     <span class="badge {{ r.status }}">{{ r.status }}</span>
                 </td>
                 <td>
-                    {% if r.status == "pending" and session.get("role") in ["leader", "owner", "super_admin", "admin"] %}
+                    {% if r.status == "pending" and can("approve_requests") %}
                     <form method="POST" action="/request/approve/{{ r.id }}">
                         <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
                     </form>

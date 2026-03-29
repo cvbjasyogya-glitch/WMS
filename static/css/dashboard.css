@@ -290,6 +290,7 @@ body .page-subtitle {
     color: var(--text-muted);
     line-height: 1.7;
     font-size: 0.98rem;
+    overflow-wrap: anywhere;
 }
 
 body .page-actions,
@@ -438,8 +439,9 @@ body td {
     border-bottom: 1px solid rgba(10, 24, 42, 0.08);
     font-size: 0.92rem;
     vertical-align: middle;
-    white-space: nowrap;
     text-align: left;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 body th {
@@ -448,6 +450,24 @@ body th {
     text-transform: uppercase;
     color: var(--text-soft);
     background: rgba(12, 24, 43, 0.035);
+    white-space: nowrap;
+}
+
+body td {
+    white-space: normal;
+}
+
+body .mono,
+body .badge,
+body .status-pill,
+body button,
+body .btn-link,
+body a.btn-link,
+body .money-input,
+body input,
+body select {
+    overflow-wrap: normal;
+    word-break: normal;
 }
 
 body tbody tr:hover {
@@ -709,6 +729,7 @@ body .meta-card span {
 body .meta-card strong {
     font-size: 1.4rem;
     letter-spacing: -0.04em;
+    overflow-wrap: anywhere;
 }
 
 body .mobile-nav {

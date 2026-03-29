@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, session, url_fo
 from database import get_db
 import random
 from services.notification_service import send_email, send_whatsapp
+from services.rbac import is_scoped_role
 from werkzeug.security import check_password_hash
 from datetime import datetime, timezone
 
@@ -49,13 +50,13 @@ def login():
 
         session["user_id"] = user["id"]
         session["role"] = user["role"]
-        # set warehouse scope: use user assigned warehouse for leader/admin, otherwise default first warehouse
+        # set warehouse scope: use user assigned warehouse for scoped roles, otherwise default first warehouse
         try:
             user_wh = user.get('warehouse_id') if user else None
         except Exception:
             user_wh = None
 
-        if user_wh and user["role"] in ["leader", "admin"]:
+        if user_wh and is_scoped_role(user["role"]):
             session["warehouse_id"] = user_wh
         else:
             warehouse = db.execute("""
@@ -64,7 +65,7 @@ def login():
 
             session["warehouse_id"] = warehouse["id"] if warehouse else 1
 
-        if user["role"] in ["leader", "admin"] and session.get("warehouse_id"):
+        if is_scoped_role(user["role"]) and session.get("warehouse_id"):
             last_seen = db.execute(
                 """
                 SELECT COALESCE(MAX(id), 0)

@@ -48,7 +48,7 @@
     <div class="section-title">
         <div>
             <h2>Tambah User</h2>
-            <p>Buat akun baru untuk admin atau staff operasional dengan role yang sesuai.</p>
+            <p>Buat akun baru untuk leader, admin, atau staff operasional dengan role yang sesuai.</p>
         </div>
     </div>
 
@@ -66,19 +66,21 @@
                 <label>Role</label>
                 <select name="role">
                     <option value="admin">Admin</option>
+                    <option value="staff">Staff</option>
                     <option value="leader">Leader</option>
                     <option value="owner">Owner</option>
                     <option value="super_admin">Super Admin</option>
                 </select>
             </div>
             <div>
-                <label>Assign Gudang (opsional)</label>
+                <label>Assign Gudang</label>
                 <select name="warehouse_id">
                     <option value="">-- Tidak ada --</option>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}">{{ w.name }}</option>
                     {% endfor %}
                 </select>
+                <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff.</small>
             </div>
             <div>
                 <label>Email (opsional)</label>
@@ -106,7 +108,7 @@
         <div>
             <h2>Manajemen User</h2>
             <p>Perbarui username, role, atau password baru tanpa harus meninggalkan panel admin.</p>
-            <p style="margin-top:6px; color:var(--text-soft);">Catatan: Akun dengan role <strong>leader</strong> dan <strong>admin</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>super_admin</strong> dan <strong>owner</strong> dapat mengakses semua gudang.</p>
+            <p style="margin-top:6px; color:var(--text-soft);">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>super_admin</strong> dan <strong>owner</strong> dapat mengakses semua gudang.</p>
         </div>
     </div>
 
@@ -132,19 +134,21 @@
                         <label>Role</label>
                         <select name="role">
                             <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
-                                            <option value="leader" {% if u.role == 'leader' %}selected{% endif %}>leader</option>
-                                            <option value="owner" {% if u.role == 'owner' %}selected{% endif %}>owner</option>
-                                            <option value="super_admin" {% if u.role == 'super_admin' %}selected{% endif %}>super_admin</option>
+                            <option value="staff" {% if u.role == 'staff' %}selected{% endif %}>staff</option>
+                            <option value="leader" {% if u.role == 'leader' %}selected{% endif %}>leader</option>
+                            <option value="owner" {% if u.role == 'owner' %}selected{% endif %}>owner</option>
+                            <option value="super_admin" {% if u.role == 'super_admin' %}selected{% endif %}>super_admin</option>
                         </select>
                     </div>
                             <div>
-                                <label>Assign Gudang (opsional)</label>
+                                <label>Assign Gudang</label>
                                 <select name="warehouse_id">
                                     <option value="">-- Tidak ada --</option>
                                     {% for w in warehouses %}
                                     <option value="{{ w.id }}" {% if u.warehouse_id is defined and u.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
                                     {% endfor %}
                                 </select>
+                                <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff.</small>
                             </div>
                             <div>
                                 <label>Email (opsional)</label>

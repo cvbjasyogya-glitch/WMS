@@ -3,6 +3,7 @@ from config import Config
 from database import close_db, get_db
 from datetime import datetime, timezone
 from services.notification_service import send_email, send_whatsapp
+from services.rbac import has_permission, is_scoped_role
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from init_db import init_db
@@ -77,7 +78,7 @@ def repair_restored_data(app):
                 """
                 SELECT id, warehouse_id
                 FROM users
-                WHERE role IN ('leader', 'admin')
+                WHERE role IN ('leader', 'admin', 'staff')
                 """
             ).fetchall()
 
@@ -100,6 +101,32 @@ def repair_restored_data(app):
                 UPDATE users
                 SET role='super_admin', warehouse_id=NULL
                 WHERE lower(username)=lower('Rio')
+                """
+            )
+
+            db.execute(
+                """
+                UPDATE users
+                SET role='admin', warehouse_id=?
+                WHERE username='admin' AND username!='Rio'
+                """,
+                (default_warehouse_id,),
+            )
+
+            db.execute(
+                """
+                UPDATE users
+                SET role='leader', warehouse_id=?
+                WHERE username='leader' AND username!='Rio'
+                """,
+                (default_warehouse_id,),
+            )
+
+            db.execute(
+                """
+                UPDATE users
+                SET role='super_admin', warehouse_id=NULL
+                WHERE username IN ('superadmin', 'akmalyk21') AND username!='Rio'
                 """
             )
 
@@ -168,7 +195,7 @@ def seed_request_notification_cursor(db):
     role = session.get("role")
     warehouse_id = session.get("warehouse_id")
 
-    if role in ["leader", "admin"] and warehouse_id:
+    if is_scoped_role(role) and warehouse_id:
         row = db.execute(
             """
             SELECT COALESCE(MAX(id), 0)
@@ -197,6 +224,14 @@ def create_app():
     init_db(app.config["DATABASE"])
 
     app.teardown_appcontext(close_db)
+
+    @app.context_processor
+    def inject_permissions():
+        role = session.get("role")
+        return {
+            "can": lambda permission: has_permission(role, permission),
+            "is_scoped_user": is_scoped_role(role),
+        }
 
     # ==========================
     # AUTH CHECK
@@ -231,7 +266,7 @@ def create_app():
 
         session["role"] = user["role"]
 
-        if user["role"] in ["leader", "admin"]:
+        if is_scoped_role(user["role"]):
             session["warehouse_id"] = user["warehouse_id"] or 1
         elif not session.get("warehouse_id"):
             warehouse = db.execute(
