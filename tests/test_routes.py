@@ -358,6 +358,22 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["status"], "error")
 
+    def test_scoped_role_pages_lock_warehouse_inputs(self):
+        self.create_user("leader_scope", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_scope", "pass1234")
+
+        for path, marker in [
+            ("/products/", 'name="warehouse" disabled'),
+            ("/request/", 'name="from_warehouse" required disabled'),
+            ("/inbound/", 'name="warehouse_id" required disabled'),
+            ("/outbound/", 'name="warehouse_id" required disabled'),
+            ("/transfers/", 'name="from_warehouse" required disabled'),
+        ]:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(marker, response.get_data(as_text=True))
+
     def test_role_refresh_allows_promoted_user_to_adjust_directly(self):
         self.create_user("Rio", "admin123", "admin", warehouse_id=1)
         self.login("Rio", "admin123")

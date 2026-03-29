@@ -140,7 +140,8 @@ def transfer():
     return render_template(
         "transfer.html",
         products=products,
-        warehouses=warehouses
+        warehouses=warehouses,
+        warehouse_id=session.get("warehouse_id")
     )
 
 

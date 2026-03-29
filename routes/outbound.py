@@ -131,5 +131,6 @@ def outbound():
     return render_template(
         "outbound.html",
         products=products,
-        warehouses=warehouses
+        warehouses=warehouses,
+        warehouse_id=session.get("warehouse_id")
     )

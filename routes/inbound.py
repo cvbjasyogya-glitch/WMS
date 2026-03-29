@@ -139,5 +139,6 @@ def inbound():
     return render_template(
         "inbound.html",
         products=products,
-        warehouses=warehouses
+        warehouses=warehouses,
+        warehouse_id=session.get("warehouse_id")
     )
