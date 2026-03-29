@@ -74,6 +74,8 @@ def approve(id):
         flash("Approval tidak ditemukan", "error")
         return redirect('/approvals')
 
+    a = dict(a)
+
     try:
         ok = False
         # enforce warehouse scope for leaders
@@ -95,7 +97,7 @@ def approve(id):
             flash('Approval disetujui dan aksi dijalankan', 'success')
             # notify requester
             try:
-                if a and a.get('requested_by'):
+                if a.get('requested_by'):
                     subj = f"Permintaan {a.get('type')} #{a.get('id')} disetujui"
                     msg = f"Permintaan Anda (ID #{a.get('id')}) telah disetujui dan diproses oleh {session.get('user_id')}"
                     notify_user(a.get('requested_by'), subj, msg)
@@ -107,7 +109,7 @@ def approve(id):
             flash('Gagal memproses aksi', 'error')
             # notify requester about rejection
             try:
-                if a and a.get('requested_by'):
+                if a.get('requested_by'):
                     subj = f"Permintaan {a.get('type')} #{a.get('id')} gagal diproses"
                     msg = f"Permintaan Anda (ID #{a.get('id')}) ditolak atau gagal diproses oleh {session.get('user_id')}"
                     notify_user(a.get('requested_by'), subj, msg)
@@ -137,6 +139,8 @@ def reject(id):
     # enforce warehouse scope for leaders
     role = session.get('role')
     a = db.execute("SELECT * FROM approvals WHERE id=?", (id,)).fetchone()
+    if a:
+        a = dict(a)
     if role == 'leader' and session.get('warehouse_id') and a and a['warehouse_id'] != session.get('warehouse_id'):
         flash('Tidak punya akses untuk approval ini', 'error')
         return redirect('/approvals')

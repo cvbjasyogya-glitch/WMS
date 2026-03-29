@@ -10,8 +10,8 @@ ALLOWED_ROLES = ["super_admin", "owner", "leader", "admin"]
 
 def require_admin():
     role = session.get("role")
-    if role != "super_admin":
-        flash("Akses ditolak (super admin only)", "error")
+    if role not in ["super_admin", "admin"]:
+        flash("Akses ditolak", "error")
         return False
     return True
 

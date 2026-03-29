@@ -5,3 +5,4 @@ instance/
 *.db
 *.sqlite3
 .vscode/
+tests/.tmp/

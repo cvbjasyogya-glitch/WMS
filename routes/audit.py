@@ -74,7 +74,7 @@ def audit_page():
     if not is_logged_in():
         return redirect("/login")
 
-    if session.get("role") != "super_admin":
+    if session.get("role") not in ["super_admin", "admin"]:
         flash("Akses ditolak", "error")
         return redirect("/")
 
@@ -124,7 +124,7 @@ def export_csv():
     if not is_logged_in():
         return redirect("/login")
 
-    if session.get("role") != "super_admin":
+    if session.get("role") not in ["super_admin", "admin"]:
         flash("Akses ditolak", "error")
         return redirect("/")
 
