@@ -10,7 +10,7 @@ ALLOWED_ROLES = ["super_admin", "owner", "leader", "admin"]
 
 def require_admin():
     role = session.get("role")
-    if role not in ["super_admin", "admin"]:
+    if role not in ["super_admin", "owner", "admin"]:
         flash("Akses ditolak", "error")
         return False
     return True
@@ -40,10 +40,35 @@ def admin_page():
     SELECT * FROM warehouses ORDER BY id DESC
     """).fetchall()
 
+    health = {
+        "unassigned_scoped_users": db.execute(
+            """
+            SELECT COUNT(*)
+            FROM users
+            WHERE role IN ('leader', 'admin') AND warehouse_id IS NULL
+            """
+        ).fetchone()[0],
+        "pending_requests": db.execute(
+            "SELECT COUNT(*) FROM requests WHERE status='pending'"
+        ).fetchone()[0],
+        "pending_approvals": db.execute(
+            "SELECT COUNT(*) FROM approvals WHERE status='pending'"
+        ).fetchone()[0],
+        "failed_notifications": db.execute(
+            """
+            SELECT COUNT(*)
+            FROM notifications
+            WHERE status='failed'
+              AND created_at >= datetime('now', '-7 day')
+            """
+        ).fetchone()[0],
+    }
+
     return render_template(
         "admin.html",
         users=users,
-        warehouses=warehouses
+        warehouses=warehouses,
+        health=health,
     )
 
 

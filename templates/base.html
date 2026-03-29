@@ -56,11 +56,11 @@
         {% if session.get("role") in ["leader", "owner", "super_admin"] %}
         <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
         {% endif %}
-        {% if session.get("role") in ["super_admin", "admin"] %}
+        {% if session.get("role") in ["super_admin", "owner", "admin"] %}
         <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
         {% endif %}
         <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
-        {% if session.get("role") in ["super_admin", "admin"] %}
+        {% if session.get("role") in ["super_admin", "owner", "admin"] %}
         <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
         {% endif %}
     </nav>
@@ -104,6 +104,14 @@
 </main>
 
 </div>
+
+<nav class="mobile-dock">
+    <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
+    <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok</a>
+    <a href="/request" class="{% if request.path.startswith('/request') %}active{% endif %}">Request</a>
+    <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Opname</a>
+    <button type="button" class="{% if request.path.startswith('/admin') or request.path.startswith('/audit') or request.path.startswith('/approvals') %}active{% endif %}" onclick="toggleMenu()">Menu</button>
+</nav>
 
 <script>
 function toggleMenu() {

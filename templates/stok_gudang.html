@@ -3,30 +3,64 @@
 {% block title %}Stok Gudang | Mataram Sports WMS{% endblock %}
 {% block eyebrow %}Warehouse Inventory Surface{% endblock %}
 {% block page_title %}Stok Gudang{% endblock %}
-{% block page_subtitle %}Workspace inti untuk memantau kuantitas, aging batch, serta melakukan penyesuaian stok dan update atribut produk secara langsung.{% endblock %}
+{% block page_subtitle %}Workspace inti untuk memantau kuantitas, valuasi inventori, aging batch, dan penyesuaian stok dengan tampilan yang lebih nyaman dipakai dari desktop maupun mobile.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a
+        href="/stock/export?q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}"
+        class="btn-link"
+    >
+        Export Stock
+    </a>
+</div>
+{% endblock %}
 
 {% block content %}
 <div class="summary">
     <div class="card-mini">
         <p>Total Variant</p>
-        <h3>{{ data|length }}</h3>
+        <h3>{{ summary.total_variants }}</h3>
+        <small class="helper-text">Item yang lolos dari filter aktif.</small>
     </div>
     <div class="card-mini">
         <p>Total Qty</p>
-        <h3>{{ data|map(attribute='qty')|sum }}</h3>
+        <h3>{{ summary.total_qty }}</h3>
+        <small class="helper-text">Akumulasi stok siap operasional.</small>
     </div>
     <div class="card-mini">
-        <p>Filter Gudang</p>
-        <h3>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</h3>
+        <p>Nilai Inventori</p>
+        <h3>Rp {{ "{:,.0f}".format(summary.inventory_value) }}</h3>
+        <small class="helper-text">Menggunakan harga nett lalu fallback ke discount/retail.</small>
     </div>
-    <div class="card-mini">
-        <p>Urutan</p>
-        <h3>{{ sort }}</h3>
+    <div class="card-mini {% if summary.zero_count or summary.low_count %}warning{% endif %}">
+        <p>Perlu Atensi</p>
+        <h3>{{ summary.zero_count + summary.low_count }}</h3>
+        <small class="helper-text">{{ summary.zero_count }} kosong, {{ summary.low_count }} menipis.</small>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Gudang Aktif</span>
+        <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Stock Siap Jual</span>
+        <strong>{{ summary.ready_count }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Stock Habis</span>
+        <strong>{{ summary.zero_count }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Near Expiry</span>
+        <strong>{{ summary.expiring_count }}</strong>
     </div>
 </div>
 
 <form method="GET" class="top-bar">
-    <input type="text" name="q" value="{{ search }}" placeholder="Cari produk atau SKU">
+    <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau variant">
     <select name="warehouse" {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -37,11 +71,18 @@
     {% endif %}
     <input type="date" name="start_date" value="{{ start_date }}">
     <input type="date" name="end_date" value="{{ end_date }}">
+    <select name="stock_state">
+        <option value="all" {% if stock_state == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="ready" {% if stock_state == 'ready' %}selected{% endif %}>Stok Aman</option>
+        <option value="low" {% if stock_state == 'low' %}selected{% endif %}>Stok Menipis</option>
+        <option value="zero" {% if stock_state == 'zero' %}selected{% endif %}>Stok Habis</option>
+    </select>
     <select name="sort">
         <option value="qty_asc" {% if sort == 'qty_asc' %}selected{% endif %}>Stok Sedikit</option>
         <option value="qty_desc" {% if sort == 'qty_desc' %}selected{% endif %}>Stok Banyak</option>
         <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Nama A-Z</option>
         <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Nama Z-A</option>
+        <option value="age_desc" {% if sort == 'age_desc' %}selected{% endif %}>Aging Terlama</option>
     </select>
     <button type="submit">Filter</button>
     <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
@@ -55,12 +96,17 @@
     <div class="section-title">
         <div>
             <h2>Inventori Detail</h2>
-            <p>Edit informasi produk, sesuaikan kuantitas, dan deteksi item yang menipis sebelum mengganggu operasional.</p>
+            <p>Produk dengan badge merah atau kuning perlu diprioritaskan untuk replenishment, transfer, atau stock opname ulang.</p>
+        </div>
+        <div class="status-row">
+            <span class="status-pill">Aman: {{ summary.ready_count }}</span>
+            <span class="status-pill">Tipis: {{ summary.low_count }}</span>
+            <span class="status-pill">Kosong: {{ summary.zero_count }}</span>
         </div>
     </div>
 
     {% if data %}
-    <table>
+    <table class="stock-table">
         <thead>
             <tr>
                 <th><input type="checkbox" id="checkAll"></th>
@@ -68,6 +114,7 @@
                 <th>Produk</th>
                 <th>Variant</th>
                 <th>Qty</th>
+                <th>Status</th>
                 <th>Adjust</th>
                 <th>Retail</th>
                 <th>Discount</th>
@@ -83,7 +130,7 @@
                     <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
                 </td>
                 <td>
-                    <input class="edit-field" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}">
+                    <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}">
                 </td>
                 <td>
                     <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}">
@@ -101,19 +148,37 @@
                     {% endif %}
                 </td>
                 <td>
+                    {% if s.qty == 0 %}
+                    <span class="badge red">Kosong</span>
+                    {% elif s.qty < 5 %}
+                    <span class="badge orange">Menipis</span>
+                    {% else %}
+                    <span class="badge green">Aman</span>
+                    {% endif %}
+                </td>
+                <td>
                     <div class="split-actions">
                         <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
                         <button type="button" onclick="adjustStock(this)">Simpan</button>
                     </div>
                 </td>
                 <td>
-                    <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}">
+                    <div class="money-input">
+                        <span>Rp</span>
+                        <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}">
+                    </div>
                 </td>
                 <td>
-                    <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}">
+                    <div class="money-input">
+                        <span>Rp</span>
+                        <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}">
+                    </div>
                 </td>
                 <td>
-                    <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}">
+                    <div class="money-input">
+                        <span>Rp</span>
+                        <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}">
+                    </div>
                 </td>
                 <td>{{ s.age_days }} hari</td>
                 <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
@@ -124,13 +189,13 @@
 
     <div class="pagination">
         {% if page > 1 %}
-        <a href="?page={{ page-1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Prev</button></a>
+        <a href="?page={{ page-1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Prev</button></a>
         {% endif %}
 
         <span class="status-pill">Page {{ page }} / {{ total_pages }}</span>
 
         {% if page < total_pages %}
-        <a href="?page={{ page+1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Next</button></a>
+        <a href="?page={{ page+1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Next</button></a>
         {% endif %}
     </div>
     {% else %}

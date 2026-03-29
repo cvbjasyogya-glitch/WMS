@@ -3,46 +3,81 @@
 {% block title %}Stock Opname | Mataram Sports WMS{% endblock %}
 {% block eyebrow %}Physical Count Control{% endblock %}
 {% block page_title %}Stock Opname{% endblock %}
-{% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas.{% endblock %}
+{% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas dan tetap stabil untuk data restore lama.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions">
-    <a href="/so/export" class="btn-link">Export CSV</a>
-    <a href="/so/export_report" class="btn-link">Laporan SO</a>
+    <a href="/so/export?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportSoLink">Export CSV</a>
+    <a href="/so/export_report?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportReportLink">Laporan SO</a>
 </div>
 {% endblock %}
 
 {% block content %}
 <div class="summary">
     <div class="card-mini">
-        <p>Page</p>
-        <h3>{{ page }} / {{ total_pages }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Display ID</p>
-        <h3>{{ display_id }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Gudang ID</p>
-        <h3>{{ gudang_id }}</h3>
-    </div>
-    <div class="card-mini">
         <p>Data Tampil</p>
-        <h3>{{ data|length }}</h3>
+        <h3>{{ summary["items"] }}</h3>
+        <small class="helper-text">Baris SKU pada halaman aktif.</small>
+    </div>
+    <div class="card-mini">
+        <p>Qty Display</p>
+        <h3>{{ summary.display_qty }}</h3>
+        <small class="helper-text">Stok sistem area display.</small>
+    </div>
+    <div class="card-mini">
+        <p>Qty Gudang</p>
+        <h3>{{ summary.gudang_qty }}</h3>
+        <small class="helper-text">Stok sistem area gudang.</small>
+    </div>
+    <div class="card-mini {% if summary.mismatch_count %}warning{% endif %}">
+        <p>Butuh Cek</p>
+        <h3>{{ summary.mismatch_count }}</h3>
+        <small class="helper-text">Item dengan selisih display vs gudang.</small>
     </div>
 </div>
 
-<form method="GET" class="top-bar">
-    <input type="text" name="q" placeholder="Cari SKU atau nama produk" value="{{ search or '' }}">
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Display Aktif</span>
+        <strong>{{ display_name }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Gudang Aktif</span>
+        <strong>{{ gudang_name }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Page</span>
+        <strong>{{ page }} / {{ total_pages }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Mode</span>
+        <strong>SO Live</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar" id="soFilterForm">
+    <select name="display_id" id="displaySelect">
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if w.id == display_id %}selected{% endif %}>Display: {{ w.name }}</option>
+        {% endfor %}
+    </select>
+    <select name="gudang_id" id="gudangSelect">
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if w.id == gudang_id %}selected{% endif %}>Gudang: {{ w.name }}</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau variant" value="{{ search or '' }}">
     <button type="submit">Cari</button>
     <button type="button" class="ghost-button" onclick="submitSO()">Simpan SO</button>
 </form>
+
+<small class="helper-text">Display dan gudang otomatis dipisah supaya stock opname tidak tertimpa ke gudang yang sama.</small>
 
 <div class="table-box">
     <div class="section-title">
         <div>
             <h2>Perbandingan Stok Sistem vs Fisik</h2>
-            <p>Masukkan hasil hitungan fisik dan sistem akan menghitung selisih untuk tiap area secara langsung.</p>
+            <p>Masukkan hasil hitungan fisik. Selisih akan dihitung real-time sebelum disimpan ke histori stock opname.</p>
         </div>
     </div>
 
@@ -97,10 +132,20 @@
 <script>
 let currentPage = parseInt("{{ page }}" || "1", 10);
 let totalPages = parseInt("{{ total_pages }}" || "1", 10);
-let currentSearch = "{{ search or '' }}";
+let currentSearch = {{ (search or '')|tojson }};
+let displayId = {{ display_id|int }};
+let gudangId = {{ gudang_id|int }};
 
-const DISPLAY_ID = parseInt("{{ display_id }}" || "0", 10);
-const GUDANG_ID = parseInt("{{ gudang_id }}" || "0", 10);
+function syncExportLinks() {
+    const exportSoLink = document.getElementById("exportSoLink");
+    const exportReportLink = document.getElementById("exportReportLink");
+    if (exportSoLink) {
+        exportSoLink.href = "/so/export?display_id=" + displayId + "&gudang_id=" + gudangId;
+    }
+    if (exportReportLink) {
+        exportReportLink.href = "/so/export_report?display_id=" + displayId + "&gudang_id=" + gudangId;
+    }
+}
 
 function attachEvents() {
     document.querySelectorAll("#soTable tr").forEach((row) => {
@@ -152,9 +197,15 @@ function renderTable(data) {
 }
 
 function loadPage(page) {
-    fetch("/so?page=" + page + "&q=" + encodeURIComponent(currentSearch), {
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-    })
+    fetch(
+        "/so?page=" + page
+        + "&q=" + encodeURIComponent(currentSearch)
+        + "&display_id=" + displayId
+        + "&gudang_id=" + gudangId,
+        {
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+        }
+    )
     .then((res) => {
         if (!res.ok) throw new Error("Server error");
         return res.json();
@@ -165,8 +216,10 @@ function loadPage(page) {
         renderTable(data.data);
 
         document.getElementById("pageInfo").innerText = "Page " + currentPage + " / " + totalPages;
-        document.getElementById("prevBtn").disabled = currentPage <= 1;
-        document.getElementById("nextBtn").disabled = currentPage >= totalPages;
+        const prevBtn = document.getElementById("prevBtn");
+        const nextBtn = document.getElementById("nextBtn");
+        if (prevBtn) prevBtn.disabled = currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
     })
     .catch(() => alert("Gagal memuat data stock opname."));
 }
@@ -218,8 +271,8 @@ function submitSO() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            display_id: DISPLAY_ID,
-            gudang_id: GUDANG_ID,
+            display_id: displayId,
+            gudang_id: gudangId,
             items
         })
     })
@@ -235,8 +288,26 @@ function submitSO() {
     .catch(() => alert("Gagal menyimpan stock opname."));
 }
 
+document.getElementById("displaySelect")?.addEventListener("change", function() {
+    displayId = parseInt(this.value || "0", 10);
+    syncExportLinks();
+});
+
+document.getElementById("gudangSelect")?.addEventListener("change", function() {
+    gudangId = parseInt(this.value || "0", 10);
+    syncExportLinks();
+});
+
+document.getElementById("searchInput")?.addEventListener("change", function() {
+    currentSearch = this.value || "";
+    syncExportLinks();
+});
+
 attachEvents();
-document.getElementById("prevBtn").disabled = currentPage <= 1;
-document.getElementById("nextBtn").disabled = currentPage >= totalPages;
+syncExportLinks();
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
+if (prevBtn) prevBtn.disabled = currentPage <= 1;
+if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 </script>
 {% endblock %}

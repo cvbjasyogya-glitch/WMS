@@ -15,6 +15,33 @@
         <p>Total Gudang</p>
         <h3>{{ warehouses|length }}</h3>
     </div>
+    <div class="card-mini {% if health.unassigned_scoped_users %}warning{% endif %}">
+        <p>User Scope Kosong</p>
+        <h3>{{ health.unassigned_scoped_users }}</h3>
+    </div>
+    <div class="card-mini {% if health.pending_requests or health.pending_approvals %}warning{% endif %}">
+        <p>Queue Aktif</p>
+        <h3>{{ health.pending_requests + health.pending_approvals }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Request Pending</span>
+        <strong>{{ health.pending_requests }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Approval Pending</span>
+        <strong>{{ health.pending_approvals }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Notif Gagal 7 Hari</span>
+        <strong>{{ health.failed_notifications }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Status Restore</span>
+        <strong>{% if health.unassigned_scoped_users == 0 %}Sehat{% else %}Perlu Cek{% endif %}</strong>
+    </div>
 </div>
 
 <div class="form-box">

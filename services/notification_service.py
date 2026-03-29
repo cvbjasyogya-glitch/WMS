@@ -18,6 +18,23 @@ def _get_recipients_by_roles(roles):
     return [dict(r) for r in rows]
 
 
+def _notification_exists_recent(db, recipient, channel, subject, message):
+    row = db.execute(
+        """
+        SELECT id
+        FROM notifications
+        WHERE recipient=?
+          AND channel=?
+          AND subject=?
+          AND message=?
+          AND created_at >= datetime('now', '-2 minutes')
+        LIMIT 1
+        """,
+        (recipient, channel, subject, message),
+    ).fetchone()
+    return row is not None
+
+
 def send_email(recipient, subject, body):
     host = os.getenv("SMTP_HOST")
     port = int(os.getenv("SMTP_PORT", "587"))
@@ -73,22 +90,35 @@ def notify_roles(roles, subject, message, warehouse_id=None):
     db = get_db()
     recipients = _get_recipients_by_roles(roles)
 
-    # when warehouse_id provided, we route to leaders assigned to that warehouse
-    # and also CC other warehouse leaders/admins for visibility plus owners/super_admin
+    # when warehouse_id provided, only notify stakeholders that actually own the scope:
+    # target warehouse leaders/admins plus owner/super_admin
     if warehouse_id is not None:
-        # leaders for the target warehouse
-        leaders_target = [r for r in recipients if r.get('role') == 'leader' and r.get('warehouse_id') is not None and int(r.get('warehouse_id')) == int(warehouse_id)]
+        leaders_target = [
+            r for r in recipients
+            if r.get('role') == 'leader'
+            and r.get('warehouse_id') is not None
+            and int(r.get('warehouse_id')) == int(warehouse_id)
+        ]
 
-        # owners and super_admin from the original recipients
-        owners_super = [r for r in recipients if r.get('role') in ('owner', 'super_admin')]
+        owners_super = [
+            r for r in recipients if r.get('role') in ('owner', 'super_admin')
+        ]
 
-        # other leaders/admins assigned to other warehouses (for CC/visibility)
-        other_rows = db.execute("SELECT id, username, email, phone, role, notify_email, notify_whatsapp, warehouse_id FROM users WHERE role IN ('leader','admin') AND warehouse_id IS NOT NULL AND warehouse_id != ?", (warehouse_id,)).fetchall()
-        other = [dict(r) for r in other_rows]
+        targeted_admins = [
+            dict(r)
+            for r in db.execute(
+                """
+                SELECT id, username, email, phone, role, notify_email, notify_whatsapp, warehouse_id
+                FROM users
+                WHERE role='admin' AND warehouse_id=?
+                """,
+                (warehouse_id,),
+            ).fetchall()
+        ]
 
         # combine, deduplicate by id
         combined = {}
-        for r in leaders_target + owners_super + other:
+        for r in leaders_target + owners_super + targeted_admins:
             combined[r.get('id')] = r
 
         recipients = list(combined.values())
@@ -99,32 +129,35 @@ def notify_roles(roles, subject, message, warehouse_id=None):
     for r in recipients:
         # email (respect user preference)
         if r.get("email") and r.get("notify_email"):
-            ok = send_email(r.get("email"), subject, message)
-            results["email"].append({"to": r.get("email"), "ok": ok})
-            try:
-                db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                           (r.get("id"), r.get("role"), 'email', r.get("email"), subject, message, 'sent' if ok else 'failed'))
-            except Exception:
-                pass
+            if not _notification_exists_recent(db, r.get("email"), 'email', subject, message):
+                ok = send_email(r.get("email"), subject, message)
+                results["email"].append({"to": r.get("email"), "ok": ok})
+                try:
+                    db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
+                               (r.get("id"), r.get("role"), 'email', r.get("email"), subject, message, 'sent' if ok else 'failed'))
+                except Exception:
+                    pass
 
         # whatsapp (respect user preference)
         if r.get("phone") and r.get("notify_whatsapp"):
-            ok = send_whatsapp(r.get("phone"), message)
-            results["wa"].append({"to": r.get("phone"), "ok": ok})
-            try:
-                db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                           (r.get("id"), r.get("role"), 'wa', r.get("phone"), subject, message, 'sent' if ok else 'failed'))
-            except Exception:
-                pass
+            if not _notification_exists_recent(db, r.get("phone"), 'wa', subject, message):
+                ok = send_whatsapp(r.get("phone"), message)
+                results["wa"].append({"to": r.get("phone"), "ok": ok})
+                try:
+                    db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
+                               (r.get("id"), r.get("role"), 'wa', r.get("phone"), subject, message, 'sent' if ok else 'failed'))
+                except Exception:
+                    pass
 
     # fallback: if no specific contacts, send to configured FONNTE_TARGET and store a notification
     if not recipients and os.getenv("FONNTE_TARGET"):
-        ok = send_whatsapp(os.getenv("FONNTE_TARGET"), message)
-        try:
-            db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                       (None, None, 'wa', os.getenv("FONNTE_TARGET"), subject, message, 'sent' if ok else 'failed'))
-        except Exception:
-            pass
+        if not _notification_exists_recent(db, os.getenv("FONNTE_TARGET"), 'wa', subject, message):
+            ok = send_whatsapp(os.getenv("FONNTE_TARGET"), message)
+            try:
+                db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
+                           (None, None, 'wa', os.getenv("FONNTE_TARGET"), subject, message, 'sent' if ok else 'failed'))
+            except Exception:
+                pass
 
     try:
         db.commit()
@@ -146,22 +179,24 @@ def notify_user(user_id, subject, message):
         results = {"email": [], "wa": []}
 
         if u.get("email") and u.get("notify_email"):
-            ok = send_email(u.get("email"), subject, message)
-            results["email"].append({"to": u.get("email"), "ok": ok})
-            try:
-                db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                           (u.get("id"), None, 'email', u.get("email"), subject, message, 'sent' if ok else 'failed'))
-            except Exception:
-                pass
+            if not _notification_exists_recent(db, u.get("email"), 'email', subject, message):
+                ok = send_email(u.get("email"), subject, message)
+                results["email"].append({"to": u.get("email"), "ok": ok})
+                try:
+                    db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
+                               (u.get("id"), None, 'email', u.get("email"), subject, message, 'sent' if ok else 'failed'))
+                except Exception:
+                    pass
 
         if u.get("phone") and u.get("notify_whatsapp"):
-            ok = send_whatsapp(u.get("phone"), message)
-            results["wa"].append({"to": u.get("phone"), "ok": ok})
-            try:
-                db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
-                           (u.get("id"), None, 'wa', u.get("phone"), subject, message, 'sent' if ok else 'failed'))
-            except Exception:
-                pass
+            if not _notification_exists_recent(db, u.get("phone"), 'wa', subject, message):
+                ok = send_whatsapp(u.get("phone"), message)
+                results["wa"].append({"to": u.get("phone"), "ok": ok})
+                try:
+                    db.execute("INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status) VALUES (?,?,?,?,?,?,?)",
+                               (u.get("id"), None, 'wa', u.get("phone"), subject, message, 'sent' if ok else 'failed'))
+                except Exception:
+                    pass
 
         try:
             db.commit()

@@ -371,6 +371,10 @@ body .card.warning {
     background: linear-gradient(180deg, rgba(255, 245, 220, 0.98), rgba(255, 238, 204, 0.95));
 }
 
+body .card-mini.warning {
+    background: linear-gradient(180deg, rgba(255, 245, 220, 0.98), rgba(255, 238, 204, 0.95));
+}
+
 body .card.danger {
     background: linear-gradient(180deg, rgba(255, 233, 233, 0.98), rgba(255, 219, 219, 0.95));
 }
@@ -477,6 +481,45 @@ body textarea:focus {
 
 body input[readonly] {
     background: rgba(10, 24, 42, 0.05);
+}
+
+body .money-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(10, 24, 42, 0.12);
+    background: rgba(255, 255, 255, 0.86);
+    min-width: 150px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+body .money-input span {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-soft);
+    letter-spacing: 0.06em;
+}
+
+body .money-input input {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 12px 0;
+    min-width: 0;
+}
+
+body .money-input input:focus {
+    box-shadow: none;
+    background: transparent;
+}
+
+body .money-input:focus-within {
+    border-color: rgba(33, 137, 255, 0.45);
+    box-shadow: 0 0 0 4px rgba(33, 137, 255, 0.12);
+    background: #fff;
 }
 
 body button,
@@ -665,6 +708,10 @@ body .meta-card strong {
 }
 
 body .mobile-nav {
+    display: none;
+}
+
+body .mobile-dock {
     display: none;
 }
 
@@ -898,7 +945,7 @@ body .box {
     }
 
     body .main {
-        padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+        padding: 20px 16px calc(96px + env(safe-area-inset-bottom));
     }
 
     body .table-box,
@@ -966,6 +1013,10 @@ body .box {
         padding: 18px;
     }
 
+    body .money-input {
+        min-width: 132px;
+    }
+
     body .card h2,
     body .card-mini h3 {
         font-size: clamp(1.5rem, 8vw, 2rem);
@@ -975,6 +1026,47 @@ body .box {
         flex-wrap: nowrap;
         overflow-x: auto;
         padding-bottom: 4px;
+    }
+
+    body .mobile-dock {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        z-index: 45;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px;
+        border-radius: 24px;
+        background: rgba(6, 14, 28, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 24px 40px rgba(1, 8, 18, 0.28);
+        backdrop-filter: blur(18px);
+    }
+
+    body .mobile-dock a,
+    body .mobile-dock button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 10px 8px;
+        border-radius: 18px;
+        border: 0;
+        background: transparent;
+        color: var(--text-muted);
+        font: inherit;
+        font-size: 0.76rem;
+        text-decoration: none;
+        letter-spacing: 0.02em;
+        box-shadow: none;
+    }
+
+    body .mobile-dock a.active,
+    body .mobile-dock button.active {
+        background: rgba(93, 183, 255, 0.14);
+        color: #f7fbff;
     }
 }
 
@@ -1002,5 +1094,23 @@ body .box {
     body .import-box,
     body .box {
         padding: 16px;
+    }
+
+    body .mobile-dock {
+        left: 10px;
+        right: 10px;
+        gap: 6px;
+        padding: 8px;
+    }
+
+    body .mobile-dock a,
+    body .mobile-dock button {
+        min-height: 44px;
+        font-size: 0.7rem;
+        padding: 8px 6px;
+    }
+
+    body .money-input {
+        padding: 0 10px;
     }
 }

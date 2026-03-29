@@ -59,6 +59,124 @@ def ensure_super_admin(app):
             db.commit()
 
 
+def repair_restored_data(app):
+    with app.app_context():
+        db = get_db()
+
+        warehouses = db.execute(
+            "SELECT id FROM warehouses ORDER BY id"
+        ).fetchall()
+        if not warehouses:
+            return
+
+        default_warehouse_id = warehouses[0]["id"]
+        valid_warehouse_ids = {row["id"] for row in warehouses}
+
+        try:
+            scoped_users = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM users
+                WHERE role IN ('leader', 'admin')
+                """
+            ).fetchall()
+
+            for user in scoped_users:
+                if user["warehouse_id"] not in valid_warehouse_ids:
+                    db.execute(
+                        "UPDATE users SET warehouse_id=? WHERE id=?",
+                        (default_warehouse_id, user["id"]),
+                    )
+
+            db.execute(
+                "UPDATE users SET notify_email=1 WHERE notify_email IS NULL"
+            )
+            db.execute(
+                "UPDATE users SET notify_whatsapp=0 WHERE notify_whatsapp IS NULL"
+            )
+
+            db.execute(
+                """
+                UPDATE stock_batches
+                SET remaining_qty = qty
+                WHERE remaining_qty IS NULL
+                """
+            )
+
+            db.execute(
+                """
+                INSERT INTO stock_batches(
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    qty,
+                    remaining_qty,
+                    cost,
+                    created_at
+                )
+                SELECT
+                    s.product_id,
+                    s.variant_id,
+                    s.warehouse_id,
+                    s.qty,
+                    s.qty,
+                    0,
+                    datetime('now')
+                FROM stock s
+                WHERE COALESCE(s.qty, 0) > 0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM stock_batches b
+                      WHERE b.product_id = s.product_id
+                        AND b.variant_id = s.variant_id
+                        AND b.warehouse_id = s.warehouse_id
+                        AND COALESCE(b.remaining_qty, 0) > 0
+                  )
+                """
+            )
+
+            db.execute(
+                """
+                INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
+                SELECT
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    COALESCE(SUM(remaining_qty), 0)
+                FROM stock_batches
+                GROUP BY product_id, variant_id, warehouse_id
+                ON CONFLICT(product_id, variant_id, warehouse_id)
+                DO UPDATE SET qty = excluded.qty
+                """
+            )
+
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print("RESTORE REPAIR ERROR:", e)
+
+
+def seed_request_notification_cursor(db):
+    role = session.get("role")
+    warehouse_id = session.get("warehouse_id")
+
+    if role in ["leader", "admin"] and warehouse_id:
+        row = db.execute(
+            """
+            SELECT COALESCE(MAX(id), 0)
+            FROM requests
+            WHERE from_warehouse=? OR to_warehouse=?
+            """,
+            (warehouse_id, warehouse_id),
+        ).fetchone()
+    else:
+        row = db.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM requests"
+        ).fetchone()
+
+    session["request_last_seen_id"] = row[0] if row else 0
+
+
 # ==============================
 # CREATE APP
 # ==============================
@@ -112,6 +230,9 @@ def create_app():
                 "SELECT id FROM warehouses ORDER BY id LIMIT 1"
             ).fetchone()
             session["warehouse_id"] = warehouse["id"] if warehouse else 1
+
+        if "request_last_seen_id" not in session:
+            seed_request_notification_cursor(db)
 
         now = datetime.now(timezone.utc).timestamp()
         last_active = session.get("last_active", now)
@@ -196,6 +317,7 @@ def create_app():
     app.register_blueprint(so_bp)
 
     ensure_super_admin(app)
+    repair_restored_data(app)
 
     return app
 

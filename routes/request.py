@@ -85,6 +85,14 @@ def check_new():
     except:
         last_id = 0
 
+    try:
+        session_last_seen = int(session.get("request_last_seen_id", 0) or 0)
+    except:
+        session_last_seen = 0
+
+    baseline_id = max(last_id, session_last_seen)
+    session["request_last_seen_id"] = baseline_id
+
     warehouse_id = get_request_scope()
 
     if not warehouse_id:
@@ -99,10 +107,12 @@ def check_new():
     AND (from_warehouse=? OR to_warehouse=?)
     ORDER BY id ASC
     LIMIT 1
-    """, (last_id, warehouse_id, warehouse_id)).fetchone()
+    """, (baseline_id, warehouse_id, warehouse_id)).fetchone()
 
     if not row:
         return {"status": "no"}
+
+    session["request_last_seen_id"] = row["id"]
 
     return {
         "status": "yes",

@@ -64,6 +64,22 @@ def login():
 
             session["warehouse_id"] = warehouse["id"] if warehouse else 1
 
+        if user["role"] in ["leader", "admin"] and session.get("warehouse_id"):
+            last_seen = db.execute(
+                """
+                SELECT COALESCE(MAX(id), 0)
+                FROM requests
+                WHERE from_warehouse=? OR to_warehouse=?
+                """,
+                (session["warehouse_id"], session["warehouse_id"]),
+            ).fetchone()[0]
+        else:
+            last_seen = db.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM requests"
+            ).fetchone()[0]
+
+        session["request_last_seen_id"] = last_seen
+
         session["last_active"] = datetime.now(timezone.utc).timestamp()
         session.permanent = True
 

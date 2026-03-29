@@ -36,7 +36,29 @@ def _resolve_so_warehouses(db, display_id=None, gudang_id=None):
     if not _warehouse_exists(db, gudang_id):
         gudang_id = default_gudang
 
+    if display_id == gudang_id and len(warehouses) >= 2:
+        gudang_id = next((w["id"] for w in warehouses if w["id"] != display_id), display_id)
+
     return display_id, gudang_id
+
+
+def _build_so_summary(rows):
+    mismatch_count = 0
+    total_display = 0
+    total_gudang = 0
+
+    for row in rows:
+        total_display += int(row["display_qty"] or 0)
+        total_gudang += int(row["gudang_qty"] or 0)
+        if row["display_qty"] != row["gudang_qty"]:
+            mismatch_count += 1
+
+    return {
+        "items": len(rows),
+        "display_qty": total_display,
+        "gudang_qty": total_gudang,
+        "mismatch_count": mismatch_count,
+    }
 
 
 def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, physical_qty, diff_qty, user_id, note):
@@ -174,8 +196,8 @@ def so_page():
     params = [display_id, gudang_id]
 
     if search:
-        base_query += " AND (p.name LIKE ? OR p.sku LIKE ?)"
-        params += [f"%{search}%", f"%{search}%"]
+        base_query += " AND (p.name LIKE ? OR p.sku LIKE ? OR pv.variant LIKE ?)"
+        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
 
     total = db.execute("SELECT COUNT(*) " + base_query, params).fetchone()[0]
 
@@ -200,6 +222,10 @@ def so_page():
 
     data = [dict(r) for r in rows]
     total_pages = max(1, (total + limit - 1) // limit)
+    summary = _build_so_summary(data)
+
+    warehouses = [dict(w) for w in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
+    warehouse_lookup = {w["id"]: w["name"] for w in warehouses}
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify(
@@ -207,6 +233,7 @@ def so_page():
                 "data": data,
                 "page": page,
                 "total_pages": total_pages,
+                "summary": summary,
             }
         )
 
@@ -218,6 +245,10 @@ def so_page():
         total_pages=total_pages,
         display_id=display_id,
         gudang_id=gudang_id,
+        display_name=warehouse_lookup.get(display_id, f"Gudang {display_id}"),
+        gudang_name=warehouse_lookup.get(gudang_id, f"Gudang {gudang_id}"),
+        warehouses=warehouses,
+        summary=summary,
     )
 
 
@@ -251,6 +282,20 @@ def submit_so():
                 gudang_physical = int(item.get("gudang_physical", 0) or 0)
             except:
                 continue
+
+            entity = db.execute(
+                """
+                SELECT p.id
+                FROM products p
+                JOIN product_variants pv ON pv.product_id = p.id
+                WHERE p.id=? AND pv.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+            if not entity:
+                db.rollback()
+                return jsonify({"error": "Produk atau variant tidak valid"}), 400
 
             if display_physical < 0 or gudang_physical < 0:
                 db.rollback()
@@ -294,7 +339,7 @@ def submit_so():
         db.commit()
         return jsonify(
             {
-                "message": "SO berhasil disimpan & stock sinkron",
+                "message": "SO berhasil disimpan dan stock sudah sinkron",
                 "processed": processed,
             }
         )
@@ -309,10 +354,11 @@ def submit_so():
 def export_so():
     db = get_db()
 
-    try:
-        warehouse_id = int(request.args.get("warehouse", 1))
-    except:
-        warehouse_id = 1
+    display_id, gudang_id = _resolve_so_warehouses(
+        db,
+        request.args.get("display_id"),
+        request.args.get("gudang_id"),
+    )
 
     data = db.execute(
         """
@@ -320,32 +366,53 @@ def export_so():
             p.sku,
             p.name,
             pv.variant,
-            COALESCE(s.qty,0) as system_qty
+            COALESCE(sd.qty,0) as display_qty,
+            COALESCE(sg.qty,0) as gudang_qty
         FROM products p
         JOIN product_variants pv ON p.id = pv.product_id
-        LEFT JOIN stock s
-            ON s.product_id = p.id
-            AND s.variant_id = pv.id
-            AND s.warehouse_id = ?
+        LEFT JOIN stock sd
+            ON sd.product_id = p.id
+            AND sd.variant_id = pv.id
+            AND sd.warehouse_id = ?
+        LEFT JOIN stock sg
+            ON sg.product_id = p.id
+            AND sg.variant_id = pv.id
+            AND sg.warehouse_id = ?
         ORDER BY p.name ASC
         """,
-        (warehouse_id,),
+        (display_id, gudang_id),
     ).fetchall()
 
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(["SKU", "Nama Produk", "Variant", "System Qty"])
+    writer.writerow(
+        [
+            "SKU",
+            "Nama Produk",
+            "Variant",
+            "Display System Qty",
+            "Gudang System Qty",
+        ]
+    )
 
-    for r in data:
-        writer.writerow([r["sku"], r["name"], r["variant"], r["system_qty"]])
-
-    output.seek(0)
+    for row in data:
+        writer.writerow(
+            [
+                row["sku"],
+                row["name"],
+                row["variant"],
+                row["display_qty"],
+                row["gudang_qty"],
+            ]
+        )
 
     return Response(
-        output,
+        output.getvalue(),
         mimetype="text/csv",
         headers={
-            "Content-Disposition": f"attachment;filename=stock_opname_{warehouse_id}.csv"
+            "Content-Disposition": (
+                f"attachment;filename=stock_opname_display_{display_id}_gudang_{gudang_id}.csv"
+            )
         },
     )
 
@@ -354,10 +421,11 @@ def export_so():
 def export_so_report():
     db = get_db()
 
-    try:
-        warehouse_id = int(request.args.get("warehouse", 1))
-    except:
-        warehouse_id = 1
+    display_id, gudang_id = _resolve_so_warehouses(
+        db,
+        request.args.get("display_id"),
+        request.args.get("gudang_id"),
+    )
 
     data = db.execute(
         """
@@ -365,6 +433,7 @@ def export_so_report():
             p.sku,
             p.name,
             pv.variant,
+            w.name as warehouse_name,
             r.system_qty,
             r.physical_qty,
             r.diff_qty,
@@ -374,10 +443,11 @@ def export_so_report():
         JOIN products p ON r.product_id = p.id
         JOIN product_variants pv ON r.variant_id = pv.id
         LEFT JOIN users u ON r.user_id = u.id
-        WHERE r.warehouse_id = ?
+        LEFT JOIN warehouses w ON r.warehouse_id = w.id
+        WHERE r.warehouse_id IN (?, ?)
         ORDER BY r.created_at DESC
         """,
-        (warehouse_id,),
+        (display_id, gudang_id),
     ).fetchall()
 
     output = StringIO()
@@ -386,6 +456,7 @@ def export_so_report():
         [
             "Tanggal",
             "User",
+            "Gudang",
             "SKU",
             "Nama Produk",
             "Variant",
@@ -395,26 +466,27 @@ def export_so_report():
         ]
     )
 
-    for r in data:
+    for row in data:
         writer.writerow(
             [
-                r["created_at"],
-                r["username"] or "System",
-                r["sku"],
-                r["name"],
-                r["variant"],
-                r["system_qty"],
-                r["physical_qty"],
-                r["diff_qty"],
+                row["created_at"],
+                row["username"] or "System",
+                row["warehouse_name"] or "-",
+                row["sku"],
+                row["name"],
+                row["variant"],
+                row["system_qty"],
+                row["physical_qty"],
+                row["diff_qty"],
             ]
         )
 
-    output.seek(0)
-
     return Response(
-        output,
+        output.getvalue(),
         mimetype="text/csv",
         headers={
-            "Content-Disposition": f"attachment;filename=laporan_so_{warehouse_id}.csv"
+            "Content-Disposition": (
+                f"attachment;filename=laporan_so_display_{display_id}_gudang_{gudang_id}.csv"
+            )
         },
     )

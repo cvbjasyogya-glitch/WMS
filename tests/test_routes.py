@@ -4,7 +4,7 @@ from io import BytesIO
 from uuid import uuid4
 
 import init_db as init_db_module
-from app import create_app
+from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
 from werkzeug.security import generate_password_hash
@@ -373,6 +373,147 @@ class WmsRoutesTestCase(unittest.TestCase):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(marker, response.get_data(as_text=True))
+
+    def test_request_check_new_ignores_restored_pending_requests(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="REQ")
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO requests(
+                    product_id,
+                    variant_id,
+                    from_warehouse,
+                    to_warehouse,
+                    qty,
+                    status
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (product_id, variant_id, 1, 2, 1, "pending"),
+            )
+            db.commit()
+
+        self.create_user("leader_notify", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_notify", "pass1234")
+
+        first_check = self.client.get("/request/check_new?last_id=0")
+        self.assertEqual(first_check.status_code, 200)
+        self.assertEqual(first_check.get_json()["status"], "no")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO requests(
+                    product_id,
+                    variant_id,
+                    from_warehouse,
+                    to_warehouse,
+                    qty,
+                    status
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (product_id, variant_id, 1, 2, 2, "pending"),
+            )
+            db.commit()
+
+        second_check = self.client.get("/request/check_new?last_id=0")
+        self.assertEqual(second_check.status_code, 200)
+        self.assertEqual(second_check.get_json()["status"], "yes")
+
+    def test_restore_repair_creates_batches_for_legacy_stock(self):
+        self.create_user("restore_super", "admin123", "super_admin")
+        self.login("restore_super", "admin123")
+        _, product_id, variants_rows = self.create_product(variants="LEGACY")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "DELETE FROM stock_batches WHERE product_id=? AND variant_id=? AND warehouse_id=?",
+                (product_id, variant_id, 1),
+            )
+            db.execute(
+                """
+                UPDATE stock
+                SET qty=?
+                WHERE product_id=? AND variant_id=? AND warehouse_id=?
+                """,
+                (7, product_id, variant_id, 1),
+            )
+            db.commit()
+
+        repair_restored_data(self.app)
+
+        with self.app.app_context():
+            db = get_db()
+            batch = db.execute(
+                """
+                SELECT qty, remaining_qty
+                FROM stock_batches
+                WHERE product_id=? AND variant_id=? AND warehouse_id=?
+                """,
+                (product_id, variant_id, 1),
+            ).fetchone()
+
+        self.assertIsNotNone(batch)
+        self.assertEqual(batch["qty"], 7)
+        self.assertEqual(batch["remaining_qty"], 7)
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-2",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+        self.assertEqual(adjust_response.get_json()["status"], "success")
+
+    def test_stock_page_renders_rupiah_prefix_and_export(self):
+        self.login()
+        response, _, _ = self.create_product(variants="PRC")
+        self.assertEqual(response.status_code, 302)
+
+        page = self.client.get("/stock/")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("money-input", html)
+        self.assertIn(">Rp<", html)
+
+        export = self.client.get("/stock/export")
+        self.assertEqual(export.status_code, 200)
+        self.assertIn("text/csv", export.content_type)
+        self.assertIn("Harga Retail", export.get_data(as_text=True))
+
+    def test_owner_can_access_admin_page(self):
+        self.create_user("owner_user", "pass1234", "owner")
+        self.login("owner_user", "pass1234")
+        response = self.client.get("/admin/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_stock_opname_page_supports_selected_warehouses_and_exports(self):
+        self.login()
+        response = self.client.get("/so/?display_id=1&gudang_id=2")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('name="display_id"', html)
+        self.assertIn('name="gudang_id"', html)
+        self.assertIn("/so/export?display_id=1&gudang_id=2", html)
+
+        export = self.client.get("/so/export?display_id=1&gudang_id=2")
+        self.assertEqual(export.status_code, 200)
+        self.assertIn("Display System Qty", export.get_data(as_text=True))
 
     def test_role_refresh_allows_promoted_user_to_adjust_directly(self):
         self.create_user("Rio", "admin123", "admin", warehouse_id=1)
