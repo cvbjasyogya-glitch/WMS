@@ -21,6 +21,16 @@ def is_admin():
     return session.get("role") in ["leader", "owner", "super_admin", "admin"]
 
 
+def get_request_scope():
+    role = session.get("role")
+    warehouse_id = session.get("warehouse_id")
+
+    if role in ["leader", "admin"] and warehouse_id:
+        return warehouse_id
+
+    return None
+
+
 # ==========================
 # WA NOTIFICATION
 # ==========================
@@ -75,7 +85,7 @@ def check_new():
     except:
         last_id = 0
 
-    warehouse_id = session.get("warehouse_id")
+    warehouse_id = get_request_scope()
 
     if not warehouse_id:
         return {"status": "no"}
@@ -182,8 +192,9 @@ def request_barang():
     """).fetchall()
 
     warehouse_id = session.get("warehouse_id")
+    warehouse_scope = get_request_scope()
 
-    if warehouse_id:
+    if warehouse_scope:
         rows = db.execute("""
         SELECT 
             r.*,
@@ -198,7 +209,7 @@ def request_barang():
         JOIN warehouses w2 ON r.to_warehouse = w2.id
         WHERE (r.from_warehouse=? OR r.to_warehouse=?)
         ORDER BY r.id DESC
-        """, (warehouse_id, warehouse_id)).fetchall()
+        """, (warehouse_scope, warehouse_scope)).fetchall()
     else:
         rows = db.execute("""
         SELECT 
@@ -234,6 +245,21 @@ def approve_request_route(id):
 
     if not is_admin():
         flash("Tidak punya akses", "error")
+        return redirect("/request")
+
+    db = get_db()
+    req = db.execute(
+        "SELECT id, from_warehouse, to_warehouse FROM requests WHERE id=?",
+        (id,),
+    ).fetchone()
+
+    if not req:
+        flash("Request tidak ditemukan", "error")
+        return redirect("/request")
+
+    warehouse_scope = get_request_scope()
+    if warehouse_scope and warehouse_scope not in [req["from_warehouse"], req["to_warehouse"]]:
+        flash("Tidak punya akses untuk request ini", "error")
         return redirect("/request")
 
     success = approve_request(id)

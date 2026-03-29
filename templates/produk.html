@@ -30,15 +30,22 @@
 </div>
 
 <form method="GET" class="top-bar">
-    <select name="warehouse">
+    <select name="warehouse" {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
         {% endfor %}
     </select>
+    {% if session.get("role") in ["leader", "admin"] %}
+    <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
+    {% endif %}
     <input type="text" name="search" value="{{ request.args.get('search', '') }}" placeholder="Cari SKU, nama, atau kategori">
     <button type="submit">Terapkan Filter</button>
     <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
 </form>
+
+{% if session.get("role") in ["leader", "admin"] %}
+<small class="helper-text">Filter gudang mengikuti gudang akun Anda agar data tetap konsisten.</small>
+{% endif %}
 
 <div class="import-box">
     <div class="section-title">

@@ -248,6 +248,9 @@ def adjust_stock(product_id, variant_id, warehouse_id, qty, note="Stock Adjustme
     except:
         return False
 
+    if qty == 0:
+        return False
+
     if not _validate_entities(db, product_id, variant_id, warehouse_id):
         return False
 

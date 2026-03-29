@@ -40,19 +40,47 @@ class WmsRoutesTestCase(unittest.TestCase):
     def logout(self):
         return self.client.get("/logout", follow_redirects=False)
 
-    def create_user(self, username, password, role, warehouse_id=None):
+    def create_user(
+        self,
+        username,
+        password,
+        role,
+        warehouse_id=None,
+        email=None,
+        phone=None,
+        notify_email=1,
+        notify_whatsapp=0,
+    ):
         with self.app.app_context():
             db = get_db()
             db.execute(
                 """
-                INSERT INTO users(username, password, role, warehouse_id)
-                VALUES (?,?,?,?)
+                INSERT INTO users(
+                    username,
+                    password,
+                    role,
+                    warehouse_id,
+                    email,
+                    phone,
+                    notify_email,
+                    notify_whatsapp
+                )
+                VALUES (?,?,?,?,?,?,?,?)
                 """,
-                (username, generate_password_hash(password), role, warehouse_id),
+                (
+                    username,
+                    generate_password_hash(password),
+                    role,
+                    warehouse_id,
+                    email,
+                    phone,
+                    notify_email,
+                    notify_whatsapp,
+                ),
             )
             db.commit()
 
-    def create_product(self, sku=None, qty=5, variants="M,L"):
+    def create_product(self, sku=None, qty=5, variants="M,L", warehouse_id="1"):
         sku = sku or ("AUTO-" + uuid4().hex[:8].upper())
 
         response = self.client.post(
@@ -63,7 +91,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "category_name": "Testing",
                 "variants": variants,
                 "qty": str(qty),
-                "warehouse_id": "1",
+                "warehouse_id": str(warehouse_id),
                 "price_retail": "150000",
                 "price_discount": "135000",
                 "price_nett": "120000",
@@ -209,6 +237,52 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(product)
 
+    def test_forgot_password_creates_reset_code_without_error(self):
+        self.create_user(
+            "reset_user",
+            "pass1234",
+            "admin",
+            warehouse_id=1,
+            email="reset@example.test",
+            notify_email=1,
+        )
+
+        response = self.client.post(
+            "/forgot",
+            data={"identifier": "reset@example.test"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            reset_row = db.execute(
+                """
+                SELECT pr.code
+                FROM password_resets pr
+                JOIN users u ON u.id = pr.user_id
+                WHERE u.username=?
+                ORDER BY pr.id DESC
+                LIMIT 1
+                """,
+                ("reset_user",),
+            ).fetchone()
+
+        self.assertIsNotNone(reset_row)
+        self.assertEqual(len(reset_row["code"]), 6)
+
+    def test_products_page_respects_selected_warehouse_for_super_admin(self):
+        self.create_user("superboss", "admin123", "super_admin")
+        self.login("superboss", "admin123")
+        response, _, _ = self.create_product(variants="WH2", warehouse_id="2")
+        self.assertEqual(response.status_code, 302)
+
+        page = self.client.get("/products/?warehouse=2")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+
+        self.assertIn('<option value="2" selected>', html)
+
     def test_admin_adjust_requires_approval_and_leader_can_approve(self):
         self.create_user("leader_test", "pass1234", "leader", warehouse_id=1)
         self.login()
@@ -259,6 +333,77 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual(approval_after["status"], "approved")
+        self.assertEqual(stock_after["qty"], 3)
+
+    def test_leader_bulk_adjust_rejects_zero_qty(self):
+        self.create_user("leader_zero", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_zero", "pass1234")
+        _, product_id, variants_rows = self.create_product(variants="ZERO")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/stock/bulk-adjust",
+            json={
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "warehouse_id": 1,
+                        "qty": 0,
+                    }
+                ]
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "error")
+
+    def test_role_refresh_allows_promoted_user_to_adjust_directly(self):
+        self.create_user("Rio", "admin123", "admin", warehouse_id=1)
+        self.login("Rio", "admin123")
+        _, product_id, variants_rows = self.create_product(variants="RIO")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE users SET role=? WHERE username=?",
+                ("super_admin", "Rio"),
+            )
+            db.commit()
+
+        stock_page = self.client.get("/stock/", follow_redirects=False)
+        self.assertEqual(stock_page.status_code, 200)
+
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("role"), "super_admin")
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-2",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+        self.assertEqual(adjust_response.get_json()["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            approvals = db.execute(
+                "SELECT COUNT(*) FROM approvals WHERE product_id=?",
+                (product_id,),
+            ).fetchone()[0]
+            stock_after = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(approvals, 0)
         self.assertEqual(stock_after["qty"], 3)
 
     def test_stock_opname_submit_updates_stock_and_history(self):

@@ -92,6 +92,27 @@ def create_app():
         if not user_id:
             return redirect(url_for("auth.login", next=request.path))
 
+        db = get_db()
+        user = db.execute(
+            "SELECT id, role, warehouse_id FROM users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+
+        if not user:
+            session.clear()
+            flash("User tidak ditemukan, silakan login kembali", "error")
+            return redirect(url_for("auth.login"))
+
+        session["role"] = user["role"]
+
+        if user["role"] in ["leader", "admin"]:
+            session["warehouse_id"] = user["warehouse_id"] or 1
+        elif not session.get("warehouse_id"):
+            warehouse = db.execute(
+                "SELECT id FROM warehouses ORDER BY id LIMIT 1"
+            ).fetchone()
+            session["warehouse_id"] = warehouse["id"] if warehouse else 1
+
         now = datetime.now(timezone.utc).timestamp()
         last_active = session.get("last_active", now)
 
@@ -100,7 +121,6 @@ def create_app():
             try:
                 uid = session.get("user_id")
                 if uid:
-                    db = get_db()
                     user = db.execute("SELECT id, email, phone, notify_email, notify_whatsapp FROM users WHERE id=?", (uid,)).fetchone()
                     if user:
                         subj = "Sesi berakhir - Auto logout"

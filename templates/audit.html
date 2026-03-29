@@ -6,12 +6,21 @@
 {% block page_subtitle %}Lacak histori perubahan stok, aktivitas user, dan jejak transaksi untuk investigasi operasional yang lebih cepat dan rapi.{% endblock %}
 
 {% block page_actions %}
-<a class="btn-link" href="/audit/export?q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}">Export CSV</a>
+<a class="btn-link" href="/audit/export?q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}&warehouse={{ selected_warehouse or '' }}">Export CSV</a>
 {% endblock %}
 
 {% block content %}
 <form method="GET" class="top-bar">
     <input name="q" placeholder="Cari produk atau SKU" value="{{ request.args.get('q', '') }}">
+    <select name="warehouse" {% if session.get("role") == "admin" %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if selected_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if session.get("role") == "admin" %}
+    <input type="hidden" name="warehouse" value="{{ selected_warehouse or '' }}">
+    {% endif %}
     <select name="action">
         <option value="">Semua Aksi</option>
         <option value="INBOUND" {% if request.args.get('action') == 'INBOUND' %}selected{% endif %}>INBOUND</option>
@@ -26,6 +35,10 @@
     <input type="date" name="end_date" value="{{ request.args.get('end_date', '') }}">
     <button type="submit">Terapkan Filter</button>
 </form>
+
+{% if session.get("role") == "admin" %}
+<small class="helper-text">Audit admin dibatasi ke gudang akun yang sedang ditetapkan.</small>
+{% endif %}
 
 <div class="table-box">
     <div class="section-title">

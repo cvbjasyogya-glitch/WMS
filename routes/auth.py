@@ -100,6 +100,8 @@ def forgot_password():
         if not user:
             return redirect(url_for('auth.login'))
 
+        user = dict(user)
+
         # generate 6 digit code
         code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
         db.execute("INSERT INTO password_resets(user_id, code, expires_at) VALUES (?,?,datetime('now','+15 minutes'))", (user['id'], code))

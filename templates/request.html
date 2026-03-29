@@ -31,11 +31,15 @@
             </div>
             <div>
                 <label>Dari Gudang</label>
-                <select id="from_wh" name="from_warehouse" required>
+                <select id="from_wh" name="from_warehouse" required {% if session.get("role") in ["leader", "admin"] %}disabled{% endif %}>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if w.id == warehouse_id %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
+                {% if session.get("role") in ["leader", "admin"] %}
+                <input type="hidden" name="from_warehouse" value="{{ warehouse_id }}">
+                <small class="helper-text">Gudang asal dikunci mengikuti gudang akun Anda.</small>
+                {% endif %}
             </div>
             <div>
                 <label>Ke Gudang</label>
@@ -66,7 +70,7 @@
     <div class="section-title">
         <div>
             <h2>Antrian Request</h2>
-            <p>Semua request untuk gudang aktif ditampilkan di sini agar operator dan admin melihat konteks yang sama.</p>
+            <p>Request ditampilkan sesuai scope akun Anda, sehingga leader dan admin fokus ke gudangnya sendiri sementara super admin bisa memantau lintas gudang.</p>
         </div>
     </div>
 
@@ -110,7 +114,7 @@
         </tbody>
     </table>
     {% else %}
-    <div class="empty-state">Belum ada request yang tercatat untuk gudang aktif.</div>
+    <div class="empty-state">Belum ada request yang tercatat untuk scope akun ini.</div>
     {% endif %}
 </div>
 {% endblock %}

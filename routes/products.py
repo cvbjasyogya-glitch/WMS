@@ -27,6 +27,28 @@ def _normalize_variant_name(value):
     return value or "default"
 
 
+def _resolve_products_warehouse(db):
+    role = session.get("role")
+
+    if role in ["leader", "admin"]:
+        warehouse_id = session.get("warehouse_id") or 1
+    else:
+        try:
+            warehouse_id = int(request.args.get("warehouse") or session.get("warehouse_id") or 1)
+        except (TypeError, ValueError):
+            warehouse_id = 1
+
+    warehouse = db.execute(
+        "SELECT id FROM warehouses WHERE id=?",
+        (warehouse_id,),
+    ).fetchone()
+    if warehouse:
+        return warehouse["id"]
+
+    fallback = db.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()
+    return fallback["id"] if fallback else 1
+
+
 def _read_import_file(file):
     if pd is None:
         raise RuntimeError("Fitur import membutuhkan dependency pandas dan openpyxl.")
@@ -122,14 +144,7 @@ def get_variants(product_id):
 def products():
 
     db = get_db()
-
-    warehouse_id = session.get("warehouse_id")
-
-    if not warehouse_id:
-        try:
-            warehouse_id = int(request.args.get("warehouse", 1))
-        except:
-            warehouse_id = 1
+    warehouse_id = _resolve_products_warehouse(db)
 
     try:
         page = int(request.args.get("page", 1))
@@ -226,7 +241,17 @@ def products():
 def bulk_delete():
 
     db = get_db()
-    ids = request.json.get("ids", [])
+    payload = request.get_json(silent=True) or {}
+    raw_ids = payload.get("ids", [])
+    ids = []
+
+    for raw_id in raw_ids:
+        try:
+            ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+
+    ids = sorted(set(ids))
 
     if not ids:
         return jsonify({"message": "No data"}), 400

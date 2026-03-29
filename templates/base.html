@@ -10,17 +10,23 @@
 <body>
 
 <div class="mobile-nav">
-    <button type="button" class="ghost-button" onclick="toggleMenu()">Navigasi</button>
     <div class="mobile-brand">
         <div class="mobile-brand-mark">
             <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
         </div>
         <div>
             <strong>Mataram Sports</strong>
-            <span>Operations Suite</span>
+            <span>{{ self.page_title()|striptags }}</span>
         </div>
     </div>
+    <div class="mobile-nav-actions">
+        <span class="mobile-chip">{{ session.get("role", "guest") }}</span>
+        <span class="mobile-chip">WH {{ session.get("warehouse_id", "-") }}</span>
+        <button type="button" id="mobileMenuButton" class="ghost-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
+    </div>
 </div>
+
+<div class="mobile-sidebar-backdrop" id="menuBackdrop" onclick="closeMenu()"></div>
 
 <div class="layout">
 
@@ -101,9 +107,22 @@
 
 <script>
 function toggleMenu() {
+    if (window.innerWidth > 1080) return;
     const menu = document.getElementById("menu");
-    if (!menu) return;
-    menu.style.display = menu.style.display === "flex" ? "none" : "flex";
+    const button = document.getElementById("mobileMenuButton");
+    if (!menu || !button) return;
+
+    const nextState = !document.body.classList.contains("menu-open");
+    document.body.classList.toggle("menu-open", nextState);
+    button.setAttribute("aria-expanded", nextState ? "true" : "false");
+}
+
+function closeMenu() {
+    const button = document.getElementById("mobileMenuButton");
+    document.body.classList.remove("menu-open");
+    if (button) {
+        button.setAttribute("aria-expanded", "false");
+    }
 }
 
 function showToast(text) {
@@ -120,6 +139,20 @@ document.querySelectorAll(".flash").forEach((flash) => {
         flash.style.transform = "translateY(-4px)";
         setTimeout(() => flash.remove(), 250);
     }, 5000);
+});
+
+document.querySelectorAll("#menu nav a, #menu form button").forEach((node) => {
+    node.addEventListener("click", () => {
+        if (window.innerWidth <= 1080) {
+            closeMenu();
+        }
+    });
+});
+
+window.addEventListener("resize", () => {
+    if (window.innerWidth > 1080) {
+        closeMenu();
+    }
 });
 </script>
 

@@ -65,6 +65,37 @@ def build_query(filters, warehouse_id=None):
     return query, params
 
 
+def resolve_audit_warehouse(db):
+    role = session.get("role")
+
+    if role == "admin":
+        warehouse_id = session.get("warehouse_id")
+        if warehouse_id:
+            return warehouse_id, warehouse_id
+
+        fallback = db.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()
+        selected = fallback["id"] if fallback else None
+        return selected, selected
+
+    raw_warehouse = request.args.get("warehouse")
+    if not raw_warehouse:
+        return None, None
+
+    try:
+        selected = int(raw_warehouse)
+    except (TypeError, ValueError):
+        return None, None
+
+    warehouse = db.execute(
+        "SELECT id FROM warehouses WHERE id=?",
+        (selected,),
+    ).fetchone()
+    if not warehouse:
+        return None, None
+
+    return selected, selected
+
+
 # ==========================
 # AUDIT PAGE
 # ==========================
@@ -98,7 +129,8 @@ def audit_page():
     limit = 50
     offset = (page - 1) * limit
 
-    warehouse_id = session.get("warehouse_id")
+    warehouse_id, selected_warehouse = resolve_audit_warehouse(db)
+    warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
 
     try:
         query, params = build_query(filters, warehouse_id)
@@ -112,7 +144,13 @@ def audit_page():
         print("AUDIT ERROR:", e)
         data = []
 
-    return render_template("audit.html", data=data, page=page)
+    return render_template(
+        "audit.html",
+        data=data,
+        page=page,
+        warehouses=warehouses,
+        selected_warehouse=selected_warehouse,
+    )
 
 
 # ==========================
@@ -138,7 +176,7 @@ def export_csv():
         "end": request.args.get("end_date"),
     }
 
-    warehouse_id = session.get("warehouse_id")
+    warehouse_id, _ = resolve_audit_warehouse(db)
 
     try:
         query, params = build_query(filters, warehouse_id)

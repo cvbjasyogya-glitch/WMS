@@ -186,8 +186,22 @@ def dashboard_realtime():
 def set_warehouse():
 
     try:
+        db = get_db()
         warehouse_id = int(request.form.get("warehouse_id"))
+        warehouse = db.execute(
+            "SELECT id FROM warehouses WHERE id=?",
+            (warehouse_id,),
+        ).fetchone()
+        if not warehouse:
+            return jsonify({"status": "error", "message": "Gudang tidak valid"}), 400
+
+        role = session.get("role")
+        if role in ["leader", "admin"]:
+            allowed_warehouse = session.get("warehouse_id")
+            session["warehouse_id"] = allowed_warehouse or warehouse_id
+            return jsonify({"status": "ok", "warehouse_id": session["warehouse_id"]})
+
         session["warehouse_id"] = warehouse_id
-        return jsonify({"status": "ok"})
+        return jsonify({"status": "ok", "warehouse_id": warehouse_id})
     except:
         return jsonify({"status": "error"}), 400
