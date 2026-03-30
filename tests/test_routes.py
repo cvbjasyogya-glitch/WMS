@@ -497,6 +497,76 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(request_rows[1]["qty"], 3)
         self.assertEqual(request_rows[1]["status"], "pending")
 
+    def test_leader_can_process_bulk_transfer_directly(self):
+        self.create_user("leader_transfer", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=10, variants="41,42")
+        self.assertEqual(response.status_code, 302)
+        self.logout()
+
+        self.login("leader_transfer", "pass1234")
+        transfer_response = self.client.post(
+            "/transfers/",
+            data={
+                "from_warehouse": "1",
+                "to_warehouse": "2",
+                "items_json": json.dumps([
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[0]["id"],
+                        "qty": 2,
+                    },
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[1]["id"],
+                        "qty": 3,
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(transfer_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_from = db.execute(
+                """
+                SELECT variant_id, qty
+                FROM stock
+                WHERE product_id=? AND warehouse_id=1
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+            stock_to = db.execute(
+                """
+                SELECT variant_id, qty
+                FROM stock
+                WHERE product_id=? AND warehouse_id=2
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+            request_rows = db.execute(
+                """
+                SELECT variant_id, qty, status
+                FROM requests
+                WHERE product_id=?
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+
+        self.assertEqual(len(stock_from), 2)
+        self.assertEqual(stock_from[0]["qty"], 8)
+        self.assertEqual(stock_from[1]["qty"], 7)
+        self.assertEqual(len(stock_to), 2)
+        self.assertEqual(stock_to[0]["qty"], 2)
+        self.assertEqual(stock_to[1]["qty"], 3)
+        self.assertEqual(len(request_rows), 2)
+        self.assertEqual(request_rows[0]["status"], "approved")
+        self.assertEqual(request_rows[1]["status"], "approved")
+
     def test_request_approval_updates_stock(self):
         self.create_user("leader_request", "pass1234", "leader", warehouse_id=1)
         self.login()

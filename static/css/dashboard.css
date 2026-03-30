@@ -598,10 +598,11 @@ body a.btn-link:hover {
 }
 
 body button:disabled {
-    opacity: 0.55;
+    opacity: 0.72;
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
+    filter: saturate(0.8);
 }
 
 body .danger-button,
@@ -611,10 +612,22 @@ body .danger {
 }
 
 body .ghost-button {
-    background: rgba(10, 24, 42, 0.04);
-    color: var(--text-strong);
-    border-color: rgba(10, 24, 42, 0.08);
-    box-shadow: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(236, 242, 248, 0.94));
+    color: #10233b;
+    border-color: rgba(10, 24, 42, 0.14);
+    box-shadow: 0 10px 22px rgba(7, 17, 31, 0.08);
+}
+
+body .ghost-button:hover {
+    color: #081222;
+    border-color: rgba(33, 137, 255, 0.28);
+    box-shadow: 0 14px 24px rgba(7, 17, 31, 0.12);
+}
+
+body .ghost-button:disabled {
+    background: linear-gradient(180deg, rgba(247, 250, 253, 0.94), rgba(234, 240, 246, 0.92));
+    color: #576b82;
+    border-color: rgba(10, 24, 42, 0.1);
 }
 
 body .sidebar .ghost-button,
@@ -1516,15 +1529,17 @@ body .meta-grid {
 body .meta-card {
     padding: 16px 18px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.74);
-    border: 1px solid rgba(10, 24, 42, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 252, 0.94));
+    border: 1px solid rgba(10, 24, 42, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 12px 28px rgba(4, 12, 24, 0.14);
 }
 
 body .meta-card span {
     display: block;
     margin-bottom: 8px;
-    color: var(--text-soft);
+    color: #5a6f88;
     font-size: 0.82rem;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
 }
@@ -1532,7 +1547,42 @@ body .meta-card span {
 body .meta-card strong {
     font-size: 1.4rem;
     letter-spacing: -0.04em;
+    line-height: 1.18;
+    color: #0b1a2c;
+    text-shadow: none;
     overflow-wrap: anywhere;
+}
+
+body .stock-filter-bar,
+body .products-filter-bar,
+body #soFilterForm {
+    padding: 14px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(10, 24, 42, 0.28), rgba(17, 38, 69, 0.22));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(14px);
+    align-items: stretch;
+}
+
+body .stock-filter-bar > *,
+body .products-filter-bar > *,
+body #soFilterForm > * {
+    align-self: stretch;
+}
+
+body .stock-filter-bar button,
+body .products-filter-bar button,
+body #soFilterForm button {
+    min-width: 158px;
+}
+
+body .stock-filter-bar .ghost-button,
+body .products-filter-bar .ghost-button,
+body #soFilterForm .ghost-button {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(237, 243, 249, 0.94));
+    color: #0f223b;
+    border-color: rgba(10, 24, 42, 0.16);
 }
 
 body .mobile-nav {
