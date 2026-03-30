@@ -106,11 +106,38 @@ body .sidebar {
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(149, 169, 191, 0.72) rgba(255, 255, 255, 0.06);
     border-right: 1px solid var(--line);
     background:
         linear-gradient(180deg, rgba(11, 21, 37, 0.94) 0%, rgba(6, 14, 28, 0.94) 100%);
     backdrop-filter: blur(18px);
+}
+
+body .sidebar::-webkit-scrollbar {
+    width: 10px;
+}
+
+body .sidebar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+}
+
+body .sidebar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(184, 197, 214, 0.9), rgba(121, 138, 161, 0.96));
+    border-radius: 999px;
+    border: 2px solid rgba(7, 17, 31, 0.92);
+}
+
+body .sidebar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(214, 223, 234, 0.96), rgba(148, 163, 184, 0.98));
+}
+
+body .sidebar::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;
 }
 
 body .brand-block {
