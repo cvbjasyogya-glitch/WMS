@@ -210,6 +210,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/outbound/",
             "/transfers/",
             "/request/",
+            "/hris/",
             "/audit/",
             "/so/",
         ]:
@@ -220,9 +221,1509 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('name="viewport"', html)
                 self.assertIn('mobile-nav', html)
                 self.assertIn('@admin', html)
+                self.assertIn('data-theme-toggle', html)
+                self.assertIn('>WMS<', html)
+                self.assertIn('>HRIS<', html)
 
         admin_page = self.client.get("/admin/", follow_redirects=False)
         self.assertEqual(admin_page.status_code, 302)
+
+    def test_hris_attendance_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/attendance")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Attendance", html)
+        self.assertIn("Log Kehadiran", html)
+        self.assertIn("Tambah Attendance", html)
+
+    def test_hris_leave_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/leave")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Leave", html)
+        self.assertIn("Leave Tracker", html)
+        self.assertIn("Tambah Leave", html)
+
+    def test_hris_payroll_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/payroll")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Payroll", html)
+        self.assertIn("Payroll Register", html)
+        self.assertIn("Tambah Payroll", html)
+
+    def test_hris_recruitment_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Recruitment", html)
+        self.assertIn("Hiring Pipeline", html)
+        self.assertIn("Tambah Kandidat", html)
+
+    def test_hris_onboarding_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/onboarding")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Onboarding", html)
+        self.assertIn("Onboarding Tracker", html)
+        self.assertIn("Tambah Onboarding", html)
+
+    def test_hris_offboarding_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/offboarding")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Offboarding", html)
+        self.assertIn("Offboarding Tracker", html)
+        self.assertIn("Tambah Offboarding", html)
+
+    def test_hris_performance_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/pms")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Performance", html)
+        self.assertIn("Performance Review", html)
+        self.assertIn("Tambah Review", html)
+
+    def test_hris_helpdesk_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/helpdesk")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Helpdesk", html)
+        self.assertIn("Ticket Helpdesk", html)
+        self.assertIn("Tambah Ticket", html)
+
+    def test_hris_asset_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/asset")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Asset", html)
+        self.assertIn("Asset Register", html)
+        self.assertIn("Tambah Asset", html)
+
+    def test_hris_project_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/project")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Project", html)
+        self.assertIn("Project Register", html)
+        self.assertIn("Tambah Project", html)
+
+    def test_hris_report_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/report")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Report", html)
+        self.assertIn("HR Analytics Report", html)
+        self.assertIn("Workforce Snapshot", html)
+
+    def test_hris_biometric_route_renders_operational_view(self):
+        self.login()
+        response = self.client.get("/hris/biometric")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Biometric", html)
+        self.assertIn("Biometric Sync Log", html)
+        self.assertIn("Tambah Log", html)
+
+    def test_admin_can_manage_employee_records_in_hris(self):
+        self.login()
+
+        create_response = self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-001",
+                "full_name": "Budi Santoso",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Stock Controller",
+                "employment_status": "active",
+                "phone": "628123456789",
+                "email": "budi@example.com",
+                "join_date": "2026-03-01",
+                "work_location": "Gudang Mega",
+                "notes": "Lead picker zone A",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, employee_code, full_name, warehouse_id, department, position, employment_status
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["full_name"], "Budi Santoso")
+        self.assertEqual(employee["warehouse_id"], 1)
+        self.assertEqual(employee["employment_status"], "active")
+
+        update_response = self.client.post(
+            f"/hris/employee/update/{employee['id']}",
+            data={
+                "employee_code": "EMP-001",
+                "full_name": "Budi Santoso Update",
+                "warehouse_id": "2",
+                "department": "Warehouse Support",
+                "position": "Inventory Analyst",
+                "employment_status": "probation",
+                "phone": "628123456789",
+                "email": "budi@example.com",
+                "join_date": "2026-03-01",
+                "work_location": "Gudang Mataram",
+                "notes": "Updated note",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            employee_after = db.execute(
+                """
+                SELECT full_name, warehouse_id, department, position, employment_status, work_location
+                FROM employees
+                WHERE id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertEqual(employee_after["full_name"], "Budi Santoso Update")
+        self.assertEqual(employee_after["warehouse_id"], 1)
+        self.assertEqual(employee_after["department"], "Warehouse Support")
+        self.assertEqual(employee_after["position"], "Inventory Analyst")
+        self.assertEqual(employee_after["employment_status"], "probation")
+        self.assertEqual(employee_after["work_location"], "Gudang Mataram")
+
+        delete_response = self.client.post(
+            f"/hris/employee/delete/{employee['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            employee_count = db.execute(
+                "SELECT COUNT(*) FROM employees"
+            ).fetchone()[0]
+
+        self.assertEqual(employee_count, 0)
+
+    def test_admin_can_manage_attendance_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-ATT-001",
+                "full_name": "Sinta Presensi",
+                "warehouse_id": "2",
+                "department": "People Operation",
+                "position": "Admin HR",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-ATT-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/attendance/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "attendance_date": "2026-03-30",
+                "check_in": "08:15",
+                "check_out": "17:05",
+                "status": "present",
+                "note": "Shift pagi normal",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, attendance_date, check_in, check_out, status, note
+                FROM attendance_records
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["warehouse_id"], 1)
+        self.assertEqual(attendance["attendance_date"], "2026-03-30")
+        self.assertEqual(attendance["check_in"], "08:15")
+        self.assertEqual(attendance["check_out"], "17:05")
+        self.assertEqual(attendance["status"], "present")
+
+        update_response = self.client.post(
+            f"/hris/attendance/update/{attendance['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "attendance_date": "2026-03-30",
+                "check_in": "08:35",
+                "check_out": "17:30",
+                "status": "late",
+                "note": "Terlambat karena meeting vendor",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance_after = db.execute(
+                """
+                SELECT check_in, check_out, status, note
+                FROM attendance_records
+                WHERE id=?
+                """,
+                (attendance["id"],),
+            ).fetchone()
+
+        self.assertEqual(attendance_after["check_in"], "08:35")
+        self.assertEqual(attendance_after["check_out"], "17:30")
+        self.assertEqual(attendance_after["status"], "late")
+        self.assertEqual(attendance_after["note"], "Terlambat karena meeting vendor")
+
+        delete_response = self.client.post(
+            f"/hris/attendance/delete/{attendance['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance_count = db.execute(
+                "SELECT COUNT(*) FROM attendance_records"
+            ).fetchone()[0]
+
+        self.assertEqual(attendance_count, 0)
+
+    def test_admin_can_manage_leave_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-LV-001",
+                "full_name": "Rina Cuti",
+                "warehouse_id": "2",
+                "department": "HR Support",
+                "position": "People Admin",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-LV-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/leave/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "leave_type": "annual",
+                "start_date": "2026-04-10",
+                "end_date": "2026-04-12",
+                "status": "pending",
+                "reason": "Cuti keluarga",
+                "note": "Handover ke tim inventory",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            leave_request = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, leave_type, start_date, end_date, total_days, status, reason, note
+                FROM leave_requests
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(leave_request)
+        self.assertEqual(leave_request["warehouse_id"], 1)
+        self.assertEqual(leave_request["leave_type"], "annual")
+        self.assertEqual(leave_request["total_days"], 3)
+        self.assertEqual(leave_request["status"], "pending")
+        self.assertEqual(leave_request["reason"], "Cuti keluarga")
+
+        update_response = self.client.post(
+            f"/hris/leave/update/{leave_request['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "leave_type": "sick",
+                "start_date": "2026-04-10",
+                "end_date": "2026-04-11",
+                "status": "approved",
+                "reason": "Istirahat dokter",
+                "note": "Disetujui supervisor",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            leave_after = db.execute(
+                """
+                SELECT leave_type, start_date, end_date, total_days, status, reason, note, handled_by
+                FROM leave_requests
+                WHERE id=?
+                """,
+                (leave_request["id"],),
+            ).fetchone()
+
+        self.assertEqual(leave_after["leave_type"], "sick")
+        self.assertEqual(leave_after["end_date"], "2026-04-11")
+        self.assertEqual(leave_after["total_days"], 2)
+        self.assertEqual(leave_after["status"], "approved")
+        self.assertEqual(leave_after["reason"], "Istirahat dokter")
+        self.assertIsNotNone(leave_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/leave/delete/{leave_request['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            leave_count = db.execute(
+                "SELECT COUNT(*) FROM leave_requests"
+            ).fetchone()[0]
+
+        self.assertEqual(leave_count, 0)
+
+    def test_admin_can_manage_payroll_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-PY-001",
+                "full_name": "Dani Payroll",
+                "warehouse_id": "2",
+                "department": "Finance",
+                "position": "Payroll Admin",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-PY-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/payroll/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "period_month": "4",
+                "period_year": "2026",
+                "base_salary": "5500000",
+                "allowance": "350000",
+                "overtime_pay": "150000",
+                "deduction": "100000",
+                "leave_deduction": "50000",
+                "status": "draft",
+                "note": "Payroll April draft",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            payroll = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, period_month, period_year, base_salary, allowance,
+                       overtime_pay, deduction, leave_deduction, net_pay, status, note
+                FROM payroll_runs
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(payroll)
+        self.assertEqual(payroll["warehouse_id"], 1)
+        self.assertEqual(payroll["period_month"], 4)
+        self.assertEqual(payroll["period_year"], 2026)
+        self.assertEqual(payroll["net_pay"], 5850000)
+        self.assertEqual(payroll["status"], "draft")
+
+        update_response = self.client.post(
+            f"/hris/payroll/update/{payroll['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "period_month": "4",
+                "period_year": "2026",
+                "base_salary": "5600000",
+                "allowance": "400000",
+                "overtime_pay": "200000",
+                "deduction": "120000",
+                "leave_deduction": "30000",
+                "status": "paid",
+                "note": "Payroll April final",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            payroll_after = db.execute(
+                """
+                SELECT base_salary, allowance, overtime_pay, deduction, leave_deduction, net_pay, status, note, handled_by
+                FROM payroll_runs
+                WHERE id=?
+                """,
+                (payroll["id"],),
+            ).fetchone()
+
+        self.assertEqual(payroll_after["base_salary"], 5600000)
+        self.assertEqual(payroll_after["allowance"], 400000)
+        self.assertEqual(payroll_after["overtime_pay"], 200000)
+        self.assertEqual(payroll_after["deduction"], 120000)
+        self.assertEqual(payroll_after["leave_deduction"], 30000)
+        self.assertEqual(payroll_after["net_pay"], 6050000)
+        self.assertEqual(payroll_after["status"], "paid")
+        self.assertEqual(payroll_after["note"], "Payroll April final")
+        self.assertIsNotNone(payroll_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/payroll/delete/{payroll['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            payroll_count = db.execute(
+                "SELECT COUNT(*) FROM payroll_runs"
+            ).fetchone()[0]
+
+        self.assertEqual(payroll_count, 0)
+
+    def test_admin_can_manage_recruitment_records_in_hris(self):
+        self.login()
+
+        create_response = self.client.post(
+            "/hris/recruitment/add",
+            data={
+                "candidate_name": "Farhan Nugraha",
+                "position_title": "Warehouse Supervisor",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "stage": "interview",
+                "status": "active",
+                "source": "Referral",
+                "phone": "628111111111",
+                "email": "farhan@example.com",
+                "expected_join_date": "2026-05-01",
+                "note": "Kandidat kuat untuk shift utama",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT id, candidate_name, warehouse_id, position_title, stage, status, source
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                """,
+                ("Farhan Nugraha",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["warehouse_id"], 1)
+        self.assertEqual(candidate["stage"], "interview")
+        self.assertEqual(candidate["status"], "active")
+
+        update_response = self.client.post(
+            f"/hris/recruitment/update/{candidate['id']}",
+            data={
+                "candidate_name": "Farhan Nugraha Update",
+                "position_title": "Warehouse Lead",
+                "warehouse_id": "2",
+                "department": "Warehouse Support",
+                "stage": "offer",
+                "status": "closed",
+                "source": "Job Portal",
+                "phone": "628122222222",
+                "email": "farhan.update@example.com",
+                "expected_join_date": "2026-05-10",
+                "note": "Offer final approved",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT candidate_name, warehouse_id, position_title, stage, status, source, handled_by
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+
+        self.assertEqual(candidate_after["candidate_name"], "Farhan Nugraha Update")
+        self.assertEqual(candidate_after["warehouse_id"], 1)
+        self.assertEqual(candidate_after["position_title"], "Warehouse Lead")
+        self.assertEqual(candidate_after["stage"], "offer")
+        self.assertEqual(candidate_after["status"], "closed")
+        self.assertEqual(candidate_after["source"], "Job Portal")
+        self.assertIsNotNone(candidate_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/recruitment/delete/{candidate['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_count = db.execute(
+                "SELECT COUNT(*) FROM recruitment_candidates"
+            ).fetchone()[0]
+
+        self.assertEqual(candidate_count, 0)
+
+    def test_admin_can_manage_onboarding_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-ONB-001",
+                "full_name": "Ayu Onboarding",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Picker",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-ONB-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/onboarding/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "start_date": "2026-05-01",
+                "target_date": "2026-05-07",
+                "stage": "orientation",
+                "status": "in_progress",
+                "buddy_name": "Leader Andi",
+                "note": "Sudah briefing awal",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            onboarding = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, start_date, target_date, stage, status, buddy_name, note
+                FROM onboarding_records
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(onboarding)
+        self.assertEqual(onboarding["warehouse_id"], 1)
+        self.assertEqual(onboarding["stage"], "orientation")
+        self.assertEqual(onboarding["status"], "in_progress")
+        self.assertEqual(onboarding["buddy_name"], "Leader Andi")
+
+        update_response = self.client.post(
+            f"/hris/onboarding/update/{onboarding['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "start_date": "2026-05-01",
+                "target_date": "2026-05-05",
+                "stage": "go_live",
+                "status": "completed",
+                "buddy_name": "Leader Budi",
+                "note": "Sudah siap operasional penuh",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            onboarding_after = db.execute(
+                """
+                SELECT target_date, stage, status, buddy_name, note, handled_by
+                FROM onboarding_records
+                WHERE id=?
+                """,
+                (onboarding["id"],),
+            ).fetchone()
+
+        self.assertEqual(onboarding_after["target_date"], "2026-05-05")
+        self.assertEqual(onboarding_after["stage"], "go_live")
+        self.assertEqual(onboarding_after["status"], "completed")
+        self.assertEqual(onboarding_after["buddy_name"], "Leader Budi")
+        self.assertEqual(onboarding_after["note"], "Sudah siap operasional penuh")
+        self.assertIsNotNone(onboarding_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/onboarding/delete/{onboarding['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            onboarding_count = db.execute(
+                "SELECT COUNT(*) FROM onboarding_records"
+            ).fetchone()[0]
+
+        self.assertEqual(onboarding_count, 0)
+
+    def test_admin_can_manage_offboarding_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-OFF-001",
+                "full_name": "Bayu Exit",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Inbound Staff",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-OFF-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/offboarding/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "notice_date": "2026-06-01",
+                "last_working_date": "2026-06-15",
+                "stage": "handover",
+                "status": "in_progress",
+                "exit_reason": "Relokasi keluarga",
+                "handover_pic": "Leader Sinta",
+                "note": "Perlu handover area inbound",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            offboarding = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, notice_date, last_working_date, stage,
+                       status, exit_reason, handover_pic, note, handled_by
+                FROM offboarding_records
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(offboarding)
+        self.assertEqual(offboarding["warehouse_id"], 1)
+        self.assertEqual(offboarding["notice_date"], "2026-06-01")
+        self.assertEqual(offboarding["last_working_date"], "2026-06-15")
+        self.assertEqual(offboarding["stage"], "handover")
+        self.assertEqual(offboarding["status"], "in_progress")
+        self.assertEqual(offboarding["exit_reason"], "Relokasi keluarga")
+        self.assertEqual(offboarding["handover_pic"], "Leader Sinta")
+        self.assertEqual(offboarding["note"], "Perlu handover area inbound")
+        self.assertIsNotNone(offboarding["handled_by"])
+
+        update_response = self.client.post(
+            f"/hris/offboarding/update/{offboarding['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "notice_date": "2026-06-01",
+                "last_working_date": "2026-06-18",
+                "stage": "exit_complete",
+                "status": "completed",
+                "exit_reason": "Relokasi keluarga selesai",
+                "handover_pic": "Leader Wati",
+                "note": "Semua akses dan asset sudah ditutup",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            offboarding_after = db.execute(
+                """
+                SELECT last_working_date, stage, status, exit_reason, handover_pic, note, handled_by
+                FROM offboarding_records
+                WHERE id=?
+                """,
+                (offboarding["id"],),
+            ).fetchone()
+
+        self.assertEqual(offboarding_after["last_working_date"], "2026-06-18")
+        self.assertEqual(offboarding_after["stage"], "exit_complete")
+        self.assertEqual(offboarding_after["status"], "completed")
+        self.assertEqual(offboarding_after["exit_reason"], "Relokasi keluarga selesai")
+        self.assertEqual(offboarding_after["handover_pic"], "Leader Wati")
+        self.assertEqual(offboarding_after["note"], "Semua akses dan asset sudah ditutup")
+        self.assertIsNotNone(offboarding_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/offboarding/delete/{offboarding['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            offboarding_count = db.execute(
+                "SELECT COUNT(*) FROM offboarding_records"
+            ).fetchone()[0]
+
+        self.assertEqual(offboarding_count, 0)
+
+    def test_admin_can_manage_performance_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-PMS-001",
+                "full_name": "Lina Review",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Stock Controller",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-PMS-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/performance/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "review_period": "2026-Q2",
+                "goal_score": "88",
+                "discipline_score": "90",
+                "teamwork_score": "84",
+                "status": "reviewed",
+                "reviewer_name": "Manager Operasional",
+                "note": "Konsisten dan siap naik tanggung jawab",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            review = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, review_period, goal_score, discipline_score,
+                       teamwork_score, final_score, rating, status, reviewer_name, note, handled_by
+                FROM performance_reviews
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(review)
+        self.assertEqual(review["warehouse_id"], 1)
+        self.assertEqual(review["review_period"], "2026-Q2")
+        self.assertEqual(review["status"], "reviewed")
+        self.assertEqual(review["reviewer_name"], "Manager Operasional")
+        self.assertEqual(review["note"], "Konsisten dan siap naik tanggung jawab")
+        self.assertAlmostEqual(review["final_score"], 87.33, places=2)
+        self.assertEqual(review["rating"], "good")
+        self.assertIsNotNone(review["handled_by"])
+
+        update_response = self.client.post(
+            f"/hris/performance/update/{review['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "review_period": "2026-Q2",
+                "goal_score": "92",
+                "discipline_score": "91",
+                "teamwork_score": "90",
+                "status": "acknowledged",
+                "reviewer_name": "Head Operasional",
+                "note": "Naik level dan siap pegang area lebih besar",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            review_after = db.execute(
+                """
+                SELECT goal_score, discipline_score, teamwork_score, final_score, rating, status,
+                       reviewer_name, note, handled_by
+                FROM performance_reviews
+                WHERE id=?
+                """,
+                (review["id"],),
+            ).fetchone()
+
+        self.assertEqual(review_after["goal_score"], 92)
+        self.assertEqual(review_after["discipline_score"], 91)
+        self.assertEqual(review_after["teamwork_score"], 90)
+        self.assertAlmostEqual(review_after["final_score"], 91.0, places=2)
+        self.assertEqual(review_after["rating"], "excellent")
+        self.assertEqual(review_after["status"], "acknowledged")
+        self.assertEqual(review_after["reviewer_name"], "Head Operasional")
+        self.assertEqual(review_after["note"], "Naik level dan siap pegang area lebih besar")
+        self.assertIsNotNone(review_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/performance/delete/{review['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            performance_count = db.execute(
+                "SELECT COUNT(*) FROM performance_reviews"
+            ).fetchone()[0]
+
+        self.assertEqual(performance_count, 0)
+
+    def test_admin_can_manage_helpdesk_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-HLP-001",
+                "full_name": "Novi Support",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Checker",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-HLP-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/helpdesk/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "ticket_title": "Scanner picking bermasalah",
+                "category": "asset",
+                "priority": "urgent",
+                "status": "in_progress",
+                "channel": "WhatsApp",
+                "assigned_to": "IT Support",
+                "note": "Perlu reset device area picking",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            ticket = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, ticket_title, category, priority,
+                       status, channel, assigned_to, note, handled_by
+                FROM helpdesk_tickets
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(ticket)
+        self.assertEqual(ticket["warehouse_id"], 1)
+        self.assertEqual(ticket["ticket_title"], "Scanner picking bermasalah")
+        self.assertEqual(ticket["category"], "asset")
+        self.assertEqual(ticket["priority"], "urgent")
+        self.assertEqual(ticket["status"], "in_progress")
+        self.assertEqual(ticket["channel"], "WhatsApp")
+        self.assertEqual(ticket["assigned_to"], "IT Support")
+        self.assertEqual(ticket["note"], "Perlu reset device area picking")
+        self.assertIsNotNone(ticket["handled_by"])
+
+        update_response = self.client.post(
+            f"/hris/helpdesk/update/{ticket['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "ticket_title": "Scanner picking selesai ditangani",
+                "category": "asset",
+                "priority": "high",
+                "status": "resolved",
+                "channel": "Onsite",
+                "assigned_to": "IT Lead",
+                "note": "Firmware berhasil diperbarui",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            ticket_after = db.execute(
+                """
+                SELECT ticket_title, priority, status, channel, assigned_to, note, handled_by
+                FROM helpdesk_tickets
+                WHERE id=?
+                """,
+                (ticket["id"],),
+            ).fetchone()
+
+        self.assertEqual(ticket_after["ticket_title"], "Scanner picking selesai ditangani")
+        self.assertEqual(ticket_after["priority"], "high")
+        self.assertEqual(ticket_after["status"], "resolved")
+        self.assertEqual(ticket_after["channel"], "Onsite")
+        self.assertEqual(ticket_after["assigned_to"], "IT Lead")
+        self.assertEqual(ticket_after["note"], "Firmware berhasil diperbarui")
+        self.assertIsNotNone(ticket_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/helpdesk/delete/{ticket['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            ticket_count = db.execute(
+                "SELECT COUNT(*) FROM helpdesk_tickets"
+            ).fetchone()[0]
+
+        self.assertEqual(ticket_count, 0)
+
+    def test_admin_can_manage_asset_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-AST-001",
+                "full_name": "Rafi Asset",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Picker",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-AST-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/asset/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "asset_name": "Handheld Scanner",
+                "asset_code": "AST-001",
+                "serial_number": "SN-7788",
+                "category": "Device",
+                "asset_status": "allocated",
+                "condition_status": "good",
+                "assigned_date": "2026-07-01",
+                "return_date": "",
+                "note": "Dipakai area picking",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            asset = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, asset_name, asset_code, serial_number,
+                       category, asset_status, condition_status, assigned_date, return_date,
+                       note, handled_by
+                FROM asset_records
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(asset)
+        self.assertEqual(asset["warehouse_id"], 1)
+        self.assertEqual(asset["asset_name"], "Handheld Scanner")
+        self.assertEqual(asset["asset_code"], "AST-001")
+        self.assertEqual(asset["serial_number"], "SN-7788")
+        self.assertEqual(asset["category"], "Device")
+        self.assertEqual(asset["asset_status"], "allocated")
+        self.assertEqual(asset["condition_status"], "good")
+        self.assertEqual(asset["assigned_date"], "2026-07-01")
+        self.assertEqual(asset["note"], "Dipakai area picking")
+        self.assertIsNotNone(asset["handled_by"])
+
+        update_response = self.client.post(
+            f"/hris/asset/update/{asset['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "asset_name": "Handheld Scanner",
+                "asset_code": "AST-001",
+                "serial_number": "SN-7788-REV",
+                "category": "Device",
+                "asset_status": "returned",
+                "condition_status": "fair",
+                "assigned_date": "2026-07-01",
+                "return_date": "2026-07-20",
+                "note": "Dikembalikan setelah shift event",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            asset_after = db.execute(
+                """
+                SELECT serial_number, asset_status, condition_status, return_date, note, handled_by
+                FROM asset_records
+                WHERE id=?
+                """,
+                (asset["id"],),
+            ).fetchone()
+
+        self.assertEqual(asset_after["serial_number"], "SN-7788-REV")
+        self.assertEqual(asset_after["asset_status"], "returned")
+        self.assertEqual(asset_after["condition_status"], "fair")
+        self.assertEqual(asset_after["return_date"], "2026-07-20")
+        self.assertEqual(asset_after["note"], "Dikembalikan setelah shift event")
+        self.assertIsNotNone(asset_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/asset/delete/{asset['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            asset_count = db.execute(
+                "SELECT COUNT(*) FROM asset_records"
+            ).fetchone()[0]
+
+        self.assertEqual(asset_count, 0)
+
+    def test_admin_can_manage_project_records_in_hris(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-PRJ-001",
+                "full_name": "Tio Project",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Leader",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-PRJ-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/project/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "project_name": "Rollout SOP Stock Audit",
+                "project_code": "PRJ-001",
+                "priority": "critical",
+                "status": "active",
+                "start_date": "2026-08-01",
+                "due_date": "2026-08-20",
+                "progress_percent": "35",
+                "owner_name": "Leader Project",
+                "note": "Butuh koordinasi lintas shift",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            project = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, project_name, project_code, priority,
+                       status, start_date, due_date, progress_percent, owner_name, note, handled_by
+                FROM project_records
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(project)
+        self.assertEqual(project["warehouse_id"], 1)
+        self.assertEqual(project["project_name"], "Rollout SOP Stock Audit")
+        self.assertEqual(project["project_code"], "PRJ-001")
+        self.assertEqual(project["priority"], "critical")
+        self.assertEqual(project["status"], "active")
+        self.assertEqual(project["start_date"], "2026-08-01")
+        self.assertEqual(project["due_date"], "2026-08-20")
+        self.assertEqual(project["progress_percent"], 35)
+        self.assertEqual(project["owner_name"], "Leader Project")
+        self.assertEqual(project["note"], "Butuh koordinasi lintas shift")
+        self.assertIsNotNone(project["handled_by"])
+
+        update_response = self.client.post(
+            f"/hris/project/update/{project['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "project_name": "Rollout SOP Stock Audit Final",
+                "project_code": "PRJ-001",
+                "priority": "high",
+                "status": "completed",
+                "start_date": "2026-08-01",
+                "due_date": "2026-08-18",
+                "progress_percent": "100",
+                "owner_name": "Manager Warehouse",
+                "note": "Implementasi selesai penuh",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            project_after = db.execute(
+                """
+                SELECT project_name, priority, status, due_date, progress_percent, owner_name, note, handled_by
+                FROM project_records
+                WHERE id=?
+                """,
+                (project["id"],),
+            ).fetchone()
+
+        self.assertEqual(project_after["project_name"], "Rollout SOP Stock Audit Final")
+        self.assertEqual(project_after["priority"], "high")
+        self.assertEqual(project_after["status"], "completed")
+        self.assertEqual(project_after["due_date"], "2026-08-18")
+        self.assertEqual(project_after["progress_percent"], 100)
+        self.assertEqual(project_after["owner_name"], "Manager Warehouse")
+        self.assertEqual(project_after["note"], "Implementasi selesai penuh")
+        self.assertIsNotNone(project_after["handled_by"])
+
+        delete_response = self.client.post(
+            f"/hris/project/delete/{project['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            project_count = db.execute(
+                "SELECT COUNT(*) FROM project_records"
+            ).fetchone()[0]
+
+        self.assertEqual(project_count, 0)
+
+    def test_admin_can_manage_biometric_records_in_hris_and_sync_attendance(self):
+        self.login()
+
+        self.client.post(
+            "/hris/employee/add",
+            data={
+                "employee_code": "EMP-BIO-001",
+                "full_name": "Dina Biometric",
+                "warehouse_id": "2",
+                "department": "Warehouse Operation",
+                "position": "Checker",
+                "employment_status": "active",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                """
+                SELECT id, warehouse_id
+                FROM employees
+                WHERE employee_code=?
+                """,
+                ("EMP-BIO-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(employee)
+        self.assertEqual(employee["warehouse_id"], 1)
+
+        create_response = self.client.post(
+            "/hris/biometric/add",
+            data={
+                "employee_id": str(employee["id"]),
+                "device_name": "ZKTeco F18",
+                "device_user_id": "BIO-001",
+                "punch_time": "2026-09-01T08:05",
+                "punch_type": "check_in",
+                "sync_status": "synced",
+                "note": "Sinkron pagi",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT id, employee_id, warehouse_id, device_name, device_user_id, punch_time,
+                       punch_type, sync_status, note, handled_by
+                FROM biometric_logs
+                WHERE employee_id=?
+                """,
+                (employee["id"],),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT attendance_date, check_in, check_out, status, note
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee["id"], "2026-09-01"),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["warehouse_id"], 1)
+        self.assertEqual(biometric["device_name"], "ZKTeco F18")
+        self.assertEqual(biometric["device_user_id"], "BIO-001")
+        self.assertEqual(biometric["punch_type"], "check_in")
+        self.assertEqual(biometric["sync_status"], "synced")
+        self.assertEqual(biometric["note"], "Sinkron pagi")
+        self.assertIsNotNone(biometric["handled_by"])
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["attendance_date"], "2026-09-01")
+        self.assertEqual(attendance["check_in"], "08:05")
+        self.assertIsNone(attendance["check_out"])
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["note"], "Synced from biometric")
+
+        update_response = self.client.post(
+            f"/hris/biometric/update/{biometric['id']}",
+            data={
+                "employee_id": str(employee["id"]),
+                "device_name": "ZKTeco F18 Rev2",
+                "device_user_id": "BIO-001",
+                "punch_time": "2026-09-01T08:40",
+                "punch_type": "check_in",
+                "sync_status": "manual",
+                "note": "Disesuaikan setelah audit punch",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric_after = db.execute(
+                """
+                SELECT device_name, punch_time, sync_status, note, handled_by
+                FROM biometric_logs
+                WHERE id=?
+                """,
+                (biometric["id"],),
+            ).fetchone()
+            attendance_after = db.execute(
+                """
+                SELECT check_in, status, note
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee["id"], "2026-09-01"),
+            ).fetchone()
+
+        self.assertEqual(biometric_after["device_name"], "ZKTeco F18 Rev2")
+        self.assertEqual(biometric_after["sync_status"], "manual")
+        self.assertEqual(biometric_after["note"], "Disesuaikan setelah audit punch")
+        self.assertIsNotNone(biometric_after["handled_by"])
+        self.assertEqual(attendance_after["check_in"], "08:40")
+        self.assertEqual(attendance_after["status"], "late")
+        self.assertEqual(attendance_after["note"], "Synced from biometric")
+
+        delete_response = self.client.post(
+            f"/hris/biometric/delete/{biometric['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric_count = db.execute(
+                "SELECT COUNT(*) FROM biometric_logs"
+            ).fetchone()[0]
+            attendance_count = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                """,
+                (employee["id"], "2026-09-01"),
+            ).fetchone()[0]
+
+        self.assertEqual(biometric_count, 0)
+        self.assertEqual(attendance_count, 0)
 
     def test_add_product_and_get_variants(self):
         self.login()
@@ -496,6 +1997,167 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(request_rows[0]["status"], "pending")
         self.assertEqual(request_rows[1]["qty"], 3)
         self.assertEqual(request_rows[1]["status"], "pending")
+
+    def test_admin_can_create_owner_request_batch_and_notify_owner(self):
+        self.create_user(
+            "owner_notify",
+            "pass1234",
+            "owner",
+            email="owner_notify@example.com",
+            notify_email=1,
+        )
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=10, variants="41,42")
+        self.assertEqual(response.status_code, 302)
+
+        owner_page = self.client.get("/request/owner")
+        self.assertEqual(owner_page.status_code, 200)
+        owner_html = owner_page.get_data(as_text=True)
+        self.assertIn('href="/request/"', owner_html)
+        self.assertIn('href="/request/owner"', owner_html)
+        self.assertIn("Kirim ke Owner", owner_html)
+
+        request_response = self.client.post(
+            "/request/owner",
+            data={
+                "warehouse_id": "1",
+                "items_json": json.dumps([
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[0]["id"],
+                        "qty": 2,
+                        "note": "Restock cepat",
+                    },
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[1]["id"],
+                        "qty": 3,
+                        "note": "Display menipis",
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_rows = db.execute(
+                """
+                SELECT variant_id, warehouse_id, qty, note, status
+                FROM owner_requests
+                WHERE product_id=?
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+            notifications = db.execute(
+                """
+                SELECT role, recipient, subject, status
+                FROM notifications
+                WHERE subject LIKE 'Request Khusus ke Owner:%'
+                ORDER BY id
+                """,
+            ).fetchall()
+
+        self.assertEqual(len(request_rows), 2)
+        self.assertEqual(request_rows[0]["warehouse_id"], 1)
+        self.assertEqual(request_rows[0]["qty"], 2)
+        self.assertEqual(request_rows[0]["note"], "Restock cepat")
+        self.assertEqual(request_rows[0]["status"], "pending")
+        self.assertEqual(request_rows[1]["qty"], 3)
+        self.assertEqual(request_rows[1]["note"], "Display menipis")
+        self.assertEqual(request_rows[1]["status"], "pending")
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["role"], "owner")
+        self.assertEqual(notifications[0]["recipient"], "owner_notify@example.com")
+
+    def test_owner_can_update_owner_request_status_and_notify_requester(self):
+        self.create_user("owner_manager", "pass1234", "owner")
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=10, variants="41")
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE users
+                SET email=?, notify_email=1
+                WHERE username=?
+                """,
+                ("admin_notify@example.com", "admin"),
+            )
+            db.commit()
+
+        request_response = self.client.post(
+            "/request/owner",
+            data={
+                "warehouse_id": "1",
+                "items_json": json.dumps([
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[0]["id"],
+                        "qty": 2,
+                        "note": "Owner approval needed",
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            owner_request = db.execute(
+                """
+                SELECT id, requested_by, status
+                FROM owner_requests
+                WHERE product_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id,),
+            ).fetchone()
+
+        self.assertEqual(owner_request["status"], "pending")
+
+        self.logout()
+        self.login("owner_manager", "pass1234")
+
+        owner_queue = self.client.get("/request/owner")
+        self.assertEqual(owner_queue.status_code, 200)
+        self.assertIn("Proses", owner_queue.get_data(as_text=True))
+
+        update_response = self.client.post(
+            f"/request/owner/update/{owner_request['id']}",
+            data={"status": "in_progress"},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            owner_request_after = db.execute(
+                "SELECT status, handled_by FROM owner_requests WHERE id=?",
+                (owner_request["id"],),
+            ).fetchone()
+            requester_notification = db.execute(
+                """
+                SELECT recipient, subject, status
+                FROM notifications
+                WHERE recipient=?
+                  AND subject LIKE ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("admin_notify@example.com", f"Request ke owner #{owner_request['id']}%"),
+            ).fetchone()
+
+        self.assertEqual(owner_request_after["status"], "in_progress")
+        self.assertIsNotNone(owner_request_after["handled_by"])
+        self.assertIsNotNone(requester_notification)
+        self.assertIn("Diproses", requester_notification["subject"])
 
     def test_leader_can_process_bulk_transfer_directly(self):
         self.create_user("leader_transfer", "pass1234", "leader", warehouse_id=1)
@@ -884,6 +2546,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             for path, marker in [
                 ("/products/", 'name="warehouse" disabled'),
                 ("/request/", 'name="from_warehouse" required disabled'),
+                ("/request/owner", 'name="warehouse_id" required disabled'),
                 ("/inbound/", 'name="warehouse_id" required disabled'),
                 ("/outbound/", 'name="warehouse_id" required disabled'),
                 ("/transfers/", 'name="from_warehouse" required disabled'),
@@ -893,6 +2556,119 @@ class WmsRoutesTestCase(unittest.TestCase):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
                     self.assertIn(marker, response.get_data(as_text=True))
+
+            hris_response = self.client.get("/hris/employee")
+            self.assertEqual(hris_response.status_code, 200)
+            hris_html = hris_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse_id" required disabled', hris_html)
+            else:
+                self.assertIn("View Only", hris_html)
+                self.assertNotIn("Tambah Karyawan", hris_html)
+
+            attendance_response = self.client.get("/hris/attendance")
+            self.assertEqual(attendance_response.status_code, 200)
+            attendance_html = attendance_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', attendance_html)
+            else:
+                self.assertIn("View Only", attendance_html)
+                self.assertNotIn("Tambah Attendance", attendance_html)
+
+            leave_response = self.client.get("/hris/leave")
+            self.assertEqual(leave_response.status_code, 200)
+            leave_html = leave_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', leave_html)
+            else:
+                self.assertIn("View Only", leave_html)
+                self.assertNotIn("Tambah Leave", leave_html)
+
+            payroll_response = self.client.get("/hris/payroll")
+            self.assertEqual(payroll_response.status_code, 200)
+            payroll_html = payroll_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', payroll_html)
+            else:
+                self.assertIn("View Only", payroll_html)
+                self.assertNotIn("Tambah Payroll", payroll_html)
+
+            recruitment_response = self.client.get("/hris/recruitment")
+            self.assertEqual(recruitment_response.status_code, 200)
+            recruitment_html = recruitment_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse_id" required disabled', recruitment_html)
+            else:
+                self.assertIn("View Only", recruitment_html)
+                self.assertNotIn("Tambah Kandidat", recruitment_html)
+
+            onboarding_response = self.client.get("/hris/onboarding")
+            self.assertEqual(onboarding_response.status_code, 200)
+            onboarding_html = onboarding_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', onboarding_html)
+            else:
+                self.assertIn("View Only", onboarding_html)
+                self.assertNotIn("Tambah Onboarding", onboarding_html)
+
+            offboarding_response = self.client.get("/hris/offboarding")
+            self.assertEqual(offboarding_response.status_code, 200)
+            offboarding_html = offboarding_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', offboarding_html)
+            else:
+                self.assertIn("View Only", offboarding_html)
+                self.assertNotIn("Tambah Offboarding", offboarding_html)
+
+            performance_response = self.client.get("/hris/pms")
+            self.assertEqual(performance_response.status_code, 200)
+            performance_html = performance_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', performance_html)
+            else:
+                self.assertIn("View Only", performance_html)
+                self.assertNotIn("Tambah Review", performance_html)
+
+            helpdesk_response = self.client.get("/hris/helpdesk")
+            self.assertEqual(helpdesk_response.status_code, 200)
+            helpdesk_html = helpdesk_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', helpdesk_html)
+            else:
+                self.assertIn("View Only", helpdesk_html)
+                self.assertNotIn("Tambah Ticket", helpdesk_html)
+
+            asset_response = self.client.get("/hris/asset")
+            self.assertEqual(asset_response.status_code, 200)
+            asset_html = asset_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', asset_html)
+            else:
+                self.assertIn("View Only", asset_html)
+                self.assertNotIn("Tambah Asset", asset_html)
+
+            project_response = self.client.get("/hris/project")
+            self.assertEqual(project_response.status_code, 200)
+            project_html = project_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', project_html)
+            else:
+                self.assertIn("View Only", project_html)
+                self.assertNotIn("Tambah Project", project_html)
+
+            biometric_response = self.client.get("/hris/biometric")
+            self.assertEqual(biometric_response.status_code, 200)
+            biometric_html = biometric_response.get_data(as_text=True)
+            if role == "leader":
+                self.assertIn('name="warehouse" disabled', biometric_html)
+            else:
+                self.assertIn("View Only", biometric_html)
+                self.assertNotIn("Tambah Log", biometric_html)
+
+            report_response = self.client.get("/hris/report")
+            self.assertEqual(report_response.status_code, 200)
+            report_html = report_response.get_data(as_text=True)
+            self.assertIn('name="warehouse" disabled', report_html)
 
             self.logout()
 
@@ -1078,6 +2854,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(export.status_code, 200)
         self.assertIn("text/csv", export.content_type)
         self.assertIn("Harga Retail", export.get_data(as_text=True))
+
+    def test_stock_page_supports_clickable_header_sorting(self):
+        self.login()
+        response, _, _ = self.create_product(sku="SORT-ZZZ", qty=1, variants="VZ")
+        self.assertEqual(response.status_code, 302)
+        response, _, _ = self.create_product(sku="SORT-AAA", qty=1, variants="VA")
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            older_product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("SORT-ZZZ",),
+            ).fetchone()["id"]
+            newer_product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("SORT-AAA",),
+            ).fetchone()["id"]
+            db.execute(
+                "UPDATE stock_batches SET created_at=? WHERE product_id=?",
+                ("2024-01-01 00:00:00", older_product),
+            )
+            db.execute(
+                "UPDATE stock_batches SET created_at=? WHERE product_id=?",
+                ("2026-01-01 00:00:00", newer_product),
+            )
+            db.commit()
+
+        stock_sku_asc = self.client.get("/stock/?sort=sku_asc")
+        self.assertEqual(stock_sku_asc.status_code, 200)
+        html_sku_asc = stock_sku_asc.get_data(as_text=True)
+        self.assertIn("sort=sku_desc", html_sku_asc)
+        self.assertLess(html_sku_asc.find('value="SORT-AAA"'), html_sku_asc.find('value="SORT-ZZZ"'))
+
+        stock_sku_desc = self.client.get("/stock/?sort=sku_desc")
+        self.assertEqual(stock_sku_desc.status_code, 200)
+        html_sku_desc = stock_sku_desc.get_data(as_text=True)
+        self.assertLess(html_sku_desc.find('value="SORT-ZZZ"'), html_sku_desc.find('value="SORT-AAA"'))
+
+        stock_age_desc = self.client.get("/stock/?sort=age_desc")
+        self.assertEqual(stock_age_desc.status_code, 200)
+        html_age_desc = stock_age_desc.get_data(as_text=True)
+        self.assertIn("sort=age_asc", html_age_desc)
+        self.assertLess(html_age_desc.find('value="SORT-ZZZ"'), html_age_desc.find('value="SORT-AAA"'))
+
+        stock_age_asc = self.client.get("/stock/?sort=age_asc")
+        self.assertEqual(stock_age_asc.status_code, 200)
+        html_age_asc = stock_age_asc.get_data(as_text=True)
+        self.assertLess(html_age_asc.find('value="SORT-AAA"'), html_age_asc.find('value="SORT-ZZZ"'))
 
     def test_owner_can_access_admin_page(self):
         self.create_user("owner_user", "pass1234", "owner")

@@ -3,11 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#07111f">
+<meta name="theme-color" content="#07111f" id="themeColorMeta">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>{% block title %}Mataram Sports WMS{% endblock %}</title>
 <link rel="manifest" href="/static/manifest.webmanifest">
+<script>
+(() => {
+    try {
+        const storedTheme = localStorage.getItem("wms-theme");
+        const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
+        document.documentElement.dataset.theme = theme;
+    } catch (error) {
+        document.documentElement.dataset.theme = "dark";
+    }
+})();
+</script>
 <link rel="stylesheet" href="/static/css/dashboard.css">
 {% block extra_head %}{% endblock %}
 </head>
@@ -30,6 +41,9 @@
         <span class="mobile-chip mobile-user-chip" title="{{ session.get('username', 'guest') }}">@{{ session.get("username", "guest") }}</span>
         <span class="mobile-chip">{{ session.get("role", "guest") }}</span>
         <span class="mobile-chip">WH {{ session.get("warehouse_id", "-") }}</span>
+        <button type="button" class="ghost-button mobile-theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan">
+            <span data-theme-toggle-label>Mode Cerah</span>
+        </button>
     </div>
 </div>
 
@@ -53,23 +67,43 @@
     </div>
 
     <nav>
-        <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-        <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
-        <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
-        <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
-        <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
-        <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
-        <a href="/request" class="{% if request.path.startswith('/request') %}active{% endif %}">Request</a>
-        {% if can("view_approvals") %}
-        <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
-        {% endif %}
-        {% if can("view_audit") %}
-        <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
-        {% endif %}
-        <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
-        {% if can("view_admin") %}
-        <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
-        {% endif %}
+        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if not request.path.startswith('/hris') %}active{% endif %}" {% if not request.path.startswith('/hris') %}open{% endif %}>
+            <summary class="sidebar-group-toggle">
+                <span class="sidebar-group-label">WMS</span>
+                <span class="sidebar-group-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="sidebar-subnav">
+                <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+                <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
+                <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
+                <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
+                <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
+                <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
+                <a href="/request/" class="{% if request.path == '/request' or request.path == '/request/' %}active{% endif %}">Antar Gudang</a>
+                <a href="/request/owner" class="{% if request.path.startswith('/request/owner') %}active{% endif %}">Ke Owner</a>
+                {% if can("view_approvals") %}
+                <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
+                {% endif %}
+                {% if can("view_audit") %}
+                <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
+                {% endif %}
+                <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
+                {% if can("view_admin") %}
+                <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
+                {% endif %}
+            </div>
+        </details>
+        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if request.path.startswith('/hris') %}active{% endif %}" {% if request.path.startswith('/hris') %}open{% endif %}>
+            <summary class="sidebar-group-toggle">
+                <span class="sidebar-group-label">HRIS</span>
+                <span class="sidebar-group-icon" aria-hidden="true"></span>
+            </summary>
+            <div class="sidebar-subnav">
+                {% for module in hris_modules %}
+                <a href="/hris/{{ module.slug }}" class="{% if request.path == '/hris/' and module.slug == 'employee' %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}">{{ module.label }}</a>
+                {% endfor %}
+            </div>
+        </details>
     </nav>
 
     <div class="sidebar-footer">
@@ -79,6 +113,12 @@
             <span class="status-pill">Role: {{ session.get("role", "guest") }}</span>
             <span class="status-pill">Warehouse: {{ session.get("warehouse_id", "-") }}</span>
             <span class="status-pill">HRIS Ready</span>
+        </div>
+        <div class="theme-switcher">
+            <span class="theme-switcher-label">Tampilan</span>
+            <button type="button" class="ghost-button theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan">
+                <span data-theme-toggle-label>Mode Cerah</span>
+            </button>
         </div>
         <form method="GET" action="/logout" style="margin-top:14px;">
             <button type="submit" class="ghost-button" style="width:100%;">Keluar</button>
@@ -149,6 +189,44 @@ function showToast(text) {
     setTimeout(() => div.remove(), 4000);
 }
 
+function getThemeMetaColor(theme) {
+    return theme === "light" ? "#eaf2fb" : "#07111f";
+}
+
+function getCurrentTheme() {
+    return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function syncThemeToggleState(theme) {
+    const nextLabel = theme === "dark" ? "Mode Cerah" : "Mode Gelap";
+    const title = `Aktif: Mode ${theme === "dark" ? "Gelap" : "Cerah"}. Klik untuk ganti ke ${nextLabel}.`;
+    const themeColorMeta = document.getElementById("themeColorMeta");
+
+    if (themeColorMeta) {
+        themeColorMeta.setAttribute("content", getThemeMetaColor(theme));
+    }
+
+    document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+        button.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+        button.setAttribute("title", title);
+        button.setAttribute("aria-label", title);
+        const label = button.querySelector("[data-theme-toggle-label]");
+        if (label) {
+            label.textContent = nextLabel;
+        }
+    });
+}
+
+function applyTheme(theme) {
+    const safeTheme = theme === "light" ? "light" : "dark";
+    document.documentElement.dataset.theme = safeTheme;
+    try {
+        localStorage.setItem("wms-theme", safeTheme);
+    } catch (error) {
+    }
+    syncThemeToggleState(safeTheme);
+}
+
 document.querySelectorAll(".flash").forEach((flash) => {
     setTimeout(() => {
         flash.style.opacity = "0";
@@ -164,6 +242,14 @@ document.querySelectorAll("#menu nav a, #menu form button").forEach((node) => {
         }
     });
 });
+
+document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+        applyTheme(getCurrentTheme() === "dark" ? "light" : "dark");
+    });
+});
+
+syncThemeToggleState(getCurrentTheme());
 
 window.addEventListener("resize", () => {
     if (window.innerWidth > 1080) {

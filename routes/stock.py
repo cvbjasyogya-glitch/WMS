@@ -1,8 +1,11 @@
-from flask import Blueprint, Response, render_template, request, session, redirect, flash, jsonify
-from database import get_db
+import csv
 from datetime import datetime
 from io import StringIO
-import csv
+from urllib.parse import urlencode
+
+from flask import Blueprint, Response, render_template, request, session, redirect, flash, jsonify
+
+from database import get_db
 
 from services.stock_service import adjust_stock
 from services.notification_service import notify_roles
@@ -10,6 +13,139 @@ from services.rbac import has_permission, is_scoped_role
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/stock")
 LOW_STOCK_THRESHOLD = 5
+DEFAULT_SORT = "qty_asc"
+
+SORT_DEFINITIONS = {
+    "sku_asc": {
+        "field": "sku",
+        "direction": "asc",
+        "clause": "p.sku ASC, p.name ASC, v.variant ASC",
+    },
+    "sku_desc": {
+        "field": "sku",
+        "direction": "desc",
+        "clause": "p.sku DESC, p.name ASC, v.variant ASC",
+    },
+    "name_asc": {
+        "field": "name",
+        "direction": "asc",
+        "clause": "p.name ASC, v.variant ASC, p.sku ASC",
+    },
+    "name_desc": {
+        "field": "name",
+        "direction": "desc",
+        "clause": "p.name DESC, v.variant ASC, p.sku ASC",
+    },
+    "variant_asc": {
+        "field": "variant",
+        "direction": "asc",
+        "clause": "v.variant ASC, p.name ASC, p.sku ASC",
+    },
+    "variant_desc": {
+        "field": "variant",
+        "direction": "desc",
+        "clause": "v.variant DESC, p.name ASC, p.sku ASC",
+    },
+    "qty_asc": {
+        "field": "qty",
+        "direction": "asc",
+        "clause": "qty ASC, p.name ASC, v.variant ASC",
+    },
+    "qty_desc": {
+        "field": "qty",
+        "direction": "desc",
+        "clause": "qty DESC, p.name ASC, v.variant ASC",
+    },
+    "status_asc": {
+        "field": "status",
+        "direction": "asc",
+        "clause": """
+            CASE
+                WHEN COALESCE(s.qty, 0) <= 0 THEN 0
+                WHEN COALESCE(s.qty, 0) < 5 THEN 1
+                ELSE 2
+            END ASC,
+            p.name ASC,
+            v.variant ASC
+        """,
+    },
+    "status_desc": {
+        "field": "status",
+        "direction": "desc",
+        "clause": """
+            CASE
+                WHEN COALESCE(s.qty, 0) <= 0 THEN 0
+                WHEN COALESCE(s.qty, 0) < 5 THEN 1
+                ELSE 2
+            END DESC,
+            p.name ASC,
+            v.variant ASC
+        """,
+    },
+    "price_retail_asc": {
+        "field": "price_retail",
+        "direction": "asc",
+        "clause": "v.price_retail ASC, p.name ASC, v.variant ASC",
+    },
+    "price_retail_desc": {
+        "field": "price_retail",
+        "direction": "desc",
+        "clause": "v.price_retail DESC, p.name ASC, v.variant ASC",
+    },
+    "price_discount_asc": {
+        "field": "price_discount",
+        "direction": "asc",
+        "clause": "v.price_discount ASC, p.name ASC, v.variant ASC",
+    },
+    "price_discount_desc": {
+        "field": "price_discount",
+        "direction": "desc",
+        "clause": "v.price_discount DESC, p.name ASC, v.variant ASC",
+    },
+    "price_nett_asc": {
+        "field": "price_nett",
+        "direction": "asc",
+        "clause": "v.price_nett ASC, p.name ASC, v.variant ASC",
+    },
+    "price_nett_desc": {
+        "field": "price_nett",
+        "direction": "desc",
+        "clause": "v.price_nett DESC, p.name ASC, v.variant ASC",
+    },
+    "age_asc": {
+        "field": "age",
+        "direction": "asc",
+        "clause": "age_days ASC, p.name ASC, v.variant ASC",
+    },
+    "age_desc": {
+        "field": "age",
+        "direction": "desc",
+        "clause": "age_days DESC, p.name ASC, v.variant ASC",
+    },
+    "created_asc": {
+        "field": "created_at",
+        "direction": "asc",
+        "clause": "created_at ASC, p.name ASC, v.variant ASC",
+    },
+    "created_desc": {
+        "field": "created_at",
+        "direction": "desc",
+        "clause": "created_at DESC, p.name ASC, v.variant ASC",
+    },
+}
+
+SORTABLE_FIELDS = {
+    "sku": ("sku_asc", "sku_desc"),
+    "name": ("name_asc", "name_desc"),
+    "variant": ("variant_asc", "variant_desc"),
+    "qty": ("qty_asc", "qty_desc"),
+    "status": ("status_asc", "status_desc"),
+    "price_retail": ("price_retail_asc", "price_retail_desc"),
+    "price_discount": ("price_discount_asc", "price_discount_desc"),
+    "price_nett": ("price_nett_asc", "price_nett_desc"),
+    "age": ("age_desc", "age_asc"),
+    "created_at": ("created_desc", "created_asc"),
+}
 
 
 def parse_date(date_str):
@@ -48,16 +184,42 @@ def _get_stock_state():
     return state
 
 
+def _normalize_sort(sort):
+    sort = (sort or DEFAULT_SORT).strip().lower()
+    return sort if sort in SORT_DEFINITIONS else DEFAULT_SORT
+
+
 def _get_sort_clause(sort):
-    if sort == "qty_desc":
-        return "qty DESC, p.name ASC"
-    if sort == "name_asc":
-        return "p.name ASC, qty ASC"
-    if sort == "name_desc":
-        return "p.name DESC, qty ASC"
-    if sort == "age_desc":
-        return "age_days DESC, p.name ASC"
-    return "qty ASC, p.name ASC"
+    return SORT_DEFINITIONS[_normalize_sort(sort)]["clause"]
+
+
+def _get_sort_state(sort):
+    normalized = _normalize_sort(sort)
+    config = SORT_DEFINITIONS[normalized]
+    return {
+        "code": normalized,
+        "field": config["field"],
+        "direction": config["direction"],
+    }
+
+
+def _build_sort_links():
+    current_params = request.args.to_dict(flat=True)
+    links = {}
+
+    for field, (primary_sort, alternate_sort) in SORTABLE_FIELDS.items():
+        next_sort = primary_sort
+        current_state = _get_sort_state(current_params.get("sort"))
+
+        if current_state["field"] == field and current_state["code"] == primary_sort:
+            next_sort = alternate_sort
+
+        params = dict(current_params)
+        params["sort"] = next_sort
+        params["page"] = 1
+        links[field] = "?" + urlencode(params)
+
+    return links
 
 
 def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
@@ -200,7 +362,7 @@ def stock_table():
     db = get_db()
 
     search = (request.args.get("q") or "").strip()
-    sort = (request.args.get("sort") or "qty_asc").strip()
+    sort = _normalize_sort(request.args.get("sort"))
     stock_state = _get_stock_state()
     warehouse_id = _resolve_stock_warehouse(db)
 
@@ -263,6 +425,8 @@ def stock_table():
         page=page,
         total_pages=total_pages,
         sort=sort,
+        sort_state=_get_sort_state(sort),
+        sort_links=_build_sort_links(),
         stock_state=stock_state,
         summary=summary,
     )
@@ -273,7 +437,7 @@ def export_stock():
     db = get_db()
 
     search = (request.args.get("q") or "").strip()
-    sort = (request.args.get("sort") or "qty_asc").strip()
+    sort = _normalize_sort(request.args.get("sort"))
     stock_state = _get_stock_state()
     warehouse_id = _resolve_stock_warehouse(db)
     start_date = parse_date(request.args.get("start_date"))

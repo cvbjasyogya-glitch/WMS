@@ -24,9 +24,11 @@ from routes.auth import auth_bp
 from routes.audit import audit_bp
 from routes.admin import admin_bp
 from routes.approvals import approvals_bp
+from routes.hris import hris_bp
 
 # 🔥 TAMBAHAN WAJIB
 from routes.stock_opname import so_bp
+from services.hris_catalog import get_hris_modules
 
 
 SESSION_TIMEOUT = 15 * 60
@@ -231,6 +233,7 @@ def create_app():
         return {
             "can": lambda permission: has_permission(role, permission),
             "is_scoped_user": is_scoped_role(role),
+            "hris_modules": get_hris_modules(),
         }
 
     # ==========================
@@ -358,6 +361,7 @@ def create_app():
     app.register_blueprint(audit_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(approvals_bp)
+    app.register_blueprint(hris_bp)
 
     # 🔥 TAMBAHAN WAJIB
     app.register_blueprint(so_bp)

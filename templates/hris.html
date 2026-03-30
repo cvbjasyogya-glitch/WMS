@@ -1,0 +1,3296 @@
+{% extends "base.html" %}
+
+{% block title %}HRIS | Mataram Sports Platform{% endblock %}
+{% block eyebrow %}HRIS Workspace{% endblock %}
+{% block page_title %}HRIS Integration Hub{% endblock %}
+{% block page_subtitle %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endblock %}
+
+{% block content %}
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Source Base</span>
+        <strong>Horilla 1.0</strong>
+    </div>
+    <div class="meta-card">
+        <span>Total Modul</span>
+        <strong>{{ modules|length }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Modul Aktif</span>
+        <strong>{{ selected_module.label }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Status</span>
+        <strong>{{ selected_module.status }}</strong>
+    </div>
+</div>
+
+<div class="cards hris-module-grid">
+    {% for module in modules %}
+    <a
+        href="/hris/{{ module.slug }}"
+        class="card hris-module-card {% if selected_module.slug == module.slug %}active{% endif %}"
+    >
+        <p>{{ module.status }}</p>
+        <h2>{{ module.label }}</h2>
+        <small class="helper-text">{{ module.summary }}</small>
+    </a>
+    {% endfor %}
+</div>
+
+{% if selected_module.slug == "employee" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Karyawan</p>
+        <h3>{{ employee_summary.total }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Aktif</p>
+        <h3>{{ employee_summary.active }}</h3>
+    </div>
+    <div class="card-mini {% if employee_summary.probation %}warning{% endif %}">
+        <p>Probation</p>
+        <h3>{{ employee_summary.probation }}</h3>
+    </div>
+    <div class="card-mini {% if employee_summary.inactive %}danger{% endif %}">
+        <p>Inactive</p>
+        <h3>{{ employee_summary.inactive }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Kontak Email</span>
+        <strong>{{ employee_summary.with_email }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Kontak Telepon</span>
+        <strong>{{ employee_summary.with_phone }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if employee_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == employee_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_employee else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ employee_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
+    <select name="warehouse" {% if employee_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if employee_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if employee_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ employee_scope_warehouse }}">
+    {% endif %}
+    <select name="status">
+        <option value="all" {% if employee_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="active" {% if employee_filters.status == 'active' %}selected{% endif %}>Active</option>
+        <option value="probation" {% if employee_filters.status == 'probation' %}selected{% endif %}>Probation</option>
+        <option value="leave" {% if employee_filters.status == 'leave' %}selected{% endif %}>Leave</option>
+        <option value="inactive" {% if employee_filters.status == 'inactive' %}selected{% endif %}>Inactive</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if employee_scope_warehouse %}
+<small class="helper-text">Data karyawan dikunci ke gudang akun Anda, jadi daftar yang tampil tetap fokus pada area kerja sendiri.</small>
+{% endif %}
+
+{% if can_manage_employee %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Karyawan</h2>
+            <p>Modul Employee menjadi fondasi HRIS. Mulai dari data pokok, gudang kerja, status kerja, dan kontak penting.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/hris/employee/add">
+        <div class="form-grid">
+            <div>
+                <label>Employee Code</label>
+                <input name="employee_code" placeholder="Contoh: EMP-001" required>
+            </div>
+            <div>
+                <label>Nama Lengkap</label>
+                <input name="full_name" placeholder="Nama karyawan" required>
+            </div>
+            <div>
+                <label>Gudang Kerja</label>
+                <select name="warehouse_id" required {% if employee_scope_warehouse %}disabled{% endif %}>
+                    <option value="">Pilih Gudang</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if employee_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if employee_scope_warehouse %}
+                <input type="hidden" name="warehouse_id" value="{{ employee_scope_warehouse }}">
+                {% endif %}
+            </div>
+            <div>
+                <label>Status Kerja</label>
+                <select name="employment_status">
+                    <option value="active">Active</option>
+                    <option value="probation">Probation</option>
+                    <option value="leave">Leave</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+            <div>
+                <label>Departemen</label>
+                <input name="department" placeholder="Contoh: Warehouse Operation">
+            </div>
+            <div>
+                <label>Posisi</label>
+                <input name="position" placeholder="Contoh: Inventory Controller">
+            </div>
+            <div>
+                <label>Telepon</label>
+                <input name="phone" placeholder="62812xxxx">
+            </div>
+            <div>
+                <label>Email</label>
+                <input name="email" placeholder="nama@perusahaan.com">
+            </div>
+            <div>
+                <label>Tanggal Bergabung</label>
+                <input type="date" name="join_date">
+            </div>
+            <div>
+                <label>Lokasi Kerja</label>
+                <input name="work_location" placeholder="Contoh: Gudang Mataram">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="notes" rows="3" placeholder="Catatan tambahan terkait role atau kebutuhan akses."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Karyawan</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Direktori Karyawan</h2>
+            <p>Daftar ini menjadi master data awal HRIS. Tahap berikutnya bisa disambungkan ke attendance, leave, payroll, dan recruitment.</p>
+        </div>
+    </div>
+
+    {% if employees %}
+        {% if can_manage_employee %}
+        <div style="display:grid; gap:16px;">
+            {% for employee in employees %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/employee/update/{{ employee.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Employee Code</label>
+                            <input name="employee_code" value="{{ employee.employee_code }}" required>
+                        </div>
+                        <div>
+                            <label>Nama Lengkap</label>
+                            <input name="full_name" value="{{ employee.full_name }}" required>
+                        </div>
+                        <div>
+                            <label>Gudang Kerja</label>
+                            <select name="warehouse_id" required {% if employee_scope_warehouse %}disabled{% endif %}>
+                                {% for w in warehouses %}
+                                <option value="{{ w.id }}" {% if employee.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if employee_scope_warehouse %}
+                            <input type="hidden" name="warehouse_id" value="{{ employee_scope_warehouse }}">
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label>Status Kerja</label>
+                            <select name="employment_status">
+                                <option value="active" {% if employee.employment_status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="probation" {% if employee.employment_status == 'probation' %}selected{% endif %}>Probation</option>
+                                <option value="leave" {% if employee.employment_status == 'leave' %}selected{% endif %}>Leave</option>
+                                <option value="inactive" {% if employee.employment_status == 'inactive' %}selected{% endif %}>Inactive</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Departemen</label>
+                            <input name="department" value="{{ employee.department or '' }}">
+                        </div>
+                        <div>
+                            <label>Posisi</label>
+                            <input name="position" value="{{ employee.position or '' }}">
+                        </div>
+                        <div>
+                            <label>Telepon</label>
+                            <input name="phone" value="{{ employee.phone or '' }}">
+                        </div>
+                        <div>
+                            <label>Email</label>
+                            <input name="email" value="{{ employee.email or '' }}">
+                        </div>
+                        <div>
+                            <label>Tanggal Bergabung</label>
+                            <input type="date" name="join_date" value="{{ employee.join_date or '' }}">
+                        </div>
+                        <div>
+                            <label>Lokasi Kerja</label>
+                            <input name="work_location" value="{{ employee.work_location or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="notes" rows="3">{{ employee.notes or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Karyawan</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/employee/delete/{{ employee.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus data karyawan ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Departemen</th>
+                    <th>Posisi</th>
+                    <th>Status</th>
+                    <th>Kontak</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for employee in employees %}
+                <tr>
+                    <td class="mono">{{ employee.employee_code }}</td>
+                    <td>{{ employee.full_name }}</td>
+                    <td>{{ employee.warehouse_name or '-' }}</td>
+                    <td>{{ employee.department or '-' }}</td>
+                    <td>{{ employee.position or '-' }}</td>
+                    <td><span class="badge {{ 'green' if employee.employment_status == 'active' else 'orange' if employee.employment_status in ['probation', 'leave'] else 'red' }}">{{ employee.employment_status }}</span></td>
+                    <td>{{ employee.email or employee.phone or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan. Modul Employee siap dipakai sebagai fondasi HRIS pertama.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "attendance" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Record</p>
+        <h3>{{ attendance_summary.total }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Present</p>
+        <h3>{{ attendance_summary.present }}</h3>
+    </div>
+    <div class="card-mini {% if attendance_summary.late %}warning{% endif %}">
+        <p>Late</p>
+        <h3>{{ attendance_summary.late }}</h3>
+    </div>
+    <div class="card-mini {% if attendance_summary.absent or attendance_summary.leave %}danger{% endif %}">
+        <p>Absent + Leave</p>
+        <h3>{{ attendance_summary.absent + attendance_summary.leave }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Check In Tercatat</span>
+        <strong>{{ attendance_summary.with_check_in }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Check Out Tercatat</span>
+        <strong>{{ attendance_summary.with_check_out }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Half Day</span>
+        <strong>{{ attendance_summary.half_day }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_attendance else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ attendance_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
+    <select name="warehouse" {% if attendance_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if attendance_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if attendance_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ attendance_scope_warehouse }}">
+    {% endif %}
+    <select name="status">
+        <option value="all" {% if attendance_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="present" {% if attendance_filters.status == 'present' %}selected{% endif %}>Present</option>
+        <option value="late" {% if attendance_filters.status == 'late' %}selected{% endif %}>Late</option>
+        <option value="leave" {% if attendance_filters.status == 'leave' %}selected{% endif %}>Leave</option>
+        <option value="absent" {% if attendance_filters.status == 'absent' %}selected{% endif %}>Absent</option>
+        <option value="half_day" {% if attendance_filters.status == 'half_day' %}selected{% endif %}>Half Day</option>
+    </select>
+    <input type="date" name="date_from" value="{{ attendance_filters.date_from }}">
+    <input type="date" name="date_to" value="{{ attendance_filters.date_to }}">
+    <button type="submit">Filter</button>
+</form>
+
+{% if attendance_scope_warehouse %}
+<small class="helper-text">Log attendance dikunci ke gudang akun Anda, jadi monitoring harian tetap fokus ke tim sendiri.</small>
+{% endif %}
+
+{% if can_manage_attendance %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Attendance</h2>
+            <p>Presensi harian diikat ke master employee yang sudah ada, sehingga warehouse, nama, dan histori attendance tetap konsisten untuk reporting HRIS berikutnya.</p>
+        </div>
+    </div>
+
+    {% if attendance_employees %}
+    <form method="POST" action="/hris/attendance/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in attendance_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Attendance</label>
+                <input type="date" name="attendance_date" required>
+            </div>
+            <div>
+                <label>Check In</label>
+                <input type="time" name="check_in">
+            </div>
+            <div>
+                <label>Check Out</label>
+                <input type="time" name="check_out">
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="present">Present</option>
+                    <option value="late">Late</option>
+                    <option value="leave">Leave</option>
+                    <option value="absent">Absent</option>
+                    <option value="half_day">Half Day</option>
+                </select>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Contoh: briefing pagi, telat karena pengiriman, izin resmi, atau catatan lembur."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Attendance</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat attendance record.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Log Kehadiran</h2>
+            <p>Riwayat attendance ini siap dipakai sebagai basis untuk leave, payroll, dan integrasi biometric pada tahap modul berikutnya.</p>
+        </div>
+    </div>
+
+    {% if attendance_records %}
+        {% if can_manage_attendance %}
+        <div style="display:grid; gap:16px;">
+            {% for record in attendance_records %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/attendance/update/{{ record.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in attendance_employees %}
+                                <option value="{{ employee.id }}" {% if record.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Tanggal Attendance</label>
+                            <input type="date" name="attendance_date" value="{{ record.attendance_date }}" required>
+                        </div>
+                        <div>
+                            <label>Check In</label>
+                            <input type="time" name="check_in" value="{{ record.check_in or '' }}">
+                        </div>
+                        <div>
+                            <label>Check Out</label>
+                            <input type="time" name="check_out" value="{{ record.check_out or '' }}">
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="present" {% if record.status == 'present' %}selected{% endif %}>Present</option>
+                                <option value="late" {% if record.status == 'late' %}selected{% endif %}>Late</option>
+                                <option value="leave" {% if record.status == 'leave' %}selected{% endif %}>Leave</option>
+                                <option value="absent" {% if record.status == 'absent' %}selected{% endif %}>Absent</option>
+                                <option value="half_day" {% if record.status == 'half_day' %}selected{% endif %}>Half Day</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Gudang Snapshot</label>
+                            <input value="{{ record.warehouse_name or '-' }}" disabled>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ record.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Attendance</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/attendance/delete/{{ record.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus attendance record ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Check In</th>
+                    <th>Check Out</th>
+                    <th>Status</th>
+                    <th>Catatan</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in attendance_records %}
+                <tr>
+                    <td>{{ record.attendance_date }}</td>
+                    <td class="mono">{{ record.employee_code }}</td>
+                    <td>{{ record.full_name }}</td>
+                    <td>{{ record.warehouse_name or '-' }}</td>
+                    <td>{{ record.check_in or '-' }}</td>
+                    <td>{{ record.check_out or '-' }}</td>
+                    <td><span class="badge {{ 'green' if record.status == 'present' else 'orange' if record.status in ['late', 'half_day', 'leave'] else 'red' }}">{{ record.status }}</span></td>
+                    <td>{{ record.note or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada attendance record. Modul Attendance siap dipakai untuk tracking presensi harian.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "leave" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Request</p>
+        <h3>{{ leave_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if leave_summary.pending %}warning{% endif %}">
+        <p>Pending</p>
+        <h3>{{ leave_summary.pending }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Approved</p>
+        <h3>{{ leave_summary.approved }}</h3>
+    </div>
+    <div class="card-mini {% if leave_summary.rejected or leave_summary.cancelled %}danger{% endif %}">
+        <p>Rejected + Cancelled</p>
+        <h3>{{ leave_summary.rejected + leave_summary.cancelled }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Total Hari</span>
+        <strong>{{ leave_summary.total_days }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Pending Approval</span>
+        <strong>{{ leave_summary.pending }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if leave_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == leave_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_leave else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ leave_filters.search }}" placeholder="Cari code, nama, alasan, atau catatan leave">
+    <select name="warehouse" {% if leave_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if leave_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if leave_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ leave_scope_warehouse }}">
+    {% endif %}
+    <select name="leave_type">
+        <option value="all" {% if leave_filters.leave_type == 'all' %}selected{% endif %}>Semua Tipe</option>
+        <option value="annual" {% if leave_filters.leave_type == 'annual' %}selected{% endif %}>Annual Leave</option>
+        <option value="sick" {% if leave_filters.leave_type == 'sick' %}selected{% endif %}>Sick Leave</option>
+        <option value="permit" {% if leave_filters.leave_type == 'permit' %}selected{% endif %}>Permit</option>
+        <option value="unpaid" {% if leave_filters.leave_type == 'unpaid' %}selected{% endif %}>Unpaid Leave</option>
+        <option value="special" {% if leave_filters.leave_type == 'special' %}selected{% endif %}>Special Leave</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if leave_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="pending" {% if leave_filters.status == 'pending' %}selected{% endif %}>Pending</option>
+        <option value="approved" {% if leave_filters.status == 'approved' %}selected{% endif %}>Approved</option>
+        <option value="rejected" {% if leave_filters.status == 'rejected' %}selected{% endif %}>Rejected</option>
+        <option value="cancelled" {% if leave_filters.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+    </select>
+    <input type="date" name="date_from" value="{{ leave_filters.date_from }}">
+    <input type="date" name="date_to" value="{{ leave_filters.date_to }}">
+    <button type="submit">Filter</button>
+</form>
+
+{% if leave_scope_warehouse %}
+<small class="helper-text">Leave request di scope akun Anda hanya akan menampilkan karyawan dari gudang sendiri, jadi monitoring approval tetap fokus dan aman.</small>
+{% endif %}
+
+{% if can_manage_leave %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Leave</h2>
+            <p>Modul Leave ini menyimpan request cuti atau izin per karyawan, lengkap dengan rentang tanggal, status approval, dan total hari yang dihitung otomatis.</p>
+        </div>
+    </div>
+
+    {% if leave_employees %}
+    <form method="POST" action="/hris/leave/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in leave_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Tipe Leave</label>
+                <select name="leave_type">
+                    <option value="annual">Annual Leave</option>
+                    <option value="sick">Sick Leave</option>
+                    <option value="permit">Permit</option>
+                    <option value="unpaid">Unpaid Leave</option>
+                    <option value="special">Special Leave</option>
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Mulai</label>
+                <input type="date" name="start_date" required>
+            </div>
+            <div>
+                <label>Tanggal Selesai</label>
+                <input type="date" name="end_date" required>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Alasan</label>
+                <textarea name="reason" rows="2" placeholder="Contoh: cuti tahunan keluarga, izin berobat, atau keperluan khusus." required></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan Tambahan</label>
+                <textarea name="note" rows="3" placeholder="Tambahkan catatan approval, handover pekerjaan, atau informasi pendukung lainnya."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Leave</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat leave request.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Leave Tracker</h2>
+            <p>Riwayat leave ini menyiapkan fondasi approval leave, payroll impact, dan rekap kebijakan cuti pada modul HRIS berikutnya.</p>
+        </div>
+    </div>
+
+    {% if leave_requests %}
+        {% if can_manage_leave %}
+        <div style="display:grid; gap:16px;">
+            {% for leave in leave_requests %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/leave/update/{{ leave.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in leave_employees %}
+                                <option value="{{ employee.id }}" {% if leave.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Tipe Leave</label>
+                            <select name="leave_type">
+                                <option value="annual" {% if leave.leave_type == 'annual' %}selected{% endif %}>Annual Leave</option>
+                                <option value="sick" {% if leave.leave_type == 'sick' %}selected{% endif %}>Sick Leave</option>
+                                <option value="permit" {% if leave.leave_type == 'permit' %}selected{% endif %}>Permit</option>
+                                <option value="unpaid" {% if leave.leave_type == 'unpaid' %}selected{% endif %}>Unpaid Leave</option>
+                                <option value="special" {% if leave.leave_type == 'special' %}selected{% endif %}>Special Leave</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Tanggal Mulai</label>
+                            <input type="date" name="start_date" value="{{ leave.start_date }}" required>
+                        </div>
+                        <div>
+                            <label>Tanggal Selesai</label>
+                            <input type="date" name="end_date" value="{{ leave.end_date }}" required>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="pending" {% if leave.status == 'pending' %}selected{% endif %}>Pending</option>
+                                <option value="approved" {% if leave.status == 'approved' %}selected{% endif %}>Approved</option>
+                                <option value="rejected" {% if leave.status == 'rejected' %}selected{% endif %}>Rejected</option>
+                                <option value="cancelled" {% if leave.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Total Hari</label>
+                            <input value="{{ leave.total_days }}" disabled>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Alasan</label>
+                            <textarea name="reason" rows="2" required>{{ leave.reason or '' }}</textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan Tambahan</label>
+                            <textarea name="note" rows="3">{{ leave.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Leave</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/leave/delete/{{ leave.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus leave request ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Tipe</th>
+                    <th>Mulai</th>
+                    <th>Selesai</th>
+                    <th>Hari</th>
+                    <th>Status</th>
+                    <th>Alasan</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for leave in leave_requests %}
+                <tr>
+                    <td class="mono">{{ leave.employee_code }}</td>
+                    <td>{{ leave.full_name }}</td>
+                    <td>{{ leave.warehouse_name or '-' }}</td>
+                    <td>{{ leave.leave_type }}</td>
+                    <td>{{ leave.start_date }}</td>
+                    <td>{{ leave.end_date }}</td>
+                    <td>{{ leave.total_days }}</td>
+                    <td><span class="badge {{ 'green' if leave.status == 'approved' else 'orange' if leave.status == 'pending' else 'red' }}">{{ leave.status }}</span></td>
+                    <td>{{ leave.reason or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada leave request. Modul Leave siap dipakai untuk tracking cuti dan izin karyawan.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "payroll" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Payroll</p>
+        <h3>{{ payroll_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if payroll_summary.draft %}warning{% endif %}">
+        <p>Draft</p>
+        <h3>{{ payroll_summary.draft }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Approved + Paid</p>
+        <h3>{{ payroll_summary.approved + payroll_summary.paid }}</h3>
+    </div>
+    <div class="card-mini {% if payroll_summary.cancelled %}danger{% endif %}">
+        <p>Cancelled</p>
+        <h3>{{ payroll_summary.cancelled }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Total Base Salary</span>
+        <strong>Rp {{ "%.0f"|format(payroll_summary.total_base_salary) }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Total Net Pay</span>
+        <strong>Rp {{ "%.0f"|format(payroll_summary.total_net_pay) }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if payroll_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == payroll_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_payroll else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ payroll_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
+    <select name="warehouse" {% if payroll_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if payroll_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if payroll_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ payroll_scope_warehouse }}">
+    {% endif %}
+    <input type="number" name="period_month" min="1" max="12" value="{{ payroll_filters.period_month or '' }}" placeholder="Bulan">
+    <input type="number" name="period_year" min="2000" max="2100" value="{{ payroll_filters.period_year or '' }}" placeholder="Tahun">
+    <select name="status">
+        <option value="all" {% if payroll_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="draft" {% if payroll_filters.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="approved" {% if payroll_filters.status == 'approved' %}selected{% endif %}>Approved</option>
+        <option value="paid" {% if payroll_filters.status == 'paid' %}selected{% endif %}>Paid</option>
+        <option value="cancelled" {% if payroll_filters.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if payroll_scope_warehouse %}
+<small class="helper-text">Payroll yang tampil dibatasi ke gudang akun Anda, jadi proses review kompensasi tetap sesuai scope operasional.</small>
+{% endif %}
+
+{% if can_manage_payroll %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Payroll</h2>
+            <p>Payroll ini menyimpan periode gaji per karyawan, komponen pemasukan dan potongan, lalu menghitung net pay otomatis agar siap dipakai ke tahap payslip berikutnya.</p>
+        </div>
+    </div>
+
+    {% if payroll_employees %}
+    <form method="POST" action="/hris/payroll/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in payroll_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Periode Bulan</label>
+                <input type="number" name="period_month" min="1" max="12" placeholder="Contoh: 4" required>
+            </div>
+            <div>
+                <label>Periode Tahun</label>
+                <input type="number" name="period_year" min="2000" max="2100" placeholder="Contoh: 2026" required>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="draft">Draft</option>
+                    <option value="approved">Approved</option>
+                    <option value="paid">Paid</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+            </div>
+            <div>
+                <label>Base Salary</label>
+                <input type="number" name="base_salary" step="0.01" min="0" value="0">
+            </div>
+            <div>
+                <label>Allowance</label>
+                <input type="number" name="allowance" step="0.01" min="0" value="0">
+            </div>
+            <div>
+                <label>Overtime Pay</label>
+                <input type="number" name="overtime_pay" step="0.01" min="0" value="0">
+            </div>
+            <div>
+                <label>Deduction</label>
+                <input type="number" name="deduction" step="0.01" min="0" value="0">
+            </div>
+            <div>
+                <label>Leave Deduction</label>
+                <input type="number" name="leave_deduction" step="0.01" min="0" value="0">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Contoh: payroll April final, bonus lembur, atau revisi potongan izin."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Payroll</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat payroll.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Payroll Register</h2>
+            <p>Register payroll ini menjadi dasar untuk approval gaji, status pembayaran, dan pengembangan payslip atau rekap kompensasi pada tahap berikutnya.</p>
+        </div>
+    </div>
+
+    {% if payroll_runs %}
+        {% if can_manage_payroll %}
+        <div style="display:grid; gap:16px;">
+            {% for payroll in payroll_runs %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/payroll/update/{{ payroll.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in payroll_employees %}
+                                <option value="{{ employee.id }}" {% if payroll.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Periode Bulan</label>
+                            <input type="number" name="period_month" min="1" max="12" value="{{ payroll.period_month }}" required>
+                        </div>
+                        <div>
+                            <label>Periode Tahun</label>
+                            <input type="number" name="period_year" min="2000" max="2100" value="{{ payroll.period_year }}" required>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="draft" {% if payroll.status == 'draft' %}selected{% endif %}>Draft</option>
+                                <option value="approved" {% if payroll.status == 'approved' %}selected{% endif %}>Approved</option>
+                                <option value="paid" {% if payroll.status == 'paid' %}selected{% endif %}>Paid</option>
+                                <option value="cancelled" {% if payroll.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Base Salary</label>
+                            <input type="number" name="base_salary" step="0.01" min="0" value="{{ payroll.base_salary or 0 }}">
+                        </div>
+                        <div>
+                            <label>Allowance</label>
+                            <input type="number" name="allowance" step="0.01" min="0" value="{{ payroll.allowance or 0 }}">
+                        </div>
+                        <div>
+                            <label>Overtime Pay</label>
+                            <input type="number" name="overtime_pay" step="0.01" min="0" value="{{ payroll.overtime_pay or 0 }}">
+                        </div>
+                        <div>
+                            <label>Deduction</label>
+                            <input type="number" name="deduction" step="0.01" min="0" value="{{ payroll.deduction or 0 }}">
+                        </div>
+                        <div>
+                            <label>Leave Deduction</label>
+                            <input type="number" name="leave_deduction" step="0.01" min="0" value="{{ payroll.leave_deduction or 0 }}">
+                        </div>
+                        <div>
+                            <label>Net Pay</label>
+                            <input value="Rp {{ "%.0f"|format(payroll.net_pay or 0) }}" disabled>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ payroll.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Payroll</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/payroll/delete/{{ payroll.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus payroll ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Periode</th>
+                    <th>Base</th>
+                    <th>Allowance</th>
+                    <th>Deduction</th>
+                    <th>Net Pay</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for payroll in payroll_runs %}
+                <tr>
+                    <td class="mono">{{ payroll.employee_code }}</td>
+                    <td>{{ payroll.full_name }}</td>
+                    <td>{{ payroll.warehouse_name or '-' }}</td>
+                    <td>{{ payroll.period_month }}/{{ payroll.period_year }}</td>
+                    <td>Rp {{ "%.0f"|format(payroll.base_salary or 0) }}</td>
+                    <td>Rp {{ "%.0f"|format(payroll.allowance or 0) }}</td>
+                    <td>Rp {{ "%.0f"|format((payroll.deduction or 0) + (payroll.leave_deduction or 0)) }}</td>
+                    <td>Rp {{ "%.0f"|format(payroll.net_pay or 0) }}</td>
+                    <td><span class="badge {{ 'green' if payroll.status in ['approved', 'paid'] else 'orange' if payroll.status == 'draft' else 'red' }}">{{ payroll.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada payroll. Modul Payroll siap dipakai untuk register kompensasi per periode.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "recruitment" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Kandidat</p>
+        <h3>{{ recruitment_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if recruitment_summary.interview %}warning{% endif %}">
+        <p>Interview</p>
+        <h3>{{ recruitment_summary.interview }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Offer + Hired</p>
+        <h3>{{ recruitment_summary.offer + recruitment_summary.hired }}</h3>
+    </div>
+    <div class="card-mini {% if recruitment_summary.closed %}danger{% endif %}">
+        <p>Closed</p>
+        <h3>{{ recruitment_summary.closed }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Aktif Pipeline</span>
+        <strong>{{ recruitment_summary.active }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Posisi Interview</span>
+        <strong>{{ recruitment_summary.interview }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if recruitment_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == recruitment_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_recruitment else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ recruitment_filters.search }}" placeholder="Cari kandidat, posisi, departemen, atau source">
+    <select name="warehouse" {% if recruitment_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if recruitment_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if recruitment_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ recruitment_scope_warehouse }}">
+    {% endif %}
+    <select name="stage">
+        <option value="all" {% if recruitment_filters.stage == 'all' %}selected{% endif %}>Semua Stage</option>
+        <option value="applied" {% if recruitment_filters.stage == 'applied' %}selected{% endif %}>Applied</option>
+        <option value="screening" {% if recruitment_filters.stage == 'screening' %}selected{% endif %}>Screening</option>
+        <option value="interview" {% if recruitment_filters.stage == 'interview' %}selected{% endif %}>Interview</option>
+        <option value="offer" {% if recruitment_filters.stage == 'offer' %}selected{% endif %}>Offer</option>
+        <option value="hired" {% if recruitment_filters.stage == 'hired' %}selected{% endif %}>Hired</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if recruitment_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="active" {% if recruitment_filters.status == 'active' %}selected{% endif %}>Active</option>
+        <option value="on_hold" {% if recruitment_filters.status == 'on_hold' %}selected{% endif %}>On Hold</option>
+        <option value="rejected" {% if recruitment_filters.status == 'rejected' %}selected{% endif %}>Rejected</option>
+        <option value="withdrawn" {% if recruitment_filters.status == 'withdrawn' %}selected{% endif %}>Withdrawn</option>
+        <option value="closed" {% if recruitment_filters.status == 'closed' %}selected{% endif %}>Closed</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if recruitment_scope_warehouse %}
+<small class="helper-text">Recruitment pipeline dibatasi ke gudang akun Anda, jadi proses hiring tetap fokus ke kebutuhan area sendiri.</small>
+{% endif %}
+
+{% if can_manage_recruitment %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Kandidat</h2>
+            <p>Modul Recruitment ini dipakai untuk melacak kandidat, posisi yang dilamar, stage hiring, status akhir, dan target join date dalam satu pipeline yang rapi.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/hris/recruitment/add">
+        <div class="form-grid">
+            <div>
+                <label>Nama Kandidat</label>
+                <input name="candidate_name" placeholder="Nama kandidat" required>
+            </div>
+            <div>
+                <label>Posisi</label>
+                <input name="position_title" placeholder="Contoh: Warehouse Supervisor" required>
+            </div>
+            <div>
+                <label>Gudang Hiring</label>
+                <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
+                    <option value="">Pilih Gudang</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if recruitment_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if recruitment_scope_warehouse %}
+                <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+                {% endif %}
+            </div>
+            <div>
+                <label>Departemen</label>
+                <input name="department" placeholder="Contoh: Warehouse Operation">
+            </div>
+            <div>
+                <label>Stage</label>
+                <select name="stage">
+                    <option value="applied">Applied</option>
+                    <option value="screening">Screening</option>
+                    <option value="interview">Interview</option>
+                    <option value="offer">Offer</option>
+                    <option value="hired">Hired</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="active">Active</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="withdrawn">Withdrawn</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+            <div>
+                <label>Source</label>
+                <input name="source" placeholder="Contoh: Referral / Job Portal">
+            </div>
+            <div>
+                <label>Telepon</label>
+                <input name="phone" placeholder="62812xxxx">
+            </div>
+            <div>
+                <label>Email</label>
+                <input name="email" placeholder="candidate@email.com">
+            </div>
+            <div>
+                <label>Expected Join Date</label>
+                <input type="date" name="expected_join_date">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Catatan interview, ekspektasi salary, atau keputusan hiring."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Kandidat</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Hiring Pipeline</h2>
+            <p>Pipeline ini menyiapkan fondasi untuk vacancy management, interview scheduling, dan onboarding kandidat terpilih pada tahap modul berikutnya.</p>
+        </div>
+    </div>
+
+    {% if recruitment_candidates %}
+        {% if can_manage_recruitment %}
+        <div style="display:grid; gap:16px;">
+            {% for candidate in recruitment_candidates %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/recruitment/update/{{ candidate.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Nama Kandidat</label>
+                            <input name="candidate_name" value="{{ candidate.candidate_name }}" required>
+                        </div>
+                        <div>
+                            <label>Posisi</label>
+                            <input name="position_title" value="{{ candidate.position_title }}" required>
+                        </div>
+                        <div>
+                            <label>Gudang Hiring</label>
+                            <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
+                                {% for w in warehouses %}
+                                <option value="{{ w.id }}" {% if candidate.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if recruitment_scope_warehouse %}
+                            <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label>Departemen</label>
+                            <input name="department" value="{{ candidate.department or '' }}">
+                        </div>
+                        <div>
+                            <label>Stage</label>
+                            <select name="stage">
+                                <option value="applied" {% if candidate.stage == 'applied' %}selected{% endif %}>Applied</option>
+                                <option value="screening" {% if candidate.stage == 'screening' %}selected{% endif %}>Screening</option>
+                                <option value="interview" {% if candidate.stage == 'interview' %}selected{% endif %}>Interview</option>
+                                <option value="offer" {% if candidate.stage == 'offer' %}selected{% endif %}>Offer</option>
+                                <option value="hired" {% if candidate.stage == 'hired' %}selected{% endif %}>Hired</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="active" {% if candidate.status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="on_hold" {% if candidate.status == 'on_hold' %}selected{% endif %}>On Hold</option>
+                                <option value="rejected" {% if candidate.status == 'rejected' %}selected{% endif %}>Rejected</option>
+                                <option value="withdrawn" {% if candidate.status == 'withdrawn' %}selected{% endif %}>Withdrawn</option>
+                                <option value="closed" {% if candidate.status == 'closed' %}selected{% endif %}>Closed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Source</label>
+                            <input name="source" value="{{ candidate.source or '' }}">
+                        </div>
+                        <div>
+                            <label>Telepon</label>
+                            <input name="phone" value="{{ candidate.phone or '' }}">
+                        </div>
+                        <div>
+                            <label>Email</label>
+                            <input name="email" value="{{ candidate.email or '' }}">
+                        </div>
+                        <div>
+                            <label>Expected Join Date</label>
+                            <input type="date" name="expected_join_date" value="{{ candidate.expected_join_date or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ candidate.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Kandidat</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/recruitment/delete/{{ candidate.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus kandidat recruitment ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Nama</th>
+                    <th>Posisi</th>
+                    <th>Gudang</th>
+                    <th>Stage</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Kontak</th>
+                    <th>Join Plan</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in recruitment_candidates %}
+                <tr>
+                    <td>{{ candidate.candidate_name }}</td>
+                    <td>{{ candidate.position_title }}</td>
+                    <td>{{ candidate.warehouse_name or '-' }}</td>
+                    <td>{{ candidate.stage }}</td>
+                    <td><span class="badge {{ 'green' if candidate.status in ['active', 'closed'] else 'orange' if candidate.status == 'on_hold' else 'red' }}">{{ candidate.status }}</span></td>
+                    <td>{{ candidate.source or '-' }}</td>
+                    <td>{{ candidate.email or candidate.phone or '-' }}</td>
+                    <td>{{ candidate.expected_join_date or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada kandidat recruitment. Modul Recruitment siap dipakai untuk tracking pipeline hiring.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "onboarding" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Onboarding</p>
+        <h3>{{ onboarding_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if onboarding_summary.pending %}warning{% endif %}">
+        <p>Pending</p>
+        <h3>{{ onboarding_summary.pending }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>In Progress + Completed</p>
+        <h3>{{ onboarding_summary.in_progress + onboarding_summary.completed }}</h3>
+    </div>
+    <div class="card-mini {% if onboarding_summary.blocked %}danger{% endif %}">
+        <p>Blocked</p>
+        <h3>{{ onboarding_summary.blocked }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Preboarding</span>
+        <strong>{{ onboarding_summary.preboarding }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Go Live</span>
+        <strong>{{ onboarding_summary.go_live }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if onboarding_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == onboarding_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_onboarding else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ onboarding_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
+    <select name="warehouse" {% if onboarding_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if onboarding_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if onboarding_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ onboarding_scope_warehouse }}">
+    {% endif %}
+    <select name="stage">
+        <option value="all" {% if onboarding_filters.stage == 'all' %}selected{% endif %}>Semua Stage</option>
+        <option value="preboarding" {% if onboarding_filters.stage == 'preboarding' %}selected{% endif %}>Preboarding</option>
+        <option value="orientation" {% if onboarding_filters.stage == 'orientation' %}selected{% endif %}>Orientation</option>
+        <option value="system_access" {% if onboarding_filters.stage == 'system_access' %}selected{% endif %}>System Access</option>
+        <option value="training" {% if onboarding_filters.stage == 'training' %}selected{% endif %}>Training</option>
+        <option value="go_live" {% if onboarding_filters.stage == 'go_live' %}selected{% endif %}>Go Live</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if onboarding_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="pending" {% if onboarding_filters.status == 'pending' %}selected{% endif %}>Pending</option>
+        <option value="in_progress" {% if onboarding_filters.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+        <option value="completed" {% if onboarding_filters.status == 'completed' %}selected{% endif %}>Completed</option>
+        <option value="blocked" {% if onboarding_filters.status == 'blocked' %}selected{% endif %}>Blocked</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if onboarding_scope_warehouse %}
+<small class="helper-text">Onboarding tracker dibatasi ke gudang akun Anda, jadi progress karyawan baru tetap relevan dengan area kerja sendiri.</small>
+{% endif %}
+
+{% if can_manage_onboarding %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Onboarding</h2>
+            <p>Modul Onboarding ini dipakai untuk memantau progress masuk karyawan baru, dari preboarding sampai siap go live di operasional.</p>
+        </div>
+    </div>
+
+    {% if onboarding_employees %}
+    <form method="POST" action="/hris/onboarding/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in onboarding_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Mulai</label>
+                <input type="date" name="start_date" required>
+            </div>
+            <div>
+                <label>Target Selesai</label>
+                <input type="date" name="target_date">
+            </div>
+            <div>
+                <label>Stage</label>
+                <select name="stage">
+                    <option value="preboarding">Preboarding</option>
+                    <option value="orientation">Orientation</option>
+                    <option value="system_access">System Access</option>
+                    <option value="training">Training</option>
+                    <option value="go_live">Go Live</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="pending">Pending</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="blocked">Blocked</option>
+                </select>
+            </div>
+            <div>
+                <label>Buddy / PIC</label>
+                <input name="buddy_name" placeholder="Contoh: Andi Leader">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Checklist briefing, akses sistem, uniform, training area, atau blocker onboarding."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Onboarding</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat onboarding record.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Onboarding Tracker</h2>
+            <p>Tracker ini menjadi fondasi untuk handoff akses, checklist operasional, dan pengembangan modul lifecycle karyawan berikutnya.</p>
+        </div>
+    </div>
+
+    {% if onboarding_records %}
+        {% if can_manage_onboarding %}
+        <div style="display:grid; gap:16px;">
+            {% for onboarding in onboarding_records %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/onboarding/update/{{ onboarding.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in onboarding_employees %}
+                                <option value="{{ employee.id }}" {% if onboarding.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Tanggal Mulai</label>
+                            <input type="date" name="start_date" value="{{ onboarding.start_date }}" required>
+                        </div>
+                        <div>
+                            <label>Target Selesai</label>
+                            <input type="date" name="target_date" value="{{ onboarding.target_date or '' }}">
+                        </div>
+                        <div>
+                            <label>Stage</label>
+                            <select name="stage">
+                                <option value="preboarding" {% if onboarding.stage == 'preboarding' %}selected{% endif %}>Preboarding</option>
+                                <option value="orientation" {% if onboarding.stage == 'orientation' %}selected{% endif %}>Orientation</option>
+                                <option value="system_access" {% if onboarding.stage == 'system_access' %}selected{% endif %}>System Access</option>
+                                <option value="training" {% if onboarding.stage == 'training' %}selected{% endif %}>Training</option>
+                                <option value="go_live" {% if onboarding.stage == 'go_live' %}selected{% endif %}>Go Live</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="pending" {% if onboarding.status == 'pending' %}selected{% endif %}>Pending</option>
+                                <option value="in_progress" {% if onboarding.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                                <option value="completed" {% if onboarding.status == 'completed' %}selected{% endif %}>Completed</option>
+                                <option value="blocked" {% if onboarding.status == 'blocked' %}selected{% endif %}>Blocked</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Buddy / PIC</label>
+                            <input name="buddy_name" value="{{ onboarding.buddy_name or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ onboarding.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Onboarding</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/onboarding/delete/{{ onboarding.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus onboarding record ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Mulai</th>
+                    <th>Target</th>
+                    <th>Stage</th>
+                    <th>Status</th>
+                    <th>Buddy</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for onboarding in onboarding_records %}
+                <tr>
+                    <td class="mono">{{ onboarding.employee_code }}</td>
+                    <td>{{ onboarding.full_name }}</td>
+                    <td>{{ onboarding.warehouse_name or '-' }}</td>
+                    <td>{{ onboarding.start_date }}</td>
+                    <td>{{ onboarding.target_date or '-' }}</td>
+                    <td>{{ onboarding.stage }}</td>
+                    <td><span class="badge {{ 'green' if onboarding.status == 'completed' else 'orange' if onboarding.status in ['pending', 'in_progress'] else 'red' }}">{{ onboarding.status }}</span></td>
+                    <td>{{ onboarding.buddy_name or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada onboarding record. Modul Onboarding siap dipakai untuk tracking adaptasi karyawan baru.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "offboarding" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Offboarding</p>
+        <h3>{{ offboarding_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if offboarding_summary.planned %}warning{% endif %}">
+        <p>Planned</p>
+        <h3>{{ offboarding_summary.planned }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>In Progress + Completed</p>
+        <h3>{{ offboarding_summary.in_progress + offboarding_summary.completed }}</h3>
+    </div>
+    <div class="card-mini {% if offboarding_summary.cancelled %}danger{% endif %}">
+        <p>Cancelled</p>
+        <h3>{{ offboarding_summary.cancelled }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Notice Stage</span>
+        <strong>{{ offboarding_summary.notice }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Exit Complete</span>
+        <strong>{{ offboarding_summary.exit_complete }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if offboarding_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == offboarding_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_offboarding else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ offboarding_filters.search }}" placeholder="Cari code, nama, exit reason, atau handover PIC">
+    <select name="warehouse" {% if offboarding_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if offboarding_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if offboarding_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ offboarding_scope_warehouse }}">
+    {% endif %}
+    <select name="stage">
+        <option value="all" {% if offboarding_filters.stage == 'all' %}selected{% endif %}>Semua Stage</option>
+        <option value="notice" {% if offboarding_filters.stage == 'notice' %}selected{% endif %}>Notice</option>
+        <option value="clearance" {% if offboarding_filters.stage == 'clearance' %}selected{% endif %}>Clearance</option>
+        <option value="handover" {% if offboarding_filters.stage == 'handover' %}selected{% endif %}>Handover</option>
+        <option value="exit_complete" {% if offboarding_filters.stage == 'exit_complete' %}selected{% endif %}>Exit Complete</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if offboarding_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="planned" {% if offboarding_filters.status == 'planned' %}selected{% endif %}>Planned</option>
+        <option value="in_progress" {% if offboarding_filters.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+        <option value="completed" {% if offboarding_filters.status == 'completed' %}selected{% endif %}>Completed</option>
+        <option value="cancelled" {% if offboarding_filters.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if offboarding_scope_warehouse %}
+<small class="helper-text">Offboarding tracker dibatasi ke gudang akun Anda, jadi proses exit karyawan tetap relevan dengan area operasional sendiri.</small>
+{% endif %}
+
+{% if can_manage_offboarding %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Offboarding</h2>
+            <p>Modul Offboarding ini dipakai untuk mengelola notice keluar, clearance, handover pekerjaan, sampai status exit complete per karyawan.</p>
+        </div>
+    </div>
+
+    {% if offboarding_employees %}
+    <form method="POST" action="/hris/offboarding/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in offboarding_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Notice Date</label>
+                <input type="date" name="notice_date" required>
+            </div>
+            <div>
+                <label>Last Working Date</label>
+                <input type="date" name="last_working_date">
+            </div>
+            <div>
+                <label>Stage</label>
+                <select name="stage">
+                    <option value="notice">Notice</option>
+                    <option value="clearance">Clearance</option>
+                    <option value="handover">Handover</option>
+                    <option value="exit_complete">Exit Complete</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="planned">Planned</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+            </div>
+            <div>
+                <label>Handover PIC</label>
+                <input name="handover_pic" placeholder="Contoh: Leader Gudang">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Alasan Keluar</label>
+                <textarea name="exit_reason" rows="2" placeholder="Contoh: resign, kontrak selesai, atau perpindahan peran."></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Checklist asset return, akses ditutup, knowledge transfer, atau keputusan akhir."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Offboarding</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat offboarding record.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Offboarding Tracker</h2>
+            <p>Tracker ini menyiapkan fondasi untuk clearance, return asset, revoke akses, dan dokumentasi exit karyawan secara rapi.</p>
+        </div>
+    </div>
+
+    {% if offboarding_records %}
+        {% if can_manage_offboarding %}
+        <div style="display:grid; gap:16px;">
+            {% for offboarding in offboarding_records %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/offboarding/update/{{ offboarding.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in offboarding_employees %}
+                                <option value="{{ employee.id }}" {% if offboarding.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Notice Date</label>
+                            <input type="date" name="notice_date" value="{{ offboarding.notice_date }}" required>
+                        </div>
+                        <div>
+                            <label>Last Working Date</label>
+                            <input type="date" name="last_working_date" value="{{ offboarding.last_working_date or '' }}">
+                        </div>
+                        <div>
+                            <label>Stage</label>
+                            <select name="stage">
+                                <option value="notice" {% if offboarding.stage == 'notice' %}selected{% endif %}>Notice</option>
+                                <option value="clearance" {% if offboarding.stage == 'clearance' %}selected{% endif %}>Clearance</option>
+                                <option value="handover" {% if offboarding.stage == 'handover' %}selected{% endif %}>Handover</option>
+                                <option value="exit_complete" {% if offboarding.stage == 'exit_complete' %}selected{% endif %}>Exit Complete</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="planned" {% if offboarding.status == 'planned' %}selected{% endif %}>Planned</option>
+                                <option value="in_progress" {% if offboarding.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                                <option value="completed" {% if offboarding.status == 'completed' %}selected{% endif %}>Completed</option>
+                                <option value="cancelled" {% if offboarding.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Handover PIC</label>
+                            <input name="handover_pic" value="{{ offboarding.handover_pic or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Alasan Keluar</label>
+                            <textarea name="exit_reason" rows="2">{{ offboarding.exit_reason or '' }}</textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ offboarding.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Offboarding</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/offboarding/delete/{{ offboarding.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus offboarding record ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Notice</th>
+                    <th>Last Day</th>
+                    <th>Stage</th>
+                    <th>Status</th>
+                    <th>Handover</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for offboarding in offboarding_records %}
+                <tr>
+                    <td class="mono">{{ offboarding.employee_code }}</td>
+                    <td>{{ offboarding.full_name }}</td>
+                    <td>{{ offboarding.warehouse_name or '-' }}</td>
+                    <td>{{ offboarding.notice_date }}</td>
+                    <td>{{ offboarding.last_working_date or '-' }}</td>
+                    <td>{{ offboarding.stage }}</td>
+                    <td><span class="badge {{ 'green' if offboarding.status == 'completed' else 'orange' if offboarding.status in ['planned', 'in_progress'] else 'red' }}">{{ offboarding.status }}</span></td>
+                    <td>{{ offboarding.handover_pic or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada offboarding record. Modul Offboarding siap dipakai untuk tracking proses keluar karyawan.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "pms" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Review</p>
+        <h3>{{ performance_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if performance_summary.draft %}warning{% endif %}">
+        <p>Draft</p>
+        <h3>{{ performance_summary.draft }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Reviewed + Acknowledged</p>
+        <h3>{{ performance_summary.reviewed + performance_summary.acknowledged }}</h3>
+    </div>
+    <div class="card-mini {% if performance_summary.closed %}danger{% endif %}">
+        <p>Closed</p>
+        <h3>{{ performance_summary.closed }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Average Score</span>
+        <strong>{{ "%.2f"|format(performance_summary.avg_score) }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if performance_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == performance_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Reviewed</span>
+        <strong>{{ performance_summary.reviewed }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_performance else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ performance_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
+    <select name="warehouse" {% if performance_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if performance_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if performance_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ performance_scope_warehouse }}">
+    {% endif %}
+    <input type="text" name="review_period" value="{{ performance_filters.review_period or '' }}" placeholder="Contoh: 2026-Q2">
+    <select name="status">
+        <option value="all" {% if performance_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="draft" {% if performance_filters.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="reviewed" {% if performance_filters.status == 'reviewed' %}selected{% endif %}>Reviewed</option>
+        <option value="acknowledged" {% if performance_filters.status == 'acknowledged' %}selected{% endif %}>Acknowledged</option>
+        <option value="closed" {% if performance_filters.status == 'closed' %}selected{% endif %}>Closed</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if performance_scope_warehouse %}
+<small class="helper-text">Performance review yang tampil dibatasi ke gudang akun Anda, jadi evaluasi tim tetap fokus sesuai area kerja.</small>
+{% endif %}
+
+{% if can_manage_performance %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Review</h2>
+            <p>Modul Performance ini dipakai untuk menilai goal, disiplin, dan teamwork per periode review, lalu menghasilkan final score dan rating otomatis.</p>
+        </div>
+    </div>
+
+    {% if performance_employees %}
+    <form method="POST" action="/hris/performance/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in performance_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Periode Review</label>
+                <input name="review_period" placeholder="Contoh: 2026-Q2" required>
+            </div>
+            <div>
+                <label>Goal Score</label>
+                <input type="number" name="goal_score" min="0" max="100" step="0.01" value="0">
+            </div>
+            <div>
+                <label>Discipline Score</label>
+                <input type="number" name="discipline_score" min="0" max="100" step="0.01" value="0">
+            </div>
+            <div>
+                <label>Teamwork Score</label>
+                <input type="number" name="teamwork_score" min="0" max="100" step="0.01" value="0">
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="draft">Draft</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="acknowledged">Acknowledged</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+            <div>
+                <label>Reviewer</label>
+                <input name="reviewer_name" placeholder="Contoh: Manager Area">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Ringkasan pencapaian, area perbaikan, dan tindak lanjut review."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Review</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat performance review.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Performance Review</h2>
+            <p>Register ini menjadi fondasi untuk cycle review, coaching plan, dan evaluasi performa tim yang lebih lengkap pada tahap modul berikutnya.</p>
+        </div>
+    </div>
+
+    {% if performance_reviews %}
+        {% if can_manage_performance %}
+        <div style="display:grid; gap:16px;">
+            {% for review in performance_reviews %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/performance/update/{{ review.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in performance_employees %}
+                                <option value="{{ employee.id }}" {% if review.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Periode Review</label>
+                            <input name="review_period" value="{{ review.review_period }}" required>
+                        </div>
+                        <div>
+                            <label>Goal Score</label>
+                            <input type="number" name="goal_score" min="0" max="100" step="0.01" value="{{ review.goal_score or 0 }}">
+                        </div>
+                        <div>
+                            <label>Discipline Score</label>
+                            <input type="number" name="discipline_score" min="0" max="100" step="0.01" value="{{ review.discipline_score or 0 }}">
+                        </div>
+                        <div>
+                            <label>Teamwork Score</label>
+                            <input type="number" name="teamwork_score" min="0" max="100" step="0.01" value="{{ review.teamwork_score or 0 }}">
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="draft" {% if review.status == 'draft' %}selected{% endif %}>Draft</option>
+                                <option value="reviewed" {% if review.status == 'reviewed' %}selected{% endif %}>Reviewed</option>
+                                <option value="acknowledged" {% if review.status == 'acknowledged' %}selected{% endif %}>Acknowledged</option>
+                                <option value="closed" {% if review.status == 'closed' %}selected{% endif %}>Closed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Reviewer</label>
+                            <input name="reviewer_name" value="{{ review.reviewer_name or '' }}">
+                        </div>
+                        <div>
+                            <label>Final Score</label>
+                            <input value="{{ "%.2f"|format(review.final_score or 0) }} | {{ review.rating or '-' }}" disabled>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ review.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Review</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/performance/delete/{{ review.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus performance review ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Periode</th>
+                    <th>Score</th>
+                    <th>Rating</th>
+                    <th>Status</th>
+                    <th>Reviewer</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for review in performance_reviews %}
+                <tr>
+                    <td class="mono">{{ review.employee_code }}</td>
+                    <td>{{ review.full_name }}</td>
+                    <td>{{ review.warehouse_name or '-' }}</td>
+                    <td>{{ review.review_period }}</td>
+                    <td>{{ "%.2f"|format(review.final_score or 0) }}</td>
+                    <td>{{ review.rating or '-' }}</td>
+                    <td><span class="badge {{ 'green' if review.status in ['acknowledged', 'closed'] else 'orange' if review.status in ['draft', 'reviewed'] else 'red' }}">{{ review.status }}</span></td>
+                    <td>{{ review.reviewer_name or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada performance review. Modul Performance siap dipakai untuk evaluasi periodik tim.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "helpdesk" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Ticket</p>
+        <h3>{{ helpdesk_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if helpdesk_summary.open %}warning{% endif %}">
+        <p>Open</p>
+        <h3>{{ helpdesk_summary.open }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>In Progress + Resolved</p>
+        <h3>{{ helpdesk_summary.in_progress + helpdesk_summary.resolved }}</h3>
+    </div>
+    <div class="card-mini {% if helpdesk_summary.closed %}danger{% endif %}">
+        <p>Closed</p>
+        <h3>{{ helpdesk_summary.closed }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Urgent</span>
+        <strong>{{ helpdesk_summary.urgent }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Assigned</span>
+        <strong>{{ helpdesk_summary.assigned }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if helpdesk_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == helpdesk_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_helpdesk else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ helpdesk_filters.search }}" placeholder="Cari code, nama, judul ticket, atau PIC">
+    <select name="warehouse" {% if helpdesk_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if helpdesk_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if helpdesk_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ helpdesk_scope_warehouse }}">
+    {% endif %}
+    <select name="category">
+        <option value="all" {% if helpdesk_filters.category == 'all' %}selected{% endif %}>Semua Kategori</option>
+        <option value="system" {% if helpdesk_filters.category == 'system' %}selected{% endif %}>System</option>
+        <option value="access" {% if helpdesk_filters.category == 'access' %}selected{% endif %}>Access</option>
+        <option value="attendance" {% if helpdesk_filters.category == 'attendance' %}selected{% endif %}>Attendance</option>
+        <option value="payroll" {% if helpdesk_filters.category == 'payroll' %}selected{% endif %}>Payroll</option>
+        <option value="asset" {% if helpdesk_filters.category == 'asset' %}selected{% endif %}>Asset</option>
+        <option value="other" {% if helpdesk_filters.category == 'other' %}selected{% endif %}>Other</option>
+    </select>
+    <select name="priority">
+        <option value="all" {% if helpdesk_filters.priority == 'all' %}selected{% endif %}>Semua Priority</option>
+        <option value="low" {% if helpdesk_filters.priority == 'low' %}selected{% endif %}>Low</option>
+        <option value="medium" {% if helpdesk_filters.priority == 'medium' %}selected{% endif %}>Medium</option>
+        <option value="high" {% if helpdesk_filters.priority == 'high' %}selected{% endif %}>High</option>
+        <option value="urgent" {% if helpdesk_filters.priority == 'urgent' %}selected{% endif %}>Urgent</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if helpdesk_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="open" {% if helpdesk_filters.status == 'open' %}selected{% endif %}>Open</option>
+        <option value="in_progress" {% if helpdesk_filters.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+        <option value="resolved" {% if helpdesk_filters.status == 'resolved' %}selected{% endif %}>Resolved</option>
+        <option value="closed" {% if helpdesk_filters.status == 'closed' %}selected{% endif %}>Closed</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if helpdesk_scope_warehouse %}
+<small class="helper-text">Ticket helpdesk dibatasi ke gudang akun Anda agar support tetap fokus ke area operasional sendiri.</small>
+{% endif %}
+
+{% if can_manage_helpdesk %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Ticket</h2>
+            <p>Helpdesk dipakai untuk merekam kendala operasional karyawan seperti akses, device, payroll, attendance, atau masalah sistem lainnya.</p>
+        </div>
+    </div>
+
+    {% if helpdesk_employees %}
+    <form method="POST" action="/hris/helpdesk/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in helpdesk_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Judul Ticket</label>
+                <input name="ticket_title" placeholder="Contoh: Scanner picking error" required>
+            </div>
+            <div>
+                <label>Kategori</label>
+                <select name="category">
+                    <option value="system">System</option>
+                    <option value="access">Access</option>
+                    <option value="attendance">Attendance</option>
+                    <option value="payroll">Payroll</option>
+                    <option value="asset">Asset</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div>
+                <label>Priority</label>
+                <select name="priority">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="open">Open</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+            <div>
+                <label>Channel</label>
+                <input name="channel" placeholder="Contoh: WA, onsite, telepon">
+            </div>
+            <div>
+                <label>PIC</label>
+                <input name="assigned_to" placeholder="Contoh: IT Support Area">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Detail kendala, dampak operasional, dan tindak lanjut ticket."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Ticket</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat ticket helpdesk.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Ticket Helpdesk</h2>
+            <p>Ticket register ini menjaga alur support karyawan tetap rapi, terukur, dan mudah ditindaklanjuti lintas tim.</p>
+        </div>
+    </div>
+
+    {% if helpdesk_tickets %}
+        {% if can_manage_helpdesk %}
+        <div style="display:grid; gap:16px;">
+            {% for ticket in helpdesk_tickets %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/helpdesk/update/{{ ticket.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in helpdesk_employees %}
+                                <option value="{{ employee.id }}" {% if ticket.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Judul Ticket</label>
+                            <input name="ticket_title" value="{{ ticket.ticket_title }}" required>
+                        </div>
+                        <div>
+                            <label>Kategori</label>
+                            <select name="category">
+                                <option value="system" {% if ticket.category == 'system' %}selected{% endif %}>System</option>
+                                <option value="access" {% if ticket.category == 'access' %}selected{% endif %}>Access</option>
+                                <option value="attendance" {% if ticket.category == 'attendance' %}selected{% endif %}>Attendance</option>
+                                <option value="payroll" {% if ticket.category == 'payroll' %}selected{% endif %}>Payroll</option>
+                                <option value="asset" {% if ticket.category == 'asset' %}selected{% endif %}>Asset</option>
+                                <option value="other" {% if ticket.category == 'other' %}selected{% endif %}>Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Priority</label>
+                            <select name="priority">
+                                <option value="low" {% if ticket.priority == 'low' %}selected{% endif %}>Low</option>
+                                <option value="medium" {% if ticket.priority == 'medium' %}selected{% endif %}>Medium</option>
+                                <option value="high" {% if ticket.priority == 'high' %}selected{% endif %}>High</option>
+                                <option value="urgent" {% if ticket.priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="open" {% if ticket.status == 'open' %}selected{% endif %}>Open</option>
+                                <option value="in_progress" {% if ticket.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                                <option value="resolved" {% if ticket.status == 'resolved' %}selected{% endif %}>Resolved</option>
+                                <option value="closed" {% if ticket.status == 'closed' %}selected{% endif %}>Closed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Channel</label>
+                            <input name="channel" value="{{ ticket.channel or '' }}">
+                        </div>
+                        <div>
+                            <label>PIC</label>
+                            <input name="assigned_to" value="{{ ticket.assigned_to or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ ticket.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Ticket</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/helpdesk/delete/{{ ticket.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus ticket helpdesk ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Ticket</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>PIC</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in helpdesk_tickets %}
+                <tr>
+                    <td class="mono">{{ ticket.employee_code }}</td>
+                    <td>{{ ticket.full_name }}</td>
+                    <td>{{ ticket.warehouse_name or '-' }}</td>
+                    <td>{{ ticket.ticket_title }}</td>
+                    <td><span class="badge {{ 'red' if ticket.priority == 'urgent' else 'orange' if ticket.priority == 'high' else 'green' }}">{{ ticket.priority }}</span></td>
+                    <td><span class="badge {{ 'green' if ticket.status in ['resolved', 'closed'] else 'orange' }}">{{ ticket.status }}</span></td>
+                    <td>{{ ticket.assigned_to or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada ticket helpdesk. Modul Helpdesk siap dipakai untuk support issue internal tim.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "asset" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Asset</p>
+        <h3>{{ asset_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if asset_summary.allocated %}warning{% endif %}">
+        <p>Allocated</p>
+        <h3>{{ asset_summary.allocated }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Standby + Returned</p>
+        <h3>{{ asset_summary.standby + asset_summary.returned }}</h3>
+    </div>
+    <div class="card-mini {% if asset_summary.maintenance or asset_summary.damaged %}danger{% endif %}">
+        <p>Maintenance</p>
+        <h3>{{ asset_summary.maintenance }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Good Condition</span>
+        <strong>{{ asset_summary.good }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Damaged</span>
+        <strong>{{ asset_summary.damaged }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if asset_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == asset_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_asset else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ asset_filters.search }}" placeholder="Cari code, nama, asset, serial, atau kategori">
+    <select name="warehouse" {% if asset_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if asset_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if asset_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ asset_scope_warehouse }}">
+    {% endif %}
+    <select name="status">
+        <option value="all" {% if asset_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="allocated" {% if asset_filters.status == 'allocated' %}selected{% endif %}>Allocated</option>
+        <option value="standby" {% if asset_filters.status == 'standby' %}selected{% endif %}>Standby</option>
+        <option value="maintenance" {% if asset_filters.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+        <option value="returned" {% if asset_filters.status == 'returned' %}selected{% endif %}>Returned</option>
+    </select>
+    <select name="condition">
+        <option value="all" {% if asset_filters.condition == 'all' %}selected{% endif %}>Semua Kondisi</option>
+        <option value="good" {% if asset_filters.condition == 'good' %}selected{% endif %}>Good</option>
+        <option value="fair" {% if asset_filters.condition == 'fair' %}selected{% endif %}>Fair</option>
+        <option value="damaged" {% if asset_filters.condition == 'damaged' %}selected{% endif %}>Damaged</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if asset_scope_warehouse %}
+<small class="helper-text">Asset register dibatasi ke gudang akun Anda, jadi distribusi dan pengembalian aset tetap relevan dengan tim sendiri.</small>
+{% endif %}
+
+{% if can_manage_asset %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Asset</h2>
+            <p>Modul Asset dipakai untuk mencatat distribusi device, inventaris kerja, kondisi barang, dan histori pengembalian aset per karyawan.</p>
+        </div>
+    </div>
+
+    {% if asset_employees %}
+    <form method="POST" action="/hris/asset/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in asset_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Nama Asset</label>
+                <input name="asset_name" placeholder="Contoh: Handheld Scanner" required>
+            </div>
+            <div>
+                <label>Kode Asset</label>
+                <input name="asset_code" placeholder="Contoh: AST-001" required>
+            </div>
+            <div>
+                <label>Serial Number</label>
+                <input name="serial_number" placeholder="Opsional">
+            </div>
+            <div>
+                <label>Kategori</label>
+                <input name="category" placeholder="Contoh: Device / Uniform">
+            </div>
+            <div>
+                <label>Status Asset</label>
+                <select name="asset_status">
+                    <option value="allocated">Allocated</option>
+                    <option value="standby">Standby</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="returned">Returned</option>
+                </select>
+            </div>
+            <div>
+                <label>Kondisi</label>
+                <select name="condition_status">
+                    <option value="good">Good</option>
+                    <option value="fair">Fair</option>
+                    <option value="damaged">Damaged</option>
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Assign</label>
+                <input type="date" name="assigned_date" required>
+            </div>
+            <div>
+                <label>Tanggal Kembali</label>
+                <input type="date" name="return_date">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Catatan kondisi barang, user pemegang, atau info pengembalian asset."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Asset</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat asset record.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Asset Register</h2>
+            <p>Register ini menjadi fondasi untuk kontrol aset karyawan, distribusi device kerja, maintenance, dan histori return dengan lebih disiplin.</p>
+        </div>
+    </div>
+
+    {% if asset_records %}
+        {% if can_manage_asset %}
+        <div style="display:grid; gap:16px;">
+            {% for asset in asset_records %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/asset/update/{{ asset.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in asset_employees %}
+                                <option value="{{ employee.id }}" {% if asset.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Nama Asset</label>
+                            <input name="asset_name" value="{{ asset.asset_name }}" required>
+                        </div>
+                        <div>
+                            <label>Kode Asset</label>
+                            <input name="asset_code" value="{{ asset.asset_code }}" required>
+                        </div>
+                        <div>
+                            <label>Serial Number</label>
+                            <input name="serial_number" value="{{ asset.serial_number or '' }}">
+                        </div>
+                        <div>
+                            <label>Kategori</label>
+                            <input name="category" value="{{ asset.category or '' }}">
+                        </div>
+                        <div>
+                            <label>Status Asset</label>
+                            <select name="asset_status">
+                                <option value="allocated" {% if asset.asset_status == 'allocated' %}selected{% endif %}>Allocated</option>
+                                <option value="standby" {% if asset.asset_status == 'standby' %}selected{% endif %}>Standby</option>
+                                <option value="maintenance" {% if asset.asset_status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                                <option value="returned" {% if asset.asset_status == 'returned' %}selected{% endif %}>Returned</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Kondisi</label>
+                            <select name="condition_status">
+                                <option value="good" {% if asset.condition_status == 'good' %}selected{% endif %}>Good</option>
+                                <option value="fair" {% if asset.condition_status == 'fair' %}selected{% endif %}>Fair</option>
+                                <option value="damaged" {% if asset.condition_status == 'damaged' %}selected{% endif %}>Damaged</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Tanggal Assign</label>
+                            <input type="date" name="assigned_date" value="{{ asset.assigned_date }}" required>
+                        </div>
+                        <div>
+                            <label>Tanggal Kembali</label>
+                            <input type="date" name="return_date" value="{{ asset.return_date or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ asset.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Asset</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/asset/delete/{{ asset.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus asset record ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Asset</th>
+                    <th>Kode</th>
+                    <th>Status</th>
+                    <th>Kondisi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for asset in asset_records %}
+                <tr>
+                    <td class="mono">{{ asset.employee_code }}</td>
+                    <td>{{ asset.full_name }}</td>
+                    <td>{{ asset.warehouse_name or '-' }}</td>
+                    <td>{{ asset.asset_name }}</td>
+                    <td class="mono">{{ asset.asset_code }}</td>
+                    <td><span class="badge {{ 'green' if asset.asset_status in ['standby', 'returned'] else 'orange' if asset.asset_status == 'allocated' else 'red' }}">{{ asset.asset_status }}</span></td>
+                    <td><span class="badge {{ 'green' if asset.condition_status == 'good' else 'orange' if asset.condition_status == 'fair' else 'red' }}">{{ asset.condition_status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada asset record. Modul Asset siap dipakai untuk tracking distribusi dan pengembalian aset tim.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "project" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Project</p>
+        <h3>{{ project_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if project_summary.active %}warning{% endif %}">
+        <p>Active</p>
+        <h3>{{ project_summary.active }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Planning + Completed</p>
+        <h3>{{ project_summary.planning + project_summary.completed }}</h3>
+    </div>
+    <div class="card-mini {% if project_summary.overdue or project_summary.critical %}danger{% endif %}">
+        <p>Overdue</p>
+        <h3>{{ project_summary.overdue }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Average Progress</span>
+        <strong>{{ "%.2f"|format(project_summary.avg_progress) }}%</strong>
+    </div>
+    <div class="meta-card">
+        <span>Critical</span>
+        <strong>{{ project_summary.critical }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if project_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == project_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_project else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ project_filters.search }}" placeholder="Cari code, nama, project, kode, atau PIC">
+    <select name="warehouse" {% if project_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if project_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if project_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ project_scope_warehouse }}">
+    {% endif %}
+    <select name="priority">
+        <option value="all" {% if project_filters.priority == 'all' %}selected{% endif %}>Semua Priority</option>
+        <option value="low" {% if project_filters.priority == 'low' %}selected{% endif %}>Low</option>
+        <option value="medium" {% if project_filters.priority == 'medium' %}selected{% endif %}>Medium</option>
+        <option value="high" {% if project_filters.priority == 'high' %}selected{% endif %}>High</option>
+        <option value="critical" {% if project_filters.priority == 'critical' %}selected{% endif %}>Critical</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if project_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="planning" {% if project_filters.status == 'planning' %}selected{% endif %}>Planning</option>
+        <option value="active" {% if project_filters.status == 'active' %}selected{% endif %}>Active</option>
+        <option value="on_hold" {% if project_filters.status == 'on_hold' %}selected{% endif %}>On Hold</option>
+        <option value="completed" {% if project_filters.status == 'completed' %}selected{% endif %}>Completed</option>
+        <option value="cancelled" {% if project_filters.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if project_scope_warehouse %}
+<small class="helper-text">Project register dibatasi ke gudang akun Anda agar monitoring deliverable tetap fokus ke area operasional sendiri.</small>
+{% endif %}
+
+{% if can_manage_project %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Project</h2>
+            <p>Modul Project dipakai untuk mencatat assignment lintas tim, PIC utama, target due date, dan progres deliverable yang sedang berjalan.</p>
+        </div>
+    </div>
+
+    {% if project_employees %}
+    <form method="POST" action="/hris/project/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in project_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Nama Project</label>
+                <input name="project_name" placeholder="Contoh: Rollout SOP Stock Audit" required>
+            </div>
+            <div>
+                <label>Kode Project</label>
+                <input name="project_code" placeholder="Contoh: PRJ-001" required>
+            </div>
+            <div>
+                <label>Priority</label>
+                <select name="priority">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="planning">Planning</option>
+                    <option value="active">Active</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+            </div>
+            <div>
+                <label>Progress (%)</label>
+                <input type="number" name="progress_percent" min="0" max="100" value="0">
+            </div>
+            <div>
+                <label>Start Date</label>
+                <input type="date" name="start_date" required>
+            </div>
+            <div>
+                <label>Due Date</label>
+                <input type="date" name="due_date">
+            </div>
+            <div>
+                <label>Owner / PIC</label>
+                <input name="owner_name" placeholder="Contoh: Leader Operasional">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Ringkasan target, blocker, dan catatan eksekusi project."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Project</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat project record.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Project Register</h2>
+            <p>Register ini menjadi fondasi untuk tracking assignment HR-operasional, visibility milestone, dan akuntabilitas progress per PIC.</p>
+        </div>
+    </div>
+
+    {% if project_records %}
+        {% if can_manage_project %}
+        <div style="display:grid; gap:16px;">
+            {% for project in project_records %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/project/update/{{ project.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in project_employees %}
+                                <option value="{{ employee.id }}" {% if project.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Nama Project</label>
+                            <input name="project_name" value="{{ project.project_name }}" required>
+                        </div>
+                        <div>
+                            <label>Kode Project</label>
+                            <input name="project_code" value="{{ project.project_code }}" required>
+                        </div>
+                        <div>
+                            <label>Priority</label>
+                            <select name="priority">
+                                <option value="low" {% if project.priority == 'low' %}selected{% endif %}>Low</option>
+                                <option value="medium" {% if project.priority == 'medium' %}selected{% endif %}>Medium</option>
+                                <option value="high" {% if project.priority == 'high' %}selected{% endif %}>High</option>
+                                <option value="critical" {% if project.priority == 'critical' %}selected{% endif %}>Critical</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="planning" {% if project.status == 'planning' %}selected{% endif %}>Planning</option>
+                                <option value="active" {% if project.status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="on_hold" {% if project.status == 'on_hold' %}selected{% endif %}>On Hold</option>
+                                <option value="completed" {% if project.status == 'completed' %}selected{% endif %}>Completed</option>
+                                <option value="cancelled" {% if project.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Progress (%)</label>
+                            <input type="number" name="progress_percent" min="0" max="100" value="{{ project.progress_percent or 0 }}">
+                        </div>
+                        <div>
+                            <label>Start Date</label>
+                            <input type="date" name="start_date" value="{{ project.start_date }}" required>
+                        </div>
+                        <div>
+                            <label>Due Date</label>
+                            <input type="date" name="due_date" value="{{ project.due_date or '' }}">
+                        </div>
+                        <div>
+                            <label>Owner / PIC</label>
+                            <input name="owner_name" value="{{ project.owner_name or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ project.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Project</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/project/delete/{{ project.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus project ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Project</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>PIC</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for project in project_records %}
+                <tr>
+                    <td class="mono">{{ project.employee_code }}</td>
+                    <td>{{ project.full_name }}</td>
+                    <td>{{ project.warehouse_name or '-' }}</td>
+                    <td>{{ project.project_name }}</td>
+                    <td><span class="badge {{ 'red' if project.priority == 'critical' else 'orange' if project.priority == 'high' else 'green' }}">{{ project.priority }}</span></td>
+                    <td><span class="badge {{ 'green' if project.status == 'completed' else 'orange' if project.status in ['planning', 'active', 'on_hold'] else 'red' }}">{{ project.status }}</span></td>
+                    <td>{{ project.progress_percent or 0 }}%</td>
+                    <td>{{ project.owner_name or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada project record. Modul Project siap dipakai untuk tracking assignment dan deliverable tim.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "report" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Workforce</p>
+        <h3>{{ report_summary.total_employees }}</h3>
+    </div>
+    <div class="card-mini {% if report_summary.open_ops %}warning{% endif %}">
+        <p>Open Ops Items</p>
+        <h3>{{ report_summary.open_ops }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Active Projects</p>
+        <h3>{{ report_summary.active_projects }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Avg Performance</p>
+        <h3>{{ "%.2f"|format(report_summary.avg_score) }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>{{ report_summary.warehouse_name }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Snapshot</span>
+        <strong>{{ report_summary.snapshot_at }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Mode</span>
+        <strong>HR Analytics</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses</span>
+        <strong>Insight Only</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <select name="warehouse" {% if report_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if report_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if report_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ report_scope_warehouse }}">
+    {% endif %}
+    <button type="submit">Refresh Report</button>
+</form>
+
+{% if report_scope_warehouse %}
+<small class="helper-text">Analytics report dibatasi ke gudang akun Anda agar insight yang tampil tetap fokus ke area kerja sendiri.</small>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>HR Analytics Report</h2>
+            <p>Ringkasan lintas modul HRIS untuk membaca kesehatan people operation, beban support, dan delivery execution secara cepat.</p>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in report_workforce_rows %}
+            <tr>
+                <td>{{ row.label }}</td>
+                <td class="mono">{{ row.value }}</td>
+                <td>{{ row.detail }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Workforce Snapshot</h2>
+            <p>Pipeline people lifecycle yang sedang bergerak dan butuh perhatian operasional.</p>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Module</th>
+                <th>Value</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in report_pipeline_rows %}
+            <tr>
+                <td>{{ row.module }}</td>
+                <td class="mono">{{ row.value }}</td>
+                <td>{{ row.detail }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Service Health</h2>
+            <p>Indikator support, asset, payroll, project delivery, dan kualitas performa terkini.</p>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Module</th>
+                <th>Value</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in report_service_rows %}
+            <tr>
+                <td>{{ row.module }}</td>
+                <td class="mono">{{ row.value }}</td>
+                <td>{{ row.detail }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif selected_module.slug == "biometric" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Log</p>
+        <h3>{{ biometric_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if biometric_summary.synced %}success{% endif %}">
+        <p>Synced</p>
+        <h3>{{ biometric_summary.synced }}</h3>
+    </div>
+    <div class="card-mini {% if biometric_summary.queued or biometric_summary.manual %}warning{% endif %}">
+        <p>Queued + Manual</p>
+        <h3>{{ biometric_summary.queued + biometric_summary.manual }}</h3>
+    </div>
+    <div class="card-mini {% if biometric_summary.failed %}danger{% endif %}">
+        <p>Failed</p>
+        <h3>{{ biometric_summary.failed }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Check In</span>
+        <strong>{{ biometric_summary.check_in }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Check Out</span>
+        <strong>{{ biometric_summary.check_out }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Devices</span>
+        <strong>{{ biometric_summary.devices }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_biometric else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ biometric_filters.search }}" placeholder="Cari code, nama, device, atau user biometric">
+    <select name="warehouse" {% if biometric_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if biometric_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if biometric_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ biometric_scope_warehouse }}">
+    {% endif %}
+    <select name="punch_type">
+        <option value="all" {% if biometric_filters.punch_type == 'all' %}selected{% endif %}>Semua Punch</option>
+        <option value="check_in" {% if biometric_filters.punch_type == 'check_in' %}selected{% endif %}>Check In</option>
+        <option value="check_out" {% if biometric_filters.punch_type == 'check_out' %}selected{% endif %}>Check Out</option>
+    </select>
+    <select name="sync_status">
+        <option value="all" {% if biometric_filters.sync_status == 'all' %}selected{% endif %}>Semua Sync</option>
+        <option value="queued" {% if biometric_filters.sync_status == 'queued' %}selected{% endif %}>Queued</option>
+        <option value="synced" {% if biometric_filters.sync_status == 'synced' %}selected{% endif %}>Synced</option>
+        <option value="manual" {% if biometric_filters.sync_status == 'manual' %}selected{% endif %}>Manual</option>
+        <option value="failed" {% if biometric_filters.sync_status == 'failed' %}selected{% endif %}>Failed</option>
+    </select>
+    <input type="date" name="date_from" value="{{ biometric_filters.date_from or '' }}">
+    <input type="date" name="date_to" value="{{ biometric_filters.date_to or '' }}">
+    <button type="submit">Filter</button>
+</form>
+
+{% if biometric_scope_warehouse %}
+<small class="helper-text">Biometric log dibatasi ke gudang akun Anda agar sinkronisasi presensi tetap fokus ke area kerja sendiri.</small>
+{% endif %}
+
+{% if can_manage_biometric %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Log</h2>
+            <p>Modul Biometric dipakai untuk menyimpan punch device lalu menyinkronkan check in dan check out ke attendance harian secara lebih rapi.</p>
+        </div>
+    </div>
+
+    {% if biometric_employees %}
+    <form method="POST" action="/hris/biometric/add">
+        <div class="form-grid">
+            <div>
+                <label>Karyawan</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih Karyawan</option>
+                    {% for employee in biometric_employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Device Name</label>
+                <input name="device_name" placeholder="Contoh: ZKTeco F18" required>
+            </div>
+            <div>
+                <label>User Biometric</label>
+                <input name="device_user_id" placeholder="Contoh: BIO-001">
+            </div>
+            <div>
+                <label>Punch Time</label>
+                <input type="datetime-local" name="punch_time" required>
+            </div>
+            <div>
+                <label>Punch Type</label>
+                <select name="punch_type">
+                    <option value="check_in">Check In</option>
+                    <option value="check_out">Check Out</option>
+                </select>
+            </div>
+            <div>
+                <label>Sync Status</label>
+                <select name="sync_status">
+                    <option value="queued">Queued</option>
+                    <option value="synced">Synced</option>
+                    <option value="manual">Manual</option>
+                    <option value="failed">Failed</option>
+                </select>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="3" placeholder="Catatan device, retry sync, atau validasi punch."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Log</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat log biometric.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Biometric Sync Log</h2>
+            <p>Log ini menjadi jejak sinkronisasi device ke attendance, termasuk audit retry, mismatch punch, dan status integrasi presensi.</p>
+        </div>
+    </div>
+
+    {% if biometric_logs %}
+        {% if can_manage_biometric %}
+        <div style="display:grid; gap:16px;">
+            {% for log in biometric_logs %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/biometric/update/{{ log.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Karyawan</label>
+                            <select name="employee_id" required>
+                                {% for employee in biometric_employees %}
+                                <option value="{{ employee.id }}" {% if log.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Device Name</label>
+                            <input name="device_name" value="{{ log.device_name }}" required>
+                        </div>
+                        <div>
+                            <label>User Biometric</label>
+                            <input name="device_user_id" value="{{ log.device_user_id or '' }}">
+                        </div>
+                        <div>
+                            <label>Punch Time</label>
+                            <input type="datetime-local" name="punch_time" value="{{ (log.punch_time or '').replace(' ', 'T')[:16] }}" required>
+                        </div>
+                        <div>
+                            <label>Punch Type</label>
+                            <select name="punch_type">
+                                <option value="check_in" {% if log.punch_type == 'check_in' %}selected{% endif %}>Check In</option>
+                                <option value="check_out" {% if log.punch_type == 'check_out' %}selected{% endif %}>Check Out</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Sync Status</label>
+                            <select name="sync_status">
+                                <option value="queued" {% if log.sync_status == 'queued' %}selected{% endif %}>Queued</option>
+                                <option value="synced" {% if log.sync_status == 'synced' %}selected{% endif %}>Synced</option>
+                                <option value="manual" {% if log.sync_status == 'manual' %}selected{% endif %}>Manual</option>
+                                <option value="failed" {% if log.sync_status == 'failed' %}selected{% endif %}>Failed</option>
+                            </select>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3">{{ log.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Log</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/biometric/delete/{{ log.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus log biometric ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Device</th>
+                    <th>Punch Time</th>
+                    <th>Type</th>
+                    <th>Sync</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in biometric_logs %}
+                <tr>
+                    <td class="mono">{{ log.employee_code }}</td>
+                    <td>{{ log.full_name }}</td>
+                    <td>{{ log.warehouse_name or '-' }}</td>
+                    <td>{{ log.device_name }}</td>
+                    <td>{{ log.punch_time }}</td>
+                    <td>{{ log.punch_type }}</td>
+                    <td><span class="badge {{ 'green' if log.sync_status in ['synced', 'manual'] else 'orange' if log.sync_status == 'queued' else 'red' }}">{{ log.sync_status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada log biometric. Modul Biometric siap dipakai untuk sinkronisasi device ke attendance.</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>{{ selected_module.label }}</h2>
+            <p>{{ selected_module.summary }}</p>
+        </div>
+    </div>
+
+    <div class="meta-grid">
+        <div class="meta-card">
+            <span>Source Folder</span>
+            <strong>{{ selected_module.source }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Integration Mode</span>
+            <strong>Scaffold Ready</strong>
+        </div>
+    </div>
+
+    <div class="table-box" style="margin-bottom:0;">
+        <div class="section-title">
+            <div>
+                <h3>Rencana Integrasi</h3>
+                <p>Modul ini sudah disiapkan di navigation layer. Tahap berikutnya adalah pemetaan data, model, permission, dan workflow Flask sesuai kebutuhan operasional Mataram Sports.</p>
+            </div>
+        </div>
+        <table>
+            <tbody>
+                <tr>
+                    <th>Modul</th>
+                    <td>{{ selected_module.label }}</td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td>{{ selected_module.status }}</td>
+                </tr>
+                <tr>
+                    <th>Source</th>
+                    <td class="mono">{{ selected_module.source }}</td>
+                </tr>
+                <tr>
+                    <th>Catatan</th>
+                    <td>Navigation dan landing page sudah siap. Implementasi fitur bisnis HRIS bisa dilanjutkan modul per modul dari basis kode Horilla.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

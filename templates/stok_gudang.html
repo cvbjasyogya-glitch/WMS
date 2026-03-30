@@ -78,11 +78,16 @@
         <option value="zero" {% if stock_state == 'zero' %}selected{% endif %}>Stok Habis</option>
     </select>
     <select name="sort">
+        <option value="sku_asc" {% if sort == 'sku_asc' %}selected{% endif %}>SKU A-Z</option>
+        <option value="sku_desc" {% if sort == 'sku_desc' %}selected{% endif %}>SKU Z-A</option>
         <option value="qty_asc" {% if sort == 'qty_asc' %}selected{% endif %}>Stok Sedikit</option>
         <option value="qty_desc" {% if sort == 'qty_desc' %}selected{% endif %}>Stok Banyak</option>
         <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Nama A-Z</option>
         <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Nama Z-A</option>
+        <option value="variant_asc" {% if sort == 'variant_asc' %}selected{% endif %}>Variant A-Z</option>
+        <option value="variant_desc" {% if sort == 'variant_desc' %}selected{% endif %}>Variant Z-A</option>
         <option value="age_desc" {% if sort == 'age_desc' %}selected{% endif %}>Aging Terlama</option>
+        <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
     </select>
     <button type="submit">Filter</button>
     <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
@@ -111,17 +116,67 @@
         <thead>
             <tr>
                 <th><input type="checkbox" id="checkAll"></th>
-                <th>SKU</th>
-                <th>Produk</th>
-                <th>Variant</th>
-                <th>Qty</th>
-                <th>Status</th>
+                <th>
+                    <a href="{{ sort_links.sku }}" class="sort-link {% if sort_state.field == 'sku' %}active{% endif %}">
+                        <span>SKU</span>
+                        {% if sort_state.field == 'sku' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.name }}" class="sort-link {% if sort_state.field == 'name' %}active{% endif %}">
+                        <span>Produk</span>
+                        {% if sort_state.field == 'name' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.variant }}" class="sort-link {% if sort_state.field == 'variant' %}active{% endif %}">
+                        <span>Variant</span>
+                        {% if sort_state.field == 'variant' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.qty }}" class="sort-link {% if sort_state.field == 'qty' %}active{% endif %}">
+                        <span>Qty</span>
+                        {% if sort_state.field == 'qty' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.status }}" class="sort-link {% if sort_state.field == 'status' %}active{% endif %}">
+                        <span>Status</span>
+                        {% if sort_state.field == 'status' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
                 <th>Adjust</th>
-                <th>Retail</th>
-                <th>Discount</th>
-                <th>Nett</th>
-                <th>Aging</th>
-                <th>Tanggal Masuk</th>
+                <th>
+                    <a href="{{ sort_links.price_retail }}" class="sort-link {% if sort_state.field == 'price_retail' %}active{% endif %}">
+                        <span>Retail</span>
+                        {% if sort_state.field == 'price_retail' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.price_discount }}" class="sort-link {% if sort_state.field == 'price_discount' %}active{% endif %}">
+                        <span>Discount</span>
+                        {% if sort_state.field == 'price_discount' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.price_nett }}" class="sort-link {% if sort_state.field == 'price_nett' %}active{% endif %}">
+                        <span>Nett</span>
+                        {% if sort_state.field == 'price_nett' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.age }}" class="sort-link {% if sort_state.field == 'age' %}active{% endif %}">
+                        <span>Aging</span>
+                        {% if sort_state.field == 'age' %}<span class="sort-indicator">{{ '▼' if sort_state.direction == 'desc' else '▲' }}</span>{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ sort_links.created_at }}" class="sort-link {% if sort_state.field == 'created_at' %}active{% endif %}">
+                        <span>Tanggal Masuk</span>
+                        {% if sort_state.field == 'created_at' %}<span class="sort-indicator">{{ '▼' if sort_state.direction == 'desc' else '▲' }}</span>{% endif %}
+                    </a>
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -158,9 +213,9 @@
                     {% endif %}
                 </td>
                 <td>
-                    <div class="split-actions">
+                    <div class="stock-adjust-actions">
                         <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
-                        <button type="button" onclick="adjustStock(this)">Simpan</button>
+                        <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                     </div>
                 </td>
                 <td>

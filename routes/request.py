@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.request_service import approve_request
-from services.notification_service import notify_roles
+from services.notification_service import notify_roles, notify_user
 from services.rbac import has_permission, is_scoped_role
 import os
 
@@ -80,6 +80,64 @@ def _parse_request_items(form):
     }]
 
 
+def _parse_owner_request_items(form):
+    raw_payload = (form.get("items_json") or "").strip()
+    if raw_payload:
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Format item request owner tidak valid") from exc
+
+        if not isinstance(payload, list):
+            raise ValueError("Format item request owner tidak valid")
+
+        items = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+
+            product_id = _to_int(item.get("product_id"), 0)
+            variant_id = _to_int(item.get("variant_id"), 0)
+            qty = _to_int(item.get("qty"), 0)
+            note = (item.get("note") or "").strip()
+            display_name = (item.get("display_name") or "").strip()
+
+            if not any([product_id, variant_id, qty, note, display_name]):
+                continue
+
+            if product_id <= 0 or variant_id <= 0 or qty <= 0:
+                raise ValueError("Ada item request owner yang belum lengkap atau qty tidak valid")
+
+            items.append({
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "qty": qty,
+                "note": note,
+                "display_name": display_name,
+            })
+
+        if not items:
+            raise ValueError("Minimal tambahkan satu item request owner")
+
+        return items
+
+    product_id = _to_int(form.get("product_id"), 0)
+    variant_id = _to_int(form.get("variant_id"), 0)
+    qty = _to_int(form.get("qty"), 0)
+    note = (form.get("note") or "").strip()
+
+    if product_id <= 0 or variant_id <= 0 or qty <= 0:
+        raise ValueError("Input tidak valid")
+
+    return [{
+        "product_id": product_id,
+        "variant_id": variant_id,
+        "qty": qty,
+        "note": note,
+        "display_name": "",
+    }]
+
+
 def _fetch_request_item_record(db, product_id, variant_id):
     return db.execute("""
         SELECT
@@ -121,6 +179,53 @@ def get_request_scope():
         return warehouse_id
 
     return None
+
+
+def can_manage_owner_request():
+    return session.get("role") in {"owner", "super_admin"}
+
+
+def get_owner_request_scope():
+    role = session.get("role")
+    warehouse_id = session.get("warehouse_id")
+
+    if is_scoped_role(role) and warehouse_id:
+        return warehouse_id
+
+    return None
+
+
+def _fetch_owner_request_rows(db):
+    scope = get_owner_request_scope()
+
+    base_query = """
+        SELECT
+            r.*,
+            p.sku,
+            p.name AS product_name,
+            COALESCE(v.variant, 'default') AS variant,
+            w.name AS warehouse_name,
+            u.username AS requester_name,
+            h.username AS handler_name
+        FROM owner_requests r
+        JOIN products p ON r.product_id = p.id
+        JOIN product_variants v ON r.variant_id = v.id
+        JOIN warehouses w ON r.warehouse_id = w.id
+        LEFT JOIN users u ON r.requested_by = u.id
+        LEFT JOIN users h ON r.handled_by = h.id
+    """
+
+    if scope:
+        rows = db.execute(
+            base_query + " WHERE r.warehouse_id=? ORDER BY r.id DESC",
+            (scope,),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            base_query + " ORDER BY r.id DESC"
+        ).fetchall()
+
+    return [dict(row) for row in rows]
 
 
 # ==========================
@@ -373,6 +478,174 @@ def request_barang():
         requests=requests_data,
         warehouse_id=warehouse_id
     )
+
+
+@request_bp.route("/owner", methods=["GET", "POST"])
+def request_owner_barang():
+
+    db = get_db()
+
+    if request.method == "POST":
+
+        try:
+            warehouse_id = _to_int(request.form.get("warehouse_id"))
+            items = _parse_owner_request_items(request.form)
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect("/request/owner")
+        except Exception:
+            flash("Input tidak valid", "error")
+            return redirect("/request/owner")
+
+        role = session.get("role")
+        user_wh = session.get("warehouse_id")
+
+        if is_scoped_role(role):
+            warehouse_id = user_wh or warehouse_id
+
+        warehouse = db.execute(
+            "SELECT id, name FROM warehouses WHERE id=?",
+            (warehouse_id,),
+        ).fetchone()
+
+        if not warehouse:
+            flash("Gudang tidak valid", "error")
+            return redirect("/request/owner")
+
+        if is_scoped_role(role) and warehouse_id != user_wh:
+            flash("Tidak punya akses ke gudang ini", "error")
+            return redirect("/request/owner")
+
+        labels = []
+        for item in items:
+            record = _fetch_request_item_record(
+                db,
+                item["product_id"],
+                item["variant_id"],
+            )
+            if not record:
+                flash("Produk / variant tidak valid", "error")
+                return redirect("/request/owner")
+            labels.append(_format_request_item_label(record))
+
+        try:
+            db.execute("BEGIN")
+
+            for item in items:
+                db.execute("""
+                    INSERT INTO owner_requests(
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                        qty,
+                        note,
+                        status,
+                        requested_by
+                    )
+                    VALUES (?,?,?,?,?,'pending',?)
+                """, (
+                    item["product_id"],
+                    item["variant_id"],
+                    warehouse_id,
+                    item["qty"],
+                    item["note"],
+                    session.get("user_id"),
+                ))
+
+            db.commit()
+
+            subject = f"Request Khusus ke Owner: {len(items)} item"
+            message = (
+                f"Ada request khusus ke owner sebanyak {len(items)} item.\n"
+                f"Gudang: {warehouse['name']}\n"
+                f"Item pertama: {labels[0]}"
+            )
+            try:
+                notify_roles(["owner"], subject, message)
+            except Exception as exc:
+                print("OWNER REQUEST NOTIFY ERROR:", exc)
+
+            flash(f"{len(items)} request ke owner berhasil dikirim", "success")
+        except Exception as exc:
+            db.rollback()
+            print("OWNER REQUEST ERROR:", exc)
+            flash("Gagal membuat request ke owner", "error")
+
+        return redirect("/request/owner")
+
+    warehouses = db.execute("""
+        SELECT * FROM warehouses ORDER BY name
+    """).fetchall()
+
+    return render_template(
+        "request_owner.html",
+        warehouses=warehouses,
+        requests=_fetch_owner_request_rows(db),
+        warehouse_id=session.get("warehouse_id"),
+        can_manage_owner_request=can_manage_owner_request(),
+    )
+
+
+@request_bp.route("/owner/update/<int:id>", methods=["POST"])
+def update_owner_request(id):
+
+    if not can_manage_owner_request():
+        flash("Tidak punya akses", "error")
+        return redirect("/request/owner")
+
+    status = (request.form.get("status") or "").strip().lower()
+    allowed_statuses = {
+        "in_progress": "Diproses",
+        "done": "Selesai",
+        "rejected": "Ditolak",
+    }
+
+    if status not in allowed_statuses:
+        flash("Status tidak valid", "error")
+        return redirect("/request/owner")
+
+    db = get_db()
+    owner_request = db.execute("""
+        SELECT id, requested_by, status
+        FROM owner_requests
+        WHERE id=?
+    """, (id,)).fetchone()
+
+    if not owner_request:
+        flash("Request owner tidak ditemukan", "error")
+        return redirect("/request/owner")
+
+    try:
+        db.execute("""
+            UPDATE owner_requests
+            SET status=?,
+                handled_by=?,
+                handled_at=datetime('now')
+            WHERE id=?
+        """, (
+            status,
+            session.get("user_id"),
+            id,
+        ))
+        db.commit()
+
+        try:
+            if owner_request["requested_by"]:
+                notify_user(
+                    owner_request["requested_by"],
+                    f"Request ke owner #{id} {allowed_statuses[status]}",
+                    f"Request ke owner dengan ID #{id} telah diubah menjadi status {allowed_statuses[status]}.",
+                )
+        except Exception as exc:
+            print("OWNER REQUEST USER NOTIFY ERROR:", exc)
+
+        flash(f"Request owner berhasil diubah menjadi {allowed_statuses[status]}", "success")
+    except Exception as exc:
+        db.rollback()
+        print("OWNER REQUEST UPDATE ERROR:", exc)
+        flash("Gagal mengubah status request owner", "error")
+
+    return redirect("/request/owner")
 
 
 # ==========================

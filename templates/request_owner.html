@@ -1,0 +1,441 @@
+{% extends "base.html" %}
+
+{% block title %}Request Owner | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Owner Request Queue{% endblock %}
+{% block page_title %}Request Barang ke Owner{% endblock %}
+{% block page_subtitle %}Kirim permintaan barang langsung ke owner lewat batch composer yang konsisten dengan inbound, outbound, dan transfer, lalu pantau statusnya di satu antrian khusus.{% endblock %}
+
+{% block content %}
+<div class="form-box ops-batch-box">
+    <div class="section-title">
+        <div>
+            <h2>Request Owner Composer</h2>
+            <p>Pilih gudang peminta, tambahkan item satu per satu ke daftar batch, lalu kirim sekaligus sebagai request khusus ke owner.</p>
+        </div>
+    </div>
+
+    <form method="POST" onsubmit="return handleOwnerRequestSubmit()">
+        <input type="hidden" name="items_json" id="ownerRequestItemsJson">
+
+        <div class="form-grid ops-config-grid">
+            <div>
+                <label>Gudang Peminta</label>
+                <select id="ownerRequestWarehouse" name="warehouse_id" required {% if is_scoped_user %}disabled{% endif %}>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if w.id == warehouse_id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if is_scoped_user %}
+                <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}">
+                <small class="helper-text">Gudang request dikunci mengikuti gudang akun Anda.</small>
+                {% endif %}
+            </div>
+            <div class="ops-config-card">
+                <span class="variant-mini-label">Target Notifikasi</span>
+                <strong>Owner Only</strong>
+                <small class="helper-text">Request ini mengirim notifikasi khusus ke role owner, terpisah dari request antar gudang.</small>
+            </div>
+        </div>
+
+        <div class="ops-entry-box">
+            <div class="section-title">
+                <div>
+                    <h3>Tambah Item Request Owner</h3>
+                    <p>Pilih item aktif, isi qty dan catatan, lalu klik <strong>Tambah</strong> agar item masuk ke batch request owner.</p>
+                </div>
+            </div>
+
+            <div class="ops-entry-grid outbound-entry-grid">
+                <div class="ops-entry-item">
+                    <label>Barang</label>
+                    <div class="ops-item-selector">
+                        <input type="text" id="ownerRequestDraftDisplay" class="ops-item-display" placeholder="Klik ikon untuk pilih barang" readonly>
+                        <button type="button" class="ghost-button ops-picker-button" onclick="openOwnerRequestPicker()" aria-label="Buka daftar barang">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M10 4H5a1 1 0 0 0-1 1v14l4-3h11a1 1 0 0 0 1-1v-5h-2v4H7.2L6 15V6h4z"></path>
+                                <path d="M14.5 4.5 19.5 9.5"></path>
+                                <path d="M13 11l6.5-6.5 2 2L15 13l-2.5.5z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <small id="ownerRequestDraftMeta" class="helper-text ops-item-meta">Belum ada barang yang dipilih.</small>
+                </div>
+
+                <div class="ops-entry-stock">
+                    <label>Stok Saat Ini</label>
+                    <div class="ops-stock-card">
+                        <strong id="ownerRequestDraftStockValue" class="ops-stock-value">0</strong>
+                        <small id="ownerRequestDraftStockState" class="ops-stock-state stock-empty">Belum ada stok yang terdeteksi di gudang ini.</small>
+                    </div>
+                </div>
+
+                <div>
+                    <label>Qty Request</label>
+                    <input type="number" id="ownerRequestDraftQty" min="1" step="1" placeholder="0">
+                    <small id="ownerRequestDraftFeedback" class="helper-text ops-row-feedback">Isi qty request untuk item aktif.</small>
+                </div>
+
+                <div>
+                    <label>Catatan</label>
+                    <input type="text" id="ownerRequestDraftNote" placeholder="Contoh: butuh restock cepat untuk toko">
+                </div>
+
+                <div class="ops-entry-actions">
+                    <button type="button" onclick="addOwnerRequestItem()">Tambah</button>
+                </div>
+            </div>
+        </div>
+
+        <small class="helper-text ops-mobile-hint">Daftar di bawah adalah batch request khusus ke owner yang akan dikirim bersama saat tombol submit ditekan.</small>
+
+        <div class="table-box ops-queue-box">
+            <table class="ops-queue-table outbound-queue-table">
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>Barang</th>
+                        <th>Stok</th>
+                        <th>Qty Request</th>
+                        <th>Catatan</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="ownerRequestQueueBody"></tbody>
+            </table>
+        </div>
+
+        <div class="split-actions" style="margin-top:16px;">
+            <button id="ownerRequestSubmitButton" type="submit">Kirim ke Owner</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Antrian Request Owner</h2>
+            <p>Semua request khusus ke owner tampil di sini. User scoped melihat request sesuai gudangnya, sementara owner dan super admin dapat memantau seluruh antrian.</p>
+        </div>
+    </div>
+
+    {% if requests %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Barang</th>
+                <th>Variant</th>
+                <th>Gudang</th>
+                <th>Qty</th>
+                <th>Catatan</th>
+                <th>Status</th>
+                <th>Peminta</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in requests %}
+            <tr>
+                <td class="mono">#{{ r.id }}</td>
+                <td>{{ r.product_name }}</td>
+                <td>{{ r.variant }}</td>
+                <td>{{ r.warehouse_name }}</td>
+                <td class="mono">{{ r.qty }}</td>
+                <td>{{ r.note or '-' }}</td>
+                <td><span class="badge {{ 'orange' if r.status == 'in_progress' else 'green' if r.status == 'done' else 'red' if r.status == 'rejected' else '' }}">{{ r.status }}</span></td>
+                <td>{{ r.requester_name or '-' }}</td>
+                <td>
+                    {% if can_manage_owner_request and r.status == 'pending' %}
+                    <div class="split-actions">
+                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                            <input type="hidden" name="status" value="in_progress">
+                            <button type="submit" class="ghost-button">Proses</button>
+                        </form>
+                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                            <input type="hidden" name="status" value="done">
+                            <button type="submit">Selesai</button>
+                        </form>
+                    </div>
+                    {% elif can_manage_owner_request and r.status == 'in_progress' %}
+                    <div class="split-actions">
+                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                            <input type="hidden" name="status" value="done">
+                            <button type="submit">Selesai</button>
+                        </form>
+                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                            <input type="hidden" name="status" value="rejected">
+                            <button type="submit" class="ghost-button">Tolak</button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <span class="mono">{{ r.handler_name or '-' }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada request khusus ke owner yang tercatat.</div>
+    {% endif %}
+</div>
+
+{% include "partials/item_picker_modal.html" %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/item_picker.js"></script>
+<script>
+const ownerRequestWarehouse = document.getElementById("ownerRequestWarehouse");
+const ownerRequestItemsJson = document.getElementById("ownerRequestItemsJson");
+const ownerRequestSubmitButton = document.getElementById("ownerRequestSubmitButton");
+const ownerRequestQueueBody = document.getElementById("ownerRequestQueueBody");
+const ownerRequestDraftDisplay = document.getElementById("ownerRequestDraftDisplay");
+const ownerRequestDraftMeta = document.getElementById("ownerRequestDraftMeta");
+const ownerRequestDraftStockValue = document.getElementById("ownerRequestDraftStockValue");
+const ownerRequestDraftStockState = document.getElementById("ownerRequestDraftStockState");
+const ownerRequestDraftQty = document.getElementById("ownerRequestDraftQty");
+const ownerRequestDraftNote = document.getElementById("ownerRequestDraftNote");
+const ownerRequestDraftFeedback = document.getElementById("ownerRequestDraftFeedback");
+
+const ownerRequestDraft = {
+    product_id: 0,
+    variant_id: 0,
+    sku: "",
+    name: "",
+    variant_label: "",
+    category: "",
+    gtin: "",
+    stock: 0,
+};
+
+const ownerRequestItems = [];
+
+function renderOwnerRequestDraftStock(qty) {
+    const safeQty = Number(qty || 0);
+    ownerRequestDraft.stock = safeQty;
+    ownerRequestDraftStockValue.textContent = safeQty;
+
+    if (safeQty <= 0) {
+        ownerRequestDraftStockState.textContent = "Belum ada stok yang terdeteksi di gudang ini.";
+        ownerRequestDraftStockState.className = "ops-stock-state stock-empty";
+    } else if (safeQty < 5) {
+        ownerRequestDraftStockState.textContent = "Stok tipis, request ini cocok untuk prioritas owner.";
+        ownerRequestDraftStockState.className = "ops-stock-state stock-low";
+    } else {
+        ownerRequestDraftStockState.textContent = "Stok masih ada, tapi request tetap bisa dikirim.";
+        ownerRequestDraftStockState.className = "ops-stock-state stock-ok";
+    }
+
+    validateOwnerRequestDraft();
+}
+
+function resetOwnerRequestDraft() {
+    ownerRequestDraft.product_id = 0;
+    ownerRequestDraft.variant_id = 0;
+    ownerRequestDraft.sku = "";
+    ownerRequestDraft.name = "";
+    ownerRequestDraft.variant_label = "";
+    ownerRequestDraft.category = "";
+    ownerRequestDraft.gtin = "";
+    ownerRequestDraft.stock = 0;
+
+    ownerRequestDraftDisplay.value = "";
+    ownerRequestDraftMeta.textContent = "Belum ada barang yang dipilih.";
+    ownerRequestDraftQty.value = "";
+    ownerRequestDraftNote.value = "";
+    ownerRequestDraftFeedback.textContent = "Isi qty request untuk item aktif.";
+    ownerRequestDraftFeedback.className = "helper-text ops-row-feedback";
+    renderOwnerRequestDraftStock(0);
+}
+
+function populateOwnerRequestDraft(item) {
+    ownerRequestDraft.product_id = Number(item.product_id || 0);
+    ownerRequestDraft.variant_id = Number(item.variant_id || 0);
+    ownerRequestDraft.sku = item.sku || "";
+    ownerRequestDraft.name = item.name || "";
+    ownerRequestDraft.variant_label = item.variant_label || "Default";
+    ownerRequestDraft.category = item.category || "-";
+    ownerRequestDraft.gtin = item.gtin || "";
+    ownerRequestDraftDisplay.value = `${item.sku} - ${item.name}`;
+    ownerRequestDraftMeta.textContent = `${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}`;
+    renderOwnerRequestDraftStock(Number(item.qty || 0));
+}
+
+async function fetchOwnerRequestStock(productId, variantId) {
+    const params = new URLSearchParams({
+        product_id: String(productId),
+        variant_id: String(variantId),
+        warehouse_id: String(ownerRequestWarehouse.value || ""),
+    });
+
+    const response = await fetch(`/transfers/get_stock?${params.toString()}`);
+    const data = await response.json();
+    return Number(data.qty || 0);
+}
+
+async function refreshOwnerRequestDraftStock() {
+    if (!ownerRequestDraft.product_id || !ownerRequestDraft.variant_id) {
+        renderOwnerRequestDraftStock(0);
+        return;
+    }
+
+    try {
+        const qty = await fetchOwnerRequestStock(ownerRequestDraft.product_id, ownerRequestDraft.variant_id);
+        renderOwnerRequestDraftStock(qty);
+    } catch (error) {
+        renderOwnerRequestDraftStock(0);
+    }
+}
+
+async function refreshOwnerRequestQueueStocks() {
+    if (!ownerRequestItems.length) return;
+
+    await Promise.all(ownerRequestItems.map(async (item) => {
+        try {
+            item.stock = await fetchOwnerRequestStock(item.product_id, item.variant_id);
+        } catch (error) {
+            item.stock = 0;
+        }
+    }));
+
+    renderOwnerRequestQueue();
+}
+
+function validateOwnerRequestDraft() {
+    const qty = Number(ownerRequestDraftQty.value || 0);
+
+    if (!ownerRequestDraftQty.value) {
+        ownerRequestDraftFeedback.textContent = "Isi qty request untuk item aktif.";
+        ownerRequestDraftFeedback.className = "helper-text ops-row-feedback";
+        return true;
+    }
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+        ownerRequestDraftFeedback.textContent = "Qty request harus lebih dari 0.";
+        ownerRequestDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+
+    ownerRequestDraftFeedback.textContent = `Siap mengirim request ${qty} item ke owner.`;
+    ownerRequestDraftFeedback.className = "helper-text ops-row-feedback stock-ok";
+    return true;
+}
+
+function renderOwnerRequestQueue() {
+    if (!ownerRequestItems.length) {
+        ownerRequestQueueBody.innerHTML = `
+            <tr>
+                <td colspan="6">
+                    <div class="ops-queue-empty">Belum ada item request owner di batch ini.</div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    ownerRequestQueueBody.innerHTML = ownerRequestItems.map((item, index) => `
+        <tr>
+            <td class="mono">${index + 1}</td>
+            <td>
+                <strong>${item.sku} - ${item.name}</strong>
+                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+            </td>
+            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
+            <td class="mono">${item.qty}</td>
+            <td>${item.note || "-"}</td>
+            <td>
+                <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
+            </td>
+        </tr>
+    `).join("");
+}
+
+function addOwnerRequestItem() {
+    if (!ownerRequestDraft.product_id || !ownerRequestDraft.variant_id) {
+        alert("Pilih barang terlebih dahulu.");
+        return;
+    }
+
+    if (!validateOwnerRequestDraft()) {
+        alert("Qty request owner masih belum valid.");
+        return;
+    }
+
+    ownerRequestItems.push({
+        product_id: ownerRequestDraft.product_id,
+        variant_id: ownerRequestDraft.variant_id,
+        sku: ownerRequestDraft.sku,
+        name: ownerRequestDraft.name,
+        variant_label: ownerRequestDraft.variant_label,
+        category: ownerRequestDraft.category,
+        gtin: ownerRequestDraft.gtin,
+        stock: ownerRequestDraft.stock,
+        qty: Number(ownerRequestDraftQty.value || 0),
+        note: ownerRequestDraftNote.value.trim(),
+    });
+
+    renderOwnerRequestQueue();
+    resetOwnerRequestDraft();
+}
+
+function handleOwnerRequestSubmit() {
+    if (!ownerRequestItems.length) {
+        alert("Tambahkan minimal satu item request ke owner.");
+        return false;
+    }
+
+    ownerRequestItemsJson.value = JSON.stringify(ownerRequestItems.map((item) => ({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        qty: item.qty,
+        note: item.note,
+        display_name: `${item.sku} - ${item.name}`,
+    })));
+    ownerRequestSubmitButton.textContent = "Memproses...";
+    ownerRequestSubmitButton.disabled = true;
+    return true;
+}
+
+const ownerRequestPicker = createItemPicker({
+    endpoint: "/products/picker",
+    mode: "outbound",
+    modalId: "itemPickerModal",
+    bodyId: "itemPickerBody",
+    searchId: "itemPickerSearch",
+    summaryId: "itemPickerSummary",
+    pageId: "itemPickerPage",
+    warehouseIdLabel: "itemPickerWarehouse",
+    prevButtonId: "itemPickerPrev",
+    nextButtonId: "itemPickerNext",
+    getWarehouseId: () => ownerRequestWarehouse.value,
+    getWarehouseLabel: () => ownerRequestWarehouse.options[ownerRequestWarehouse.selectedIndex]?.text || ownerRequestWarehouse.value,
+    onPick: (row, item) => {
+        populateOwnerRequestDraft(item);
+    },
+});
+
+function openOwnerRequestPicker() {
+    ownerRequestPicker.openForRow(document.body);
+}
+
+ownerRequestDraftQty.addEventListener("input", validateOwnerRequestDraft);
+
+ownerRequestQueueBody.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-index]");
+    if (!button) return;
+
+    ownerRequestItems.splice(Number(button.dataset.removeIndex), 1);
+    renderOwnerRequestQueue();
+});
+
+ownerRequestWarehouse?.addEventListener("change", async () => {
+    await refreshOwnerRequestDraftStock();
+    await refreshOwnerRequestQueueStocks();
+    ownerRequestPicker.refresh();
+});
+
+resetOwnerRequestDraft();
+renderOwnerRequestQueue();
+</script>
+{% endblock %}
