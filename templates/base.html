@@ -14,19 +14,22 @@
 <body>
 
 <div class="mobile-nav">
-    <div class="mobile-brand">
-        <div class="mobile-brand-mark">
-            <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
-        </div>
-        <div>
-            <strong>Mataram Sports</strong>
-            <span>{{ self.page_title()|striptags }}</span>
+    <div class="mobile-nav-leading">
+        <button type="button" id="mobileMenuButton" class="ghost-button mobile-menu-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
+        <div class="mobile-brand">
+            <div class="mobile-brand-mark">
+                <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+            </div>
+            <div>
+                <strong>Mataram Sports</strong>
+                <span>{{ self.page_title()|striptags }}</span>
+            </div>
         </div>
     </div>
     <div class="mobile-nav-actions">
+        <span class="mobile-chip mobile-user-chip" title="{{ session.get('username', 'guest') }}">@{{ session.get("username", "guest") }}</span>
         <span class="mobile-chip">{{ session.get("role", "guest") }}</span>
         <span class="mobile-chip">WH {{ session.get("warehouse_id", "-") }}</span>
-        <button type="button" id="mobileMenuButton" class="ghost-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
     </div>
 </div>
 
@@ -72,6 +75,7 @@
     <div class="sidebar-footer">
         <p>Gunakan panel ini untuk menjaga akurasi stok, kelancaran transfer, dan visibilitas aktivitas gudang harian.</p>
         <div class="status-row">
+            <span class="status-pill" title="{{ session.get('username', 'guest') }}">User: {{ session.get("username", "guest") }}</span>
             <span class="status-pill">Role: {{ session.get("role", "guest") }}</span>
             <span class="status-pill">Warehouse: {{ session.get("warehouse_id", "-") }}</span>
             <span class="status-pill">HRIS Ready</span>

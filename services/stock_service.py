@@ -167,11 +167,18 @@ def remove_stock(product_id, variant_id, warehouse_id, qty, note="Barang keluar"
     user_id, ip, ua = _get_user_context()
 
     try:
-        db.execute("BEGIN")
+        try:
+            db.execute("BEGIN")
+            started = True
+        except:
+            started = False
 
         total = _get_total_available(db, product_id, variant_id, warehouse_id)
         if total < qty:
-            db.rollback()
+            try:
+                db.rollback()
+            except:
+                pass
             return False
 
         batches = db.execute("""
@@ -225,11 +232,15 @@ def remove_stock(product_id, variant_id, warehouse_id, qty, note="Barang keluar"
             user_id, ip, ua
         ))
 
-        db.commit()
+        if started:
+            db.commit()
         return True
 
-    except:
-        db.rollback()
+    except Exception:
+        try:
+            db.rollback()
+        except:
+            pass
         return False
 
 

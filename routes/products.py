@@ -3,6 +3,7 @@ from database import get_db
 from services.rbac import is_scoped_role
 from services.stock_service import add_stock
 import csv
+import json
 import uuid
 from io import BytesIO, StringIO
 import xml.etree.ElementTree as ET
@@ -36,6 +37,12 @@ def _to_int(value, default=0):
         return default
 
 
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _normalize_variant_name(value):
     value = (value or "").strip()
     if value.lower() in {"", "-", "default", "n/a", "na", "none"}:
@@ -45,6 +52,109 @@ def _normalize_variant_name(value):
 
 def _row_has_content(row):
     return any(str(value or "").strip() for value in row.values())
+
+
+def _merge_variant_rows(rows):
+    merged = {}
+    order = []
+
+    for row in rows:
+        key = row["variant"]
+        if key not in merged:
+            merged[key] = dict(row)
+            order.append(key)
+            continue
+
+        merged_row = merged[key]
+        merged_row["qty"] += row["qty"]
+        merged_row["price_retail"] = row["price_retail"]
+        merged_row["price_discount"] = row["price_discount"]
+        merged_row["price_nett"] = row["price_nett"]
+
+        if row["variant_code"]:
+            merged_row["variant_code"] = row["variant_code"]
+
+        if row["no_gtin"]:
+            merged_row["no_gtin"] = 1
+            merged_row["gtin"] = ""
+        elif row["gtin"]:
+            merged_row["gtin"] = row["gtin"]
+            merged_row["no_gtin"] = 0
+
+    return [merged[key] for key in order]
+
+
+def _build_variant_rows(form):
+    raw_payload = (form.get("variant_rows_json") or "").strip()
+
+    if raw_payload:
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Format variasi manual tidak valid") from exc
+
+        if not isinstance(payload, list):
+            raise ValueError("Format variasi manual tidak valid")
+
+        rows = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+
+            raw_variant = str(item.get("variant") or "").strip()
+            raw_qty = item.get("qty")
+            raw_price_retail = item.get("price_retail")
+            raw_price_discount = item.get("price_discount")
+            raw_price_nett = item.get("price_nett")
+            variant_code = str(item.get("variant_code") or "").strip()
+            gtin = str(item.get("gtin") or "").strip()
+            no_gtin = 1 if _to_bool(item.get("no_gtin")) else 0
+
+            if not any([
+                raw_variant,
+                str(raw_qty or "").strip(),
+                str(raw_price_retail or "").strip(),
+                str(raw_price_discount or "").strip(),
+                str(raw_price_nett or "").strip(),
+                variant_code,
+                gtin,
+                no_gtin,
+            ]):
+                continue
+
+            rows.append({
+                "variant": _normalize_variant_name(raw_variant),
+                "qty": _to_int(raw_qty, 0),
+                "price_retail": _to_float(raw_price_retail),
+                "price_discount": _to_float(raw_price_discount),
+                "price_nett": _to_float(raw_price_nett),
+                "variant_code": variant_code,
+                "gtin": "" if no_gtin else gtin,
+                "no_gtin": no_gtin,
+            })
+
+        return _merge_variant_rows(rows)
+
+    variants = form.get("variants", "")
+    qty = _to_int(form.get("qty"), 0)
+    price_retail = _to_float(form.get("price_retail"))
+    price_discount = _to_float(form.get("price_discount"))
+    price_nett = _to_float(form.get("price_nett"))
+    variant_list = [v.strip() for v in variants.split(",") if v.strip()] or ["default"]
+
+    return _merge_variant_rows([
+        {
+            "variant": _normalize_variant_name(variant),
+            "qty": qty,
+            "price_retail": price_retail,
+            "price_discount": price_discount,
+            "price_nett": price_nett,
+            "variant_code": "",
+            "gtin": "",
+            "no_gtin": 0,
+        }
+        for variant in variant_list
+    ])
 
 
 def _resolve_products_warehouse(db):
@@ -75,6 +185,23 @@ def _resolve_import_warehouse(db, raw_warehouse_id, default_warehouse_id):
         return session.get("warehouse_id") or default_warehouse_id
 
     warehouse_id = _to_int(raw_warehouse_id, default_warehouse_id)
+    warehouse = db.execute(
+        "SELECT id FROM warehouses WHERE id=?",
+        (warehouse_id,),
+    ).fetchone()
+    return warehouse["id"] if warehouse else default_warehouse_id
+
+
+def _resolve_picker_warehouse(db, raw_warehouse_id):
+    default_warehouse_id = session.get("warehouse_id") or 1
+    fallback = db.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()
+    if fallback:
+        default_warehouse_id = fallback["id"]
+
+    if is_scoped_role(session.get("role")):
+        return session.get("warehouse_id") or default_warehouse_id
+
+    warehouse_id = _to_int(raw_warehouse_id, session.get("warehouse_id") or default_warehouse_id)
     warehouse = db.execute(
         "SELECT id FROM warehouses WHERE id=?",
         (warehouse_id,),
@@ -239,8 +366,20 @@ def _read_import_dataset(file):
     return normalized_fields, rows
 
 
-def _upsert_variant(db, product_id, variant_name, price_retail, price_discount, price_nett):
+def _upsert_variant(
+    db,
+    product_id,
+    variant_name,
+    price_retail,
+    price_discount,
+    price_nett,
+    variant_code="",
+    gtin="",
+    no_gtin=0,
+):
     variant_name = _normalize_variant_name(variant_name)
+    gtin = "" if no_gtin else (gtin or "").strip()
+    variant_code = (variant_code or "").strip()
 
     existing = db.execute("""
         SELECT id
@@ -253,17 +392,37 @@ def _upsert_variant(db, product_id, variant_name, price_retail, price_discount, 
             UPDATE product_variants
             SET price_retail=?,
                 price_discount=?,
-                price_nett=?
+                price_nett=?,
+                variant_code=?,
+                gtin=?,
+                no_gtin=?
             WHERE id=?
-        """, (price_retail, price_discount, price_nett, existing["id"]))
+        """, (
+            price_retail,
+            price_discount,
+            price_nett,
+            variant_code,
+            gtin,
+            no_gtin,
+            existing["id"],
+        ))
         return existing["id"]
 
     cur = db.execute("""
         INSERT INTO product_variants(
-            product_id, variant, price_retail, price_discount, price_nett
+            product_id, variant, price_retail, price_discount, price_nett, variant_code, gtin, no_gtin
         )
-        VALUES (?,?,?,?,?)
-    """, (product_id, variant_name, price_retail, price_discount, price_nett))
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (
+        product_id,
+        variant_name,
+        price_retail,
+        price_discount,
+        price_nett,
+        variant_code,
+        gtin,
+        no_gtin,
+    ))
 
     return cur.lastrowid
 
@@ -274,13 +433,110 @@ def get_variants(product_id):
     db = get_db()
 
     rows = db.execute("""
-        SELECT id, variant, price_retail, price_discount, price_nett
+        SELECT id, variant, price_retail, price_discount, price_nett, variant_code, gtin, no_gtin
         FROM product_variants
         WHERE product_id=?
         ORDER BY CASE WHEN LOWER(variant)='default' THEN 0 ELSE 1 END, variant
     """, (product_id,)).fetchall()
 
     return jsonify([dict(r) for r in rows])
+
+
+@products_bp.route("/picker")
+def product_picker():
+
+    db = get_db()
+    warehouse_id = _resolve_picker_warehouse(db, request.args.get("warehouse_id"))
+    page = max(_to_int(request.args.get("page"), 1), 1)
+    page_size = 20
+    offset = (page - 1) * page_size
+    search = (request.args.get("q") or "").strip()
+    mode = (request.args.get("mode") or "").strip().lower()
+
+    conditions = []
+    params = [warehouse_id]
+    count_params = []
+
+    if search:
+        search_param = f"%{search}%"
+        conditions.append("""
+            (
+                p.sku LIKE ?
+                OR p.name LIKE ?
+                OR COALESCE(c.name, '') LIKE ?
+                OR COALESCE(v.variant, '') LIKE ?
+                OR COALESCE(v.variant_code, '') LIKE ?
+                OR COALESCE(v.gtin, '') LIKE ?
+            )
+        """)
+        params.extend([search_param] * 6)
+        count_params.extend([search_param] * 6)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    order_by = """
+        p.name ASC,
+        CASE WHEN LOWER(v.variant)='default' THEN 0 ELSE 1 END,
+        v.variant ASC
+    """
+    if mode == "outbound":
+        order_by = """
+            CASE WHEN COALESCE(s.qty, 0) > 0 THEN 0 ELSE 1 END,
+            COALESCE(s.qty, 0) DESC,
+            p.name ASC,
+            CASE WHEN LOWER(v.variant)='default' THEN 0 ELSE 1 END,
+            v.variant ASC
+        """
+
+    rows = db.execute(f"""
+        SELECT
+            p.id AS product_id,
+            v.id AS variant_id,
+            p.sku,
+            p.name,
+            COALESCE(c.name, '-') AS category,
+            COALESCE(v.variant, 'default') AS variant,
+            COALESCE(v.variant_code, '') AS variant_code,
+            COALESCE(v.gtin, '') AS gtin,
+            COALESCE(s.qty, 0) AS qty
+        FROM products p
+        JOIN product_variants v ON v.product_id = p.id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN stock s
+            ON s.product_id = p.id
+            AND s.variant_id = v.id
+            AND s.warehouse_id = ?
+        {where_clause}
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
+    """, (*params, page_size, offset)).fetchall()
+
+    total = db.execute(f"""
+        SELECT COUNT(*) AS total
+        FROM products p
+        JOIN product_variants v ON v.product_id = p.id
+        LEFT JOIN categories c ON c.id = p.category_id
+        {where_clause}
+    """, count_params).fetchone()["total"]
+
+    total_pages = max(1, (total + page_size - 1) // page_size)
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        variant = item["variant"] or "default"
+        item["variant_label"] = "Default" if variant.lower() == "default" else variant
+        item["display_name"] = f'{item["sku"]} - {item["name"]}'
+        items.append(item)
+
+    return jsonify({
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total_items": total,
+        "total_pages": total_pages,
+        "warehouse_id": warehouse_id,
+    })
 
 
 @products_bp.route("/")
@@ -296,7 +552,7 @@ def products():
 
     search = request.args.get("search", "").strip()
 
-    LIMIT = 50
+    LIMIT = 10
     OFFSET = (page - 1) * LIMIT
 
     search_param = f"%{search}%"
@@ -447,13 +703,8 @@ def add_product():
         sku = request.form["sku"].strip()
         name = request.form["name"].strip()
         category_name = request.form["category_name"].strip()
-        variants = request.form.get("variants", "")
-        qty = int(request.form["qty"])
         warehouse_id = int(request.form["warehouse_id"])
-
-        price_retail = _to_float(request.form.get("price_retail"))
-        price_discount = _to_float(request.form.get("price_discount"))
-        price_nett = _to_float(request.form.get("price_nett"))
+        variant_rows = _build_variant_rows(request.form)
 
     except:
         flash("Input tidak valid", "error")
@@ -462,8 +713,12 @@ def add_product():
     if is_scoped_role(session.get("role")):
         warehouse_id = session.get("warehouse_id") or warehouse_id
 
-    if qty <= 0:
-        flash("Qty harus > 0", "error")
+    if not variant_rows:
+        flash("Minimal isi satu variasi produk.", "error")
+        return redirect("/products")
+
+    if any(row["qty"] < 0 for row in variant_rows):
+        flash("Qty tidak boleh minus.", "error")
         return redirect("/products")
 
     try:
@@ -487,19 +742,23 @@ def add_product():
         cur = db.execute("INSERT INTO products (sku,name,category_id) VALUES (?,?,?)", (sku, name, category_id))
         product_id = cur.lastrowid
 
-        variant_list = [v.strip() for v in variants.split(",") if v.strip()] or ["default"]
-
-        for v in variant_list:
+        for row in variant_rows:
             variant_id = _upsert_variant(
                 db,
                 product_id,
-                v,
-                price_retail,
-                price_discount,
-                price_nett
+                row["variant"],
+                row["price_retail"],
+                row["price_discount"],
+                row["price_nett"],
+                variant_code=row["variant_code"],
+                gtin=row["gtin"],
+                no_gtin=row["no_gtin"],
             )
 
-            ok = add_stock(product_id, variant_id, warehouse_id, qty, note="Initial Stock")
+            if row["qty"] <= 0:
+                continue
+
+            ok = add_stock(product_id, variant_id, warehouse_id, row["qty"], note="Initial Stock")
 
             if not ok:
                 raise Exception("Gagal add stock")
@@ -630,6 +889,9 @@ def import_products():
                     price_retail = _to_float(row.get("price_retail"))
                     price_discount = _to_float(row.get("price_discount"))
                     price_nett = _to_float(row.get("price_nett"))
+                    variant_code = str(row.get("variant_code") or "").strip()
+                    gtin = str(row.get("gtin") or "").strip()
+                    no_gtin = 1 if _to_bool(row.get("no_gtin")) else 0
 
                     if category_name in category_cache:
                         category_id = category_cache[category_name]
@@ -656,7 +918,10 @@ def import_products():
                         variant,
                         price_retail,
                         price_discount,
-                        price_nett
+                        price_nett,
+                        variant_code=variant_code,
+                        gtin=gtin,
+                        no_gtin=no_gtin,
                     )
                     variant_payloads.append((product_id, variant_id, warehouse_id, qty))
 

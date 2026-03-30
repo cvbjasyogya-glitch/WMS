@@ -28,7 +28,6 @@ ROLE_PERMISSIONS = {
         "scoped_warehouse",
     },
     "admin": {
-        "view_admin",
         "view_audit",
         "request_stock_ops",
         "request_transfer",

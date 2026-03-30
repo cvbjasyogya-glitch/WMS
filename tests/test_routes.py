@@ -1,5 +1,6 @@
 import os
 import unittest
+import json
 from io import BytesIO
 from uuid import uuid4
 import zipfile
@@ -211,7 +212,6 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/request/",
             "/audit/",
             "/so/",
-            "/admin/",
         ]:
             with self.subTest(path=path):
                 response = self.client.get(path)
@@ -219,6 +219,10 @@ class WmsRoutesTestCase(unittest.TestCase):
                 html = response.get_data(as_text=True)
                 self.assertIn('name="viewport"', html)
                 self.assertIn('mobile-nav', html)
+                self.assertIn('@admin', html)
+
+        admin_page = self.client.get("/admin/", follow_redirects=False)
+        self.assertEqual(admin_page.status_code, 302)
 
     def test_add_product_and_get_variants(self):
         self.login()
@@ -231,6 +235,267 @@ class WmsRoutesTestCase(unittest.TestCase):
         variants_response = self.client.get(f"/products/get_variants/{product_id}")
         self.assertEqual(variants_response.status_code, 200)
         self.assertEqual(len(variants_response.get_json()), 2)
+
+    def test_add_product_supports_manual_variant_matrix(self):
+        self.login()
+        sku = "MANUAL-" + uuid4().hex[:6].upper()
+        response = self.client.post(
+            "/products/add",
+            data={
+                "sku": sku,
+                "name": "Produk Matrix",
+                "category_name": "Testing",
+                "warehouse_id": "1",
+                "variant_rows_json": json.dumps([
+                    {
+                        "variant": "39",
+                        "price_retail": "649900",
+                        "price_discount": "552415",
+                        "price_nett": "500000",
+                        "qty": "1",
+                        "variant_code": "BED-39",
+                        "gtin": "899990000039",
+                        "no_gtin": False,
+                    },
+                    {
+                        "variant": "40",
+                        "price_retail": "649900",
+                        "price_discount": "552415",
+                        "price_nett": "500000",
+                        "qty": "0",
+                        "variant_code": "BED-40",
+                        "gtin": "",
+                        "no_gtin": True,
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                (sku,),
+            ).fetchone()
+            variants_rows = db.execute(
+                """
+                SELECT variant, qty.qty, variant_code, gtin, no_gtin
+                FROM product_variants pv
+                LEFT JOIN (
+                    SELECT variant_id, SUM(qty) AS qty
+                    FROM stock
+                    GROUP BY variant_id
+                ) qty ON qty.variant_id = pv.id
+                WHERE product_id=?
+                ORDER BY variant
+                """,
+                (product["id"],),
+            ).fetchall()
+
+        self.assertEqual(len(variants_rows), 2)
+        self.assertEqual(variants_rows[0]["variant"], "39")
+        self.assertEqual(variants_rows[0]["qty"], 1)
+        self.assertEqual(variants_rows[0]["variant_code"], "BED-39")
+        self.assertEqual(variants_rows[0]["gtin"], "899990000039")
+        self.assertEqual(variants_rows[0]["no_gtin"], 0)
+        self.assertEqual(variants_rows[1]["variant"], "40")
+        self.assertIsNone(variants_rows[1]["qty"])
+        self.assertEqual(variants_rows[1]["variant_code"], "BED-40")
+        self.assertEqual(variants_rows[1]["gtin"], "")
+        self.assertEqual(variants_rows[1]["no_gtin"], 1)
+
+    def test_products_page_uses_10_item_pagination(self):
+        self.login()
+        for index in range(12):
+            response, _, _ = self.create_product(
+                sku=f"PAG-{index:02d}-{uuid4().hex[:4].upper()}",
+                variants=f"V{index}",
+            )
+            self.assertEqual(response.status_code, 302)
+
+        page_one = self.client.get("/products/")
+        page_one_html = page_one.get_data(as_text=True)
+        self.assertEqual(page_one.status_code, 200)
+        self.assertEqual(page_one_html.count('class="row-check"'), 10)
+        self.assertIn("Page 1 / 2", page_one_html)
+
+        page_two = self.client.get("/products/?page=2")
+        page_two_html = page_two.get_data(as_text=True)
+        self.assertEqual(page_two.status_code, 200)
+        self.assertEqual(page_two_html.count('class="row-check"'), 2)
+        self.assertIn("Page 2 / 2", page_two_html)
+
+    def test_product_picker_uses_20_item_pagination(self):
+        self.login()
+        for index in range(21):
+            response, _, _ = self.create_product(
+                sku=f"PICK-{index:02d}-{uuid4().hex[:4].upper()}",
+                variants=f"V{index}",
+            )
+            self.assertEqual(response.status_code, 302)
+
+        page_one = self.client.get("/products/picker?warehouse_id=1&page=1")
+        self.assertEqual(page_one.status_code, 200)
+        payload_one = page_one.get_json()
+
+        self.assertEqual(payload_one["page_size"], 20)
+        self.assertEqual(payload_one["page"], 1)
+        self.assertEqual(len(payload_one["items"]), 20)
+        self.assertGreaterEqual(payload_one["total_items"], 21)
+        self.assertGreaterEqual(payload_one["total_pages"], 2)
+
+        page_two = self.client.get("/products/picker?warehouse_id=1&page=2")
+        self.assertEqual(page_two.status_code, 200)
+        payload_two = page_two.get_json()
+
+        self.assertEqual(payload_two["page"], 2)
+        self.assertGreaterEqual(len(payload_two["items"]), 1)
+
+    def test_leader_can_process_bulk_inbound_directly(self):
+        self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=0, variants="41,42")
+        self.assertEqual(response.status_code, 302)
+        self.logout()
+
+        self.login("leader_inbound", "pass1234")
+        inbound_response = self.client.post(
+            "/inbound/",
+            data={
+                "warehouse_id": "1",
+                "items_json": json.dumps([
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[0]["id"],
+                        "qty": 3,
+                        "note": "Restock size 41",
+                        "cost": 245000,
+                        "custom_date": "2026-03-30",
+                    },
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[1]["id"],
+                        "qty": 4,
+                        "note": "Restock size 42",
+                        "cost": 255000,
+                        "custom_date": "2026-03-30",
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(inbound_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_rows = db.execute(
+                """
+                SELECT variant_id, qty
+                FROM stock
+                WHERE product_id=? AND warehouse_id=1
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+
+        self.assertEqual(len(stock_rows), 2)
+        self.assertEqual(stock_rows[0]["qty"], 3)
+        self.assertEqual(stock_rows[1]["qty"], 4)
+
+    def test_leader_can_process_bulk_outbound_directly(self):
+        self.create_user("leader_outbound", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=10, variants="41,42")
+        self.assertEqual(response.status_code, 302)
+        self.logout()
+
+        self.login("leader_outbound", "pass1234")
+        outbound_response = self.client.post(
+            "/outbound/",
+            data={
+                "warehouse_id": "1",
+                "items_json": json.dumps([
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[0]["id"],
+                        "qty": 2,
+                        "note": "Order size 41",
+                    },
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[1]["id"],
+                        "qty": 3,
+                        "note": "Order size 42",
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(outbound_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_rows = db.execute(
+                """
+                SELECT variant_id, qty
+                FROM stock
+                WHERE product_id=? AND warehouse_id=1
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+
+        self.assertEqual(len(stock_rows), 2)
+        self.assertEqual(stock_rows[0]["qty"], 8)
+        self.assertEqual(stock_rows[1]["qty"], 7)
+
+    def test_admin_can_create_bulk_request_batch(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=10, variants="41,42")
+        self.assertEqual(response.status_code, 302)
+
+        request_response = self.client.post(
+            "/request/",
+            data={
+                "from_warehouse": "1",
+                "to_warehouse": "2",
+                "items_json": json.dumps([
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[0]["id"],
+                        "qty": 2,
+                    },
+                    {
+                        "product_id": product_id,
+                        "variant_id": variants_rows[1]["id"],
+                        "qty": 3,
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_rows = db.execute(
+                """
+                SELECT variant_id, qty, status
+                FROM requests
+                WHERE product_id=?
+                ORDER BY variant_id
+                """,
+                (product_id,),
+            ).fetchall()
+
+        self.assertEqual(len(request_rows), 2)
+        self.assertEqual(request_rows[0]["qty"], 2)
+        self.assertEqual(request_rows[0]["status"], "pending")
+        self.assertEqual(request_rows[1]["qty"], 3)
+        self.assertEqual(request_rows[1]["status"], "pending")
 
     def test_request_approval_updates_stock(self):
         self.create_user("leader_request", "pass1234", "leader", warehouse_id=1)
@@ -749,6 +1014,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login("owner_user", "pass1234")
         response = self.client.get("/admin/")
         self.assertEqual(response.status_code, 200)
+
+    def test_admin_cannot_access_admin_page(self):
+        self.login()
+        response = self.client.get("/admin/", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
 
     def test_owner_can_access_audit_page(self):
         self.create_user("owner_audit", "pass1234", "owner")

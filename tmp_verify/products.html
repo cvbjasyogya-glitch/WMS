@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#07111f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Produk | Mataram Sports WMS</title>
+<link rel="manifest" href="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/manifest.webmanifest">
+<link rel="stylesheet" href="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/css/dashboard.css">
+
+</head>
+<body>
+
+<div class="mobile-nav">
+    <div class="mobile-nav-leading">
+        <button type="button" id="mobileMenuButton" class="ghost-button mobile-menu-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
+        <div class="mobile-brand">
+            <div class="mobile-brand-mark">
+                <img src="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+            </div>
+            <div>
+                <strong>Mataram Sports</strong>
+                <span>Master Produk</span>
+            </div>
+        </div>
+    </div>
+    <div class="mobile-nav-actions">
+        <span class="mobile-chip mobile-user-chip" title="admin">@admin</span>
+        <span class="mobile-chip">admin</span>
+        <span class="mobile-chip">WH 1</span>
+    </div>
+</div>
+
+<div class="mobile-sidebar-backdrop" id="menuBackdrop" onclick="closeMenu()"></div>
+
+<div class="layout">
+
+<aside class="sidebar" id="menu">
+    <div class="brand-block">
+        <div class="brand-lockup">
+            <div class="brand-mark">
+                <img src="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+            </div>
+            <div class="brand-meta">
+                <p class="brand-kicker">Operations Suite</p>
+                <h2 class="brand-title">Mataram Sports</h2>
+                <span class="suite-chip">WMS Core</span>
+            </div>
+        </div>
+        <p class="brand-copy">Warehouse management core yang siap berkembang ke finance flow dan modul HRIS di fase berikutnya.</p>
+    </div>
+
+    <nav>
+        <a href="/" class="">Dashboard</a>
+        <a href="/products" class="active">Produk</a>
+        <a href="/stock" class="">Stok Gudang</a>
+        <a href="/inbound" class="">Inbound</a>
+        <a href="/outbound" class="">Outbound</a>
+        <a href="/transfers" class="">Transfer</a>
+        <a href="/request" class="">Request</a>
+        
+        
+        <a href="/audit" class="">Audit</a>
+        
+        <a href="/so" class="">Stock Opname</a>
+        
+        <a href="/admin" class="">Admin</a>
+        
+    </nav>
+
+    <div class="sidebar-footer">
+        <p>Gunakan panel ini untuk menjaga akurasi stok, kelancaran transfer, dan visibilitas aktivitas gudang harian.</p>
+        <div class="status-row">
+            <span class="status-pill" title="admin">User: admin</span>
+            <span class="status-pill">Role: admin</span>
+            <span class="status-pill">Warehouse: 1</span>
+            <span class="status-pill">HRIS Ready</span>
+        </div>
+        <form method="GET" action="about:blank" style="margin-top:14px;">
+            <button type="submit" class="ghost-button" style="width:100%;">Keluar</button>
+        </form>
+    </div>
+</aside>
+
+<main class="main">
+    <section class="page-hero">
+        <div class="page-hero-text">
+            <p class="page-eyebrow">Master Product Control</p>
+            <h1>Master Produk</h1>
+            <p class="page-subtitle">Kelola SKU, kategori, stok awal, dan import massal produk dengan workflow yang tetap cepat saat volume data membesar.</p>
+        </div>
+        <div class="page-actions">
+            
+<button type="button" onclick="toggleForm()">Tambah Produk</button>
+
+        </div>
+    </section>
+
+    
+    
+    
+
+    
+<div class="meta-grid products-meta-grid">
+    <div class="meta-card">
+        <span>Gudang Aktif</span>
+        <strong>Gudang Mataram</strong>
+    </div>
+    <div class="meta-card">
+        <span>Produk Tampil</span>
+        <strong>1</strong>
+    </div>
+    <div class="meta-card">
+        <span>Halaman</span>
+        <strong>1 / 1</strong>
+    </div>
+    <div class="meta-card">
+        <span>Pencarian</span>
+        <strong>Semua Produk</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <select name="warehouse" disabled>
+        
+        <option value="1" selected>Gudang Mataram</option>
+        
+        <option value="2" >Gudang Mega</option>
+        
+    </select>
+    
+    <input type="hidden" name="warehouse" value="1">
+    
+    <input type="text" name="search" value="" placeholder="Cari SKU, nama, atau kategori">
+    <button type="submit">Terapkan Filter</button>
+    <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
+</form>
+
+
+<small class="helper-text">Filter gudang mengikuti gudang akun Anda agar data tetap konsisten.</small>
+
+
+<div class="import-box">
+    <div class="section-title">
+        <div>
+            <h2>Bulk Import</h2>
+            <p>Unggah file Excel atau CSV untuk menambahkan banyak produk dalam satu batch kerja.</p>
+        </div>
+    </div>
+
+    <div class="top-bar products-import-bar">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+        <button type="button" class="ghost-button" onclick="previewImport()">Preview File</button>
+        <button type="button" onclick="submitImport()">Mulai Import</button>
+    </div>
+
+    <small class="helper-text">
+        Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
+        Kolom opsional: <span class="mono">variant_code, gtin</span>.
+        Untuk file Excel, angka seperti <span class="mono">1.0</span> akan dibaca otomatis sebagai qty/gudang yang valid.
+    </small>
+
+    <div id="previewBox"></div>
+
+    <div id="progressWrapper" style="display:none; margin-top:16px;">
+        <div id="progressText" style="margin-bottom:8px; color:#5f7289;"></div>
+        <div style="width:100%; height:14px; border-radius:999px; background:rgba(10,24,42,0.08); overflow:hidden;">
+            <div id="progressBar" style="width:0%; height:100%; border-radius:999px; background:linear-gradient(90deg, #21c57d, #5db7ff);"></div>
+        </div>
+    </div>
+</div>
+
+<div id="formBox" class="form-box products-manual-box" style="display:none;">
+    <div class="section-title">
+        <div>
+            <h2>Import Manual Produk</h2>
+            <p>Masukkan data master, lalu isi variasi satu per satu agar stok awal, harga, dan identitas barcode bisa diatur per size.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/products/add" onsubmit="return handleSubmit()">
+        <input type="hidden" name="variant_rows_json" id="variantRowsJson">
+
+        <div class="form-grid">
+            <div>
+                <label>SKU</label>
+                <input type="text" name="sku" placeholder="Contoh: MS-SEP-001" required>
+            </div>
+            <div>
+                <label>Nama Produk</label>
+                <input type="text" name="name" placeholder="Masukkan nama produk" required>
+            </div>
+            <div>
+                <label>Kategori</label>
+                <input type="text" name="category_name" placeholder="Sepatu, Jersey, Aksesoris" required>
+            </div>
+            <div>
+                <label>Gudang Awal</label>
+                <select name="warehouse_id" disabled>
+                    
+                    <option value="1" selected>Gudang Mataram</option>
+                    
+                    <option value="2" >Gudang Mega</option>
+                    
+                </select>
+                
+                <input type="hidden" name="warehouse_id" value="1">
+                <small class="helper-text">Gudang awal dikunci mengikuti gudang akun Anda.</small>
+                
+            </div>
+        </div>
+
+        <div class="section-title" style="margin-top:18px;">
+            <div>
+                <h3>Variasi Manual</h3>
+                <p>Setiap baris mewakili satu size atau variasi produk. Stok 0 tetap boleh dipakai, dan GTIN cukup diisi kalau memang tersedia.</p>
+            </div>
+            <button type="button" class="ghost-button" onclick="addVariantRow()">Tambah Baris</button>
+        </div>
+
+        <div class="table-box variant-builder">
+            <table class="variant-builder-table">
+                <thead>
+                    <tr>
+                        <th>Size / Variasi</th>
+                        <th>* Harga</th>
+                        <th>* Stok</th>
+                        <th>Kode Variasi</th>
+                        <th>GTIN Opsional</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="variantRowsBody"></tbody>
+            </table>
+        </div>
+
+        <small class="helper-text">
+            Jika hanya ada satu produk tanpa variasi, cukup isi satu baris dan biarkan kolom size kosong.
+            Kode variasi dan GTIN tidak wajib, jadi bisa dibiarkan kosong bila belum dipakai.
+        </small>
+
+        <div class="split-actions" style="margin-top:16px;">
+            <button id="btnSubmit" type="submit">Simpan Produk</button>
+            <button type="button" class="ghost-button" onclick="toggleForm()">Tutup Form</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box products-list-box">
+    <div class="section-title">
+        <div>
+            <h2>Daftar Produk</h2>
+            <p>Produk diurutkan berdasarkan aging batch yang paling lama untuk membantu kontrol inventory lama.</p>
+        </div>
+    </div>
+
+    
+    <table>
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="checkAll"></th>
+                <th>SKU</th>
+                <th>Nama</th>
+                <th>Kategori</th>
+                <th>Qty</th>
+                <th>Aging</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td><input type="checkbox" class="row-check" value="1"></td>
+                <td class="mono">1112</td>
+                <td>DIPA KUNING</td>
+                <td>ShuttleCock</td>
+                <td>
+                    
+                    <span class="badge green">90</span>
+                    
+                </td>
+                <td>
+                    
+                    
+                    <span class="badge">0 hari</span>
+                    
+                </td>
+                <td>
+                    <form method="POST" action="/products/delete/1" onsubmit="return confirm('Hapus produk ini?')">
+                        <button type="submit" class="ghost-button">Hapus</button>
+                    </form>
+                </td>
+            </tr>
+            
+        </tbody>
+    </table>
+
+    <div class="pagination">
+        
+        <span class="status-pill">Page 1 / 1</span>
+        
+    </div>
+    
+</div>
+
+</main>
+
+</div>
+
+<nav class="mobile-dock">
+    <a href="/" class="">Home</a>
+    <a href="/stock" class="">Stok</a>
+    <a href="/request" class="">Request</a>
+    <a href="/so" class="">Opname</a>
+    <button type="button" class="" onclick="toggleMenu()">Menu</button>
+</nav>
+
+<script>
+function toggleMenu() {
+    if (window.innerWidth > 1080) return;
+    const menu = document.getElementById("menu");
+    const button = document.getElementById("mobileMenuButton");
+    if (!menu || !button) return;
+
+    const nextState = !document.body.classList.contains("menu-open");
+    document.body.classList.toggle("menu-open", nextState);
+    button.setAttribute("aria-expanded", nextState ? "true" : "false");
+}
+
+function closeMenu() {
+    const button = document.getElementById("mobileMenuButton");
+    document.body.classList.remove("menu-open");
+    if (button) {
+        button.setAttribute("aria-expanded", "false");
+    }
+}
+
+function showToast(text) {
+    const div = document.createElement("div");
+    div.className = "floating-toast";
+    div.textContent = text;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+document.querySelectorAll(".flash").forEach((flash) => {
+    setTimeout(() => {
+        flash.style.opacity = "0";
+        flash.style.transform = "translateY(-4px)";
+        setTimeout(() => flash.remove(), 250);
+    }, 5000);
+});
+
+document.querySelectorAll("#menu nav a, #menu form button").forEach((node) => {
+    node.addEventListener("click", () => {
+        if (window.innerWidth <= 1080) {
+            closeMenu();
+        }
+    });
+});
+
+window.addEventListener("resize", () => {
+    if (window.innerWidth > 1080) {
+        closeMenu();
+    }
+});
+</script>
+
+
+<script>
+const DEFAULT_VARIANT_ROWS = [
+    { variant: "39", qty: "1" },
+    { variant: "40", qty: "1" },
+    { variant: "41", qty: "0" },
+    { variant: "42", qty: "0" }
+];
+
+const checkAll = document.getElementById("checkAll");
+const variantRowsBody = document.getElementById("variantRowsBody");
+const variantRowsJson = document.getElementById("variantRowsJson");
+
+if (checkAll) {
+    checkAll.addEventListener("change", function() {
+        document.querySelectorAll(".row-check").forEach((cb) => {
+            cb.checked = this.checked;
+        });
+    });
+}
+
+function toggleForm() {
+    const formBox = document.getElementById("formBox");
+    if (!formBox) return;
+    const nextState = formBox.style.display === "none" || formBox.style.display === "";
+    formBox.style.display = nextState ? "block" : "none";
+    if (nextState) {
+        formBox.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+}
+
+function createVariantRowMarkup(initial = {}) {
+    const variant = initial.variant || "";
+    const priceRetail = initial.price_retail || "";
+    const priceDiscount = initial.price_discount || "";
+    const priceNett = initial.price_nett || "";
+    const qty = initial.qty ?? "";
+    const variantCode = initial.variant_code || "";
+    const gtin = initial.gtin || "";
+
+    return `
+        <td class="variant-size-cell">
+            <div class="variant-size-shell">
+                <div class="variant-size-label">SIZE</div>
+                <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+            </div>
+        </td>
+        <td class="variant-price-cell">
+            <div class="variant-price-card">
+                <div class="variant-field-stack">
+                    <div>
+                        <span class="variant-mini-label">Retail</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}">
+                        </label>
+                    </div>
+                    <div>
+                        <span class="variant-mini-label">Diskon</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}">
+                        </label>
+                    </div>
+                    <div>
+                        <span class="variant-mini-label">Nett</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}">
+                        </label>
+                    </div>
+                </div>
+                <div class="variant-price-summary" data-role="price-summary">Isi harga retail, diskon, atau nett sesuai kebutuhan.</div>
+            </div>
+        </td>
+        <td class="variant-stock-cell">
+            <div class="variant-stock-card">
+                <div>
+                    <span class="variant-mini-label">Qty Awal</span>
+                    <input type="number" data-field="qty" min="0" step="1" placeholder="1" value="${qty}">
+                </div>
+                <div class="variant-stock-hint">Boleh 0 jika stok fisik belum masuk.</div>
+            </div>
+        </td>
+        <td class="variant-meta-cell">
+            <div class="variant-meta-stack">
+                <span class="variant-mini-label">Opsional</span>
+                <input type="text" data-field="variant_code" placeholder="Kode variasi" value="${variantCode}">
+            </div>
+        </td>
+        <td class="variant-meta-cell">
+            <div class="variant-meta-stack">
+                <span class="variant-mini-label">Barcode</span>
+                <input type="text" data-field="gtin" placeholder="GTIN / barcode" value="${gtin}">
+            </div>
+        </td>
+        <td class="variant-action-cell">
+            <button type="button" class="ghost-button variant-remove-button" onclick="removeVariantRow(this)">Hapus</button>
+        </td>
+    `;
+}
+
+function addVariantRow(initial = {}) {
+    if (!variantRowsBody) return;
+    const row = document.createElement("tr");
+    row.innerHTML = createVariantRowMarkup(initial);
+    variantRowsBody.appendChild(row);
+    bindVariantRow(row);
+}
+
+function formatCompactCurrency(value) {
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return "Rp0";
+    }
+    return "Rp" + new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(amount);
+}
+
+function updateVariantPriceSummary(row) {
+    const retail = Number(row.querySelector('[data-field="price_retail"]')?.value || 0);
+    const discount = Number(row.querySelector('[data-field="price_discount"]')?.value || 0);
+    const nett = Number(row.querySelector('[data-field="price_nett"]')?.value || 0);
+    const summary = row.querySelector('[data-role="price-summary"]');
+
+    if (!summary) return;
+
+    if (retail > 0 && discount > 0 && discount <= retail) {
+        const percentage = Math.round(((retail - discount) / retail) * 100);
+        summary.textContent = `Harga diskon ${formatCompactCurrency(discount)} (${percentage}% diskon)`;
+        return;
+    }
+
+    if (nett > 0) {
+        summary.textContent = `Harga nett ${formatCompactCurrency(nett)} siap disimpan.`;
+        return;
+    }
+
+    if (retail > 0) {
+        summary.textContent = `Retail ${formatCompactCurrency(retail)} siap dipakai.`;
+        return;
+    }
+
+    summary.textContent = "Isi harga retail, diskon, atau nett sesuai kebutuhan.";
+}
+
+function bindVariantRow(row) {
+    row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"]').forEach((input) => {
+        input.addEventListener("input", () => updateVariantPriceSummary(row));
+    });
+    updateVariantPriceSummary(row);
+}
+
+function removeVariantRow(button) {
+    const row = button.closest("tr");
+    if (!row || !variantRowsBody) return;
+    row.remove();
+
+    if (!variantRowsBody.children.length) {
+        addVariantRow();
+    }
+}
+
+function getVariantPayload() {
+    if (!variantRowsBody) return [];
+
+    return Array.from(variantRowsBody.querySelectorAll("tr")).map((row) => {
+        const getValue = (field) => row.querySelector(`[data-field="${field}"]`);
+
+        return {
+            variant: (getValue("variant")?.value || "").trim(),
+            price_retail: (getValue("price_retail")?.value || "").trim(),
+            price_discount: (getValue("price_discount")?.value || "").trim(),
+            price_nett: (getValue("price_nett")?.value || "").trim(),
+            qty: (getValue("qty")?.value || "").trim(),
+            variant_code: (getValue("variant_code")?.value || "").trim(),
+            gtin: (getValue("gtin")?.value || "").trim()
+        };
+    }).filter((row) => {
+        return Object.values(row).some((value) => String(value || "").trim() !== "");
+    });
+}
+
+function handleSubmit() {
+    const payload = getVariantPayload();
+    if (!payload.length) {
+        alert("Isi minimal satu baris variasi terlebih dahulu.");
+        return false;
+    }
+
+    if (payload.length > 1 && payload.some((row) => !row.variant)) {
+        alert("Isi size atau variasi pada setiap baris yang dipakai.");
+        return false;
+    }
+
+    const hasNegativeQty = payload.some((row) => row.qty !== "" && Number(row.qty) < 0);
+    if (hasNegativeQty) {
+        alert("Qty tidak boleh minus.");
+        return false;
+    }
+
+    const hasNegativePrice = payload.some((row) => {
+        return ["price_retail", "price_discount", "price_nett"].some((field) => {
+            return row[field] !== "" && Number(row[field]) < 0;
+        });
+    });
+    if (hasNegativePrice) {
+        alert("Harga tidak boleh minus.");
+        return false;
+    }
+
+    if (variantRowsJson) {
+        variantRowsJson.value = JSON.stringify(payload);
+    }
+
+    const btn = document.getElementById("btnSubmit");
+    btn.innerText = "Menyimpan...";
+    btn.disabled = true;
+    return true;
+}
+
+function bulkDelete() {
+    const ids = Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => cb.value);
+    if (ids.length === 0) {
+        alert("Pilih produk yang ingin dihapus terlebih dahulu.");
+        return;
+    }
+
+    if (!confirm("Yakin ingin menghapus produk yang dipilih?")) return;
+
+    fetch("/products/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
+    })
+    .then((res) => res.json())
+    .then((data) => {
+        if (data.message === "OK") {
+            location.reload();
+            return;
+        }
+        alert(data.message || "Gagal menghapus produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function buildPreviewTable(rows) {
+    if (!rows.length) {
+        return "<div class='empty-state' style='margin-top:16px;'>Tidak ada data yang bisa dipreview.</div>";
+    }
+
+    const headers = Object.keys(rows[0]);
+    const head = headers.map((header) => "<th>" + header + "</th>").join("");
+    const body = rows.map((row) => {
+        return "<tr>" + headers.map((header) => "<td>" + (row[header] ?? "") + "</td>").join("") + "</tr>";
+    }).join("");
+
+    return "<div class='table-box' style='margin-top:16px; margin-bottom:0;'><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+}
+
+async function previewImport() {
+    const fileInput = document.getElementById("fileInput");
+    const previewBox = document.getElementById("previewBox");
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert("Pilih file import terlebih dahulu.");
+        return;
+    }
+
+    previewBox.innerHTML = "<div class='status-pill'>Membaca file...</div>";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/products/import/preview", {
+            method: "POST",
+            body: formData
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+            previewBox.innerHTML = "<div class='flash error'>" + (data.error || "Gagal membuat preview.") + "</div>";
+            return;
+        }
+
+        previewBox.innerHTML = buildPreviewTable(data.rows || []);
+    } catch (error) {
+        previewBox.innerHTML = "<div class='flash error'>Terjadi error saat membaca file.</div>";
+    }
+}
+
+async function pollImport(jobId) {
+    const wrapper = document.getElementById("progressWrapper");
+    const bar = document.getElementById("progressBar");
+    const text = document.getElementById("progressText");
+    wrapper.style.display = "block";
+
+    const timer = setInterval(async () => {
+        try {
+            const res = await fetch("/products/import/progress/" + jobId);
+            const data = await res.json();
+
+            if (!res.ok || data.error) {
+                clearInterval(timer);
+                text.innerText = "Import gagal dipantau.";
+                return;
+            }
+
+            bar.style.width = (data.percent || 0) + "%";
+            text.innerText = "Memproses " + data.current + " dari " + data.total + " baris";
+
+            if (data.status === "done") {
+                clearInterval(timer);
+                text.innerText = "Import selesai. Halaman akan dimuat ulang.";
+                setTimeout(() => location.reload(), 1200);
+            }
+        } catch (error) {
+            clearInterval(timer);
+            text.innerText = "Monitoring import terputus.";
+        }
+    }, 800);
+}
+
+async function submitImport() {
+    const fileInput = document.getElementById("fileInput");
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert("Pilih file import terlebih dahulu.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/products/import", {
+            method: "POST",
+            body: formData
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            alert(text || "Import gagal dijalankan.");
+            return;
+        }
+
+        const data = await res.json();
+        if (!data.job_id) {
+            alert("Job import tidak berhasil dibuat.");
+            return;
+        }
+
+        pollImport(data.job_id);
+    } catch (error) {
+        alert("Terjadi error saat mengirim file import.");
+    }
+}
+
+if (variantRowsBody && !variantRowsBody.children.length) {
+    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
+}
+</script>
+
+</body>
+</html>

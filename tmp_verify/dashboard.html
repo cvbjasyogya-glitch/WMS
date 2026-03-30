@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#07111f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Dashboard | Mataram Sports WMS</title>
+<link rel="manifest" href="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/manifest.webmanifest">
+<link rel="stylesheet" href="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/css/dashboard.css">
+
+</head>
+<body>
+
+<div class="mobile-nav">
+    <div class="mobile-nav-leading">
+        <button type="button" id="mobileMenuButton" class="ghost-button mobile-menu-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
+        <div class="mobile-brand">
+            <div class="mobile-brand-mark">
+                <img src="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+            </div>
+            <div>
+                <strong>Mataram Sports</strong>
+                <span>Dashboard Operasional</span>
+            </div>
+        </div>
+    </div>
+    <div class="mobile-nav-actions">
+        <span class="mobile-chip mobile-user-chip" title="admin">@admin</span>
+        <span class="mobile-chip">admin</span>
+        <span class="mobile-chip">WH 1</span>
+    </div>
+</div>
+
+<div class="mobile-sidebar-backdrop" id="menuBackdrop" onclick="closeMenu()"></div>
+
+<div class="layout">
+
+<aside class="sidebar" id="menu">
+    <div class="brand-block">
+        <div class="brand-lockup">
+            <div class="brand-mark">
+                <img src="file:///c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+            </div>
+            <div class="brand-meta">
+                <p class="brand-kicker">Operations Suite</p>
+                <h2 class="brand-title">Mataram Sports</h2>
+                <span class="suite-chip">WMS Core</span>
+            </div>
+        </div>
+        <p class="brand-copy">Warehouse management core yang siap berkembang ke finance flow dan modul HRIS di fase berikutnya.</p>
+    </div>
+
+    <nav>
+        <a href="/" class="active">Dashboard</a>
+        <a href="/products" class="">Produk</a>
+        <a href="/stock" class="">Stok Gudang</a>
+        <a href="/inbound" class="">Inbound</a>
+        <a href="/outbound" class="">Outbound</a>
+        <a href="/transfers" class="">Transfer</a>
+        <a href="/request" class="">Request</a>
+        
+        
+        <a href="/audit" class="">Audit</a>
+        
+        <a href="/so" class="">Stock Opname</a>
+        
+        <a href="/admin" class="">Admin</a>
+        
+    </nav>
+
+    <div class="sidebar-footer">
+        <p>Gunakan panel ini untuk menjaga akurasi stok, kelancaran transfer, dan visibilitas aktivitas gudang harian.</p>
+        <div class="status-row">
+            <span class="status-pill" title="admin">User: admin</span>
+            <span class="status-pill">Role: admin</span>
+            <span class="status-pill">Warehouse: 1</span>
+            <span class="status-pill">HRIS Ready</span>
+        </div>
+        <form method="GET" action="about:blank" style="margin-top:14px;">
+            <button type="submit" class="ghost-button" style="width:100%;">Keluar</button>
+        </form>
+    </div>
+</aside>
+
+<main class="main">
+    <section class="page-hero">
+        <div class="page-hero-text">
+            <p class="page-eyebrow">Live Warehouse Overview</p>
+            <h1>Dashboard Operasional</h1>
+            <p class="page-subtitle">Pantau stok aktif, nilai inventory, potensi aging, dan request antar gudang dari satu ruang kerja yang selalu hidup.</p>
+        </div>
+        <div class="page-actions">
+            
+<select id="warehouseSelect" class="pill-select" disabled>
+    
+    <option value="1" selected>Gudang Mataram</option>
+    
+    <option value="2" >Gudang Mega</option>
+    
+</select>
+
+        </div>
+    </section>
+
+    
+    
+    
+
+    
+<div class="cards dashboard-cards">
+    <div class="card">
+        <p>Total Produk</p>
+        <h2 id="p1">1</h2>
+    </div>
+    <div class="card success">
+        <p>Total Stok</p>
+        <h2 id="p2">90</h2>
+    </div>
+    <div class="card warning">
+        <p>Nilai Inventory</p>
+        <h2 id="p3">Rp 0</h2>
+    </div>
+    <div class="card danger">
+        <p>Stok Habis</p>
+        <h2 id="p4">0</h2>
+    </div>
+    <div class="card">
+        <p>Expiring Soon</p>
+        <h2 id="p5">0</h2>
+    </div>
+    <div class="card">
+        <p>Request Pending</p>
+        <h2 id="p6">2</h2>
+    </div>
+</div>
+
+<div class="summary dashboard-aging-grid">
+    <div class="card-mini">
+        <p>Aging 0-30 Hari</p>
+        <h3>1</h3>
+    </div>
+    <div class="card-mini">
+        <p>Aging 31-90 Hari</p>
+        <h3>0</h3>
+    </div>
+    <div class="card-mini">
+        <p>Aging 91-180 Hari</p>
+        <h3>0</h3>
+    </div>
+    <div class="card-mini">
+        <p>Aging 180+ Hari</p>
+        <h3>0</h3>
+    </div>
+</div>
+
+
+<small class="helper-text" style="margin-bottom:16px;">Gudang dashboard dikunci mengikuti gudang akun Anda.</small>
+
+
+<div class="alerts dashboard-alerts">
+    
+
+    
+
+    
+    <div class="alert info">2 request transfer masih menunggu tindakan dari tim gudang.</div>
+    
+</div>
+
+<div class="table-box dashboard-activity-box">
+    <div class="section-title">
+        <div>
+            <h2>Aktivitas Terbaru</h2>
+            <p>Log pergerakan barang terbaru untuk gudang yang sedang aktif.</p>
+        </div>
+        <span class="badge approved">Realtime</span>
+    </div>
+
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Waktu</th>
+                <th>Aktivitas</th>
+                <th>Produk</th>
+                <th>Variant</th>
+                <th>Qty</th>
+            </tr>
+        </thead>
+        <tbody id="logBody">
+            
+            <tr>
+                <td>2026-03-29 06:26:02</td>
+                <td><span class="badge">ADJUST_IN</span></td>
+                <td>DIPA KUNING</td>
+                <td>0</td>
+                <td class="mono">1</td>
+            </tr>
+            
+            <tr>
+                <td>2026-03-29 06:26:02</td>
+                <td><span class="badge">ADJUST_OUT</span></td>
+                <td>DIPA KUNING</td>
+                <td>0</td>
+                <td class="mono">1</td>
+            </tr>
+            
+            <tr>
+                <td>2026-03-28 18:20:56</td>
+                <td><span class="badge">TRANSFER_OUT</span></td>
+                <td>DIPA KUNING</td>
+                <td>0</td>
+                <td class="mono">10</td>
+            </tr>
+            
+            <tr>
+                <td>2026-03-26 09:16:14</td>
+                <td><span class="badge">IN</span></td>
+                <td>DIPA KUNING</td>
+                <td>0</td>
+                <td class="mono">100</td>
+            </tr>
+            
+        </tbody>
+    </table>
+    
+</div>
+
+</main>
+
+</div>
+
+<nav class="mobile-dock">
+    <a href="/" class="active">Home</a>
+    <a href="/stock" class="">Stok</a>
+    <a href="/request" class="">Request</a>
+    <a href="/so" class="">Opname</a>
+    <button type="button" class="" onclick="toggleMenu()">Menu</button>
+</nav>
+
+<script>
+function toggleMenu() {
+    if (window.innerWidth > 1080) return;
+    const menu = document.getElementById("menu");
+    const button = document.getElementById("mobileMenuButton");
+    if (!menu || !button) return;
+
+    const nextState = !document.body.classList.contains("menu-open");
+    document.body.classList.toggle("menu-open", nextState);
+    button.setAttribute("aria-expanded", nextState ? "true" : "false");
+}
+
+function closeMenu() {
+    const button = document.getElementById("mobileMenuButton");
+    document.body.classList.remove("menu-open");
+    if (button) {
+        button.setAttribute("aria-expanded", "false");
+    }
+}
+
+function showToast(text) {
+    const div = document.createElement("div");
+    div.className = "floating-toast";
+    div.textContent = text;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+document.querySelectorAll(".flash").forEach((flash) => {
+    setTimeout(() => {
+        flash.style.opacity = "0";
+        flash.style.transform = "translateY(-4px)";
+        setTimeout(() => flash.remove(), 250);
+    }, 5000);
+});
+
+document.querySelectorAll("#menu nav a, #menu form button").forEach((node) => {
+    node.addEventListener("click", () => {
+        if (window.innerWidth <= 1080) {
+            closeMenu();
+        }
+    });
+});
+
+window.addEventListener("resize", () => {
+    if (window.innerWidth > 1080) {
+        closeMenu();
+    }
+});
+</script>
+
+
+<script>
+function formatCurrency(value) {
+    return "Rp " + new Intl.NumberFormat("id-ID").format(Math.round(value || 0));
+}
+
+async function loadRealtime() {
+    try {
+        const res = await fetch("/api/realtime");
+        const data = await res.json();
+
+        document.getElementById("p1").innerText = data.total_product || 0;
+        document.getElementById("p2").innerText = data.total_stock || 0;
+        document.getElementById("p3").innerText = formatCurrency(data.inventory_value || 0);
+        document.getElementById("p4").innerText = data.stock_out || 0;
+        document.getElementById("p5").innerText = data.expiring_alert || 0;
+        document.getElementById("p6").innerText = data.pending_requests || 0;
+    } catch (error) {
+        console.log("REALTIME ERROR", error);
+    }
+}
+
+document.getElementById("warehouseSelect")?.addEventListener("change", function() {
+    fetch("/set_warehouse", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "warehouse_id=" + encodeURIComponent(this.value)
+    }).then(() => location.reload());
+});
+
+setInterval(loadRealtime, 7000);
+loadRealtime();
+</script>
+
+</body>
+</html>

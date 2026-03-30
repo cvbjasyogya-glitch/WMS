@@ -17,7 +17,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="summary">
+<div class="summary stock-summary-grid">
     <div class="card-mini">
         <p>Total Variant</p>
         <h3>{{ summary.total_variants }}</h3>
@@ -40,7 +40,7 @@
     </div>
 </div>
 
-<div class="meta-grid">
+<div class="meta-grid stock-meta-grid">
     <div class="meta-card">
         <span>Gudang Aktif</span>
         <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
@@ -59,7 +59,7 @@
     </div>
 </div>
 
-<form method="GET" class="top-bar">
+<form method="GET" class="top-bar stock-filter-bar">
     <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau variant">
     <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
         {% for w in warehouses %}
@@ -92,7 +92,7 @@
 <small class="helper-text">Filter gudang dikunci ke gudang yang terhubung dengan akun Anda.</small>
 {% endif %}
 
-<div class="table-box">
+<div class="table-box stock-detail-box">
     <div class="section-title">
         <div>
             <h2>Inventori Detail</h2>
@@ -104,6 +104,7 @@
             <span class="status-pill">Kosong: {{ summary.zero_count }}</span>
         </div>
     </div>
+    <small class="helper-text stock-mobile-hint">Di layar kecil, geser tabel ke samping untuk melihat kolom produk, variant, harga, dan aksi lengkap.</small>
 
     {% if data %}
     <table class="stock-table">

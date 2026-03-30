@@ -10,7 +10,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="meta-grid">
+<div class="meta-grid products-meta-grid">
     <div class="meta-card">
         <span>Gudang Aktif</span>
         <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
@@ -29,7 +29,7 @@
     </div>
 </div>
 
-<form method="GET" class="top-bar">
+<form method="GET" class="top-bar products-filter-bar">
     <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -55,7 +55,7 @@
         </div>
     </div>
 
-    <div class="top-bar">
+    <div class="top-bar products-import-bar">
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
         <button type="button" class="ghost-button" onclick="previewImport()">Preview File</button>
         <button type="button" onclick="submitImport()">Mulai Import</button>
@@ -63,6 +63,7 @@
 
     <small class="helper-text">
         Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
+        Kolom opsional: <span class="mono">variant_code, gtin</span>.
         Untuk file Excel, angka seperti <span class="mono">1.0</span> akan dibaca otomatis sebagai qty/gudang yang valid.
     </small>
 
@@ -76,15 +77,17 @@
     </div>
 </div>
 
-<div id="formBox" class="form-box" style="display:none;">
+<div id="formBox" class="form-box products-manual-box" style="display:none;">
     <div class="section-title">
         <div>
-            <h2>Tambah Produk Baru</h2>
-            <p>Masukkan data master dan stok awal agar produk langsung siap dipakai di workflow gudang.</p>
+            <h2>Import Manual Produk</h2>
+            <p>Masukkan data master, lalu isi variasi satu per satu agar stok awal, harga, dan identitas barcode bisa diatur per size.</p>
         </div>
     </div>
 
     <form method="POST" action="/products/add" onsubmit="return handleSubmit()">
+        <input type="hidden" name="variant_rows_json" id="variantRowsJson">
+
         <div class="form-grid">
             <div>
                 <label>SKU</label>
@@ -99,14 +102,6 @@
                 <input type="text" name="category_name" placeholder="Sepatu, Jersey, Aksesoris" required>
             </div>
             <div>
-                <label>Variant</label>
-                <input type="text" name="variants" placeholder="40, 41, 42 atau kosongkan untuk default">
-            </div>
-            <div>
-                <label>Qty Awal</label>
-                <input type="number" name="qty" id="qtyInput" required min="1">
-            </div>
-            <div>
                 <label>Gudang Awal</label>
                 <select name="warehouse_id" {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
@@ -118,19 +113,36 @@
                 <small class="helper-text">Gudang awal dikunci mengikuti gudang akun Anda.</small>
                 {% endif %}
             </div>
-            <div>
-                <label>Harga Retail</label>
-                <input type="number" step="0.01" name="price_retail" min="0">
-            </div>
-            <div>
-                <label>Harga Discount</label>
-                <input type="number" step="0.01" name="price_discount" min="0">
-            </div>
-            <div>
-                <label>Harga Nett</label>
-                <input type="number" step="0.01" name="price_nett" min="0">
-            </div>
         </div>
+
+        <div class="section-title" style="margin-top:18px;">
+            <div>
+                <h3>Variasi Manual</h3>
+                <p>Setiap baris mewakili satu size atau variasi produk. Stok 0 tetap boleh dipakai, dan GTIN cukup diisi kalau memang tersedia.</p>
+            </div>
+            <button type="button" class="ghost-button" onclick="addVariantRow()">Tambah Baris</button>
+        </div>
+
+        <div class="table-box variant-builder">
+            <table class="variant-builder-table">
+                <thead>
+                    <tr>
+                        <th>Size / Variasi</th>
+                        <th>* Harga</th>
+                        <th>* Stok</th>
+                        <th>Kode Variasi</th>
+                        <th>GTIN Opsional</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="variantRowsBody"></tbody>
+            </table>
+        </div>
+
+        <small class="helper-text">
+            Jika hanya ada satu produk tanpa variasi, cukup isi satu baris dan biarkan kolom size kosong.
+            Kode variasi dan GTIN tidak wajib, jadi bisa dibiarkan kosong bila belum dipakai.
+        </small>
 
         <div class="split-actions" style="margin-top:16px;">
             <button id="btnSubmit" type="submit">Simpan Produk</button>
@@ -139,7 +151,7 @@
     </form>
 </div>
 
-<div class="table-box">
+<div class="table-box products-list-box">
     <div class="section-title">
         <div>
             <h2>Daftar Produk</h2>
@@ -211,7 +223,17 @@
 
 {% block extra_scripts %}
 <script>
+const DEFAULT_VARIANT_ROWS = [
+    { variant: "39", qty: "1" },
+    { variant: "40", qty: "1" },
+    { variant: "41", qty: "0" },
+    { variant: "42", qty: "0" }
+];
+
 const checkAll = document.getElementById("checkAll");
+const variantRowsBody = document.getElementById("variantRowsBody");
+const variantRowsJson = document.getElementById("variantRowsJson");
+
 if (checkAll) {
     checkAll.addEventListener("change", function() {
         document.querySelectorAll(".row-check").forEach((cb) => {
@@ -223,14 +245,194 @@ if (checkAll) {
 function toggleForm() {
     const formBox = document.getElementById("formBox");
     if (!formBox) return;
-    formBox.style.display = formBox.style.display === "none" || formBox.style.display === "" ? "block" : "none";
+    const nextState = formBox.style.display === "none" || formBox.style.display === "";
+    formBox.style.display = nextState ? "block" : "none";
+    if (nextState) {
+        formBox.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+}
+
+function createVariantRowMarkup(initial = {}) {
+    const variant = initial.variant || "";
+    const priceRetail = initial.price_retail || "";
+    const priceDiscount = initial.price_discount || "";
+    const priceNett = initial.price_nett || "";
+    const qty = initial.qty ?? "";
+    const variantCode = initial.variant_code || "";
+    const gtin = initial.gtin || "";
+
+    return `
+        <td class="variant-size-cell">
+            <div class="variant-size-shell">
+                <div class="variant-size-label">SIZE</div>
+                <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+            </div>
+        </td>
+        <td class="variant-price-cell">
+            <div class="variant-price-card">
+                <div class="variant-field-stack">
+                    <div>
+                        <span class="variant-mini-label">Retail</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}">
+                        </label>
+                    </div>
+                    <div>
+                        <span class="variant-mini-label">Diskon</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}">
+                        </label>
+                    </div>
+                    <div>
+                        <span class="variant-mini-label">Nett</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}">
+                        </label>
+                    </div>
+                </div>
+                <div class="variant-price-summary" data-role="price-summary">Isi harga retail, diskon, atau nett sesuai kebutuhan.</div>
+            </div>
+        </td>
+        <td class="variant-stock-cell">
+            <div class="variant-stock-card">
+                <div>
+                    <span class="variant-mini-label">Qty Awal</span>
+                    <input type="number" data-field="qty" min="0" step="1" placeholder="1" value="${qty}">
+                </div>
+                <div class="variant-stock-hint">Boleh 0 jika stok fisik belum masuk.</div>
+            </div>
+        </td>
+        <td class="variant-meta-cell">
+            <div class="variant-meta-stack">
+                <span class="variant-mini-label">Opsional</span>
+                <input type="text" data-field="variant_code" placeholder="Kode variasi" value="${variantCode}">
+            </div>
+        </td>
+        <td class="variant-meta-cell">
+            <div class="variant-meta-stack">
+                <span class="variant-mini-label">Barcode</span>
+                <input type="text" data-field="gtin" placeholder="GTIN / barcode" value="${gtin}">
+            </div>
+        </td>
+        <td class="variant-action-cell">
+            <button type="button" class="ghost-button variant-remove-button" onclick="removeVariantRow(this)">Hapus</button>
+        </td>
+    `;
+}
+
+function addVariantRow(initial = {}) {
+    if (!variantRowsBody) return;
+    const row = document.createElement("tr");
+    row.innerHTML = createVariantRowMarkup(initial);
+    variantRowsBody.appendChild(row);
+    bindVariantRow(row);
+}
+
+function formatCompactCurrency(value) {
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return "Rp0";
+    }
+    return "Rp" + new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(amount);
+}
+
+function updateVariantPriceSummary(row) {
+    const retail = Number(row.querySelector('[data-field="price_retail"]')?.value || 0);
+    const discount = Number(row.querySelector('[data-field="price_discount"]')?.value || 0);
+    const nett = Number(row.querySelector('[data-field="price_nett"]')?.value || 0);
+    const summary = row.querySelector('[data-role="price-summary"]');
+
+    if (!summary) return;
+
+    if (retail > 0 && discount > 0 && discount <= retail) {
+        const percentage = Math.round(((retail - discount) / retail) * 100);
+        summary.textContent = `Harga diskon ${formatCompactCurrency(discount)} (${percentage}% diskon)`;
+        return;
+    }
+
+    if (nett > 0) {
+        summary.textContent = `Harga nett ${formatCompactCurrency(nett)} siap disimpan.`;
+        return;
+    }
+
+    if (retail > 0) {
+        summary.textContent = `Retail ${formatCompactCurrency(retail)} siap dipakai.`;
+        return;
+    }
+
+    summary.textContent = "Isi harga retail, diskon, atau nett sesuai kebutuhan.";
+}
+
+function bindVariantRow(row) {
+    row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"]').forEach((input) => {
+        input.addEventListener("input", () => updateVariantPriceSummary(row));
+    });
+    updateVariantPriceSummary(row);
+}
+
+function removeVariantRow(button) {
+    const row = button.closest("tr");
+    if (!row || !variantRowsBody) return;
+    row.remove();
+
+    if (!variantRowsBody.children.length) {
+        addVariantRow();
+    }
+}
+
+function getVariantPayload() {
+    if (!variantRowsBody) return [];
+
+    return Array.from(variantRowsBody.querySelectorAll("tr")).map((row) => {
+        const getValue = (field) => row.querySelector(`[data-field="${field}"]`);
+
+        return {
+            variant: (getValue("variant")?.value || "").trim(),
+            price_retail: (getValue("price_retail")?.value || "").trim(),
+            price_discount: (getValue("price_discount")?.value || "").trim(),
+            price_nett: (getValue("price_nett")?.value || "").trim(),
+            qty: (getValue("qty")?.value || "").trim(),
+            variant_code: (getValue("variant_code")?.value || "").trim(),
+            gtin: (getValue("gtin")?.value || "").trim()
+        };
+    }).filter((row) => {
+        return Object.values(row).some((value) => String(value || "").trim() !== "");
+    });
 }
 
 function handleSubmit() {
-    const qty = document.getElementById("qtyInput").value;
-    if (!qty || parseInt(qty, 10) <= 0) {
-        alert("Qty harus lebih besar dari 0.");
+    const payload = getVariantPayload();
+    if (!payload.length) {
+        alert("Isi minimal satu baris variasi terlebih dahulu.");
         return false;
+    }
+
+    if (payload.length > 1 && payload.some((row) => !row.variant)) {
+        alert("Isi size atau variasi pada setiap baris yang dipakai.");
+        return false;
+    }
+
+    const hasNegativeQty = payload.some((row) => row.qty !== "" && Number(row.qty) < 0);
+    if (hasNegativeQty) {
+        alert("Qty tidak boleh minus.");
+        return false;
+    }
+
+    const hasNegativePrice = payload.some((row) => {
+        return ["price_retail", "price_discount", "price_nett"].some((field) => {
+            return row[field] !== "" && Number(row[field]) < 0;
+        });
+    });
+    if (hasNegativePrice) {
+        alert("Harga tidak boleh minus.");
+        return false;
+    }
+
+    if (variantRowsJson) {
+        variantRowsJson.value = JSON.stringify(payload);
     }
 
     const btn = document.getElementById("btnSubmit");
@@ -377,6 +579,10 @@ async function submitImport() {
     } catch (error) {
         alert("Terjadi error saat mengirim file import.");
     }
+}
+
+if (variantRowsBody && !variantRowsBody.children.length) {
+    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
 }
 </script>
 {% endblock %}

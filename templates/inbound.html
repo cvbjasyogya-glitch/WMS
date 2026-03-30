@@ -3,34 +3,23 @@
 {% block title %}Inbound | Mataram Sports WMS{% endblock %}
 {% block eyebrow %}Inbound Flow{% endblock %}
 {% block page_title %}Barang Masuk{% endblock %}
-{% block page_subtitle %}Catat restock, pembelian masuk, dan penambahan batch baru lengkap dengan tanggal masuk, biaya, serta expiry ketika dibutuhkan.{% endblock %}
+{% block page_subtitle %}Isi satu item di panel atas, klik tambah ke daftar kerja, lalu proses semua inbound sekaligus tanpa dropdown panjang atau form yang berantakan.{% endblock %}
 
 {% block content %}
-<div class="form-box">
+<div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
-            <h2>Form Inbound</h2>
-            <p>Pilih produk dan gudang tujuan, lalu catat batch masuk agar stok langsung tersinkron dengan histori pergerakan.</p>
+            <h2>Inbound Batch Composer</h2>
+            <p>Pilih item dari ikon barang, isi detail inbound, lalu klik <strong>Tambah</strong> agar item masuk ke daftar kerja di bawah.</p>
         </div>
     </div>
 
-    <form method="POST" onsubmit="return handleSubmit()">
-        <div class="form-grid">
+    <form method="POST" onsubmit="return handleInboundSubmit()">
+        <input type="hidden" name="items_json" id="inboundItemsJson">
+
+        <div class="form-grid ops-config-grid">
             <div>
-                <label>Produk</label>
-                <select id="product" name="product_id" required>
-                    <option value="">Pilih produk</option>
-                    {% for p in products %}
-                    <option value="{{ p.id }}">{{ p.sku }} - {{ p.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label>Variant</label>
-                <select id="variant" name="variant_id" required></select>
-            </div>
-            <div>
-                <label>Gudang</label>
+                <label>Gudang Tujuan</label>
                 <select id="warehouse" name="warehouse_id" required {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -41,108 +30,373 @@
                 <small class="helper-text">Gudang inbound dikunci mengikuti gudang akun Anda.</small>
                 {% endif %}
             </div>
-            <div>
-                <label>Stok Saat Ini</label>
-                <input id="stock" readonly>
-                <small id="stockStatus" class="stock-ok"></small>
+            <div class="ops-config-card">
+                <span class="variant-mini-label">Workflow</span>
+                <strong>{% if can("direct_stock_ops") %}Direct Inbound{% else %}Approval Inbound{% endif %}</strong>
+                <small class="helper-text">
+                    {% if can("direct_stock_ops") %}
+                    Semua item pada daftar kerja akan langsung menambah stok saat disimpan.
+                    {% else %}
+                    Semua item pada daftar kerja akan dikirim sebagai approval ke leader.
+                    {% endif %}
+                </small>
             </div>
-            <div>
-                <label>Qty Masuk</label>
-                <input type="number" id="qty" name="qty" min="1" required>
+        </div>
+
+        <div class="ops-entry-box">
+            <div class="section-title">
+                <div>
+                    <h3>Tambah Item Inbound</h3>
+                    <p>Workflow-nya seperti daftar pilihan: isi satu item, lalu klik tambah agar masuk ke batch inbound.</p>
+                </div>
             </div>
-            <div>
-                <label>Biaya Modal</label>
-                <input type="number" step="0.01" name="cost" min="0">
+
+            <div class="ops-entry-grid inbound-entry-grid">
+                <div class="ops-entry-item">
+                    <label>Barang</label>
+                    <div class="ops-item-selector">
+                        <input type="text" id="inboundDraftDisplay" class="ops-item-display" placeholder="Klik ikon untuk pilih barang" readonly>
+                        <button type="button" class="ghost-button ops-picker-button" onclick="openInboundPicker()" aria-label="Buka daftar barang">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M4 5h16v2H4zm0 6h10v2H4zm0 6h16v2H4zm13.5-6.5 1.4 1.4-3.1 3.1-1.8.4.4-1.8z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <small id="inboundDraftMeta" class="helper-text ops-item-meta">Belum ada barang yang dipilih.</small>
+                </div>
+
+                <div class="ops-entry-stock">
+                    <label>Stok Saat Ini</label>
+                    <div class="ops-stock-card">
+                        <strong id="inboundDraftStockValue" class="ops-stock-value">0</strong>
+                        <small id="inboundDraftStockState" class="ops-stock-state stock-empty">Belum ada stok di gudang ini.</small>
+                    </div>
+                </div>
+
+                <div>
+                    <label>Qty Masuk</label>
+                    <input type="number" id="inboundDraftQty" min="1" step="1" placeholder="0">
+                </div>
+
+                <div>
+                    <label>Biaya Modal</label>
+                    <div class="money-input">
+                        <span>Rp</span>
+                        <input type="number" id="inboundDraftCost" min="0" step="0.01" placeholder="0">
+                    </div>
+                </div>
+
+                <div>
+                    <label>Expiry</label>
+                    <input type="date" id="inboundDraftExpiry">
+                </div>
+
+                <div>
+                    <label>Tanggal Masuk</label>
+                    <input type="date" id="inboundDraftDate">
+                </div>
+
+                <div>
+                    <label>Catatan</label>
+                    <input type="text" id="inboundDraftNote" placeholder="Contoh: restock supplier utama">
+                </div>
+
+                <div class="ops-entry-actions">
+                    <button type="button" id="inboundAddButton" onclick="addInboundItem()">Tambah</button>
+                </div>
             </div>
-            <div>
-                <label>Expiry Date</label>
-                <input type="date" name="expiry">
-            </div>
-            <div>
-                <label>Tanggal Masuk</label>
-                <input type="date" name="custom_date">
-            </div>
-            <div>
-                <label>Catatan</label>
-                <input type="text" name="note" placeholder="Contoh: restock supplier utama">
-            </div>
+        </div>
+
+        <small class="helper-text ops-mobile-hint">Daftar di bawah adalah batch inbound yang akan diproses bersama saat tombol simpan ditekan.</small>
+
+        <div class="table-box ops-queue-box">
+            <table class="ops-queue-table inbound-queue-table">
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>Barang</th>
+                        <th>Stok Saat Ini</th>
+                        <th>Qty Masuk</th>
+                        <th>Biaya Modal</th>
+                        <th>Expiry</th>
+                        <th>Tanggal Masuk</th>
+                        <th>Catatan</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="inboundQueueBody"></tbody>
+            </table>
         </div>
 
         <div class="split-actions" style="margin-top:16px;">
-            <button id="btn" type="submit" disabled>Tambah Stock</button>
+            <button id="inboundSubmitButton" type="submit">Simpan Inbound</button>
         </div>
     </form>
 </div>
+
+{% include "partials/item_picker_modal.html" %}
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="/static/js/item_picker.js"></script>
 <script>
-const inboundProduct = document.getElementById("product");
-const inboundVariant = document.getElementById("variant");
 const inboundWarehouse = document.getElementById("warehouse");
-const inboundStock = document.getElementById("stock");
-const inboundStockStatus = document.getElementById("stockStatus");
-const inboundQty = document.getElementById("qty");
-const inboundButton = document.getElementById("btn");
+const inboundItemsJson = document.getElementById("inboundItemsJson");
+const inboundSubmitButton = document.getElementById("inboundSubmitButton");
+const inboundQueueBody = document.getElementById("inboundQueueBody");
+const inboundDraftDisplay = document.getElementById("inboundDraftDisplay");
+const inboundDraftMeta = document.getElementById("inboundDraftMeta");
+const inboundDraftStockValue = document.getElementById("inboundDraftStockValue");
+const inboundDraftStockState = document.getElementById("inboundDraftStockState");
+const inboundDraftQty = document.getElementById("inboundDraftQty");
+const inboundDraftCost = document.getElementById("inboundDraftCost");
+const inboundDraftExpiry = document.getElementById("inboundDraftExpiry");
+const inboundDraftDate = document.getElementById("inboundDraftDate");
+const inboundDraftNote = document.getElementById("inboundDraftNote");
 
-function renderInboundStatus(qty) {
-    if (qty === 0) {
-        inboundStockStatus.innerText = "Stok masih kosong di gudang ini.";
-        inboundStockStatus.className = "stock-empty";
-    } else if (qty < 5) {
-        inboundStockStatus.innerText = "Stok menipis, inbound ini akan sangat membantu.";
-        inboundStockStatus.className = "stock-low";
+const inboundDraft = {
+    product_id: 0,
+    variant_id: 0,
+    sku: "",
+    name: "",
+    variant_label: "",
+    category: "",
+    gtin: "",
+    stock: 0,
+};
+
+const inboundItems = [];
+
+function getLocalToday() {
+    const now = new Date();
+    return new Date(now.getTime() - (now.getTimezoneOffset() * 60000))
+        .toISOString()
+        .slice(0, 10);
+}
+
+function formatCurrency(value) {
+    return new Intl.NumberFormat("id-ID").format(Number(value || 0));
+}
+
+function renderInboundDraftStock(qty) {
+    const safeQty = Number(qty || 0);
+    inboundDraft.stock = safeQty;
+    inboundDraftStockValue.textContent = safeQty;
+
+    if (safeQty <= 0) {
+        inboundDraftStockState.textContent = "Belum ada stok di gudang ini.";
+        inboundDraftStockState.className = "ops-stock-state stock-empty";
+    } else if (safeQty < 5) {
+        inboundDraftStockState.textContent = "Stok tipis, inbound ini akan menambah buffer.";
+        inboundDraftStockState.className = "ops-stock-state stock-low";
     } else {
-        inboundStockStatus.innerText = "Stok existing masih aman.";
-        inboundStockStatus.className = "stock-ok";
+        inboundDraftStockState.textContent = "Stok existing masih aman.";
+        inboundDraftStockState.className = "ops-stock-state stock-ok";
     }
 }
 
-function validateInbound() {
-    const qty = parseInt(inboundQty.value || 0, 10);
-    inboundButton.disabled = !inboundProduct.value || !inboundVariant.value || qty <= 0;
-    return !inboundButton.disabled;
+function resetInboundDraft() {
+    inboundDraft.product_id = 0;
+    inboundDraft.variant_id = 0;
+    inboundDraft.sku = "";
+    inboundDraft.name = "";
+    inboundDraft.variant_label = "";
+    inboundDraft.category = "";
+    inboundDraft.gtin = "";
+    inboundDraft.stock = 0;
+
+    inboundDraftDisplay.value = "";
+    inboundDraftMeta.textContent = "Belum ada barang yang dipilih.";
+    inboundDraftQty.value = "";
+    inboundDraftCost.value = "";
+    inboundDraftExpiry.value = "";
+    inboundDraftNote.value = "";
+    inboundDraftDate.value = inboundDraftDate.value || getLocalToday();
+    renderInboundDraftStock(0);
 }
 
-function loadInboundVariants() {
-    if (!inboundProduct.value) return;
+function populateInboundDraft(item) {
+    inboundDraft.product_id = Number(item.product_id || 0);
+    inboundDraft.variant_id = Number(item.variant_id || 0);
+    inboundDraft.sku = item.sku || "";
+    inboundDraft.name = item.name || "";
+    inboundDraft.variant_label = item.variant_label || "Default";
+    inboundDraft.category = item.category || "-";
+    inboundDraft.gtin = item.gtin || "";
+    inboundDraftDisplay.value = `${item.sku} - ${item.name}`;
+    inboundDraftMeta.textContent = `${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}`;
+    renderInboundDraftStock(Number(item.qty || 0));
+}
 
-    inboundVariant.innerHTML = "<option>Loading...</option>";
-    fetch("/products/get_variants/" + inboundProduct.value)
-    .then((res) => res.json())
-    .then((data) => {
-        if (!data.length) {
-            inboundVariant.innerHTML = "<option value=''>Tidak ada variant</option>";
-            validateInbound();
-            return;
+async function fetchInboundStock(productId, variantId) {
+    const params = new URLSearchParams({
+        product_id: String(productId),
+        variant_id: String(variantId),
+        warehouse_id: String(inboundWarehouse.value || ""),
+    });
+
+    const response = await fetch(`/transfers/get_stock?${params.toString()}`);
+    const data = await response.json();
+    return Number(data.qty || 0);
+}
+
+async function refreshInboundDraftStock() {
+    if (!inboundDraft.product_id || !inboundDraft.variant_id) {
+        renderInboundDraftStock(0);
+        return;
+    }
+
+    try {
+        const qty = await fetchInboundStock(inboundDraft.product_id, inboundDraft.variant_id);
+        renderInboundDraftStock(qty);
+    } catch (error) {
+        renderInboundDraftStock(0);
+    }
+}
+
+async function refreshInboundQueueStocks() {
+    if (!inboundItems.length) return;
+
+    await Promise.all(inboundItems.map(async (item) => {
+        try {
+            item.stock = await fetchInboundStock(item.product_id, item.variant_id);
+        } catch (error) {
+            item.stock = 0;
         }
+    }));
 
-        inboundVariant.innerHTML = data.map((item) => "<option value='" + item.id + "'>" + item.variant + "</option>").join("");
-        loadInboundStock();
-    });
+    renderInboundQueue();
 }
 
-function loadInboundStock() {
-    if (!inboundProduct.value || !inboundVariant.value) return;
+function renderInboundQueue() {
+    if (!inboundItems.length) {
+        inboundQueueBody.innerHTML = `
+            <tr>
+                <td colspan="9">
+                    <div class="ops-queue-empty">Belum ada item inbound di batch ini.</div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
 
-    fetch("/transfers/get_stock?product_id=" + inboundProduct.value + "&variant_id=" + inboundVariant.value + "&warehouse_id=" + inboundWarehouse.value)
-    .then((res) => res.json())
-    .then((data) => {
-        inboundStock.value = data.qty;
-        renderInboundStatus(data.qty || 0);
-        validateInbound();
-    });
+    inboundQueueBody.innerHTML = inboundItems.map((item, index) => `
+        <tr>
+            <td class="mono">${index + 1}</td>
+            <td>
+                <strong>${item.sku} - ${item.name}</strong>
+                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+            </td>
+            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
+            <td class="mono">${item.qty}</td>
+            <td class="mono">Rp ${formatCurrency(item.cost)}</td>
+            <td class="mono">${item.expiry || "-"}</td>
+            <td class="mono">${item.custom_date || "-"}</td>
+            <td>${item.note || "-"}</td>
+            <td>
+                <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
+            </td>
+        </tr>
+    `).join("");
 }
 
-function handleSubmit() {
-    inboundButton.innerText = "Memproses...";
-    inboundButton.disabled = true;
+function addInboundItem() {
+    if (!inboundDraft.product_id || !inboundDraft.variant_id) {
+        alert("Pilih barang terlebih dahulu.");
+        return;
+    }
+
+    const qty = Number(inboundDraftQty.value || 0);
+    const cost = Number(inboundDraftCost.value || 0);
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+        alert("Qty masuk harus lebih dari 0.");
+        return;
+    }
+
+    if (!Number.isFinite(cost) || cost < 0) {
+        alert("Biaya modal tidak valid.");
+        return;
+    }
+
+    inboundItems.push({
+        product_id: inboundDraft.product_id,
+        variant_id: inboundDraft.variant_id,
+        sku: inboundDraft.sku,
+        name: inboundDraft.name,
+        variant_label: inboundDraft.variant_label,
+        category: inboundDraft.category,
+        gtin: inboundDraft.gtin,
+        stock: inboundDraft.stock,
+        qty,
+        cost,
+        expiry: inboundDraftExpiry.value || "",
+        custom_date: inboundDraftDate.value || getLocalToday(),
+        note: inboundDraftNote.value.trim(),
+    });
+
+    renderInboundQueue();
+    resetInboundDraft();
+}
+
+function handleInboundSubmit() {
+    if (!inboundItems.length) {
+        alert("Tambahkan minimal satu item inbound.");
+        return false;
+    }
+
+    inboundItemsJson.value = JSON.stringify(inboundItems.map((item) => ({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        qty: item.qty,
+        cost: item.cost,
+        expiry: item.expiry,
+        custom_date: item.custom_date,
+        note: item.note,
+        display_name: `${item.sku} - ${item.name}`,
+    })));
+    inboundSubmitButton.textContent = "Memproses...";
+    inboundSubmitButton.disabled = true;
     return true;
 }
 
-inboundProduct.onchange = loadInboundVariants;
-inboundVariant.onchange = loadInboundStock;
-inboundWarehouse.onchange = loadInboundStock;
-inboundQty.oninput = validateInbound;
+const inboundPicker = createItemPicker({
+    endpoint: "/products/picker",
+    mode: "inbound",
+    modalId: "itemPickerModal",
+    bodyId: "itemPickerBody",
+    searchId: "itemPickerSearch",
+    summaryId: "itemPickerSummary",
+    pageId: "itemPickerPage",
+    warehouseIdLabel: "itemPickerWarehouse",
+    prevButtonId: "itemPickerPrev",
+    nextButtonId: "itemPickerNext",
+    getWarehouseId: () => inboundWarehouse.value,
+    getWarehouseLabel: () => inboundWarehouse.options[inboundWarehouse.selectedIndex]?.text || inboundWarehouse.value,
+    onPick: (row, item) => {
+        populateInboundDraft(item);
+    },
+});
+
+function openInboundPicker() {
+    inboundPicker.openForRow(document.body);
+}
+
+inboundQueueBody.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-index]");
+    if (!button) return;
+
+    inboundItems.splice(Number(button.dataset.removeIndex), 1);
+    renderInboundQueue();
+});
+
+inboundWarehouse?.addEventListener("change", async () => {
+    await refreshInboundDraftStock();
+    await refreshInboundQueueStocks();
+    inboundPicker.refresh();
+});
+
+resetInboundDraft();
+renderInboundQueue();
 </script>
 {% endblock %}

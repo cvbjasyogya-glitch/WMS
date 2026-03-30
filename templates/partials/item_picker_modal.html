@@ -1,0 +1,56 @@
+<div class="picker-modal" id="itemPickerModal" hidden>
+    <div class="picker-modal-backdrop" data-picker-backdrop></div>
+    <div class="picker-modal-panel" role="dialog" aria-modal="true" aria-labelledby="itemPickerTitle">
+        <div class="section-title">
+            <div>
+                <h2 id="itemPickerTitle">Daftar Barang</h2>
+                <p>Cari barang lalu pilih variant yang ingin dimasukkan ke baris transaksi aktif.</p>
+            </div>
+            <button type="button" class="ghost-button" data-picker-close>Tutup</button>
+        </div>
+
+        <form class="picker-toolbar" data-picker-search-form>
+            <input
+                type="text"
+                id="itemPickerSearch"
+                placeholder="Cari SKU, nama barang, kategori, variant, GTIN, atau kode variasi"
+                autocomplete="off"
+            >
+            <button type="submit">Cari Barang</button>
+        </form>
+
+        <div class="picker-meta-row">
+            <span class="status-pill" id="itemPickerSummary">Memuat daftar barang...</span>
+            <span class="status-pill" id="itemPickerWarehouse">WH -</span>
+        </div>
+
+        <div class="table-box picker-results-box">
+            <table class="picker-results-table">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>GTIN</th>
+                        <th>Nama Barang</th>
+                        <th>Variant</th>
+                        <th>Stok</th>
+                        <th>Kategori</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="itemPickerBody">
+                    <tr>
+                        <td colspan="7">
+                            <div class="empty-state picker-inline-state">Memuat daftar barang...</div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="picker-pagination">
+            <button type="button" class="ghost-button" id="itemPickerPrev">Sebelumnya</button>
+            <span class="status-pill" id="itemPickerPage">Page 1 / 1</span>
+            <button type="button" class="ghost-button" id="itemPickerNext">Berikutnya</button>
+        </div>
+    </div>
+</div>

@@ -49,6 +49,7 @@ def login():
         session.clear()
 
         session["user_id"] = user["id"]
+        session["username"] = user["username"]
         session["role"] = user["role"]
         # set warehouse scope: use user assigned warehouse for scoped roles, otherwise default first warehouse
         try:

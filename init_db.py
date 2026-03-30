@@ -53,6 +53,9 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "product_variants", "price_retail", "REAL DEFAULT 0")
     _ensure_column(cursor, "product_variants", "price_discount", "REAL DEFAULT 0")
     _ensure_column(cursor, "product_variants", "price_nett", "REAL DEFAULT 0")
+    _ensure_column(cursor, "product_variants", "variant_code", "TEXT")
+    _ensure_column(cursor, "product_variants", "gtin", "TEXT")
+    _ensure_column(cursor, "product_variants", "no_gtin", "INTEGER DEFAULT 0")
 
     _ensure_column(cursor, "requests", "reason", "TEXT")
     _ensure_column(cursor, "requests", "approved_at", "TIMESTAMP")
@@ -106,6 +109,9 @@ def init_db(db_path=None):
         price_retail REAL DEFAULT 0,
         price_discount REAL DEFAULT 0,
         price_nett REAL DEFAULT 0,
+        variant_code TEXT,
+        gtin TEXT,
+        no_gtin INTEGER DEFAULT 0,
         UNIQUE(product_id, variant),
         FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
     )

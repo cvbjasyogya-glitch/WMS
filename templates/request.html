@@ -3,32 +3,21 @@
 {% block title %}Request | Mataram Sports WMS{% endblock %}
 {% block eyebrow %}Request Queue{% endblock %}
 {% block page_title %}Request Antar Gudang{% endblock %}
-{% block page_subtitle %}Buat permintaan stok dengan konteks gudang asal dan tujuan yang jelas, lalu pantau status persetujuan dalam satu antrian operasional.{% endblock %}
+{% block page_subtitle %}Susun banyak item request lewat pola pilih item lalu tambah ke daftar kerja, sehingga permintaan antar gudang jauh lebih cepat saat SKU sudah banyak.{% endblock %}
 
 {% block content %}
-<div class="form-box">
+<div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
-            <h2>Buat Request Baru</h2>
-            <p>Request akan divalidasi berdasarkan stok gudang asal dan diproses sesuai hak akses role akun yang sedang aktif.</p>
+            <h2>Request Batch Composer</h2>
+            <p>Pilih gudang asal dan tujuan, tambahkan item satu per satu ke daftar, lalu kirim seluruh request dalam satu submit.</p>
         </div>
     </div>
 
-    <form method="POST">
-        <div class="form-grid">
-            <div>
-                <label>Produk</label>
-                <select id="product" name="product_id" required>
-                    <option value="">Pilih produk</option>
-                    {% for p in products %}
-                    <option value="{{ p.id }}">{{ p.sku }} - {{ p.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label>Variant</label>
-                <select id="variant" name="variant_id" required></select>
-            </div>
+    <form method="POST" onsubmit="return handleRequestSubmit()">
+        <input type="hidden" name="items_json" id="requestItemsJson">
+
+        <div class="form-grid ops-config-grid">
             <div>
                 <label>Dari Gudang</label>
                 <select id="from_wh" name="from_warehouse" required {% if is_scoped_user %}disabled{% endif %}>
@@ -48,20 +37,73 @@
                     <option value="{{ w.id }}">{{ w.name }}</option>
                     {% endfor %}
                 </select>
-            </div>
-            <div>
-                <label>Stok Tersedia</label>
-                <input id="stock" readonly>
-            </div>
-            <div>
-                <label>Qty Request</label>
-                <input type="number" id="qty" name="qty" min="1" required>
-                <small id="warn" class="stock-empty"></small>
+                <small id="requestWarehouseWarn" class="helper-text"></small>
             </div>
         </div>
 
+        <div class="ops-entry-box">
+            <div class="section-title">
+                <div>
+                    <h3>Tambah Item Request</h3>
+                    <p>Model kerjanya mengikuti contoh yang kamu mau: isi item aktif di atas, klik <strong>Tambah</strong>, lalu item masuk ke daftar request.</p>
+                </div>
+            </div>
+
+            <div class="ops-entry-grid request-entry-grid">
+                <div class="ops-entry-item">
+                    <label>Barang</label>
+                    <div class="ops-item-selector">
+                        <input type="text" id="requestDraftDisplay" class="ops-item-display" placeholder="Klik ikon untuk pilih barang" readonly>
+                        <button type="button" class="ghost-button ops-picker-button" onclick="openRequestPicker()" aria-label="Buka daftar barang">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M10 4H5a1 1 0 0 0-1 1v14l4-3h11a1 1 0 0 0 1-1v-5h-2v4H7.2L6 15V6h4z"></path>
+                                <path d="M14.5 4.5 19.5 9.5"></path>
+                                <path d="M13 11l6.5-6.5 2 2L15 13l-2.5.5z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <small id="requestDraftMeta" class="helper-text ops-item-meta">Belum ada barang yang dipilih.</small>
+                </div>
+
+                <div class="ops-entry-stock">
+                    <label>Stok Gudang Asal</label>
+                    <div class="ops-stock-card">
+                        <strong id="requestDraftStockValue" class="ops-stock-value">0</strong>
+                        <small id="requestDraftStockState" class="ops-stock-state stock-empty">Belum ada stok yang tersedia.</small>
+                    </div>
+                </div>
+
+                <div>
+                    <label>Qty Request</label>
+                    <input type="number" id="requestDraftQty" min="1" step="1" placeholder="0">
+                    <small id="requestDraftFeedback" class="helper-text ops-row-feedback">Isi qty request untuk item aktif.</small>
+                </div>
+
+                <div class="ops-entry-actions">
+                    <button type="button" onclick="addRequestItem()">Tambah</button>
+                </div>
+            </div>
+        </div>
+
+        <small class="helper-text ops-mobile-hint">Semua item pada daftar bawah akan menggunakan gudang asal dan tujuan yang dipilih di atas.</small>
+
+        <div class="table-box ops-queue-box">
+            <table class="ops-queue-table request-queue-table">
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>Barang</th>
+                        <th>Stok Asal</th>
+                        <th>Qty Request</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="requestQueueBody"></tbody>
+            </table>
+        </div>
+
         <div class="split-actions" style="margin-top:16px;">
-            <button id="btn" type="submit">Buat Request</button>
+            <button id="requestSubmitButton" type="submit">Buat Request</button>
         </div>
     </form>
 </div>
@@ -70,7 +112,7 @@
     <div class="section-title">
         <div>
             <h2>Antrian Request</h2>
-            <p>Request ditampilkan sesuai scope akun Anda, sehingga leader dan admin fokus ke gudangnya sendiri sementara super admin bisa memantau lintas gudang.</p>
+            <p>Request ditampilkan sesuai scope akun Anda, sehingga leader dan admin fokus ke gudangnya sendiri sementara owner dan super admin bisa memantau lintas gudang.</p>
         </div>
     </div>
 
@@ -117,74 +159,315 @@
     <div class="empty-state">Belum ada request yang tercatat untuk scope akun ini.</div>
     {% endif %}
 </div>
+
+{% include "partials/item_picker_modal.html" %}
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="/static/js/item_picker.js"></script>
 <script>
-const requestProduct = document.getElementById("product");
-const requestVariant = document.getElementById("variant");
 const requestFrom = document.getElementById("from_wh");
 const requestTo = document.getElementById("to_wh");
-const requestStock = document.getElementById("stock");
-const requestQty = document.getElementById("qty");
-const requestWarn = document.getElementById("warn");
-const requestButton = document.getElementById("btn");
+const requestItemsJson = document.getElementById("requestItemsJson");
+const requestSubmitButton = document.getElementById("requestSubmitButton");
+const requestQueueBody = document.getElementById("requestQueueBody");
+const requestWarehouseWarn = document.getElementById("requestWarehouseWarn");
+const requestDraftDisplay = document.getElementById("requestDraftDisplay");
+const requestDraftMeta = document.getElementById("requestDraftMeta");
+const requestDraftStockValue = document.getElementById("requestDraftStockValue");
+const requestDraftStockState = document.getElementById("requestDraftStockState");
+const requestDraftQty = document.getElementById("requestDraftQty");
+const requestDraftFeedback = document.getElementById("requestDraftFeedback");
 
-function validateRequest() {
-    const stock = parseInt(requestStock.value || 0, 10);
-    const qty = parseInt(requestQty.value || 0, 10);
+const requestDraft = {
+    product_id: 0,
+    variant_id: 0,
+    sku: "",
+    name: "",
+    variant_label: "",
+    category: "",
+    gtin: "",
+    stock: 0,
+};
 
-    if (requestFrom.value === requestTo.value) {
-        requestWarn.innerText = "Gudang asal dan tujuan tidak boleh sama.";
-        requestButton.disabled = true;
+const requestItems = [];
+
+function renderRequestDraftStock(qty) {
+    const safeQty = Number(qty || 0);
+    requestDraft.stock = safeQty;
+    requestDraftStockValue.textContent = safeQty;
+
+    if (safeQty <= 0) {
+        requestDraftStockState.textContent = "Belum ada stok yang tersedia.";
+        requestDraftStockState.className = "ops-stock-state stock-empty";
+    } else if (safeQty < 5) {
+        requestDraftStockState.textContent = "Stok tipis, cek qty request dengan teliti.";
+        requestDraftStockState.className = "ops-stock-state stock-low";
+    } else {
+        requestDraftStockState.textContent = "Stok aman untuk dibuat request.";
+        requestDraftStockState.className = "ops-stock-state stock-ok";
+    }
+
+    validateRequestDraft();
+}
+
+function renderWarehouseValidation() {
+    if (requestFrom.value && requestFrom.value === requestTo.value) {
+        requestWarehouseWarn.textContent = "Gudang asal dan tujuan tidak boleh sama.";
+        requestWarehouseWarn.className = "helper-text stock-empty";
+        return false;
+    }
+
+    requestWarehouseWarn.textContent = "";
+    requestWarehouseWarn.className = "helper-text";
+    return true;
+}
+
+function resetRequestDraft() {
+    requestDraft.product_id = 0;
+    requestDraft.variant_id = 0;
+    requestDraft.sku = "";
+    requestDraft.name = "";
+    requestDraft.variant_label = "";
+    requestDraft.category = "";
+    requestDraft.gtin = "";
+    requestDraft.stock = 0;
+
+    requestDraftDisplay.value = "";
+    requestDraftMeta.textContent = "Belum ada barang yang dipilih.";
+    requestDraftQty.value = "";
+    requestDraftFeedback.textContent = "Isi qty request untuk item aktif.";
+    requestDraftFeedback.className = "helper-text ops-row-feedback";
+    renderRequestDraftStock(0);
+}
+
+function populateRequestDraft(item) {
+    requestDraft.product_id = Number(item.product_id || 0);
+    requestDraft.variant_id = Number(item.variant_id || 0);
+    requestDraft.sku = item.sku || "";
+    requestDraft.name = item.name || "";
+    requestDraft.variant_label = item.variant_label || "Default";
+    requestDraft.category = item.category || "-";
+    requestDraft.gtin = item.gtin || "";
+    requestDraftDisplay.value = `${item.sku} - ${item.name}`;
+    requestDraftMeta.textContent = `${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}`;
+    renderRequestDraftStock(Number(item.qty || 0));
+}
+
+async function fetchRequestStock(productId, variantId) {
+    const params = new URLSearchParams({
+        product_id: String(productId),
+        variant_id: String(variantId),
+        warehouse_id: String(requestFrom.value || ""),
+    });
+
+    const response = await fetch(`/transfers/get_stock?${params.toString()}`);
+    const data = await response.json();
+    return Number(data.qty || 0);
+}
+
+async function refreshRequestDraftStock() {
+    if (!requestDraft.product_id || !requestDraft.variant_id) {
+        renderRequestDraftStock(0);
+        return;
+    }
+
+    try {
+        const qty = await fetchRequestStock(requestDraft.product_id, requestDraft.variant_id);
+        renderRequestDraftStock(qty);
+    } catch (error) {
+        renderRequestDraftStock(0);
+    }
+}
+
+async function refreshRequestQueueStocks() {
+    if (!requestItems.length) return;
+
+    await Promise.all(requestItems.map(async (item) => {
+        try {
+            item.stock = await fetchRequestStock(item.product_id, item.variant_id);
+        } catch (error) {
+            item.stock = 0;
+        }
+    }));
+
+    renderRequestQueue();
+}
+
+function validateRequestDraft() {
+    const warehouseValid = renderWarehouseValidation();
+    const qty = Number(requestDraftQty.value || 0);
+    const stock = Number(requestDraft.stock || 0);
+
+    if (!warehouseValid) {
+        requestDraftFeedback.textContent = "Perbaiki gudang asal dan tujuan terlebih dahulu.";
+        requestDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+
+    if (!requestDraftQty.value) {
+        requestDraftFeedback.textContent = "Isi qty request untuk item aktif.";
+        requestDraftFeedback.className = "helper-text ops-row-feedback";
+        return true;
+    }
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+        requestDraftFeedback.textContent = "Qty request harus lebih dari 0.";
+        requestDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
         return false;
     }
 
     if (qty > stock) {
-        requestWarn.innerText = "Qty melebihi stok gudang asal.";
-        requestButton.disabled = true;
+        requestDraftFeedback.textContent = `Qty melebihi stok gudang asal (${stock}).`;
+        requestDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
         return false;
     }
 
-    requestWarn.innerText = "";
-    requestButton.disabled = !requestProduct.value || !requestVariant.value || qty <= 0;
-    return !requestButton.disabled;
+    requestDraftFeedback.textContent = `Siap membuat request ${qty} item dari gudang asal.`;
+    requestDraftFeedback.className = "helper-text ops-row-feedback stock-ok";
+    return true;
 }
 
-function loadRequestVariants() {
-    if (!requestProduct.value) return;
+function renderRequestQueue() {
+    if (!requestItems.length) {
+        requestQueueBody.innerHTML = `
+            <tr>
+                <td colspan="5">
+                    <div class="ops-queue-empty">Belum ada item request di batch ini.</div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
 
-    requestVariant.innerHTML = "<option>Loading...</option>";
-    fetch("/products/get_variants/" + requestProduct.value)
-    .then((res) => res.json())
-    .then((data) => {
-        if (!data.length) {
-            requestVariant.innerHTML = "<option value=''>Tidak ada variant</option>";
-            validateRequest();
-            return;
+    requestQueueBody.innerHTML = requestItems.map((item, index) => `
+        <tr>
+            <td class="mono">${index + 1}</td>
+            <td>
+                <strong>${item.sku} - ${item.name}</strong>
+                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+            </td>
+            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
+            <td>
+                <span class="mono">${item.qty}</span>
+                ${item.qty > item.stock ? '<small class="helper-text stock-empty">Qty melebihi stok gudang asal saat ini.</small>' : ''}
+            </td>
+            <td>
+                <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
+            </td>
+        </tr>
+    `).join("");
+}
+
+function addRequestItem() {
+    if (!requestDraft.product_id || !requestDraft.variant_id) {
+        alert("Pilih barang terlebih dahulu.");
+        return;
+    }
+
+    if (!validateRequestDraft()) {
+        alert("Qty request masih belum valid.");
+        return;
+    }
+
+    requestItems.push({
+        product_id: requestDraft.product_id,
+        variant_id: requestDraft.variant_id,
+        sku: requestDraft.sku,
+        name: requestDraft.name,
+        variant_label: requestDraft.variant_label,
+        category: requestDraft.category,
+        gtin: requestDraft.gtin,
+        stock: requestDraft.stock,
+        qty: Number(requestDraftQty.value || 0),
+    });
+
+    renderRequestQueue();
+    resetRequestDraft();
+}
+
+function handleRequestSubmit() {
+    if (!renderWarehouseValidation()) {
+        alert("Gudang asal dan tujuan tidak boleh sama.");
+        return false;
+    }
+
+    if (!requestItems.length) {
+        alert("Tambahkan minimal satu item request.");
+        return false;
+    }
+
+    for (const item of requestItems) {
+        if (Number(item.qty) > Number(item.stock || 0)) {
+            alert(`Qty request untuk ${item.sku} - ${item.name} melebihi stok gudang asal.`);
+            return false;
         }
+    }
 
-        requestVariant.innerHTML = data.map((item) => "<option value='" + item.id + "'>" + item.variant + "</option>").join("");
-        loadRequestStock();
-    });
+    requestItemsJson.value = JSON.stringify(requestItems.map((item) => ({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        qty: item.qty,
+        display_name: `${item.sku} - ${item.name}`,
+    })));
+    requestSubmitButton.textContent = "Memproses...";
+    requestSubmitButton.disabled = true;
+    return true;
 }
 
-function loadRequestStock() {
-    if (!requestProduct.value || !requestVariant.value) return;
+const requestPicker = createItemPicker({
+    endpoint: "/products/picker",
+    mode: "outbound",
+    modalId: "itemPickerModal",
+    bodyId: "itemPickerBody",
+    searchId: "itemPickerSearch",
+    summaryId: "itemPickerSummary",
+    pageId: "itemPickerPage",
+    warehouseIdLabel: "itemPickerWarehouse",
+    prevButtonId: "itemPickerPrev",
+    nextButtonId: "itemPickerNext",
+    getWarehouseId: () => requestFrom.value,
+    getWarehouseLabel: () => requestFrom.options[requestFrom.selectedIndex]?.text || requestFrom.value,
+    onPick: (row, item) => {
+        populateRequestDraft(item);
+    },
+});
 
-    fetch("/transfers/get_stock?product_id=" + requestProduct.value + "&variant_id=" + requestVariant.value + "&warehouse_id=" + requestFrom.value)
-    .then((res) => res.json())
-    .then((data) => {
-        requestStock.value = data.qty;
-        validateRequest();
-    });
+function openRequestPicker() {
+    requestPicker.openForRow(document.body);
 }
 
-requestProduct.onchange = loadRequestVariants;
-requestVariant.onchange = loadRequestStock;
-requestFrom.onchange = loadRequestStock;
-requestTo.onchange = validateRequest;
-requestQty.oninput = validateRequest;
-validateRequest();
+requestDraftQty.addEventListener("input", validateRequestDraft);
+
+requestQueueBody.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-index]");
+    if (!button) return;
+
+    requestItems.splice(Number(button.dataset.removeIndex), 1);
+    renderRequestQueue();
+});
+
+requestFrom?.addEventListener("change", async () => {
+    renderWarehouseValidation();
+    await refreshRequestDraftStock();
+    await refreshRequestQueueStocks();
+    requestPicker.refresh();
+});
+
+requestTo?.addEventListener("change", () => {
+    renderWarehouseValidation();
+    validateRequestDraft();
+});
+
+if (requestTo.value === requestFrom.value) {
+    const alternativeWarehouse = Array.from(requestTo.options).find((option) => option.value !== requestFrom.value);
+    if (alternativeWarehouse) {
+        requestTo.value = alternativeWarehouse.value;
+    }
+}
+
+renderWarehouseValidation();
+resetRequestDraft();
+renderRequestQueue();
 </script>
 {% endblock %}

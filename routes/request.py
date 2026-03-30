@@ -1,6 +1,8 @@
+import json
+
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
-from services.request_service import create_request, approve_request
+from services.request_service import approve_request
 from services.notification_service import notify_roles
 from services.rbac import has_permission, is_scoped_role
 import os
@@ -15,6 +17,96 @@ request_bp = Blueprint(
     __name__,
     url_prefix="/request"
 )
+
+
+def _to_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_request_items(form):
+    raw_payload = (form.get("items_json") or "").strip()
+    if raw_payload:
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Format item request tidak valid") from exc
+
+        if not isinstance(payload, list):
+            raise ValueError("Format item request tidak valid")
+
+        items = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+
+            product_id = _to_int(item.get("product_id"), 0)
+            variant_id = _to_int(item.get("variant_id"), 0)
+            qty = _to_int(item.get("qty"), 0)
+            display_name = (item.get("display_name") or "").strip()
+
+            if not any([product_id, variant_id, qty, display_name]):
+                continue
+
+            if product_id <= 0 or variant_id <= 0 or qty <= 0:
+                raise ValueError("Ada item request yang belum lengkap atau qty tidak valid")
+
+            items.append({
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "qty": qty,
+                "display_name": display_name,
+            })
+
+        if not items:
+            raise ValueError("Minimal tambahkan satu item request")
+
+        return items
+
+    product_id = _to_int(form.get("product_id"), 0)
+    variant_id = _to_int(form.get("variant_id"), 0)
+    qty = _to_int(form.get("qty"), 0)
+
+    if product_id <= 0 or variant_id <= 0 or qty <= 0:
+        raise ValueError("Input tidak valid")
+
+    return [{
+        "product_id": product_id,
+        "variant_id": variant_id,
+        "qty": qty,
+        "display_name": "",
+    }]
+
+
+def _fetch_request_item_record(db, product_id, variant_id):
+    return db.execute("""
+        SELECT
+            p.id AS product_id,
+            v.id AS variant_id,
+            p.sku,
+            p.name,
+            COALESCE(v.variant, 'default') AS variant
+        FROM products p
+        JOIN product_variants v ON v.product_id = p.id
+        WHERE p.id=? AND v.id=?
+    """, (product_id, variant_id)).fetchone()
+
+
+def _format_request_item_label(record):
+    variant = record["variant"] or "default"
+    variant_label = "Default" if str(variant).lower() == "default" else variant
+    return f'{record["sku"]} - {record["name"]} / {variant_label}'
+
+
+def _get_request_available_stock(db, product_id, variant_id, warehouse_id):
+    row = db.execute("""
+        SELECT COALESCE(qty, 0) AS qty
+        FROM stock
+        WHERE product_id=? AND variant_id=? AND warehouse_id=?
+    """, (product_id, variant_id, warehouse_id)).fetchone()
+    return row["qty"] if row else 0
 
 
 def can_approve_request():
@@ -132,37 +224,24 @@ def request_barang():
     if request.method == "POST":
 
         try:
-            product_id = int(request.form.get("product_id"))
-            variant_id = int(request.form.get("variant_id"))
-            from_wh = int(request.form.get("from_warehouse"))
-            to_wh = int(request.form.get("to_warehouse"))
-            qty = int(request.form.get("qty", 0))
-        except:
-            flash("Input tidak valid", "error")
+            from_wh = _to_int(request.form.get("from_warehouse"))
+            to_wh = _to_int(request.form.get("to_warehouse"))
+            items = _parse_request_items(request.form)
+        except ValueError as exc:
+            flash(str(exc), "error")
             return redirect("/request")
-
-        if qty <= 0:
-            flash("Qty harus > 0", "error")
+        except Exception:
+            flash("Input tidak valid", "error")
             return redirect("/request")
 
         if from_wh == to_wh:
             flash("Gudang tidak boleh sama", "error")
             return redirect("/request")
 
-        product = db.execute(
-            "SELECT id, name FROM products WHERE id=?",
-            (product_id,)
-        ).fetchone()
-
-        variant = db.execute(
-            "SELECT id, variant FROM product_variants WHERE id=? AND product_id=?",
-            (variant_id, product_id)
-        ).fetchone()
-
         w1 = db.execute("SELECT id, name FROM warehouses WHERE id=?", (from_wh,)).fetchone()
         w2 = db.execute("SELECT id, name FROM warehouses WHERE id=?", (to_wh,)).fetchone()
 
-        if not product or not variant or not w1 or not w2:
+        if not w1 or not w2:
             flash("Data tidak valid", "error")
             return redirect("/request")
 
@@ -173,29 +252,79 @@ def request_barang():
             flash("Tidak punya akses untuk membuat request dari gudang ini", "error")
             return redirect("/request")
 
-        request_id = create_request(product_id, variant_id, from_wh, to_wh, qty)
+        aggregates = {}
+        labels = {}
 
-        if request_id:
+        for item in items:
+            record = _fetch_request_item_record(
+                db,
+                item["product_id"],
+                item["variant_id"],
+            )
+            if not record:
+                flash("Produk / variant tidak valid", "error")
+                return redirect("/request")
 
-            # send notifications to leaders/super admins
-            subj = "Request Baru: %s" % product["name"]
-            msg = f"Request baru\nProduk: {product['name']}\nVariant: {variant['variant']}\nQty: {qty}\nDari: {w1['name']}\nKe: {w2['name']}"
+            key = (item["product_id"], item["variant_id"])
+            aggregates[key] = aggregates.get(key, 0) + item["qty"]
+            labels[key] = _format_request_item_label(record)
+
+        for (product_id, variant_id), total_qty in aggregates.items():
+            available_qty = _get_request_available_stock(
+                db,
+                product_id,
+                variant_id,
+                from_wh,
+            )
+            if available_qty < total_qty:
+                flash(f"Stok tidak cukup untuk {labels[(product_id, variant_id)]}", "error")
+                return redirect("/request")
+
+        try:
+            db.execute("BEGIN")
+
+            for item in items:
+                db.execute("""
+                    INSERT INTO requests(
+                        product_id,
+                        variant_id,
+                        from_warehouse,
+                        to_warehouse,
+                        qty,
+                        status,
+                        created_at,
+                        requested_by
+                    )
+                    VALUES (?,?,?,?,?,'pending',datetime('now'),?)
+                """, (
+                    item["product_id"],
+                    item["variant_id"],
+                    from_wh,
+                    to_wh,
+                    item["qty"],
+                    session.get("user_id"),
+                ))
+
+            db.commit()
+
+            subj = f"Request Baru: {len(items)} item"
+            msg = (
+                f"Request baru sebanyak {len(items)} item\n"
+                f"Dari: {w1['name']}\n"
+                f"Ke: {w2['name']}"
+            )
             try:
                 notify_roles(["leader", "owner", "super_admin"], subj, msg, warehouse_id=from_wh)
             except Exception as e:
                 print("NOTIFY ERROR:", e)
 
-            flash("Request berhasil dibuat", "success")
-        else:
+            flash(f"{len(items)} request berhasil dibuat", "success")
+        except Exception as exc:
+            db.rollback()
+            print("REQUEST BULK ERROR:", exc)
             flash("Gagal membuat request", "error")
 
         return redirect("/request")
-
-    products = db.execute("""
-        SELECT id, sku, name
-        FROM products
-        ORDER BY name
-    """).fetchall()
 
     warehouses = db.execute("""
         SELECT * FROM warehouses ORDER BY name
@@ -240,7 +369,6 @@ def request_barang():
 
     return render_template(
         "request.html",
-        products=products,
         warehouses=warehouses,
         requests=requests_data,
         warehouse_id=warehouse_id

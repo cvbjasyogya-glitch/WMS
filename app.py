@@ -255,7 +255,7 @@ def create_app():
 
         db = get_db()
         user = db.execute(
-            "SELECT id, role, warehouse_id FROM users WHERE id=?",
+            "SELECT id, username, role, warehouse_id FROM users WHERE id=?",
             (user_id,),
         ).fetchone()
 
@@ -264,6 +264,7 @@ def create_app():
             flash("User tidak ditemukan, silakan login kembali", "error")
             return redirect(url_for("auth.login"))
 
+        session["username"] = user["username"]
         session["role"] = user["role"]
 
         if is_scoped_role(user["role"]):

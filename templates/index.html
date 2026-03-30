@@ -14,7 +14,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="cards">
+<div class="cards dashboard-cards">
     <div class="card">
         <p>Total Produk</p>
         <h2 id="p1">{{ data.total_product }}</h2>
@@ -41,7 +41,7 @@
     </div>
 </div>
 
-<div class="summary">
+<div class="summary dashboard-aging-grid">
     <div class="card-mini">
         <p>Aging 0-30 Hari</p>
         <h3>{{ data.aging[0] }}</h3>
@@ -64,7 +64,7 @@
 <small class="helper-text" style="margin-bottom:16px;">Gudang dashboard dikunci mengikuti gudang akun Anda.</small>
 {% endif %}
 
-<div class="alerts">
+<div class="alerts dashboard-alerts">
     {% if data.stock_out > 0 %}
     <div class="alert danger">{{ data.stock_out }} SKU sudah berada di stok nol dan butuh perhatian operator.</div>
     {% endif %}
@@ -78,7 +78,7 @@
     {% endif %}
 </div>
 
-<div class="table-box">
+<div class="table-box dashboard-activity-box">
     <div class="section-title">
         <div>
             <h2>Aktivitas Terbaru</h2>
