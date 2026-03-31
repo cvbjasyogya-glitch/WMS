@@ -181,6 +181,23 @@ def get_request_scope():
     return None
 
 
+def _get_locked_request_direction(db):
+    destination_warehouse = get_request_scope()
+    if not destination_warehouse:
+        return None, None
+
+    to_warehouse = db.execute(
+        "SELECT id, name FROM warehouses WHERE id=?",
+        (destination_warehouse,),
+    ).fetchone()
+    from_warehouse = db.execute(
+        "SELECT id, name FROM warehouses WHERE id<>? ORDER BY id ASC LIMIT 1",
+        (destination_warehouse,),
+    ).fetchone()
+
+    return from_warehouse, to_warehouse
+
+
 def can_manage_owner_request():
     return session.get("role") in {"owner", "super_admin"}
 
@@ -329,8 +346,6 @@ def request_barang():
     if request.method == "POST":
 
         try:
-            from_wh = _to_int(request.form.get("from_warehouse"))
-            to_wh = _to_int(request.form.get("to_warehouse"))
             items = _parse_request_items(request.form)
         except ValueError as exc:
             flash(str(exc), "error")
@@ -338,6 +353,17 @@ def request_barang():
         except Exception:
             flash("Input tidak valid", "error")
             return redirect("/request")
+
+        locked_from, locked_to = _get_locked_request_direction(db)
+        if locked_to:
+            if not locked_from:
+                flash("Request antar gudang belum bisa dipakai karena gudang lawan belum tersedia", "error")
+                return redirect("/request")
+            from_wh = locked_from["id"]
+            to_wh = locked_to["id"]
+        else:
+            from_wh = _to_int(request.form.get("from_warehouse"))
+            to_wh = _to_int(request.form.get("to_warehouse"))
 
         if from_wh == to_wh:
             flash("Gudang tidak boleh sama", "error")
@@ -350,11 +376,11 @@ def request_barang():
             flash("Data tidak valid", "error")
             return redirect("/request")
 
-        # enforce single-warehouse scope for leader/admin: from_wh must match assigned warehouse
+        # scoped users always request stock into their own warehouse from the counterpart warehouse
         role = session.get("role")
         user_wh = session.get("warehouse_id")
-        if is_scoped_role(role) and from_wh != user_wh:
-            flash("Tidak punya akses untuk membuat request dari gudang ini", "error")
+        if is_scoped_role(role) and to_wh != user_wh:
+            flash("Tidak punya akses untuk membuat request ke gudang ini", "error")
             return redirect("/request")
 
         aggregates = {}
@@ -437,6 +463,7 @@ def request_barang():
 
     warehouse_id = session.get("warehouse_id")
     warehouse_scope = get_request_scope()
+    locked_from, locked_to = _get_locked_request_direction(db)
 
     if warehouse_scope:
         rows = db.execute("""
@@ -470,13 +497,21 @@ def request_barang():
         ORDER BY r.id DESC
         """).fetchall()
 
-    requests_data = [dict(r) for r in rows]
+    requests_data = []
+    for row in rows:
+        item = dict(row)
+        item["can_approve"] = can_approve_request() and (
+            not warehouse_scope or item["from_warehouse"] == warehouse_scope
+        )
+        requests_data.append(item)
 
     return render_template(
         "request.html",
         warehouses=warehouses,
         requests=requests_data,
-        warehouse_id=warehouse_id
+        warehouse_id=warehouse_id,
+        request_locked_from_id=locked_from["id"] if locked_from else None,
+        request_locked_to_id=locked_to["id"] if locked_to else None,
     )
 
 
@@ -669,8 +704,8 @@ def approve_request_route(id):
         return redirect("/request")
 
     warehouse_scope = get_request_scope()
-    if warehouse_scope and warehouse_scope not in [req["from_warehouse"], req["to_warehouse"]]:
-        flash("Tidak punya akses untuk request ini", "error")
+    if warehouse_scope and warehouse_scope != req["from_warehouse"]:
+        flash("Hanya leader gudang pengirim yang bisa approve request ini", "error")
         return redirect("/request")
 
     success = approve_request(id)

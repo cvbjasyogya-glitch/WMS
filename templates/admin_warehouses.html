@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Warehouse Admin | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}System Administration{% endblock %}
+{% block page_title %}Warehouse System Control{% endblock %}
+{% block page_subtitle %}Halaman khusus untuk mengelola gudang aktif, melihat beban pemakaian tiap gudang, dan menjaga struktur warehouse tetap bersih untuk WMS maupun HRIS.{% endblock %}
+
+{% block page_actions %}
+<a href="/admin/" class="ghost-button">Access &amp; Role</a>
+{% endblock %}
+
+{% block content %}
+{% include "partials/admin_local_nav.html" %}
+
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Gudang</p>
+        <h3>{{ warehouse_summary.total }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Gudang Dengan Stock</p>
+        <h3>{{ warehouse_summary.with_stock }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Assigned Users</p>
+        <h3>{{ warehouse_summary.assigned_users }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Employee Rows</p>
+        <h3>{{ warehouse_summary.employee_rows }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Pending Requests</span>
+        <strong>{{ health.pending_requests }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Pending Approvals</span>
+        <strong>{{ health.pending_approvals }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Notif Gagal 7 Hari</span>
+        <strong>{{ health.failed_notifications }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Kosong</span>
+        <strong>{{ health.unassigned_scoped_users }}</strong>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Gudang</h2>
+            <p>Tambah gudang baru yang akan dipakai di WMS dan HRIS tanpa mencampur pengaturan ini dengan manajemen user.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/admin/add_warehouse">
+        <div class="form-grid">
+            <div>
+                <label>Nama Gudang</label>
+                <input name="name" placeholder="Masukkan nama gudang" required>
+                <small class="helper-text">Gunakan nama yang konsisten karena gudang ini akan menjadi referensi stock, request, employee, dan schedule.</small>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Gudang</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Daftar Gudang</h2>
+            <p>Gudang yang sudah dipakai di stock tidak bisa dihapus untuk menjaga integritas data transaksi dan histori operasional.</p>
+        </div>
+    </div>
+
+    {% if warehouses %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nama Gudang</th>
+                <th>Assigned Users</th>
+                <th>Scoped Users</th>
+                <th>Stock Rows</th>
+                <th>Employee Rows</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in warehouses %}
+            <tr>
+                <td class="mono">#{{ w.id }}</td>
+                <td>{{ w.name }}</td>
+                <td>{{ w.assigned_users }}</td>
+                <td>{{ w.scoped_users }}</td>
+                <td>{{ w.stock_rows }}</td>
+                <td>{{ w.employee_rows }}</td>
+                <td>
+                    <form method="POST" action="/admin/delete_warehouse/{{ w.id }}">
+                        <button type="submit" class="danger-button" onclick="return confirm('Hapus gudang ini?')">Hapus</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada gudang yang terdaftar.</div>
+    {% endif %}
+</div>
+{% endblock %}

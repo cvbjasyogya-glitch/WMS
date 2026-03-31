@@ -1,37 +1,43 @@
 {% extends "base.html" %}
 
-{% block title %}Admin | Mataram Sports WMS{% endblock %}
+{% block title %}Admin Access | Mataram Sports WMS{% endblock %}
 {% block eyebrow %}System Administration{% endblock %}
-{% block page_title %}Admin Workspace{% endblock %}
-{% block page_subtitle %}Kelola user, role, dan gudang dari satu panel administratif yang lebih rapi dan aman dibaca saat setup maupun maintenance.{% endblock %}
+{% block page_title %}Admin Access Center{% endblock %}
+{% block page_subtitle %}Pusat kontrol khusus untuk mengatur user, role, scope gudang, dan governance akses sistem tanpa tercampur dengan pengaturan gudang fisik.{% endblock %}
+
+{% block page_actions %}
+<a href="/admin/warehouses" class="ghost-button">Warehouse System</a>
+{% endblock %}
 
 {% block content %}
+{% include "partials/admin_local_nav.html" %}
+
 <div class="summary">
     <div class="card-mini">
         <p>Total User</p>
         <h3>{{ users|length }}</h3>
     </div>
     <div class="card-mini">
-        <p>Total Gudang</p>
-        <h3>{{ warehouses|length }}</h3>
+        <p>Role Global</p>
+        <h3>{{ health.global_roles }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Role Scoped</p>
+        <h3>{{ health.scoped_roles }}</h3>
     </div>
     <div class="card-mini {% if health.unassigned_scoped_users %}warning{% endif %}">
         <p>User Scope Kosong</p>
         <h3>{{ health.unassigned_scoped_users }}</h3>
     </div>
-    <div class="card-mini {% if health.pending_requests or health.pending_approvals %}warning{% endif %}">
-        <p>Queue Aktif</p>
-        <h3>{{ health.pending_requests + health.pending_approvals }}</h3>
-    </div>
 </div>
 
 <div class="meta-grid">
     <div class="meta-card">
-        <span>Request Pending</span>
+        <span>Pending Requests</span>
         <strong>{{ health.pending_requests }}</strong>
     </div>
     <div class="meta-card">
-        <span>Approval Pending</span>
+        <span>Pending Approvals</span>
         <strong>{{ health.pending_approvals }}</strong>
     </div>
     <div class="meta-card">
@@ -39,8 +45,31 @@
         <strong>{{ health.failed_notifications }}</strong>
     </div>
     <div class="meta-card">
-        <span>Status Restore</span>
-        <strong>{% if health.unassigned_scoped_users == 0 %}Sehat{% else %}Perlu Cek{% endif %}</strong>
+        <span>Role Aktif</span>
+        <strong>{{ role_guide|length }}</strong>
+    </div>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Role Guide</h2>
+            <p>Peta akses ini membantu admin memahami role mana yang lintas gudang dan mana yang wajib dikunci ke satu gudang.</p>
+        </div>
+    </div>
+
+    <div class="cards admin-role-guide-grid">
+        {% for item in role_guide %}
+        <article class="card admin-role-card {% if item.scope == 'Lintas Gudang' %}success{% endif %}">
+            <p>{{ item.role }}</p>
+            <h2>{{ item.label }}</h2>
+            <div class="admin-role-card-meta">
+                <span class="status-pill">{{ item.scope }}</span>
+                <span class="status-pill">{{ item.count }} user</span>
+            </div>
+            <p class="admin-role-copy">{{ item.summary }}</p>
+        </article>
+        {% endfor %}
     </div>
 </div>
 
@@ -48,7 +77,7 @@
     <div class="section-title">
         <div>
             <h2>Tambah User</h2>
-            <p>Buat akun baru untuk leader, admin, atau staff operasional dengan role yang sesuai.</p>
+            <p>Buat akun baru untuk role operasional maupun lintas gudang dengan rule scope yang konsisten.</p>
         </div>
     </div>
 
@@ -68,6 +97,7 @@
                     <option value="admin">Admin</option>
                     <option value="staff">Staff</option>
                     <option value="leader">Leader</option>
+                    <option value="hr">HR</option>
                     <option value="owner">Owner</option>
                     <option value="super_admin">Super Admin</option>
                 </select>
@@ -80,7 +110,17 @@
                     <option value="{{ w.id }}">{{ w.name }}</option>
                     {% endfor %}
                 </select>
-                <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff.</small>
+                <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff. Role HR, owner, dan super admin bersifat lintas gudang.</small>
+            </div>
+            <div>
+                <label>Tautkan Karyawan</label>
+                <select name="employee_id">
+                    <option value="">-- Belum ditautkan --</option>
+                    {% for employee in employees %}
+                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+                <small class="helper-text">Dipakai untuk self-service HRIS seperti cuti, helpdesk, dan geotag agar akun hanya bisa mengisi form miliknya sendiri.</small>
             </div>
             <div>
                 <label>Email (opsional)</label>
@@ -107,8 +147,8 @@
     <div class="section-title">
         <div>
             <h2>Manajemen User</h2>
-            <p>Perbarui username, role, atau password baru tanpa harus meninggalkan panel admin.</p>
-            <p style="margin-top:6px; color:var(--text-soft);">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>super_admin</strong> dan <strong>owner</strong> dapat mengakses semua gudang.</p>
+            <p>Perbarui identitas akun, role, password baru, dan scope gudang dari satu workspace yang khusus untuk akses.</p>
+            <p style="margin-top:6px; color:var(--text-soft);">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
         </div>
     </div>
 
@@ -117,7 +157,7 @@
         {% for u in users %}
         <div class="box" style="margin-bottom:0;">
             <form method="POST" action="/admin/update_user/{{ u.id }}">
-                        <div class="form-grid">
+                <div class="form-grid">
                     <div>
                         <label>ID</label>
                         <input value="{{ u.id }}" readonly>
@@ -136,34 +176,45 @@
                             <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
                             <option value="staff" {% if u.role == 'staff' %}selected{% endif %}>staff</option>
                             <option value="leader" {% if u.role == 'leader' %}selected{% endif %}>leader</option>
+                            <option value="hr" {% if u.role == 'hr' %}selected{% endif %}>hr</option>
                             <option value="owner" {% if u.role == 'owner' %}selected{% endif %}>owner</option>
                             <option value="super_admin" {% if u.role == 'super_admin' %}selected{% endif %}>super_admin</option>
                         </select>
                     </div>
-                            <div>
-                                <label>Assign Gudang</label>
-                                <select name="warehouse_id">
-                                    <option value="">-- Tidak ada --</option>
-                                    {% for w in warehouses %}
-                                    <option value="{{ w.id }}" {% if u.warehouse_id is defined and u.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
-                                    {% endfor %}
-                                </select>
-                                <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff.</small>
-                            </div>
-                            <div>
-                                <label>Email (opsional)</label>
-                                <input name="email" value="{{ u.email if u.email is defined else '' }}">
-                            </div>
-                            <div>
-                                <label>Phone (opsional)</label>
-                                <input name="phone" value="{{ u.phone if u.phone is defined else '' }}">
-                            </div>
-                            <div>
-                                <label><input type="checkbox" name="notify_email" {% if u.notify_email is defined and u.notify_email %}checked{% endif %}> Notifikasi Email</label>
-                            </div>
-                            <div>
-                                <label><input type="checkbox" name="notify_whatsapp" {% if u.notify_whatsapp is defined and u.notify_whatsapp %}checked{% endif %}> Notifikasi WhatsApp</label>
-                            </div>
+                    <div>
+                        <label>Assign Gudang</label>
+                        <select name="warehouse_id">
+                            <option value="">-- Tidak ada --</option>
+                            {% for w in warehouses %}
+                            <option value="{{ w.id }}" {% if u.warehouse_id is defined and u.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff. Role HR, owner, dan super admin tidak dikunci ke satu gudang.</small>
+                    </div>
+                    <div>
+                        <label>Tautan Karyawan</label>
+                        <select name="employee_id">
+                            <option value="">-- Belum ditautkan --</option>
+                            {% for employee in employees %}
+                            <option value="{{ employee.id }}" {% if u.employee_id is defined and u.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="helper-text">Self-service HRIS untuk leave, helpdesk, dan geotag akan mengikuti employee yang ditautkan di sini.</small>
+                    </div>
+                    <div>
+                        <label>Email (opsional)</label>
+                        <input name="email" value="{{ u.email if u.email is defined else '' }}">
+                    </div>
+                    <div>
+                        <label>Phone (opsional)</label>
+                        <input name="phone" value="{{ u.phone if u.phone is defined else '' }}">
+                    </div>
+                    <div>
+                        <label><input type="checkbox" name="notify_email" {% if u.notify_email is defined and u.notify_email %}checked{% endif %}> Notifikasi Email</label>
+                    </div>
+                    <div>
+                        <label><input type="checkbox" name="notify_whatsapp" {% if u.notify_whatsapp is defined and u.notify_whatsapp %}checked{% endif %}> Notifikasi WhatsApp</label>
+                    </div>
                     <div>
                         <label>Password Baru</label>
                         <input type="password" name="password" placeholder="Opsional">
@@ -181,63 +232,6 @@
     </div>
     {% else %}
     <div class="empty-state">Belum ada user terdaftar.</div>
-    {% endif %}
-</div>
-
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Gudang</h2>
-            <p>Kelola warehouse aktif yang dipakai sistem untuk distribusi dan stock opname.</p>
-        </div>
-    </div>
-
-    <form method="POST" action="/admin/add_warehouse">
-        <div class="form-grid">
-            <div>
-                <label>Nama Gudang</label>
-                <input name="name" placeholder="Masukkan nama gudang" required>
-            </div>
-        </div>
-        <div class="split-actions" style="margin-top:16px;">
-            <button type="submit">Tambah Gudang</button>
-        </div>
-    </form>
-</div>
-
-<div class="table-box">
-    <div class="section-title">
-        <div>
-            <h2>Daftar Gudang</h2>
-            <p>Gudang yang sudah dipakai stok tidak bisa dihapus untuk menjaga integritas data.</p>
-        </div>
-    </div>
-
-    {% if warehouses %}
-    <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Nama Gudang</th>
-                <th>Aksi</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for w in warehouses %}
-            <tr>
-                <td class="mono">#{{ w.id }}</td>
-                <td>{{ w.name }}</td>
-                <td>
-                    <form method="POST" action="/admin/delete_warehouse/{{ w.id }}">
-                        <button type="submit" class="danger-button" onclick="return confirm('Hapus gudang ini?')">Hapus</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">Belum ada gudang yang terdaftar.</div>
     {% endif %}
 </div>
 {% endblock %}

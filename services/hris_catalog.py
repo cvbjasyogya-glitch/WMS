@@ -1,5 +1,12 @@
 HRIS_MODULES = (
     {
+        "slug": "dashboard",
+        "label": "Dashboard",
+        "summary": "Ringkasan announcement aktif dan snapshot jadwal tim yang sudah tersambung ke HRIS.",
+        "source": "custom/dashboard",
+        "status": "Overview",
+    },
+    {
         "slug": "employee",
         "label": "Employee",
         "summary": "Data induk karyawan, struktur organisasi, jabatan, dan profil kerja.",
@@ -85,20 +92,116 @@ HRIS_MODULES = (
     },
     {
         "slug": "biometric",
-        "label": "Biometric",
-        "summary": "Integrasi biometric device dan sinkronisasi data kehadiran.",
+        "label": "Geotag",
+        "summary": "Absensi berbasis lokasi, log check in-out, dan rekap kehadiran harian.",
         "source": "horilla-1.0/biometric",
-        "status": "Integration",
+        "status": "Geo Attendance",
+    },
+    {
+        "slug": "announcement",
+        "label": "Announcement",
+        "summary": "Pengumuman operasional, broadcast internal, dan komunikasi kebijakan per gudang.",
+        "source": "custom/announcement",
+        "status": "Communication",
+    },
+    {
+        "slug": "documents",
+        "label": "Documents",
+        "summary": "Register dokumen kerja, SOP, policy, dan review dokumen operasional HRIS.",
+        "source": "custom/documents",
+        "status": "Knowledge",
     },
 )
 
 
-def get_hris_modules():
-    return [dict(module) for module in HRIS_MODULES]
+FULL_HRIS_ROLES = {"super_admin", "hr"}
+SELF_SERVICE_HRIS_ROLES = {"leader", "admin", "staff"}
+SELF_SERVICE_HRIS_MODULES = {"leave", "helpdesk", "biometric"}
+
+MODULE_VIEW_ROLE_MAP = {
+    "dashboard": set(FULL_HRIS_ROLES),
+    "employee": set(FULL_HRIS_ROLES),
+    "attendance": set(FULL_HRIS_ROLES),
+    "leave": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
+    "payroll": set(FULL_HRIS_ROLES),
+    "recruitment": set(FULL_HRIS_ROLES),
+    "onboarding": set(FULL_HRIS_ROLES),
+    "offboarding": set(FULL_HRIS_ROLES),
+    "pms": set(FULL_HRIS_ROLES),
+    "helpdesk": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
+    "asset": set(FULL_HRIS_ROLES),
+    "project": set(FULL_HRIS_ROLES),
+    "report": set(FULL_HRIS_ROLES),
+    "biometric": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
+    "announcement": set(FULL_HRIS_ROLES),
+    "documents": set(FULL_HRIS_ROLES),
+}
+
+MODULE_MANAGE_ROLE_MAP = {
+    slug: set(roles)
+    for slug, roles in MODULE_VIEW_ROLE_MAP.items()
+}
 
 
-def get_hris_module(slug):
+def _find_module(slug):
     for module in HRIS_MODULES:
         if module["slug"] == slug:
-            return dict(module)
+            return module
     return None
+
+
+def can_view_hris_module(role, slug):
+    module = _find_module(slug)
+    if module is None:
+        return False
+    return (role or "") in MODULE_VIEW_ROLE_MAP.get(slug, set())
+
+
+def can_manage_hris_module(role, slug):
+    module = _find_module(slug)
+    if module is None:
+        return False
+    return (role or "") in MODULE_MANAGE_ROLE_MAP.get(slug, set())
+
+
+def role_can_see_hris_navigation(role):
+    return role_has_hris_access(role)
+
+
+def is_self_service_hris_module(role, slug):
+    return (role or "") in SELF_SERVICE_HRIS_ROLES and slug in SELF_SERVICE_HRIS_MODULES
+
+
+def role_has_hris_access(role):
+    return any(can_view_hris_module(role, module["slug"]) for module in HRIS_MODULES)
+
+
+def get_hris_modules(role=None):
+    modules = []
+    for module in HRIS_MODULES:
+        item = dict(module)
+        item["can_view"] = can_view_hris_module(role, item["slug"]) if role is not None else True
+        item["can_manage"] = can_manage_hris_module(role, item["slug"]) if role is not None else False
+        if role is None or item["can_view"]:
+            modules.append(item)
+    return modules
+
+
+def get_hris_navigation_modules(role=None):
+    if role is not None and not role_can_see_hris_navigation(role):
+        return []
+    return get_hris_modules(role)
+
+
+def get_hris_module(slug, role=None):
+    module = _find_module(slug)
+    if module is None:
+        return None
+
+    item = dict(module)
+    item["can_view"] = can_view_hris_module(role, slug) if role is not None else True
+    item["can_manage"] = can_manage_hris_module(role, slug) if role is not None else False
+
+    if role is not None and not item["can_view"]:
+        return None
+    return item

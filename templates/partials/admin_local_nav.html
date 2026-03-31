@@ -1,0 +1,13 @@
+<div class="box admin-local-nav-box">
+    <div class="split-actions admin-local-nav">
+        <a href="/admin/" class="ghost-button {% if admin_section == 'access' %}active{% endif %}">Access &amp; Role</a>
+        <a href="/admin/warehouses" class="ghost-button {% if admin_section == 'warehouses' %}active{% endif %}">Warehouse System</a>
+    </div>
+    <small class="helper-text">
+        {% if admin_section == "access" %}
+        Halaman ini khusus untuk mengatur role, user, notifikasi akun, dan kontrol akses sistem.
+        {% else %}
+        Halaman ini khusus untuk mengatur gudang aktif yang dipakai WMS dan HRIS.
+        {% endif %}
+    </small>
+</div>

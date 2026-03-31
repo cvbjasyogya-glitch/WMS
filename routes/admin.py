@@ -1,12 +1,51 @@
-from flask import Blueprint, render_template, request, redirect, flash, session
+from flask import Blueprint, flash, redirect, render_template, request, session
+from werkzeug.security import generate_password_hash
+
 from database import get_db
 from services.rbac import has_permission, is_scoped_role
-from werkzeug.security import generate_password_hash
+
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-# Only roles for now (include owner)
-ALLOWED_ROLES = ["super_admin", "owner", "leader", "admin", "staff"]
+ALLOWED_ROLES = ["super_admin", "owner", "hr", "leader", "admin", "staff"]
+ROLE_GUIDE = [
+    {
+        "role": "super_admin",
+        "label": "Super Admin",
+        "scope": "Lintas Gudang",
+        "summary": "Kontrol penuh atas WMS, HRIS, penjadwalan, audit, approvals, dan panel admin.",
+    },
+    {
+        "role": "owner",
+        "label": "Owner",
+        "scope": "Lintas Gudang",
+        "summary": "Akses strategis lintas gudang untuk approval, audit, dan monitoring akses inti sistem.",
+    },
+    {
+        "role": "hr",
+        "label": "HR",
+        "scope": "Lintas Gudang",
+        "summary": "Fokus pada HRIS dan penjadwalan lintas gudang tanpa akses admin sistem penuh.",
+    },
+    {
+        "role": "leader",
+        "label": "Leader",
+        "scope": "1 Gudang",
+        "summary": "Memproses approval gudang, direct stock ops, direct transfer, dan monitoring tim sendiri.",
+    },
+    {
+        "role": "admin",
+        "label": "Admin Gudang",
+        "scope": "1 Gudang",
+        "summary": "Menjalankan operasional gudang harian dan mengajukan approval sesuai gudang penugasan.",
+    },
+    {
+        "role": "staff",
+        "label": "Staff",
+        "scope": "1 Gudang",
+        "summary": "Akses operasional terbatas untuk request, view schedule, dan alur kerja gudang harian.",
+    },
+]
 
 
 def require_admin():
@@ -16,29 +55,80 @@ def require_admin():
     return True
 
 
-# ==========================
-# ADMIN PAGE
-# ==========================
-@admin_bp.route("/")
-def admin_page():
+def _admin_redirect(section="access"):
+    if section == "warehouses":
+        return redirect("/admin/warehouses")
+    return redirect("/admin/")
 
-    if not require_admin():
-        return redirect("/")
 
+def _load_admin_context():
     db = get_db()
 
-    users_raw = db.execute("""
-    SELECT u.id, u.username, u.role, u.email, u.phone, u.notify_email, u.notify_whatsapp, u.warehouse_id, w.name as warehouse_name
-    FROM users u
-    LEFT JOIN warehouses w ON u.warehouse_id = w.id
-    ORDER BY u.id DESC
-    """).fetchall()
+    users_raw = db.execute(
+        """
+        SELECT
+            u.id,
+            u.username,
+            u.role,
+            u.email,
+            u.phone,
+            u.notify_email,
+            u.notify_whatsapp,
+            u.warehouse_id,
+            u.employee_id,
+            w.name AS warehouse_name,
+            e.employee_code,
+            e.full_name AS employee_name
+        FROM users u
+        LEFT JOIN warehouses w ON u.warehouse_id = w.id
+        LEFT JOIN employees e ON u.employee_id = e.id
+        ORDER BY u.id DESC
+        """
+    ).fetchall()
+    users = [dict(user) for user in users_raw]
 
-    users = [dict(u) for u in users_raw]
+    employees_raw = db.execute(
+        """
+        SELECT
+            e.id,
+            e.employee_code,
+            e.full_name,
+            e.warehouse_id,
+            w.name AS warehouse_name
+        FROM employees e
+        LEFT JOIN warehouses w ON e.warehouse_id = w.id
+        ORDER BY e.full_name COLLATE NOCASE ASC, e.id DESC
+        """
+    ).fetchall()
+    employees = [dict(employee) for employee in employees_raw]
 
-    warehouses = db.execute("""
-    SELECT * FROM warehouses ORDER BY id DESC
-    """).fetchall()
+    warehouses_raw = db.execute(
+        """
+        SELECT
+            w.id,
+            w.name,
+            COUNT(DISTINCT u.id) AS assigned_users,
+            COUNT(DISTINCT CASE WHEN u.role IN ('leader', 'admin', 'staff') THEN u.id END) AS scoped_users,
+            COUNT(DISTINCT s.id) AS stock_rows,
+            COUNT(DISTINCT e.id) AS employee_rows
+        FROM warehouses w
+        LEFT JOIN users u ON u.warehouse_id = w.id
+        LEFT JOIN stock s ON s.warehouse_id = w.id
+        LEFT JOIN employees e ON e.warehouse_id = w.id
+        GROUP BY w.id, w.name
+        ORDER BY w.id DESC
+        """
+    ).fetchall()
+    warehouses = [dict(warehouse) for warehouse in warehouses_raw]
+
+    role_guide = []
+    for role_item in ROLE_GUIDE:
+        role_guide.append(
+            {
+                **role_item,
+                "count": sum(1 for user in users if user["role"] == role_item["role"]),
+            }
+        )
 
     health = {
         "unassigned_scoped_users": db.execute(
@@ -62,22 +152,76 @@ def admin_page():
               AND created_at >= datetime('now', '-7 day')
             """
         ).fetchone()[0],
+        "global_roles": sum(1 for user in users if not is_scoped_role(user["role"])),
+        "scoped_roles": sum(1 for user in users if is_scoped_role(user["role"])),
     }
+
+    warehouse_summary = {
+        "total": len(warehouses),
+        "with_stock": sum(1 for warehouse in warehouses if warehouse["stock_rows"]),
+        "assigned_users": sum(warehouse["assigned_users"] for warehouse in warehouses),
+        "employee_rows": sum(warehouse["employee_rows"] for warehouse in warehouses),
+    }
+
+    return {
+        "users": users,
+        "warehouses": warehouses,
+        "employees": employees,
+        "health": health,
+        "role_guide": role_guide,
+        "warehouse_summary": warehouse_summary,
+    }
+
+
+def _resolve_employee_link(db, role, warehouse_id, raw_employee_id):
+    employee_id = raw_employee_id or None
+    if not employee_id:
+        return None
+
+    try:
+        employee_id = int(employee_id)
+    except Exception:
+        return None
+
+    employee = db.execute(
+        "SELECT id, warehouse_id FROM employees WHERE id=?",
+        (employee_id,),
+    ).fetchone()
+    if not employee:
+        return None
+
+    if is_scoped_role(role) and warehouse_id and employee["warehouse_id"] != warehouse_id:
+        return "__invalid_scope__"
+
+    return employee["id"]
+
+
+@admin_bp.route("/")
+def admin_page():
+    if not require_admin():
+        return redirect("/")
 
     return render_template(
         "admin.html",
-        users=users,
-        warehouses=warehouses,
-        health=health,
+        admin_section="access",
+        **_load_admin_context(),
     )
 
 
-# ==========================
-# ADD USER
-# ==========================
+@admin_bp.route("/warehouses")
+def warehouse_admin_page():
+    if not require_admin():
+        return redirect("/")
+
+    return render_template(
+        "admin_warehouses.html",
+        admin_section="warehouses",
+        **_load_admin_context(),
+    )
+
+
 @admin_bp.route("/add_user", methods=["POST"])
 def add_user():
-
     if not require_admin():
         return redirect("/")
 
@@ -88,9 +232,10 @@ def add_user():
     role = (request.form.get("role") or "").strip()
     email = (request.form.get("email") or "").strip()
     phone = (request.form.get("phone") or "").strip()
-    notify_email = 1 if request.form.get("notify_email") == 'on' else 0
-    notify_whatsapp = 1 if request.form.get("notify_whatsapp") == 'on' else 0
+    notify_email = 1 if request.form.get("notify_email") == "on" else 0
+    notify_whatsapp = 1 if request.form.get("notify_whatsapp") == "on" else 0
     warehouse_id = request.form.get("warehouse_id") or None
+    employee_id = request.form.get("employee_id") or None
     if warehouse_id:
         try:
             warehouse_id = int(warehouse_id)
@@ -99,48 +244,63 @@ def add_user():
 
     if not username or not password:
         flash("Username & password wajib diisi", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     if role not in ALLOWED_ROLES:
         flash("Role tidak valid", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     if is_scoped_role(role) and not warehouse_id:
         flash("Role scoped wajib assign gudang", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     if not is_scoped_role(role):
         warehouse_id = None
 
+    employee_id = _resolve_employee_link(db, role, warehouse_id, employee_id)
+    if employee_id == "__invalid_scope__":
+        flash("Karyawan yang ditautkan harus berasal dari gudang yang sama dengan akun scoped", "error")
+        return _admin_redirect()
+
     exist = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
     if exist:
         flash("Username sudah digunakan", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
-    # try to include email/phone if columns exist
     try:
-        db.execute("""
-        INSERT INTO users(username,password,role,email,phone,notify_email,notify_whatsapp,warehouse_id)
-        VALUES (?,?,?,?,?,?,?,?)
-        """, (username, generate_password_hash(password), role, email or None, phone or None, notify_email, notify_whatsapp, warehouse_id))
+        db.execute(
+            """
+            INSERT INTO users(username,password,role,email,phone,notify_email,notify_whatsapp,warehouse_id,employee_id)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                username,
+                generate_password_hash(password),
+                role,
+                email or None,
+                phone or None,
+                notify_email,
+                notify_whatsapp,
+                warehouse_id,
+                employee_id,
+            ),
+        )
     except Exception:
-        db.execute("""
-        INSERT INTO users(username,password,role)
-        VALUES (?,?,?)
-        """, (username, generate_password_hash(password), role))
+        db.execute(
+            """
+            INSERT INTO users(username,password,role)
+            VALUES (?,?,?)
+            """,
+            (username, generate_password_hash(password), role),
+        )
 
     db.commit()
     flash("User berhasil ditambahkan", "success")
+    return _admin_redirect()
 
-    return redirect("/admin")
 
-
-# ==========================
-# UPDATE USER
-# ==========================
 @admin_bp.route("/update_user/<int:id>", methods=["POST"])
 def update_user(id):
-
     if not require_admin():
         return redirect("/")
 
@@ -149,16 +309,17 @@ def update_user(id):
     user_exist = db.execute("SELECT id FROM users WHERE id=?", (id,)).fetchone()
     if not user_exist:
         flash("User tidak ditemukan", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     username = (request.form.get("username") or "").strip()
     password = (request.form.get("password") or "").strip()
     role = (request.form.get("role") or "").strip()
     email = (request.form.get("email") or "").strip()
     phone = (request.form.get("phone") or "").strip()
-    notify_email = 1 if request.form.get("notify_email") == 'on' else 0
-    notify_whatsapp = 1 if request.form.get("notify_whatsapp") == 'on' else 0
+    notify_email = 1 if request.form.get("notify_email") == "on" else 0
+    notify_whatsapp = 1 if request.form.get("notify_whatsapp") == "on" else 0
     warehouse_id = request.form.get("warehouse_id") or None
+    employee_id = request.form.get("employee_id") or None
     if warehouse_id:
         try:
             warehouse_id = int(warehouse_id)
@@ -167,131 +328,159 @@ def update_user(id):
 
     if role not in ALLOWED_ROLES:
         flash("Role tidak valid", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     if is_scoped_role(role) and not warehouse_id:
         flash("Role scoped wajib assign gudang", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     if not is_scoped_role(role):
         warehouse_id = None
 
+    employee_id = _resolve_employee_link(db, role, warehouse_id, employee_id)
+    if employee_id == "__invalid_scope__":
+        flash("Karyawan yang ditautkan harus berasal dari gudang yang sama dengan akun scoped", "error")
+        return _admin_redirect()
+
     if password:
         try:
-            db.execute("""
-            UPDATE users SET username=?, password=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, warehouse_id=?
-            WHERE id=?
-            """, (username, generate_password_hash(password), role, email or None, phone or None, notify_email, notify_whatsapp, warehouse_id, id))
+            db.execute(
+                """
+                UPDATE users
+                SET username=?, password=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, warehouse_id=?, employee_id=?
+                WHERE id=?
+                """,
+                (
+                    username,
+                    generate_password_hash(password),
+                    role,
+                    email or None,
+                    phone or None,
+                    notify_email,
+                    notify_whatsapp,
+                    warehouse_id,
+                    employee_id,
+                    id,
+                ),
+            )
         except Exception:
-            db.execute("""
-            UPDATE users SET username=?, password=?, role=?
-            WHERE id=?
-            """, (username, generate_password_hash(password), role, id))
+            db.execute(
+                """
+                UPDATE users SET username=?, password=?, role=?
+                WHERE id=?
+                """,
+                (username, generate_password_hash(password), role, id),
+            )
     else:
         try:
-            db.execute("""
-            UPDATE users SET username=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, warehouse_id=?
-            WHERE id=?
-            """, (username, role, email or None, phone or None, notify_email, notify_whatsapp, warehouse_id, id))
+            db.execute(
+                """
+                UPDATE users
+                SET username=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, warehouse_id=?, employee_id=?
+                WHERE id=?
+                """,
+                (
+                    username,
+                    role,
+                    email or None,
+                    phone or None,
+                    notify_email,
+                    notify_whatsapp,
+                    warehouse_id,
+                    employee_id,
+                    id,
+                ),
+            )
         except Exception:
-            db.execute("""
-            UPDATE users SET username=?, role=?
-            WHERE id=?
-            """, (username, role, id))
+            db.execute(
+                """
+                UPDATE users SET username=?, role=?
+                WHERE id=?
+                """,
+                (username, role, id),
+            )
 
     db.commit()
     flash("User diupdate", "success")
+    return _admin_redirect()
 
-    return redirect("/admin")
 
-
-# ==========================
-# DELETE USER
-# ==========================
 @admin_bp.route("/delete_user/<int:id>", methods=["POST"])
 def delete_user(id):
-
     if not require_admin():
         return redirect("/")
 
     db = get_db()
-
     current_user_id = session.get("user_id")
 
     if id == current_user_id:
         flash("Tidak bisa hapus diri sendiri", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
-    # protect last super_admin
-    admin_count = db.execute("""
-    SELECT COUNT(*) as total FROM users
-    WHERE role = 'super_admin'
-    """).fetchone()["total"]
+    admin_count = db.execute(
+        """
+        SELECT COUNT(*) as total FROM users
+        WHERE role = 'super_admin'
+        """
+    ).fetchone()["total"]
 
     user = db.execute("SELECT role FROM users WHERE id=?", (id,)).fetchone()
-
     if user and user["role"] == "super_admin" and admin_count <= 1:
         flash("Tidak bisa hapus admin terakhir", "error")
-        return redirect("/admin")
+        return _admin_redirect()
 
     db.execute("DELETE FROM users WHERE id=?", (id,))
     db.commit()
 
     flash("User dihapus", "success")
-    return redirect("/admin")
+    return _admin_redirect()
 
 
-# ==========================
-# ADD WAREHOUSE
-# ==========================
 @admin_bp.route("/add_warehouse", methods=["POST"])
 def add_warehouse():
-
     if not require_admin():
         return redirect("/")
 
     db = get_db()
-
     name = (request.form.get("name") or "").strip()
 
     if not name:
         flash("Nama gudang wajib diisi", "error")
-        return redirect("/admin")
+        return _admin_redirect("warehouses")
 
     exist = db.execute("SELECT id FROM warehouses WHERE name=?", (name,)).fetchone()
     if exist:
         flash("Nama gudang sudah ada", "error")
-        return redirect("/admin")
+        return _admin_redirect("warehouses")
 
     db.execute("INSERT INTO warehouses(name) VALUES (?)", (name,))
     db.commit()
 
     flash("Gudang ditambahkan", "success")
-    return redirect("/admin")
+    return _admin_redirect("warehouses")
 
 
-# ==========================
-# DELETE WAREHOUSE
-# ==========================
 @admin_bp.route("/delete_warehouse/<int:id>", methods=["POST"])
 def delete_warehouse(id):
-
     if not require_admin():
         return redirect("/")
 
     db = get_db()
 
-    used = db.execute("""
-    SELECT COUNT(*) as total FROM stock
-    WHERE warehouse_id=?
-    """, (id,)).fetchone()["total"]
+    used = db.execute(
+        """
+        SELECT COUNT(*) as total FROM stock
+        WHERE warehouse_id=?
+        """,
+        (id,),
+    ).fetchone()["total"]
 
     if used > 0:
         flash("Gudang masih dipakai stock", "error")
-        return redirect("/admin")
+        return _admin_redirect("warehouses")
 
     db.execute("DELETE FROM warehouses WHERE id=?", (id,))
     db.commit()
 
     flash("Gudang dihapus", "success")
-    return redirect("/admin")
+    return _admin_redirect("warehouses")

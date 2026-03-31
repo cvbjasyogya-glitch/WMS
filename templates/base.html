@@ -67,13 +67,35 @@
     </div>
 
     <nav>
-        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if not request.path.startswith('/hris') %}active{% endif %}" {% if not request.path.startswith('/hris') %}open{% endif %}>
+        {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/chat') or request.path.startswith('/absen') %}
+        {% set is_wms_active = request.path == '/' or request.path.startswith('/crm') or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}
+        {% set is_hris_active = request.path.startswith('/hris') %}
+        {% set is_system_active = request.path.startswith('/admin') %}
+        {% if session.get("user_id") %}
+        <div class="sidebar-group {% if is_coordination_active %}active{% endif %}">
+            <span class="sidebar-group-label">Coordination</span>
+            <a href="/absen/" class="{% if request.path.startswith('/absen') %}active{% endif %}">Absen</a>
+            {% if can("view_schedule") %}
+            <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active{% endif %}">Penjadwalan</a>
+            {% endif %}
+            {% if can("view_chat") %}
+            <a href="/chat/" class="{% if request.path.startswith('/chat') %}active{% endif %}">
+                <span>Chat</span>
+                <span class="sidebar-counter" id="chatSidebarUnread" hidden>0</span>
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_wms_active %}active{% endif %}" {% if is_wms_active %}open{% endif %}>
             <summary class="sidebar-group-toggle">
                 <span class="sidebar-group-label">WMS</span>
                 <span class="sidebar-group-icon" aria-hidden="true"></span>
             </summary>
             <div class="sidebar-subnav">
                 <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+                {% if can("view_crm") %}
+                <a href="/crm/" class="{% if request.path.startswith('/crm') %}active{% endif %}">CRM</a>
+                {% endif %}
                 <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
                 <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
                 <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
@@ -88,22 +110,27 @@
                 <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
                 {% endif %}
                 <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
-                {% if can("view_admin") %}
-                <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
-                {% endif %}
             </div>
         </details>
-        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if request.path.startswith('/hris') %}active{% endif %}" {% if request.path.startswith('/hris') %}open{% endif %}>
+        {% if sidebar_hris_modules %}
+        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_hris_active %}active{% endif %}" {% if is_hris_active %}open{% endif %}>
             <summary class="sidebar-group-toggle">
                 <span class="sidebar-group-label">HRIS</span>
                 <span class="sidebar-group-icon" aria-hidden="true"></span>
             </summary>
             <div class="sidebar-subnav">
-                {% for module in hris_modules %}
-                <a href="/hris/{{ module.slug }}" class="{% if request.path == '/hris/' and module.slug == 'employee' %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}">{{ module.label }}</a>
+                {% for module in sidebar_hris_modules %}
+                <a href="/hris/{{ module.slug }}" class="{% if request.path == '/hris/' and loop.first %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}">{{ module.label }}</a>
                 {% endfor %}
             </div>
         </details>
+        {% endif %}
+        {% if can("view_admin") %}
+        <div class="sidebar-group {% if is_system_active %}active{% endif %}">
+            <span class="sidebar-group-label">System</span>
+            <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
+        </div>
+        {% endif %}
     </nav>
 
     <div class="sidebar-footer">
@@ -258,6 +285,17 @@ window.addEventListener("resize", () => {
 });
 </script>
 
+{% if can("view_chat") %}
+<script>
+window.wmsChatRealtimeConfig = {
+    enabled: true,
+    pollUrl: "/chat/realtime",
+    presenceUrl: "/chat/presence",
+    soundUrl: "/static/notif.mp3"
+};
+</script>
+<script src="/static/js/chat_realtime.js"></script>
+{% endif %}
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

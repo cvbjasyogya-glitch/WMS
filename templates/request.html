@@ -22,21 +22,25 @@
                 <label>Dari Gudang</label>
                 <select id="from_wh" name="from_warehouse" required {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
-                    <option value="{{ w.id }}" {% if w.id == warehouse_id %}selected{% endif %}>{{ w.name }}</option>
+                    <option value="{{ w.id }}" {% if (is_scoped_user and request_locked_from_id == w.id) or (not is_scoped_user and w.id == warehouse_id) %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
                 {% if is_scoped_user %}
-                <input type="hidden" name="from_warehouse" value="{{ warehouse_id }}">
-                <small class="helper-text">Gudang asal dikunci mengikuti gudang akun Anda.</small>
+                <input type="hidden" name="from_warehouse" value="{{ request_locked_from_id }}">
+                <small class="helper-text">Gudang pengirim dikunci ke gudang lawan, karena akun Anda selalu membuat request masuk ke gudang sendiri.</small>
                 {% endif %}
             </div>
             <div>
                 <label>Ke Gudang</label>
-                <select id="to_wh" name="to_warehouse" required>
+                <select id="to_wh" name="to_warehouse" required {% if is_scoped_user %}disabled{% endif %}>
                     {% for w in warehouses %}
-                    <option value="{{ w.id }}">{{ w.name }}</option>
+                    <option value="{{ w.id }}" {% if is_scoped_user and request_locked_to_id == w.id %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
+                {% if is_scoped_user %}
+                <input type="hidden" name="to_warehouse" value="{{ request_locked_to_id }}">
+                <small class="helper-text">Gudang tujuan dikunci mengikuti gudang akun Anda.</small>
+                {% endif %}
                 <small id="requestWarehouseWarn" class="helper-text"></small>
             </div>
         </div>
@@ -143,7 +147,7 @@
                     <span class="badge {{ r.status }}">{{ r.status }}</span>
                 </td>
                 <td>
-                    {% if r.status == "pending" and can("approve_requests") %}
+                    {% if r.status == "pending" and r.can_approve %}
                     <form method="POST" action="/request/approve/{{ r.id }}">
                         <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
                     </form>

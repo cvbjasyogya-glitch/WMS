@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, session, redirect, url_for, request, flash
 from config import Config
 from database import close_db, get_db
@@ -25,10 +27,21 @@ from routes.audit import audit_bp
 from routes.admin import admin_bp
 from routes.approvals import approvals_bp
 from routes.hris import hris_bp
+from routes.schedule import schedule_bp
+from routes.crm import crm_bp
+from routes.chat import chat_bp
+from routes.attendance_portal import attendance_portal_bp
 
 # 🔥 TAMBAHAN WAJIB
 from routes.stock_opname import so_bp
-from services.hris_catalog import get_hris_modules
+from services.hris_catalog import (
+    can_manage_hris_module,
+    can_view_hris_module,
+    get_hris_navigation_modules,
+    get_hris_modules,
+    is_self_service_hris_module,
+    role_can_see_hris_navigation,
+)
 
 
 SESSION_TIMEOUT = 15 * 60
@@ -221,6 +234,11 @@ def create_app():
 
     app = Flask(__name__)
     app.config.from_object(Config)
+    app.config.setdefault(
+        "BIOMETRIC_PHOTO_UPLOAD_FOLDER",
+        os.path.join(app.root_path, "static", "uploads", "geotag"),
+    )
+    app.config.setdefault("BIOMETRIC_PHOTO_URL_PREFIX", "/static/uploads/geotag")
 
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     init_db(app.config["DATABASE"])
@@ -233,7 +251,12 @@ def create_app():
         return {
             "can": lambda permission: has_permission(role, permission),
             "is_scoped_user": is_scoped_role(role),
-            "hris_modules": get_hris_modules(),
+            "can_view_hris_module": lambda slug: can_view_hris_module(role, slug),
+            "can_manage_hris_module": lambda slug: can_manage_hris_module(role, slug),
+            "is_self_service_hris_module": lambda slug: is_self_service_hris_module(role, slug),
+            "hris_modules": get_hris_modules(role),
+            "sidebar_hris_modules": get_hris_navigation_modules(role),
+            "show_hris_navigation": role_can_see_hris_navigation(role),
         }
 
     # ==========================
@@ -258,7 +281,7 @@ def create_app():
 
         db = get_db()
         user = db.execute(
-            "SELECT id, username, role, warehouse_id FROM users WHERE id=?",
+            "SELECT id, username, role, warehouse_id, employee_id FROM users WHERE id=?",
             (user_id,),
         ).fetchone()
 
@@ -269,6 +292,7 @@ def create_app():
 
         session["username"] = user["username"]
         session["role"] = user["role"]
+        session["employee_id"] = user["employee_id"]
 
         if is_scoped_role(user["role"]):
             session["warehouse_id"] = user["warehouse_id"] or 1
@@ -362,6 +386,10 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(approvals_bp)
     app.register_blueprint(hris_bp)
+    app.register_blueprint(schedule_bp)
+    app.register_blueprint(crm_bp)
+    app.register_blueprint(chat_bp)
+    app.register_blueprint(attendance_portal_bp)
 
     # 🔥 TAMBAHAN WAJIB
     app.register_blueprint(so_bp)

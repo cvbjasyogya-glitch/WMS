@@ -95,35 +95,23 @@ def notify_roles(roles, subject, message, warehouse_id=None):
     db = get_db()
     recipients = _get_recipients_by_roles(roles)
 
-    # when warehouse_id provided, only notify stakeholders that actually own the scope:
-    # target warehouse leaders/admins plus owner/super_admin
+    # when warehouse_id provided, only notify the source-warehouse leader
+    # plus global approvers (owner/super_admin)
     if warehouse_id is not None:
-        leaders_target = [
-            r for r in recipients
-            if r.get('role') == 'leader'
-            and r.get('warehouse_id') is not None
-            and int(r.get('warehouse_id')) == int(warehouse_id)
-        ]
-
-        owners_super = [
-            r for r in recipients if r.get('role') in ('owner', 'super_admin')
-        ]
-
-        targeted_admins = [
-            dict(r)
-            for r in db.execute(
-                """
-                SELECT id, username, email, phone, role, notify_email, notify_whatsapp, warehouse_id
-                FROM users
-                WHERE role='admin' AND warehouse_id=?
-                """,
-                (warehouse_id,),
-            ).fetchall()
-        ]
-
-        # combine, deduplicate by id
         combined = {}
-        for r in leaders_target + owners_super + targeted_admins:
+        for r in recipients:
+            role = r.get("role")
+            user_warehouse = r.get("warehouse_id")
+
+            if role == "leader":
+                try:
+                    if user_warehouse is None or int(user_warehouse) != int(warehouse_id):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            elif role not in ("owner", "super_admin"):
+                continue
+
             combined[r.get('id')] = r
 
         recipients = list(combined.values())

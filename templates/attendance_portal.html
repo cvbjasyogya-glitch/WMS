@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block title %}Absen Foto | Mataram Sports{% endblock %}
+{% block eyebrow %}Attendance Portal{% endblock %}
+{% block page_title %}Absen Foto & Geotag{% endblock %}
+{% block page_subtitle %}Halaman khusus absen mandiri dengan kamera dan geotag. Hasil check in atau check out langsung masuk ke log HRIS Geotag untuk rekap absensi harian.{% endblock %}
+
+{% block page_actions %}
+{% if can_view_hris_module("biometric") %}
+<a href="/hris/biometric" class="ghost-button">Buka Log HRIS</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>User Login</p>
+        <h3>@{{ session.get("username", "guest") }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Role</p>
+        <h3>{{ session.get("role", "guest")|replace("_", " ")|title }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Tanggal Hari Ini</p>
+        <h3>{{ today_date }}</h3>
+    </div>
+    <div class="card-mini {% if attendance_today %}success{% endif %}">
+        <p>Status Hari Ini</p>
+        <h3>{{ attendance_today.status|upper if attendance_today else "BELUM ABSEN" }}</h3>
+    </div>
+</div>
+
+{% if linked_employee %}
+<div class="attendance-portal-shell">
+    <section class="form-box attendance-identity-card">
+        <div class="section-title">
+            <div>
+                <h2>Profil Absen</h2>
+                <p>Portal ini selalu terkunci ke data karyawan yang tertaut ke akun login, jadi tidak bisa dipakai untuk absensi orang lain.</p>
+            </div>
+        </div>
+        <div class="attendance-identity-grid">
+            <div class="meta-card">
+                <span>Karyawan</span>
+                <strong>{{ linked_employee.full_name }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Employee Code</span>
+                <strong>{{ linked_employee.employee_code }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Gudang</span>
+                <strong>{{ linked_employee.warehouse_name or "-" }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Posisi</span>
+                <strong>{{ linked_employee.position or "-" }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Check In / Out</span>
+                <strong>{{ attendance_today.check_in if attendance_today and attendance_today.check_in else "-" }} / {{ attendance_today.check_out if attendance_today and attendance_today.check_out else "-" }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Catatan Attendance</span>
+                <strong>{{ attendance_today.note if attendance_today and attendance_today.note else "Belum ada catatan" }}</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="form-box attendance-capture-card" data-attendance-portal>
+        <div class="section-title">
+            <div>
+                <h2>Form Absen Mandiri</h2>
+                <p>Ambil foto wajah, isi titik lokasi, lalu simpan. Jam absen akan memakai waktu saat tombol simpan ditekan agar rekap HRIS tetap presisi.</p>
+            </div>
+        </div>
+
+        <form method="POST" action="/absen/submit" class="attendance-portal-form">
+            <div class="attendance-capture-grid">
+                <div class="attendance-camera-panel">
+                    <div class="attendance-camera-frame">
+                        <video autoplay muted playsinline data-camera-video></video>
+                        <img alt="Preview foto absen" data-camera-preview hidden>
+                        <canvas data-camera-canvas hidden></canvas>
+                    </div>
+                    <div class="attendance-camera-actions">
+                        <button type="button" class="ghost-button" data-camera-start>Aktifkan Kamera</button>
+                        <button type="button" class="ghost-button" data-camera-capture disabled>Ambil Foto</button>
+                        <button type="button" class="ghost-button" data-camera-retake disabled>Ulangi Foto</button>
+                    </div>
+                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen.</small>
+                </div>
+
+                <div class="attendance-form-panel">
+                    <input type="hidden" name="photo_data_url" data-photo-input>
+                    <input type="hidden" name="punch_time" data-punch-time-input>
+                    <div class="form-grid">
+                        <div>
+                            <label>Tipe Absen</label>
+                            <select name="punch_type">
+                                <option value="check_in">Check In</option>
+                                <option value="check_out">Check Out</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Waktu Terekam</label>
+                            <input type="text" value="" data-punch-time-display readonly>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Titik Lokasi</label>
+                            <input name="location_label" placeholder="Contoh: Gudang Mataram - Area Depan Toko" required>
+                        </div>
+                        <div>
+                            <label>Latitude</label>
+                            <input name="latitude" placeholder="-8.583140" data-latitude-input readonly required>
+                        </div>
+                        <div>
+                            <label>Longitude</label>
+                            <input name="longitude" placeholder="116.116798" data-longitude-input readonly required>
+                        </div>
+                        <div>
+                            <label>Akurasi (meter)</label>
+                            <input name="accuracy_m" placeholder="15.0" data-accuracy-input readonly>
+                        </div>
+                        <div>
+                            <label>Status Lokasi</label>
+                            <input type="text" value="Belum diambil" data-location-status readonly>
+                        </div>
+                        <div class="split-actions" style="grid-column: 1 / -1; margin-top:4px;">
+                            <button type="button" class="ghost-button" data-location-capture>Ambil Lokasi Saat Ini</button>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <small class="helper-text" data-location-helper>Pastikan GPS aktif agar koordinat dan akurasi bisa terbaca dengan benar.</small>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3" placeholder="Opsional. Contoh: sedang tugas bukaan toko, kondisi sinyal GPS indoor, atau catatan check out."></textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions attendance-submit-row">
+                        <button type="submit">Simpan Absen</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </section>
+</div>
+{% else %}
+<div class="form-box">
+    <div class="empty-state">
+        Akun ini belum ditautkan ke data karyawan, jadi halaman absen sudah bisa dibuka tetapi belum bisa dipakai untuk check in atau check out. Hubungkan akun ke employee dari halaman Admin terlebih dulu.
+    </div>
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Riwayat Absen Terakhir</h2>
+            <p>Ringkasan ini mengambil data langsung dari log geotag HRIS, jadi semua foto, lokasi, dan jam absen di sini akan sama dengan yang muncul di modul Geotag.</p>
+        </div>
+    </div>
+
+    {% if recent_logs %}
+    <div class="attendance-history-list">
+        {% for log in recent_logs %}
+        <article class="attendance-history-item">
+            <div class="attendance-history-photo">
+                {% if log.photo_url %}
+                <img src="{{ log.photo_url }}" alt="Foto absen {{ log.punch_time }}">
+                {% else %}
+                <span>Tanpa Foto</span>
+                {% endif %}
+            </div>
+            <div class="attendance-history-meta">
+                <div class="attendance-history-head">
+                    <strong>{{ log.punch_type|replace("_", " ")|title }}</strong>
+                    <span class="badge {{ log.status_badge_class }}">{{ log.sync_status_label }}</span>
+                </div>
+                <p>{{ log.punch_time }}</p>
+                <p>{{ log.location_display }}</p>
+                <p class="mono">{{ log.coordinate_display }}{% if log.accuracy_display != "-" %} | {{ log.accuracy_display }}{% endif %}</p>
+                {% if log.note %}
+                <p>{{ log.note }}</p>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada log absen yang tercatat untuk akun ini.</div>
+    {% endif %}
+</div>
+
+<script>
+(() => {
+    const portal = document.querySelector("[data-attendance-portal]");
+    if (!portal) {
+        return;
+    }
+
+    const video = portal.querySelector("[data-camera-video]");
+    const preview = portal.querySelector("[data-camera-preview]");
+    const canvas = portal.querySelector("[data-camera-canvas]");
+    const startButton = portal.querySelector("[data-camera-start]");
+    const captureButton = portal.querySelector("[data-camera-capture]");
+    const retakeButton = portal.querySelector("[data-camera-retake]");
+    const cameraStatus = portal.querySelector("[data-camera-status]");
+    const locationButton = portal.querySelector("[data-location-capture]");
+    const locationStatus = portal.querySelector("[data-location-status]");
+    const locationHelper = portal.querySelector("[data-location-helper]");
+    const latitudeInput = portal.querySelector("[data-latitude-input]");
+    const longitudeInput = portal.querySelector("[data-longitude-input]");
+    const accuracyInput = portal.querySelector("[data-accuracy-input]");
+    const photoInput = portal.querySelector("[data-photo-input]");
+    const punchTimeInput = portal.querySelector("[data-punch-time-input]");
+    const punchTimeDisplay = portal.querySelector("[data-punch-time-display]");
+    const form = portal.querySelector("form");
+    let activeStream = null;
+
+    const formatDateTimeLocal = (date) => {
+        const pad = (value) => String(value).padStart(2, "0");
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+
+    const formatDateTimeLabel = (date) => {
+        return date.toLocaleString("id-ID", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
+
+    const syncPunchTime = () => {
+        const now = new Date();
+        punchTimeInput.value = formatDateTimeLocal(now);
+        punchTimeDisplay.value = formatDateTimeLabel(now);
+    };
+
+    const stopCamera = () => {
+        if (!activeStream) {
+            return;
+        }
+        activeStream.getTracks().forEach((track) => track.stop());
+        activeStream = null;
+    };
+
+    const setCameraState = (message, tone = "idle") => {
+        cameraStatus.textContent = message;
+        cameraStatus.dataset.state = tone;
+    };
+
+    syncPunchTime();
+    window.setInterval(syncPunchTime, 30000);
+
+    startButton.addEventListener("click", async () => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setCameraState("Browser ini tidak mendukung akses kamera langsung.", "error");
+            return;
+        }
+
+        try {
+            stopCamera();
+            activeStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: "user",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
+                audio: false,
+            });
+            video.srcObject = activeStream;
+            preview.hidden = true;
+            video.hidden = false;
+            captureButton.disabled = false;
+            retakeButton.disabled = true;
+            setCameraState("Kamera aktif. Pastikan wajah terlihat jelas lalu klik Ambil Foto.", "success");
+        } catch (error) {
+            setCameraState("Izin kamera ditolak atau kamera tidak tersedia pada device ini.", "error");
+        }
+    });
+
+    captureButton.addEventListener("click", () => {
+        if (!activeStream) {
+            setCameraState("Aktifkan kamera dulu sebelum mengambil foto.", "error");
+            return;
+        }
+
+        const width = video.videoWidth || 720;
+        const height = video.videoHeight || 540;
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+
+        photoInput.value = dataUrl;
+        preview.src = dataUrl;
+        preview.hidden = false;
+        video.hidden = true;
+        captureButton.disabled = true;
+        retakeButton.disabled = false;
+        setCameraState("Foto berhasil diambil. Jika sudah pas, lanjut ambil lokasi lalu simpan absen.", "success");
+        stopCamera();
+    });
+
+    retakeButton.addEventListener("click", () => {
+        photoInput.value = "";
+        preview.removeAttribute("src");
+        preview.hidden = true;
+        video.hidden = false;
+        retakeButton.disabled = true;
+        startButton.click();
+    });
+
+    locationButton.addEventListener("click", () => {
+        if (!navigator.geolocation) {
+            locationStatus.value = "Browser tidak mendukung GPS";
+            locationHelper.textContent = "Perangkat ini tidak bisa mengirim geotag dari browser.";
+            return;
+        }
+
+        locationStatus.value = "Mengambil lokasi...";
+        locationHelper.textContent = "Tunggu sebentar sampai koordinat selesai dibaca dari browser.";
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                latitudeInput.value = position.coords.latitude.toFixed(6);
+                longitudeInput.value = position.coords.longitude.toFixed(6);
+                accuracyInput.value = position.coords.accuracy ? position.coords.accuracy.toFixed(2) : "";
+                locationStatus.value = "Lokasi berhasil direkam";
+                locationHelper.textContent = "Koordinat dan akurasi sudah terisi. Kamu bisa langsung simpan absen.";
+            },
+            (error) => {
+                locationStatus.value = "Lokasi gagal";
+                locationHelper.textContent = error && error.message
+                    ? `GPS gagal dibaca: ${error.message}`
+                    : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi.";
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0,
+            }
+        );
+    });
+
+    form.addEventListener("submit", (event) => {
+        syncPunchTime();
+        if (!photoInput.value) {
+            event.preventDefault();
+            setCameraState("Ambil foto dulu sebelum menyimpan absen.", "error");
+            return;
+        }
+
+        if (!latitudeInput.value || !longitudeInput.value) {
+            event.preventDefault();
+            locationStatus.value = "Lokasi wajib";
+            locationHelper.textContent = "Ambil lokasi dulu sebelum menyimpan absen.";
+        }
+    });
+
+    window.addEventListener("beforeunload", stopCamera);
+})();
+</script>
+{% endblock %}

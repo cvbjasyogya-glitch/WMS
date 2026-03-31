@@ -1,0 +1,882 @@
+{% extends "base.html" %}
+
+{% block title %}CRM | Mataram Sports WMS{% endblock %}
+{% block eyebrow %}Customer Relationship Management{% endblock %}
+{% block page_title %}CRM Customer Hub{% endblock %}
+{% block page_subtitle %}Kelola contact customer, histori pembelian barang, dan data member secara terstruktur supaya tim bisa membaca pola belanja untuk analisis marketing maupun follow up toko.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Customer</p>
+        <h3>{{ summary.customers }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Sudah Belanja</p>
+        <h3>{{ summary.customers_with_purchase }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Member Aktif</p>
+        <h3>{{ summary.active_members }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Revenue Tercatat</p>
+        <h3>Rp {{ "{:,.0f}".format(summary.total_revenue).replace(",", ".") }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Kontak Siap Follow Up</span>
+        <strong>{{ summary.contact_ready }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Record Member</span>
+        <strong>{{ summary.member_records }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Latest Purchase</span>
+        <strong>{{ summary.latest_purchase }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses CRM</span>
+        <strong>{{ "Manage" if can_manage_crm else "View Only" }}</strong>
+    </div>
+</div>
+
+<div class="box crm-local-nav-box">
+    <div class="split-actions crm-local-nav">
+        <a href="/crm/?tab=contacts" class="ghost-button {% if selected_tab == 'contacts' %}active{% endif %}">Contact</a>
+        <a href="/crm/?tab=purchases" class="ghost-button {% if selected_tab == 'purchases' %}active{% endif %}">Purchase</a>
+        <a href="/crm/?tab=members" class="ghost-button {% if selected_tab == 'members' %}active{% endif %}">Member</a>
+    </div>
+    <small class="helper-text">
+        {% if selected_tab == "contacts" %}
+        Simpan contact person customer dan lihat ringkasan barang apa saja yang pernah dibeli untuk follow up marketing.
+        {% elif selected_tab == "purchases" %}
+        Catat histori pembelian customer dengan item detail agar tim bisa membaca pola SKU, quantity, dan channel transaksi.
+        {% else %}
+        Kelola member serta record aktivitasnya, termasuk histori pembelian member yang tercatat otomatis dari purchase CRM.
+        {% endif %}
+    </small>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="hidden" name="tab" value="{{ selected_tab }}">
+    <input type="text" name="search" value="{{ search }}" placeholder="Cari customer, kontak, member code, invoice, atau SKU">
+    <select name="warehouse" {% if scoped_crm_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for warehouse in warehouses %}
+        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+        {% endfor %}
+    </select>
+    {% if scoped_crm_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
+    {% endif %}
+    {% if selected_tab == "members" %}
+    <select name="member_status">
+        <option value="">Semua Status Member</option>
+        {% for status in membership_statuses %}
+        <option value="{{ status }}" {% if member_status == status %}selected{% endif %}>{{ status|replace('_', ' ')|title }}</option>
+        {% endfor %}
+    </select>
+    {% endif %}
+    <button type="submit">Filter CRM</button>
+</form>
+
+{% if scoped_crm_warehouse %}
+<small class="helper-text">Akun scoped dikunci ke gudang sendiri. Owner dan Super Admin bisa melihat data CRM lintas gudang.</small>
+{% else %}
+<small class="helper-text">Gunakan filter gudang dan kata kunci untuk membaca perilaku customer per toko atau secara keseluruhan.</small>
+{% endif %}
+
+{% if selected_tab == "contacts" %}
+    {% if can_manage_crm %}
+    <div class="form-box">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Contact Customer</h2>
+                <p>Data ini jadi fondasi CRM untuk follow up repeat order, analisis barang favorit, dan segmentasi marketing toko.</p>
+            </div>
+        </div>
+        <form method="POST" action="/crm/customers/add">
+            <div class="form-grid">
+                <div>
+                    <label>Gudang / Toko</label>
+                    <select name="warehouse_id" required {% if scoped_crm_warehouse %}disabled{% endif %}>
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id or (scoped_crm_warehouse and scoped_crm_warehouse == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if scoped_crm_warehouse %}
+                    <input type="hidden" name="warehouse_id" value="{{ scoped_crm_warehouse }}">
+                    {% endif %}
+                </div>
+                <div>
+                    <label>Nama Customer / Toko</label>
+                    <input name="customer_name" placeholder="Contoh: Toko Rian Sport" required>
+                </div>
+                <div>
+                    <label>Contact Person</label>
+                    <input name="contact_person" placeholder="Contoh: Rian">
+                </div>
+                <div>
+                    <label>Telepon / WhatsApp</label>
+                    <input name="phone" placeholder="62812xxxx">
+                </div>
+                <div>
+                    <label>Email</label>
+                    <input name="email" placeholder="crm@contoh.com">
+                </div>
+                <div>
+                    <label>Kota</label>
+                    <input name="city" placeholder="Mataram / Lombok / Denpasar">
+                </div>
+                <div>
+                    <label>Instagram</label>
+                    <input name="instagram_handle" placeholder="@tokocustomer">
+                </div>
+                <div>
+                    <label>Tipe Customer</label>
+                    <select name="customer_type">
+                        {% for customer_type in customer_types %}
+                        <option value="{{ customer_type }}">{{ customer_type|replace('_', ' ')|title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Channel Marketing</label>
+                    <input name="marketing_channel" placeholder="Meta Ads / Organik / Repeat Order">
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan CRM</label>
+                    <textarea name="note" rows="3" placeholder="Contoh: suka brand Speedo, repeat order tiap akhir bulan, responsif via WA."></textarea>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Simpan Contact</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="table-box">
+        <div class="section-title">
+            <div>
+                <h2>Customer Contact Matrix</h2>
+                <p>Kolom produk dibangun dari histori pembelian CRM, jadi tim bisa cepat melihat minat SKU per customer.</p>
+            </div>
+        </div>
+        {% if customers %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Kontak</th>
+                    <th>Tipe</th>
+                    <th>Gudang</th>
+                    <th>Purchase</th>
+                    <th>Member</th>
+                    <th>Produk Pernah Dibeli</th>
+                    {% if can_manage_crm %}<th>Aksi</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for customer in customers %}
+                <tr>
+                    <td>
+                        <strong>{{ customer.customer_name }}</strong>
+                        {% if customer.city %}<div class="helper-text">{{ customer.city }}</div>{% endif %}
+                    </td>
+                    <td>
+                        {{ customer.contact_person or "-" }}
+                        <div class="helper-text">{{ customer.phone or customer.email or customer.instagram_handle or "-" }}</div>
+                    </td>
+                    <td>
+                        <span class="badge">{{ customer.customer_type|replace('_', ' ')|title }}</span>
+                    </td>
+                    <td>{{ customer.warehouse_name or "-" }}</td>
+                    <td>
+                        <strong>{{ customer.purchase_count }}</strong>
+                        <div class="helper-text">
+                            Rp {{ "{:,.0f}".format(customer.total_spent or 0).replace(",", ".") }}
+                            {% if customer.last_purchase_date %}<br>{{ customer.last_purchase_date }}{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        {% if customer.member_code %}
+                        <span class="badge green">{{ customer.member_code }}</span>
+                        <div class="helper-text">{{ customer.membership_status|replace('_', ' ')|title }}</div>
+                        {% else %}
+                        <span class="badge">Non Member</span>
+                        {% endif %}
+                    </td>
+                    <td class="crm-long-text">{{ customer.products_summary or "-" }}</td>
+                    {% if can_manage_crm %}
+                    <td>
+                        <form method="POST" action="/crm/customers/delete/{{ customer.id }}">
+                            <button type="submit" class="danger-button" onclick="return confirm('Hapus contact customer ini?')">Hapus</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada contact customer pada scope CRM ini.</div>
+        {% endif %}
+    </div>
+{% elif selected_tab == "purchases" %}
+    {% if can_manage_crm %}
+    <div class="form-box ops-batch-box">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Purchase Record</h2>
+                <p>Catat barang yang dibeli customer per transaksi supaya histori pembelian bisa langsung dipakai untuk analisis marketing.</p>
+            </div>
+        </div>
+
+        <form method="POST" action="/crm/purchases/add" onsubmit="return handleCrmPurchaseSubmit()">
+            <input type="hidden" name="items_json" id="crmPurchaseItemsJson">
+
+            <div class="form-grid ops-config-grid">
+                <div>
+                    <label>Gudang / Toko</label>
+                    <select id="crmPurchaseWarehouse" name="warehouse_id" required {% if scoped_crm_warehouse %}disabled{% endif %}>
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id or (scoped_crm_warehouse and scoped_crm_warehouse == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if scoped_crm_warehouse %}
+                    <input type="hidden" name="warehouse_id" value="{{ scoped_crm_warehouse }}">
+                    {% endif %}
+                </div>
+                <div>
+                    <label>Customer</label>
+                    <select id="crmPurchaseCustomer" name="customer_id" required>
+                        <option value="">Pilih customer</option>
+                        {% for customer in customer_options %}
+                        <option value="{{ customer.id }}">{{ customer.customer_name }}{% if customer.contact_person %} | {{ customer.contact_person }}{% endif %} | {{ customer.warehouse_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Member (opsional)</label>
+                    <select id="crmPurchaseMember" name="member_id">
+                        <option value="">Tanpa member</option>
+                        {% for member in member_options %}
+                        <option value="{{ member.id }}" data-customer-id="{{ member.customer_id if member.customer_id is defined else '' }}">{{ member.member_code }} | {{ member.customer_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Tanggal Pembelian</label>
+                    <input type="date" id="crmPurchaseDate" name="purchase_date" required>
+                </div>
+                <div>
+                    <label>No. Invoice</label>
+                    <input name="invoice_no" placeholder="INV-CRM-001">
+                </div>
+                <div>
+                    <label>Channel</label>
+                    <select name="channel">
+                        {% for channel in purchase_channels %}
+                        <option value="{{ channel }}">{{ channel|replace('_', ' ')|title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Transaksi</label>
+                    <textarea name="note" rows="3" placeholder="Contoh: follow up repeat order Ramadhan, customer fokus ke raket dan grip premium."></textarea>
+                </div>
+            </div>
+
+            <div class="ops-entry-box">
+                <div class="section-title">
+                    <div>
+                        <h3>Tambah Item Pembelian</h3>
+                        <p>Pilih produk dari daftar barang, isi qty dan harga jual aktual per item, lalu masukkan ke batch transaksi customer.</p>
+                    </div>
+                </div>
+
+                <div class="ops-entry-grid outbound-entry-grid crm-purchase-entry-grid">
+                    <div class="ops-entry-item">
+                        <label>Barang</label>
+                        <div class="ops-item-selector">
+                            <input type="text" id="crmPurchaseDraftDisplay" class="ops-item-display" placeholder="Klik ikon untuk pilih barang" readonly>
+                            <button type="button" class="ghost-button ops-picker-button" onclick="openCrmPurchasePicker()" aria-label="Buka daftar barang">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M10 4H5a1 1 0 0 0-1 1v14l4-3h11a1 1 0 0 0 1-1v-5h-2v4H7.2L6 15V6h4z"></path>
+                                    <path d="M14.5 4.5 19.5 9.5"></path>
+                                    <path d="M13 11l6.5-6.5 2 2L15 13l-2.5.5z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <small id="crmPurchaseDraftMeta" class="helper-text ops-item-meta">Belum ada barang yang dipilih.</small>
+                    </div>
+
+                    <div class="ops-entry-stock">
+                        <label>Stok Referensi</label>
+                        <div class="ops-stock-card">
+                            <strong id="crmPurchaseDraftStockValue" class="ops-stock-value">0</strong>
+                            <small id="crmPurchaseDraftStockState" class="ops-stock-state stock-empty">Pakai sebagai referensi stok saat transaksi dicatat.</small>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label>Qty</label>
+                        <input type="number" id="crmPurchaseDraftQty" min="1" step="1" placeholder="0">
+                        <small id="crmPurchaseDraftFeedback" class="helper-text ops-row-feedback">Isi qty pembelian untuk item aktif.</small>
+                    </div>
+
+                    <div>
+                        <label>Harga Jual</label>
+                        <input type="number" id="crmPurchaseDraftUnitPrice" min="0" step="0.01" placeholder="0">
+                    </div>
+
+                    <div class="ops-entry-actions">
+                        <button type="button" onclick="addCrmPurchaseItem()">Tambah</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-box ops-queue-box">
+                <table class="ops-queue-table crm-purchase-queue-table">
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Barang</th>
+                            <th>Qty</th>
+                            <th>Harga Jual</th>
+                            <th>Total</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crmPurchaseQueueBody"></tbody>
+                </table>
+            </div>
+
+            <div class="split-actions" style="margin-top:16px;">
+                <button id="crmPurchaseSubmitButton" type="submit">Simpan Purchase Record</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="table-box">
+        <div class="section-title">
+            <div>
+                <h2>Purchase History</h2>
+                <p>Setiap transaksi menyimpan detail item, channel, dan relasi ke customer/member agar analisis marketing tidak hilang di level SKU.</p>
+            </div>
+        </div>
+        {% if purchases %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Customer</th>
+                    <th>Item</th>
+                    <th>Channel</th>
+                    <th>Total</th>
+                    <th>Member</th>
+                    <th>Catatan</th>
+                    {% if can_manage_crm %}<th>Aksi</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for purchase in purchases %}
+                <tr>
+                    <td>
+                        <strong>{{ purchase.purchase_date }}</strong>
+                        <div class="helper-text">{{ purchase.invoice_no or "-" }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ purchase.customer_name }}</strong>
+                        <div class="helper-text">{{ purchase.contact_person or "-" }} | {{ purchase.warehouse_name or "-" }}</div>
+                    </td>
+                    <td class="crm-long-text">
+                        {{ purchase.items_summary }}
+                        <div class="helper-text">{{ purchase.total_qty }} pcs / item units</div>
+                    </td>
+                    <td><span class="badge">{{ purchase.channel|replace('_', ' ')|title }}</span></td>
+                    <td>Rp {{ "{:,.0f}".format(purchase.total_amount or 0).replace(",", ".") }}</td>
+                    <td>
+                        {% if purchase.member_code %}
+                        <span class="badge green">{{ purchase.member_code }}</span>
+                        {% else %}
+                        <span class="badge">Non Member</span>
+                        {% endif %}
+                    </td>
+                    <td class="crm-long-text">{{ purchase.note or "-" }}</td>
+                    {% if can_manage_crm %}
+                    <td>
+                        <form method="POST" action="/crm/purchases/delete/{{ purchase.id }}">
+                            <button type="submit" class="danger-button" onclick="return confirm('Hapus purchase record ini?')">Hapus</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada purchase record pada scope CRM ini.</div>
+        {% endif %}
+    </div>
+{% else %}
+    {% if can_manage_crm %}
+    <div class="cards crm-members-grid">
+        <div class="form-box">
+            <div class="section-title">
+                <div>
+                    <h2>Tambah Member</h2>
+                    <p>Hubungkan member ke contact customer agar seluruh histori belanja dan aktivitas loyalty tetap terbaca dalam satu relasi.</p>
+                </div>
+            </div>
+            <form method="POST" action="/crm/members/add">
+                <div class="form-grid">
+                    <div>
+                        <label>Customer</label>
+                        <select name="customer_id" required>
+                            <option value="">Pilih customer</option>
+                            {% for customer in customer_options %}
+                            <option value="{{ customer.id }}">{{ customer.customer_name }} | {{ customer.warehouse_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Kode Member</label>
+                        <input name="member_code" placeholder="MBR-0001" required>
+                    </div>
+                    <div>
+                        <label>Tier</label>
+                        <select name="tier">
+                            {% for tier in membership_tiers %}
+                            <option value="{{ tier }}">{{ tier|replace('_', ' ')|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Status</label>
+                        <select name="status">
+                            {% for status in membership_statuses %}
+                            <option value="{{ status }}">{{ status|replace('_', ' ')|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Tanggal Join</label>
+                        <input type="date" name="join_date" required>
+                    </div>
+                    <div>
+                        <label>Expired</label>
+                        <input type="date" name="expiry_date">
+                    </div>
+                    <div>
+                        <label>Points</label>
+                        <input type="number" name="points" value="0">
+                    </div>
+                    <div>
+                        <label>Benefit</label>
+                        <input name="benefit_note" placeholder="Diskon khusus / akses pre-order">
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Catatan Member</label>
+                        <textarea name="note" rows="3" placeholder="Contoh: pelanggan prioritas event launching, suka kategori sepatu badminton."></textarea>
+                    </div>
+                </div>
+                <div class="split-actions" style="margin-top:16px;">
+                    <button type="submit">Simpan Member</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="form-box">
+            <div class="section-title">
+                <div>
+                    <h2>Tambah Member Record</h2>
+                    <p>Record manual dipakai untuk join, renewal, point adjustment, atau catatan loyalty di luar transaksi pembelian.</p>
+                </div>
+            </div>
+            <form method="POST" action="/crm/member-records/add">
+                <div class="form-grid">
+                    <div>
+                        <label>Member</label>
+                        <select name="member_id" required>
+                            <option value="">Pilih member</option>
+                            {% for member in member_options %}
+                            <option value="{{ member.id }}">{{ member.member_code }} | {{ member.customer_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Tanggal Record</label>
+                        <input type="date" name="record_date" required>
+                    </div>
+                    <div>
+                        <label>Tipe Record</label>
+                        <select name="record_type">
+                            {% for record_type in member_record_types %}
+                            <option value="{{ record_type }}">{{ record_type|replace('_', ' ')|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Reference</label>
+                        <input name="reference_no" placeholder="Voucher / invoice / event">
+                    </div>
+                    <div>
+                        <label>Amount</label>
+                        <input type="number" name="amount" min="0" step="0.01" value="0">
+                    </div>
+                    <div>
+                        <label>Points Delta</label>
+                        <input type="number" name="points_delta" value="0">
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Catatan Record</label>
+                        <textarea name="note" rows="3" placeholder="Contoh: join event badminton, dapat bonus poin, atau renewal membership tahunan."></textarea>
+                    </div>
+                </div>
+                <div class="split-actions" style="margin-top:16px;">
+                    <button type="submit">Simpan Record</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="table-box">
+        <div class="section-title">
+            <div>
+                <h2>Register Member</h2>
+                <p>Member dihubungkan ke contact customer, lalu total spend dan jumlah record-nya ditarik sebagai snapshot CRM loyalty.</p>
+            </div>
+        </div>
+        {% if memberships %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Member</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Points</th>
+                    <th>Join / Expiry</th>
+                    <th>Record</th>
+                    <th>Total Spend</th>
+                    {% if can_manage_crm %}<th>Aksi</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for member in memberships %}
+                <tr>
+                    <td>
+                        <strong>{{ member.member_code }}</strong>
+                        <div class="helper-text">{{ member.tier|replace('_', ' ')|title }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ member.customer_name }}</strong>
+                        <div class="helper-text">{{ member.contact_person or member.phone or "-" }}</div>
+                    </td>
+                    <td>
+                        <span class="badge {% if member.status == 'active' %}green{% elif member.status == 'expired' %}red{% else %}orange{% endif %}">{{ member.status|replace('_', ' ')|title }}</span>
+                        <div class="helper-text">{{ member.warehouse_name or "-" }}</div>
+                    </td>
+                    <td>{{ member.points }}</td>
+                    <td>{{ member.join_date }}<div class="helper-text">{{ member.expiry_date or "-" }}</div></td>
+                    <td>{{ member.record_count }}<div class="helper-text">{{ member.last_record_date or "-" }}</div></td>
+                    <td>Rp {{ "{:,.0f}".format(member.total_member_spend or 0).replace(",", ".") }}</td>
+                    {% if can_manage_crm %}
+                    <td>
+                        <form method="POST" action="/crm/members/delete/{{ member.id }}">
+                            <button type="submit" class="danger-button" onclick="return confirm('Hapus member ini?')">Hapus</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada member terdaftar pada scope CRM ini.</div>
+        {% endif %}
+    </div>
+
+    <div class="table-box">
+        <div class="section-title">
+            <div>
+                <h2>Member Record History</h2>
+                <p>Purchase dari tab CRM akan otomatis masuk ke sini jika transaksi dihubungkan ke member. Record manual tetap bisa dipakai untuk activity loyalty lain.</p>
+            </div>
+        </div>
+        {% if member_records %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Member</th>
+                    <th>Tipe</th>
+                    <th>Reference</th>
+                    <th>Amount</th>
+                    <th>Points</th>
+                    <th>Catatan</th>
+                    {% if can_manage_crm %}<th>Aksi</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in member_records %}
+                <tr>
+                    <td>{{ record.record_date }}</td>
+                    <td>
+                        <strong>{{ record.member_code }}</strong>
+                        <div class="helper-text">{{ record.customer_name }}</div>
+                    </td>
+                    <td><span class="badge">{{ record.record_type|replace('_', ' ')|title }}</span></td>
+                    <td>{{ record.reference_no or "-" }}</td>
+                    <td>Rp {{ "{:,.0f}".format(record.amount or 0).replace(",", ".") }}</td>
+                    <td>{{ record.points_delta }}</td>
+                    <td class="crm-long-text">{{ record.note or "-" }}</td>
+                    {% if can_manage_crm %}
+                    <td>
+                        {% if record.purchase_id %}
+                        <span class="badge">Auto Purchase</span>
+                        {% else %}
+                        <form method="POST" action="/crm/member-records/delete/{{ record.id }}">
+                            <button type="submit" class="danger-button" onclick="return confirm('Hapus record member ini?')">Hapus</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada record member pada scope CRM ini.</div>
+        {% endif %}
+    </div>
+{% endif %}
+
+{% include "partials/item_picker_modal.html" %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/item_picker.js"></script>
+<script>
+const crmPurchaseWarehouse = document.getElementById("crmPurchaseWarehouse");
+const crmPurchaseCustomer = document.getElementById("crmPurchaseCustomer");
+const crmPurchaseMember = document.getElementById("crmPurchaseMember");
+const crmPurchaseDate = document.getElementById("crmPurchaseDate");
+const crmPurchaseItemsJson = document.getElementById("crmPurchaseItemsJson");
+const crmPurchaseSubmitButton = document.getElementById("crmPurchaseSubmitButton");
+const crmPurchaseQueueBody = document.getElementById("crmPurchaseQueueBody");
+const crmPurchaseDraftDisplay = document.getElementById("crmPurchaseDraftDisplay");
+const crmPurchaseDraftMeta = document.getElementById("crmPurchaseDraftMeta");
+const crmPurchaseDraftStockValue = document.getElementById("crmPurchaseDraftStockValue");
+const crmPurchaseDraftStockState = document.getElementById("crmPurchaseDraftStockState");
+const crmPurchaseDraftQty = document.getElementById("crmPurchaseDraftQty");
+const crmPurchaseDraftUnitPrice = document.getElementById("crmPurchaseDraftUnitPrice");
+const crmPurchaseDraftFeedback = document.getElementById("crmPurchaseDraftFeedback");
+
+const crmPurchaseDraft = { product_id: 0, variant_id: 0, sku: "", name: "", variant_label: "", category: "", gtin: "", stock: 0 };
+const crmPurchaseItems = [];
+
+function formatCrmCurrency(value) {
+    return `Rp ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(value || 0))}`;
+}
+
+function resetCrmPurchaseDraft() {
+    crmPurchaseDraft.product_id = 0;
+    crmPurchaseDraft.variant_id = 0;
+    crmPurchaseDraft.sku = "";
+    crmPurchaseDraft.name = "";
+    crmPurchaseDraft.variant_label = "";
+    crmPurchaseDraft.category = "";
+    crmPurchaseDraft.gtin = "";
+    crmPurchaseDraft.stock = 0;
+    if (crmPurchaseDraftDisplay) crmPurchaseDraftDisplay.value = "";
+    if (crmPurchaseDraftMeta) crmPurchaseDraftMeta.textContent = "Belum ada barang yang dipilih.";
+    if (crmPurchaseDraftQty) crmPurchaseDraftQty.value = "";
+    if (crmPurchaseDraftUnitPrice) crmPurchaseDraftUnitPrice.value = "";
+    if (crmPurchaseDraftStockValue) crmPurchaseDraftStockValue.textContent = "0";
+    if (crmPurchaseDraftStockState) {
+        crmPurchaseDraftStockState.textContent = "Pakai sebagai referensi stok saat transaksi dicatat.";
+        crmPurchaseDraftStockState.className = "ops-stock-state stock-empty";
+    }
+    if (crmPurchaseDraftFeedback) {
+        crmPurchaseDraftFeedback.textContent = "Isi qty pembelian untuk item aktif.";
+        crmPurchaseDraftFeedback.className = "helper-text ops-row-feedback";
+    }
+}
+
+function setCrmPurchaseDraftStock(qty) {
+    if (!crmPurchaseDraftStockValue || !crmPurchaseDraftStockState) return;
+    const safeQty = Number(qty || 0);
+    crmPurchaseDraft.stock = safeQty;
+    crmPurchaseDraftStockValue.textContent = safeQty;
+    if (safeQty <= 0) {
+        crmPurchaseDraftStockState.textContent = "Stok saat ini kosong, tapi histori tetap bisa dicatat.";
+        crmPurchaseDraftStockState.className = "ops-stock-state stock-empty";
+    } else if (safeQty < 5) {
+        crmPurchaseDraftStockState.textContent = "Stok tipis, cocok untuk membaca urgency repeat order.";
+        crmPurchaseDraftStockState.className = "ops-stock-state stock-low";
+    } else {
+        crmPurchaseDraftStockState.textContent = "Stok referensi aman untuk item ini.";
+        crmPurchaseDraftStockState.className = "ops-stock-state stock-ok";
+    }
+}
+
+function validateCrmPurchaseDraft() {
+    if (!crmPurchaseDraftFeedback) return false;
+    const qty = Number(crmPurchaseDraftQty?.value || 0);
+    const price = Number(crmPurchaseDraftUnitPrice?.value || 0);
+    if (!crmPurchaseDraft.product_id || !crmPurchaseDraft.variant_id) {
+        crmPurchaseDraftFeedback.textContent = "Pilih barang dulu sebelum tambah ke purchase record.";
+        crmPurchaseDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+    if (qty <= 0) {
+        crmPurchaseDraftFeedback.textContent = "Qty pembelian harus lebih dari 0.";
+        crmPurchaseDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+    if (price < 0) {
+        crmPurchaseDraftFeedback.textContent = "Harga jual tidak boleh negatif.";
+        crmPurchaseDraftFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+    crmPurchaseDraftFeedback.textContent = `Siap menambah ${qty} item dengan subtotal ${formatCrmCurrency(qty * price)}.`;
+    crmPurchaseDraftFeedback.className = "helper-text ops-row-feedback stock-ok";
+    return true;
+}
+
+function renderCrmPurchaseQueue() {
+    if (!crmPurchaseQueueBody) return;
+    if (!crmPurchaseItems.length) {
+        crmPurchaseQueueBody.innerHTML = `<tr><td colspan="6"><div class="ops-queue-empty">Belum ada item pembelian di batch CRM ini.</div></td></tr>`;
+        return;
+    }
+    crmPurchaseQueueBody.innerHTML = crmPurchaseItems.map((item, index) => `
+        <tr>
+            <td>${index + 1}</td>
+            <td><strong>${item.display_name}</strong><div class="helper-text">${item.variant_label} | Stok ref ${item.stock}</div></td>
+            <td>${item.qty}</td>
+            <td>${formatCrmCurrency(item.unit_price)}</td>
+            <td>${formatCrmCurrency(item.line_total)}</td>
+            <td><button type="button" class="danger-button" data-remove-index="${index}">Hapus</button></td>
+        </tr>
+    `).join("");
+}
+
+function addCrmPurchaseItem() {
+    if (!validateCrmPurchaseDraft()) return;
+    const qty = Number(crmPurchaseDraftQty.value || 0);
+    const unitPrice = Number(crmPurchaseDraftUnitPrice.value || 0);
+    crmPurchaseItems.push({
+        product_id: crmPurchaseDraft.product_id,
+        variant_id: crmPurchaseDraft.variant_id,
+        display_name: `${crmPurchaseDraft.sku} - ${crmPurchaseDraft.name}`,
+        variant_label: crmPurchaseDraft.variant_label,
+        stock: crmPurchaseDraft.stock,
+        qty,
+        unit_price: unitPrice,
+        line_total: qty * unitPrice,
+    });
+    renderCrmPurchaseQueue();
+    resetCrmPurchaseDraft();
+}
+
+function handleCrmPurchaseSubmit() {
+    if (!crmPurchaseCustomer?.value) {
+        alert("Pilih customer dulu.");
+        return false;
+    }
+    if (!crmPurchaseDate?.value) {
+        alert("Tanggal pembelian wajib diisi.");
+        return false;
+    }
+    if (!crmPurchaseItems.length) {
+        alert("Tambahkan minimal satu item pembelian.");
+        return false;
+    }
+    crmPurchaseItemsJson.value = JSON.stringify(crmPurchaseItems);
+    if (crmPurchaseSubmitButton) {
+        crmPurchaseSubmitButton.textContent = "Menyimpan...";
+        crmPurchaseSubmitButton.disabled = true;
+    }
+    return true;
+}
+
+function syncCrmMemberOptions() {
+    if (!crmPurchaseCustomer || !crmPurchaseMember) return;
+    const selectedCustomer = crmPurchaseCustomer.value;
+    Array.from(crmPurchaseMember.options).forEach((option, index) => {
+        if (index === 0) {
+            option.hidden = false;
+            return;
+        }
+        const matchCustomerId = option.dataset.customerId;
+        option.hidden = Boolean(selectedCustomer) && matchCustomerId && matchCustomerId !== selectedCustomer;
+    });
+    if (crmPurchaseMember.selectedOptions[0]?.hidden) {
+        crmPurchaseMember.value = "";
+    }
+}
+
+const crmPurchasePicker = (document.getElementById("itemPickerModal") && crmPurchaseWarehouse)
+    ? createItemPicker({
+        endpoint: "/products/picker",
+        modalId: "itemPickerModal",
+        bodyId: "itemPickerBody",
+        searchId: "itemPickerSearch",
+        summaryId: "itemPickerSummary",
+        pageId: "itemPickerPage",
+        warehouseIdLabel: "itemPickerWarehouse",
+        prevButtonId: "itemPickerPrev",
+        nextButtonId: "itemPickerNext",
+        mode: "outbound",
+        getWarehouseId: () => crmPurchaseWarehouse.value,
+        getWarehouseLabel: () => crmPurchaseWarehouse.options[crmPurchaseWarehouse.selectedIndex]?.text || crmPurchaseWarehouse.value,
+        onPick(_, item) {
+            crmPurchaseDraft.product_id = Number(item.product_id || 0);
+            crmPurchaseDraft.variant_id = Number(item.variant_id || 0);
+            crmPurchaseDraft.sku = item.sku || "";
+            crmPurchaseDraft.name = item.name || "";
+            crmPurchaseDraft.variant_label = item.variant_label || "Default";
+            crmPurchaseDraft.category = item.category || "-";
+            crmPurchaseDraft.gtin = item.gtin || "";
+            if (crmPurchaseDraftDisplay) crmPurchaseDraftDisplay.value = `${item.sku} - ${item.name}`;
+            if (crmPurchaseDraftMeta) crmPurchaseDraftMeta.textContent = `${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}`;
+            setCrmPurchaseDraftStock(Number(item.qty || 0));
+            validateCrmPurchaseDraft();
+        },
+    })
+    : null;
+
+function openCrmPurchasePicker() {
+    crmPurchasePicker?.openForRow(document.body);
+}
+
+crmPurchaseDraftQty?.addEventListener("input", validateCrmPurchaseDraft);
+crmPurchaseDraftUnitPrice?.addEventListener("input", validateCrmPurchaseDraft);
+crmPurchaseCustomer?.addEventListener("change", syncCrmMemberOptions);
+crmPurchaseWarehouse?.addEventListener("change", () => {
+    crmPurchaseItems.length = 0;
+    renderCrmPurchaseQueue();
+    resetCrmPurchaseDraft();
+    crmPurchasePicker?.refresh();
+});
+crmPurchaseQueueBody?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-index]");
+    if (!button) return;
+    crmPurchaseItems.splice(Number(button.dataset.removeIndex), 1);
+    renderCrmPurchaseQueue();
+});
+
+syncCrmMemberOptions();
+renderCrmPurchaseQueue();
+resetCrmPurchaseDraft();
+</script>
+{% endblock %}

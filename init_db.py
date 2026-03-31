@@ -69,6 +69,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "users", "notify_whatsapp", "INTEGER DEFAULT 0")
     # user assigned warehouse (for single-warehouse roles)
     _ensure_column(cursor, "users", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "users", "employee_id", "INTEGER")
     _ensure_column(cursor, "owner_requests", "note", "TEXT")
     _ensure_column(cursor, "owner_requests", "status", "TEXT DEFAULT 'pending'")
     _ensure_column(cursor, "owner_requests", "requested_by", "INTEGER")
@@ -217,10 +218,39 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "biometric_logs", "punch_time", "TEXT")
     _ensure_column(cursor, "biometric_logs", "punch_type", "TEXT DEFAULT 'check_in'")
     _ensure_column(cursor, "biometric_logs", "sync_status", "TEXT DEFAULT 'queued'")
+    _ensure_column(cursor, "biometric_logs", "location_label", "TEXT")
+    _ensure_column(cursor, "biometric_logs", "latitude", "REAL")
+    _ensure_column(cursor, "biometric_logs", "longitude", "REAL")
+    _ensure_column(cursor, "biometric_logs", "accuracy_m", "REAL DEFAULT 0")
+    _ensure_column(cursor, "biometric_logs", "photo_path", "TEXT")
+    _ensure_column(cursor, "biometric_logs", "photo_captured_at", "TEXT")
     _ensure_column(cursor, "biometric_logs", "note", "TEXT")
     _ensure_column(cursor, "biometric_logs", "handled_by", "INTEGER")
     _ensure_column(cursor, "biometric_logs", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "biometric_logs", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "announcement_posts", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "announcement_posts", "title", "TEXT")
+    _ensure_column(cursor, "announcement_posts", "audience", "TEXT DEFAULT 'all'")
+    _ensure_column(cursor, "announcement_posts", "publish_date", "TEXT")
+    _ensure_column(cursor, "announcement_posts", "expires_at", "TEXT")
+    _ensure_column(cursor, "announcement_posts", "status", "TEXT DEFAULT 'draft'")
+    _ensure_column(cursor, "announcement_posts", "channel", "TEXT")
+    _ensure_column(cursor, "announcement_posts", "message", "TEXT")
+    _ensure_column(cursor, "announcement_posts", "handled_by", "INTEGER")
+    _ensure_column(cursor, "announcement_posts", "handled_at", "TIMESTAMP")
+    _ensure_column(cursor, "announcement_posts", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "document_records", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "document_records", "document_title", "TEXT")
+    _ensure_column(cursor, "document_records", "document_code", "TEXT")
+    _ensure_column(cursor, "document_records", "document_type", "TEXT DEFAULT 'other'")
+    _ensure_column(cursor, "document_records", "status", "TEXT DEFAULT 'draft'")
+    _ensure_column(cursor, "document_records", "effective_date", "TEXT")
+    _ensure_column(cursor, "document_records", "review_date", "TEXT")
+    _ensure_column(cursor, "document_records", "owner_name", "TEXT")
+    _ensure_column(cursor, "document_records", "note", "TEXT")
+    _ensure_column(cursor, "document_records", "handled_by", "INTEGER")
+    _ensure_column(cursor, "document_records", "handled_at", "TIMESTAMP")
+    _ensure_column(cursor, "document_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
 
 
 def init_db(db_path=None):
@@ -700,6 +730,12 @@ def init_db(db_path=None):
         punch_time TEXT NOT NULL,
         punch_type TEXT DEFAULT 'check_in',
         sync_status TEXT DEFAULT 'queued',
+        location_label TEXT,
+        latitude REAL,
+        longitude REAL,
+        accuracy_m REAL DEFAULT 0,
+        photo_path TEXT,
+        photo_captured_at TEXT,
         note TEXT,
         handled_by INTEGER,
         handled_at TIMESTAMP,
@@ -709,6 +745,251 @@ def init_db(db_path=None):
         FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
         FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS announcement_posts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        audience TEXT DEFAULT 'all',
+        publish_date TEXT NOT NULL,
+        expires_at TEXT,
+        status TEXT DEFAULT 'draft',
+        channel TEXT,
+        message TEXT,
+        handled_by INTEGER,
+        handled_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS document_records(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER NOT NULL,
+        document_title TEXT NOT NULL,
+        document_code TEXT NOT NULL UNIQUE,
+        document_type TEXT DEFAULT 'other',
+        status TEXT DEFAULT 'draft',
+        effective_date TEXT NOT NULL,
+        review_date TEXT,
+        owner_name TEXT,
+        note TEXT,
+        handled_by INTEGER,
+        handled_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS crm_customers(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER NOT NULL,
+        customer_name TEXT NOT NULL,
+        contact_person TEXT,
+        phone TEXT,
+        email TEXT,
+        city TEXT,
+        instagram_handle TEXT,
+        customer_type TEXT DEFAULT 'retail',
+        marketing_channel TEXT,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(warehouse_id, customer_name, phone),
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS crm_memberships(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL UNIQUE,
+        warehouse_id INTEGER NOT NULL,
+        member_code TEXT NOT NULL UNIQUE,
+        tier TEXT DEFAULT 'regular',
+        status TEXT DEFAULT 'active',
+        join_date TEXT NOT NULL,
+        expiry_date TEXT,
+        points INTEGER DEFAULT 0,
+        benefit_note TEXT,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(customer_id) REFERENCES crm_customers(id),
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS crm_purchase_records(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL,
+        member_id INTEGER,
+        warehouse_id INTEGER NOT NULL,
+        purchase_date TEXT NOT NULL,
+        invoice_no TEXT,
+        channel TEXT DEFAULT 'store',
+        items_count INTEGER DEFAULT 0,
+        total_amount REAL DEFAULT 0,
+        note TEXT,
+        handled_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(customer_id) REFERENCES crm_customers(id),
+        FOREIGN KEY(member_id) REFERENCES crm_memberships(id),
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS crm_purchase_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        variant_id INTEGER NOT NULL,
+        qty INTEGER DEFAULT 1,
+        unit_price REAL DEFAULT 0,
+        line_total REAL DEFAULT 0,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(purchase_id) REFERENCES crm_purchase_records(id) ON DELETE CASCADE,
+        FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
+        FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS crm_member_records(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_id INTEGER NOT NULL,
+        purchase_id INTEGER,
+        warehouse_id INTEGER NOT NULL,
+        record_date TEXT NOT NULL,
+        record_type TEXT DEFAULT 'note',
+        reference_no TEXT,
+        amount REAL DEFAULT 0,
+        points_delta INTEGER DEFAULT 0,
+        note TEXT,
+        handled_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(member_id) REFERENCES crm_memberships(id) ON DELETE CASCADE,
+        FOREIGN KEY(purchase_id) REFERENCES crm_purchase_records(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS chat_threads(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        direct_key TEXT NOT NULL UNIQUE,
+        created_by INTEGER,
+        last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(created_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS chat_thread_members(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        last_read_message_id INTEGER,
+        last_read_at TIMESTAMP,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(thread_id, user_id),
+        FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS chat_messages(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL,
+        sender_id INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
+        FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS user_presence(
+        user_id INTEGER PRIMARY KEY,
+        current_path TEXT,
+        active_thread_id INTEGER,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(active_thread_id) REFERENCES chat_threads(id) ON DELETE SET NULL
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS schedule_shift_codes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        bg_color TEXT DEFAULT '#C6E5AB',
+        text_color TEXT DEFAULT '#17351A',
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS schedule_employee_profiles(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL UNIQUE,
+        custom_name TEXT,
+        display_group TEXT,
+        location_label TEXT,
+        display_order INTEGER DEFAULT 0,
+        include_in_schedule INTEGER DEFAULT 1,
+        note TEXT,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS schedule_entries(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        schedule_date TEXT NOT NULL,
+        shift_code TEXT,
+        note TEXT,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(employee_id, schedule_date),
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+        FOREIGN KEY(shift_code) REFERENCES schedule_shift_codes(code),
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS schedule_day_notes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schedule_date TEXT NOT NULL UNIQUE,
+        note TEXT,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
     )
     """)
 
@@ -754,6 +1035,22 @@ def init_db(db_path=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_asset_records_main ON asset_records(warehouse_id, asset_status, condition_status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_project_records_main ON project_records(warehouse_id, priority, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_biometric_logs_main ON biometric_logs(warehouse_id, punch_time, punch_type, sync_status, employee_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_announcement_posts_main ON announcement_posts(warehouse_id, audience, status, publish_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_document_records_main ON document_records(warehouse_id, document_type, status, effective_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crm_customers_main ON crm_customers(warehouse_id, customer_name, customer_type)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crm_memberships_main ON crm_memberships(warehouse_id, tier, status, join_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_records_main ON crm_purchase_records(warehouse_id, purchase_date, customer_id, member_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_items_main ON crm_purchase_items(purchase_id, product_id, variant_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crm_member_records_main ON crm_member_records(warehouse_id, record_date, member_id, record_type)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_main ON chat_threads(last_message_at, updated_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_thread_members(user_id, thread_id, last_read_message_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id, id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_sender ON chat_messages(sender_id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_user_presence_last_seen ON user_presence(last_seen_at, active_thread_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_shift_codes_main ON schedule_shift_codes(sort_order, code, is_active)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_profiles_main ON schedule_employee_profiles(display_group, display_order, employee_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_entries_main ON schedule_entries(employee_id, schedule_date, shift_code)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_day_notes_main ON schedule_day_notes(schedule_date)")
 
     # ==========================
     # APPROVALS (for inbound/outbound/adjust requests)
@@ -822,6 +1119,30 @@ def init_db(db_path=None):
             "INSERT INTO users(username,password,role) VALUES (?,?,?)",
             ("admin", generate_password_hash("admin123"), "admin")
         )
+
+    c.executemany(
+        """
+        INSERT OR IGNORE INTO schedule_shift_codes(
+            code,
+            label,
+            bg_color,
+            text_color,
+            sort_order,
+            is_active
+        )
+        VALUES (?,?,?,?,?,1)
+        """,
+        [
+            ("P", "Pagi", "#C6E5AB", "#17351A", 10),
+            ("S", "Siang", "#FFE8A2", "#4B3500", 20),
+            ("PM", "Pagi Menengah", "#B7DFC7", "#0F3A2B", 30),
+            ("PS10", "Pagi 10", "#B9E8F2", "#0E4354", 40),
+            ("OFF", "Off", "#F59C8B", "#7C1F1F", 50),
+            ("SM", "Shift Malam", "#D7C2F5", "#35205D", 60),
+            ("SO1", "Stock Opname 1", "#E5ECF6", "#23384E", 70),
+            ("SO2", "Stock Opname 2", "#D8E4FF", "#234A87", 80),
+        ],
+    )
 
     conn.commit()
     conn.close()

@@ -1,10 +1,31 @@
-from datetime import date as date_cls, datetime
+import base64
+import binascii
+import os
+from collections import defaultdict
+from datetime import date as date_cls, datetime, timedelta
+from uuid import uuid4
 
-from flask import Blueprint, render_template, request, redirect, flash, session
+from flask import Blueprint, current_app, render_template, request, redirect, flash, session
 
 from database import get_db
-from services.hris_catalog import get_hris_module, get_hris_modules
-from services.rbac import is_scoped_role
+from routes.schedule import (
+    _build_board_rows as _build_schedule_board_rows,
+    _build_day_notes as _build_schedule_day_notes,
+    _build_entry_map as _build_schedule_entry_map,
+    _build_override_map as _build_schedule_override_map,
+    _build_schedule_members as _build_schedule_members,
+    _fetch_employees_for_schedule as _fetch_schedule_employees,
+    _fetch_shift_codes as _fetch_schedule_shift_codes,
+    _seed_default_shift_codes as _seed_schedule_shift_codes,
+)
+from services.hris_catalog import (
+    can_manage_hris_module,
+    get_hris_module,
+    get_hris_modules,
+    is_self_service_hris_module,
+    role_has_hris_access,
+)
+from services.rbac import has_permission, is_scoped_role
 
 
 hris_bp = Blueprint("hris", __name__, url_prefix="/hris")
@@ -30,7 +51,26 @@ PROJECT_PRIORITIES = {"low", "medium", "high", "critical"}
 PROJECT_STATUSES = {"planning", "active", "on_hold", "completed", "cancelled"}
 BIOMETRIC_PUNCH_TYPES = {"check_in", "check_out"}
 BIOMETRIC_SYNC_STATUSES = {"queued", "synced", "failed", "manual"}
-HRIS_MANAGE_ROLES = {"super_admin", "owner", "admin", "leader"}
+BIOMETRIC_PHOTO_MIME_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+BIOMETRIC_STATUS_LABELS = {
+    "queued": "Perlu Review",
+    "synced": "Terverifikasi",
+    "manual": "Manual Override",
+    "failed": "Flagged",
+}
+ANNOUNCEMENT_AUDIENCES = {"all", "leaders", "warehouse_team"}
+ANNOUNCEMENT_STATUSES = {"draft", "published", "archived"}
+DOCUMENT_TYPES = {"policy", "sop", "form", "memo", "contract", "other"}
+DOCUMENT_STATUSES = {"draft", "active", "archived"}
+
+GEO_ATTENDANCE_NOTE = "Synced from geotag"
+DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
+DASHBOARD_SCHEDULE_PREVIEW_LIMIT = 8
+DASHBOARD_ANNOUNCEMENT_LIMIT = 6
 
 
 def _to_int(value, default=None):
@@ -51,56 +91,94 @@ def _to_float(value, default=0.0):
         return default
 
 
-def can_manage_hris_records():
-    return session.get("role") in HRIS_MANAGE_ROLES
+def _parse_iso_date(value):
+    if not value:
+        return None
+
+    try:
+        return date_cls.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def can_view_hris_records(module_slug=None):
+    role = session.get("role")
+    if module_slug:
+        return get_hris_module(module_slug, role=role) is not None
+    return role_has_hris_access(role)
+
+
+def can_manage_hris_records(module_slug=None):
+    role = session.get("role")
+    if module_slug:
+        return can_manage_hris_module(role, module_slug)
+    return any(module["can_manage"] for module in get_hris_modules(role))
 
 
 def can_manage_employee_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("employee")
 
 
 def can_manage_attendance_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("attendance")
 
 
 def can_manage_leave_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("leave")
 
 
 def can_manage_payroll_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("payroll")
 
 
 def can_manage_recruitment_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("recruitment")
 
 
 def can_manage_onboarding_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("onboarding")
 
 
 def can_manage_offboarding_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("offboarding")
 
 
 def can_manage_performance_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("pms")
 
 
 def can_manage_helpdesk_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("helpdesk")
 
 
 def can_manage_asset_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("asset")
 
 
 def can_manage_project_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("project")
 
 
 def can_manage_biometric_records():
-    return can_manage_hris_records()
+    return can_manage_hris_records("biometric")
+
+
+def can_manage_announcement_records():
+    return can_manage_hris_records("announcement")
+
+
+def can_manage_document_records():
+    return can_manage_hris_records("documents")
+
+
+def is_self_service_module(module_slug):
+    return is_self_service_hris_module(session.get("role"), module_slug)
+
+
+def _hris_access_denied_redirect():
+    if has_permission(session.get("role"), "view_schedule"):
+        return redirect("/schedule/")
+    return redirect("/")
 
 
 def get_hris_scope():
@@ -214,6 +292,117 @@ def _normalize_biometric_sync_status(value):
     return status if status in BIOMETRIC_SYNC_STATUSES else "queued"
 
 
+def _normalize_latitude(value):
+    latitude = _to_float(value, default=None)
+    if latitude is None or latitude < -90 or latitude > 90:
+        return None
+    return round(latitude, 6)
+
+
+def _normalize_longitude(value):
+    longitude = _to_float(value, default=None)
+    if longitude is None or longitude < -180 or longitude > 180:
+        return None
+    return round(longitude, 6)
+
+
+def _normalize_accuracy(value):
+    accuracy = _to_float(value, default=None)
+    if accuracy is None or accuracy < 0:
+        return None
+    return round(accuracy, 2)
+
+
+def _get_biometric_photo_upload_folder():
+    upload_folder = current_app.config.get("BIOMETRIC_PHOTO_UPLOAD_FOLDER")
+    if not upload_folder:
+        upload_folder = os.path.join(current_app.root_path, "static", "uploads", "geotag")
+    os.makedirs(upload_folder, exist_ok=True)
+    return upload_folder
+
+
+def _get_biometric_photo_url(photo_path):
+    if not photo_path:
+        return None
+
+    safe_name = os.path.basename(photo_path)
+    if not safe_name:
+        return None
+
+    base_prefix = current_app.config.get("BIOMETRIC_PHOTO_URL_PREFIX", "/static/uploads/geotag").rstrip("/")
+    return f"{base_prefix}/{safe_name}"
+
+
+def _delete_biometric_photo(photo_path):
+    if not photo_path:
+        return
+
+    safe_name = os.path.basename(photo_path)
+    if not safe_name:
+        return
+
+    file_path = os.path.join(_get_biometric_photo_upload_folder(), safe_name)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+
+def _save_biometric_photo_data(photo_data_url, existing_photo_path=None):
+    raw_data = (photo_data_url or "").strip()
+    if not raw_data:
+        return existing_photo_path
+
+    if "," not in raw_data or not raw_data.startswith("data:"):
+        return None
+
+    header, encoded = raw_data.split(",", 1)
+    mime_type = header[5:].split(";")[0].strip().lower()
+    extension = BIOMETRIC_PHOTO_MIME_TYPES.get(mime_type)
+    if not extension:
+        return None
+
+    try:
+        binary = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+
+    if not binary or len(binary) > 5 * 1024 * 1024:
+        return None
+
+    file_name = f"geotag_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}{extension}"
+    file_path = os.path.join(_get_biometric_photo_upload_folder(), file_name)
+    with open(file_path, "wb") as file_handle:
+        file_handle.write(binary)
+
+    if existing_photo_path and os.path.basename(existing_photo_path) != file_name:
+        _delete_biometric_photo(existing_photo_path)
+
+    return file_name
+
+
+def _normalize_announcement_audience(value):
+    audience = (value or "").strip().lower()
+    return audience if audience in ANNOUNCEMENT_AUDIENCES else "all"
+
+
+def _normalize_announcement_status(value):
+    status = (value or "").strip().lower()
+    return status if status in ANNOUNCEMENT_STATUSES else "draft"
+
+
+def _normalize_document_type(value):
+    document_type = (value or "").strip().lower()
+    return document_type if document_type in DOCUMENT_TYPES else "other"
+
+
+def _normalize_document_status(value):
+    status = (value or "").strip().lower()
+    return status if status in DOCUMENT_STATUSES else "draft"
+
+
+def _get_linked_employee_id():
+    return _to_int(session.get("employee_id"))
+
+
 def _calculate_leave_days(start_date, end_date):
     if not start_date or not end_date:
         return None
@@ -307,6 +496,84 @@ def _build_biometric_handling(status):
     return session.get("user_id"), _current_timestamp()
 
 
+def _build_announcement_handling(status):
+    if status == "draft":
+        return None, None
+    return session.get("user_id"), _current_timestamp()
+
+
+def _build_document_handling(status):
+    if status == "draft":
+        return None, None
+    return session.get("user_id"), _current_timestamp()
+
+
+def _insert_biometric_log_record(
+    db,
+    *,
+    employee_id,
+    warehouse_id,
+    device_name,
+    device_user_id,
+    punch_time,
+    punch_type,
+    sync_status,
+    location_label,
+    latitude,
+    longitude,
+    accuracy_m,
+    note=None,
+    photo_path=None,
+):
+    handled_by, handled_at = _build_biometric_handling(sync_status)
+    photo_captured_at = _current_timestamp() if photo_path else None
+    cursor = db.execute(
+        """
+        INSERT INTO biometric_logs(
+            employee_id,
+            warehouse_id,
+            device_name,
+            device_user_id,
+            punch_time,
+            punch_type,
+            sync_status,
+            location_label,
+            latitude,
+            longitude,
+            accuracy_m,
+            photo_path,
+            photo_captured_at,
+            note,
+            handled_by,
+            handled_at,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            employee_id,
+            warehouse_id,
+            device_name,
+            device_user_id,
+            punch_time,
+            punch_type,
+            sync_status,
+            location_label,
+            latitude,
+            longitude,
+            accuracy_m,
+            photo_path,
+            photo_captured_at,
+            note or None,
+            handled_by,
+            handled_at,
+            _current_timestamp(),
+        ),
+    )
+    _resync_attendance_from_biometrics(db, employee_id, warehouse_id, punch_time[:10])
+    return cursor.lastrowid
+
+
 def _calculate_net_pay(base_salary, allowance, overtime_pay, deduction, leave_deduction):
     return round(base_salary + allowance + overtime_pay - deduction - leave_deduction, 2)
 
@@ -329,6 +596,42 @@ def _derive_biometric_attendance_status(check_in_time):
     if check_in_time and check_in_time > "08:30":
         return "late"
     return "present"
+
+
+def _format_coordinate_pair(latitude, longitude):
+    if latitude in (None, "") or longitude in (None, ""):
+        return "-"
+    return f"{float(latitude):.5f}, {float(longitude):.5f}"
+
+
+def _format_accuracy_label(accuracy_value):
+    if accuracy_value in (None, ""):
+        return "-"
+    accuracy = float(accuracy_value)
+    if accuracy.is_integer():
+        return f"{int(accuracy)} m"
+    return f"{accuracy:.2f} m"
+
+
+def _attach_biometric_display_meta(log):
+    log["location_display"] = (log.get("location_label") or "").strip() or (log.get("device_name") or "").strip() or "-"
+    log["coordinate_display"] = _format_coordinate_pair(log.get("latitude"), log.get("longitude"))
+    log["accuracy_display"] = _format_accuracy_label(log.get("accuracy_m"))
+    log["sync_status_label"], log["status_badge_class"] = _build_biometric_status_meta(log["sync_status"])
+    log["photo_url"] = _get_biometric_photo_url(log.get("photo_path"))
+    log["has_photo"] = bool(log.get("photo_path"))
+    return log
+
+
+def _build_biometric_status_meta(status):
+    safe_status = status if status in BIOMETRIC_SYNC_STATUSES else "queued"
+    if safe_status in {"synced", "manual"}:
+        badge_class = "green"
+    elif safe_status == "queued":
+        badge_class = "orange"
+    else:
+        badge_class = "red"
+    return BIOMETRIC_STATUS_LABELS.get(safe_status, safe_status), badge_class
 
 
 def _resolve_employee_warehouse(db, raw_warehouse_id):
@@ -368,6 +671,33 @@ def _get_accessible_employee(db, employee_id):
 
 def _get_employee_by_id(db, employee_id):
     return _get_accessible_employee(db, employee_id)
+
+
+def _get_self_service_employee(db):
+    employee_id = _get_linked_employee_id()
+    if not employee_id:
+        return None
+    return _get_accessible_employee(db, employee_id)
+
+
+def _resolve_form_employee(db, raw_employee_id, module_slug):
+    if is_self_service_module(module_slug):
+        employee = _get_self_service_employee(db)
+        requested_employee_id = _to_int(raw_employee_id)
+        if employee is None:
+            return None, "Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin."
+        if requested_employee_id and requested_employee_id != employee["id"]:
+            return None, "Akun ini hanya bisa mengisi form untuk profil karyawan sendiri."
+        return employee, None
+
+    employee_id = _to_int(raw_employee_id)
+    if employee_id is None:
+        return None, "Karyawan wajib dipilih."
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        return None, "Data karyawan tidak tersedia untuk akun ini."
+    return employee, None
 
 
 def _get_attendance_by_id(db, attendance_id):
@@ -416,6 +746,14 @@ def _get_leave_request_by_id(db, leave_id):
     if scope_warehouse:
         query += " AND l.warehouse_id=?"
         params.append(scope_warehouse)
+
+    linked_employee_id = _get_linked_employee_id()
+    if is_self_service_module("leave"):
+        if linked_employee_id:
+            query += " AND l.employee_id=?"
+            params.append(linked_employee_id)
+        else:
+            query += " AND 1=0"
 
     return db.execute(query, params).fetchone()
 
@@ -568,6 +906,14 @@ def _get_helpdesk_ticket_by_id(db, ticket_id):
         query += " AND h.warehouse_id=?"
         params.append(scope_warehouse)
 
+    linked_employee_id = _get_linked_employee_id()
+    if is_self_service_module("helpdesk"):
+        if linked_employee_id:
+            query += " AND h.employee_id=?"
+            params.append(linked_employee_id)
+        else:
+            query += " AND 1=0"
+
     return db.execute(query, params).fetchone()
 
 
@@ -646,6 +992,56 @@ def _get_biometric_log_by_id(db, biometric_id):
         query += " AND b.warehouse_id=?"
         params.append(scope_warehouse)
 
+    linked_employee_id = _get_linked_employee_id()
+    if is_self_service_module("biometric"):
+        if linked_employee_id:
+            query += " AND b.employee_id=?"
+            params.append(linked_employee_id)
+        else:
+            query += " AND 1=0"
+
+    return db.execute(query, params).fetchone()
+
+
+def _get_announcement_by_id(db, announcement_id):
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            a.*,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM announcement_posts a
+        LEFT JOIN warehouses w ON a.warehouse_id = w.id
+        LEFT JOIN users u ON a.handled_by = u.id
+        WHERE a.id=?
+    """
+    params = [announcement_id]
+
+    if scope_warehouse:
+        query += " AND a.warehouse_id=?"
+        params.append(scope_warehouse)
+
+    return db.execute(query, params).fetchone()
+
+
+def _get_document_by_id(db, document_id):
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            d.*,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM document_records d
+        LEFT JOIN warehouses w ON d.warehouse_id = w.id
+        LEFT JOIN users u ON d.handled_by = u.id
+        WHERE d.id=?
+    """
+    params = [document_id]
+
+    if scope_warehouse:
+        query += " AND d.warehouse_id=?"
+        params.append(scope_warehouse)
+
     return db.execute(query, params).fetchone()
 
 
@@ -680,7 +1076,7 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
     ).fetchone()
 
     if not logs:
-        if existing and (existing["note"] or "") == "Synced from biometric":
+        if existing and (existing["note"] or "") in {"Synced from biometric", GEO_ATTENDANCE_NOTE}:
             db.execute("DELETE FROM attendance_records WHERE id=?", (existing["id"],))
         return
 
@@ -719,7 +1115,7 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 check_in,
                 check_out,
                 status,
-                "Synced from biometric",
+                GEO_ATTENDANCE_NOTE,
                 _current_timestamp(),
                 existing["id"],
             ),
@@ -746,13 +1142,17 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 check_in,
                 check_out,
                 status,
-                "Synced from biometric",
+                GEO_ATTENDANCE_NOTE,
                 _current_timestamp(),
             ),
         )
 
 
-def _fetch_employee_options(db):
+def _fetch_employee_options(db, module_slug=None):
+    if module_slug and is_self_service_module(module_slug):
+        employee = _get_self_service_employee(db)
+        return [dict(employee)] if employee else []
+
     scope_warehouse = get_hris_scope()
     query = """
         SELECT
@@ -920,7 +1320,17 @@ def _build_project_summary(project_records):
 
 
 def _build_biometric_summary(biometric_logs):
-    devices = {log["device_name"] for log in biometric_logs if log["device_name"]}
+    locations = {
+        (log.get("location_display") or "").strip()
+        for log in biometric_logs
+        if (log.get("location_display") or "").strip() and (log.get("location_display") or "").strip() != "-"
+    }
+    employee_ids = {log["employee_id"] for log in biometric_logs if log.get("employee_id")}
+    accuracies = [
+        float(log["accuracy_m"])
+        for log in biometric_logs
+        if log.get("accuracy_m") not in (None, "")
+    ]
     return {
         "total": len(biometric_logs),
         "queued": sum(1 for log in biometric_logs if log["sync_status"] == "queued"),
@@ -929,7 +1339,212 @@ def _build_biometric_summary(biometric_logs):
         "failed": sum(1 for log in biometric_logs if log["sync_status"] == "failed"),
         "check_in": sum(1 for log in biometric_logs if log["punch_type"] == "check_in"),
         "check_out": sum(1 for log in biometric_logs if log["punch_type"] == "check_out"),
-        "devices": len(devices),
+        "verified": sum(1 for log in biometric_logs if log["sync_status"] in {"synced", "manual"}),
+        "review": sum(1 for log in biometric_logs if log["sync_status"] == "queued"),
+        "flagged": sum(1 for log in biometric_logs if log["sync_status"] == "failed"),
+        "locations": len(locations),
+        "employees": len(employee_ids),
+        "avg_accuracy": round(sum(accuracies) / len(accuracies), 2) if accuracies else 0,
+    }
+
+
+def _build_announcement_summary(announcements):
+    return {
+        "total": len(announcements),
+        "draft": sum(1 for record in announcements if record["status"] == "draft"),
+        "published": sum(1 for record in announcements if record["status"] == "published"),
+        "archived": sum(1 for record in announcements if record["status"] == "archived"),
+        "leaders": sum(1 for record in announcements if record["audience"] == "leaders"),
+        "warehouse_team": sum(1 for record in announcements if record["audience"] == "warehouse_team"),
+    }
+
+
+def _clamp_dashboard_schedule_days(value):
+    days = _to_int(value, 14)
+    return days if days in DASHBOARD_SCHEDULE_DAY_OPTIONS else 14
+
+
+def _resolve_dashboard_warehouse(warehouses):
+    scope_warehouse = get_hris_scope()
+    if scope_warehouse:
+        return scope_warehouse
+
+    selected_warehouse = _to_int(request.args.get("warehouse"))
+    valid_ids = {warehouse["id"] for warehouse in warehouses}
+    return selected_warehouse if selected_warehouse in valid_ids else None
+
+
+def _build_dashboard_schedule_snapshot(db, selected_warehouse, start_date, days):
+    _seed_schedule_shift_codes(db)
+    _, _, shift_code_map = _fetch_schedule_shift_codes(db)
+
+    employee_rows = _fetch_schedule_employees(db, selected_warehouse)
+    schedule_members = _build_schedule_members(employee_rows)
+    end_date = start_date + timedelta(days=days - 1)
+
+    entry_map = _build_schedule_entry_map(
+        db,
+        [member["employee_id"] for member in schedule_members],
+        start_date,
+        end_date,
+        shift_code_map,
+    )
+    override_map = _build_schedule_override_map(db, schedule_members, start_date, end_date)
+    day_notes = _build_schedule_day_notes(db, start_date, end_date)
+    board_rows = _build_schedule_board_rows(
+        schedule_members,
+        start_date,
+        end_date,
+        entry_map,
+        override_map,
+        day_notes,
+    )
+
+    preview_members = schedule_members[:DASHBOARD_SCHEDULE_PREVIEW_LIMIT]
+    preview_count = len(preview_members)
+    preview_rows = []
+    total_assigned_cells = 0
+    override_cells = 0
+    manual_cells = 0
+
+    for row in board_rows:
+        row_assigned = 0
+        row_override = 0
+        row_manual = 0
+        code_counts = defaultdict(int)
+
+        for cell in row["cells"]:
+            if not cell:
+                continue
+            row_assigned += 1
+            total_assigned_cells += 1
+            code_counts[cell["code"]] += 1
+            if cell["source"] == "manual":
+                row_manual += 1
+                manual_cells += 1
+            else:
+                row_override += 1
+                override_cells += 1
+
+        highlight_items = [
+            {"code": code, "count": count}
+            for code, count in sorted(code_counts.items(), key=lambda item: (-item[1], item[0]))[:4]
+        ]
+
+        preview_rows.append(
+            {
+                "iso_date": row["iso_date"],
+                "label": row["label"],
+                "is_weekend": row["is_weekend"],
+                "note": row["note"],
+                "cells": row["cells"][:preview_count],
+                "assigned_count": row_assigned,
+                "override_count": row_override,
+                "manual_count": row_manual,
+                "highlights": highlight_items,
+            }
+        )
+
+    return {
+        "members": schedule_members,
+        "preview_members": preview_members,
+        "preview_rows": preview_rows,
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+        "days": days,
+        "assigned_cells": total_assigned_cells,
+        "override_cells": override_cells,
+        "manual_cells": manual_cells,
+        "day_notes": sum(1 for row in preview_rows if row["note"]),
+        "remaining_members": max(0, len(schedule_members) - preview_count),
+    }
+
+
+def _build_dashboard_summary(db, warehouses):
+    selected_warehouse = _resolve_dashboard_warehouse(warehouses)
+    schedule_start = _parse_iso_date(request.args.get("schedule_start")) or date_cls.today()
+    schedule_days = _clamp_dashboard_schedule_days(request.args.get("days"))
+    today_value = date_cls.today().isoformat()
+
+    announcement_query = """
+        SELECT
+            a.id,
+            a.title,
+            a.audience,
+            a.publish_date,
+            a.expires_at,
+            a.status,
+            a.channel,
+            a.message,
+            a.warehouse_id,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM announcement_posts a
+        LEFT JOIN warehouses w ON a.warehouse_id = w.id
+        LEFT JOIN users u ON a.handled_by = u.id
+        WHERE a.status='published'
+          AND (a.publish_date IS NULL OR a.publish_date='' OR a.publish_date<=?)
+          AND (a.expires_at IS NULL OR a.expires_at='' OR a.expires_at>=?)
+    """
+    announcement_params = [today_value, today_value]
+    if selected_warehouse:
+        announcement_query += " AND a.warehouse_id=?"
+        announcement_params.append(selected_warehouse)
+    announcement_query += " ORDER BY a.publish_date DESC, a.id DESC LIMIT ?"
+    announcement_params.append(DASHBOARD_ANNOUNCEMENT_LIMIT)
+    active_announcements = [
+        dict(row)
+        for row in db.execute(announcement_query, announcement_params).fetchall()
+    ]
+
+    draft_query = "SELECT COUNT(*) FROM announcement_posts WHERE status='draft'"
+    draft_params = []
+    if selected_warehouse:
+        draft_query += " AND warehouse_id=?"
+        draft_params.append(selected_warehouse)
+    announcement_draft_count = db.execute(draft_query, draft_params).fetchone()[0]
+
+    schedule_snapshot = _build_dashboard_schedule_snapshot(
+        db,
+        selected_warehouse,
+        schedule_start,
+        schedule_days,
+    )
+
+    return {
+        "filters": {
+            "warehouse_id": selected_warehouse,
+            "schedule_start": schedule_snapshot["start"],
+            "days": schedule_snapshot["days"],
+        },
+        "announcements": active_announcements,
+        "announcement_summary": {
+            "active": len(active_announcements),
+            "draft": announcement_draft_count,
+            "leaders": sum(1 for item in active_announcements if item["audience"] == "leaders"),
+            "warehouse_team": sum(
+                1 for item in active_announcements if item["audience"] == "warehouse_team"
+            ),
+        },
+        "schedule": schedule_snapshot,
+    }
+
+
+def _build_document_summary(documents):
+    today_value = date_cls.today().isoformat()
+    return {
+        "total": len(documents),
+        "draft": sum(1 for record in documents if record["status"] == "draft"),
+        "active": sum(1 for record in documents if record["status"] == "active"),
+        "archived": sum(1 for record in documents if record["status"] == "archived"),
+        "policy": sum(1 for record in documents if record["document_type"] == "policy"),
+        "review_due": sum(
+            1
+            for record in documents
+            if record["review_date"]
+            and record["review_date"] <= today_value
+            and record["status"] == "active"
+        ),
     }
 
 
@@ -970,6 +1585,8 @@ def _build_report_snapshot(db):
     asset_live = count_from("asset_records", "asset_status IN (?,?)", ["allocated", "maintenance"])
     active_projects = count_from("project_records", "status IN (?,?)", ["planning", "active"])
     biometric_queue = count_from("biometric_logs", "sync_status=?", ["queued"])
+    published_announcements = count_from("announcement_posts", "status=?", ["published"])
+    active_documents = count_from("document_records", "status=?", ["active"])
     paid_payroll = count_from("payroll_runs", "status=?", ["paid"])
     avg_score = avg_from("performance_reviews", "final_score")
 
@@ -1004,7 +1621,9 @@ def _build_report_snapshot(db):
         {"module": "Helpdesk", "value": helpdesk_open, "detail": "Ticket support yang masih terbuka atau dikerjakan."},
         {"module": "Asset", "value": asset_live, "detail": "Asset aktif yang terdistribusi atau maintenance."},
         {"module": "Project", "value": active_projects, "detail": "Project yang sedang planning atau active."},
-        {"module": "Biometric Queue", "value": biometric_queue, "detail": "Log biometric yang masih menunggu sinkronisasi."},
+        {"module": "Geotag Review", "value": biometric_queue, "detail": "Log geotag yang masih menunggu review atau verifikasi."},
+        {"module": "Published Announcement", "value": published_announcements, "detail": "Pengumuman aktif yang sedang tayang."},
+        {"module": "Active Documents", "value": active_documents, "detail": "Dokumen kerja yang sedang berlaku."},
         {"module": "Payroll Paid", "value": paid_payroll, "detail": "Run payroll yang sudah dibayar."},
         {"module": "Avg Performance", "value": f'{avg_score:.2f}', "detail": "Rata-rata skor review performa."},
     ]
@@ -1172,6 +1791,14 @@ def _fetch_leave_requests(db):
     if selected_warehouse:
         query += " AND l.warehouse_id=?"
         params.append(selected_warehouse)
+
+    linked_employee_id = _get_linked_employee_id()
+    if is_self_service_module("leave"):
+        if linked_employee_id:
+            query += " AND l.employee_id=?"
+            params.append(linked_employee_id)
+        else:
+            query += " AND 1=0"
 
     if date_from:
         query += " AND l.start_date>=?"
@@ -1534,6 +2161,14 @@ def _fetch_helpdesk_tickets(db):
         query += " AND h.warehouse_id=?"
         params.append(selected_warehouse)
 
+    linked_employee_id = _get_linked_employee_id()
+    if is_self_service_module("helpdesk"):
+        if linked_employee_id:
+            query += " AND h.employee_id=?"
+            params.append(linked_employee_id)
+        else:
+            query += " AND 1=0"
+
     query += " ORDER BY h.created_at DESC, e.full_name COLLATE NOCASE ASC, h.id DESC"
 
     helpdesk_tickets = [dict(row) for row in db.execute(query, params).fetchall()]
@@ -1694,8 +2329,8 @@ def _fetch_biometric_logs(db):
             AND (
                 e.employee_code LIKE ?
                 OR e.full_name LIKE ?
+                OR COALESCE(b.location_label, '') LIKE ?
                 OR COALESCE(b.device_name, '') LIKE ?
-                OR COALESCE(b.device_user_id, '') LIKE ?
             )
         """
         like = f"%{search}%"
@@ -1713,6 +2348,14 @@ def _fetch_biometric_logs(db):
         query += " AND b.warehouse_id=?"
         params.append(selected_warehouse)
 
+    linked_employee_id = _get_linked_employee_id()
+    if is_self_service_module("biometric"):
+        if linked_employee_id:
+            query += " AND b.employee_id=?"
+            params.append(linked_employee_id)
+        else:
+            query += " AND 1=0"
+
     if date_from:
         query += " AND substr(b.punch_time, 1, 10)>=?"
         params.append(date_from)
@@ -1724,21 +2367,219 @@ def _fetch_biometric_logs(db):
     query += " ORDER BY b.punch_time DESC, e.full_name COLLATE NOCASE ASC, b.id DESC"
 
     biometric_logs = [dict(row) for row in db.execute(query, params).fetchall()]
+    for log in biometric_logs:
+        _attach_biometric_display_meta(log)
     return biometric_logs, search, punch_type, sync_status, selected_warehouse, date_from, date_to
+
+
+def _build_biometric_recap_rows(db, biometric_logs):
+    if not biometric_logs:
+        return []
+
+    grouped_logs = defaultdict(list)
+    employee_ids = set()
+    dates = set()
+
+    for log in biometric_logs:
+        punch_date = (log.get("punch_time") or "")[:10]
+        if not punch_date:
+            continue
+        key = (log["employee_id"], punch_date)
+        grouped_logs[key].append(log)
+        employee_ids.add(log["employee_id"])
+        dates.add(punch_date)
+
+    if not grouped_logs:
+        return []
+
+    placeholders = ",".join(["?"] * len(employee_ids))
+    attendance_rows = db.execute(
+        f"""
+        SELECT employee_id, attendance_date, check_in, check_out, status, note
+        FROM attendance_records
+        WHERE employee_id IN ({placeholders})
+          AND attendance_date BETWEEN ? AND ?
+        """,
+        list(employee_ids) + [min(dates), max(dates)],
+    ).fetchall()
+    attendance_map = {
+        (row["employee_id"], row["attendance_date"]): dict(row)
+        for row in attendance_rows
+    }
+
+    recap_rows = []
+    for (employee_id, attendance_date), logs in grouped_logs.items():
+        logs_sorted = sorted(logs, key=lambda item: item["punch_time"] or "")
+        check_in_log = next((log for log in logs_sorted if log["punch_type"] == "check_in"), None)
+        check_out_log = next((log for log in reversed(logs_sorted) if log["punch_type"] == "check_out"), None)
+        latest_log = logs_sorted[-1]
+        attendance = attendance_map.get((employee_id, attendance_date), {})
+
+        locations = []
+        for log in logs_sorted:
+            location_display = log["location_display"]
+            if location_display != "-" and location_display not in locations:
+                locations.append(location_display)
+
+        if any(log["sync_status"] == "failed" for log in logs_sorted):
+            recap_status = "failed"
+        elif any(log["sync_status"] == "queued" for log in logs_sorted):
+            recap_status = "queued"
+        elif any(log["sync_status"] == "manual" for log in logs_sorted):
+            recap_status = "manual"
+        else:
+            recap_status = "synced"
+
+        recap_status_label, recap_status_badge = _build_biometric_status_meta(recap_status)
+
+        recap_rows.append(
+            {
+                "attendance_date": attendance_date,
+                "employee_code": latest_log["employee_code"],
+                "full_name": latest_log["full_name"],
+                "warehouse_name": latest_log["warehouse_name"],
+                "attendance_status": (attendance.get("status") or "-"),
+                "attendance_check_in": attendance.get("check_in") or "-",
+                "attendance_check_out": attendance.get("check_out") or "-",
+                "geo_check_in": (check_in_log["punch_time"][11:16] if check_in_log else "-"),
+                "geo_check_out": (check_out_log["punch_time"][11:16] if check_out_log else "-"),
+                "location_text": " | ".join(locations) if locations else "-",
+                "latest_coordinate": latest_log["coordinate_display"],
+                "latest_accuracy": latest_log["accuracy_display"],
+                "latest_photo_url": latest_log.get("photo_url"),
+                "log_count": len(logs_sorted),
+                "recap_status_label": recap_status_label,
+                "recap_status_badge": recap_status_badge,
+            }
+        )
+
+    recap_rows.sort(key=lambda row: (row["attendance_date"], row["full_name"].lower()), reverse=True)
+    return recap_rows
+
+
+def _fetch_announcements(db):
+    search = (request.args.get("q") or "").strip()
+    audience = (request.args.get("audience") or "all").strip().lower()
+    status = (request.args.get("status") or "all").strip().lower()
+    scope_warehouse = get_hris_scope()
+
+    if scope_warehouse:
+        selected_warehouse = scope_warehouse
+    else:
+        selected_warehouse = _to_int(request.args.get("warehouse"))
+
+    query = """
+        SELECT
+            a.*,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM announcement_posts a
+        LEFT JOIN warehouses w ON a.warehouse_id = w.id
+        LEFT JOIN users u ON a.handled_by = u.id
+        WHERE 1=1
+    """
+    params = []
+
+    if search:
+        query += """
+            AND (
+                a.title LIKE ?
+                OR COALESCE(a.channel, '') LIKE ?
+                OR COALESCE(a.message, '') LIKE ?
+            )
+        """
+        like = f"%{search}%"
+        params.extend([like, like, like])
+
+    if audience in ANNOUNCEMENT_AUDIENCES:
+        query += " AND a.audience=?"
+        params.append(audience)
+
+    if status in ANNOUNCEMENT_STATUSES:
+        query += " AND a.status=?"
+        params.append(status)
+
+    if selected_warehouse:
+        query += " AND a.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    query += " ORDER BY a.publish_date DESC, a.id DESC"
+
+    announcements = [dict(row) for row in db.execute(query, params).fetchall()]
+    return announcements, search, audience, status, selected_warehouse
+
+
+def _fetch_documents(db):
+    search = (request.args.get("q") or "").strip()
+    document_type = (request.args.get("document_type") or "all").strip().lower()
+    status = (request.args.get("status") or "all").strip().lower()
+    scope_warehouse = get_hris_scope()
+
+    if scope_warehouse:
+        selected_warehouse = scope_warehouse
+    else:
+        selected_warehouse = _to_int(request.args.get("warehouse"))
+
+    query = """
+        SELECT
+            d.*,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM document_records d
+        LEFT JOIN warehouses w ON d.warehouse_id = w.id
+        LEFT JOIN users u ON d.handled_by = u.id
+        WHERE 1=1
+    """
+    params = []
+
+    if search:
+        query += """
+            AND (
+                d.document_title LIKE ?
+                OR d.document_code LIKE ?
+                OR COALESCE(d.owner_name, '') LIKE ?
+                OR COALESCE(d.note, '') LIKE ?
+            )
+        """
+        like = f"%{search}%"
+        params.extend([like, like, like, like])
+
+    if document_type in DOCUMENT_TYPES:
+        query += " AND d.document_type=?"
+        params.append(document_type)
+
+    if status in DOCUMENT_STATUSES:
+        query += " AND d.status=?"
+        params.append(status)
+
+    if selected_warehouse:
+        query += " AND d.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    query += " ORDER BY d.effective_date DESC, d.id DESC"
+
+    documents = [dict(row) for row in db.execute(query, params).fetchall()]
+    return documents, search, document_type, status, selected_warehouse
 
 
 @hris_bp.route("/")
 @hris_bp.route("/<module_slug>")
 def hris_index(module_slug=None):
+    if not can_view_hris_records():
+        flash("Role ini tidak punya akses ke halaman HRIS", "error")
+        return _hris_access_denied_redirect()
+
     db = get_db()
-    modules = get_hris_modules()
-    selected_module = get_hris_module(module_slug or "employee")
+    role = session.get("role")
+    modules = get_hris_modules(role)
+    default_module_slug = modules[0]["slug"]
+    selected_module = get_hris_module(module_slug or default_module_slug, role)
 
     if selected_module is None:
-        selected_module = modules[0]
+        flash("Modul HRIS tidak tersedia untuk role ini", "error")
+        return redirect(f"/hris/{default_module_slug}")
 
     scope_warehouse = get_hris_scope()
-    can_manage_hris = can_manage_hris_records()
 
     employees = []
     employee_summary = None
@@ -1786,6 +2627,18 @@ def hris_index(module_slug=None):
     biometric_summary = None
     biometric_filters = None
     biometric_employees = []
+    biometric_recap_rows = []
+    announcements = []
+    announcement_summary = None
+    announcement_filters = None
+    dashboard_summary = None
+    dashboard_filters = None
+    dashboard_announcements = []
+    dashboard_announcement_summary = None
+    dashboard_schedule = None
+    documents = []
+    document_summary = None
+    document_filters = None
     report_summary = None
     report_filters = None
     report_workforce_rows = []
@@ -1795,7 +2648,13 @@ def hris_index(module_slug=None):
         "SELECT * FROM warehouses ORDER BY name"
     ).fetchall()
 
-    if selected_module["slug"] == "employee":
+    if selected_module["slug"] == "dashboard":
+        dashboard_summary = _build_dashboard_summary(db, warehouses)
+        dashboard_filters = dashboard_summary["filters"]
+        dashboard_announcements = dashboard_summary["announcements"]
+        dashboard_announcement_summary = dashboard_summary["announcement_summary"]
+        dashboard_schedule = dashboard_summary["schedule"]
+    elif selected_module["slug"] == "employee":
         employees, search, status, selected_warehouse = _fetch_employees(db)
         employee_summary = _build_employee_summary(employees)
         employee_filters = {
@@ -1825,7 +2684,7 @@ def hris_index(module_slug=None):
             "date_from": date_from,
             "date_to": date_to,
         }
-        leave_employees = _fetch_employee_options(db)
+        leave_employees = _fetch_employee_options(db, "leave")
     elif selected_module["slug"] == "payroll":
         payroll_runs, search, status, selected_warehouse, period_month, period_year = _fetch_payroll_runs(db)
         payroll_summary = _build_payroll_summary(payroll_runs)
@@ -1886,7 +2745,7 @@ def hris_index(module_slug=None):
             "status": status,
             "warehouse_id": selected_warehouse,
         }
-        helpdesk_employees = _fetch_employee_options(db)
+        helpdesk_employees = _fetch_employee_options(db, "helpdesk")
     elif selected_module["slug"] == "asset":
         asset_records, search, status, condition, selected_warehouse = _fetch_asset_records(db)
         asset_summary = _build_asset_summary(asset_records)
@@ -1912,6 +2771,7 @@ def hris_index(module_slug=None):
     elif selected_module["slug"] == "biometric":
         biometric_logs, search, punch_type, sync_status, selected_warehouse, date_from, date_to = _fetch_biometric_logs(db)
         biometric_summary = _build_biometric_summary(biometric_logs)
+        biometric_recap_rows = _build_biometric_recap_rows(db, biometric_logs)
         biometric_filters = {
             "search": search,
             "punch_type": punch_type,
@@ -1920,7 +2780,25 @@ def hris_index(module_slug=None):
             "date_from": date_from,
             "date_to": date_to,
         }
-        biometric_employees = _fetch_employee_options(db)
+        biometric_employees = _fetch_employee_options(db, "biometric")
+    elif selected_module["slug"] == "announcement":
+        announcements, search, audience, status, selected_warehouse = _fetch_announcements(db)
+        announcement_summary = _build_announcement_summary(announcements)
+        announcement_filters = {
+            "search": search,
+            "audience": audience,
+            "status": status,
+            "warehouse_id": selected_warehouse,
+        }
+    elif selected_module["slug"] == "documents":
+        documents, search, document_type, status, selected_warehouse = _fetch_documents(db)
+        document_summary = _build_document_summary(documents)
+        document_filters = {
+            "search": search,
+            "document_type": document_type,
+            "status": status,
+            "warehouse_id": selected_warehouse,
+        }
 
     return render_template(
         "hris.html",
@@ -1972,24 +2850,38 @@ def hris_index(module_slug=None):
         biometric_summary=biometric_summary,
         biometric_filters=biometric_filters,
         biometric_employees=biometric_employees,
+        biometric_recap_rows=biometric_recap_rows,
+        announcements=announcements,
+        announcement_summary=announcement_summary,
+        announcement_filters=announcement_filters,
+        dashboard_summary=dashboard_summary,
+        dashboard_filters=dashboard_filters,
+        dashboard_announcements=dashboard_announcements,
+        dashboard_announcement_summary=dashboard_announcement_summary,
+        dashboard_schedule=dashboard_schedule,
+        documents=documents,
+        document_summary=document_summary,
+        document_filters=document_filters,
         report_summary=report_summary,
         report_filters=report_filters,
         report_workforce_rows=report_workforce_rows,
         report_pipeline_rows=report_pipeline_rows,
         report_service_rows=report_service_rows,
         warehouses=warehouses,
-        can_manage_employee=can_manage_hris,
-        can_manage_attendance=can_manage_hris,
-        can_manage_leave=can_manage_hris,
-        can_manage_payroll=can_manage_hris,
-        can_manage_recruitment=can_manage_hris,
-        can_manage_onboarding=can_manage_hris,
-        can_manage_offboarding=can_manage_hris,
-        can_manage_performance=can_manage_hris,
-        can_manage_helpdesk=can_manage_hris,
-        can_manage_asset=can_manage_hris,
-        can_manage_project=can_manage_hris,
-        can_manage_biometric=can_manage_hris,
+        can_manage_employee=can_manage_employee_records(),
+        can_manage_attendance=can_manage_attendance_records(),
+        can_manage_leave=can_manage_leave_records(),
+        can_manage_payroll=can_manage_payroll_records(),
+        can_manage_recruitment=can_manage_recruitment_records(),
+        can_manage_onboarding=can_manage_onboarding_records(),
+        can_manage_offboarding=can_manage_offboarding_records(),
+        can_manage_performance=can_manage_performance_records(),
+        can_manage_helpdesk=can_manage_helpdesk_records(),
+        can_manage_asset=can_manage_asset_records(),
+        can_manage_project=can_manage_project_records(),
+        can_manage_biometric=can_manage_biometric_records(),
+        can_manage_announcement=can_manage_announcement_records(),
+        can_manage_document=can_manage_document_records(),
         employee_scope_warehouse=scope_warehouse,
         attendance_scope_warehouse=scope_warehouse,
         leave_scope_warehouse=scope_warehouse,
@@ -2002,6 +2894,8 @@ def hris_index(module_slug=None):
         asset_scope_warehouse=scope_warehouse,
         project_scope_warehouse=scope_warehouse,
         biometric_scope_warehouse=scope_warehouse,
+        announcement_scope_warehouse=scope_warehouse,
+        document_scope_warehouse=scope_warehouse,
         report_scope_warehouse=scope_warehouse,
     )
 
@@ -2329,7 +3223,6 @@ def add_leave():
         return redirect("/hris/leave")
 
     db = get_db()
-    employee_id = _to_int(request.form.get("employee_id"))
     leave_type = _normalize_leave_type(request.form.get("leave_type"))
     start_date = (request.form.get("start_date") or "").strip()
     end_date = (request.form.get("end_date") or "").strip()
@@ -2337,10 +3230,11 @@ def add_leave():
     reason = (request.form.get("reason") or "").strip()
     note = (request.form.get("note") or "").strip()
 
-    employee = _get_accessible_employee(db, employee_id)
-    if not employee:
-        flash("Karyawan tidak valid untuk scope akun ini", "error")
+    employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "leave")
+    if employee is None:
+        flash(employee_error or "Karyawan tidak valid untuk scope akun ini", "error")
         return redirect("/hris/leave")
+    employee_id = employee["id"]
 
     total_days = _calculate_leave_days(start_date, end_date)
     if total_days is None:
@@ -2416,7 +3310,6 @@ def update_leave(leave_id):
         flash("Leave request tidak ditemukan", "error")
         return redirect("/hris/leave")
 
-    employee_id = _to_int(request.form.get("employee_id"))
     leave_type = _normalize_leave_type(request.form.get("leave_type"))
     start_date = (request.form.get("start_date") or "").strip()
     end_date = (request.form.get("end_date") or "").strip()
@@ -2424,10 +3317,11 @@ def update_leave(leave_id):
     reason = (request.form.get("reason") or "").strip()
     note = (request.form.get("note") or "").strip()
 
-    employee = _get_accessible_employee(db, employee_id)
-    if not employee:
-        flash("Karyawan tidak valid untuk scope akun ini", "error")
+    employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "leave")
+    if employee is None:
+        flash(employee_error or "Karyawan tidak valid untuk scope akun ini", "error")
         return redirect("/hris/leave")
+    employee_id = employee["id"]
 
     total_days = _calculate_leave_days(start_date, end_date)
     if total_days is None:
@@ -3421,7 +4315,6 @@ def add_helpdesk():
         return redirect("/hris/helpdesk")
 
     db = get_db()
-    employee_id = _to_int(request.form.get("employee_id"))
     ticket_title = (request.form.get("ticket_title") or "").strip()
     category = _normalize_helpdesk_category(request.form.get("category"))
     priority = _normalize_helpdesk_priority(request.form.get("priority"))
@@ -3430,10 +4323,11 @@ def add_helpdesk():
     assigned_to = (request.form.get("assigned_to") or "").strip()
     note = (request.form.get("note") or "").strip()
 
-    employee = _get_accessible_employee(db, employee_id)
-    if not employee:
-        flash("Karyawan tidak valid untuk scope akun ini", "error")
+    employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "helpdesk")
+    if employee is None:
+        flash(employee_error or "Karyawan tidak valid untuk scope akun ini", "error")
         return redirect("/hris/helpdesk")
+    employee_id = employee["id"]
 
     if not ticket_title:
         flash("Judul ticket wajib diisi", "error")
@@ -3492,7 +4386,6 @@ def update_helpdesk(ticket_id):
         flash("Ticket helpdesk tidak ditemukan", "error")
         return redirect("/hris/helpdesk")
 
-    employee_id = _to_int(request.form.get("employee_id"))
     ticket_title = (request.form.get("ticket_title") or "").strip()
     category = _normalize_helpdesk_category(request.form.get("category"))
     priority = _normalize_helpdesk_priority(request.form.get("priority"))
@@ -3501,10 +4394,11 @@ def update_helpdesk(ticket_id):
     assigned_to = (request.form.get("assigned_to") or "").strip()
     note = (request.form.get("note") or "").strip()
 
-    employee = _get_accessible_employee(db, employee_id)
-    if not employee:
-        flash("Karyawan tidak valid untuk scope akun ini", "error")
+    employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "helpdesk")
+    if employee is None:
+        flash(employee_error or "Karyawan tidak valid untuk scope akun ini", "error")
         return redirect("/hris/helpdesk")
+    employee_id = employee["id"]
 
     if not ticket_title:
         flash("Judul ticket wajib diisi", "error")
@@ -3971,25 +4865,32 @@ def delete_project(project_id):
 @hris_bp.route("/biometric/add", methods=["POST"])
 def add_biometric():
     if not can_manage_biometric_records():
-        flash("Tidak punya akses untuk mengelola biometric", "error")
+        flash("Tidak punya akses untuk mengelola geotag absensi", "error")
         return redirect("/hris/biometric")
 
     db = get_db()
-    employee_id = _to_int(request.form.get("employee_id"))
-    device_name = (request.form.get("device_name") or "").strip()
-    device_user_id = (request.form.get("device_user_id") or "").strip()
+    location_label = (request.form.get("location_label") or "").strip()
+    latitude = _normalize_latitude(request.form.get("latitude"))
+    longitude = _normalize_longitude(request.form.get("longitude"))
+    accuracy_m = _normalize_accuracy(request.form.get("accuracy_m"))
     punch_time = _normalize_datetime_input(request.form.get("punch_time"))
     punch_type = _normalize_biometric_punch_type(request.form.get("punch_type"))
     sync_status = _normalize_biometric_sync_status(request.form.get("sync_status"))
+    photo_data_url = request.form.get("photo_data_url")
     note = (request.form.get("note") or "").strip()
 
-    employee = _get_accessible_employee(db, employee_id)
-    if not employee:
-        flash("Karyawan tidak valid untuk scope akun ini", "error")
+    employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "biometric")
+    if employee is None:
+        flash(employee_error or "Karyawan tidak valid untuk scope akun ini", "error")
+        return redirect("/hris/biometric")
+    employee_id = employee["id"]
+
+    if not location_label or not punch_time:
+        flash("Titik lokasi dan waktu absen wajib diisi", "error")
         return redirect("/hris/biometric")
 
-    if not device_name or not punch_time:
-        flash("Device name dan punch time wajib diisi", "error")
+    if latitude is None or longitude is None:
+        flash("Latitude dan longitude geotag wajib valid", "error")
         return redirect("/hris/biometric")
 
     duplicate = db.execute(
@@ -3997,79 +4898,76 @@ def add_biometric():
         (employee_id, punch_time, punch_type),
     ).fetchone()
     if duplicate:
-        flash("Log biometric dengan waktu dan tipe yang sama sudah ada", "error")
+        flash("Log geotag dengan waktu dan tipe yang sama sudah ada", "error")
         return redirect("/hris/biometric")
 
-    handled_by, handled_at = _build_biometric_handling(sync_status)
-    db.execute(
-        """
-        INSERT INTO biometric_logs(
-            employee_id,
-            warehouse_id,
-            device_name,
-            device_user_id,
-            punch_time,
-            punch_type,
-            sync_status,
-            note,
-            handled_by,
-            handled_at,
-            updated_at
-        )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            employee_id,
-            employee["warehouse_id"],
-            device_name,
-            device_user_id or None,
-            punch_time,
-            punch_type,
-            sync_status,
-            note or None,
-            handled_by,
-            handled_at,
-            _current_timestamp(),
-        ),
+    photo_path = None
+    if (photo_data_url or "").strip():
+        photo_path = _save_biometric_photo_data(photo_data_url)
+        if not photo_path:
+            flash("Foto absen tidak valid. Ambil ulang foto sebelum menyimpan.", "error")
+            return redirect("/hris/biometric")
+
+    _insert_biometric_log_record(
+        db,
+        employee_id=employee_id,
+        warehouse_id=employee["warehouse_id"],
+        device_name="Mobile Geotag",
+        device_user_id=None,
+        punch_time=punch_time,
+        punch_type=punch_type,
+        sync_status=sync_status,
+        location_label=location_label,
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        note=note or None,
+        photo_path=photo_path,
     )
-    _resync_attendance_from_biometrics(db, employee_id, employee["warehouse_id"], punch_time[:10])
     db.commit()
 
-    flash("Log biometric berhasil ditambahkan", "success")
+    flash("Log geotag berhasil ditambahkan", "success")
     return redirect("/hris/biometric")
 
 
 @hris_bp.route("/biometric/update/<int:biometric_id>", methods=["POST"])
 def update_biometric(biometric_id):
     if not can_manage_biometric_records():
-        flash("Tidak punya akses untuk mengelola biometric", "error")
+        flash("Tidak punya akses untuk mengelola geotag absensi", "error")
         return redirect("/hris/biometric")
 
     db = get_db()
     biometric = _get_biometric_log_by_id(db, biometric_id)
     if not biometric:
-        flash("Log biometric tidak ditemukan", "error")
+        flash("Log geotag tidak ditemukan", "error")
         return redirect("/hris/biometric")
 
     old_employee_id = biometric["employee_id"]
     old_warehouse_id = biometric["warehouse_id"]
     old_punch_date = (biometric["punch_time"] or "")[:10]
 
-    employee_id = _to_int(request.form.get("employee_id"))
-    device_name = (request.form.get("device_name") or "").strip()
-    device_user_id = (request.form.get("device_user_id") or "").strip()
+    location_label = (request.form.get("location_label") or "").strip()
+    latitude = _normalize_latitude(request.form.get("latitude"))
+    longitude = _normalize_longitude(request.form.get("longitude"))
+    accuracy_m = _normalize_accuracy(request.form.get("accuracy_m"))
     punch_time = _normalize_datetime_input(request.form.get("punch_time"))
     punch_type = _normalize_biometric_punch_type(request.form.get("punch_type"))
     sync_status = _normalize_biometric_sync_status(request.form.get("sync_status"))
+    photo_data_url = request.form.get("photo_data_url")
     note = (request.form.get("note") or "").strip()
 
-    employee = _get_accessible_employee(db, employee_id)
-    if not employee:
-        flash("Karyawan tidak valid untuk scope akun ini", "error")
+    employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "biometric")
+    if employee is None:
+        flash(employee_error or "Karyawan tidak valid untuk scope akun ini", "error")
+        return redirect("/hris/biometric")
+    employee_id = employee["id"]
+
+    if not location_label or not punch_time:
+        flash("Titik lokasi dan waktu absen wajib diisi", "error")
         return redirect("/hris/biometric")
 
-    if not device_name or not punch_time:
-        flash("Device name dan punch time wajib diisi", "error")
+    if latitude is None or longitude is None:
+        flash("Latitude dan longitude geotag wajib valid", "error")
         return redirect("/hris/biometric")
 
     duplicate = db.execute(
@@ -4077,8 +4975,17 @@ def update_biometric(biometric_id):
         (employee_id, punch_time, punch_type, biometric_id),
     ).fetchone()
     if duplicate:
-        flash("Log biometric dengan waktu dan tipe yang sama sudah digunakan record lain", "error")
+        flash("Log geotag dengan waktu dan tipe yang sama sudah digunakan record lain", "error")
         return redirect("/hris/biometric")
+
+    photo_path = biometric["photo_path"]
+    photo_captured_at = biometric["photo_captured_at"]
+    if (photo_data_url or "").strip():
+        photo_path = _save_biometric_photo_data(photo_data_url, existing_photo_path=biometric["photo_path"])
+        if not photo_path:
+            flash("Foto absen tidak valid. Ambil ulang foto sebelum menyimpan.", "error")
+            return redirect("/hris/biometric")
+        photo_captured_at = _current_timestamp()
 
     handled_by, handled_at = _build_biometric_handling(sync_status)
     db.execute(
@@ -4091,6 +4998,12 @@ def update_biometric(biometric_id):
             punch_time=?,
             punch_type=?,
             sync_status=?,
+            location_label=?,
+            latitude=?,
+            longitude=?,
+            accuracy_m=?,
+            photo_path=?,
+            photo_captured_at=?,
             note=?,
             handled_by=?,
             handled_at=?,
@@ -4100,11 +5013,17 @@ def update_biometric(biometric_id):
         (
             employee_id,
             employee["warehouse_id"],
-            device_name,
-            device_user_id or None,
+            "Mobile Geotag",
+            None,
             punch_time,
             punch_type,
             sync_status,
+            location_label,
+            latitude,
+            longitude,
+            accuracy_m,
+            photo_path,
+            photo_captured_at if photo_path else None,
             note or None,
             handled_by,
             handled_at,
@@ -4117,20 +5036,20 @@ def update_biometric(biometric_id):
     _resync_attendance_from_biometrics(db, employee_id, employee["warehouse_id"], punch_time[:10])
     db.commit()
 
-    flash("Log biometric berhasil diupdate", "success")
+    flash("Log geotag berhasil diupdate", "success")
     return redirect("/hris/biometric")
 
 
 @hris_bp.route("/biometric/delete/<int:biometric_id>", methods=["POST"])
 def delete_biometric(biometric_id):
     if not can_manage_biometric_records():
-        flash("Tidak punya akses untuk mengelola biometric", "error")
+        flash("Tidak punya akses untuk mengelola geotag absensi", "error")
         return redirect("/hris/biometric")
 
     db = get_db()
     biometric = _get_biometric_log_by_id(db, biometric_id)
     if not biometric:
-        flash("Log biometric tidak ditemukan", "error")
+        flash("Log geotag tidak ditemukan", "error")
         return redirect("/hris/biometric")
 
     employee_id = biometric["employee_id"]
@@ -4138,8 +5057,359 @@ def delete_biometric(biometric_id):
     punch_date = (biometric["punch_time"] or "")[:10]
 
     db.execute("DELETE FROM biometric_logs WHERE id=?", (biometric_id,))
+    _delete_biometric_photo(biometric["photo_path"])
     _resync_attendance_from_biometrics(db, employee_id, warehouse_id, punch_date)
     db.commit()
 
-    flash("Log biometric berhasil dihapus", "success")
+    flash("Log geotag berhasil dihapus", "success")
     return redirect("/hris/biometric")
+
+
+@hris_bp.route("/announcement/add", methods=["POST"])
+def add_announcement():
+    if not can_manage_announcement_records():
+        flash("Tidak punya akses untuk mengelola announcement", "error")
+        return redirect("/hris/announcement")
+
+    db = get_db()
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    title = (request.form.get("title") or "").strip()
+    audience = _normalize_announcement_audience(request.form.get("audience"))
+    publish_date = (request.form.get("publish_date") or "").strip()
+    expires_at = (request.form.get("expires_at") or "").strip()
+    status = _normalize_announcement_status(request.form.get("status"))
+    channel = (request.form.get("channel") or "").strip()
+    message = (request.form.get("message") or "").strip()
+
+    if warehouse_id is None:
+        flash("Gudang announcement wajib diisi", "error")
+        return redirect("/hris/announcement")
+
+    if not title or not publish_date:
+        flash("Judul announcement dan publish date wajib diisi", "error")
+        return redirect("/hris/announcement")
+
+    if _calculate_leave_days(publish_date, publish_date) is None:
+        flash("Tanggal publish announcement tidak valid", "error")
+        return redirect("/hris/announcement")
+
+    if expires_at and _calculate_leave_days(publish_date, expires_at) is None:
+        flash("Rentang tanggal announcement tidak valid", "error")
+        return redirect("/hris/announcement")
+
+    handled_by, handled_at = _build_announcement_handling(status)
+    db.execute(
+        """
+        INSERT INTO announcement_posts(
+            warehouse_id,
+            title,
+            audience,
+            publish_date,
+            expires_at,
+            status,
+            channel,
+            message,
+            handled_by,
+            handled_at,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            warehouse_id,
+            title,
+            audience,
+            publish_date,
+            expires_at or None,
+            status,
+            channel or None,
+            message or None,
+            handled_by,
+            handled_at,
+            _current_timestamp(),
+        ),
+    )
+    db.commit()
+
+    flash("Announcement berhasil ditambahkan", "success")
+    return redirect("/hris/announcement")
+
+
+@hris_bp.route("/announcement/update/<int:announcement_id>", methods=["POST"])
+def update_announcement(announcement_id):
+    if not can_manage_announcement_records():
+        flash("Tidak punya akses untuk mengelola announcement", "error")
+        return redirect("/hris/announcement")
+
+    db = get_db()
+    announcement = _get_announcement_by_id(db, announcement_id)
+    if not announcement:
+        flash("Announcement tidak ditemukan", "error")
+        return redirect("/hris/announcement")
+
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    title = (request.form.get("title") or "").strip()
+    audience = _normalize_announcement_audience(request.form.get("audience"))
+    publish_date = (request.form.get("publish_date") or "").strip()
+    expires_at = (request.form.get("expires_at") or "").strip()
+    status = _normalize_announcement_status(request.form.get("status"))
+    channel = (request.form.get("channel") or "").strip()
+    message = (request.form.get("message") or "").strip()
+
+    if warehouse_id is None:
+        flash("Gudang announcement wajib diisi", "error")
+        return redirect("/hris/announcement")
+
+    if not title or not publish_date:
+        flash("Judul announcement dan publish date wajib diisi", "error")
+        return redirect("/hris/announcement")
+
+    if _calculate_leave_days(publish_date, publish_date) is None:
+        flash("Tanggal publish announcement tidak valid", "error")
+        return redirect("/hris/announcement")
+
+    if expires_at and _calculate_leave_days(publish_date, expires_at) is None:
+        flash("Rentang tanggal announcement tidak valid", "error")
+        return redirect("/hris/announcement")
+
+    handled_by, handled_at = _build_announcement_handling(status)
+    db.execute(
+        """
+        UPDATE announcement_posts
+        SET warehouse_id=?,
+            title=?,
+            audience=?,
+            publish_date=?,
+            expires_at=?,
+            status=?,
+            channel=?,
+            message=?,
+            handled_by=?,
+            handled_at=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            warehouse_id,
+            title,
+            audience,
+            publish_date,
+            expires_at or None,
+            status,
+            channel or None,
+            message or None,
+            handled_by,
+            handled_at,
+            _current_timestamp(),
+            announcement_id,
+        ),
+    )
+    db.commit()
+
+    flash("Announcement berhasil diupdate", "success")
+    return redirect("/hris/announcement")
+
+
+@hris_bp.route("/announcement/delete/<int:announcement_id>", methods=["POST"])
+def delete_announcement(announcement_id):
+    if not can_manage_announcement_records():
+        flash("Tidak punya akses untuk mengelola announcement", "error")
+        return redirect("/hris/announcement")
+
+    db = get_db()
+    announcement = _get_announcement_by_id(db, announcement_id)
+    if not announcement:
+        flash("Announcement tidak ditemukan", "error")
+        return redirect("/hris/announcement")
+
+    db.execute("DELETE FROM announcement_posts WHERE id=?", (announcement_id,))
+    db.commit()
+
+    flash("Announcement berhasil dihapus", "success")
+    return redirect("/hris/announcement")
+
+
+@hris_bp.route("/documents/add", methods=["POST"])
+def add_document():
+    if not can_manage_document_records():
+        flash("Tidak punya akses untuk mengelola documents", "error")
+        return redirect("/hris/documents")
+
+    db = get_db()
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    document_title = (request.form.get("document_title") or "").strip()
+    document_code = (request.form.get("document_code") or "").strip().upper()
+    document_type = _normalize_document_type(request.form.get("document_type"))
+    status = _normalize_document_status(request.form.get("status"))
+    effective_date = (request.form.get("effective_date") or "").strip()
+    review_date = (request.form.get("review_date") or "").strip()
+    owner_name = (request.form.get("owner_name") or "").strip()
+    note = (request.form.get("note") or "").strip()
+
+    if warehouse_id is None:
+        flash("Gudang dokumen wajib diisi", "error")
+        return redirect("/hris/documents")
+
+    if not document_title or not document_code or not effective_date:
+        flash("Judul, kode, dan effective date dokumen wajib diisi", "error")
+        return redirect("/hris/documents")
+
+    if _calculate_leave_days(effective_date, effective_date) is None:
+        flash("Tanggal efektif dokumen tidak valid", "error")
+        return redirect("/hris/documents")
+
+    if review_date and _calculate_leave_days(effective_date, review_date) is None:
+        flash("Rentang tanggal dokumen tidak valid", "error")
+        return redirect("/hris/documents")
+
+    duplicate = db.execute(
+        "SELECT id FROM document_records WHERE document_code=?",
+        (document_code,),
+    ).fetchone()
+    if duplicate:
+        flash("Kode dokumen sudah digunakan", "error")
+        return redirect("/hris/documents")
+
+    handled_by, handled_at = _build_document_handling(status)
+    db.execute(
+        """
+        INSERT INTO document_records(
+            warehouse_id,
+            document_title,
+            document_code,
+            document_type,
+            status,
+            effective_date,
+            review_date,
+            owner_name,
+            note,
+            handled_by,
+            handled_at,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            warehouse_id,
+            document_title,
+            document_code,
+            document_type,
+            status,
+            effective_date,
+            review_date or None,
+            owner_name or None,
+            note or None,
+            handled_by,
+            handled_at,
+            _current_timestamp(),
+        ),
+    )
+    db.commit()
+
+    flash("Document berhasil ditambahkan", "success")
+    return redirect("/hris/documents")
+
+
+@hris_bp.route("/documents/update/<int:document_id>", methods=["POST"])
+def update_document(document_id):
+    if not can_manage_document_records():
+        flash("Tidak punya akses untuk mengelola documents", "error")
+        return redirect("/hris/documents")
+
+    db = get_db()
+    document = _get_document_by_id(db, document_id)
+    if not document:
+        flash("Document tidak ditemukan", "error")
+        return redirect("/hris/documents")
+
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    document_title = (request.form.get("document_title") or "").strip()
+    document_code = (request.form.get("document_code") or "").strip().upper()
+    document_type = _normalize_document_type(request.form.get("document_type"))
+    status = _normalize_document_status(request.form.get("status"))
+    effective_date = (request.form.get("effective_date") or "").strip()
+    review_date = (request.form.get("review_date") or "").strip()
+    owner_name = (request.form.get("owner_name") or "").strip()
+    note = (request.form.get("note") or "").strip()
+
+    if warehouse_id is None:
+        flash("Gudang dokumen wajib diisi", "error")
+        return redirect("/hris/documents")
+
+    if not document_title or not document_code or not effective_date:
+        flash("Judul, kode, dan effective date dokumen wajib diisi", "error")
+        return redirect("/hris/documents")
+
+    if _calculate_leave_days(effective_date, effective_date) is None:
+        flash("Tanggal efektif dokumen tidak valid", "error")
+        return redirect("/hris/documents")
+
+    if review_date and _calculate_leave_days(effective_date, review_date) is None:
+        flash("Rentang tanggal dokumen tidak valid", "error")
+        return redirect("/hris/documents")
+
+    duplicate = db.execute(
+        "SELECT id FROM document_records WHERE document_code=? AND id<>?",
+        (document_code, document_id),
+    ).fetchone()
+    if duplicate:
+        flash("Kode dokumen sudah digunakan record lain", "error")
+        return redirect("/hris/documents")
+
+    handled_by, handled_at = _build_document_handling(status)
+    db.execute(
+        """
+        UPDATE document_records
+        SET warehouse_id=?,
+            document_title=?,
+            document_code=?,
+            document_type=?,
+            status=?,
+            effective_date=?,
+            review_date=?,
+            owner_name=?,
+            note=?,
+            handled_by=?,
+            handled_at=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            warehouse_id,
+            document_title,
+            document_code,
+            document_type,
+            status,
+            effective_date,
+            review_date or None,
+            owner_name or None,
+            note or None,
+            handled_by,
+            handled_at,
+            _current_timestamp(),
+            document_id,
+        ),
+    )
+    db.commit()
+
+    flash("Document berhasil diupdate", "success")
+    return redirect("/hris/documents")
+
+
+@hris_bp.route("/documents/delete/<int:document_id>", methods=["POST"])
+def delete_document(document_id):
+    if not can_manage_document_records():
+        flash("Tidak punya akses untuk mengelola documents", "error")
+        return redirect("/hris/documents")
+
+    db = get_db()
+    document = _get_document_by_id(db, document_id)
+    if not document:
+        flash("Document tidak ditemukan", "error")
+        return redirect("/hris/documents")
+
+    db.execute("DELETE FROM document_records WHERE id=?", (document_id,))
+    db.commit()
+
+    flash("Document berhasil dihapus", "success")
+    return redirect("/hris/documents")

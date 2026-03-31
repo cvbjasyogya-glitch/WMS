@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}Chat | Mataram Sports WMS{% endblock %}
+{% block extra_head %}
+<script>window.__WMS_CHAT_PAGE__ = true;</script>
+{% endblock %}
+{% block eyebrow %}WhatsApp Style Internal Messaging{% endblock %}
+{% block page_title %}Chat Operasional Live{% endblock %}
+{% block page_subtitle %}Percakapan internal yang cepat untuk follow up leader, koordinasi gudang, dan respon instan ke user yang sedang aktif online tanpa harus buka aplikasi lain.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Percakapan Aktif</p>
+        <h3>{{ summary.threads }}</h3>
+    </div>
+    <div class="card-mini warning">
+        <p>Unread</p>
+        <h3>{{ summary.unread }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Leader Siap Dihubungi</p>
+        <h3>{{ summary.leaders }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>User Online</p>
+        <h3>{{ summary.online }}</h3>
+    </div>
+</div>
+
+<div
+    class="chat-shell box"
+    id="wmsChatShell"
+    data-current-thread-id="{{ current_thread_id or '' }}"
+    data-last-message-id="{{ current_thread_last_message_id or 0 }}"
+>
+    <aside class="chat-sidebar-panel">
+        <div class="chat-sidebar-head">
+            <div class="chat-self-card">
+                <span class="chat-avatar">{{ current_user.username[:2]|upper }}</span>
+                <div>
+                    <strong>{{ current_user.username }}</strong>
+                    <span>{{ current_user.role|replace('_', ' ')|title }}{% if current_user.warehouse_name %} • {{ current_user.warehouse_name }}{% endif %}</span>
+                </div>
+            </div>
+            <span class="badge green">Realtime Ready</span>
+        </div>
+
+        <div class="chat-search-row">
+            <input type="text" id="chatSearchInput" placeholder="Cari percakapan, leader, atau user online">
+        </div>
+
+        <div class="chat-tab-row">
+            <button type="button" class="ghost-button active" data-chat-tab-target="threads">Percakapan</button>
+            <button type="button" class="ghost-button" data-chat-tab-target="contacts">Kontak</button>
+            <button type="button" class="ghost-button" data-chat-tab-target="leaders">Leader</button>
+        </div>
+
+        <div class="chat-list-stack">
+            <div class="chat-tab-panel active" data-chat-tab="threads">
+                <div class="chat-list-caption">
+                    <strong>Riwayat Chat</strong>
+                    <small>Urut otomatis berdasarkan pesan terbaru dan unread.</small>
+                </div>
+                <div id="chatThreadList" class="chat-thread-list">
+                    {% if threads %}
+                        {% for thread in threads %}
+                        <a
+                            href="/chat/?thread={{ thread.id }}"
+                            class="chat-thread-card {% if selected_thread and selected_thread.id == thread.id %}active{% endif %}"
+                            data-thread-id="{{ thread.id }}"
+                            data-search="{{ thread.search_blob|lower }}"
+                        >
+                            <span class="chat-avatar">{{ thread.partner_initials }}</span>
+                            <div class="chat-thread-body">
+                                <div class="chat-thread-topline">
+                                    <strong>{{ thread.partner_name }}</strong>
+                                    {% if thread.partner_online %}<span class="badge green">Online</span>{% endif %}
+                                </div>
+                                <div class="chat-thread-meta">
+                                    {{ thread.partner_role_label }} • {{ thread.partner_warehouse_label }}
+                                </div>
+                                <p>{{ thread.last_message_prefix }}{{ thread.last_message_preview }}</p>
+                            </div>
+                            <div class="chat-thread-side">
+                                <time>{{ thread.last_message_label }}</time>
+                                {% if thread.unread_count %}
+                                <span class="chat-unread-badge">{{ thread.unread_count if thread.unread_count <= 99 else '99+' }}</span>
+                                {% endif %}
+                            </div>
+                        </a>
+                        {% endfor %}
+                    {% else %}
+                    <div class="chat-list-empty">Belum ada thread. Mulai percakapan dari tab kontak atau leader.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="chat-tab-panel" data-chat-tab="contacts">
+                <div class="chat-list-caption">
+                    <strong>Semua Akun</strong>
+                    <small>Kontak online dan role lintas gudang bisa langsung dibuka jadi thread.</small>
+                </div>
+                <div id="chatContactList" class="chat-contact-list">
+                    {% for contact in contacts %}
+                    <button
+                        type="button"
+                        class="chat-contact-card"
+                        data-start-chat="{{ contact.id }}"
+                        data-search="{{ contact.search_blob|lower }}"
+                    >
+                        <span class="chat-avatar">{{ contact.initials }}</span>
+                        <div class="chat-contact-body">
+                            <div class="chat-thread-topline">
+                                <strong>{{ contact.username }}</strong>
+                                {% if contact.is_online %}<span class="badge green">Online</span>{% endif %}
+                            </div>
+                            <div class="chat-thread-meta">
+                                {{ contact.role_label }} • {{ contact.warehouse_label }}
+                            </div>
+                        </div>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="chat-tab-panel" data-chat-tab="leaders">
+                <div class="chat-list-caption">
+                    <strong>Leader Priority</strong>
+                    <small>Shortcut cepat untuk broadcast koordinasi ke leader yang sedang aktif.</small>
+                </div>
+                <div id="chatLeaderList" class="chat-contact-list">
+                    {% set leader_state = namespace(count=0) %}
+                    {% for contact in contacts if contact.is_leader %}
+                        {% set leader_state.count = leader_state.count + 1 %}
+                        <button
+                            type="button"
+                            class="chat-contact-card"
+                            data-start-chat="{{ contact.id }}"
+                            data-search="{{ contact.search_blob|lower }}"
+                        >
+                            <span class="chat-avatar">{{ contact.initials }}</span>
+                            <div class="chat-contact-body">
+                                <div class="chat-thread-topline">
+                                    <strong>{{ contact.username }}</strong>
+                                    {% if contact.is_online %}<span class="badge green">Online</span>{% endif %}
+                                </div>
+                                <div class="chat-thread-meta">
+                                    {{ contact.role_label }} • {{ contact.warehouse_label }}
+                                </div>
+                            </div>
+                        </button>
+                    {% endfor %}
+                    {% if leader_state.count == 0 %}
+                    <div class="chat-list-empty">Belum ada akun leader yang terdaftar di sistem.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <section class="chat-main-panel">
+        {% if selected_thread %}
+        <header class="chat-main-head" id="chatMainHead">
+            <div class="chat-thread-focus">
+                <span class="chat-avatar">{{ selected_thread.partner_initials }}</span>
+                <div>
+                    <strong id="chatPartnerName">{{ selected_thread.partner_name }}</strong>
+                    <span id="chatPartnerMeta">
+                        {{ selected_thread.partner_role_label }} • {{ selected_thread.partner_warehouse_label }}
+                        {% if selected_thread.partner_online %} • Online{% endif %}
+                    </span>
+                </div>
+            </div>
+            <div class="chat-focus-actions">
+                <span class="badge {% if selected_thread.partner_online %}green{% endif %}" id="chatPartnerStatus">
+                    {{ "Online" if selected_thread.partner_online else "Offline" }}
+                </span>
+            </div>
+        </header>
+
+        <div class="chat-message-board" id="chatMessageBoard">
+            {% for message in messages %}
+            <article class="chat-message-row {% if message.is_mine %}mine{% else %}other{% endif %}" data-message-id="{{ message.id }}">
+                {% if not message.is_mine %}
+                <div class="chat-message-sender">
+                    <span class="chat-avatar mini">{{ message.sender_initials }}</span>
+                    <strong>{{ message.sender_name }}</strong>
+                </div>
+                {% endif %}
+                <div class="chat-message-bubble">
+                    <p>{{ message.body }}</p>
+                    <time>{{ message.created_label }}</time>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+
+        <form class="chat-composer" id="chatComposerForm" data-thread-id="{{ selected_thread.id }}">
+            <textarea id="chatComposerInput" rows="1" placeholder="Ketik pesan untuk {{ selected_thread.partner_name }} lalu tekan Enter atau tombol kirim"></textarea>
+            <button type="submit" id="chatComposerButton">Kirim</button>
+        </form>
+        {% else %}
+        <div class="chat-empty-state">
+            <div class="chat-empty-art">MS</div>
+            <h2>Pilih kontak untuk mulai chat</h2>
+            <p>Gunakan tab `Kontak` atau `Leader` di sisi kiri untuk membuka thread baru. Notifikasi akan muncul cepat untuk user yang sedang aktif online.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+<script id="chatBootstrapData" type="application/json">
+{{ {
+    "threads": threads,
+    "contacts": contacts,
+    "selected_thread": selected_thread,
+    "current_thread_id": current_thread_id,
+    "current_thread_last_message_id": current_thread_last_message_id,
+    "unread_total": unread_total
+}|tojson }}
+</script>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/chat_page.js"></script>
+{% endblock %}

@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+
+{% macro filter_hidden_inputs() -%}
+<input type="hidden" name="start" value="{{ filters.start }}">
+<input type="hidden" name="days" value="{{ filters.days }}">
+{% if selected_warehouse %}
+<input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+{% endif %}
+{%- endmacro %}
+
+{% block title %}Penjadwalan | Mataram Sports Platform{% endblock %}
+{% block eyebrow %}WMS Scheduling Board{% endblock %}
+{% block page_title %}Penjadwalan Tim{% endblock %}
+{% block page_subtitle %}Board ini menyatukan jadwal manual dengan data HRIS. Approved leave, status off, absensi khusus, dan offboarding aktif akan otomatis menimpa shift manual supaya planner operasional selalu membaca kondisi staf yang paling aktual.{% endblock %}
+
+{% block page_actions %}
+{% if show_hris_navigation and can_view_hris_module("leave") %}
+<a class="ghost-button" href="/hris/leave">Buka Leave</a>
+{% endif %}
+{% if show_hris_navigation and can_view_hris_module("offboarding") %}
+<a class="ghost-button" href="/hris/offboarding">Buka Offboarding</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Staf Tampil</p>
+        <h3>{{ summary.employees }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Shift Master</p>
+        <h3>{{ summary.shift_codes }}</h3>
+    </div>
+    <div class="card-mini {% if summary.override_cells %}warning{% endif %}">
+        <p>Override HRIS</p>
+        <h3>{{ summary.override_cells }}</h3>
+    </div>
+    <div class="card-mini {% if summary.manual_cells %}success{% endif %}">
+        <p>Entry Manual</p>
+        <h3>{{ summary.manual_cells }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Scope Jadwal</span>
+        <strong>{{ selected_warehouse_name }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Range Mulai</span>
+        <strong>{{ filters.start }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Range Sampai</span>
+        <strong>{{ range_end }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Custom</span>
+        <strong>{{ "HR / Super Admin" if can_manage_schedule else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar schedule-filter-bar">
+    <input type="date" name="start" value="{{ filters.start }}">
+    <select name="days">
+        {% for value in [7, 14, 21, 28, 35, 42] %}
+        <option value="{{ value }}" {% if filters.days == value %}selected{% endif %}>{{ value }} hari</option>
+        {% endfor %}
+    </select>
+    <select name="warehouse" {% if scoped_schedule_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for warehouse in warehouses %}
+        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+        {% endfor %}
+    </select>
+    {% if scoped_schedule_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ scoped_schedule_warehouse }}">
+    {% endif %}
+    <button type="submit">Tampilkan Board</button>
+</form>
+
+{% if scoped_schedule_warehouse %}
+<small class="helper-text">Akun gudang dikunci ke warehouse sendiri. HR dan Super Admin bisa pindah scope warehouse atau melihat seluruh board sekaligus.</small>
+{% else %}
+<small class="helper-text">Board akan otomatis membaca data HRIS aktif dalam rentang tanggal yang sedang dibuka. Jika shift manual bentrok dengan leave/offboarding, status HRIS akan diprioritaskan.</small>
+{% endif %}
+
+<div class="box schedule-legend-box">
+    <div class="section-title">
+        <div>
+            <h2>Legend Override</h2>
+            <p>Kode berikut datang otomatis dari HRIS dan akan langsung tampil di board penjadwalan saat datanya aktif.</p>
+        </div>
+    </div>
+    <div class="schedule-legend-list">
+        {% for item in legend_items %}
+        <span class="schedule-chip" style="--schedule-chip-bg: {{ item.bg_color }}; --schedule-chip-color: {{ item.text_color }};" title="{{ item.label }}">{{ item.code }}</span>
+        {% endfor %}
+    </div>
+</div>
+
+{% if can_manage_schedule %}
+<div class="cards schedule-control-grid">
+    <div class="form-box">
+        <div class="section-title">
+            <div>
+                <h2>Atur Jadwal Manual</h2>
+                <p>Pilih staf, terapkan kode shift pada rentang tanggal, atau kosongkan kode shift untuk membersihkan schedule manual di range tersebut.</p>
+            </div>
+        </div>
+        <form method="POST" action="/schedule/entry/save">
+            {{ filter_hidden_inputs() }}
+            <div class="form-grid">
+                <div>
+                    <label>Nama Staf</label>
+                    <select name="employee_id" required>
+                        <option value="">Pilih Staf</option>
+                        {% for employee in employee_rows %}
+                        <option value="{{ employee.employee_id }}">{{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Kode Shift</label>
+                    <select name="shift_code">
+                        <option value="">Bersihkan Shift Manual</option>
+                        {% for shift in active_shift_codes %}
+                        <option value="{{ shift.code }}">{{ shift.code }} | {{ shift.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Tanggal Mulai</label>
+                    <input type="date" name="entry_start_date" value="{{ filters.start }}" required>
+                </div>
+                <div>
+                    <label>Tanggal Selesai</label>
+                    <input type="date" name="entry_end_date" value="{{ range_end }}" required>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Shift</label>
+                    <textarea name="note" rows="3" placeholder="Contoh: backup live host, training, atau standby event."></textarea>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Terapkan Jadwal</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="form-box">
+        <div class="section-title">
+            <div>
+                <h2>Catatan Harian Board</h2>
+                <p>Kolom <em>Ket.</em> bisa dipakai untuk event, campaign, grand opening, atau briefing besar pada hari tertentu.</p>
+            </div>
+        </div>
+        <form method="POST" action="/schedule/day-note/save">
+            {{ filter_hidden_inputs() }}
+            <div class="form-grid">
+                <div>
+                    <label>Tanggal</label>
+                    <input type="date" name="schedule_date" value="{{ filters.start }}" required>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan</label>
+                    <textarea name="note" rows="4" placeholder="Contoh: launching campaign Ramadan, training POS, visit owner, dan lain-lain."></textarea>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Simpan Catatan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Master Shift</h2>
+            <p>HR dan Super Admin bisa menambah atau menyesuaikan warna, label, dan urutan kode shift sesuai kebutuhan jadwal masing-masing gudang.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/schedule/shift-code/save" class="schedule-master-new-form">
+        {{ filter_hidden_inputs() }}
+        <div class="form-grid">
+            <div>
+                <label>Kode</label>
+                <input name="code" maxlength="16" placeholder="Contoh: P10" required>
+            </div>
+            <div>
+                <label>Label</label>
+                <input name="label" placeholder="Contoh: Pagi 10">
+            </div>
+            <div>
+                <label>Warna Latar</label>
+                <input type="color" name="bg_color" value="#c6e5ab">
+            </div>
+            <div>
+                <label>Warna Teks</label>
+                <input type="color" name="text_color" value="#17351a">
+            </div>
+            <div>
+                <label>Urutan</label>
+                <input type="number" name="sort_order" value="90">
+            </div>
+            <div class="schedule-checkbox-field">
+                <label>Status</label>
+                <label class="schedule-checkline">
+                    <input type="checkbox" name="is_active" checked>
+                    <span>Aktif dipakai di composer</span>
+                </label>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Shift</button>
+        </div>
+    </form>
+
+    <div class="schedule-shift-list">
+        {% for shift in shift_codes %}
+        <form method="POST" action="/schedule/shift-code/save" class="box schedule-shift-card">
+            {{ filter_hidden_inputs() }}
+            <input type="hidden" name="original_code" value="{{ shift.code }}">
+            <div class="schedule-shift-card-top">
+                <span class="schedule-chip" style="--schedule-chip-bg: {{ shift.bg_color }}; --schedule-chip-color: {{ shift.text_color }};">{{ shift.code }}</span>
+                <span class="badge">{{ "Aktif" if shift.is_active else "Nonaktif" }}</span>
+            </div>
+            <div class="form-grid">
+                <div>
+                    <label>Kode</label>
+                    <input name="code" value="{{ shift.code }}" maxlength="16" required>
+                </div>
+                <div>
+                    <label>Label</label>
+                    <input name="label" value="{{ shift.label }}" required>
+                </div>
+                <div>
+                    <label>Warna Latar</label>
+                    <input type="color" name="bg_color" value="{{ shift.bg_color }}">
+                </div>
+                <div>
+                    <label>Warna Teks</label>
+                    <input type="color" name="text_color" value="{{ shift.text_color }}">
+                </div>
+                <div>
+                    <label>Urutan</label>
+                    <input type="number" name="sort_order" value="{{ shift.sort_order }}">
+                </div>
+                <div class="schedule-checkbox-field">
+                    <label>Status</label>
+                    <label class="schedule-checkline">
+                        <input type="checkbox" name="is_active" {% if shift.is_active %}checked{% endif %}>
+                        <span>Tetap tampil di composer</span>
+                    </label>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Simpan Shift</button>
+            </div>
+        </form>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Display Staf di Board</h2>
+            <p>Atur nama pendek, grup header, label lokasi, urutan kolom, dan apakah staf tersebut ikut ditampilkan di board jadwal.</p>
+        </div>
+    </div>
+    {% if employee_rows %}
+    <div class="schedule-profile-list">
+        {% for employee in employee_rows %}
+        <form method="POST" action="/schedule/profile/save/{{ employee.employee_id }}" class="box schedule-profile-card">
+            {{ filter_hidden_inputs() }}
+            <div class="schedule-profile-head">
+                <div>
+                    <strong>{{ employee.full_name }}</strong>
+                    <p>{{ employee.position or employee.department or "Tim Operasional" }}</p>
+                </div>
+                <div class="schedule-profile-badges">
+                    <span class="badge">{{ employee.warehouse_name or "-" }}</span>
+                    <span class="badge">{{ employee.employment_status }}</span>
+                </div>
+            </div>
+            <div class="form-grid">
+                <div>
+                    <label>Nama Pendek</label>
+                    <input name="custom_name" value="{{ employee.custom_name }}" placeholder="Contoh: Ajeng">
+                </div>
+                <div>
+                    <label>Header Grup</label>
+                    <input name="display_group" value="{{ employee.display_group }}" placeholder="Contoh: HR / Marketing / Leader">
+                </div>
+                <div>
+                    <label>Label Lokasi</label>
+                    <input name="location_label" value="{{ employee.location_label }}" placeholder="Contoh: Mataram / Mega">
+                </div>
+                <div>
+                    <label>Urutan Kolom</label>
+                    <input type="number" name="display_order" value="{{ employee.display_order }}">
+                </div>
+                <div class="schedule-checkbox-field">
+                    <label>Tampilkan di Board</label>
+                    <label class="schedule-checkline">
+                        <input type="checkbox" name="include_in_schedule" {% if employee.include_in_schedule %}checked{% endif %}>
+                        <span>Masuk ke board penjadwalan</span>
+                    </label>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Profil</label>
+                    <textarea name="profile_note" rows="2" placeholder="Catatan display khusus untuk staff ini.">{{ employee.profile_note }}</textarea>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Simpan Preferensi</button>
+            </div>
+        </form>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert info">Belum ada data karyawan pada scope yang dipilih.</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="alert info">Mode lihat aktif. HR dan Super Admin bisa menambah shift, mengatur header staf, dan menulis catatan harian langsung dari halaman ini.</div>
+{% endif %}
+
+<div class="table-box schedule-board-shell">
+    <div class="section-title">
+        <div>
+            <h2>Board Penjadwalan</h2>
+            <p>Header board dibagi menjadi grup kerja, label lokasi, dan nama staf agar cepat dibaca saat tim lintas gudang tampil dalam satu lembar.</p>
+        </div>
+    </div>
+
+    {% if schedule_members %}
+    <div class="schedule-board-wrap">
+        <table class="schedule-board">
+            <thead>
+                <tr>
+                    <th class="schedule-axis-cell schedule-sticky">Job Description</th>
+                    {% for group in schedule_groups %}
+                    <th colspan="{{ group.members|length }}" class="schedule-group-header">{{ group.label }}</th>
+                    {% endfor %}
+                    <th rowspan="3" class="schedule-note-header">Ket.</th>
+                </tr>
+                <tr>
+                    <th class="schedule-axis-cell schedule-sticky">Lokasi Kerja / Sistem</th>
+                    {% for member in schedule_members %}
+                    <th class="schedule-location-header">{{ member.location_label_display }}</th>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <th class="schedule-axis-cell schedule-sticky">Tanggal | Nama Staf</th>
+                    {% for member in schedule_members %}
+                    <th class="schedule-name-header">{{ member.display_name }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in board_rows %}
+                <tr class="{% if row.is_weekend %}schedule-row-weekend{% endif %}">
+                    <th class="schedule-day-header schedule-sticky">{{ row.label }}</th>
+                    {% for cell in row.cells %}
+                    <td class="schedule-board-cell">
+                        {% if cell %}
+                        <span
+                            class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
+                            style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
+                            title="{{ cell.title }}"
+                        >{{ cell.code }}</span>
+                        {% else %}
+                        <span class="schedule-empty">-</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="schedule-note-cell">
+                        {% if row.note %}
+                        <div class="schedule-note-text">{{ row.note }}</div>
+                        {% else %}
+                        <span class="schedule-empty">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert info">Belum ada staf yang siap ditampilkan pada board ini. Tambahkan data karyawan di HRIS lalu aktifkan opsi tampil di board jika perlu.</div>
+    {% endif %}
+</div>
+{% endblock %}

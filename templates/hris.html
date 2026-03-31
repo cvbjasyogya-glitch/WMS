@@ -2,8 +2,8 @@
 
 {% block title %}HRIS | Mataram Sports Platform{% endblock %}
 {% block eyebrow %}HRIS Workspace{% endblock %}
-{% block page_title %}HRIS Integration Hub{% endblock %}
-{% block page_subtitle %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endblock %}
+{% block page_title %}{% if selected_module.slug == "dashboard" %}Dashboard HRIS{% else %}HRIS Integration Hub{% endif %}{% endblock %}
+{% block page_subtitle %}{% if selected_module.slug == "dashboard" %}Dashboard ini menyorot announcement aktif dan snapshot jadwal tim yang sudah tersambung ke data HRIS, jadi HR dan Super Admin bisa membaca kondisi operasional terbaru tanpa berpindah-pindah halaman.{% else %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endif %}{% endblock %}
 
 {% block content %}
 <div class="meta-grid">
@@ -38,7 +38,196 @@
     {% endfor %}
 </div>
 
-{% if selected_module.slug == "employee" %}
+{% if selected_module.slug == "dashboard" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Announcement Aktif</p>
+        <h3>{{ dashboard_announcement_summary.active }}</h3>
+    </div>
+    <div class="card-mini {% if dashboard_announcement_summary.draft %}warning{% endif %}">
+        <p>Draft Pending</p>
+        <h3>{{ dashboard_announcement_summary.draft }}</h3>
+    </div>
+    <div class="card-mini {% if dashboard_schedule.override_cells %}warning{% endif %}">
+        <p>Override HRIS</p>
+        <h3>{{ dashboard_schedule.override_cells }}</h3>
+    </div>
+    <div class="card-mini {% if dashboard_schedule.members|length %}success{% endif %}">
+        <p>Staf Terjadwal</p>
+        <h3>{{ dashboard_schedule.members|length }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if dashboard_filters.warehouse_id %}
+                {% for w in warehouses %}{% if w.id == dashboard_filters.warehouse_id %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Window Jadwal</span>
+        <strong>{{ dashboard_schedule.start }} s/d {{ dashboard_schedule.end }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Catatan Hari</span>
+        <strong>{{ dashboard_schedule.day_notes }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Custom</span>
+        <strong>{{ "HR / Super Admin" if can_manage_announcement else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar schedule-filter-bar">
+    <select name="warehouse" {% if announcement_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for warehouse in warehouses %}
+        <option value="{{ warehouse.id }}" {% if dashboard_filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+        {% endfor %}
+    </select>
+    {% if announcement_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ announcement_scope_warehouse }}">
+    {% endif %}
+    <input type="date" name="schedule_start" value="{{ dashboard_filters.schedule_start }}">
+    <select name="days">
+        {% for value in [7, 14, 21] %}
+        <option value="{{ value }}" {% if dashboard_filters.days == value %}selected{% endif %}>{{ value }} hari</option>
+        {% endfor %}
+    </select>
+    <button type="submit">Refresh Dashboard</button>
+</form>
+
+<small class="helper-text">Landing ini fokus untuk membaca pengumuman yang sedang aktif dan preview board jadwal. Untuk edit detail announcement atau custom board penuh, lanjutkan ke modul Announcement atau halaman Penjadwalan.</small>
+
+<div class="cards hris-dashboard-grid">
+    <div class="table-box hris-dashboard-panel">
+        <div class="section-title">
+            <div>
+                <h2>Announcement Aktif</h2>
+                <p>Broadcast yang masih berlaku dan relevan untuk operasional tim saat ini.</p>
+            </div>
+            <a class="ghost-button" href="/hris/announcement">Kelola Announcement</a>
+        </div>
+
+        {% if dashboard_announcements %}
+        <div class="hris-dashboard-announcement-list">
+            {% for announcement in dashboard_announcements %}
+            <article class="box hris-dashboard-announcement-card">
+                <div class="hris-dashboard-announcement-head">
+                    <div>
+                        <h3>{{ announcement.title }}</h3>
+                        <p>{{ announcement.warehouse_name or "Semua Gudang" }} • {{ announcement.publish_date or "-" }}</p>
+                    </div>
+                    <span class="badge {{ 'green' if announcement.audience == 'warehouse_team' else 'orange' if announcement.audience == 'leaders' else '' }}">
+                        {{ announcement.audience }}
+                    </span>
+                </div>
+                <div class="hris-dashboard-announcement-meta">
+                    <span>Channel: {{ announcement.channel or "-" }}</span>
+                    <span>Expire: {{ announcement.expires_at or "-" }}</span>
+                </div>
+                <p class="hris-dashboard-announcement-body">{{ announcement.message or "Tanpa isi announcement." }}</p>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">Belum ada announcement aktif di scope ini. Modul Announcement tetap bisa dipakai untuk menyiapkan draft broadcast berikutnya.</div>
+        {% endif %}
+    </div>
+
+    <div class="table-box hris-dashboard-panel">
+        <div class="section-title">
+            <div>
+                <h2>Jadwal Tim</h2>
+                <p>Preview board dari jadwal yang sudah dibuat, lengkap dengan override leave, absen khusus, dan offboarding.</p>
+            </div>
+            <a class="ghost-button" href="/schedule/?start={{ dashboard_schedule.start }}&days={{ dashboard_schedule.days }}{% if dashboard_filters.warehouse_id %}&warehouse={{ dashboard_filters.warehouse_id }}{% endif %}">Buka Board Penuh</a>
+        </div>
+
+        {% if dashboard_schedule.members %}
+        <div class="meta-grid hris-dashboard-schedule-meta">
+            <div class="meta-card">
+                <span>Entry Manual</span>
+                <strong>{{ dashboard_schedule.manual_cells }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Override HRIS</span>
+                <strong>{{ dashboard_schedule.override_cells }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Sel Terisi</span>
+                <strong>{{ dashboard_schedule.assigned_cells }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Preview Staf</span>
+                <strong>{{ dashboard_schedule.preview_members|length }}{% if dashboard_schedule.remaining_members %} + {{ dashboard_schedule.remaining_members }}{% endif %}</strong>
+            </div>
+        </div>
+
+        <div class="schedule-board-wrap hris-dashboard-schedule-wrap">
+            <table class="schedule-board hris-dashboard-schedule">
+                <thead>
+                    <tr>
+                        <th class="schedule-axis-cell schedule-sticky">Tanggal</th>
+                        {% for member in dashboard_schedule.preview_members %}
+                        <th class="schedule-name-header">
+                            {{ member.display_name }}
+                            <small>{{ member.location_label_display }}</small>
+                        </th>
+                        {% endfor %}
+                        <th class="schedule-note-header">Ket.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in dashboard_schedule.preview_rows %}
+                    <tr class="{% if row.is_weekend %}schedule-row-weekend{% endif %}">
+                        <th class="schedule-day-header schedule-sticky">{{ row.label }}</th>
+                        {% for cell in row.cells %}
+                        <td class="schedule-board-cell">
+                            {% if cell %}
+                            <span
+                                class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
+                                style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
+                                title="{{ cell.title }}"
+                            >{{ cell.code }}</span>
+                            {% else %}
+                            <span class="schedule-empty">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="schedule-note-cell">
+                            {% if row.note %}
+                            <div class="schedule-note-text">{{ row.note }}</div>
+                            {% elif row.highlights %}
+                            <div class="hris-dashboard-day-highlights">
+                                {% for highlight in row.highlights %}
+                                <span>{{ highlight.code }} {{ highlight.count }}</span>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <span class="schedule-empty">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if dashboard_schedule.remaining_members %}
+        <small class="helper-text">Preview ini menampilkan {{ dashboard_schedule.preview_members|length }} staf pertama. Masih ada {{ dashboard_schedule.remaining_members }} staf lain di board penuh.</small>
+        {% endif %}
+        {% else %}
+        <div class="empty-state">Belum ada staf yang tampil di board jadwal untuk scope ini.</div>
+        {% endif %}
+    </div>
+</div>
+{% elif selected_module.slug == "employee" %}
 <div class="summary">
     <div class="card-mini">
         <p>Total Karyawan</p>
@@ -427,7 +616,7 @@
     <div class="section-title">
         <div>
             <h2>Log Kehadiran</h2>
-            <p>Riwayat attendance ini siap dipakai sebagai basis untuk leave, payroll, dan integrasi biometric pada tahap modul berikutnya.</p>
+            <p>Riwayat attendance ini siap dipakai sebagai basis untuk leave, payroll, dan integrasi geotag absensi pada tahap modul berikutnya.</p>
         </div>
     </div>
 
@@ -663,7 +852,11 @@
         </div>
     </form>
     {% else %}
+    {% if is_self_service_hris_module("leave") %}
+    <div class="empty-state">Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin agar form leave bisa dipakai sebagai self-service.</div>
+    {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat leave request.</div>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}
@@ -2222,7 +2415,11 @@
         </div>
     </form>
     {% else %}
+    {% if is_self_service_hris_module("helpdesk") %}
+    <div class="empty-state">Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin agar form helpdesk bisa dipakai sebagai self-service.</div>
+    {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat ticket helpdesk.</div>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}
@@ -3017,31 +3214,35 @@
         <h3>{{ biometric_summary.total }}</h3>
     </div>
     <div class="card-mini {% if biometric_summary.synced %}success{% endif %}">
-        <p>Synced</p>
+        <p>Terverifikasi</p>
         <h3>{{ biometric_summary.synced }}</h3>
     </div>
     <div class="card-mini {% if biometric_summary.queued or biometric_summary.manual %}warning{% endif %}">
-        <p>Queued + Manual</p>
+        <p>Review + Manual</p>
         <h3>{{ biometric_summary.queued + biometric_summary.manual }}</h3>
     </div>
     <div class="card-mini {% if biometric_summary.failed %}danger{% endif %}">
-        <p>Failed</p>
+        <p>Flagged</p>
         <h3>{{ biometric_summary.failed }}</h3>
     </div>
 </div>
 
 <div class="meta-grid">
     <div class="meta-card">
-        <span>Check In</span>
-        <strong>{{ biometric_summary.check_in }}</strong>
+        <span>Karyawan Terekam</span>
+        <strong>{{ biometric_summary.employees }}</strong>
     </div>
     <div class="meta-card">
-        <span>Check Out</span>
-        <strong>{{ biometric_summary.check_out }}</strong>
+        <span>Check In / Out</span>
+        <strong>{{ biometric_summary.check_in }} / {{ biometric_summary.check_out }}</strong>
     </div>
     <div class="meta-card">
-        <span>Devices</span>
-        <strong>{{ biometric_summary.devices }}</strong>
+        <span>Titik Lokasi</span>
+        <strong>{{ biometric_summary.locations }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Akurasi Rata-Rata</span>
+        <strong>{{ "%.2f"|format(biometric_summary.avg_accuracy) }} m</strong>
     </div>
     <div class="meta-card">
         <span>Akses Kelola</span>
@@ -3050,7 +3251,7 @@
 </div>
 
 <form method="GET" class="top-bar products-filter-bar">
-    <input type="text" name="q" value="{{ biometric_filters.search }}" placeholder="Cari code, nama, device, atau user biometric">
+    <input type="text" name="q" value="{{ biometric_filters.search }}" placeholder="Cari code, nama, titik lokasi, atau referensi geotag">
     <select name="warehouse" {% if biometric_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
@@ -3066,11 +3267,11 @@
         <option value="check_out" {% if biometric_filters.punch_type == 'check_out' %}selected{% endif %}>Check Out</option>
     </select>
     <select name="sync_status">
-        <option value="all" {% if biometric_filters.sync_status == 'all' %}selected{% endif %}>Semua Sync</option>
-        <option value="queued" {% if biometric_filters.sync_status == 'queued' %}selected{% endif %}>Queued</option>
-        <option value="synced" {% if biometric_filters.sync_status == 'synced' %}selected{% endif %}>Synced</option>
-        <option value="manual" {% if biometric_filters.sync_status == 'manual' %}selected{% endif %}>Manual</option>
-        <option value="failed" {% if biometric_filters.sync_status == 'failed' %}selected{% endif %}>Failed</option>
+        <option value="all" {% if biometric_filters.sync_status == 'all' %}selected{% endif %}>Semua Verifikasi</option>
+        <option value="queued" {% if biometric_filters.sync_status == 'queued' %}selected{% endif %}>Perlu Review</option>
+        <option value="synced" {% if biometric_filters.sync_status == 'synced' %}selected{% endif %}>Terverifikasi</option>
+        <option value="manual" {% if biometric_filters.sync_status == 'manual' %}selected{% endif %}>Manual Override</option>
+        <option value="failed" {% if biometric_filters.sync_status == 'failed' %}selected{% endif %}>Flagged</option>
     </select>
     <input type="date" name="date_from" value="{{ biometric_filters.date_from or '' }}">
     <input type="date" name="date_to" value="{{ biometric_filters.date_to or '' }}">
@@ -3078,15 +3279,17 @@
 </form>
 
 {% if biometric_scope_warehouse %}
-<small class="helper-text">Biometric log dibatasi ke gudang akun Anda agar sinkronisasi presensi tetap fokus ke area kerja sendiri.</small>
+<small class="helper-text">Log geotag dibatasi ke gudang akun Anda agar rekap absensi tetap fokus ke area kerja sendiri.</small>
+{% else %}
+<small class="helper-text">Gunakan modul ini untuk menyimpan titik check in dan check out berbasis lokasi. Data geotag otomatis ikut membentuk rekap absensi harian di bawah.</small>
 {% endif %}
 
 {% if can_manage_biometric %}
 <div class="form-box">
     <div class="section-title">
         <div>
-            <h2>Tambah Log</h2>
-            <p>Modul Biometric dipakai untuk menyimpan punch device lalu menyinkronkan check in dan check out ke attendance harian secara lebih rapi.</p>
+            <h2>Tambah Absen Geotag</h2>
+            <p>Form ini dipakai untuk merekam titik check in dan check out berbasis lokasi. Koordinat yang valid akan langsung menyinkronkan jam absensi harian pada modul attendance.</p>
         </div>
     </div>
 
@@ -3103,44 +3306,65 @@
                 </select>
             </div>
             <div>
-                <label>Device Name</label>
-                <input name="device_name" placeholder="Contoh: ZKTeco F18" required>
-            </div>
-            <div>
-                <label>User Biometric</label>
-                <input name="device_user_id" placeholder="Contoh: BIO-001">
-            </div>
-            <div>
-                <label>Punch Time</label>
+                <label>Waktu Absen</label>
                 <input type="datetime-local" name="punch_time" required>
             </div>
             <div>
-                <label>Punch Type</label>
+                <label>Tipe Absen</label>
                 <select name="punch_type">
                     <option value="check_in">Check In</option>
                     <option value="check_out">Check Out</option>
                 </select>
             </div>
             <div>
-                <label>Sync Status</label>
+                <label>Titik Lokasi</label>
+                <input name="location_label" placeholder="Contoh: Gudang Mataram - Depan Toko" required>
+            </div>
+            <div>
+                <label>Latitude</label>
+                <input name="latitude" placeholder="-8.583140" required>
+            </div>
+            <div>
+                <label>Longitude</label>
+                <input name="longitude" placeholder="116.116798" required>
+            </div>
+            <div>
+                <label>Akurasi (meter)</label>
+                <input type="number" step="0.01" min="0" name="accuracy_m" placeholder="15.5">
+            </div>
+            <div>
+                <label>Status Verifikasi</label>
                 <select name="sync_status">
-                    <option value="queued">Queued</option>
-                    <option value="synced">Synced</option>
-                    <option value="manual">Manual</option>
-                    <option value="failed">Failed</option>
+                    <option value="synced">Terverifikasi</option>
+                    <option value="queued">Perlu Review</option>
+                    <option value="manual">Manual Override</option>
+                    <option value="failed">Flagged</option>
                 </select>
+            </div>
+            <div class="split-actions" style="grid-column: 1 / -1; margin-top:4px;">
+                <button type="button" class="ghost-button" data-geotag-capture>Ambil Lokasi Saat Ini</button>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <small class="helper-text" data-geotag-status>Klik tombol di atas jika ingin mengisi koordinat otomatis dari browser.</small>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <small class="helper-text">Jika absen dilakukan dari halaman khusus `Absen Foto`, bukti kamera akan otomatis masuk ke log HRIS ini.</small>
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Catatan</label>
-                <textarea name="note" rows="3" placeholder="Catatan device, retry sync, atau validasi punch."></textarea>
+                <textarea name="note" rows="3" placeholder="Catatan kondisi lokasi, verifikasi leader, atau alasan override."></textarea>
             </div>
         </div>
         <div class="split-actions" style="margin-top:16px;">
-            <button type="submit">Tambah Log</button>
+            <button type="submit">Tambah Absen Geotag</button>
         </div>
     </form>
     {% else %}
-    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat log biometric.</div>
+    {% if is_self_service_hris_module("biometric") %}
+    <div class="empty-state">Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin agar form geotag bisa dipakai sebagai self-service.</div>
+    {% else %}
+    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat log geotag.</div>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}
@@ -3148,8 +3372,8 @@
 <div class="table-box">
     <div class="section-title">
         <div>
-            <h2>Biometric Sync Log</h2>
-            <p>Log ini menjadi jejak sinkronisasi device ke attendance, termasuk audit retry, mismatch punch, dan status integrasi presensi.</p>
+            <h2>Log Geotag Absensi</h2>
+            <p>Log ini menyimpan titik check in-out, akurasi koordinat, dan status verifikasi yang menjadi dasar sinkronisasi ke attendance harian.</p>
         </div>
     </div>
 
@@ -3169,32 +3393,56 @@
                             </select>
                         </div>
                         <div>
-                            <label>Device Name</label>
-                            <input name="device_name" value="{{ log.device_name }}" required>
-                        </div>
-                        <div>
-                            <label>User Biometric</label>
-                            <input name="device_user_id" value="{{ log.device_user_id or '' }}">
-                        </div>
-                        <div>
-                            <label>Punch Time</label>
+                            <label>Waktu Absen</label>
                             <input type="datetime-local" name="punch_time" value="{{ (log.punch_time or '').replace(' ', 'T')[:16] }}" required>
                         </div>
                         <div>
-                            <label>Punch Type</label>
+                            <label>Tipe Absen</label>
                             <select name="punch_type">
                                 <option value="check_in" {% if log.punch_type == 'check_in' %}selected{% endif %}>Check In</option>
                                 <option value="check_out" {% if log.punch_type == 'check_out' %}selected{% endif %}>Check Out</option>
                             </select>
                         </div>
                         <div>
-                            <label>Sync Status</label>
+                            <label>Titik Lokasi</label>
+                            <input name="location_label" value="{{ log.location_label or '' }}" required>
+                        </div>
+                        <div>
+                            <label>Latitude</label>
+                            <input name="latitude" value="{{ log.latitude if log.latitude is not none else '' }}" required>
+                        </div>
+                        <div>
+                            <label>Longitude</label>
+                            <input name="longitude" value="{{ log.longitude if log.longitude is not none else '' }}" required>
+                        </div>
+                        <div>
+                            <label>Akurasi (meter)</label>
+                            <input type="number" step="0.01" min="0" name="accuracy_m" value="{{ log.accuracy_m if log.accuracy_m is not none else '' }}">
+                        </div>
+                        <div>
+                            <label>Status Verifikasi</label>
                             <select name="sync_status">
-                                <option value="queued" {% if log.sync_status == 'queued' %}selected{% endif %}>Queued</option>
-                                <option value="synced" {% if log.sync_status == 'synced' %}selected{% endif %}>Synced</option>
-                                <option value="manual" {% if log.sync_status == 'manual' %}selected{% endif %}>Manual</option>
-                                <option value="failed" {% if log.sync_status == 'failed' %}selected{% endif %}>Failed</option>
+                                <option value="synced" {% if log.sync_status == 'synced' %}selected{% endif %}>Terverifikasi</option>
+                                <option value="queued" {% if log.sync_status == 'queued' %}selected{% endif %}>Perlu Review</option>
+                                <option value="manual" {% if log.sync_status == 'manual' %}selected{% endif %}>Manual Override</option>
+                                <option value="failed" {% if log.sync_status == 'failed' %}selected{% endif %}>Flagged</option>
                             </select>
+                        </div>
+                        <div class="split-actions" style="grid-column: 1 / -1; margin-top:4px;">
+                            <button type="button" class="ghost-button" data-geotag-capture>Ambil Lokasi Saat Ini</button>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <small class="helper-text" data-geotag-status>Anda bisa memperbarui koordinat otomatis dari browser atau mengedit manual bila perlu audit.</small>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Bukti Foto</label>
+                            {% if log.photo_url %}
+                            <a href="{{ log.photo_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-link">
+                                <img src="{{ log.photo_url }}" alt="Foto absen {{ log.punch_time }}" class="biometric-photo-preview">
+                            </a>
+                            {% else %}
+                            <div class="biometric-photo-empty">Belum ada foto absen yang tersimpan pada log ini.</div>
+                            {% endif %}
                         </div>
                         <div style="grid-column: 1 / -1;">
                             <label>Catatan</label>
@@ -3202,11 +3450,11 @@
                         </div>
                     </div>
                     <div class="split-actions" style="margin-top:16px;">
-                        <button type="submit">Update Log</button>
+                        <button type="submit">Update Geotag</button>
                     </div>
                 </form>
                 <form method="POST" action="/hris/biometric/delete/{{ log.id }}" style="margin-top:12px;">
-                    <button type="submit" class="danger-button" onclick="return confirm('Hapus log biometric ini?')">Hapus</button>
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus log geotag ini?')">Hapus</button>
                 </form>
             </div>
             {% endfor %}
@@ -3218,10 +3466,13 @@
                     <th>Code</th>
                     <th>Nama</th>
                     <th>Gudang</th>
-                    <th>Device</th>
-                    <th>Punch Time</th>
+                    <th>Titik</th>
+                    <th>Koordinat</th>
+                    <th>Akurasi</th>
+                    <th>Waktu</th>
                     <th>Type</th>
-                    <th>Sync</th>
+                    <th>Foto</th>
+                    <th>Verifikasi</th>
                 </tr>
             </thead>
             <tbody>
@@ -3230,17 +3481,662 @@
                     <td class="mono">{{ log.employee_code }}</td>
                     <td>{{ log.full_name }}</td>
                     <td>{{ log.warehouse_name or '-' }}</td>
-                    <td>{{ log.device_name }}</td>
+                    <td>{{ log.location_display }}</td>
+                    <td class="mono">{{ log.coordinate_display }}</td>
+                    <td>{{ log.accuracy_display }}</td>
                     <td>{{ log.punch_time }}</td>
                     <td>{{ log.punch_type }}</td>
-                    <td><span class="badge {{ 'green' if log.sync_status in ['synced', 'manual'] else 'orange' if log.sync_status == 'queued' else 'red' }}">{{ log.sync_status }}</span></td>
+                    <td>
+                        {% if log.photo_url %}
+                        <a href="{{ log.photo_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-inline-link">Lihat Foto</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td><span class="badge {{ log.status_badge_class }}">{{ log.sync_status_label }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+{% else %}
+    <div class="empty-state">Belum ada log geotag. Modul Geotag siap dipakai untuk merekam lokasi check in dan check out.</div>
+    {% endif %}
+</div>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Rekap Absensi Geotag</h2>
+            <p>Rekap ini membaca hasil attendance harian yang dibentuk dari log geotag, sehingga HR dan operasional bisa langsung melihat jam masuk, jam pulang, dan titik absensi per staf.</p>
+        </div>
+    </div>
+
+    {% if biometric_recap_rows %}
+    <table>
+        <thead>
+            <tr>
+                <th>Tanggal</th>
+                <th>Code</th>
+                <th>Nama</th>
+                <th>Gudang</th>
+                <th>Status Absen</th>
+                <th>Absensi</th>
+                <th>Geo Masuk</th>
+                <th>Geo Pulang</th>
+                <th>Titik</th>
+                <th>Koordinat</th>
+                <th>Foto Terakhir</th>
+                <th>Log</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in biometric_recap_rows %}
+            <tr>
+                <td>{{ row.attendance_date }}</td>
+                <td class="mono">{{ row.employee_code }}</td>
+                <td>{{ row.full_name }}</td>
+                <td>{{ row.warehouse_name or '-' }}</td>
+                <td><span class="badge {{ 'green' if row.attendance_status in ['present', 'late'] else 'orange' if row.attendance_status in ['half_day', 'leave'] else 'red' }}">{{ row.attendance_status }}</span></td>
+                <td>{{ row.attendance_check_in }} - {{ row.attendance_check_out }}</td>
+                <td>{{ row.geo_check_in }}</td>
+                <td>{{ row.geo_check_out }}</td>
+                <td>{{ row.location_text }}</td>
+                <td class="mono">{{ row.latest_coordinate }}{% if row.latest_accuracy != '-' %} | {{ row.latest_accuracy }}{% endif %}</td>
+                <td>
+                    {% if row.latest_photo_url %}
+                    <a href="{{ row.latest_photo_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-inline-link">Lihat Foto</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ row.log_count }}</td>
+                <td><span class="badge {{ row.recap_status_badge }}">{{ row.recap_status_label }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada rekap geotag pada filter yang dipilih.</div>
+    {% endif %}
+</div>
+
+<script>
+document.querySelectorAll("[data-geotag-capture]").forEach((button) => {
+    button.addEventListener("click", () => {
+        const form = button.closest("form");
+        if (!form) return;
+
+        const statusNode = form.querySelector("[data-geotag-status]");
+        const latitudeField = form.querySelector('[name="latitude"]');
+        const longitudeField = form.querySelector('[name="longitude"]');
+        const accuracyField = form.querySelector('[name="accuracy_m"]');
+        const locationField = form.querySelector('[name="location_label"]');
+
+        if (!navigator.geolocation) {
+            if (statusNode) statusNode.textContent = "Browser ini tidak mendukung geolocation.";
+            return;
+        }
+
+        if (statusNode) statusNode.textContent = "Mengambil koordinat dari browser...";
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const latitude = position.coords.latitude.toFixed(6);
+                const longitude = position.coords.longitude.toFixed(6);
+                const accuracy = Math.round(position.coords.accuracy || 0);
+
+                if (latitudeField) latitudeField.value = latitude;
+                if (longitudeField) longitudeField.value = longitude;
+                if (accuracyField) accuracyField.value = accuracy;
+                if (locationField && !locationField.value.trim()) {
+                    locationField.value = `GPS ${latitude}, ${longitude}`;
+                }
+                if (statusNode) statusNode.textContent = `Lokasi berhasil diambil. Akurasi sekitar ${accuracy} meter.`;
+            },
+            (error) => {
+                const message = error && error.message ? error.message : "Gagal mengambil lokasi.";
+                if (statusNode) statusNode.textContent = `Lokasi gagal diambil: ${message}`;
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0,
+            }
+        );
+    });
+});
+</script>
+{% elif selected_module.slug == "announcement" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Announcement</p>
+        <h3>{{ announcement_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if announcement_summary.draft %}warning{% endif %}">
+        <p>Draft</p>
+        <h3>{{ announcement_summary.draft }}</h3>
+    </div>
+    <div class="card-mini {% if announcement_summary.published %}success{% endif %}">
+        <p>Published</p>
+        <h3>{{ announcement_summary.published }}</h3>
+    </div>
+    <div class="card-mini {% if announcement_summary.archived %}danger{% endif %}">
+        <p>Archived</p>
+        <h3>{{ announcement_summary.archived }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Leaders Audience</span>
+        <strong>{{ announcement_summary.leaders }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Warehouse Team</span>
+        <strong>{{ announcement_summary.warehouse_team }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if announcement_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == announcement_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_announcement else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ announcement_filters.search }}" placeholder="Cari judul, channel, atau isi announcement">
+    <select name="warehouse" {% if announcement_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if announcement_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if announcement_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ announcement_scope_warehouse }}">
+    {% endif %}
+    <select name="audience">
+        <option value="all" {% if announcement_filters.audience == 'all' %}selected{% endif %}>Semua Audience</option>
+        <option value="leaders" {% if announcement_filters.audience == 'leaders' %}selected{% endif %}>Leaders</option>
+        <option value="warehouse_team" {% if announcement_filters.audience == 'warehouse_team' %}selected{% endif %}>Warehouse Team</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if announcement_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="draft" {% if announcement_filters.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="published" {% if announcement_filters.status == 'published' %}selected{% endif %}>Published</option>
+        <option value="archived" {% if announcement_filters.status == 'archived' %}selected{% endif %}>Archived</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if announcement_scope_warehouse %}
+<small class="helper-text">Announcement dibatasi ke gudang akun Anda agar komunikasi operasional tetap relevan untuk tim sendiri.</small>
+{% endif %}
+
+{% if can_manage_announcement %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Announcement</h2>
+            <p>Modul Announcement dipakai untuk broadcast pengumuman operasional, perubahan SOP, briefing audit, dan info penting tim per gudang.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/hris/announcement/add">
+        <div class="form-grid">
+            <div>
+                <label>Gudang</label>
+                <select name="warehouse_id" required {% if announcement_scope_warehouse %}disabled{% endif %}>
+                    <option value="">Pilih Gudang</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if announcement_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if announcement_scope_warehouse %}
+                <input type="hidden" name="warehouse_id" value="{{ announcement_scope_warehouse }}">
+                {% endif %}
+            </div>
+            <div>
+                <label>Judul</label>
+                <input name="title" placeholder="Contoh: Briefing Audit Mingguan" required>
+            </div>
+            <div>
+                <label>Audience</label>
+                <select name="audience">
+                    <option value="all">All Team</option>
+                    <option value="leaders">Leaders</option>
+                    <option value="warehouse_team">Warehouse Team</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="draft">Draft</option>
+                    <option value="published">Published</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div>
+                <label>Publish Date</label>
+                <input type="date" name="publish_date" required>
+            </div>
+            <div>
+                <label>Expire Date</label>
+                <input type="date" name="expires_at">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Channel</label>
+                <input name="channel" placeholder="Contoh: Dashboard Banner / Group WhatsApp / Morning Briefing">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Message</label>
+                <textarea name="message" rows="4" placeholder="Tuliskan isi pengumuman yang ingin disampaikan ke tim."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Announcement</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Announcement Board</h2>
+            <p>Board ini menjadi pusat komunikasi internal untuk perubahan jadwal, agenda audit, info operasional, dan pengumuman kerja yang sedang berlaku.</p>
+        </div>
+    </div>
+
+    {% if announcements %}
+        {% if can_manage_announcement %}
+        <div style="display:grid; gap:16px;">
+            {% for announcement in announcements %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/announcement/update/{{ announcement.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Gudang</label>
+                            <select name="warehouse_id" required {% if announcement_scope_warehouse %}disabled{% endif %}>
+                                {% for w in warehouses %}
+                                <option value="{{ w.id }}" {% if announcement.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if announcement_scope_warehouse %}
+                            <input type="hidden" name="warehouse_id" value="{{ announcement_scope_warehouse }}">
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label>Judul</label>
+                            <input name="title" value="{{ announcement.title }}" required>
+                        </div>
+                        <div>
+                            <label>Audience</label>
+                            <select name="audience">
+                                <option value="all" {% if announcement.audience == 'all' %}selected{% endif %}>All Team</option>
+                                <option value="leaders" {% if announcement.audience == 'leaders' %}selected{% endif %}>Leaders</option>
+                                <option value="warehouse_team" {% if announcement.audience == 'warehouse_team' %}selected{% endif %}>Warehouse Team</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="draft" {% if announcement.status == 'draft' %}selected{% endif %}>Draft</option>
+                                <option value="published" {% if announcement.status == 'published' %}selected{% endif %}>Published</option>
+                                <option value="archived" {% if announcement.status == 'archived' %}selected{% endif %}>Archived</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Publish Date</label>
+                            <input type="date" name="publish_date" value="{{ announcement.publish_date }}" required>
+                        </div>
+                        <div>
+                            <label>Expire Date</label>
+                            <input type="date" name="expires_at" value="{{ announcement.expires_at or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Channel</label>
+                            <input name="channel" value="{{ announcement.channel or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Message</label>
+                            <textarea name="message" rows="4">{{ announcement.message or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Announcement</button>
+                    </div>
+                </form>
+                <div class="meta-grid" style="margin-top:12px;">
+                    <div class="meta-card">
+                        <span>Handled By</span>
+                        <strong>{{ announcement.handled_by_name or '-' }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Handled At</span>
+                        <strong>{{ announcement.handled_at or '-' }}</strong>
+                    </div>
+                </div>
+                <form method="POST" action="/hris/announcement/delete/{{ announcement.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus announcement ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Gudang</th>
+                    <th>Title</th>
+                    <th>Audience</th>
+                    <th>Publish</th>
+                    <th>Expire</th>
+                    <th>Status</th>
+                    <th>Channel</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for announcement in announcements %}
+                <tr>
+                    <td>{{ announcement.warehouse_name or '-' }}</td>
+                    <td>{{ announcement.title }}</td>
+                    <td>{{ announcement.audience }}</td>
+                    <td>{{ announcement.publish_date }}</td>
+                    <td>{{ announcement.expires_at or '-' }}</td>
+                    <td><span class="badge {{ 'green' if announcement.status == 'published' else 'orange' if announcement.status == 'draft' else 'red' }}">{{ announcement.status }}</span></td>
+                    <td>{{ announcement.channel or '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% endif %}
     {% else %}
-    <div class="empty-state">Belum ada log biometric. Modul Biometric siap dipakai untuk sinkronisasi device ke attendance.</div>
+    <div class="empty-state">Belum ada announcement. Modul Announcement siap dipakai untuk broadcast informasi kerja ke tim.</div>
+    {% endif %}
+</div>
+{% elif selected_module.slug == "documents" %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Documents</p>
+        <h3>{{ document_summary.total }}</h3>
+    </div>
+    <div class="card-mini {% if document_summary.draft %}warning{% endif %}">
+        <p>Draft</p>
+        <h3>{{ document_summary.draft }}</h3>
+    </div>
+    <div class="card-mini {% if document_summary.active %}success{% endif %}">
+        <p>Active</p>
+        <h3>{{ document_summary.active }}</h3>
+    </div>
+    <div class="card-mini {% if document_summary.archived %}danger{% endif %}">
+        <p>Archived</p>
+        <h3>{{ document_summary.archived }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Policy</span>
+        <strong>{{ document_summary.policy }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Review Due</span>
+        <strong>{{ document_summary.review_due }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Scope Gudang</span>
+        <strong>
+            {% if document_scope_warehouse %}
+                {% for w in warehouses %}{% if w.id == document_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
+            {% else %}
+                Semua Gudang
+            {% endif %}
+        </strong>
+    </div>
+    <div class="meta-card">
+        <span>Akses Kelola</span>
+        <strong>{{ "Aktif" if can_manage_document else "View Only" }}</strong>
+    </div>
+</div>
+
+<form method="GET" class="top-bar products-filter-bar">
+    <input type="text" name="q" value="{{ document_filters.search }}" placeholder="Cari judul, kode, owner, atau catatan dokumen">
+    <select name="warehouse" {% if document_scope_warehouse %}disabled{% endif %}>
+        <option value="">Semua Gudang</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}" {% if document_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        {% endfor %}
+    </select>
+    {% if document_scope_warehouse %}
+    <input type="hidden" name="warehouse" value="{{ document_scope_warehouse }}">
+    {% endif %}
+    <select name="document_type">
+        <option value="all" {% if document_filters.document_type == 'all' %}selected{% endif %}>Semua Tipe</option>
+        <option value="policy" {% if document_filters.document_type == 'policy' %}selected{% endif %}>Policy</option>
+        <option value="sop" {% if document_filters.document_type == 'sop' %}selected{% endif %}>SOP</option>
+        <option value="form" {% if document_filters.document_type == 'form' %}selected{% endif %}>Form</option>
+        <option value="memo" {% if document_filters.document_type == 'memo' %}selected{% endif %}>Memo</option>
+        <option value="contract" {% if document_filters.document_type == 'contract' %}selected{% endif %}>Contract</option>
+        <option value="other" {% if document_filters.document_type == 'other' %}selected{% endif %}>Other</option>
+    </select>
+    <select name="status">
+        <option value="all" {% if document_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="draft" {% if document_filters.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="active" {% if document_filters.status == 'active' %}selected{% endif %}>Active</option>
+        <option value="archived" {% if document_filters.status == 'archived' %}selected{% endif %}>Archived</option>
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if document_scope_warehouse %}
+<small class="helper-text">Dokumen dibatasi ke gudang akun Anda agar SOP, memo, dan policy yang tampil tetap sesuai area kerja sendiri.</small>
+{% endif %}
+
+{% if can_manage_document %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Tambah Document</h2>
+            <p>Modul Documents dipakai untuk menyimpan register SOP, policy, memo, form, dan dokumen kerja yang berlaku per gudang.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/hris/documents/add">
+        <div class="form-grid">
+            <div>
+                <label>Gudang</label>
+                <select name="warehouse_id" required {% if document_scope_warehouse %}disabled{% endif %}>
+                    <option value="">Pilih Gudang</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if document_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if document_scope_warehouse %}
+                <input type="hidden" name="warehouse_id" value="{{ document_scope_warehouse }}">
+                {% endif %}
+            </div>
+            <div>
+                <label>Judul Document</label>
+                <input name="document_title" placeholder="Contoh: SOP Cycle Count" required>
+            </div>
+            <div>
+                <label>Kode Document</label>
+                <input name="document_code" placeholder="Contoh: DOC-001" required>
+            </div>
+            <div>
+                <label>Document Type</label>
+                <select name="document_type">
+                    <option value="policy">Policy</option>
+                    <option value="sop">SOP</option>
+                    <option value="form">Form</option>
+                    <option value="memo">Memo</option>
+                    <option value="contract">Contract</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="draft">Draft</option>
+                    <option value="active">Active</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div>
+                <label>Effective Date</label>
+                <input type="date" name="effective_date" required>
+            </div>
+            <div>
+                <label>Review Date</label>
+                <input type="date" name="review_date">
+            </div>
+            <div>
+                <label>Owner</label>
+                <input name="owner_name" placeholder="Contoh: Ops Manager">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="4" placeholder="Tuliskan ringkasan revisi, cakupan SOP, atau catatan distribusi dokumen."></textarea>
+            </div>
+        </div>
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Document</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Document Register</h2>
+            <p>Register ini menjadi pusat kontrol dokumen kerja, policy, SOP, dan jadwal review dokumen operasional per gudang.</p>
+        </div>
+    </div>
+
+    {% if documents %}
+        {% if can_manage_document %}
+        <div style="display:grid; gap:16px;">
+            {% for document in documents %}
+            <div class="box" style="margin-bottom:0;">
+                <form method="POST" action="/hris/documents/update/{{ document.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Gudang</label>
+                            <select name="warehouse_id" required {% if document_scope_warehouse %}disabled{% endif %}>
+                                {% for w in warehouses %}
+                                <option value="{{ w.id }}" {% if document.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if document_scope_warehouse %}
+                            <input type="hidden" name="warehouse_id" value="{{ document_scope_warehouse }}">
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label>Judul Document</label>
+                            <input name="document_title" value="{{ document.document_title }}" required>
+                        </div>
+                        <div>
+                            <label>Kode Document</label>
+                            <input name="document_code" value="{{ document.document_code }}" required>
+                        </div>
+                        <div>
+                            <label>Document Type</label>
+                            <select name="document_type">
+                                <option value="policy" {% if document.document_type == 'policy' %}selected{% endif %}>Policy</option>
+                                <option value="sop" {% if document.document_type == 'sop' %}selected{% endif %}>SOP</option>
+                                <option value="form" {% if document.document_type == 'form' %}selected{% endif %}>Form</option>
+                                <option value="memo" {% if document.document_type == 'memo' %}selected{% endif %}>Memo</option>
+                                <option value="contract" {% if document.document_type == 'contract' %}selected{% endif %}>Contract</option>
+                                <option value="other" {% if document.document_type == 'other' %}selected{% endif %}>Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="draft" {% if document.status == 'draft' %}selected{% endif %}>Draft</option>
+                                <option value="active" {% if document.status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="archived" {% if document.status == 'archived' %}selected{% endif %}>Archived</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Effective Date</label>
+                            <input type="date" name="effective_date" value="{{ document.effective_date }}" required>
+                        </div>
+                        <div>
+                            <label>Review Date</label>
+                            <input type="date" name="review_date" value="{{ document.review_date or '' }}">
+                        </div>
+                        <div>
+                            <label>Owner</label>
+                            <input name="owner_name" value="{{ document.owner_name or '' }}">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="4">{{ document.note or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Document</button>
+                    </div>
+                </form>
+                <div class="meta-grid" style="margin-top:12px;">
+                    <div class="meta-card">
+                        <span>Handled By</span>
+                        <strong>{{ document.handled_by_name or '-' }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Handled At</span>
+                        <strong>{{ document.handled_at or '-' }}</strong>
+                    </div>
+                </div>
+                <form method="POST" action="/hris/documents/delete/{{ document.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus document ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Gudang</th>
+                    <th>Title</th>
+                    <th>Code</th>
+                    <th>Type</th>
+                    <th>Effective</th>
+                    <th>Review</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for document in documents %}
+                <tr>
+                    <td>{{ document.warehouse_name or '-' }}</td>
+                    <td>{{ document.document_title }}</td>
+                    <td class="mono">{{ document.document_code }}</td>
+                    <td>{{ document.document_type }}</td>
+                    <td>{{ document.effective_date }}</td>
+                    <td>{{ document.review_date or '-' }}</td>
+                    <td><span class="badge {{ 'green' if document.status == 'active' else 'orange' if document.status == 'draft' else 'red' }}">{{ document.status }}</span></td>
+                    <td>{{ document.owner_name or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    {% else %}
+    <div class="empty-state">Belum ada document record. Modul Documents siap dipakai untuk kontrol SOP, policy, dan memo kerja.</div>
     {% endif %}
 </div>
 {% else %}

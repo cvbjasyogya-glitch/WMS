@@ -51,6 +51,7 @@ def login():
         session["user_id"] = user["id"]
         session["username"] = user["username"]
         session["role"] = user["role"]
+        session["employee_id"] = user.get("employee_id")
         # set warehouse scope: use user assigned warehouse for scoped roles, otherwise default first warehouse
         try:
             user_wh = user.get('warehouse_id') if user else None
