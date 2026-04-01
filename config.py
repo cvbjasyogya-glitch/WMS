@@ -30,6 +30,32 @@ def _env_flag(name, default=False):
     return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _load_or_create_secret_key():
+    env_secret = (os.getenv("SECRET_KEY") or "").strip()
+    if env_secret:
+        return env_secret
+
+    key_path = os.getenv(
+        "SECRET_KEY_PATH",
+        os.path.join(BASE_DIR, "instance", "secret_key.txt"),
+    )
+
+    try:
+        os.makedirs(os.path.dirname(key_path), exist_ok=True)
+        if os.path.exists(key_path):
+            with open(key_path, "r", encoding="utf-8") as file_handle:
+                persisted_key = file_handle.read().strip()
+            if persisted_key:
+                return persisted_key
+
+        generated_key = secrets.token_hex(32)
+        with open(key_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(generated_key)
+        return generated_key
+    except Exception:
+        return secrets.token_hex(32)
+
+
 def _encode_vapid_public_key(public_key):
     raw_key = public_key.public_bytes(
         encoding=serialization.Encoding.X962,
@@ -72,6 +98,7 @@ def _load_or_create_webpush_keys():
 
 
 WEBPUSH_PUBLIC_KEY_DEFAULT, WEBPUSH_PRIVATE_KEY_DEFAULT = _load_or_create_webpush_keys()
+SECRET_KEY_DEFAULT = _load_or_create_secret_key()
 
 
 class Config:
@@ -86,7 +113,7 @@ class Config:
     # ==========================
     # SECURITY
     # ==========================
-    SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(32)
+    SECRET_KEY = SECRET_KEY_DEFAULT
 
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

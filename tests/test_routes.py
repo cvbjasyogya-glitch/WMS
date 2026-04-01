@@ -397,6 +397,31 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('addEventListener("push"', body)
         self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
 
+    def test_secret_key_persists_to_file_when_env_is_missing(self):
+        import config as config_module
+
+        temp_root = os.path.join(os.path.dirname(__file__), ".tmp")
+        os.makedirs(temp_root, exist_ok=True)
+        secret_path = os.path.join(temp_root, f"secret_key_{uuid4().hex}.txt")
+        with patch.dict(
+            os.environ,
+            {
+                "SECRET_KEY": "",
+                "SECRET_KEY_PATH": secret_path,
+            },
+            clear=False,
+        ):
+            first_key = config_module._load_or_create_secret_key()
+            second_key = config_module._load_or_create_secret_key()
+
+        try:
+            self.assertTrue(os.path.exists(secret_path))
+            self.assertEqual(first_key, second_key)
+            self.assertGreaterEqual(len(first_key), 32)
+        finally:
+            if os.path.exists(secret_path):
+                os.remove(secret_path)
+
     def test_notify_roles_empty_list_is_hardened(self):
         with self.app.app_context():
             result = notification_service.notify_roles([], "Audit", "Tidak ada role")
