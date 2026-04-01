@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from flask import Blueprint, current_app, render_template, request, redirect, session, url_for, flash
 from database import get_db
 from services.notification_service import send_email, send_whatsapp
@@ -18,8 +20,36 @@ from datetime import datetime, timezone
 auth_bp = Blueprint("auth", __name__)
 
 
+def _safe_login_redirect_target(raw_target):
+    candidate = (raw_target or "").strip()
+    if not candidate:
+        return None
+
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return None
+
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+
+    return candidate
+
+
+def _redirect_to_login(next_target=None):
+    safe_target = _safe_login_redirect_target(next_target)
+    if safe_target:
+        return redirect(url_for("auth.login", next=safe_target))
+    return redirect(url_for("auth.login"))
+
+
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
+    next_target = _safe_login_redirect_target(
+        request.form.get("next") or request.args.get("next")
+    )
+
+    if request.method == "GET" and session.get("user_id"):
+        return redirect(next_target or "/")
 
     if request.method == "POST":
 
@@ -28,7 +58,7 @@ def login():
 
         if not username or not password:
             flash("Username / Password wajib diisi", "error")
-            return redirect(url_for("auth.login"))
+            return _redirect_to_login(next_target)
 
         db = get_db()
         identifier = normalize_identifier(username)
@@ -40,17 +70,17 @@ def login():
                 f"Terlalu banyak percobaan login. Coba lagi dalam {throttle_state['retry_after']} detik.",
                 "error",
             )
-            return redirect(url_for("auth.login"))
+            return _redirect_to_login(next_target)
 
         user = db.execute(
-            "SELECT * FROM users WHERE username=?",
-            (username,)
+            "SELECT * FROM users WHERE lower(username)=? LIMIT 1",
+            (identifier,)
         ).fetchone()
 
         if not user:
             record_login_attempt(db, identifier, client_ip, False)
             flash("Username / Password salah", "error")
-            return redirect(url_for("auth.login"))
+            return _redirect_to_login(next_target)
 
         user = dict(user)
 
@@ -62,7 +92,7 @@ def login():
         if not valid:
             record_login_attempt(db, identifier, client_ip, False)
             flash("Username / Password salah", "error")
-            return redirect(url_for("auth.login"))
+            return _redirect_to_login(next_target)
 
         clear_login_failures(db, identifier, client_ip)
         record_login_attempt(db, identifier, client_ip, True)
@@ -115,9 +145,9 @@ def login():
         session["last_active"] = datetime.now(timezone.utc).timestamp()
         session.permanent = True
 
-        return redirect("/")
+        return redirect(next_target or "/")
 
-    return render_template("login.html")
+    return render_template("login.html", next_url=next_target or "")
 
 
 @auth_bp.route("/logout")

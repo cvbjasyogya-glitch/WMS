@@ -6,37 +6,33 @@
 {% block page_subtitle %}{% if selected_module.slug == "dashboard" %}Dashboard ini menyorot announcement aktif dan snapshot jadwal tim lintas gudang yang sudah tersambung ke data HRIS. Semua user login bisa memantau ringkasannya, sementara pengaturan detail tetap dipegang HR dan Super Admin.{% else %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endif %}{% endblock %}
 
 {% block content %}
-<div class="meta-grid">
-    <div class="meta-card">
-        <span>Source Base</span>
-        <strong>Horilla 1.0</strong>
+<details class="table-box hris-module-disclosure">
+    <summary class="hris-module-summary">
+        <div class="hris-module-summary-copy">
+            <span class="hris-module-summary-kicker">Navigasi HRIS</span>
+            <strong>{{ selected_module.label }}</strong>
+            <small>{{ modules|length }} modul tersedia. Buka panel ini kalau ingin pindah modul HRIS lain.</small>
+        </div>
+        <div class="hris-module-summary-meta">
+            <span class="badge">{{ selected_module.status }}</span>
+            <span class="hris-module-summary-icon" aria-hidden="true"></span>
+        </div>
+    </summary>
+    <div class="hris-module-summary-body">
+        <div class="cards hris-module-grid">
+            {% for module in modules %}
+            <a
+                href="/hris/{{ module.slug }}"
+                class="card hris-module-card {% if selected_module.slug == module.slug %}active{% endif %}"
+            >
+                <p>{{ module.status }}</p>
+                <h2>{{ module.label }}</h2>
+                <small class="helper-text">{{ module.summary }}</small>
+            </a>
+            {% endfor %}
+        </div>
     </div>
-    <div class="meta-card">
-        <span>Total Modul</span>
-        <strong>{{ modules|length }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Modul Aktif</span>
-        <strong>{{ selected_module.label }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Status</span>
-        <strong>{{ selected_module.status }}</strong>
-    </div>
-</div>
-
-<div class="cards hris-module-grid">
-    {% for module in modules %}
-    <a
-        href="/hris/{{ module.slug }}"
-        class="card hris-module-card {% if selected_module.slug == module.slug %}active{% endif %}"
-    >
-        <p>{{ module.status }}</p>
-        <h2>{{ module.label }}</h2>
-        <small class="helper-text">{{ module.summary }}</small>
-    </a>
-    {% endfor %}
-</div>
+</details>
 
 {% if selected_module.slug == "dashboard" %}
 <div class="summary">

@@ -5291,6 +5291,80 @@ body .hris-module-grid {
     align-items: stretch;
 }
 
+body .hris-module-disclosure {
+    margin-bottom: 18px;
+}
+
+body .hris-module-disclosure summary {
+    list-style: none;
+}
+
+body .hris-module-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+body .hris-module-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    cursor: pointer;
+}
+
+body .hris-module-summary-copy {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+body .hris-module-summary-kicker {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+}
+
+body .hris-module-summary strong {
+    font-size: 1.08rem;
+    color: var(--text-strong);
+    letter-spacing: -0.03em;
+}
+
+body .hris-module-summary small {
+    color: var(--text-soft);
+    font-size: 0.86rem;
+    line-height: 1.5;
+}
+
+body .hris-module-summary-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+}
+
+body .hris-module-summary-icon {
+    width: 14px;
+    height: 14px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    color: var(--text-soft);
+    transform: rotate(45deg);
+    transition: transform 0.2s ease, color 0.2s ease;
+    margin-top: -4px;
+}
+
+body .hris-module-disclosure[open] .hris-module-summary-icon {
+    transform: rotate(-135deg);
+    color: var(--accent);
+    margin-top: 4px;
+}
+
+body .hris-module-summary-body {
+    margin-top: 16px;
+}
+
 body .hris-module-card {
     display: block;
     padding: 14px 16px;
@@ -7184,6 +7258,10 @@ body .hris-dashboard-day-highlights span {
     body .hris-dashboard-reminder-head {
         flex-direction: column;
     }
+
+    body .hris-module-summary {
+        align-items: flex-start;
+    }
 }
 
 @media (max-width: 720px) {
@@ -7329,6 +7407,20 @@ body .hris-dashboard-day-highlights span {
 
     body .hris-module-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body .hris-module-summary {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    body .hris-module-summary-meta {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    body .hris-module-summary-body {
+        margin-top: 14px;
     }
 
     body .schedule-board-shell {

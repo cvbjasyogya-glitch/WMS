@@ -74,11 +74,18 @@
         </div>
     </section>
 
-    <section class="form-box attendance-capture-card" data-attendance-portal data-portal-locked="{{ '1' if portal_punch_mode == 'complete' else '0' }}">
+    <section
+        class="form-box attendance-capture-card"
+        data-attendance-portal
+        data-portal-locked="{{ '1' if portal_punch_mode == 'complete' else '0' }}"
+        data-employee-name="{{ linked_employee.full_name }}"
+        data-warehouse-name="{{ linked_employee.warehouse_name or '-' }}"
+        data-today-date="{{ today_date }}"
+    >
         <div class="section-title">
             <div>
                 <h2>Form Absen Mandiri</h2>
-                <p>Ambil foto wajah, pilih tipe absen yang sesuai, isi titik lokasi, lalu simpan. Jam absen akan memakai waktu saat tombol simpan ditekan agar rekap HRIS tetap presisi.</p>
+                <p>Ambil foto wajah, pilih tipe absen yang sesuai, isi titik lokasi, lalu simpan. Foto hasil akhir akan diberi stamp geotag otomatis berisi waktu, shift, lokasi, dan verifikasi absensi.</p>
             </div>
         </div>
 
@@ -95,7 +102,7 @@
                         <button type="button" class="ghost-button" data-camera-capture disabled>Ambil Foto</button>
                         <button type="button" class="ghost-button" data-camera-retake disabled {% if portal_punch_mode == "complete" %}disabled{% endif %}>Ulangi Foto</button>
                     </div>
-                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen.</small>
+                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen, lalu sistem akan menyusun stamp geotag otomatis seperti aplikasi absensi mobile.</small>
                 </div>
 
                 <div class="attendance-form-panel">
@@ -126,7 +133,7 @@
                         <div>
                             <label>Tipe Absen</label>
                             {% if portal_punch_options %}
-                            <select name="punch_type" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
+                            <select name="punch_type" data-punch-type-select {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                                 {% for option in portal_punch_options %}
                                 <option value="{{ option.value }}" {% if option.value == portal_punch_mode %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
@@ -146,7 +153,7 @@
                         </div>
                         <div class="span-full">
                             <label>Titik Lokasi</label>
-                            <input name="location_label" placeholder="Contoh: Gudang Mataram - Area Depan Toko" {% if portal_punch_mode == "complete" %}disabled{% endif %} required>
+                            <input name="location_label" data-location-label-input placeholder="Contoh: Gudang Mataram - Area Depan Toko" {% if portal_punch_mode == "complete" %}disabled{% endif %} required>
                         </div>
                         <div>
                             <label>Latitude</label>
@@ -183,7 +190,7 @@
                     {% if portal_punch_mode == "complete" %}
                     <small class="helper-text">Check in dan check out hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari HR atau Super Admin.</small>
                     {% else %}
-                    <small class="helper-text">Foto akan dikompresi otomatis supaya tetap tajam, tidak kepotong, dan lebih hemat space saat tersimpan.</small>
+                    <small class="helper-text">Foto akan dikompresi otomatis supaya tetap tajam, tidak kepotong, hemat space, dan hasil akhirnya langsung bertipe stamped geotag.</small>
                     {% endif %}
                 </div>
             </div>
@@ -220,12 +227,20 @@
     const longitudeInput = portal.querySelector("[data-longitude-input]");
     const accuracyInput = portal.querySelector("[data-accuracy-input]");
     const shiftSelect = portal.querySelector("[data-shift-select]");
+    const punchTypeSelect = portal.querySelector("[data-punch-type-select]");
     const shiftTimeDisplay = portal.querySelector("[data-shift-time-display]");
+    const locationLabelInput = portal.querySelector("[data-location-label-input]");
     const photoInput = portal.querySelector("[data-photo-input]");
     const punchTimeInput = portal.querySelector("[data-punch-time-input]");
     const punchTimeDisplay = portal.querySelector("[data-punch-time-display]");
     const form = portal.querySelector("form");
+    const submitButton = form.querySelector("button[type='submit']");
+    const employeeName = portal.dataset.employeeName || "";
+    const warehouseName = portal.dataset.warehouseName || "";
+    const todayDate = portal.dataset.todayDate || "";
     let activeStream = null;
+    let rawPhotoDataUrl = "";
+    let submitInProgress = false;
 
     const formatDateTimeLocal = (date) => {
         const pad = (value) => String(value).padStart(2, "0");
@@ -251,6 +266,391 @@
         punchTimeDisplay.value = formatDateTimeLabel(now);
     };
 
+    const escapeSvgText = (value) => String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+    const parsePunchDate = () => {
+        const rawValue = punchTimeInput.value;
+        if (!rawValue) {
+            return new Date();
+        }
+        const parsed = new Date(rawValue);
+        return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    };
+
+    const getPunchTypeLabel = () => {
+        const value = punchTypeSelect ? (punchTypeSelect.value || "check_in") : "check_in";
+        return {
+            check_in: "Masuk",
+            break_start: "Break Start",
+            break_finish: "Break Finish",
+            check_out: "Pulang",
+        }[value] || "Masuk";
+    };
+
+    const getPunchTypeCaption = () => {
+        const value = punchTypeSelect ? (punchTypeSelect.value || "check_in") : "check_in";
+        return {
+            check_in: "Check In",
+            break_start: "Istirahat Mulai",
+            break_finish: "Istirahat Selesai",
+            check_out: "Check Out",
+        }[value] || "Check In";
+    };
+
+    const getShiftStampLabel = () => {
+        if (shiftSelect) {
+            const selectedOption = shiftSelect.options[shiftSelect.selectedIndex];
+            return selectedOption ? selectedOption.textContent.trim() : "";
+        }
+        return shiftTimeDisplay?.value || "";
+    };
+
+    const getAccuracyLabel = () => {
+        const rawValue = (accuracyInput?.value || "").trim();
+        if (!rawValue) {
+            return "Akurasi GPS belum dibaca";
+        }
+        return `Akurasi ${rawValue} m`;
+    };
+
+    const buildLocationLines = () => {
+        const lines = [];
+        const locationLabel = (locationLabelInput?.value || "").trim();
+        lines.push(locationLabel || `${warehouseName || "Lokasi kerja"} | Lokasi belum diisi`);
+
+        if (latitudeInput.value && longitudeInput.value) {
+            lines.push(`Lat ${latitudeInput.value} | Lng ${longitudeInput.value}`);
+        }
+
+        const shiftLabel = getShiftStampLabel();
+        if (shiftLabel) {
+            lines.push(shiftLabel);
+        }
+
+        lines.push(getAccuracyLabel());
+        return lines;
+    };
+
+    const wrapText = (context, text, maxWidth) => {
+        const words = String(text || "").split(/\s+/).filter(Boolean);
+        if (!words.length) {
+            return [""];
+        }
+
+        const lines = [];
+        let currentLine = words[0];
+        for (let index = 1; index < words.length; index += 1) {
+            const candidate = `${currentLine} ${words[index]}`;
+            if (context.measureText(candidate).width <= maxWidth) {
+                currentLine = candidate;
+            } else {
+                lines.push(currentLine);
+                currentLine = words[index];
+            }
+        }
+        lines.push(currentLine);
+        return lines;
+    };
+
+    const drawRoundedRect = (context, x, y, width, height, radius) => {
+        const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+        context.beginPath();
+        context.moveTo(x + safeRadius, y);
+        context.lineTo(x + width - safeRadius, y);
+        context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+        context.lineTo(x + width, y + height - safeRadius);
+        context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+        context.lineTo(x + safeRadius, y + height);
+        context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+        context.lineTo(x, y + safeRadius);
+        context.quadraticCurveTo(x, y, x + safeRadius, y);
+        context.closePath();
+    };
+
+    const loadImage = (src) => new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = src;
+    });
+
+    const buildMapPreviewSvg = () => {
+        const lat = latitudeInput.value || "-8.583140";
+        const lng = longitudeInput.value || "116.116798";
+        const label = escapeSvgText((locationLabelInput?.value || warehouseName || "GPS Snapshot").trim().slice(0, 32));
+        const codeSeed = `${lat}${lng}`.replace(/[^0-9]/g, "").slice(0, 8) || "24598134";
+        const accentA = `#${(parseInt(codeSeed.slice(0, 6), 10) % 0xffffff).toString(16).padStart(6, "0")}`;
+        const accentB = `#${(parseInt(codeSeed.slice(2, 8), 10) % 0xffffff).toString(16).padStart(6, "0")}`;
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
+                <defs>
+                    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#fbfdff"/>
+                        <stop offset="100%" stop-color="#dbeafe"/>
+                    </linearGradient>
+                    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.18"/>
+                    </filter>
+                </defs>
+                <rect width="320" height="320" rx="28" fill="url(#bg)"/>
+                <rect x="12" y="12" width="296" height="296" rx="24" fill="rgba(255,255,255,0.78)" stroke="rgba(255,255,255,0.65)"/>
+                <g stroke="#bfdbfe" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.92">
+                    <path d="M12 48 H308"/>
+                    <path d="M22 118 H290"/>
+                    <path d="M32 192 H306"/>
+                    <path d="M16 262 H274"/>
+                    <path d="M58 18 V302"/>
+                    <path d="M138 24 V290"/>
+                    <path d="M224 18 V304"/>
+                    <path d="M24 272 C92 214 154 182 308 148"/>
+                    <path d="M28 214 C112 164 188 154 296 74"/>
+                </g>
+                <g stroke="${accentA}" stroke-width="12" stroke-linecap="round" fill="none" opacity="0.78">
+                    <path d="M18 236 C78 194 128 154 182 146 C232 138 270 150 308 126"/>
+                </g>
+                <g stroke="${accentB}" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.58">
+                    <path d="M24 84 C80 86 126 102 170 146 C208 184 252 206 308 214"/>
+                </g>
+                <path d="M20 208 C70 170 96 124 156 112" stroke="#86efac" stroke-width="18" stroke-linecap="round" fill="none" opacity="0.82"/>
+                <circle cx="176" cy="152" r="28" fill="#2563eb" opacity="0.16"/>
+                <path d="M176 92 C145 92 120 117 120 148 C120 188 176 246 176 246 C176 246 232 188 232 148 C232 117 207 92 176 92Z" fill="#2563eb" filter="url(#shadow)"/>
+                <circle cx="176" cy="148" r="18" fill="#ffffff"/>
+                <circle cx="176" cy="148" r="10" fill="#2563eb"/>
+                <rect x="24" y="22" width="92" height="28" rx="14" fill="rgba(255,255,255,0.86)"/>
+                <text x="70" y="41" text-anchor="middle" fill="#0f172a" font-size="14" font-family="Segoe UI, Arial, sans-serif" font-weight="700">GeoTag</text>
+                <rect x="18" y="246" width="284" height="58" rx="18" fill="rgba(7,17,31,0.08)"/>
+                <text x="34" y="274" fill="#0f172a" font-size="18" font-family="Segoe UI, Arial, sans-serif" font-weight="700">${label}</text>
+                <text x="34" y="296" fill="#486581" font-size="14" font-family="Segoe UI, Arial, sans-serif">Lat ${escapeSvgText(lat)} | Lng ${escapeSvgText(lng)}</text>
+            </svg>
+        `;
+        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+    };
+
+    const drawImageContain = (context, image, width, height) => {
+        const imageRatio = image.width / image.height;
+        const targetRatio = width / height;
+        let drawWidth = width;
+        let drawHeight = height;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (imageRatio > targetRatio) {
+            drawHeight = width / imageRatio;
+            offsetY = (height - drawHeight) / 2;
+        } else {
+            drawWidth = height * imageRatio;
+            offsetX = (width - drawWidth) / 2;
+        }
+
+        context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+    };
+
+    const composeStampedPhoto = async () => {
+        if (!rawPhotoDataUrl) {
+            return "";
+        }
+
+        const [sourceImage, mapImage] = await Promise.all([
+            loadImage(rawPhotoDataUrl),
+            loadImage(buildMapPreviewSvg()),
+        ]);
+
+        const targetWidth = 1080;
+        const targetHeight = 1440;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, targetWidth, targetHeight);
+
+        context.save();
+        context.filter = "blur(28px) brightness(0.52)";
+        drawImageContain(context, sourceImage, targetWidth, targetHeight);
+        context.restore();
+
+        context.fillStyle = "rgba(7, 17, 31, 0.12)";
+        context.fillRect(0, 0, targetWidth, targetHeight);
+        drawImageContain(context, sourceImage, targetWidth, targetHeight);
+
+        const edgeShade = context.createRadialGradient(
+            targetWidth / 2,
+            targetHeight / 2,
+            280,
+            targetWidth / 2,
+            targetHeight / 2,
+            targetHeight * 0.8
+        );
+        edgeShade.addColorStop(0, "rgba(7, 17, 31, 0)");
+        edgeShade.addColorStop(1, "rgba(7, 17, 31, 0.28)");
+        context.fillStyle = edgeShade;
+        context.fillRect(0, 0, targetWidth, targetHeight);
+
+        const footerFade = context.createLinearGradient(0, targetHeight - 520, 0, targetHeight);
+        footerFade.addColorStop(0, "rgba(7, 17, 31, 0)");
+        footerFade.addColorStop(1, "rgba(7, 17, 31, 0.72)");
+        context.fillStyle = footerFade;
+        context.fillRect(0, targetHeight - 520, targetWidth, 520);
+
+        const mapCardX = 34;
+        const mapCardY = 34;
+        const mapCardWidth = 270;
+        const mapCardHeight = 270;
+        context.save();
+        context.shadowColor = "rgba(7, 17, 31, 0.24)";
+        context.shadowBlur = 22;
+        context.shadowOffsetY = 10;
+        drawRoundedRect(context, mapCardX, mapCardY, mapCardWidth, mapCardHeight, 28);
+        context.fillStyle = "rgba(255, 255, 255, 0.96)";
+        context.fill();
+        context.restore();
+        context.strokeStyle = "rgba(255,255,255,0.72)";
+        context.lineWidth = 2;
+        drawRoundedRect(context, mapCardX, mapCardY, mapCardWidth, mapCardHeight, 28);
+        context.stroke();
+        context.drawImage(mapImage, mapCardX + 10, mapCardY + 10, mapCardWidth - 20, mapCardHeight - 20);
+
+        context.fillStyle = "#f7c948";
+        context.font = "700 30px 'Segoe UI', Arial, sans-serif";
+        context.textAlign = "right";
+        context.fillText("ERP-CV.BJAS", targetWidth - 36, 64);
+        context.fillStyle = "rgba(255,255,255,0.92)";
+        context.font = "500 20px 'Segoe UI', Arial, sans-serif";
+        context.fillText("Geotag Attendance", targetWidth - 36, 94);
+
+        const shiftStampLabel = getShiftStampLabel();
+        if (shiftStampLabel) {
+            context.save();
+            context.font = "700 18px 'Segoe UI', Arial, sans-serif";
+            const shiftTextWidth = context.measureText(shiftStampLabel).width;
+            const shiftChipWidth = Math.min(Math.max(shiftTextWidth + 36, 190), 360);
+            const shiftChipX = targetWidth - 36 - shiftChipWidth;
+            const shiftChipY = 116;
+            drawRoundedRect(context, shiftChipX, shiftChipY, shiftChipWidth, 34, 17);
+            context.fillStyle = "rgba(7, 17, 31, 0.34)";
+            context.fill();
+            context.strokeStyle = "rgba(255,255,255,0.24)";
+            context.lineWidth = 1.5;
+            context.stroke();
+            context.fillStyle = "#ffffff";
+            context.textAlign = "center";
+            context.fillText(shiftStampLabel, shiftChipX + (shiftChipWidth / 2), shiftChipY + 23);
+            context.restore();
+        }
+
+        context.save();
+        context.translate(targetWidth - 18, targetHeight / 2);
+        context.rotate(-Math.PI / 2);
+        context.fillStyle = "rgba(255,255,255,0.88)";
+        context.font = "600 16px 'Segoe UI', Arial, sans-serif";
+        context.textAlign = "center";
+        context.fillText("ERP-CV.BJAS | Geotag Verified", 0, 0);
+        context.restore();
+
+        const badgeLabel = getPunchTypeLabel();
+        const badgePalette = {
+            "Masuk": "#16a34a",
+            "Pulang": "#2563eb",
+            "Break Start": "#f59e0b",
+            "Break Finish": "#14b8a6",
+        };
+        const punchDate = parsePunchDate();
+        const timeLabel = punchDate.toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+        const dateLabel = punchDate.toLocaleDateString("id-ID", {
+            weekday: "long",
+            day: "2-digit",
+            month: "long",
+            year: "numeric",
+        });
+
+        const footerX = 42;
+        const footerY = targetHeight - 388;
+        context.save();
+        drawRoundedRect(context, footerX, footerY, 132, 58, 18);
+        context.fillStyle = badgePalette[badgeLabel] || "#16a34a";
+        context.fill();
+        context.fillStyle = "#ffffff";
+        context.font = "700 30px 'Segoe UI', Arial, sans-serif";
+        context.textAlign = "center";
+        context.fillText(badgeLabel, footerX + 66, footerY + 38);
+        context.restore();
+
+        context.save();
+        context.shadowColor = "rgba(7, 17, 31, 0.2)";
+        context.shadowBlur = 20;
+        context.shadowOffsetY = 6;
+        drawRoundedRect(context, footerX + 148, footerY - 2, 244, 66, 18);
+        context.fillStyle = "rgba(255,255,255,0.94)";
+        context.fill();
+        context.restore();
+
+        context.fillStyle = "#07111f";
+        context.font = "800 72px 'Segoe UI', Arial, sans-serif";
+        context.textAlign = "left";
+        context.fillText(timeLabel, footerX + 164, footerY + 50);
+
+        context.fillStyle = "#ffffff";
+        context.font = "700 30px 'Segoe UI', Arial, sans-serif";
+        context.fillText(dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1), footerX, footerY + 112);
+
+        context.fillStyle = "rgba(34, 211, 238, 0.96)";
+        context.fillRect(footerX, footerY + 132, 8, 192);
+
+        context.save();
+        drawRoundedRect(context, footerX + 18, footerY + 130, 742, 208, 22);
+        context.fillStyle = "rgba(7, 17, 31, 0.18)";
+        context.fill();
+        context.restore();
+
+        context.fillStyle = "#ffffff";
+        context.font = "600 24px 'Segoe UI', Arial, sans-serif";
+        let lineY = footerY + 174;
+        buildLocationLines().forEach((lineText, lineIndex) => {
+            wrapText(context, lineText, 660).forEach((wrappedLine) => {
+                context.fillText(wrappedLine, footerX + 24, lineY);
+                lineY += lineIndex === 0 ? 30 : 28;
+            });
+        });
+
+        context.fillStyle = "rgba(255,255,255,0.9)";
+        context.font = "500 18px 'Segoe UI', Arial, sans-serif";
+        context.fillText(
+            `${employeeName} | ${getPunchTypeCaption()} | ${todayDate || punchDate.toLocaleDateString("id-ID")}`,
+            footerX + 24,
+            targetHeight - 54
+        );
+
+        return canvas.toDataURL("image/jpeg", 0.86);
+    };
+
+    const refreshStampedPreview = async () => {
+        if (!rawPhotoDataUrl) {
+            return "";
+        }
+
+        try {
+            const stampedDataUrl = await composeStampedPhoto();
+            if (!stampedDataUrl) {
+                return "";
+            }
+            photoInput.value = stampedDataUrl;
+            preview.src = stampedDataUrl;
+            preview.hidden = false;
+            video.hidden = true;
+            return stampedDataUrl;
+        } catch (error) {
+            setCameraState("Foto sudah diambil, tapi stamp geotag belum bisa dirender. Coba ulangi foto.", "error");
+            return "";
+        }
+    };
+
     const stopCamera = () => {
         if (!activeStream) {
             return;
@@ -274,6 +674,7 @@
     };
 
     const resetPreviewState = () => {
+        rawPhotoDataUrl = "";
         photoInput.value = "";
         preview.removeAttribute("src");
         preview.hidden = true;
@@ -322,20 +723,43 @@
             targetHeight
         );
 
-        return canvas.toDataURL("image/jpeg", 0.82);
+        return canvas.toDataURL("image/jpeg", 0.84);
     };
 
     syncPunchTime();
     syncShiftTimeDisplay();
     if (!portalLocked) {
-        window.setInterval(syncPunchTime, 30000);
+        window.setInterval(() => {
+            syncPunchTime();
+            if (rawPhotoDataUrl && !submitInProgress) {
+                refreshStampedPreview();
+            }
+        }, 30000);
     } else {
         setCameraState("Absensi hari ini sudah lengkap. Portal dikunci sampai hari berikutnya atau ada koreksi dari HR.", "success");
         locationStatus.value = "Absensi lengkap";
         locationHelper.textContent = "Tidak perlu ambil foto atau lokasi lagi untuk hari ini.";
     }
 
-    shiftSelect?.addEventListener("change", syncShiftTimeDisplay);
+    shiftSelect?.addEventListener("change", () => {
+        syncShiftTimeDisplay();
+        if (rawPhotoDataUrl) {
+            refreshStampedPreview();
+        }
+    });
+
+    punchTypeSelect?.addEventListener("change", () => {
+        syncPunchTime();
+        if (rawPhotoDataUrl) {
+            refreshStampedPreview();
+        }
+    });
+
+    locationLabelInput?.addEventListener("input", () => {
+        if (rawPhotoDataUrl) {
+            refreshStampedPreview();
+        }
+    });
 
     startButton.addEventListener("click", async () => {
         if (portalLocked) {
@@ -400,13 +824,12 @@
             return;
         }
 
-        photoInput.value = dataUrl;
-        preview.src = dataUrl;
-        preview.hidden = false;
-        video.hidden = true;
+        rawPhotoDataUrl = dataUrl;
+        syncPunchTime();
+        refreshStampedPreview();
         captureButton.disabled = true;
         retakeButton.disabled = false;
-        setCameraState("Foto berhasil diambil. Jika sudah pas, lanjut ambil lokasi lalu simpan absen.", "success");
+        setCameraState("Foto berhasil diambil. Stamp geotag sudah disusun. Jika sudah pas, lanjut ambil lokasi lalu simpan absen.", "success");
         stopCamera();
     });
 
@@ -439,6 +862,9 @@
                 accuracyInput.value = position.coords.accuracy ? position.coords.accuracy.toFixed(2) : "";
                 locationStatus.value = "Lokasi berhasil direkam";
                 locationHelper.textContent = "Koordinat dan akurasi sudah terisi. Kamu bisa langsung simpan absen.";
+                if (rawPhotoDataUrl) {
+                    refreshStampedPreview();
+                }
             },
             (error) => {
                 locationStatus.value = "Lokasi gagal";
@@ -454,13 +880,16 @@
         );
     });
 
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
+        if (submitInProgress) {
+            return;
+        }
         if (portalLocked) {
             event.preventDefault();
             return;
         }
         syncPunchTime();
-        if (!photoInput.value) {
+        if (!rawPhotoDataUrl) {
             event.preventDefault();
             setCameraState("Ambil foto dulu sebelum menyimpan absen.", "error");
             return;
@@ -470,7 +899,29 @@
             event.preventDefault();
             locationStatus.value = "Lokasi wajib";
             locationHelper.textContent = "Ambil lokasi dulu sebelum menyimpan absen.";
+            return;
         }
+
+        event.preventDefault();
+        submitInProgress = true;
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.dataset.originalText = submitButton.textContent;
+            submitButton.textContent = "Menyimpan Absen...";
+        }
+        setCameraState("Sedang menyusun foto geotag final. Tunggu sebentar lalu absensi akan dikirim.", "idle");
+
+        const stampedDataUrl = await refreshStampedPreview();
+        if (!stampedDataUrl) {
+            submitInProgress = false;
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = submitButton.dataset.originalText || "Simpan Absen";
+            }
+            return;
+        }
+
+        form.submit();
     });
 
     window.addEventListener("beforeunload", stopCamera);

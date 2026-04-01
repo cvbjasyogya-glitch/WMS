@@ -407,7 +407,10 @@ def create_app():
         user_id = session.get("user_id")
 
         if not user_id:
-            return redirect(url_for("auth.login", next=request.path))
+            next_target = request.full_path if request.query_string else request.path
+            if next_target.endswith("?"):
+                next_target = next_target[:-1]
+            return redirect(url_for("auth.login", next=next_target))
 
         db = get_db()
         user = db.execute(

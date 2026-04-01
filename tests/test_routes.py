@@ -5,6 +5,7 @@ import json
 from datetime import date as date_cls, datetime, timedelta, timezone
 from io import BytesIO
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 import zipfile
 
@@ -354,6 +355,40 @@ class WmsRoutesTestCase(unittest.TestCase):
         login_page = self.client.get("/login")
         self.assertEqual(login_page.status_code, 200)
         self.assertIn("no-store", login_page.headers.get("Cache-Control", ""))
+
+    def test_login_redirects_back_to_requested_page_with_query_string(self):
+        self.create_user("next_user", "pass1234", "super_admin")
+
+        gated_response = self.client.get("/stock/?warehouse=2", follow_redirects=False)
+        self.assertEqual(gated_response.status_code, 302)
+        redirect_target = urlsplit(gated_response.headers["Location"])
+        self.assertEqual(redirect_target.path, "/login")
+        self.assertEqual(
+            parse_qs(redirect_target.query).get("next", [None])[0],
+            "/stock/?warehouse=2",
+        )
+
+        login_response = self.client.post(
+            "/login?next=%2Fstock%2F%3Fwarehouse%3D2",
+            data={
+                "username": "next_user",
+                "password": "pass1234",
+                "next": "/stock/?warehouse=2",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(login_response.status_code, 302)
+        self.assertTrue(login_response.headers["Location"].endswith("/stock/?warehouse=2"))
+
+    def test_login_accepts_case_insensitive_username(self):
+        self.create_user("CaseUser", "pass1234", "admin", warehouse_id=1)
+
+        response = self.login("caseuser", "pass1234")
+        self.assertEqual(response.status_code, 302)
+
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("username"), "CaseUser")
+            self.assertEqual(sess.get("role"), "admin")
 
     def test_service_worker_route_is_public(self):
         response = self.client.get("/service-worker.js")
