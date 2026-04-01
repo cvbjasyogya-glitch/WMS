@@ -23,6 +23,13 @@ def _csv_env(name, default=""):
     ]
 
 
+def _env_flag(name, default=False):
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return bool(default)
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _encode_vapid_public_key(public_key):
     raw_key = public_key.public_bytes(
         encoding=serialization.Encoding.X962,
@@ -83,7 +90,9 @@ class Config:
 
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
-    SESSION_COOKIE_SECURE = IS_PRODUCTION  # auto ON jika production
+    # Default dibuat aman untuk akses lokal/non-HTTPS agar session login tidak hilang.
+    # Aktifkan explicit via SESSION_COOKIE_SECURE=1 saat deploy di HTTPS.
+    SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", False)
 
     PERMANENT_SESSION_LIFETIME = timedelta(hours=1)
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(12 * 1024 * 1024)))
