@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}Info Produk Cepat | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Fast Response Catalog{% endblock %}
+{% block page_title %}Info Produk Cepat{% endblock %}
+{% block page_subtitle %}Portal pencarian kilat untuk bantu staff menjawab customer lebih cepat. Cari SKU, nama, variant, kategori, kode variasi, atau GTIN lalu lihat harga dan stok per gudang dalam satu layar.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions lookup-page-actions">
+    <div class="lookup-focus-inline">
+        <span class="status-pill" id="lookupResultMeta">Siap cari produk</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="summary lookup-summary-grid">
+    <div class="card-mini">
+        <p>Cari Kilat</p>
+        <h3>Live</h3>
+        <small class="helper-text">Tanpa reload halaman, cocok buat respon cepat ke customer.</small>
+    </div>
+    <div class="card-mini">
+        <p>Data Utama</p>
+        <h3>Harga + Stok</h3>
+        <small class="helper-text">Retail, discount, nett, dan stok per gudang ada dalam satu view.</small>
+    </div>
+    <div class="card-mini">
+        <p>Keyword</p>
+        <h3>SKU / GTIN</h3>
+        <small class="helper-text">Pakai barcode, kode variasi, nama, atau kategori untuk cari paling cepat.</small>
+    </div>
+    <div class="card-mini success">
+        <p>Mode Staff</p>
+        <h3>Read Only</h3>
+        <small class="helper-text">Fokus ke informasi produk lengkap tanpa menu edit master data.</small>
+    </div>
+</div>
+
+<section class="form-box product-lookup-shell">
+    <div class="section-title">
+        <div>
+            <h2>Panel Pencarian Cepat</h2>
+            <p>Ketik kata kunci, pilih fokus gudang, lalu hasil lengkap langsung muncul di bawah. Fokus gudang dipakai untuk mengurutkan stok yang paling relevan ke user saat ini.</p>
+        </div>
+    </div>
+
+    <form class="product-lookup-toolbar" id="productLookupForm" autocomplete="off">
+        <label class="product-lookup-field product-lookup-field-search">
+            <span>Cari Produk</span>
+            <input
+                type="search"
+                id="productLookupQuery"
+                placeholder="Contoh: AVP0042-4, geoforce, 39, GTIN, atau kategori sepatu"
+                enterkeyhint="search"
+                autofocus
+            >
+        </label>
+        <label class="product-lookup-field product-lookup-field-warehouse">
+            <span>Fokus Gudang</span>
+            <select id="productLookupWarehouse" {% if is_scoped_user %}disabled{% endif %}>
+                {% for warehouse in lookup_warehouses %}
+                <option value="{{ warehouse.id }}" {% if warehouse.id == lookup_focus_warehouse %}selected{% endif %}>{{ warehouse.name }}</option>
+                {% endfor %}
+            </select>
+            {% if is_scoped_user %}
+            <small class="helper-text">Akun gudang tetap fokus ke warehouse sendiri.</small>
+            {% endif %}
+        </label>
+        <div class="product-lookup-hints">
+            <span class="status-pill">SKU</span>
+            <span class="status-pill">GTIN</span>
+            <span class="status-pill">Nama</span>
+            <span class="status-pill">Variant</span>
+            <span class="status-pill">Kategori</span>
+        </div>
+    </form>
+</section>
+
+<section class="table-box product-lookup-results-shell">
+    <div class="section-title">
+        <div>
+            <h2>Hasil Pencarian</h2>
+            <p id="productLookupSummary">Ketik minimal 1 kata kunci untuk menampilkan informasi produk lengkap.</p>
+        </div>
+        <div class="status-row">
+            <span class="status-pill" id="productLookupWarehousePill">Fokus gudang: -</span>
+            <span class="status-pill" id="productLookupCountPill">0 hasil</span>
+        </div>
+    </div>
+
+    <div class="product-lookup-results" id="productLookupResults">
+        <div class="empty-state product-lookup-empty">
+            Ketik SKU, nama produk, kategori, variant, GTIN, atau kode variasi untuk mulai cari.
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const lookupQueryInput = document.getElementById("productLookupQuery");
+const lookupWarehouseSelect = document.getElementById("productLookupWarehouse");
+const lookupResults = document.getElementById("productLookupResults");
+const lookupSummary = document.getElementById("productLookupSummary");
+const lookupCountPill = document.getElementById("productLookupCountPill");
+const lookupWarehousePill = document.getElementById("productLookupWarehousePill");
+const lookupResultMeta = document.getElementById("lookupResultMeta");
+
+let lookupSearchTimer = null;
+let lookupAbortController = null;
+
+function formatLookupCurrency(value) {
+    return `Rp ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(value || 0))}`;
+}
+
+function escapeLookupHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function renderLookupEmpty(message) {
+    lookupResults.innerHTML = `<div class="empty-state product-lookup-empty">${escapeLookupHtml(message)}</div>`;
+}
+
+function buildWarehousePills(warehouses) {
+    return warehouses.map((warehouse) => `
+        <span class="product-lookup-warehouse-pill ${warehouse.is_focus ? "is-focus" : ""} ${warehouse.has_stock ? "has-stock" : "is-empty"}">
+            <strong>${escapeLookupHtml(warehouse.name)}</strong>
+            <span>${escapeLookupHtml(warehouse.qty)}</span>
+        </span>
+    `).join("");
+}
+
+function buildLookupCards(items) {
+    return items.map((item) => `
+        <article class="product-lookup-card">
+            <div class="product-lookup-card-head">
+                <div>
+                    <p class="product-lookup-kicker">${escapeLookupHtml(item.category || "-")}</p>
+                    <h3>${escapeLookupHtml(item.name)}</h3>
+                    <div class="product-lookup-code-row">
+                        <span class="status-pill mono">${escapeLookupHtml(item.sku)}</span>
+                        <span class="status-pill">${escapeLookupHtml(item.variant_label)}</span>
+                        ${item.gtin ? `<span class="status-pill mono">GTIN ${escapeLookupHtml(item.gtin)}</span>` : ""}
+                        ${item.variant_code ? `<span class="status-pill mono">Kode ${escapeLookupHtml(item.variant_code)}</span>` : ""}
+                    </div>
+                </div>
+                <div class="product-lookup-stock-overview">
+                    <span>Total Stok</span>
+                    <strong>${escapeLookupHtml(item.total_qty)}</strong>
+                    <small>Fokus gudang: ${escapeLookupHtml(item.focus_qty)}</small>
+                </div>
+            </div>
+
+            <div class="product-lookup-price-grid">
+                <div class="product-lookup-price-card">
+                    <span>Retail</span>
+                    <strong>${formatLookupCurrency(item.price_retail)}</strong>
+                </div>
+                <div class="product-lookup-price-card">
+                    <span>Discount</span>
+                    <strong>${formatLookupCurrency(item.price_discount)}</strong>
+                </div>
+                <div class="product-lookup-price-card is-best">
+                    <span>Harga Aktif</span>
+                    <strong>${formatLookupCurrency(item.best_price)}</strong>
+                </div>
+            </div>
+
+            <div class="product-lookup-warehouse-grid">
+                ${buildWarehousePills(item.warehouses)}
+            </div>
+        </article>
+    `).join("");
+}
+
+function updateLookupMeta(query, count, focusWarehouseName) {
+    lookupSummary.textContent = query
+        ? `Menampilkan informasi produk lengkap untuk kata kunci "${query}".`
+        : "Ketik minimal 1 kata kunci untuk menampilkan informasi produk lengkap.";
+    lookupCountPill.textContent = `${count} hasil`;
+    lookupWarehousePill.textContent = `Fokus gudang: ${focusWarehouseName || "-"}`;
+    lookupResultMeta.textContent = query ? `Pencarian: ${query}` : "Siap cari produk";
+}
+
+async function performLookupSearch() {
+    const query = (lookupQueryInput?.value || "").trim();
+    const warehouseId = lookupWarehouseSelect?.value || "";
+
+    if (!query) {
+        if (lookupAbortController) {
+            lookupAbortController.abort();
+            lookupAbortController = null;
+        }
+        updateLookupMeta("", 0, lookupWarehouseSelect?.selectedOptions?.[0]?.textContent || "-");
+        renderLookupEmpty("Ketik SKU, nama produk, kategori, variant, GTIN, atau kode variasi untuk mulai cari.");
+        return;
+    }
+
+    lookupSummary.textContent = "Mencari produk...";
+    lookupResultMeta.textContent = "Memuat hasil...";
+
+    if (lookupAbortController) {
+        lookupAbortController.abort();
+    }
+    lookupAbortController = new AbortController();
+
+    try {
+        const response = await fetch(`/info-produk/search?q=${encodeURIComponent(query)}&warehouse_id=${encodeURIComponent(warehouseId)}`, {
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+            signal: lookupAbortController.signal,
+        });
+        const payload = await response.json();
+
+        if (!response.ok || payload.status !== "success") {
+            throw new Error(payload.message || "Pencarian produk gagal.");
+        }
+
+        updateLookupMeta(payload.query, payload.count, payload.focus_warehouse_name);
+        if (!payload.items.length) {
+            renderLookupEmpty(`Produk dengan kata kunci "${payload.query}" belum ditemukan.`);
+            return;
+        }
+
+        lookupResults.innerHTML = buildLookupCards(payload.items);
+    } catch (error) {
+        if (error.name === "AbortError") {
+            return;
+        }
+        updateLookupMeta(query, 0, lookupWarehouseSelect?.selectedOptions?.[0]?.textContent || "-");
+        renderLookupEmpty(error.message || "Terjadi error saat mencari produk.");
+    }
+}
+
+function scheduleLookupSearch() {
+    window.clearTimeout(lookupSearchTimer);
+    lookupSearchTimer = window.setTimeout(() => {
+        performLookupSearch();
+    }, 220);
+}
+
+lookupQueryInput?.addEventListener("input", scheduleLookupSearch);
+lookupWarehouseSelect?.addEventListener("change", scheduleLookupSearch);
+document.getElementById("productLookupForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    performLookupSearch();
+});
+</script>
+{% endblock %}

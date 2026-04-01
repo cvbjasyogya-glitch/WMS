@@ -90,7 +90,7 @@
         <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
     </select>
     <button type="submit">Filter</button>
-    {% if can('direct_stock_ops') %}
+    {% if can_bulk_adjust_ui %}
     <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
     {% endif %}
 </form>
@@ -120,7 +120,9 @@
     <table class="stock-table">
         <thead>
             <tr>
+                {% if can_bulk_adjust_ui %}
                 <th><input type="checkbox" id="checkAll"></th>
+                {% endif %}
                 <th>
                     <a href="{{ sort_links.sku }}" class="sort-link {% if sort_state.field == 'sku' %}active{% endif %}">
                         <span>SKU</span>
@@ -151,7 +153,9 @@
                         {% if sort_state.field == 'status' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
+                {% if can_adjust_stock_ui %}
                 <th>Adjust</th>
+                {% endif %}
                 <th>
                     <a href="{{ sort_links.price_retail }}" class="sort-link {% if sort_state.field == 'price_retail' %}active{% endif %}">
                         <span>Retail</span>
@@ -193,9 +197,11 @@
                 data-qty="{{ s.qty }}"
                 data-best-price="{{ best_price }}"
             >
+                {% if can_bulk_adjust_ui %}
                 <td>
                     <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
                 </td>
+                {% endif %}
                 <td>
                     <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                 </td>
@@ -223,12 +229,14 @@
                     <span class="badge green" data-stock-status-badge>Aman</span>
                     {% endif %}
                 </td>
+                {% if can_adjust_stock_ui %}
                 <td>
                     <div class="stock-adjust-actions">
                         <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
                         <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                     </div>
                 </td>
+                {% endif %}
                 <td>
                     <div class="money-input">
                         <span>Rp</span>
@@ -254,17 +262,7 @@
         </tbody>
     </table>
 
-    <div class="pagination">
-        {% if page > 1 %}
-        <a href="?page={{ page-1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Prev</button></a>
-        {% endif %}
-
-        <span class="status-pill">Page {{ page }} / {{ total_pages }}</span>
-
-        {% if page < total_pages %}
-        <a href="?page={{ page+1 }}&q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date }}&end_date={{ end_date }}"><button type="button" class="ghost-button">Next</button></a>
-        {% endif %}
-    </div>
+    {% include "partials/pagination_nav.html" %}
     {% else %}
     <div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div>
     {% endif %}
@@ -443,7 +441,7 @@ function ensureStockEmptyState() {
 
     const emptyRow = document.createElement("tr");
     emptyRow.className = "stock-table-empty-row";
-    emptyRow.innerHTML = '<td colspan="12"><div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div></td>';
+    emptyRow.innerHTML = '<td colspan="{{ 10 + (1 if can_bulk_adjust_ui else 0) + (1 if can_adjust_stock_ui else 0) }}"><div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div></td>';
     tbody.appendChild(emptyRow);
 }
 

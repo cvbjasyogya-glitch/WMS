@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, jsonify, flash, session
 from database import get_db
+from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import add_stock
 import csv
@@ -647,8 +648,8 @@ def products():
 
     search = request.args.get("search", "").strip()
 
-    LIMIT = 10
-    OFFSET = (page - 1) * LIMIT
+    limit = 10
+    offset = (page - 1) * limit
 
     search_param = f"%{search}%"
 
@@ -695,8 +696,8 @@ def products():
         search_param,
         search_param,
         search_param,
-        LIMIT,
-        OFFSET
+        limit,
+        offset
     )).fetchall()
 
     total = db.execute("""
@@ -715,7 +716,17 @@ def products():
         search_param
     )).fetchone()["total"]
 
-    total_pages = max(1, (total + LIMIT - 1) // LIMIT)
+    total_pages = max(1, (total + limit - 1) // limit)
+    pagination = build_pagination_state(
+        "/products/",
+        page,
+        total_pages,
+        {
+            "search": search,
+            "warehouse": warehouse_id,
+        },
+        group_size=5,
+    )
 
     data = [dict(r) for r in data_raw]
 
@@ -726,8 +737,10 @@ def products():
         data=data,
         warehouses=warehouses,
         warehouse_id=warehouse_id,
+        search=search,
         page=page,
-        total_pages=total_pages
+        total_pages=total_pages,
+        pagination=pagination,
     )
 
 

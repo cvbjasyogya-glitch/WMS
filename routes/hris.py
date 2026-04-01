@@ -71,6 +71,15 @@ BIOMETRIC_STATUS_LABELS = {
     "manual": "Manual Override",
     "failed": "Flagged",
 }
+ATTENDANCE_STATUS_LABELS = {
+    "present": "Present",
+    "late": "Late",
+    "leave": "Leave",
+    "absent": "Absent",
+    "half_day": "Half Day",
+    "break_started": "Baru Mulai",
+    "break_over_limit": "Istirahat > 1 Jam",
+}
 ANNOUNCEMENT_AUDIENCES = {"all", "leaders", "warehouse_team"}
 ANNOUNCEMENT_STATUSES = {"draft", "published", "archived"}
 DOCUMENT_TYPES = {"policy", "sop", "form", "memo", "contract", "other"}
@@ -658,8 +667,105 @@ def _derive_performance_rating(final_score):
 
 
 def _derive_biometric_attendance_status(check_in_time):
-    if check_in_time and check_in_time > "08:30":
-        return "late"
+    if not check_in_time:
+        return "present"
+
+    try:
+        check_in_minutes = int(check_in_time[:2]) * 60 + int(check_in_time[3:5])
+    except (TypeError, ValueError, IndexError):
+        return "present"
+
+    # Fallback lama tetap dipertahankan bila shift tidak tersedia.
+    threshold_minutes = (8 * 60) + 30
+    return "late" if check_in_minutes > threshold_minutes else "present"
+
+
+def _extract_shift_start_minutes(shift_label):
+    safe_label = (shift_label or "").strip()
+    if not safe_label:
+        return None
+
+    if "|" in safe_label:
+        safe_label = safe_label.split("|", 1)[1].strip()
+
+    if "-" in safe_label:
+        safe_label = safe_label.split("-", 1)[0].strip()
+
+    safe_label = safe_label.replace(".", ":")
+    try:
+        hour_part, minute_part = safe_label.split(":", 1)
+        return (int(hour_part) * 60) + int(minute_part[:2])
+    except (ValueError, TypeError):
+        return None
+
+
+def _derive_biometric_attendance_status_with_shift(check_in_time, shift_label=None):
+    if not check_in_time:
+        return "present"
+
+    try:
+        check_in_minutes = int(check_in_time[:2]) * 60 + int(check_in_time[3:5])
+    except (TypeError, ValueError, IndexError):
+        return "present"
+
+    shift_start_minutes = _extract_shift_start_minutes(shift_label)
+    if shift_start_minutes is None:
+        return _derive_biometric_attendance_status(check_in_time)
+
+    return "late" if check_in_minutes > (shift_start_minutes + 10) else "present"
+
+
+def _resolve_open_break_state(logs_sorted):
+    open_break_time = None
+    for log in logs_sorted:
+        punch_type = (log.get("punch_type") or "").strip().lower()
+        punch_time = (log.get("punch_time") or "").strip()
+        if punch_type == "break_start":
+            open_break_time = punch_time
+        elif punch_type in {"break_finish", "check_out"}:
+            open_break_time = None
+
+    if not open_break_time:
+        return None
+
+    try:
+        break_started_at = datetime.fromisoformat(open_break_time)
+    except ValueError:
+        return {"status_key": "break_started", "label": ATTENDANCE_STATUS_LABELS["break_started"], "badge_class": "orange"}
+
+    minutes_open = max(0, int((datetime.now() - break_started_at).total_seconds() // 60))
+    if minutes_open > 60:
+        return {
+            "status_key": "break_over_limit",
+            "label": ATTENDANCE_STATUS_LABELS["break_over_limit"],
+            "badge_class": "red",
+        }
+
+    return {
+        "status_key": "break_started",
+        "label": ATTENDANCE_STATUS_LABELS["break_started"],
+        "badge_class": "orange",
+    }
+
+
+def _build_attendance_status_display(status, logs_sorted=None):
+    break_state = _resolve_open_break_state(logs_sorted or [])
+    if break_state:
+        return break_state
+
+    safe_status = (status or "absent").strip().lower()
+    if safe_status in {"present", "late"}:
+        badge_class = "green"
+    elif safe_status in {"half_day", "leave"}:
+        badge_class = "orange"
+    else:
+        badge_class = "red"
+
+    return {
+        "status_key": safe_status,
+        "label": ATTENDANCE_STATUS_LABELS.get(safe_status, safe_status.replace("_", " ").title()),
+        "badge_class": badge_class,
+    }
     return "present"
 
 
@@ -1161,7 +1267,6 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
         ),
         None,
     )
-    status = _derive_biometric_attendance_status(check_in)
     shift_snapshot = next(
         (
             {
@@ -1175,6 +1280,10 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
             "shift_code": (existing["shift_code"] if existing and existing["shift_code"] else None),
             "shift_label": (existing["shift_label"] if existing and existing["shift_label"] else None),
         },
+    )
+    status = _derive_biometric_attendance_status_with_shift(
+        check_in,
+        shift_snapshot.get("shift_label"),
     )
 
     if existing:
@@ -2745,7 +2854,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
     placeholders = ",".join(["?"] * len(employee_ids))
     attendance_rows = db.execute(
         f"""
-        SELECT employee_id, attendance_date, check_in, check_out, status, note
+        SELECT employee_id, attendance_date, check_in, check_out, status, note, shift_code, shift_label
         FROM attendance_records
         WHERE employee_id IN ({placeholders})
           AND attendance_date BETWEEN ? AND ?
@@ -2781,6 +2890,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
             recap_status = "synced"
 
         recap_status_label, recap_status_badge = _build_biometric_status_meta(recap_status)
+        attendance_display = _build_attendance_status_display(attendance.get("status"), logs_sorted)
 
         recap_rows.append(
             {
@@ -2789,6 +2899,8 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "full_name": latest_log["full_name"],
                 "warehouse_name": latest_log["warehouse_name"],
                 "attendance_status": (attendance.get("status") or "-"),
+                "attendance_status_label": attendance_display["label"],
+                "attendance_status_badge": attendance_display["badge_class"],
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",
                 "geo_check_in": (check_in_log["punch_time"][11:16] if check_in_log else "-"),

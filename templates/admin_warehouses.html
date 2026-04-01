@@ -50,15 +50,20 @@
     </div>
 </div>
 
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Gudang</h2>
-            <p>Tambah gudang baru yang akan dipakai di WMS dan HRIS tanpa mencampur pengaturan ini dengan manajemen user.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Gudang</h2>
+                <p>Tambah gudang baru yang akan dipakai di WMS dan HRIS tanpa mencampur pengaturan ini dengan manajemen user.</p>
+            </div>
         </div>
-    </div>
-
-    <form method="POST" action="/admin/add_warehouse">
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        <form method="POST" action="/admin/add_warehouse">
         <div class="form-grid">
             <div>
                 <label>Nama Gudang</label>
@@ -69,19 +74,26 @@
         <div class="split-actions stack-gap-md">
             <button type="submit">Tambah Gudang</button>
         </div>
-    </form>
-</div>
-
-<div class="table-box">
-    <div class="section-title">
-        <div>
-            <h2>Daftar Gudang</h2>
-            <p>Gudang yang sudah dipakai di stock tidak bisa dihapus untuk menjaga integritas data transaksi dan histori operasional.</p>
-        </div>
+        </form>
     </div>
+</details>
 
-    {% if warehouses %}
-    <table>
+<details class="table-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Daftar Gudang</h2>
+                <p>Gudang yang sudah dipakai di stock tidak bisa dihapus untuk menjaga integritas data transaksi dan histori operasional.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ warehouses|length }} gudang</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        {% if warehouses %}
+        <table>
         <thead>
             <tr>
                 <th>ID</th>
@@ -110,10 +122,11 @@
             </tr>
             {% endfor %}
         </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">Belum ada gudang yang terdaftar.</div>
-    {% endif %}
-</div>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada gudang yang terdaftar.</div>
+        {% endif %}
+    </div>
+</details>
 {% endblock %}
 

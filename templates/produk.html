@@ -27,7 +27,7 @@
     </div>
     <div class="meta-card">
         <span>Pencarian</span>
-        <strong>{{ request.args.get('search', 'Semua Produk') }}</strong>
+        <strong>{{ search or 'Semua Produk' }}</strong>
     </div>
 </div>
 
@@ -40,7 +40,7 @@
     {% if is_scoped_user %}
     <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
     {% endif %}
-    <input type="text" name="search" value="{{ request.args.get('search', '') }}" placeholder="Cari SKU, nama, atau kategori">
+    <input type="text" name="search" value="{{ search }}" placeholder="Cari SKU, nama, atau kategori">
     <button type="submit">Terapkan Filter</button>
     {% if can('manage_product_master') %}
     <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
@@ -229,15 +229,7 @@
         </tbody>
     </table>
 
-    <div class="pagination">
-        {% if page > 1 %}
-        <a href="?page={{ page-1 }}&search={{ request.args.get('search', '') }}&warehouse={{ warehouse_id }}"><button type="button" class="ghost-button">Prev</button></a>
-        {% endif %}
-        <span class="status-pill">Page {{ page }} / {{ total_pages }}</span>
-        {% if page < total_pages %}
-        <a href="?page={{ page+1 }}&search={{ request.args.get('search', '') }}&warehouse={{ warehouse_id }}"><button type="button" class="ghost-button">Next</button></a>
-        {% endif %}
-    </div>
+    {% include "partials/pagination_nav.html" %}
     {% else %}
     <div class="empty-state">Belum ada produk yang cocok dengan filter saat ini.</div>
     {% endif %}

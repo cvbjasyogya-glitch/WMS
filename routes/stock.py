@@ -9,6 +9,7 @@ from database import get_db
 
 from services.stock_service import adjust_stock
 from services.notification_service import notify_roles
+from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/stock")
@@ -373,6 +374,13 @@ def _can_manage_product_master():
     return has_permission(session.get("role"), "manage_product_master")
 
 
+def _can_render_stock_adjust_controls():
+    role = session.get("role")
+    if role == "staff":
+        return False
+    return has_permission(role, "direct_stock_ops") or has_permission(role, "request_stock_ops")
+
+
 def _stock_json_error(message, status_code=400):
     return jsonify({"status": "error", "message": message}), status_code
 
@@ -396,7 +404,7 @@ def stock_table():
     except:
         page = 1
 
-    limit = 50
+    limit = 10
     offset = (page - 1) * limit
     order_by = _get_sort_clause(sort)
 
@@ -432,6 +440,20 @@ def stock_table():
     ]
     summary = _build_stock_summary(summary_rows)
     total_pages = max(1, (total + limit - 1) // limit)
+    pagination = build_pagination_state(
+        "/stock/",
+        page,
+        total_pages,
+        {
+            "q": search,
+            "warehouse": warehouse_id,
+            "sort": sort,
+            "stock_state": stock_state,
+            "start_date": start_date.isoformat() if start_date else "",
+            "end_date": end_date.isoformat() if end_date else "",
+        },
+        group_size=5,
+    )
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
 
     return render_template(
@@ -449,6 +471,9 @@ def stock_table():
         sort_links=_build_sort_links(),
         stock_state=stock_state,
         summary=summary,
+        pagination=pagination,
+        can_adjust_stock_ui=_can_render_stock_adjust_controls(),
+        can_bulk_adjust_ui=has_permission(session.get("role"), "direct_stock_ops"),
     )
 
 

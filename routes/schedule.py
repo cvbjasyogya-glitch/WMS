@@ -79,9 +79,9 @@ def _default_schedule_start():
 
 
 def _clamp_days(value):
-    allowed_days = {7, 14, 21, 28, 35, 42}
-    days = _to_int(value, 28)
-    return days if days in allowed_days else 28
+    # Board jadwal sengaja dikunci mingguan supaya lane tetap stabil,
+    # mudah discroll, dan tidak pecah saat staf yang tampil banyak.
+    return 7
 
 
 def _daterange(start_date, end_date):

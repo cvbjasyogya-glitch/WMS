@@ -429,14 +429,19 @@
 {% endif %}
 
 {% if can_manage_employee %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Karyawan</h2>
-            <p>Modul Employee menjadi fondasi HRIS. Mulai dari data pokok, gudang kerja, status kerja, dan kontak penting.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Karyawan</h2>
+                <p>Modul Employee menjadi fondasi HRIS. Mulai dari data pokok, gudang kerja, status kerja, dan kontak penting.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     <form method="POST" action="/hris/employee/add">
         <div class="form-grid">
             <div>
@@ -501,17 +506,24 @@
             <button type="submit">Tambah Karyawan</button>
         </div>
     </form>
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Direktori Karyawan</h2>
-            <p>Daftar ini menjadi master data awal HRIS. Tahap berikutnya bisa disambungkan ke attendance, leave, payroll, dan recruitment.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Direktori Karyawan</h2>
+                <p>Daftar ini menjadi master data awal HRIS. Tahap berikutnya bisa disambungkan ke attendance, leave, payroll, dan recruitment.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ employees|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if employees %}
         {% if can_manage_employee %}
         <div class="stack-scroll-list">
@@ -617,7 +629,8 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan. Modul Employee siap dipakai sebagai fondasi HRIS pertama.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "attendance" %}
 <div class="summary">
     <div class="card-mini">
@@ -686,14 +699,19 @@
 {% endif %}
 
 {% if can_manage_attendance %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Attendance</h2>
-            <p>Presensi harian diikat ke master employee yang sudah ada, sehingga warehouse, nama, dan histori attendance tetap konsisten untuk reporting HRIS berikutnya.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Attendance</h2>
+                <p>Presensi harian diikat ke master employee yang sudah ada, sehingga warehouse, nama, dan histori attendance tetap konsisten untuk reporting HRIS berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if attendance_employees %}
     <form method="POST" action="/hris/attendance/add">
         <div class="form-grid">
@@ -740,17 +758,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat attendance record.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Log Kehadiran</h2>
-            <p>Riwayat attendance ini siap dipakai sebagai basis untuk leave, payroll, dan integrasi geotag absensi pada tahap modul berikutnya.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Log Kehadiran</h2>
+                <p>Riwayat attendance ini siap dipakai sebagai basis untuk leave, payroll, dan integrasi geotag absensi pada tahap modul berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ attendance_records|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if attendance_records %}
         {% if can_manage_attendance %}
         <div class="stack-scroll-list">
@@ -840,7 +865,8 @@
     {% else %}
     <div class="empty-state">Belum ada attendance record. Modul Attendance siap dipakai untuk tracking presensi harian.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "leave" %}
 <div class="summary">
     <div class="card-mini">
@@ -922,14 +948,19 @@
 {% endif %}
 
 {% if can_manage_leave %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Leave</h2>
-            <p>Modul Leave ini menyimpan request cuti atau izin per karyawan, lengkap dengan rentang tanggal, status approval, dan total hari yang dihitung otomatis.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Leave</h2>
+                <p>Modul Leave ini menyimpan request cuti atau izin per karyawan, lengkap dengan rentang tanggal, status approval, dan total hari yang dihitung otomatis.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if leave_employees %}
     <form method="POST" action="/hris/leave/add">
         <div class="form-grid">
@@ -989,17 +1020,24 @@
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat leave request.</div>
     {% endif %}
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Leave Tracker</h2>
-            <p>Riwayat leave ini menyiapkan fondasi approval leave, payroll impact, dan rekap kebijakan cuti pada modul HRIS berikutnya.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Leave Tracker</h2>
+                <p>Riwayat leave ini menyiapkan fondasi approval leave, payroll impact, dan rekap kebijakan cuti pada modul HRIS berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ leave_requests|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if leave_requests %}
         {% if can_manage_leave %}
         <div class="stack-scroll-list">
@@ -1100,7 +1138,8 @@
     {% else %}
     <div class="empty-state">Belum ada leave request. Modul Leave siap dipakai untuk tracking cuti dan izin karyawan.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "payroll" %}
 <div class="summary">
     <div class="card-mini">
@@ -1174,14 +1213,19 @@
 {% endif %}
 
 {% if can_manage_payroll %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Payroll</h2>
-            <p>Payroll ini menyimpan periode gaji per karyawan, komponen pemasukan dan potongan, lalu menghitung net pay otomatis agar siap dipakai ke tahap payslip berikutnya.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Payroll</h2>
+                <p>Payroll ini menyimpan periode gaji per karyawan, komponen pemasukan dan potongan, lalu menghitung net pay otomatis agar siap dipakai ke tahap payslip berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if payroll_employees %}
     <form method="POST" action="/hris/payroll/add">
         <div class="form-grid">
@@ -1243,17 +1287,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat payroll.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Payroll Register</h2>
-            <p>Register payroll ini menjadi dasar untuk approval gaji, status pembayaran, dan pengembangan payslip atau rekap kompensasi pada tahap berikutnya.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Payroll Register</h2>
+                <p>Register payroll ini menjadi dasar untuk approval gaji, status pembayaran, dan pengembangan payslip atau rekap kompensasi pada tahap berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ payroll_runs|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if payroll_runs %}
         {% if can_manage_payroll %}
         <div class="stack-scroll-list">
@@ -1360,7 +1411,8 @@
     {% else %}
     <div class="empty-state">Belum ada payroll. Modul Payroll siap dipakai untuk register kompensasi per periode.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "recruitment" %}
 <div class="summary">
     <div class="card-mini">
@@ -1441,14 +1493,19 @@
 {% endif %}
 
 {% if can_manage_recruitment %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Kandidat</h2>
-            <p>Modul Recruitment ini dipakai untuk melacak kandidat, posisi yang dilamar, stage hiring, status akhir, dan target join date dalam satu pipeline yang rapi.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Kandidat</h2>
+                <p>Modul Recruitment ini dipakai untuk melacak kandidat, posisi yang dilamar, stage hiring, status akhir, dan target join date dalam satu pipeline yang rapi.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     <form method="POST" action="/hris/recruitment/add">
         <div class="form-grid">
             <div>
@@ -1520,17 +1577,24 @@
             <button type="submit">Tambah Kandidat</button>
         </div>
     </form>
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Hiring Pipeline</h2>
-            <p>Pipeline ini menyiapkan fondasi untuk vacancy management, interview scheduling, dan onboarding kandidat terpilih pada tahap modul berikutnya.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Hiring Pipeline</h2>
+                <p>Pipeline ini menyiapkan fondasi untuk vacancy management, interview scheduling, dan onboarding kandidat terpilih pada tahap modul berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ recruitment_candidates|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if recruitment_candidates %}
         {% if can_manage_recruitment %}
         <div class="stack-scroll-list">
@@ -1645,7 +1709,8 @@
     {% else %}
     <div class="empty-state">Belum ada kandidat recruitment. Modul Recruitment siap dipakai untuk tracking pipeline hiring.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "onboarding" %}
 <div class="summary">
     <div class="card-mini">
@@ -1725,14 +1790,19 @@
 {% endif %}
 
 {% if can_manage_onboarding %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Onboarding</h2>
-            <p>Modul Onboarding ini dipakai untuk memantau progress masuk karyawan baru, dari preboarding sampai siap go live di operasional.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Onboarding</h2>
+                <p>Modul Onboarding ini dipakai untuk memantau progress masuk karyawan baru, dari preboarding sampai siap go live di operasional.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if onboarding_employees %}
     <form method="POST" action="/hris/onboarding/add">
         <div class="form-grid">
@@ -1788,17 +1858,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat onboarding record.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Onboarding Tracker</h2>
-            <p>Tracker ini menjadi fondasi untuk handoff akses, checklist operasional, dan pengembangan modul lifecycle karyawan berikutnya.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Onboarding Tracker</h2>
+                <p>Tracker ini menjadi fondasi untuk handoff akses, checklist operasional, dan pengembangan modul lifecycle karyawan berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ onboarding_records|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if onboarding_records %}
         {% if can_manage_onboarding %}
         <div class="stack-scroll-list">
@@ -1893,7 +1970,8 @@
     {% else %}
     <div class="empty-state">Belum ada onboarding record. Modul Onboarding siap dipakai untuk tracking adaptasi karyawan baru.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "offboarding" %}
 <div class="summary">
     <div class="card-mini">
@@ -1972,14 +2050,19 @@
 {% endif %}
 
 {% if can_manage_offboarding %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Offboarding</h2>
-            <p>Modul Offboarding ini dipakai untuk mengelola notice keluar, clearance, handover pekerjaan, sampai status exit complete per karyawan.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Offboarding</h2>
+                <p>Modul Offboarding ini dipakai untuk mengelola notice keluar, clearance, handover pekerjaan, sampai status exit complete per karyawan.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if offboarding_employees %}
     <form method="POST" action="/hris/offboarding/add">
         <div class="form-grid">
@@ -2038,17 +2121,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat offboarding record.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Offboarding Tracker</h2>
-            <p>Tracker ini menyiapkan fondasi untuk clearance, return asset, revoke akses, dan dokumentasi exit karyawan secara rapi.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Offboarding Tracker</h2>
+                <p>Tracker ini menyiapkan fondasi untuk clearance, return asset, revoke akses, dan dokumentasi exit karyawan secara rapi.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ offboarding_records|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if offboarding_records %}
         {% if can_manage_offboarding %}
         <div class="stack-scroll-list">
@@ -2146,7 +2236,8 @@
     {% else %}
     <div class="empty-state">Belum ada offboarding record. Modul Offboarding siap dipakai untuk tracking proses keluar karyawan.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "pms" %}
 <div class="summary">
     <div class="card-mini">
@@ -2219,14 +2310,19 @@
 {% endif %}
 
 {% if can_manage_performance %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Review</h2>
-            <p>Modul Performance ini dipakai untuk menilai goal, disiplin, dan teamwork per periode review, lalu menghasilkan final score dan rating otomatis.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Review</h2>
+                <p>Modul Performance ini dipakai untuk menilai goal, disiplin, dan teamwork per periode review, lalu menghasilkan final score dan rating otomatis.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if performance_employees %}
     <form method="POST" action="/hris/performance/add">
         <div class="form-grid">
@@ -2280,17 +2376,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat performance review.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Performance Review</h2>
-            <p>Register ini menjadi fondasi untuk cycle review, coaching plan, dan evaluasi performa tim yang lebih lengkap pada tahap modul berikutnya.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Performance Review</h2>
+                <p>Register ini menjadi fondasi untuk cycle review, coaching plan, dan evaluasi performa tim yang lebih lengkap pada tahap modul berikutnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ performance_reviews|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if performance_reviews %}
         {% if can_manage_performance %}
         <div class="stack-scroll-list">
@@ -2387,7 +2490,8 @@
     {% else %}
     <div class="empty-state">Belum ada performance review. Modul Performance siap dipakai untuk evaluasi periodik tim.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "helpdesk" %}
 <div class="summary">
     <div class="card-mini">
@@ -2475,14 +2579,19 @@
 {% endif %}
 
 {% if can_manage_helpdesk %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Ticket</h2>
-            <p>Helpdesk dipakai untuk merekam kendala operasional karyawan seperti akses, device, payroll, attendance, atau masalah sistem lainnya.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Ticket</h2>
+                <p>Helpdesk dipakai untuk merekam kendala operasional karyawan seperti akses, device, payroll, attendance, atau masalah sistem lainnya.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if helpdesk_employees %}
     <form method="POST" action="/hris/helpdesk/add">
         <div class="form-grid">
@@ -2552,17 +2661,24 @@
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat ticket helpdesk.</div>
     {% endif %}
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Ticket Helpdesk</h2>
-            <p>Ticket register ini menjaga alur support karyawan tetap rapi, terukur, dan mudah ditindaklanjuti lintas tim.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Ticket Helpdesk</h2>
+                <p>Ticket register ini menjaga alur support karyawan tetap rapi, terukur, dan mudah ditindaklanjuti lintas tim.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ helpdesk_tickets|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if helpdesk_tickets %}
         {% if can_manage_helpdesk %}
         <div class="stack-scroll-list">
@@ -2665,7 +2781,8 @@
     {% else %}
     <div class="empty-state">Belum ada ticket helpdesk. Modul Helpdesk siap dipakai untuk support issue internal tim.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "asset" %}
 <div class="summary">
     <div class="card-mini">
@@ -2743,14 +2860,19 @@
 {% endif %}
 
 {% if can_manage_asset %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Asset</h2>
-            <p>Modul Asset dipakai untuk mencatat distribusi device, inventaris kerja, kondisi barang, dan histori pengembalian aset per karyawan.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Asset</h2>
+                <p>Modul Asset dipakai untuk mencatat distribusi device, inventaris kerja, kondisi barang, dan histori pengembalian aset per karyawan.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if asset_employees %}
     <form method="POST" action="/hris/asset/add">
         <div class="form-grid">
@@ -2816,17 +2938,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat asset record.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Asset Register</h2>
-            <p>Register ini menjadi fondasi untuk kontrol aset karyawan, distribusi device kerja, maintenance, dan histori return dengan lebih disiplin.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Asset Register</h2>
+                <p>Register ini menjadi fondasi untuk kontrol aset karyawan, distribusi device kerja, maintenance, dan histori return dengan lebih disiplin.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ asset_records|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if asset_records %}
         {% if can_manage_asset %}
         <div class="stack-scroll-list">
@@ -2929,7 +3058,8 @@
     {% else %}
     <div class="empty-state">Belum ada asset record. Modul Asset siap dipakai untuk tracking distribusi dan pengembalian aset tim.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "project" %}
 <div class="summary">
     <div class="card-mini">
@@ -3009,14 +3139,19 @@
 {% endif %}
 
 {% if can_manage_project %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Project</h2>
-            <p>Modul Project dipakai untuk mencatat assignment lintas tim, PIC utama, target due date, dan progres deliverable yang sedang berjalan.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Project</h2>
+                <p>Modul Project dipakai untuk mencatat assignment lintas tim, PIC utama, target due date, dan progres deliverable yang sedang berjalan.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if project_employees %}
     <form method="POST" action="/hris/project/add">
         <div class="form-grid">
@@ -3084,17 +3219,24 @@
     {% else %}
     <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat project record.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Project Register</h2>
-            <p>Register ini menjadi fondasi untuk tracking assignment HR-operasional, visibility milestone, dan akuntabilitas progress per PIC.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Project Register</h2>
+                <p>Register ini menjadi fondasi untuk tracking assignment HR-operasional, visibility milestone, dan akuntabilitas progress per PIC.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ project_records|length }} data</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if project_records %}
         {% if can_manage_project %}
         <div class="stack-scroll-list">
@@ -3201,7 +3343,8 @@
     {% else %}
     <div class="empty-state">Belum ada project record. Modul Project siap dipakai untuk tracking assignment dan deliverable tim.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "report" %}
 <div class="summary">
     <div class="card-mini">
@@ -3376,13 +3519,20 @@
     </div>
 </div>
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Daily & Live Report Feed</h2>
-            <p>Semua user bisa kirim report dari portal khusus. HR dan Super Admin membaca, memberi status, dan mencatat tindak lanjut dari panel ini.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Daily & Live Report Feed</h2>
+                <p>Semua user bisa kirim report dari portal khusus. HR dan Super Admin membaca, memberi status, dan mencatat tindak lanjut dari panel ini.</p>
+            </div>
         </div>
-    </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ daily_live_reports|length }} item</span>
+            <span class="panel-summary-state">Buka Feed</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if daily_live_reports %}
     <div class="stack-scroll-list">
         {% for report in daily_live_reports %}
@@ -3447,7 +3597,8 @@
     {% else %}
     <div class="empty-state">Belum ada daily/live report pada filter yang dipilih.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "biometric" %}
 <div class="table-box">
     <div class="section-title">
@@ -3483,7 +3634,7 @@
                 <td class="mono">{{ row.employee_code }}</td>
                 <td>{{ row.full_name }}</td>
                 <td>{{ row.warehouse_name or '-' }}</td>
-                <td><span class="badge {{ 'green' if row.attendance_status in ['present', 'late'] else 'orange' if row.attendance_status in ['half_day', 'leave'] else 'red' }}">{{ row.attendance_status }}</span></td>
+                <td><span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span></td>
                 <td>{{ row.attendance_check_in }} - {{ row.attendance_check_out }}</td>
                 <td>{{ row.geo_check_in }}</td>
                 <td>{{ row.geo_check_out }}</td>
@@ -3581,14 +3732,19 @@
 {% endif %}
 
 {% if can_manage_announcement %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Announcement</h2>
-            <p>Modul Announcement dipakai untuk broadcast pengumuman operasional, perubahan SOP, briefing audit, dan info penting tim per gudang.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Announcement</h2>
+                <p>Modul Announcement dipakai untuk broadcast pengumuman operasional, perubahan SOP, briefing audit, dan info penting tim per gudang.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     <form method="POST" action="/hris/announcement/add">
         <div class="form-grid">
             <div>
@@ -3644,17 +3800,24 @@
             <button type="submit">Tambah Announcement</button>
         </div>
     </form>
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Announcement Board</h2>
-            <p>Board ini menjadi pusat komunikasi internal untuk perubahan jadwal, agenda audit, info operasional, dan pengumuman kerja yang sedang berlaku.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Announcement Board</h2>
+                <p>Board ini menjadi pusat komunikasi internal untuk perubahan jadwal, agenda audit, info operasional, dan pengumuman kerja yang sedang berlaku.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ announcements|length }} item</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if announcements %}
         {% if can_manage_announcement %}
         <div class="stack-scroll-list">
@@ -3761,7 +3924,8 @@
     {% else %}
     <div class="empty-state">Belum ada announcement. Modul Announcement siap dipakai untuk broadcast informasi kerja ke tim.</div>
     {% endif %}
-</div>
+    </div>
+</details>
 {% elif selected_module.slug == "documents" %}
 <div class="summary">
     <div class="card-mini">
@@ -3841,14 +4005,19 @@
 {% endif %}
 
 {% if can_manage_document %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah Document</h2>
-            <p>Modul Documents dipakai untuk menyimpan register SOP, policy, memo, form, dan dokumen kerja yang berlaku per gudang.</p>
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Document</h2>
+                <p>Modul Documents dipakai untuk menyimpan register SOP, policy, memo, form, dan dokumen kerja yang berlaku per gudang.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     <form method="POST" action="/hris/documents/add">
         <div class="form-grid">
             <div>
@@ -3911,17 +4080,24 @@
             <button type="submit">Tambah Document</button>
         </div>
     </form>
-</div>
+    </div>
+</details>
 {% endif %}
 
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Document Register</h2>
-            <p>Register ini menjadi pusat kontrol dokumen kerja, policy, SOP, dan jadwal review dokumen operasional per gudang.</p>
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Document Register</h2>
+                <p>Register ini menjadi pusat kontrol dokumen kerja, policy, SOP, dan jadwal review dokumen operasional per gudang.</p>
+            </div>
         </div>
-    </div>
-
+        <div class="panel-summary-meta">
+            <span class="badge">{{ documents|length }} item</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     {% if documents %}
         {% if can_manage_document %}
         <div class="stack-scroll-list">
@@ -4037,16 +4213,22 @@
     {% else %}
     <div class="empty-state">Belum ada document record. Modul Documents siap dipakai untuk kontrol SOP, policy, dan memo kerja.</div>
     {% endif %}
-</div>
-{% else %}
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>{{ selected_module.label }}</h2>
-            <p>{{ selected_module.summary }}</p>
-        </div>
     </div>
-
+</details>
+{% else %}
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>{{ selected_module.label }}</h2>
+                <p>{{ selected_module.summary }}</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Panel</span>
+        </div>
+    </summary>
+    <div class="panel-content">
     <div class="meta-grid">
         <div class="meta-card">
             <span>Source Folder</span>
@@ -4086,7 +4268,8 @@
             </tbody>
         </table>
     </div>
-</div>
+    </div>
+</details>
 {% endif %}
 {% endblock %}
 

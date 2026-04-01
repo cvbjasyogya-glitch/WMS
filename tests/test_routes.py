@@ -298,6 +298,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/schedule/",
             "/crm/",
             "/chat/",
+            "/info-produk/",
             "/products/",
             "/stock/",
             "/inbound/",
@@ -337,6 +338,43 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('>HRIS<', html)
         self.assertNotIn('>WMS<', html)
+
+    def test_staff_can_open_quick_product_lookup_and_search_live_results(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(sku="LOOKUP-FAST-001", qty=7, variants="39")
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
+                VALUES (?,?,?,?)
+                """,
+                (product_id, variant_id, 2, 3),
+            )
+            db.commit()
+
+        self.create_user("staff_lookup", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_lookup", "pass1234")
+
+        page_response = self.client.get("/info-produk/")
+        self.assertEqual(page_response.status_code, 200)
+        self.assertIn("Info Produk Cepat", page_response.get_data(as_text=True))
+
+        search_response = self.client.get("/info-produk/search?q=LOOKUP-FAST-001")
+        self.assertEqual(search_response.status_code, 200)
+        payload = search_response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["focus_warehouse_id"], 1)
+        self.assertGreaterEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["sku"], "LOOKUP-FAST-001")
+        self.assertEqual(payload["items"][0]["focus_qty"], 7)
+        warehouse_names = {warehouse["name"] for warehouse in payload["items"][0]["warehouses"]}
+        self.assertIn("Gudang Mataram", warehouse_names)
+        self.assertIn("Gudang Mega", warehouse_names)
 
     def test_health_and_ready_endpoints_are_public_and_hardened(self):
         health_response = self.client.get("/health")
@@ -3561,6 +3599,147 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["check_out"], "17:10")
         self.assertEqual(attendance["status"], "present")
 
+    def test_attendance_portal_treats_exactly_ten_minutes_after_shift_start_as_present(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-10MIN",
+            full_name="Portal Ten Minute",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_ten", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_ten", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Toleransi",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T08:10",
+                "punch_type": "check_in",
+                "note": "Masuk di batas toleransi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT check_in, status, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(attendance["check_in"], "08:10")
+        self.assertEqual(attendance["status"], "present")
+        self.assertIn("08.00 - 16.00", attendance["shift_label"])
+
+    def test_attendance_portal_marks_mega_morning_shift_late_after_eleven_minutes(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-MEGA-LATE",
+            full_name="Portal Mega Late",
+            warehouse_id=2,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_mega_late", "pass1234", "staff", warehouse_id=2, employee_id=employee_id)
+        self.login("portal_mega_late", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_label": "Gudang Mega - Telat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T09:11",
+                "punch_type": "check_in",
+                "note": "Masuk lebih dari 10 menit",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT check_in, status, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(attendance["check_in"], "09:11")
+        self.assertEqual(attendance["status"], "late")
+        self.assertIn("09.00 - 17.00", attendance["shift_label"])
+
+    def test_biometric_recap_shows_baru_mulai_for_open_break(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-OPEN-BREAK",
+            full_name="Portal Open Break",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_open_break", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_open_break", "pass1234")
+        current_stamp = datetime.now().replace(second=0, microsecond=0)
+        today = current_stamp.date().isoformat()
+        check_in_stamp = current_stamp.isoformat(timespec="minutes")
+        break_start_stamp = current_stamp.isoformat(timespec="minutes")
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": check_in_stamp,
+                "note": "Mulai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": break_start_stamp,
+                "note": "Mulai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        self.create_user("hr_break_view", "pass1234", "hr")
+        self.login("hr_break_view", "pass1234")
+        recap_response = self.client.get(f"/hris/biometric?date_from={today}&date_to={today}")
+        self.assertEqual(recap_response.status_code, 200)
+        recap_html = recap_response.get_data(as_text=True)
+        self.assertIn("Baru Mulai", recap_html)
+
     def test_leave_portal_submits_pending_request_without_status_field(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-LVE-001",
@@ -5914,6 +6093,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             with self.subTest(path=path):
                 response = self.client.get(path, follow_redirects=False)
                 self.assertEqual(response.status_code, 302)
+
+        stock_page = self.client.get("/stock/")
+        self.assertEqual(stock_page.status_code, 200)
+        stock_html = stock_page.get_data(as_text=True)
+        self.assertNotIn('class="adjust-input"', stock_html)
+        self.assertNotIn("Adjust Terpilih", stock_html)
 
         adjust_response = self.client.post(
             "/stock/adjust",

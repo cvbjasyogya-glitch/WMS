@@ -92,6 +92,7 @@
         {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') %}
         {% set is_announcements_active = request.path.startswith('/announcements') %}
         {% set is_crm_active = request.path.startswith('/crm') %}
+        {% set is_product_lookup_active = request.path.startswith('/info-produk') %}
         {% set is_wms_active = request.path == '/' or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}
         {% set is_request_active = request.path.startswith('/request') %}
         {% set is_hris_active = request.path.startswith('/hris') %}
@@ -122,6 +123,9 @@
         {% endif %}
         <div class="sidebar-section">
             <p class="sidebar-section-label">Workspace</p>
+            <div class="sidebar-group sidebar-single {% if is_product_lookup_active %}active{% endif %}">
+                <a href="/info-produk/" class="{% if is_product_lookup_active %}active{% endif %}">Info Produk</a>
+            </div>
             {% if can("view_crm") %}
             <div class="sidebar-group sidebar-single {% if is_crm_active %}active{% endif %}">
                 <a href="/crm/" class="{% if is_crm_active %}active{% endif %}">CRM</a>
@@ -571,6 +575,7 @@ window.wmsChatRealtimeConfig = {
 <script src="/static/js/chat_widget.js"></script>
 {% endif %}
 {% endif %}
+<script src="/static/js/manual_table_sort.js"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -61,10 +61,8 @@
 
 <form method="GET" class="top-bar schedule-filter-bar">
     <input type="date" name="start" value="{{ filters.start }}">
-    <select name="days">
-        {% for value in [7, 14, 21, 28, 35, 42] %}
-        <option value="{{ value }}" {% if filters.days == value %}selected{% endif %}>{{ value }} hari</option>
-        {% endfor %}
+    <select name="days" aria-label="Rentang jadwal mingguan">
+        <option value="7" selected>7 hari</option>
     </select>
     <select name="warehouse" {% if scoped_schedule_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
@@ -100,13 +98,17 @@
 
 {% if can_manage_schedule %}
 <div class="cards schedule-control-grid">
-    <div class="form-box">
-        <div class="section-title">
-            <div>
+    <details class="form-box schedule-panel-disclosure">
+        <summary class="schedule-panel-summary">
+            <div class="schedule-panel-summary-copy">
                 <h2>Atur Jadwal Manual</h2>
                 <p>Pilih staf, terapkan kode shift pada rentang tanggal, atau kosongkan kode shift untuk membersihkan schedule manual di range tersebut.</p>
             </div>
-        </div>
+            <div class="schedule-panel-summary-meta">
+                <span class="schedule-panel-summary-state">Buka Panel</span>
+            </div>
+        </summary>
+        <div class="schedule-panel-content">
         <form method="POST" action="/schedule/entry/save">
             {{ filter_hidden_inputs() }}
             <div class="form-grid">
@@ -145,15 +147,20 @@
                 <button type="submit">Terapkan Jadwal</button>
             </div>
         </form>
-    </div>
+        </div>
+    </details>
 
-    <div class="form-box">
-        <div class="section-title">
-            <div>
+    <details class="form-box schedule-panel-disclosure">
+        <summary class="schedule-panel-summary">
+            <div class="schedule-panel-summary-copy">
                 <h2>Catatan Harian Board</h2>
                 <p>Kolom <em>Ket.</em> bisa dipakai untuk event, campaign, grand opening, atau briefing besar pada hari tertentu.</p>
             </div>
-        </div>
+            <div class="schedule-panel-summary-meta">
+                <span class="schedule-panel-summary-state">Buka Panel</span>
+            </div>
+        </summary>
+        <div class="schedule-panel-content">
         <form method="POST" action="/schedule/day-note/save">
             {{ filter_hidden_inputs() }}
             <div class="form-grid">
@@ -170,160 +177,172 @@
                 <button type="submit">Simpan Catatan</button>
             </div>
         </form>
-    </div>
+        </div>
+    </details>
 </div>
 
-<div class="form-box">
-    <div class="section-title">
-        <div>
+<details class="form-box schedule-panel-disclosure">
+    <summary class="schedule-panel-summary">
+        <div class="schedule-panel-summary-copy">
             <h2>Master Shift</h2>
             <p>HR dan Super Admin bisa menambah atau menyesuaikan warna, label, dan urutan kode shift sesuai kebutuhan jadwal masing-masing gudang.</p>
         </div>
-    </div>
-
-    <form method="POST" action="/schedule/shift-code/save" class="schedule-master-new-form">
-        {{ filter_hidden_inputs() }}
-        <div class="form-grid">
-            <div>
-                <label>Kode</label>
-                <input name="code" maxlength="16" placeholder="Contoh: P10" required>
-            </div>
-            <div>
-                <label>Label</label>
-                <input name="label" placeholder="Contoh: Pagi 10">
-            </div>
-            <div>
-                <label>Warna Latar</label>
-                <input type="color" name="bg_color" value="#c6e5ab">
-            </div>
-            <div>
-                <label>Warna Teks</label>
-                <input type="color" name="text_color" value="#17351a">
-            </div>
-            <div>
-                <label>Urutan</label>
-                <input type="number" name="sort_order" value="90">
-            </div>
-            <div class="schedule-checkbox-field">
-                <label>Status</label>
-                <label class="schedule-checkline">
-                    <input type="checkbox" name="is_active" checked>
-                    <span>Aktif dipakai di composer</span>
-                </label>
-            </div>
+        <div class="schedule-panel-summary-meta">
+            <span class="badge">{{ shift_codes|length }} shift</span>
+            <span class="schedule-panel-summary-state">Buka Panel</span>
         </div>
-        <div class="split-actions stack-gap-md">
-            <button type="submit">Tambah Shift</button>
-        </div>
-    </form>
-
-    <div class="schedule-shift-list">
-        {% for shift in shift_codes %}
-        <form method="POST" action="/schedule/shift-code/save" class="box schedule-shift-card">
+    </summary>
+    <div class="schedule-panel-content">
+        <form method="POST" action="/schedule/shift-code/save" class="schedule-master-new-form">
             {{ filter_hidden_inputs() }}
-            <input type="hidden" name="original_code" value="{{ shift.code }}">
-            <div class="schedule-shift-card-top">
-                <span class="schedule-chip" style="--schedule-chip-bg: {{ shift.bg_color }}; --schedule-chip-color: {{ shift.text_color }};">{{ shift.code }}</span>
-                <span class="badge">{{ "Aktif" if shift.is_active else "Nonaktif" }}</span>
-            </div>
             <div class="form-grid">
                 <div>
                     <label>Kode</label>
-                    <input name="code" value="{{ shift.code }}" maxlength="16" required>
+                    <input name="code" maxlength="16" placeholder="Contoh: P10" required>
                 </div>
                 <div>
                     <label>Label</label>
-                    <input name="label" value="{{ shift.label }}" required>
+                    <input name="label" placeholder="Contoh: Pagi 10">
                 </div>
                 <div>
                     <label>Warna Latar</label>
-                    <input type="color" name="bg_color" value="{{ shift.bg_color }}">
+                    <input type="color" name="bg_color" value="#c6e5ab">
                 </div>
                 <div>
                     <label>Warna Teks</label>
-                    <input type="color" name="text_color" value="{{ shift.text_color }}">
+                    <input type="color" name="text_color" value="#17351a">
                 </div>
                 <div>
                     <label>Urutan</label>
-                    <input type="number" name="sort_order" value="{{ shift.sort_order }}">
+                    <input type="number" name="sort_order" value="90">
                 </div>
                 <div class="schedule-checkbox-field">
                     <label>Status</label>
                     <label class="schedule-checkline">
-                        <input type="checkbox" name="is_active" {% if shift.is_active %}checked{% endif %}>
-                        <span>Tetap tampil di composer</span>
+                        <input type="checkbox" name="is_active" checked>
+                        <span>Aktif dipakai di composer</span>
                     </label>
                 </div>
             </div>
             <div class="split-actions stack-gap-md">
-                <button type="submit">Simpan Shift</button>
+                <button type="submit">Tambah Shift</button>
             </div>
         </form>
-        {% endfor %}
-    </div>
-</div>
 
-<div class="table-box">
-    <div class="section-title">
-        <div>
+        <div class="schedule-shift-list">
+            {% for shift in shift_codes %}
+            <form method="POST" action="/schedule/shift-code/save" class="box schedule-shift-card">
+                {{ filter_hidden_inputs() }}
+                <input type="hidden" name="original_code" value="{{ shift.code }}">
+                <div class="schedule-shift-card-top">
+                    <span class="schedule-chip" style="--schedule-chip-bg: {{ shift.bg_color }}; --schedule-chip-color: {{ shift.text_color }};">{{ shift.code }}</span>
+                    <span class="badge">{{ "Aktif" if shift.is_active else "Nonaktif" }}</span>
+                </div>
+                <div class="form-grid">
+                    <div>
+                        <label>Kode</label>
+                        <input name="code" value="{{ shift.code }}" maxlength="16" required>
+                    </div>
+                    <div>
+                        <label>Label</label>
+                        <input name="label" value="{{ shift.label }}" required>
+                    </div>
+                    <div>
+                        <label>Warna Latar</label>
+                        <input type="color" name="bg_color" value="{{ shift.bg_color }}">
+                    </div>
+                    <div>
+                        <label>Warna Teks</label>
+                        <input type="color" name="text_color" value="{{ shift.text_color }}">
+                    </div>
+                    <div>
+                        <label>Urutan</label>
+                        <input type="number" name="sort_order" value="{{ shift.sort_order }}">
+                    </div>
+                    <div class="schedule-checkbox-field">
+                        <label>Status</label>
+                        <label class="schedule-checkline">
+                            <input type="checkbox" name="is_active" {% if shift.is_active %}checked{% endif %}>
+                            <span>Tetap tampil di composer</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="split-actions stack-gap-md">
+                    <button type="submit">Simpan Shift</button>
+                </div>
+            </form>
+            {% endfor %}
+        </div>
+    </div>
+</details>
+
+<details class="table-box schedule-panel-disclosure">
+    <summary class="schedule-panel-summary">
+        <div class="schedule-panel-summary-copy">
             <h2>Display Staf di Board</h2>
             <p>Atur nama pendek, grup header, label lokasi, urutan kolom, dan apakah staf tersebut ikut ditampilkan di board jadwal.</p>
         </div>
+        <div class="schedule-panel-summary-meta">
+            <span class="badge">{{ employee_rows|length }} profil</span>
+            <span class="schedule-panel-summary-state">Buka Panel</span>
+        </div>
+    </summary>
+    <div class="schedule-panel-content">
+        {% if employee_rows %}
+        <div class="schedule-profile-list">
+            {% for employee in employee_rows %}
+            <form method="POST" action="/schedule/profile/save/{{ employee.employee_id }}" class="box schedule-profile-card">
+                {{ filter_hidden_inputs() }}
+                <div class="schedule-profile-head">
+                    <div>
+                        <strong>{{ employee.full_name }}</strong>
+                        <p>{{ employee.position or employee.department or "Tim Operasional" }}</p>
+                    </div>
+                    <div class="schedule-profile-badges">
+                        <span class="badge">{{ employee.warehouse_name or "-" }}</span>
+                        <span class="badge">{{ employee.employment_status }}</span>
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <div>
+                        <label>Nama Pendek</label>
+                        <input name="custom_name" value="{{ employee.custom_name }}" placeholder="Contoh: Ajeng">
+                    </div>
+                    <div>
+                        <label>Header Grup</label>
+                        <input name="display_group" value="{{ employee.display_group }}" placeholder="Contoh: HR / Marketing / Leader">
+                    </div>
+                    <div>
+                        <label>Label Lokasi</label>
+                        <input name="location_label" value="{{ employee.location_label }}" placeholder="Contoh: Mataram / Mega">
+                    </div>
+                    <div>
+                        <label>Urutan Kolom</label>
+                        <input type="number" name="display_order" value="{{ employee.display_order }}">
+                    </div>
+                    <div class="schedule-checkbox-field">
+                        <label>Tampilkan di Board</label>
+                        <label class="schedule-checkline">
+                            <input type="checkbox" name="include_in_schedule" {% if employee.include_in_schedule %}checked{% endif %}>
+                            <span>Masuk ke board penjadwalan</span>
+                        </label>
+                    </div>
+                    <div class="span-full">
+                        <label>Catatan Profil</label>
+                        <textarea name="profile_note" rows="2" placeholder="Catatan display khusus untuk staff ini.">{{ employee.profile_note }}</textarea>
+                    </div>
+                </div>
+                <div class="split-actions stack-gap-md">
+                    <button type="submit">Simpan Preferensi</button>
+                </div>
+            </form>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert info">Belum ada data karyawan pada scope yang dipilih.</div>
+        {% endif %}
     </div>
-    {% if employee_rows %}
-    <div class="schedule-profile-list">
-        {% for employee in employee_rows %}
-        <form method="POST" action="/schedule/profile/save/{{ employee.employee_id }}" class="box schedule-profile-card">
-            {{ filter_hidden_inputs() }}
-            <div class="schedule-profile-head">
-                <div>
-                    <strong>{{ employee.full_name }}</strong>
-                    <p>{{ employee.position or employee.department or "Tim Operasional" }}</p>
-                </div>
-                <div class="schedule-profile-badges">
-                    <span class="badge">{{ employee.warehouse_name or "-" }}</span>
-                    <span class="badge">{{ employee.employment_status }}</span>
-                </div>
-            </div>
-            <div class="form-grid">
-                <div>
-                    <label>Nama Pendek</label>
-                    <input name="custom_name" value="{{ employee.custom_name }}" placeholder="Contoh: Ajeng">
-                </div>
-                <div>
-                    <label>Header Grup</label>
-                    <input name="display_group" value="{{ employee.display_group }}" placeholder="Contoh: HR / Marketing / Leader">
-                </div>
-                <div>
-                    <label>Label Lokasi</label>
-                    <input name="location_label" value="{{ employee.location_label }}" placeholder="Contoh: Mataram / Mega">
-                </div>
-                <div>
-                    <label>Urutan Kolom</label>
-                    <input type="number" name="display_order" value="{{ employee.display_order }}">
-                </div>
-                <div class="schedule-checkbox-field">
-                    <label>Tampilkan di Board</label>
-                    <label class="schedule-checkline">
-                        <input type="checkbox" name="include_in_schedule" {% if employee.include_in_schedule %}checked{% endif %}>
-                        <span>Masuk ke board penjadwalan</span>
-                    </label>
-                </div>
-                <div class="span-full">
-                    <label>Catatan Profil</label>
-                    <textarea name="profile_note" rows="2" placeholder="Catatan display khusus untuk staff ini.">{{ employee.profile_note }}</textarea>
-                </div>
-            </div>
-            <div class="split-actions stack-gap-md">
-                <button type="submit">Simpan Preferensi</button>
-            </div>
-        </form>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="alert info">Belum ada data karyawan pada scope yang dipilih.</div>
-    {% endif %}
-</div>
+</details>
 {% else %}
 <div class="alert info">Mode lihat aktif. HR dan Super Admin bisa menambah shift, mengatur header staf, dan menulis catatan harian langsung dari halaman ini.</div>
 {% endif %}
@@ -339,9 +358,9 @@
     {% if schedule_members %}
     <div class="schedule-board-hero">
         <div>
-            <span class="badge">Live Board</span>
-            <h3>Studio jadwal operasional yang tetap rapi saat staf bertambah banyak</h3>
-            <p>Board ditata sebagai lane per staf dengan header tanggal sticky, jadi data besar tetap enak dibaca tanpa pecah saat jumlah karyawan bertambah.</p>
+            <span class="badge">Weekly Board</span>
+            <h3>Board jadwal mingguan yang lebih clean, lebih cepat dipindai, dan nyaman dibaca tim operasional</h3>
+            <p>Setiap staf punya identity card di kiri, sementara 7 hari kerja tampil sebagai tile mingguan yang tegas. Hasilnya lebih enak dibaca cepat tanpa rasa spreadsheet.</p>
         </div>
         <div class="schedule-board-hero-actions">
             <div class="schedule-density-toggle" data-schedule-density-toggle>
@@ -358,30 +377,38 @@
     <div
         class="schedule-board-wrap schedule-board-lane-wrap"
         data-schedule-board-shell
-        data-schedule-density-default="{{ 'compact' if schedule_members|length >= 10 or filters.days >= 21 else 'cozy' }}"
+        data-schedule-density-default="{{ 'compact' if schedule_members|length >= 8 else 'cozy' }}"
     >
         <div class="schedule-board-lane" style="--schedule-day-count: {{ board_rows|length }};">
             <div class="schedule-board-lane-head">
                 <div class="schedule-board-lane-axis">
-                    <span class="schedule-board-rail-kicker">Roster</span>
-                    <strong>{{ filters.start }} s/d {{ range_end }}</strong>
-                    <p>Staf diletakkan di kiri dan hari di atas, jadi board jauh lebih stabil untuk tim kecil maupun besar.</p>
+                    <span class="schedule-board-rail-kicker">Minggu Aktif</span>
+                    <div class="schedule-axis-range">
+                        <strong>{{ filters.start }}</strong>
+                        <span>Sampai {{ range_end }}</span>
+                    </div>
+                    <div class="schedule-axis-meta">
+                        <span>{{ summary.employees }} staf</span>
+                        <span>{{ summary.manual_cells + summary.override_cells }} slot terisi</span>
+                        <span>Geser kanan kiri untuk lihat 7 hari</span>
+                    </div>
+                    <p>Board ini sengaja difokuskan ke 1 minggu kerja supaya tetap lapang di laptop, tablet, dan layar kecil.</p>
                 </div>
                 <div class="schedule-board-lane-days">
                     {% for row in board_rows %}
                     <article class="schedule-lane-day-card {% if row.is_weekend %}schedule-lane-day-card-weekend{% endif %}">
                         <div class="schedule-lane-day-top">
                             <span class="schedule-lane-day-short">{{ row.day_short }}</span>
+                            <span class="schedule-lane-day-date">{{ row.day_number }}/{{ row.month_number }}</span>
                             {% if row.note %}
                             <span class="schedule-slot-dot" title="{{ row.note }}"></span>
                             {% endif %}
                         </div>
-                        <strong>{{ row.day_number }}/{{ row.month_number }}</strong>
-                        <span>{{ row.iso_date }}</span>
+                        <strong>{{ row.label }}</strong>
                         {% if row.note %}
-                        <small>{{ row.note }}</small>
+                        <small class="schedule-lane-day-note">{{ row.note }}</small>
                         {% else %}
-                        <small>Tidak ada catatan khusus.</small>
+                        <small class="schedule-lane-day-note schedule-lane-day-note-muted">Hari operasional normal.</small>
                         {% endif %}
                     </article>
                     {% endfor %}
@@ -401,13 +428,25 @@
                         {% for member in group.members %}
                         <article class="schedule-lane-row">
                             <header class="schedule-lane-member">
-                                <div class="schedule-member-header-top">
-                                    <span class="schedule-member-group">{{ member.display_group_label }}</span>
-                                    <span class="schedule-member-location">{{ member.location_label_display }}</span>
+                                <div class="schedule-lane-member-shell">
+                                    <div class="schedule-lane-member-avatar">
+                                        {{ (member.display_name or member.full_name or "Staf")[:2] }}
+                                    </div>
+                                    <div class="schedule-lane-member-body">
+                                        <div class="schedule-member-header-top">
+                                            <span class="schedule-member-group">{{ member.display_group_label }}</span>
+                                            <span class="schedule-member-location">{{ member.location_label_display }}</span>
+                                        </div>
+                                        <div class="schedule-member-name-row">
+                                            <strong>{{ member.display_name }}</strong>
+                                            {% if member.has_offboarding %}
+                                            <span class="schedule-member-status">Offboarding</span>
+                                            {% endif %}
+                                        </div>
+                                        <p>{{ member.full_name }}</p>
+                                        <small>{{ member.position or member.department or "Tim Operasional" }}</small>
+                                    </div>
                                 </div>
-                                <strong>{{ member.display_name }}</strong>
-                                <p>{{ member.full_name }}</p>
-                                <small>{{ member.position or member.department or "Tim Operasional" }}</small>
                             </header>
                             <div class="schedule-lane-track">
                                 {% for row in board_rows %}
@@ -425,6 +464,15 @@
                                         {% else %}
                                         <span class="schedule-empty">Open</span>
                                         {% endif %}
+                                        <span class="schedule-lane-cell-tone {% if cell and cell.source != 'manual' %}schedule-lane-cell-tone-auto{% elif cell %}schedule-lane-cell-tone-manual{% else %}schedule-lane-cell-tone-open{% endif %}">
+                                            {% if cell and cell.source != 'manual' %}
+                                            Auto
+                                            {% elif cell %}
+                                            Manual
+                                            {% else %}
+                                            Open
+                                            {% endif %}
+                                        </span>
                                         {% if row.note %}
                                         <span class="schedule-slot-dot" title="{{ row.note }}"></span>
                                         {% endif %}
@@ -434,13 +482,13 @@
                                     {% if cell.note %}
                                     <span class="schedule-lane-cell-meta">{{ cell.note }}</span>
                                     {% elif cell.source != 'manual' %}
-                                    <span class="schedule-lane-cell-meta">Override HRIS</span>
+                                    <span class="schedule-lane-cell-meta">Terhubung dari HRIS</span>
                                     {% else %}
-                                    <span class="schedule-lane-cell-meta">Shift manual aktif</span>
+                                    <span class="schedule-lane-cell-meta">Shift aktif di board</span>
                                     {% endif %}
                                     {% else %}
-                                    <strong class="schedule-lane-cell-label">Belum ada shift</strong>
-                                    <span class="schedule-lane-cell-meta">Slot masih open</span>
+                                    <strong class="schedule-lane-cell-label">Belum diisi</strong>
+                                    <span class="schedule-lane-cell-meta">Masih tersedia untuk dijadwalkan</span>
                                     {% endif %}
                                 </div>
                                 {% endfor %}

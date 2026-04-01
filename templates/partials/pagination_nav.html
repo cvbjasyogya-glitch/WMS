@@ -1,0 +1,29 @@
+{% if pagination and pagination.total_pages > 1 %}
+<div class="pagination pagination-rich">
+    {% if pagination.has_prev %}
+    <a href="{{ pagination.first_url }}" class="pagination-link pagination-edge">Awal</a>
+    <a href="{{ pagination.prev_url }}" class="pagination-link pagination-edge">Prev</a>
+    {% endif %}
+
+    {% for item in pagination.items %}
+        {% if item.kind == 'ellipsis' %}
+        <span class="pagination-ellipsis">...</span>
+        {% else %}
+        <a
+            href="{{ item.url }}"
+            class="pagination-link {% if item.current %}is-active{% endif %} {% if item.jump %}is-jump{% endif %}"
+            aria-current="{% if item.current %}page{% else %}false{% endif %}"
+        >
+            {{ item.number }}
+        </a>
+        {% endif %}
+    {% endfor %}
+
+    {% if pagination.has_next %}
+    <a href="{{ pagination.next_url }}" class="pagination-link pagination-edge">Next</a>
+    <a href="{{ pagination.last_url }}" class="pagination-link pagination-edge">Akhir</a>
+    {% endif %}
+
+    <span class="status-pill pagination-summary">Page {{ pagination.page }} / {{ pagination.total_pages }}</span>
+</div>
+{% endif %}

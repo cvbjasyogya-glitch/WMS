@@ -50,38 +50,50 @@
     </div>
 </div>
 
-<div class="table-box">
-    <div class="section-title">
-        <div>
-            <h2>Role Guide</h2>
-            <p>Peta akses ini membantu admin memahami role mana yang lintas gudang dan mana yang wajib dikunci ke satu gudang.</p>
-        </div>
-    </div>
-
-    <div class="cards admin-role-guide-grid">
-        {% for item in role_guide %}
-        <article class="card admin-role-card {% if item.scope == 'Lintas Gudang' %}success{% endif %}">
-            <p>{{ item.role }}</p>
-            <h2>{{ item.label }}</h2>
-            <div class="admin-role-card-meta">
-                <span class="status-pill">{{ item.scope }}</span>
-                <span class="status-pill">{{ item.count }} user</span>
+<details class="table-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Role Guide</h2>
+                <p>Peta akses ini membantu admin memahami role mana yang lintas gudang dan mana yang wajib dikunci ke satu gudang.</p>
             </div>
-            <p class="admin-role-copy">{{ item.summary }}</p>
-        </article>
-        {% endfor %}
-    </div>
-</div>
-
-<div class="form-box">
-    <div class="section-title">
-        <div>
-            <h2>Tambah User</h2>
-            <p>Buat akun baru untuk role operasional maupun lintas gudang dengan rule scope yang konsisten.</p>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ role_guide|length }} role</span>
+            <span class="panel-summary-state">Buka Panel</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        <div class="cards admin-role-guide-grid">
+            {% for item in role_guide %}
+            <article class="card admin-role-card {% if item.scope == 'Lintas Gudang' %}success{% endif %}">
+                <p>{{ item.role }}</p>
+                <h2>{{ item.label }}</h2>
+                <div class="admin-role-card-meta">
+                    <span class="status-pill">{{ item.scope }}</span>
+                    <span class="status-pill">{{ item.count }} user</span>
+                </div>
+                <p class="admin-role-copy">{{ item.summary }}</p>
+            </article>
+            {% endfor %}
         </div>
     </div>
+</details>
 
-    <form method="POST" action="/admin/add_user">
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah User</h2>
+                <p>Buat akun baru untuk role operasional maupun lintas gudang dengan rule scope yang konsisten.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        <form method="POST" action="/admin/add_user">
         <div class="form-grid">
             <div>
                 <label>Username</label>
@@ -140,23 +152,30 @@
         <div class="split-actions stack-gap-md">
             <button type="submit">Tambah User</button>
         </div>
-    </form>
-</div>
-
-<div class="table-box stack-scroll-shell">
-    <div class="section-title">
-        <div>
-            <h2>Manajemen User</h2>
-            <p>Perbarui identitas akun, role, password baru, dan scope gudang dari satu workspace yang khusus untuk akses.</p>
-            <p class="muted-note">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
-        </div>
+        </form>
     </div>
+</details>
 
-    {% if users %}
-    <div class="stack-scroll-list">
-        {% for u in users %}
-        <div class="box stack-scroll-card box-no-margin">
-            <form method="POST" action="/admin/update_user/{{ u.id }}">
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Manajemen User</h2>
+                <p>Perbarui identitas akun, role, password baru, dan scope gudang dari satu workspace yang khusus untuk akses.</p>
+                <p class="muted-note">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ users|length }} user</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        {% if users %}
+        <div class="stack-scroll-list">
+            {% for u in users %}
+            <div class="box stack-scroll-card box-no-margin">
+                <form method="POST" action="/admin/update_user/{{ u.id }}">
                 <div class="form-grid">
                     <div>
                         <label>ID</label>
@@ -223,17 +242,18 @@
                 <div class="split-actions stack-gap-md">
                     <button type="submit">Update User</button>
                 </div>
-            </form>
-            <form method="POST" action="/admin/delete_user/{{ u.id }}" class="stack-gap-sm">
-                <button type="submit" class="danger-button" onclick="return confirm('Hapus user ini?')">Hapus</button>
-            </form>
+                </form>
+                <form method="POST" action="/admin/delete_user/{{ u.id }}" class="stack-gap-sm">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus user ini?')">Hapus</button>
+                </form>
+            </div>
+            {% endfor %}
         </div>
-        {% endfor %}
+        {% else %}
+        <div class="empty-state">Belum ada user terdaftar.</div>
+        {% endif %}
     </div>
-    {% else %}
-    <div class="empty-state">Belum ada user terdaftar.</div>
-    {% endif %}
-</div>
+</details>
 {% endblock %}
 
 
