@@ -6,7 +6,9 @@
 <meta name="theme-color" content="#07111f" id="themeColorMeta">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>{% block title %}Mataram Sports WMS{% endblock %}</title>
+<title>{% block title %}ERP-CV.BJAS{% endblock %}</title>
+<link rel="icon" type="image/png" href="/static/brand/mataram-logo.png">
+<link rel="apple-touch-icon" href="/static/brand/mataram-logo.png">
 <link rel="manifest" href="/static/manifest.webmanifest">
 <script>
 (() => {
@@ -22,17 +24,19 @@
 <link rel="stylesheet" href="/static/css/dashboard.css">
 {% block extra_head %}{% endblock %}
 </head>
-<body>
+{% set has_app_shell = session.get("user_id") %}
+<body{% if not has_app_shell %} class="minimal-shell"{% endif %} data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop">
 
+{% if has_app_shell %}
 <div class="mobile-nav">
     <div class="mobile-nav-leading">
         <button type="button" id="mobileMenuButton" class="ghost-button mobile-menu-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
         <div class="mobile-brand">
             <div class="mobile-brand-mark">
-                <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+                <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS logo">
             </div>
             <div>
-                <strong>Mataram Sports</strong>
+                <strong>ERP-CV.BJAS</strong>
                 <span>{{ self.page_title()|striptags }}</span>
             </div>
         </div>
@@ -48,87 +52,134 @@
 </div>
 
 <div class="mobile-sidebar-backdrop" id="menuBackdrop" onclick="closeMenu()"></div>
+{% endif %}
 
-<div class="layout">
+<div class="layout {% if not has_app_shell %}layout-plain{% endif %}">
+
+{% if has_app_shell %}
+<button
+    type="button"
+    id="desktopSidebarToggle"
+    class="ghost-button desktop-sidebar-toggle"
+    onclick="toggleDesktopSidebar()"
+    aria-controls="menu"
+    aria-expanded="true"
+    title="Minimize sidebar"
+>
+    <span class="desktop-sidebar-toggle-bars" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+    </span>
+</button>
 
 <aside class="sidebar" id="menu">
     <div class="brand-block">
         <div class="brand-lockup">
             <div class="brand-mark">
-                <img src="/static/brand/mataram-logo.png" alt="Mataram Sports logo">
+                <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS logo">
             </div>
             <div class="brand-meta">
-                <p class="brand-kicker">Operations Suite</p>
-                <h2 class="brand-title">Mataram Sports</h2>
-                <span class="suite-chip">WMS Core</span>
+                <p class="brand-kicker">ERP-CV.BJAS</p>
+                <h2 class="brand-title">ERP-CV.BJAS</h2>
+                <span class="suite-chip">Enterprise Suite</span>
             </div>
         </div>
-        <p class="brand-copy">Warehouse management core yang siap berkembang ke finance flow dan modul HRIS di fase berikutnya.</p>
+        <p class="brand-copy">Enterprise Resource Planning yang siap bekerja bersama operasional Anda.</p>
     </div>
 
-    <nav>
-        {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/chat') or request.path.startswith('/absen') %}
-        {% set is_wms_active = request.path == '/' or request.path.startswith('/crm') or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}
+    <nav class="sidebar-nav">
+        {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') %}
+        {% set is_announcements_active = request.path.startswith('/announcements') %}
+        {% set is_crm_active = request.path.startswith('/crm') %}
+        {% set is_wms_active = request.path == '/' or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}
+        {% set is_request_active = request.path.startswith('/request') %}
         {% set is_hris_active = request.path.startswith('/hris') %}
         {% set is_system_active = request.path.startswith('/admin') %}
+        {% set is_account_active = request.path.startswith('/account') %}
+        {% set is_hr_role = session.get("role") == "hr" %}
         {% if session.get("user_id") %}
-        <div class="sidebar-group {% if is_coordination_active %}active{% endif %}">
-            <span class="sidebar-group-label">Coordination</span>
-            <a href="/absen/" class="{% if request.path.startswith('/absen') %}active{% endif %}">Absen</a>
-            {% if can("view_schedule") %}
-            <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active{% endif %}">Penjadwalan</a>
-            {% endif %}
-            {% if can("view_chat") %}
-            <a href="/chat/" class="{% if request.path.startswith('/chat') %}active{% endif %}">
-                <span>Chat</span>
-                <span class="sidebar-counter" id="chatSidebarUnread" hidden>0</span>
-            </a>
-            {% endif %}
+        <div class="sidebar-section">
+            <p class="sidebar-section-label">Koordinasi</p>
+            <div class="sidebar-group sidebar-single {% if is_announcements_active %}active{% endif %}">
+                <a href="/announcements/" class="{% if is_announcements_active %}active{% endif %}">Pengumuman</a>
+            </div>
+            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_coordination_active %}active{% endif %}" {% if is_coordination_active %}open{% endif %}>
+                <summary class="sidebar-group-toggle">
+                    <span class="sidebar-group-label">Penjadwalan</span>
+                    <span class="sidebar-group-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="sidebar-subnav">
+                    <a href="/absen/" class="{% if request.path.startswith('/absen') %}active{% endif %}">Absen</a>
+                    <a href="/libur/" class="{% if request.path.startswith('/libur') %}active{% endif %}">Libur</a>
+                    <a href="/laporan-harian/" class="{% if request.path.startswith('/laporan-harian') %}active{% endif %}">Report Harian</a>
+                    {% if can("view_schedule") %}
+                    <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active{% endif %}">Jadwal</a>
+                    {% endif %}
+                </div>
+            </details>
         </div>
         {% endif %}
-        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_wms_active %}active{% endif %}" {% if is_wms_active %}open{% endif %}>
-            <summary class="sidebar-group-toggle">
-                <span class="sidebar-group-label">WMS</span>
-                <span class="sidebar-group-icon" aria-hidden="true"></span>
-            </summary>
-            <div class="sidebar-subnav">
-                <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-                {% if can("view_crm") %}
-                <a href="/crm/" class="{% if request.path.startswith('/crm') %}active{% endif %}">CRM</a>
-                {% endif %}
-                <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
-                <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
-                <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
-                <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
-                <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
-                <a href="/request/" class="{% if request.path == '/request' or request.path == '/request/' %}active{% endif %}">Antar Gudang</a>
-                <a href="/request/owner" class="{% if request.path.startswith('/request/owner') %}active{% endif %}">Ke Owner</a>
-                {% if can("view_approvals") %}
-                <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
-                {% endif %}
-                {% if can("view_audit") %}
-                <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
-                {% endif %}
-                <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
+        <div class="sidebar-section">
+            <p class="sidebar-section-label">Workspace</p>
+            {% if can("view_crm") %}
+            <div class="sidebar-group sidebar-single {% if is_crm_active %}active{% endif %}">
+                <a href="/crm/" class="{% if is_crm_active %}active{% endif %}">CRM</a>
             </div>
-        </details>
-        {% if sidebar_hris_modules %}
-        <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_hris_active %}active{% endif %}" {% if is_hris_active %}open{% endif %}>
-            <summary class="sidebar-group-toggle">
-                <span class="sidebar-group-label">HRIS</span>
-                <span class="sidebar-group-icon" aria-hidden="true"></span>
-            </summary>
-            <div class="sidebar-subnav">
-                {% for module in sidebar_hris_modules %}
-                <a href="/hris/{{ module.slug }}" class="{% if request.path == '/hris/' and loop.first %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}">{{ module.label }}</a>
-                {% endfor %}
-            </div>
-        </details>
-        {% endif %}
+            {% endif %}
+            {% if not is_hr_role %}
+            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_wms_active %}active{% endif %}" {% if is_wms_active %}open{% endif %}>
+                <summary class="sidebar-group-toggle">
+                    <span class="sidebar-group-label">WMS</span>
+                    <span class="sidebar-group-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="sidebar-subnav">
+                    <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+                    <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
+                    <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
+                    <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
+                    <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
+                    <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
+                    <details class="sidebar-subgroup sidebar-disclosure {% if is_request_active %}active{% endif %}" {% if is_request_active %}open{% endif %}>
+                        <summary class="sidebar-subgroup-toggle">
+                            <span class="sidebar-subgroup-label">Request</span>
+                            <span class="sidebar-group-icon" aria-hidden="true"></span>
+                        </summary>
+                        <div class="sidebar-subgroup-links">
+                            <a href="/request/" class="{% if request.path == '/request' or request.path == '/request/' %}active{% endif %}">Antar Gudang</a>
+                            <a href="/request/owner" class="{% if request.path.startswith('/request/owner') %}active{% endif %}">Ke Owner</a>
+                        </div>
+                    </details>
+                    {% if can("view_approvals") %}
+                    <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
+                    {% endif %}
+                    {% if can("view_audit") %}
+                    <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
+                    {% endif %}
+                    <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
+                </div>
+            </details>
+            {% endif %}
+            {% if sidebar_hris_modules %}
+            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_hris_active %}active{% endif %}" {% if is_hris_active %}open{% endif %}>
+                <summary class="sidebar-group-toggle">
+                    <span class="sidebar-group-label">HRIS</span>
+                    <span class="sidebar-group-icon" aria-hidden="true"></span>
+                </summary>
+                <div class="sidebar-subnav">
+                    {% for module in sidebar_hris_modules %}
+                    <a href="/hris/{{ module.slug }}" class="{% if request.path == '/hris/' and loop.first %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}">{{ module.label }}</a>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+        </div>
         {% if can("view_admin") %}
-        <div class="sidebar-group {% if is_system_active %}active{% endif %}">
-            <span class="sidebar-group-label">System</span>
-            <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
+        <div class="sidebar-section">
+            <p class="sidebar-section-label">System</p>
+            <div class="sidebar-group sidebar-single {% if is_system_active %}active{% endif %}">
+                <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
+            </div>
         </div>
         {% endif %}
     </nav>
@@ -147,23 +198,46 @@
                 <span data-theme-toggle-label>Mode Cerah</span>
             </button>
         </div>
-        <form method="GET" action="/logout" style="margin-top:14px;">
-            <button type="submit" class="ghost-button" style="width:100%;">Keluar</button>
-        </form>
+        <div class="sidebar-footer-actions">
+            <a href="/account/settings" class="ghost-button sidebar-footer-link {% if is_account_active %}active{% endif %}">Pengaturan Akun</a>
+            <form method="GET" action="/logout">
+                <button type="submit" class="ghost-button">Keluar</button>
+            </form>
+        </div>
     </div>
 </aside>
+{% endif %}
 
-<main class="main">
+<main class="main {% if not has_app_shell %}main-public{% endif %} {% block main_class %}{% endblock %}">
+    {% set page_actions_markup %}{% block page_actions %}{% endblock %}{% endset %}
+    {% if page_actions_markup|trim %}
+    <section class="mobile-command-deck" id="mobileCommandDeck" hidden aria-hidden="true">
+        <div class="mobile-command-deck-head">
+            <div>
+                <p class="mobile-command-kicker">{{ self.eyebrow()|striptags }}</p>
+                <strong>{{ self.page_title()|striptags }}</strong>
+            </div>
+            <span class="mobile-command-badge" id="mobileCommandBadge">Touch Actions</span>
+        </div>
+        <div class="mobile-page-actions-slot" id="mobilePageActionsSlot"></div>
+    </section>
+    {% endif %}
+    {% block page_header %}
     <section class="page-hero">
         <div class="page-hero-text">
             <p class="page-eyebrow">{% block eyebrow %}Operational Workspace{% endblock %}</p>
-            <h1>{% block page_title %}Mataram Sports WMS{% endblock %}</h1>
+            <h1>{% block page_title %}ERP-CV.BJAS{% endblock %}</h1>
             <p class="page-subtitle">{% block page_subtitle %}Satu workspace terpadu untuk memonitor stok, transaksi barang, dan kualitas operasional gudang.{% endblock %}</p>
         </div>
-        <div class="page-actions">
-            {% block page_actions %}{% endblock %}
+        {% if page_actions_markup|trim %}
+        <div class="page-actions-desktop-slot" id="pageActionsDesktopSlot">
+            <div class="page-actions" id="pageActionsNode">
+                {{ page_actions_markup|safe }}
+            </div>
         </div>
+        {% endif %}
     </section>
+    {% endblock %}
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -175,11 +249,105 @@
     {% endif %}
     {% endwith %}
 
-    {% block content %}{% endblock %}
+    <div class="page-content {% block page_content_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+    </div>
 </main>
 
 </div>
 
+{% if has_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
+<div class="chat-widget-root" id="chatWidgetRoot">
+    <button
+        type="button"
+        class="chat-widget-launcher"
+        id="chatWidgetLauncher"
+        data-chat-widget-launcher
+        aria-controls="chatWidgetPanel"
+        aria-expanded="false"
+        aria-label="Buka live chat"
+        title="Buka live chat"
+    >
+        <span class="chat-widget-launcher-icon" aria-hidden="true">&#128172;</span>
+        <span class="chat-widget-launcher-label">Live Chat</span>
+        <span class="chat-widget-launcher-badge" data-chat-unread-badge hidden>0</span>
+    </button>
+
+    <section class="chat-widget-panel" id="chatWidgetPanel" data-chat-widget-panel hidden aria-hidden="true">
+        <header class="chat-widget-head">
+            <div>
+                <strong>Live Chat</strong>
+                <span>Koordinasi cepat tanpa pindah halaman</span>
+            </div>
+            <div class="chat-widget-head-actions">
+                <a href="/chat/" class="chat-widget-full-link">Buka Penuh</a>
+                <button type="button" class="chat-widget-close" data-chat-widget-close aria-label="Tutup live chat">&times;</button>
+            </div>
+        </header>
+
+        <div class="chat-widget-body">
+            <section class="chat-widget-home" data-chat-widget-home>
+                <div class="chat-widget-toolbar">
+                    <div class="chat-widget-tabs">
+                        <button type="button" class="chat-widget-tab active" data-chat-widget-tab="threads">Percakapan</button>
+                        <button type="button" class="chat-widget-tab" data-chat-widget-tab="contacts">Kontak</button>
+                    </div>
+                    <button type="button" class="chat-widget-ghost" data-chat-widget-fullpage>Grup & Fitur Lanjut</button>
+                </div>
+                <div class="chat-widget-search">
+                    <input type="text" data-chat-widget-search placeholder="Cari percakapan atau kontak">
+                </div>
+                <div class="chat-widget-list-stack">
+                    <div class="chat-widget-list-panel active" data-chat-widget-panel-name="threads">
+                        <div class="chat-thread-list chat-widget-thread-list" data-chat-widget-threads>
+                            <div class="chat-list-empty">Memuat percakapan...</div>
+                        </div>
+                    </div>
+                    <div class="chat-widget-list-panel" data-chat-widget-panel-name="contacts">
+                        <div class="chat-contact-list chat-widget-contact-list" data-chat-widget-contacts>
+                            <div class="chat-list-empty">Memuat kontak...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="chat-widget-thread-view" data-chat-widget-thread-view hidden>
+                <div class="chat-widget-thread-head">
+                    <button type="button" class="chat-widget-back" data-chat-widget-back aria-label="Kembali ke daftar chat">&#8592;</button>
+                    <div class="chat-widget-thread-focus">
+                        <span class="chat-avatar mini" data-chat-widget-avatar>MS</span>
+                        <div>
+                            <strong data-chat-widget-partner-name>Live Chat</strong>
+                            <span data-chat-widget-partner-meta>Pilih percakapan</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-widget-thread-tools">
+                    <button type="button" class="chat-widget-ghost chat-widget-action" data-chat-widget-sticker-toggle>Sticker</button>
+                    <button type="button" class="chat-widget-ghost chat-widget-action" data-chat-widget-voice>Telp</button>
+                    <button type="button" class="chat-widget-ghost chat-widget-action" data-chat-widget-video>Video</button>
+                </div>
+                <div class="chat-message-board chat-widget-message-board" data-chat-widget-messages>
+                    <div class="chat-list-empty">Pilih percakapan dulu untuk mulai chat.</div>
+                </div>
+                <form class="chat-widget-composer" data-chat-widget-composer>
+                    <input type="file" data-chat-widget-attachment hidden accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx">
+                    <input type="file" data-chat-widget-sticker-image hidden accept=".png,.jpg,.jpeg,.gif,.webp">
+                    <div class="chat-widget-attachment-preview" data-chat-widget-attachment-preview hidden></div>
+                    <div class="chat-widget-sticker-panel" data-chat-widget-stickers hidden></div>
+                    <div class="chat-widget-composer-row">
+                        <button type="button" class="chat-widget-attach" data-chat-widget-attach aria-label="Lampirkan file">&#128206;</button>
+                        <textarea rows="1" data-chat-widget-input placeholder="Tulis pesan..."></textarea>
+                        <button type="submit" class="chat-widget-send" data-chat-widget-send aria-label="Kirim pesan">&#10148;</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </section>
+</div>
+{% endif %}
+
+{% if has_app_shell %}
 <nav class="mobile-dock">
     <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
     <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok</a>
@@ -187,9 +355,68 @@
     <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Opname</a>
     <button type="button" class="{% if request.path.startswith('/admin') or request.path.startswith('/audit') or request.path.startswith('/approvals') %}active{% endif %}" onclick="toggleMenu()">Menu</button>
 </nav>
+{% endif %}
 
 <script>
+const hasAppShell = document.body.dataset.hasAppShell === "1";
+const pageActionsNode = document.getElementById("pageActionsNode");
+const pageActionsDesktopSlot = document.getElementById("pageActionsDesktopSlot");
+const mobilePageActionsSlot = document.getElementById("mobilePageActionsSlot");
+const mobileCommandDeck = document.getElementById("mobileCommandDeck");
+const mobileCommandBadge = document.getElementById("mobileCommandBadge");
+
+function getDeviceMode() {
+    if (window.innerWidth <= 767) {
+        return "mobile";
+    }
+    if (window.innerWidth <= 1080) {
+        return "tablet";
+    }
+    return "desktop";
+}
+
+function updateScrollableTableHints() {
+    document.querySelectorAll(".table-box").forEach((box) => {
+        const table = box.querySelector("table");
+        if (!table) {
+            box.dataset.scrollableTable = "0";
+            return;
+        }
+
+        const isScrollable = table.scrollWidth > box.clientWidth + 12;
+        box.dataset.scrollableTable = isScrollable ? "1" : "0";
+    });
+}
+
+function syncResponsiveShell() {
+    const mode = getDeviceMode();
+    document.body.dataset.deviceMode = mode;
+
+    if (pageActionsNode && pageActionsDesktopSlot && mobilePageActionsSlot && mobileCommandDeck) {
+        if (mode === "desktop") {
+            if (pageActionsNode.parentElement !== pageActionsDesktopSlot) {
+                pageActionsDesktopSlot.appendChild(pageActionsNode);
+            }
+            mobileCommandDeck.hidden = true;
+            mobileCommandDeck.setAttribute("aria-hidden", "true");
+        } else {
+            if (pageActionsNode.parentElement !== mobilePageActionsSlot) {
+                mobilePageActionsSlot.appendChild(pageActionsNode);
+            }
+            mobileCommandDeck.hidden = false;
+            mobileCommandDeck.setAttribute("aria-hidden", "false");
+        }
+    }
+
+    if (mobileCommandBadge) {
+        mobileCommandBadge.textContent = mode === "tablet" ? "Tablet Workspace" : mode === "mobile" ? "Touch Actions" : "Desktop";
+    }
+
+    updateScrollableTableHints();
+}
+
 function toggleMenu() {
+    if (!hasAppShell) return;
     if (window.innerWidth > 1080) return;
     const menu = document.getElementById("menu");
     const button = document.getElementById("mobileMenuButton");
@@ -198,6 +425,31 @@ function toggleMenu() {
     const nextState = !document.body.classList.contains("menu-open");
     document.body.classList.toggle("menu-open", nextState);
     button.setAttribute("aria-expanded", nextState ? "true" : "false");
+}
+
+function applyDesktopSidebarState(minimized, persist = true) {
+    const button = document.getElementById("desktopSidebarToggle");
+    document.body.classList.toggle("sidebar-minimized", minimized);
+    if (button) {
+        button.setAttribute("aria-expanded", minimized ? "false" : "true");
+        button.setAttribute("title", minimized ? "Tampilkan sidebar" : "Minimize sidebar");
+        button.setAttribute("aria-label", minimized ? "Tampilkan sidebar" : "Minimize sidebar");
+    }
+    if (persist) {
+        try {
+            localStorage.setItem("wms-sidebar-minimized", minimized ? "1" : "0");
+        } catch (error) {
+        }
+    }
+}
+
+function toggleDesktopSidebar() {
+    if (!hasAppShell) return;
+    if (window.innerWidth <= 1080) {
+        toggleMenu();
+        return;
+    }
+    applyDesktopSidebarState(!document.body.classList.contains("sidebar-minimized"));
 }
 
 function closeMenu() {
@@ -262,13 +514,15 @@ document.querySelectorAll(".flash").forEach((flash) => {
     }, 5000);
 });
 
-document.querySelectorAll("#menu nav a, #menu form button").forEach((node) => {
-    node.addEventListener("click", () => {
-        if (window.innerWidth <= 1080) {
-            closeMenu();
-        }
+if (hasAppShell) {
+    document.querySelectorAll("#menu nav a, #menu .sidebar-footer a, #menu form button").forEach((node) => {
+        node.addEventListener("click", () => {
+            if (window.innerWidth <= 1080) {
+                closeMenu();
+            }
+        });
     });
-});
+}
 
 document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -278,10 +532,27 @@ document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
 
 syncThemeToggleState(getCurrentTheme());
 
+if (hasAppShell) {
+    try {
+        applyDesktopSidebarState(localStorage.getItem("wms-sidebar-minimized") === "1", false);
+    } catch (error) {
+        applyDesktopSidebarState(false, false);
+    }
+}
+
+syncResponsiveShell();
+
 window.addEventListener("resize", () => {
+    if (!hasAppShell) {
+        syncResponsiveShell();
+        return;
+    }
     if (window.innerWidth > 1080) {
         closeMenu();
+    } else {
+        applyDesktopSidebarState(false, false);
     }
+    syncResponsiveShell();
 });
 </script>
 
@@ -291,10 +562,14 @@ window.wmsChatRealtimeConfig = {
     enabled: true,
     pollUrl: "/chat/realtime",
     presenceUrl: "/chat/presence",
-    soundUrl: "/static/notif.mp3"
+    soundUrl: "/static/notif.mp3",
+    soundVolume: {{ session.get("chat_sound_volume", 0.85)|tojson }}
 };
 </script>
 <script src="/static/js/chat_realtime.js"></script>
+{% if has_app_shell and not request.path.startswith('/chat') %}
+<script src="/static/js/chat_widget.js"></script>
+{% endif %}
 {% endif %}
 {% block extra_scripts %}{% endblock %}
 </body>

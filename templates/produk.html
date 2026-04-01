@@ -1,16 +1,18 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Produk | Mataram Sports WMS{% endblock %}
+{% block title %}Produk | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Master Product Control{% endblock %}
 {% block page_title %}Master Produk{% endblock %}
 {% block page_subtitle %}Kelola SKU, kategori, stok awal, dan import massal produk dengan workflow yang tetap cepat saat volume data membesar.{% endblock %}
 
 {% block page_actions %}
+{% if can('manage_product_master') %}
 <button type="button" onclick="toggleForm()">Tambah Produk</button>
+{% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="meta-grid products-meta-grid">
+<div class="meta-grid products-meta-grid" id="productsMetaGrid">
     <div class="meta-card">
         <span>Gudang Aktif</span>
         <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
@@ -40,13 +42,19 @@
     {% endif %}
     <input type="text" name="search" value="{{ request.args.get('search', '') }}" placeholder="Cari SKU, nama, atau kategori">
     <button type="submit">Terapkan Filter</button>
+    {% if can('manage_product_master') %}
     <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
+    {% endif %}
 </form>
 
 {% if is_scoped_user %}
 <small class="helper-text">Filter gudang mengikuti gudang akun Anda agar data tetap konsisten.</small>
 {% endif %}
+{% if not can('manage_product_master') %}
+<small class="helper-text">Akun ini hanya bisa melihat master produk. Perubahan data, import, dan hapus produk hanya tersedia untuk admin, leader, owner, atau super admin.</small>
+{% endif %}
 
+{% if can('manage_product_master') %}
 <div class="import-box">
     <div class="section-title">
         <div>
@@ -54,6 +62,8 @@
             <p>Unggah file Excel atau CSV untuk menambahkan banyak produk dalam satu batch kerja.</p>
         </div>
     </div>
+
+    <div id="importStatus"></div>
 
     <div class="top-bar products-import-bar">
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
@@ -63,20 +73,22 @@
 
     <small class="helper-text">
         Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
-        Kolom opsional: <span class="mono">variant_code, gtin</span>.
+        Kolom opsional: <span class="mono">color, variant_code, gtin</span>.
         Untuk file Excel, angka seperti <span class="mono">1.0</span> akan dibaca otomatis sebagai qty/gudang yang valid.
     </small>
 
     <div id="previewBox"></div>
 
-    <div id="progressWrapper" style="display:none; margin-top:16px;">
-        <div id="progressText" style="margin-bottom:8px; color:#5f7289;"></div>
-        <div style="width:100%; height:14px; border-radius:999px; background:rgba(10,24,42,0.08); overflow:hidden;">
-            <div id="progressBar" style="width:0%; height:100%; border-radius:999px; background:linear-gradient(90deg, #21c57d, #5db7ff);"></div>
+    <div id="progressWrapper" class="import-progress">
+        <div id="progressText" class="progress-text"></div>
+        <div class="progress-track">
+            <div id="progressBar" class="progress-bar"></div>
         </div>
     </div>
 </div>
+{% endif %}
 
+{% if can('manage_product_master') %}
 <div id="formBox" class="form-box products-manual-box" style="display:none;">
     <div class="section-title">
         <div>
@@ -85,7 +97,9 @@
         </div>
     </div>
 
-    <form method="POST" action="/products/add" onsubmit="return handleSubmit()">
+    <div id="manualProductStatus"></div>
+
+    <form id="manualProductForm" method="POST" action="/products/add" onsubmit="return handleManualSubmit(event)">
         <input type="hidden" name="variant_rows_json" id="variantRowsJson">
 
         <div class="form-grid">
@@ -115,10 +129,10 @@
             </div>
         </div>
 
-        <div class="section-title" style="margin-top:18px;">
+        <div class="section-title stack-gap-md">
             <div>
                 <h3>Variasi Manual</h3>
-                <p>Setiap baris mewakili satu size atau variasi produk. Stok 0 tetap boleh dipakai, dan GTIN cukup diisi kalau memang tersedia.</p>
+                <p>Setiap baris mewakili satu size, warna, atau kombinasi variasi produk. Stok 0 tetap boleh dipakai, dan GTIN cukup diisi kalau memang tersedia.</p>
             </div>
             <button type="button" class="ghost-button" onclick="addVariantRow()">Tambah Baris</button>
         </div>
@@ -144,14 +158,15 @@
             Kode variasi dan GTIN tidak wajib, jadi bisa dibiarkan kosong bila belum dipakai.
         </small>
 
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button id="btnSubmit" type="submit">Simpan Produk</button>
             <button type="button" class="ghost-button" onclick="toggleForm()">Tutup Form</button>
         </div>
     </form>
 </div>
+{% endif %}
 
-<div class="table-box products-list-box">
+<div class="table-box products-list-box" id="productsListBox">
     <div class="section-title">
         <div>
             <h2>Daftar Produk</h2>
@@ -163,19 +178,25 @@
     <table>
         <thead>
             <tr>
+                {% if can('manage_product_master') %}
                 <th><input type="checkbox" id="checkAll"></th>
+                {% endif %}
                 <th>SKU</th>
                 <th>Nama</th>
                 <th>Kategori</th>
                 <th>Qty</th>
                 <th>Aging</th>
+                {% if can('manage_product_master') %}
                 <th>Aksi</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
             {% for p in data %}
             <tr>
+                {% if can('manage_product_master') %}
                 <td><input type="checkbox" class="row-check" value="{{ p.id }}"></td>
+                {% endif %}
                 <td class="mono">{{ p.sku }}</td>
                 <td>{{ p.name }}</td>
                 <td>{{ p.category or '-' }}</td>
@@ -196,11 +217,13 @@
                     <span class="badge">{{ age }} hari</span>
                     {% endif %}
                 </td>
+                {% if can('manage_product_master') %}
                 <td>
                     <form method="POST" action="/products/delete/{{ p.id }}" onsubmit="return confirm('Hapus produk ini?')">
                         <button type="submit" class="ghost-button">Hapus</button>
                     </form>
                 </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>
@@ -230,16 +253,83 @@ const DEFAULT_VARIANT_ROWS = [
     { variant: "42", qty: "0" }
 ];
 
-const checkAll = document.getElementById("checkAll");
+const manualProductForm = document.getElementById("manualProductForm");
 const variantRowsBody = document.getElementById("variantRowsBody");
 const variantRowsJson = document.getElementById("variantRowsJson");
 
-if (checkAll) {
+function notifyUser(message) {
+    if (!message) return;
+    if (typeof window.showToast === "function") {
+        window.showToast(message);
+        return;
+    }
+    alert(message);
+}
+
+function renderStatus(targetId, message, category = "success") {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.innerHTML = "";
+    if (!message) return;
+
+    const box = document.createElement("div");
+    box.className = `flash ${category}`;
+    box.textContent = message;
+    target.appendChild(box);
+}
+
+function bindCheckAllControl() {
+    const checkAll = document.getElementById("checkAll");
+    if (!checkAll || checkAll.dataset.bound === "1") {
+        return;
+    }
+
+    checkAll.dataset.bound = "1";
     checkAll.addEventListener("change", function() {
         document.querySelectorAll(".row-check").forEach((cb) => {
             cb.checked = this.checked;
         });
     });
+}
+
+async function refreshProductsView() {
+    const response = await fetch(window.location.pathname + window.location.search, {
+        headers: {
+            "X-Requested-With": "XMLHttpRequest"
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error("Daftar produk gagal dimuat ulang.");
+    }
+
+    const html = await response.text();
+    const parser = new DOMParser();
+    const nextDocument = parser.parseFromString(html, "text/html");
+    const nextMeta = nextDocument.getElementById("productsMetaGrid");
+    const nextList = nextDocument.getElementById("productsListBox");
+    const currentMeta = document.getElementById("productsMetaGrid");
+    const currentList = document.getElementById("productsListBox");
+
+    if (nextMeta && currentMeta) {
+        currentMeta.outerHTML = nextMeta.outerHTML;
+    }
+
+    if (nextList && currentList) {
+        currentList.outerHTML = nextList.outerHTML;
+    }
+
+    bindCheckAllControl();
+}
+
+function resetManualProductForm() {
+    if (!manualProductForm || !variantRowsBody) return;
+
+    manualProductForm.reset();
+    variantRowsJson.value = "";
+    variantRowsBody.innerHTML = "";
+    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
+    renderStatus("manualProductStatus", "");
 }
 
 function toggleForm() {
@@ -259,13 +349,22 @@ function createVariantRowMarkup(initial = {}) {
     const priceNett = initial.price_nett || "";
     const qty = initial.qty ?? "";
     const variantCode = initial.variant_code || "";
+    const color = initial.color || "";
     const gtin = initial.gtin || "";
 
     return `
         <td class="variant-size-cell">
             <div class="variant-size-shell">
-                <div class="variant-size-label">SIZE</div>
-                <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+                <div class="variant-size-stack">
+                    <div class="variant-size-block">
+                        <div class="variant-size-label">Size</div>
+                        <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+                    </div>
+                    <div class="variant-size-block">
+                        <div class="variant-size-label">Warna</div>
+                        <input type="text" class="variant-color-input" data-field="color" placeholder="Hitam" value="${color}">
+                    </div>
+                </div>
             </div>
         </td>
         <td class="variant-price-cell">
@@ -391,6 +490,7 @@ function getVariantPayload() {
 
         return {
             variant: (getValue("variant")?.value || "").trim(),
+            color: (getValue("color")?.value || "").trim(),
             price_retail: (getValue("price_retail")?.value || "").trim(),
             price_discount: (getValue("price_discount")?.value || "").trim(),
             price_nett: (getValue("price_nett")?.value || "").trim(),
@@ -403,22 +503,22 @@ function getVariantPayload() {
     });
 }
 
-function handleSubmit() {
+function prepareManualSubmit() {
     const payload = getVariantPayload();
     if (!payload.length) {
-        alert("Isi minimal satu baris variasi terlebih dahulu.");
-        return false;
+        renderStatus("manualProductStatus", "Isi minimal satu baris variasi terlebih dahulu.", "error");
+        return null;
     }
 
-    if (payload.length > 1 && payload.some((row) => !row.variant)) {
-        alert("Isi size atau variasi pada setiap baris yang dipakai.");
-        return false;
+    if (payload.length > 1 && payload.some((row) => !row.variant && !row.color)) {
+        renderStatus("manualProductStatus", "Isi size, warna, atau salah satunya pada setiap baris yang dipakai.", "error");
+        return null;
     }
 
     const hasNegativeQty = payload.some((row) => row.qty !== "" && Number(row.qty) < 0);
     if (hasNegativeQty) {
-        alert("Qty tidak boleh minus.");
-        return false;
+        renderStatus("manualProductStatus", "Qty tidak boleh minus.", "error");
+        return null;
     }
 
     const hasNegativePrice = payload.some((row) => {
@@ -427,18 +527,76 @@ function handleSubmit() {
         });
     });
     if (hasNegativePrice) {
-        alert("Harga tidak boleh minus.");
-        return false;
+        renderStatus("manualProductStatus", "Harga tidak boleh minus.", "error");
+        return null;
     }
 
     if (variantRowsJson) {
         variantRowsJson.value = JSON.stringify(payload);
     }
 
+    renderStatus("manualProductStatus", "");
+    return payload;
+}
+
+async function handleManualSubmit(event) {
+    event.preventDefault();
+
+    const payload = prepareManualSubmit();
+    if (!payload) {
+        return false;
+    }
+
     const btn = document.getElementById("btnSubmit");
-    btn.innerText = "Menyimpan...";
-    btn.disabled = true;
-    return true;
+    const originalLabel = btn ? btn.innerText : "Simpan Produk";
+    if (btn) {
+        btn.innerText = "Menyimpan...";
+        btn.disabled = true;
+    }
+
+    try {
+        const formData = new FormData(manualProductForm);
+        const response = await fetch(manualProductForm.action, {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json"
+            },
+            body: formData
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.status !== "success") {
+            renderStatus("manualProductStatus", data.message || "Produk gagal disimpan.", "error");
+            return false;
+        }
+
+        renderStatus("manualProductStatus", data.message || "Produk berhasil ditambahkan.", "success");
+        notifyUser(data.message || "Produk berhasil ditambahkan.");
+        resetManualProductForm();
+        await refreshProductsView();
+        toggleForm();
+        return false;
+    } catch (error) {
+        renderStatus("manualProductStatus", "Terjadi error saat menyimpan produk.", "error");
+        return false;
+    } finally {
+        if (btn) {
+            btn.innerText = originalLabel;
+            btn.disabled = false;
+        }
+    }
+}
+
+function setImportBusy(isBusy) {
+    const fileInput = document.getElementById("fileInput");
+    const buttons = document.querySelectorAll(".products-import-bar button");
+    if (fileInput) {
+        fileInput.disabled = isBusy;
+    }
+    buttons.forEach((button) => {
+        button.disabled = isBusy;
+    });
 }
 
 function bulkDelete() {
@@ -456,9 +614,10 @@ function bulkDelete() {
         body: JSON.stringify({ ids })
     })
     .then((res) => res.json())
-    .then((data) => {
-        if (data.message === "OK") {
-            location.reload();
+    .then(async (data) => {
+        if (data.status === "success") {
+            notifyUser(data.message || "Produk terpilih berhasil dihapus.");
+            await refreshProductsView();
             return;
         }
         alert(data.message || "Gagal menghapus produk.");
@@ -502,8 +661,8 @@ async function previewImport() {
         });
         const data = await res.json();
 
-        if (!res.ok || data.error) {
-            previewBox.innerHTML = "<div class='flash error'>" + (data.error || "Gagal membuat preview.") + "</div>";
+        if (!res.ok || data.status === "error" || data.error) {
+            previewBox.innerHTML = "<div class='flash error'>" + (data.message || data.error || "Gagal membuat preview.") + "</div>";
             return;
         }
 
@@ -514,6 +673,7 @@ async function previewImport() {
 }
 
 async function pollImport(jobId) {
+    const fileInput = document.getElementById("fileInput");
     const wrapper = document.getElementById("progressWrapper");
     const bar = document.getElementById("progressBar");
     const text = document.getElementById("progressText");
@@ -535,12 +695,23 @@ async function pollImport(jobId) {
 
             if (data.status === "done") {
                 clearInterval(timer);
-                text.innerText = "Import selesai. Halaman akan dimuat ulang.";
-                setTimeout(() => location.reload(), 1200);
+                text.innerText = "Import selesai. Daftar produk sedang diperbarui.";
+                renderStatus("importStatus", "Import berhasil selesai tanpa reload halaman.", "success");
+                notifyUser("Import produk selesai.");
+                await refreshProductsView();
+                setImportBusy(false);
+                fileInput.value = "";
+                setTimeout(() => {
+                    wrapper.style.display = "none";
+                    bar.style.width = "0%";
+                    text.innerText = "";
+                }, 1200);
             }
         } catch (error) {
             clearInterval(timer);
             text.innerText = "Monitoring import terputus.";
+            renderStatus("importStatus", "Monitoring import terputus.", "error");
+            setImportBusy(false);
         }
     }, 800);
 }
@@ -550,9 +721,12 @@ async function submitImport() {
     const file = fileInput.files[0];
 
     if (!file) {
-        alert("Pilih file import terlebih dahulu.");
+        renderStatus("importStatus", "Pilih file import terlebih dahulu.", "error");
         return;
     }
+
+    renderStatus("importStatus", "");
+    setImportBusy(true);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -564,25 +738,31 @@ async function submitImport() {
         });
 
         if (!res.ok) {
-            const text = await res.text();
-            alert(text || "Import gagal dijalankan.");
+            const data = await res.json().catch(async () => ({ message: await res.text() }));
+            renderStatus("importStatus", data.message || "Import gagal dijalankan.", "error");
+            setImportBusy(false);
             return;
         }
 
         const data = await res.json();
         if (!data.job_id) {
-            alert("Job import tidak berhasil dibuat.");
+            renderStatus("importStatus", "Job import tidak berhasil dibuat.", "error");
+            setImportBusy(false);
             return;
         }
 
         pollImport(data.job_id);
     } catch (error) {
-        alert("Terjadi error saat mengirim file import.");
+        renderStatus("importStatus", "Terjadi error saat mengirim file import.", "error");
+        setImportBusy(false);
     }
 }
+
+bindCheckAllControl();
 
 if (variantRowsBody && !variantRowsBody.children.length) {
     DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
 }
 </script>
 {% endblock %}
+

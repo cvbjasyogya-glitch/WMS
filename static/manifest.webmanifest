@@ -1,11 +1,11 @@
 {
-  "name": "Mataram Sports WMS",
-  "short_name": "Mataram WMS",
+  "name": "ERP-CV.BJAS",
+  "short_name": "ERP-CV.BJAS",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#07111f",
   "theme_color": "#07111f",
-  "description": "Warehouse management system untuk operasi stok, transfer, request, dan stock opname.",
+  "description": "Enterprise Resource Planning untuk operasi stok, transfer, request, stock opname, dan koordinasi tim.",
   "icons": [
     {
       "src": "/static/brand/mataram-logo.png",

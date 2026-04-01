@@ -84,6 +84,70 @@ def _build_so_base_query(search):
     return base_query, params
 
 
+def _build_so_page_payload(db, display_id, gudang_id, search="", page=1, limit=20):
+    try:
+        page = int(page or 1)
+        if page < 1:
+            page = 1
+    except:
+        page = 1
+
+    search = (search or "").strip()
+    offset = (page - 1) * limit
+    base_query, extra_params = _build_so_base_query(search)
+    params = [display_id, gudang_id] + extra_params
+
+    total = db.execute("SELECT COUNT(*) " + base_query, params).fetchone()[0]
+
+    summary_row = db.execute(
+        """
+        SELECT
+            COUNT(*) as items,
+            COALESCE(SUM(COALESCE(sd.qty, 0)), 0) as display_qty,
+            COALESCE(SUM(COALESCE(sg.qty, 0)), 0) as gudang_qty,
+            COALESCE(SUM(CASE WHEN COALESCE(sd.qty, 0) != COALESCE(sg.qty, 0) THEN 1 ELSE 0 END), 0) as gap_count
+        """
+        + base_query,
+        params,
+    ).fetchone()
+
+    rows = db.execute(
+        """
+        SELECT
+            p.id as product_id,
+            p.sku,
+            p.name,
+            pv.id as variant_id,
+            pv.variant,
+            COALESCE(sd.qty,0) as display_qty,
+            COALESCE(sg.qty,0) as gudang_qty
+        """
+        + base_query
+        + """
+        ORDER BY p.name ASC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    ).fetchall()
+
+    warehouses = [dict(w) for w in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
+    warehouse_lookup = {w["id"]: w["name"] for w in warehouses}
+    summary = dict(summary_row) if summary_row else _build_so_summary(rows)
+
+    return {
+        "data": [dict(r) for r in rows],
+        "page": page,
+        "total_pages": max(1, (total + limit - 1) // limit),
+        "summary": summary,
+        "search": search,
+        "display_id": display_id,
+        "gudang_id": gudang_id,
+        "display_name": warehouse_lookup.get(display_id, f"Gudang {display_id}"),
+        "gudang_name": warehouse_lookup.get(gudang_id, f"Gudang {gudang_id}"),
+        "warehouses": warehouses,
+    }
+
+
 def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, physical_qty, diff_qty, user_id, note):
     db.execute(
         """
@@ -183,90 +247,48 @@ def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, p
 @so_bp.route("/")
 def so_page():
     db = get_db()
-
     search = (request.args.get("q") or "").strip()
-
-    try:
-        page = int(request.args.get("page", 1))
-        if page < 1:
-            page = 1
-    except:
-        page = 1
-
-    limit = 20
-    offset = (page - 1) * limit
 
     display_id, gudang_id = _resolve_so_warehouses(
         db,
         request.args.get("display_id"),
         request.args.get("gudang_id"),
     )
-
-    base_query, extra_params = _build_so_base_query(search)
-    params = [display_id, gudang_id] + extra_params
-
-    total = db.execute("SELECT COUNT(*) " + base_query, params).fetchone()[0]
-
-    summary_row = db.execute(
-        """
-        SELECT
-            COUNT(*) as items,
-            COALESCE(SUM(COALESCE(sd.qty, 0)), 0) as display_qty,
-            COALESCE(SUM(COALESCE(sg.qty, 0)), 0) as gudang_qty,
-            COALESCE(SUM(CASE WHEN COALESCE(sd.qty, 0) != COALESCE(sg.qty, 0) THEN 1 ELSE 0 END), 0) as gap_count
-        """
-        + base_query,
-        params,
-    ).fetchone()
-
-    rows = db.execute(
-        """
-        SELECT
-            p.id as product_id,
-            p.sku,
-            p.name,
-            pv.id as variant_id,
-            pv.variant,
-            COALESCE(sd.qty,0) as display_qty,
-            COALESCE(sg.qty,0) as gudang_qty
-        """
-        + base_query
-        + """
-        ORDER BY p.name ASC
-        LIMIT ? OFFSET ?
-        """,
-        params + [limit, offset],
-    ).fetchall()
-
-    data = [dict(r) for r in rows]
-    total_pages = max(1, (total + limit - 1) // limit)
-    summary = dict(summary_row) if summary_row else _build_so_summary(data)
-
-    warehouses = [dict(w) for w in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
-    warehouse_lookup = {w["id"]: w["name"] for w in warehouses}
+    payload = _build_so_page_payload(
+        db,
+        display_id,
+        gudang_id,
+        search=search,
+        page=request.args.get("page", 1),
+        limit=20,
+    )
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify(
             {
-                "data": data,
-                "page": page,
-                "total_pages": total_pages,
-                "summary": summary,
+                "data": payload["data"],
+                "page": payload["page"],
+                "total_pages": payload["total_pages"],
+                "summary": payload["summary"],
+                "display_id": payload["display_id"],
+                "gudang_id": payload["gudang_id"],
+                "display_name": payload["display_name"],
+                "gudang_name": payload["gudang_name"],
             }
         )
 
     return render_template(
         "stock_opname.html",
-        data=data,
-        search=search,
-        page=page,
-        total_pages=total_pages,
-        display_id=display_id,
-        gudang_id=gudang_id,
-        display_name=warehouse_lookup.get(display_id, f"Gudang {display_id}"),
-        gudang_name=warehouse_lookup.get(gudang_id, f"Gudang {gudang_id}"),
-        warehouses=warehouses,
-        summary=summary,
+        data=payload["data"],
+        search=payload["search"],
+        page=payload["page"],
+        total_pages=payload["total_pages"],
+        display_id=payload["display_id"],
+        gudang_id=payload["gudang_id"],
+        display_name=payload["display_name"],
+        gudang_name=payload["gudang_name"],
+        warehouses=payload["warehouses"],
+        summary=payload["summary"],
     )
 
 
@@ -274,6 +296,8 @@ def so_page():
 def submit_so():
     db = get_db()
     data = request.get_json(silent=True) or {}
+    search = (data.get("q") or "").strip()
+    page = data.get("page", 1)
 
     display_id, gudang_id = _resolve_so_warehouses(
         db,
@@ -294,9 +318,7 @@ def submit_so():
             try:
                 product_id = int(item["product_id"])
                 variant_id = int(item["variant_id"])
-                display_system = int(item.get("display_system", 0) or 0)
                 display_physical = int(item.get("display_physical", 0) or 0)
-                gudang_system = int(item.get("gudang_system", 0) or 0)
                 gudang_physical = int(item.get("gudang_physical", 0) or 0)
             except:
                 continue
@@ -318,6 +340,20 @@ def submit_so():
             if display_physical < 0 or gudang_physical < 0:
                 db.rollback()
                 return jsonify({"error": "Stock fisik tidak boleh negatif"}), 400
+
+            stock_row = db.execute(
+                """
+                SELECT
+                    COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as display_qty,
+                    COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as gudang_qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id IN (?, ?)
+                """,
+                (display_id, gudang_id, product_id, variant_id, display_id, gudang_id),
+            ).fetchone()
+
+            display_system = int(stock_row["display_qty"] or 0) if stock_row else 0
+            gudang_system = int(stock_row["gudang_qty"] or 0) if stock_row else 0
 
             diff_display = display_physical - display_system
             diff_gudang = gudang_physical - gudang_system
@@ -352,15 +388,38 @@ def submit_so():
 
         if processed == 0:
             db.rollback()
-            return jsonify({"error": "Tidak ada perubahan valid untuk disimpan"}), 400
+            payload = _build_so_page_payload(
+                db,
+                display_id,
+                gudang_id,
+                search=search,
+                page=page,
+                limit=20,
+            )
+            payload.update(
+                {
+                    "message": "Tidak ada perubahan baru. Data stok sudah sinkron dengan hasil SO.",
+                    "processed": 0,
+                }
+            )
+            return jsonify(payload)
 
         db.commit()
-        return jsonify(
+        payload = _build_so_page_payload(
+            db,
+            display_id,
+            gudang_id,
+            search=search,
+            page=page,
+            limit=20,
+        )
+        payload.update(
             {
                 "message": "SO berhasil disimpan dan stock sudah sinkron",
                 "processed": processed,
             }
         )
+        return jsonify(payload)
 
     except Exception as e:
         db.rollback()

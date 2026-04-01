@@ -167,6 +167,44 @@ def _get_request_available_stock(db, product_id, variant_id, warehouse_id):
     return row["qty"] if row else 0
 
 
+def _fetch_request_row(db, request_id):
+    return db.execute("""
+        SELECT
+            r.*,
+            p.sku,
+            p.name AS product_name,
+            COALESCE(v.variant, 'default') AS variant,
+            w1.name AS from_name,
+            w2.name AS to_name
+        FROM requests r
+        LEFT JOIN products p ON r.product_id = p.id
+        LEFT JOIN product_variants v ON r.variant_id = v.id
+        LEFT JOIN warehouses w1 ON r.from_warehouse = w1.id
+        LEFT JOIN warehouses w2 ON r.to_warehouse = w2.id
+        WHERE r.id=?
+    """, (request_id,)).fetchone()
+
+
+def _notify_request_requester(request_row, verb):
+    if not request_row or not request_row["requested_by"]:
+        return
+
+    variant = request_row["variant"] or "default"
+    variant_label = "Default" if str(variant).lower() == "default" else variant
+    reason = (request_row["reason"] or "").strip()
+    reason_line = f"\nAlasan: {reason}" if reason else ""
+
+    notify_user(
+        request_row["requested_by"],
+        f"Request antar gudang #{request_row['id']} {verb}",
+        (
+            f"Request {request_row['sku']} - {request_row['product_name']} / {variant_label} "
+            f"sebanyak {request_row['qty']} item dari {request_row['from_name']} ke {request_row['to_name']} "
+            f"telah {verb}.{reason_line}"
+        ),
+    )
+
+
 def can_approve_request():
     return has_permission(session.get("role"), "approve_requests")
 
@@ -694,10 +732,7 @@ def approve_request_route(id):
         return redirect("/request")
 
     db = get_db()
-    req = db.execute(
-        "SELECT id, from_warehouse, to_warehouse FROM requests WHERE id=?",
-        (id,),
-    ).fetchone()
+    req = _fetch_request_row(db, id)
 
     if not req:
         flash("Request tidak ditemukan", "error")
@@ -709,10 +744,75 @@ def approve_request_route(id):
         return redirect("/request")
 
     success = approve_request(id)
+    updated_request = _fetch_request_row(db, id)
 
     if success:
+        try:
+            _notify_request_requester(updated_request, "disetujui")
+        except Exception as exc:
+            print("REQUEST APPROVE USER NOTIFY ERROR:", exc)
         flash("Request disetujui", "success")
+    elif updated_request and updated_request["status"] == "rejected":
+        try:
+            _notify_request_requester(updated_request, "ditolak")
+        except Exception as exc:
+            print("REQUEST AUTO REJECT USER NOTIFY ERROR:", exc)
+        flash(updated_request["reason"] or "Request ditolak", "error")
     else:
         flash("Gagal approve", "error")
 
+    return redirect("/request")
+
+
+@request_bp.route("/reject/<int:id>", methods=["POST"])
+def reject_request_route(id):
+
+    if not can_approve_request():
+        flash("Tidak punya akses", "error")
+        return redirect("/request")
+
+    db = get_db()
+    req = _fetch_request_row(db, id)
+
+    if not req:
+        flash("Request tidak ditemukan", "error")
+        return redirect("/request")
+
+    warehouse_scope = get_request_scope()
+    if warehouse_scope and warehouse_scope != req["from_warehouse"]:
+        flash("Hanya leader gudang pengirim yang bisa menolak request ini", "error")
+        return redirect("/request")
+
+    if req["status"] != "pending":
+        flash("Request ini sudah diproses", "error")
+        return redirect("/request")
+
+    reason = (request.form.get("reason") or "").strip() or "Ditolak oleh approver"
+
+    try:
+        db.execute(
+            """
+            UPDATE requests
+            SET status='rejected',
+                reason=?,
+                approved_at=datetime('now'),
+                approved_by=?
+            WHERE id=? AND status='pending'
+            """,
+            (reason, session.get("user_id"), id),
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print("REQUEST REJECT ERROR:", exc)
+        flash("Gagal menolak request", "error")
+        return redirect("/request")
+
+    updated_request = _fetch_request_row(db, id)
+    try:
+        _notify_request_requester(updated_request, "ditolak")
+    except Exception as exc:
+        print("REQUEST REJECT USER NOTIFY ERROR:", exc)
+
+    flash("Request ditolak", "success")
     return redirect("/request")

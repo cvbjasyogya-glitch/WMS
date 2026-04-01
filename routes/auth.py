@@ -1,8 +1,17 @@
-from flask import Blueprint, render_template, request, redirect, session, url_for, flash
+from flask import Blueprint, current_app, render_template, request, redirect, session, url_for, flash
 from database import get_db
-import random
 from services.notification_service import send_email, send_whatsapp
 from services.rbac import is_scoped_role
+from services.auth_security import (
+    clear_login_failures,
+    get_client_ip,
+    get_login_throttle_state,
+    issue_password_reset_code,
+    mark_password_resets_used,
+    normalize_identifier,
+    record_login_attempt,
+    cleanup_password_resets,
+)
 from werkzeug.security import check_password_hash
 from datetime import datetime, timezone
 
@@ -22,6 +31,16 @@ def login():
             return redirect(url_for("auth.login"))
 
         db = get_db()
+        identifier = normalize_identifier(username)
+        client_ip = get_client_ip()
+        throttle_state = get_login_throttle_state(db, identifier, client_ip)
+
+        if throttle_state["blocked"]:
+            flash(
+                f"Terlalu banyak percobaan login. Coba lagi dalam {throttle_state['retry_after']} detik.",
+                "error",
+            )
+            return redirect(url_for("auth.login"))
 
         user = db.execute(
             "SELECT * FROM users WHERE username=?",
@@ -29,6 +48,7 @@ def login():
         ).fetchone()
 
         if not user:
+            record_login_attempt(db, identifier, client_ip, False)
             flash("Username / Password salah", "error")
             return redirect(url_for("auth.login"))
 
@@ -40,8 +60,12 @@ def login():
             valid = False
 
         if not valid:
+            record_login_attempt(db, identifier, client_ip, False)
             flash("Username / Password salah", "error")
             return redirect(url_for("auth.login"))
+
+        clear_login_failures(db, identifier, client_ip)
+        record_login_attempt(db, identifier, client_ip, True)
 
         # ==============================
         # LOGIN SUCCESS
@@ -52,6 +76,11 @@ def login():
         session["username"] = user["username"]
         session["role"] = user["role"]
         session["employee_id"] = user.get("employee_id")
+        session["chat_sound_volume"] = float(
+            user.get("chat_sound_volume")
+            if user.get("chat_sound_volume") is not None
+            else current_app.config.get("CHAT_SOUND_VOLUME_DEFAULT", 0.85)
+        )
         # set warehouse scope: use user assigned warehouse for scoped roles, otherwise default first warehouse
         try:
             user_wh = user.get('warehouse_id') if user else None
@@ -121,13 +150,11 @@ def forgot_password():
 
         user = dict(user)
 
-        # generate 6 digit code
-        code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
-        db.execute("INSERT INTO password_resets(user_id, code, expires_at) VALUES (?,?,datetime('now','+15 minutes'))", (user['id'], code))
-        db.commit()
+        ttl_minutes = current_app.config.get("PASSWORD_RESET_TTL_MINUTES", 15)
+        code = issue_password_reset_code(db, user['id'], ttl_minutes)
 
         subj = 'Kode Reset Password'
-        msg = f"Kode reset password Anda: {code}. Berlaku 15 menit."
+        msg = f"Kode reset password Anda: {code}. Berlaku {ttl_minutes} menit."
 
         try:
             if user.get('email') and user.get('notify_email'):
@@ -157,7 +184,13 @@ def reset_password():
             flash('Semua field wajib diisi', 'error')
             return redirect(url_for('auth.reset_password'))
 
+        min_length = int(current_app.config.get("PASSWORD_MIN_LENGTH", 8))
+        if len(newpw) < min_length:
+            flash(f'Password minimal {min_length} karakter', 'error')
+            return redirect(url_for('auth.reset_password'))
+
         db = get_db()
+        cleanup_password_resets(db)
         user = db.execute('SELECT * FROM users WHERE username=? LIMIT 1', (username,)).fetchone()
         if not user:
             flash('User tidak ditemukan', 'error')
@@ -171,8 +204,7 @@ def reset_password():
         # perform reset
         from werkzeug.security import generate_password_hash
         db.execute('UPDATE users SET password=? WHERE id=?', (generate_password_hash(newpw), user['id']))
-        db.execute('UPDATE password_resets SET used=1 WHERE id=?', (pr['id'],))
-        db.commit()
+        mark_password_resets_used(db, user['id'])
 
         flash('Password berhasil direset. Silakan login.', 'success')
         return redirect(url_for('auth.login'))

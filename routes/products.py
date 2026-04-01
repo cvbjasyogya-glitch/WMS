@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, jsonify, flash, session
 from database import get_db
-from services.rbac import is_scoped_role
+from services.rbac import has_permission, is_scoped_role
 from services.stock_service import add_stock
 import csv
 import json
@@ -17,6 +17,55 @@ except ImportError:
 products_bp = Blueprint("products", __name__, url_prefix="/products")
 
 IMPORT_PROGRESS = {}
+
+
+def _can_manage_product_master():
+    return has_permission(session.get("role"), "manage_product_master")
+
+
+def _products_json_error(message, status_code=403, **payload):
+    response = {"status": "error", "message": message}
+    response.update(payload)
+    return jsonify(response), status_code
+
+
+def _require_product_master_access(json_mode=False):
+    if _can_manage_product_master():
+        return None
+
+    message = "Akses master produk hanya tersedia untuk admin, leader, owner, atau super admin."
+    if json_mode or _is_ajax_request():
+        return _products_json_error(message, 403)
+
+    flash(message, "error")
+    return redirect("/products")
+
+
+def _is_ajax_request():
+    return (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept") or "")
+    )
+
+
+def _products_success_response(message, **payload):
+    if _is_ajax_request():
+        response = {"status": "success", "message": message}
+        response.update(payload)
+        return jsonify(response), 200
+
+    flash(message, "success")
+    return redirect("/products")
+
+
+def _products_error_response(message, status_code=400, **payload):
+    if _is_ajax_request():
+        response = {"status": "error", "message": message}
+        response.update(payload)
+        return jsonify(response), status_code
+
+    flash(message, "error")
+    return redirect("/products")
 
 
 def _to_float(value):
@@ -50,6 +99,22 @@ def _normalize_variant_name(value):
     return value
 
 
+def _normalize_variant_color(value):
+    return " ".join(str(value or "").strip().split())
+
+
+def _compose_variant_label(variant_value, color_value=""):
+    normalized_variant = _normalize_variant_name(variant_value)
+    normalized_color = _normalize_variant_color(color_value)
+
+    if normalized_color:
+        if normalized_variant == "default":
+            return normalized_color
+        return f"{normalized_variant} / {normalized_color}"
+
+    return normalized_variant
+
+
 def _row_has_content(row):
     return any(str(value or "").strip() for value in row.values())
 
@@ -70,6 +135,8 @@ def _merge_variant_rows(rows):
         merged_row["price_retail"] = row["price_retail"]
         merged_row["price_discount"] = row["price_discount"]
         merged_row["price_nett"] = row["price_nett"]
+        if row["color"]:
+            merged_row["color"] = row["color"]
 
         if row["variant_code"]:
             merged_row["variant_code"] = row["variant_code"]
@@ -107,11 +174,13 @@ def _build_variant_rows(form):
             raw_price_discount = item.get("price_discount")
             raw_price_nett = item.get("price_nett")
             variant_code = str(item.get("variant_code") or "").strip()
+            color = _normalize_variant_color(item.get("color"))
             gtin = str(item.get("gtin") or "").strip()
             no_gtin = 1 if _to_bool(item.get("no_gtin")) else 0
 
             if not any([
                 raw_variant,
+                color,
                 str(raw_qty or "").strip(),
                 str(raw_price_retail or "").strip(),
                 str(raw_price_discount or "").strip(),
@@ -123,7 +192,8 @@ def _build_variant_rows(form):
                 continue
 
             rows.append({
-                "variant": _normalize_variant_name(raw_variant),
+                "variant": _compose_variant_label(raw_variant, color),
+                "color": color,
                 "qty": _to_int(raw_qty, 0),
                 "price_retail": _to_float(raw_price_retail),
                 "price_discount": _to_float(raw_price_discount),
@@ -144,7 +214,8 @@ def _build_variant_rows(form):
 
     return _merge_variant_rows([
         {
-            "variant": _normalize_variant_name(variant),
+            "variant": _compose_variant_label(variant),
+            "color": "",
             "qty": qty,
             "price_retail": price_retail,
             "price_discount": price_discount,
@@ -374,12 +445,14 @@ def _upsert_variant(
     price_discount,
     price_nett,
     variant_code="",
+    color="",
     gtin="",
     no_gtin=0,
 ):
     variant_name = _normalize_variant_name(variant_name)
     gtin = "" if no_gtin else (gtin or "").strip()
     variant_code = (variant_code or "").strip()
+    color = _normalize_variant_color(color)
 
     existing = db.execute("""
         SELECT id
@@ -394,6 +467,7 @@ def _upsert_variant(
                 price_discount=?,
                 price_nett=?,
                 variant_code=?,
+                color=?,
                 gtin=?,
                 no_gtin=?
             WHERE id=?
@@ -402,6 +476,7 @@ def _upsert_variant(
             price_discount,
             price_nett,
             variant_code,
+            color,
             gtin,
             no_gtin,
             existing["id"],
@@ -410,9 +485,9 @@ def _upsert_variant(
 
     cur = db.execute("""
         INSERT INTO product_variants(
-            product_id, variant, price_retail, price_discount, price_nett, variant_code, gtin, no_gtin
+            product_id, variant, price_retail, price_discount, price_nett, variant_code, color, gtin, no_gtin
         )
-        VALUES (?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?)
     """, (
         product_id,
         variant_name,
@@ -420,11 +495,29 @@ def _upsert_variant(
         price_discount,
         price_nett,
         variant_code,
+        color,
         gtin,
         no_gtin,
     ))
 
     return cur.lastrowid
+
+
+def _delete_product_bundle(db, product_ids):
+    if not product_ids:
+        return 0
+
+    placeholders = ",".join(["?"] * len(product_ids))
+
+    db.execute(f"DELETE FROM requests WHERE product_id IN ({placeholders})", product_ids)
+    db.execute(f"DELETE FROM approvals WHERE product_id IN ({placeholders})", product_ids)
+    db.execute(f"DELETE FROM stock_movements WHERE product_id IN ({placeholders})", product_ids)
+    db.execute(f"DELETE FROM stock_history WHERE product_id IN ({placeholders})", product_ids)
+    db.execute(f"DELETE FROM stock_batches WHERE product_id IN ({placeholders})", product_ids)
+    db.execute(f"DELETE FROM stock WHERE product_id IN ({placeholders})", product_ids)
+    db.execute(f"DELETE FROM product_variants WHERE product_id IN ({placeholders})", product_ids)
+    result = db.execute(f"DELETE FROM products WHERE id IN ({placeholders})", product_ids)
+    return result.rowcount if result.rowcount is not None else 0
 
 
 @products_bp.route("/get_variants/<int:product_id>")
@@ -433,7 +526,7 @@ def get_variants(product_id):
     db = get_db()
 
     rows = db.execute("""
-        SELECT id, variant, price_retail, price_discount, price_nett, variant_code, gtin, no_gtin
+        SELECT id, variant, price_retail, price_discount, price_nett, variant_code, color, gtin, no_gtin
         FROM product_variants
         WHERE product_id=?
         ORDER BY CASE WHEN LOWER(variant)='default' THEN 0 ELSE 1 END, variant
@@ -466,11 +559,12 @@ def product_picker():
                 OR COALESCE(c.name, '') LIKE ?
                 OR COALESCE(v.variant, '') LIKE ?
                 OR COALESCE(v.variant_code, '') LIKE ?
+                OR COALESCE(v.color, '') LIKE ?
                 OR COALESCE(v.gtin, '') LIKE ?
             )
         """)
-        params.extend([search_param] * 6)
-        count_params.extend([search_param] * 6)
+        params.extend([search_param] * 7)
+        count_params.extend([search_param] * 7)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -497,6 +591,7 @@ def product_picker():
             COALESCE(c.name, '-') AS category,
             COALESCE(v.variant, 'default') AS variant,
             COALESCE(v.variant_code, '') AS variant_code,
+            COALESCE(v.color, '') AS color,
             COALESCE(v.gtin, '') AS gtin,
             COALESCE(s.qty, 0) AS qty
         FROM products p
@@ -638,6 +733,9 @@ def products():
 
 @products_bp.route("/bulk-delete", methods=["POST"])
 def bulk_delete():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
 
     db = get_db()
     payload = request.get_json(silent=True) or {}
@@ -653,49 +751,50 @@ def bulk_delete():
     ids = sorted(set(ids))
 
     if not ids:
-        return jsonify({"message": "No data"}), 400
+        return _products_json_error("Pilih minimal satu produk.", 400)
 
     try:
         db.execute("BEGIN")
-
-        placeholders = ",".join(["?"] * len(ids))
-
-        db.execute(f"DELETE FROM stock_movements WHERE product_id IN ({placeholders})", ids)
-        db.execute(f"DELETE FROM stock_history WHERE product_id IN ({placeholders})", ids)
-        db.execute(f"DELETE FROM stock_batches WHERE product_id IN ({placeholders})", ids)
-        db.execute(f"DELETE FROM stock WHERE product_id IN ({placeholders})", ids)
-        db.execute(f"DELETE FROM product_variants WHERE product_id IN ({placeholders})", ids)
-        db.execute(f"DELETE FROM products WHERE id IN ({placeholders})", ids)
-
+        deleted_count = _delete_product_bundle(db, ids)
         db.commit()
-        return jsonify({"message": "OK"})
+        return jsonify({
+            "status": "success",
+            "message": f"{deleted_count} produk berhasil dihapus.",
+            "deleted_count": deleted_count,
+        })
 
     except Exception as e:
         db.rollback()
         print("BULK DELETE ERROR:", e)
-        return jsonify({"message": "Error"}), 500
+        return _products_json_error("Gagal menghapus produk.", 500)
 
 
 @products_bp.route("/import/preview", methods=["POST"])
 def preview_import():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
 
     file = request.files.get("file")
 
     if not file:
-        return jsonify({"error": "File tidak ada"})
+        return _products_json_error("File tidak ada", 400)
 
     try:
         _, rows = _read_import_dataset(file)
     except RuntimeError as e:
-        return jsonify({"error": str(e)}), 500
+        return _products_json_error(str(e), 500)
     except Exception:
-        return jsonify({"error": "Format tidak valid"}), 400
+        return _products_json_error("Format tidak valid", 400)
 
-    return jsonify({"rows": rows[:10]})
+    return jsonify({"status": "success", "rows": rows[:10]})
 
 
 @products_bp.route("/add", methods=["POST"])
 def add_product():
+    denied = _require_product_master_access()
+    if denied:
+        return denied
 
     db = get_db()
 
@@ -706,20 +805,17 @@ def add_product():
         warehouse_id = int(request.form["warehouse_id"])
         variant_rows = _build_variant_rows(request.form)
 
-    except:
-        flash("Input tidak valid", "error")
-        return redirect("/products")
+    except Exception:
+        return _products_error_response("Input tidak valid", 400)
 
     if is_scoped_role(session.get("role")):
         warehouse_id = session.get("warehouse_id") or warehouse_id
 
     if not variant_rows:
-        flash("Minimal isi satu variasi produk.", "error")
-        return redirect("/products")
+        return _products_error_response("Minimal isi satu variasi produk.", 400)
 
     if any(row["qty"] < 0 for row in variant_rows):
-        flash("Qty tidak boleh minus.", "error")
-        return redirect("/products")
+        return _products_error_response("Qty tidak boleh minus.", 400)
 
     try:
         db.execute("BEGIN")
@@ -728,8 +824,7 @@ def add_product():
 
         if exist:
             db.rollback()
-            flash("SKU sudah ada", "error")
-            return redirect("/products")
+            return _products_error_response("SKU sudah ada", 409)
 
         category = db.execute("SELECT id FROM categories WHERE name=?", (category_name,)).fetchone()
 
@@ -751,6 +846,7 @@ def add_product():
                 row["price_discount"],
                 row["price_nett"],
                 variant_code=row["variant_code"],
+                color=row.get("color", ""),
                 gtin=row["gtin"],
                 no_gtin=row["no_gtin"],
             )
@@ -764,33 +860,34 @@ def add_product():
                 raise Exception("Gagal add stock")
 
         db.commit()
-        flash("Produk berhasil ditambahkan", "success")
+        return _products_success_response(
+            "Produk berhasil ditambahkan",
+            product_id=product_id,
+            sku=sku,
+        )
 
     except Exception as e:
         db.rollback()
         print("ERROR ADD PRODUCT:", e)
-        flash(str(e), "error")
-
-    return redirect("/products")
+        return _products_error_response(str(e), 500)
 
 
 @products_bp.route("/delete/<int:id>", methods=["POST"])
 def delete_product(id):
+    denied = _require_product_master_access()
+    if denied:
+        return denied
 
     db = get_db()
 
     try:
         db.execute("BEGIN")
-
-        db.execute("DELETE FROM stock_movements WHERE product_id=?", (id,))
-        db.execute("DELETE FROM stock_history WHERE product_id=?", (id,))
-        db.execute("DELETE FROM stock_batches WHERE product_id=?", (id,))
-        db.execute("DELETE FROM stock WHERE product_id=?", (id,))
-        db.execute("DELETE FROM product_variants WHERE product_id=?", (id,))
-        db.execute("DELETE FROM products WHERE id=?", (id,))
-
+        deleted_count = _delete_product_bundle(db, [id])
         db.commit()
-        flash("Produk berhasil dihapus", "success")
+        if deleted_count:
+            flash("Produk berhasil dihapus", "success")
+        else:
+            flash("Produk tidak ditemukan atau sudah terhapus", "error")
 
     except Exception as e:
         db.rollback()
@@ -802,11 +899,14 @@ def delete_product(id):
 
 @products_bp.route("/import/progress/<job_id>")
 def import_progress(job_id):
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
 
     data = IMPORT_PROGRESS.get(job_id)
 
     if not data:
-        return jsonify({"error": "not found"}), 404
+        return _products_json_error("Progress import tidak ditemukan", 404)
 
     percent = int((data["current"] / data["total"]) * 100) if data["total"] else 0
 
@@ -820,12 +920,15 @@ def import_progress(job_id):
 
 @products_bp.route("/import", methods=["POST"])
 def import_products():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
 
     db = get_db()
     file = request.files.get("file")
 
     if not file:
-        return "No file", 400
+        return _products_json_error("File import belum dipilih.", 400)
 
     user_id = session.get("user_id")
     ip = request.remote_addr
@@ -834,14 +937,14 @@ def import_products():
     try:
         columns, rows = _read_import_dataset(file)
     except RuntimeError as e:
-        return str(e), 500
+        return _products_json_error(str(e), 500)
     except Exception:
-        return "Format tidak valid", 400
+        return _products_json_error("Format tidak valid", 400)
 
     required = ["sku", "name", "category", "qty"]
     for col in required:
         if col not in columns:
-            return f"Kolom {col} tidak ada", 400
+            return _products_json_error(f"Kolom {col} tidak ada", 400)
 
     job_id = str(uuid.uuid4())
 
@@ -876,6 +979,7 @@ def import_products():
                     name = str(row.get("name")).strip()
                     category_name = str(row.get("category") or "").strip() or "Uncategorized"
                     variant = _normalize_variant_name(str(row.get("variant") or "default"))
+                    color = _normalize_variant_color(row.get("color"))
 
                     qty = _to_int(row.get("qty"), 0)
                     warehouse_id = _resolve_import_warehouse(
@@ -915,11 +1019,12 @@ def import_products():
                     variant_id = _upsert_variant(
                         db,
                         product_id,
-                        variant,
+                        _compose_variant_label(variant, color),
                         price_retail,
                         price_discount,
                         price_nett,
                         variant_code=variant_code,
+                        color=color,
                         gtin=gtin,
                         no_gtin=no_gtin,
                     )

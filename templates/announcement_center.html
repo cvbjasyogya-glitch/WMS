@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Pusat Pengumuman - ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Announcement Center{% endblock %}
+{% block page_title %}Pusat Pengumuman{% endblock %}
+{% block page_subtitle %}Satu halaman khusus untuk membaca pengumuman umum dari HRIS dan perubahan jadwal terbaru, sekaligus menyalakan notifikasi perangkat agar info penting tetap masuk walau tab web tidak sedang dibuka.{% endblock %}
+
+{% block page_actions %}
+<a href="/schedule/" class="ghost-button">Buka Jadwal</a>
+{% if can_manage_announcements %}
+<a href="/hris/announcement" class="ghost-button">Kelola di HRIS</a>
+{% endif %}
+<button type="button" class="ghost-button" data-enable-device-notifications>Aktifkan Notif Perangkat</button>
+{% endblock %}
+
+{% block content %}
+<section class="cards">
+    <article class="card-mini {% if summary.announcements %}success{% endif %}">
+        <p>Announcement Aktif</p>
+        <h3>{{ summary.announcements }}</h3>
+    </article>
+    <article class="card-mini {% if summary.schedule_changes_today %}warning{% endif %}">
+        <p>Perubahan Hari Ini</p>
+        <h3>{{ summary.schedule_changes_today }}</h3>
+    </article>
+    <article class="card-mini {% if active_push_subscriptions %}success{% endif %}">
+        <p>Perangkat Terhubung</p>
+        <h3>{{ active_push_subscriptions }}</h3>
+    </article>
+</section>
+
+<section class="panel announcement-permission-panel">
+    <div class="announcement-permission-head">
+        <div>
+            <p class="section-kicker">Notifikasi</p>
+            <h2>Broadcast ke Semua Orang</h2>
+            <p class="helper-text">Email dan WhatsApp mengikuti pengaturan akun. Notifikasi perangkat akan aktif setelah user memberi izin browser satu kali dari halaman ini.</p>
+        </div>
+        <span class="status-pill" data-push-status-pill>Belum dicek</span>
+    </div>
+    <div class="announcement-permission-grid">
+        <div class="box announcement-permission-card">
+            <strong>Perangkat / Browser</strong>
+            <p data-push-status-copy>Memeriksa dukungan notifikasi perangkat...</p>
+            <div class="announcement-permission-actions">
+                <button type="button" class="ghost-button" data-enable-device-notifications>Aktifkan Sekarang</button>
+                <button type="button" class="ghost-button" data-disable-device-notifications>Nonaktifkan</button>
+            </div>
+        </div>
+        <div class="box announcement-permission-card">
+            <strong>Email</strong>
+            <p>{{ "Aktif" if user_notification_settings.notify_email else "Nonaktif" }}{% if user_notification_settings.email %} | {{ user_notification_settings.email }}{% else %} | Belum diisi{% endif %}</p>
+        </div>
+        <div class="box announcement-permission-card">
+            <strong>WhatsApp</strong>
+            <p>{{ "Aktif" if user_notification_settings.notify_whatsapp else "Nonaktif" }}{% if user_notification_settings.phone %} | {{ user_notification_settings.phone }}{% else %} | Belum diisi{% endif %}</p>
+        </div>
+    </div>
+    {% if not webpush_public_key %}
+    <small class="helper-text">Push notification browser sudah disiapkan di aplikasi, tapi server belum diberi `WEBPUSH_PUBLIC_KEY`. Selama itu belum diisi, fallback email dan WhatsApp tetap jalan.</small>
+    {% endif %}
+</section>
+
+<section class="announcement-center-grid">
+    <article class="panel announcement-stream">
+        <div class="announcement-stream-head">
+            <div>
+                <p class="section-kicker">HRIS</p>
+                <h2>Pengumuman Umum</h2>
+            </div>
+            {% if can_manage_announcements %}
+            <a href="/hris/announcement" class="ghost-button">Kelola</a>
+            {% endif %}
+        </div>
+        {% if announcements %}
+        <div class="announcement-feed">
+            {% for announcement in announcements %}
+            <article class="box announcement-event-card">
+                <div class="announcement-event-head">
+                    <div>
+                        <h3>{{ announcement.title }}</h3>
+                        <p>{{ announcement.warehouse_name or "Semua Gudang" }} | Publish {{ announcement.publish_label }}</p>
+                    </div>
+                    <span class="badge {{ 'orange' if announcement.audience == 'leaders' else 'green' if announcement.audience == 'warehouse_team' else '' }}">{{ announcement.audience_label }}</span>
+                </div>
+                <div class="announcement-meta-row">
+                    <span>Channel: {{ announcement.channel or "-" }}</span>
+                    <span>Expire: {{ announcement.expires_label }}</span>
+                    <span>PIC: {{ announcement.handled_by_name or "-" }}</span>
+                </div>
+                <p class="announcement-body">{{ announcement.message or "Tanpa isi pengumuman." }}</p>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">Belum ada pengumuman umum aktif dari HRIS di scope akun ini.</div>
+        {% endif %}
+    </article>
+
+    <article class="panel announcement-stream">
+        <div class="announcement-stream-head">
+            <div>
+                <p class="section-kicker">Schedule</p>
+                <h2>Perubahan Jadwal</h2>
+            </div>
+            <a href="/schedule/" class="ghost-button">Buka Board</a>
+        </div>
+        {% if schedule_changes %}
+        <div class="announcement-feed">
+            {% for event in schedule_changes %}
+            <article class="box announcement-event-card">
+                <div class="announcement-event-head">
+                    <div>
+                        <h3>{{ event.title }}</h3>
+                        <p>{{ event.warehouse_name or "Semua Gudang" }} | Berlaku {{ event.range_label }}</p>
+                    </div>
+                    <span class="badge {{ 'orange' if event.event_kind == 'day_note' else 'green' }}">{{ "Catatan" if event.event_kind == "day_note" else "Shift" }}</span>
+                </div>
+                <div class="announcement-meta-row">
+                    <span>Audience: {{ event.audience_label }}</span>
+                    <span>Oleh: {{ event.created_by_name or "-" }}</span>
+                    <span>{{ event.created_at }}</span>
+                </div>
+                <p class="announcement-body">{{ event.message }}</p>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">Belum ada perubahan jadwal yang tercatat. Saat HR atau Super Admin mengubah shift atau catatan hari, update-nya akan muncul di sini.</div>
+        {% endif %}
+    </article>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+window.wmsPushConfig = {
+    publicKey: {{ webpush_public_key|tojson }},
+    subscribeUrl: "/announcements/push/subscribe",
+    unsubscribeUrl: "/announcements/push/unsubscribe",
+    serviceWorkerUrl: "/service-worker.js"
+};
+</script>
+<script src="/static/js/push_notifications.js"></script>
+<script src="/static/js/announcement_center.js"></script>
+{% endblock %}

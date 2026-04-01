@@ -1,15 +1,9 @@
 {% extends "base.html" %}
 
-{% block title %}Absen Foto | Mataram Sports{% endblock %}
+{% block title %}Absen Foto | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Attendance Portal{% endblock %}
 {% block page_title %}Absen Foto & Geotag{% endblock %}
-{% block page_subtitle %}Halaman khusus absen mandiri dengan kamera dan geotag. Hasil check in atau check out langsung masuk ke log HRIS Geotag untuk rekap absensi harian.{% endblock %}
-
-{% block page_actions %}
-{% if can_view_hris_module("biometric") %}
-<a href="/hris/biometric" class="ghost-button">Buka Log HRIS</a>
-{% endif %}
-{% endblock %}
+{% block page_subtitle %}Halaman khusus absen mandiri dengan kamera, geotag, dan pilihan shift kerja. Check in, break, dan check out dijalankan dalam satu alur harian, jadi user tidak perlu pindah modul atau membaca log tambahan.{% endblock %}
 
 {% block content %}
 <div class="summary">
@@ -28,6 +22,14 @@
     <div class="card-mini {% if attendance_today %}success{% endif %}">
         <p>Status Hari Ini</p>
         <h3>{{ attendance_today.status|upper if attendance_today else "BELUM ABSEN" }}</h3>
+    </div>
+    <div class="card-mini {% if portal_punch_mode == 'complete' %}success{% endif %}">
+        <p>Mode Hari Ini</p>
+        <h3>{{ portal_punch_label }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Shift Hari Ini</p>
+        <h3>{{ portal_selected_shift_label }}</h3>
     </div>
 </div>
 
@@ -58,8 +60,12 @@
                 <strong>{{ linked_employee.position or "-" }}</strong>
             </div>
             <div class="meta-card">
-                <span>Check In / Out</span>
+                <span>Ringkasan Masuk / Keluar</span>
                 <strong>{{ attendance_today.check_in if attendance_today and attendance_today.check_in else "-" }} / {{ attendance_today.check_out if attendance_today and attendance_today.check_out else "-" }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Shift Aktif</span>
+                <strong>{{ attendance_today.shift_label if attendance_today and attendance_today.shift_label else portal_selected_shift_label }}</strong>
             </div>
             <div class="meta-card">
                 <span>Catatan Attendance</span>
@@ -68,26 +74,26 @@
         </div>
     </section>
 
-    <section class="form-box attendance-capture-card" data-attendance-portal>
+    <section class="form-box attendance-capture-card" data-attendance-portal data-portal-locked="{{ '1' if portal_punch_mode == 'complete' else '0' }}">
         <div class="section-title">
             <div>
                 <h2>Form Absen Mandiri</h2>
-                <p>Ambil foto wajah, isi titik lokasi, lalu simpan. Jam absen akan memakai waktu saat tombol simpan ditekan agar rekap HRIS tetap presisi.</p>
+                <p>Ambil foto wajah, pilih tipe absen yang sesuai, isi titik lokasi, lalu simpan. Jam absen akan memakai waktu saat tombol simpan ditekan agar rekap HRIS tetap presisi.</p>
             </div>
         </div>
 
         <form method="POST" action="/absen/submit" class="attendance-portal-form">
             <div class="attendance-capture-grid">
                 <div class="attendance-camera-panel">
-                    <div class="attendance-camera-frame">
+                    <div class="attendance-camera-frame" data-camera-frame>
                         <video autoplay muted playsinline data-camera-video></video>
                         <img alt="Preview foto absen" data-camera-preview hidden>
                         <canvas data-camera-canvas hidden></canvas>
                     </div>
                     <div class="attendance-camera-actions">
-                        <button type="button" class="ghost-button" data-camera-start>Aktifkan Kamera</button>
+                        <button type="button" class="ghost-button" data-camera-start {% if portal_punch_mode == "complete" %}disabled{% endif %}>Aktifkan Kamera</button>
                         <button type="button" class="ghost-button" data-camera-capture disabled>Ambil Foto</button>
-                        <button type="button" class="ghost-button" data-camera-retake disabled>Ulangi Foto</button>
+                        <button type="button" class="ghost-button" data-camera-retake disabled {% if portal_punch_mode == "complete" %}disabled{% endif %}>Ulangi Foto</button>
                     </div>
                     <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen.</small>
                 </div>
@@ -97,19 +103,50 @@
                     <input type="hidden" name="punch_time" data-punch-time-input>
                     <div class="form-grid">
                         <div>
-                            <label>Tipe Absen</label>
-                            <select name="punch_type">
-                                <option value="check_in">Check In</option>
-                                <option value="check_out">Check Out</option>
+                            <label>Shift Kerja</label>
+                            {% if portal_shift_locked and portal_selected_shift %}
+                            <input type="hidden" name="shift_code" value="{{ portal_selected_shift }}">
+                            <input type="text" value="{{ portal_selected_shift_label }}" readonly>
+                            <small class="helper-text">Shift terkunci mengikuti pilihan saat check in pertama hari ini.</small>
+                            {% else %}
+                            <select name="shift_code" data-shift-select {% if portal_punch_mode == "complete" %}disabled{% endif %}>
+                                {% for option in portal_shift_options %}
+                                <option value="{{ option.value }}" data-time-label="{{ option.time_label }}" {% if option.value == portal_selected_shift %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
                             </select>
+                            <small class="helper-text">
+                                {% if portal_warehouse_shift_key == "mega" %}
+                                Gudang Mega: Shift Pagi 09.00 - 17.00, Shift Siang 13.00 - 21.00.
+                                {% else %}
+                                Gudang Mataram: Shift Pagi 08.00 - 16.00, Shift Siang 13.00 - 21.00.
+                                {% endif %}
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label>Tipe Absen</label>
+                            {% if portal_punch_options %}
+                            <select name="punch_type" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
+                                {% for option in portal_punch_options %}
+                                <option value="{{ option.value }}" {% if option.value == portal_punch_mode %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="helper-text">Urutan aman: Check In, Break Start, Break Finish, lalu Check Out.</small>
+                            {% else %}
+                            <input type="text" value="{{ portal_punch_label }}" readonly>
+                            {% endif %}
                         </div>
                         <div>
                             <label>Waktu Terekam</label>
                             <input type="text" value="" data-punch-time-display readonly>
                         </div>
-                        <div style="grid-column: 1 / -1;">
+                        <div>
+                            <label>Jadwal Shift</label>
+                            <input type="text" value="{{ portal_selected_shift_time_label }}" data-shift-time-display readonly>
+                        </div>
+                        <div class="span-full">
                             <label>Titik Lokasi</label>
-                            <input name="location_label" placeholder="Contoh: Gudang Mataram - Area Depan Toko" required>
+                            <input name="location_label" placeholder="Contoh: Gudang Mataram - Area Depan Toko" {% if portal_punch_mode == "complete" %}disabled{% endif %} required>
                         </div>
                         <div>
                             <label>Latitude</label>
@@ -127,20 +164,27 @@
                             <label>Status Lokasi</label>
                             <input type="text" value="Belum diambil" data-location-status readonly>
                         </div>
-                        <div class="split-actions" style="grid-column: 1 / -1; margin-top:4px;">
-                            <button type="button" class="ghost-button" data-location-capture>Ambil Lokasi Saat Ini</button>
+                        <div class="split-actions span-full stack-gap-xs">
+                            <button type="button" class="ghost-button" data-location-capture {% if portal_punch_mode == "complete" %}disabled{% endif %}>Ambil Lokasi Saat Ini</button>
                         </div>
-                        <div style="grid-column: 1 / -1;">
+                        <div class="span-full">
                             <small class="helper-text" data-location-helper>Pastikan GPS aktif agar koordinat dan akurasi bisa terbaca dengan benar.</small>
                         </div>
-                        <div style="grid-column: 1 / -1;">
+                        <div class="span-full">
                             <label>Catatan</label>
-                            <textarea name="note" rows="3" placeholder="Opsional. Contoh: sedang tugas bukaan toko, kondisi sinyal GPS indoor, atau catatan check out."></textarea>
+                            <textarea name="note" rows="3" placeholder="Opsional. Contoh: sedang tugas bukaan toko, kondisi sinyal GPS indoor, atau catatan check out." {% if portal_punch_mode == "complete" %}disabled{% endif %}></textarea>
                         </div>
                     </div>
                     <div class="split-actions attendance-submit-row">
-                        <button type="submit">Simpan Absen</button>
+                        <button type="submit" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
+                            {% if portal_punch_mode == "complete" %}Absensi Hari Ini Lengkap{% else %}Simpan Absen{% endif %}
+                        </button>
                     </div>
+                    {% if portal_punch_mode == "complete" %}
+                    <small class="helper-text">Check in dan check out hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari HR atau Super Admin.</small>
+                    {% else %}
+                    <small class="helper-text">Foto akan dikompresi otomatis supaya tetap tajam, tidak kepotong, dan lebih hemat space saat tersimpan.</small>
+                    {% endif %}
                 </div>
             </div>
         </form>
@@ -154,45 +198,6 @@
 </div>
 {% endif %}
 
-<div class="table-box">
-    <div class="section-title">
-        <div>
-            <h2>Riwayat Absen Terakhir</h2>
-            <p>Ringkasan ini mengambil data langsung dari log geotag HRIS, jadi semua foto, lokasi, dan jam absen di sini akan sama dengan yang muncul di modul Geotag.</p>
-        </div>
-    </div>
-
-    {% if recent_logs %}
-    <div class="attendance-history-list">
-        {% for log in recent_logs %}
-        <article class="attendance-history-item">
-            <div class="attendance-history-photo">
-                {% if log.photo_url %}
-                <img src="{{ log.photo_url }}" alt="Foto absen {{ log.punch_time }}">
-                {% else %}
-                <span>Tanpa Foto</span>
-                {% endif %}
-            </div>
-            <div class="attendance-history-meta">
-                <div class="attendance-history-head">
-                    <strong>{{ log.punch_type|replace("_", " ")|title }}</strong>
-                    <span class="badge {{ log.status_badge_class }}">{{ log.sync_status_label }}</span>
-                </div>
-                <p>{{ log.punch_time }}</p>
-                <p>{{ log.location_display }}</p>
-                <p class="mono">{{ log.coordinate_display }}{% if log.accuracy_display != "-" %} | {{ log.accuracy_display }}{% endif %}</p>
-                {% if log.note %}
-                <p>{{ log.note }}</p>
-                {% endif %}
-            </div>
-        </article>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">Belum ada log absen yang tercatat untuk akun ini.</div>
-    {% endif %}
-</div>
-
 <script>
 (() => {
     const portal = document.querySelector("[data-attendance-portal]");
@@ -203,6 +208,7 @@
     const video = portal.querySelector("[data-camera-video]");
     const preview = portal.querySelector("[data-camera-preview]");
     const canvas = portal.querySelector("[data-camera-canvas]");
+    const portalLocked = portal.dataset.portalLocked === "1";
     const startButton = portal.querySelector("[data-camera-start]");
     const captureButton = portal.querySelector("[data-camera-capture]");
     const retakeButton = portal.querySelector("[data-camera-retake]");
@@ -213,6 +219,8 @@
     const latitudeInput = portal.querySelector("[data-latitude-input]");
     const longitudeInput = portal.querySelector("[data-longitude-input]");
     const accuracyInput = portal.querySelector("[data-accuracy-input]");
+    const shiftSelect = portal.querySelector("[data-shift-select]");
+    const shiftTimeDisplay = portal.querySelector("[data-shift-time-display]");
     const photoInput = portal.querySelector("[data-photo-input]");
     const punchTimeInput = portal.querySelector("[data-punch-time-input]");
     const punchTimeDisplay = portal.querySelector("[data-punch-time-display]");
@@ -235,6 +243,9 @@
     };
 
     const syncPunchTime = () => {
+        if (portalLocked) {
+            return;
+        }
         const now = new Date();
         punchTimeInput.value = formatDateTimeLocal(now);
         punchTimeDisplay.value = formatDateTimeLabel(now);
@@ -246,6 +257,7 @@
         }
         activeStream.getTracks().forEach((track) => track.stop());
         activeStream = null;
+        video.srcObject = null;
     };
 
     const setCameraState = (message, tone = "idle") => {
@@ -253,10 +265,82 @@
         cameraStatus.dataset.state = tone;
     };
 
+    const syncCameraReadyState = () => {
+        const isReady = Boolean(activeStream) && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+        captureButton.disabled = !isReady;
+        if (isReady) {
+            setCameraState("Kamera aktif. Pastikan wajah terlihat jelas lalu klik Ambil Foto.", "success");
+        }
+    };
+
+    const resetPreviewState = () => {
+        photoInput.value = "";
+        preview.removeAttribute("src");
+        preview.hidden = true;
+        video.hidden = false;
+        retakeButton.disabled = true;
+    };
+
+    const syncShiftTimeDisplay = () => {
+        if (!shiftSelect || !shiftTimeDisplay) {
+            return;
+        }
+        const selectedOption = shiftSelect.options[shiftSelect.selectedIndex];
+        shiftTimeDisplay.value = selectedOption ? (selectedOption.dataset.timeLabel || "") : "";
+    };
+
+    const exportCompressedFrame = () => {
+        const sourceWidth = video.videoWidth || 0;
+        const sourceHeight = video.videoHeight || 0;
+        if (!sourceWidth || !sourceHeight) {
+            return null;
+        }
+
+        const longestEdge = Math.max(sourceWidth, sourceHeight);
+        const maxEdge = 1080;
+        const scale = Math.min(maxEdge / longestEdge, 1);
+        const targetWidth = Math.max(Math.round(sourceWidth * scale), 1);
+        const targetHeight = Math.max(Math.round(sourceHeight * scale), 1);
+
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, targetWidth, targetHeight);
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.fillStyle = "#0b1320";
+        context.fillRect(0, 0, targetWidth, targetHeight);
+        context.drawImage(
+            video,
+            0,
+            0,
+            sourceWidth,
+            sourceHeight,
+            0,
+            0,
+            targetWidth,
+            targetHeight
+        );
+
+        return canvas.toDataURL("image/jpeg", 0.82);
+    };
+
     syncPunchTime();
-    window.setInterval(syncPunchTime, 30000);
+    syncShiftTimeDisplay();
+    if (!portalLocked) {
+        window.setInterval(syncPunchTime, 30000);
+    } else {
+        setCameraState("Absensi hari ini sudah lengkap. Portal dikunci sampai hari berikutnya atau ada koreksi dari HR.", "success");
+        locationStatus.value = "Absensi lengkap";
+        locationHelper.textContent = "Tidak perlu ambil foto atau lokasi lagi untuk hari ini.";
+    }
+
+    shiftSelect?.addEventListener("change", syncShiftTimeDisplay);
 
     startButton.addEventListener("click", async () => {
+        if (portalLocked) {
+            return;
+        }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setCameraState("Browser ini tidak mendukung akses kamera langsung.", "error");
             return;
@@ -267,35 +351,54 @@
             activeStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     facingMode: "user",
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
+                    aspectRatio: { ideal: 0.75 },
+                    width: { ideal: 1080, max: 1440 },
+                    height: { ideal: 1440, max: 1920 },
                 },
                 audio: false,
             });
             video.srcObject = activeStream;
-            preview.hidden = true;
-            video.hidden = false;
-            captureButton.disabled = false;
-            retakeButton.disabled = true;
-            setCameraState("Kamera aktif. Pastikan wajah terlihat jelas lalu klik Ambil Foto.", "success");
+            resetPreviewState();
+            captureButton.disabled = true;
+            setCameraState("Menyiapkan kamera. Tunggu sebentar sampai preview siap dipakai.", "idle");
+
+            const handleReady = async () => {
+                try {
+                    await video.play();
+                } catch (error) {
+                }
+                syncCameraReadyState();
+            };
+
+            if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                handleReady();
+            } else {
+                video.addEventListener("loadedmetadata", handleReady, { once: true });
+            }
         } catch (error) {
             setCameraState("Izin kamera ditolak atau kamera tidak tersedia pada device ini.", "error");
         }
     });
 
     captureButton.addEventListener("click", () => {
+        if (portalLocked) {
+            return;
+        }
         if (!activeStream) {
             setCameraState("Aktifkan kamera dulu sebelum mengambil foto.", "error");
             return;
         }
 
-        const width = video.videoWidth || 720;
-        const height = video.videoHeight || 540;
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext("2d");
-        context.drawImage(video, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+            setCameraState("Preview kamera belum siap. Tunggu 1-2 detik lalu coba ambil foto lagi.", "error");
+            return;
+        }
+
+        const dataUrl = exportCompressedFrame();
+        if (!dataUrl) {
+            setCameraState("Foto belum bisa diproses. Coba aktifkan ulang kamera lalu ambil foto lagi.", "error");
+            return;
+        }
 
         photoInput.value = dataUrl;
         preview.src = dataUrl;
@@ -308,15 +411,19 @@
     });
 
     retakeButton.addEventListener("click", () => {
-        photoInput.value = "";
-        preview.removeAttribute("src");
-        preview.hidden = true;
-        video.hidden = false;
-        retakeButton.disabled = true;
+        if (portalLocked) {
+            return;
+        }
+        resetPreviewState();
         startButton.click();
     });
 
+    video.addEventListener("canplay", syncCameraReadyState);
+
     locationButton.addEventListener("click", () => {
+        if (portalLocked) {
+            return;
+        }
         if (!navigator.geolocation) {
             locationStatus.value = "Browser tidak mendukung GPS";
             locationHelper.textContent = "Perangkat ini tidak bisa mengirim geotag dari browser.";
@@ -348,6 +455,10 @@
     });
 
     form.addEventListener("submit", (event) => {
+        if (portalLocked) {
+            event.preventDefault();
+            return;
+        }
         syncPunchTime();
         if (!photoInput.value) {
             event.preventDefault();

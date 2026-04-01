@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Dashboard | Mataram Sports WMS{% endblock %}
+{% block title %}Dashboard | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Live Warehouse Overview{% endblock %}
 {% block page_title %}Dashboard Operasional{% endblock %}
 {% block page_subtitle %}Pantau stok aktif, nilai inventory, potensi aging, dan request antar gudang dari satu ruang kerja yang selalu hidup.{% endblock %}
@@ -61,7 +61,7 @@
 </div>
 
 {% if is_scoped_user %}
-<small class="helper-text" style="margin-bottom:16px;">Gudang dashboard dikunci mengikuti gudang akun Anda.</small>
+<small class="helper-text page-helper-inline">Gudang dashboard dikunci mengikuti gudang akun Anda.</small>
 {% endif %}
 
 <div class="alerts dashboard-alerts">
@@ -122,7 +122,21 @@ function formatCurrency(value) {
     return "Rp " + new Intl.NumberFormat("id-ID").format(Math.round(value || 0));
 }
 
+const dashboardIsMobile = window.matchMedia("(max-width: 1080px)").matches;
+const dashboardLowData = Boolean(
+    navigator.connection
+    && (
+        navigator.connection.saveData
+        || /(?:^|[^a-z])2g/.test(String(navigator.connection.effectiveType || "").toLowerCase())
+    )
+);
+const dashboardPollInterval = dashboardLowData ? 16000 : dashboardIsMobile ? 12000 : 7000;
+let dashboardPollTimer = null;
+
 async function loadRealtime() {
+    if (document.visibilityState === "hidden") {
+        return;
+    }
     try {
         const res = await fetch("/api/realtime");
         const data = await res.json();
@@ -146,7 +160,27 @@ document.getElementById("warehouseSelect")?.addEventListener("change", function(
     }).then(() => location.reload());
 });
 
-setInterval(loadRealtime, 7000);
+function startDashboardPolling() {
+    if (dashboardPollTimer) {
+        clearInterval(dashboardPollTimer);
+    }
+    dashboardPollTimer = setInterval(loadRealtime, dashboardPollInterval);
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+        loadRealtime();
+        startDashboardPolling();
+        return;
+    }
+    if (dashboardPollTimer) {
+        clearInterval(dashboardPollTimer);
+        dashboardPollTimer = null;
+    }
+});
+
+startDashboardPolling();
 loadRealtime();
 </script>
 {% endblock %}
+

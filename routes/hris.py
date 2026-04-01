@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta
 from uuid import uuid4
 
-from flask import Blueprint, current_app, render_template, request, redirect, flash, session
+from flask import Blueprint, current_app, render_template, request, redirect, flash, session, url_for
 
 from database import get_db
 from routes.schedule import (
@@ -25,6 +25,8 @@ from services.hris_catalog import (
     is_self_service_hris_module,
     role_has_hris_access,
 )
+from services.announcement_center import build_announcement_notification_payload
+from services.notification_service import notify_broadcast
 from services.rbac import has_permission, is_scoped_role
 
 
@@ -34,6 +36,13 @@ EMPLOYEE_STATUSES = {"active", "probation", "leave", "inactive"}
 ATTENDANCE_STATUSES = {"present", "late", "leave", "absent", "half_day"}
 LEAVE_TYPES = {"annual", "sick", "permit", "unpaid", "special"}
 LEAVE_STATUSES = {"pending", "approved", "rejected", "cancelled"}
+LEAVE_TYPE_LABELS = {
+    "annual": "Cuti",
+    "sick": "Sakit",
+    "permit": "Izin",
+    "unpaid": "Tanpa Bayar",
+    "special": "Special",
+}
 PAYROLL_STATUSES = {"draft", "approved", "paid", "cancelled"}
 RECRUITMENT_STAGES = {"applied", "screening", "interview", "offer", "hired"}
 RECRUITMENT_STATUSES = {"active", "on_hold", "rejected", "withdrawn", "closed"}
@@ -49,7 +58,7 @@ ASSET_STATUSES = {"allocated", "standby", "maintenance", "returned"}
 ASSET_CONDITIONS = {"good", "fair", "damaged"}
 PROJECT_PRIORITIES = {"low", "medium", "high", "critical"}
 PROJECT_STATUSES = {"planning", "active", "on_hold", "completed", "cancelled"}
-BIOMETRIC_PUNCH_TYPES = {"check_in", "check_out"}
+BIOMETRIC_PUNCH_TYPES = {"check_in", "break_start", "break_finish", "check_out"}
 BIOMETRIC_SYNC_STATUSES = {"queued", "synced", "failed", "manual"}
 BIOMETRIC_PHOTO_MIME_TYPES = {
     "image/jpeg": ".jpg",
@@ -66,6 +75,27 @@ ANNOUNCEMENT_AUDIENCES = {"all", "leaders", "warehouse_team"}
 ANNOUNCEMENT_STATUSES = {"draft", "published", "archived"}
 DOCUMENT_TYPES = {"policy", "sop", "form", "memo", "contract", "other"}
 DOCUMENT_STATUSES = {"draft", "active", "archived"}
+DAILY_LIVE_REPORT_TYPES = {"daily", "live"}
+DAILY_LIVE_REPORT_STATUSES = {"submitted", "reviewed", "follow_up", "closed"}
+DAILY_LIVE_REPORT_TYPE_LABELS = {
+    "daily": "Harian",
+    "live": "Live",
+}
+DAILY_LIVE_REPORT_STATUS_LABELS = {
+    "submitted": "Menunggu Review",
+    "reviewed": "Reviewed",
+    "follow_up": "Perlu Follow Up",
+    "closed": "Closed",
+}
+DAILY_LIVE_REPORT_ACTIVE_STATUSES = ("submitted", "follow_up")
+DAILY_LIVE_REPORT_ARCHIVE_STATUSES = ("reviewed", "closed")
+DASHBOARD_REMINDER_STATUSES = {"open", "done"}
+DASHBOARD_REMINDER_STATUS_LABELS = {
+    "open": "Aktif",
+    "done": "Selesai",
+}
+DASHBOARD_LEAVE_ALERT_LIMIT = 8
+DASHBOARD_REMINDER_LIMIT = 10
 
 GEO_ATTENDANCE_NOTE = "Synced from geotag"
 DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
@@ -99,6 +129,13 @@ def _parse_iso_date(value):
         return date_cls.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _safe_hris_return_to(default="/hris/"):
+    target = (request.form.get("return_to") or "").strip()
+    if target.startswith("/hris"):
+        return target
+    return default
 
 
 def can_view_hris_records(module_slug=None):
@@ -171,8 +208,20 @@ def can_manage_document_records():
     return can_manage_hris_records("documents")
 
 
+def can_manage_dashboard_reminders():
+    return session.get("role") == "hr"
+
+
 def is_self_service_module(module_slug):
     return is_self_service_hris_module(session.get("role"), module_slug)
+
+
+def _portal_redirect_for_module(module_slug):
+    if module_slug == "leave":
+        return redirect("/libur/")
+    if module_slug == "biometric":
+        return redirect("/absen/")
+    return None
 
 
 def _hris_access_denied_redirect():
@@ -508,6 +557,16 @@ def _build_document_handling(status):
     return session.get("user_id"), _current_timestamp()
 
 
+def _normalize_daily_live_report_type(value):
+    report_type = (value or "").strip().lower()
+    return report_type if report_type in DAILY_LIVE_REPORT_TYPES else "daily"
+
+
+def _normalize_daily_live_report_status(value):
+    status = (value or "").strip().lower()
+    return status if status in DAILY_LIVE_REPORT_STATUSES else "submitted"
+
+
 def _insert_biometric_log_record(
     db,
     *,
@@ -523,6 +582,8 @@ def _insert_biometric_log_record(
     longitude,
     accuracy_m,
     note=None,
+    shift_code=None,
+    shift_label=None,
     photo_path=None,
 ):
     handled_by, handled_at = _build_biometric_handling(sync_status)
@@ -541,6 +602,8 @@ def _insert_biometric_log_record(
             latitude,
             longitude,
             accuracy_m,
+            shift_code,
+            shift_label,
             photo_path,
             photo_captured_at,
             note,
@@ -548,7 +611,7 @@ def _insert_biometric_log_record(
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             employee_id,
@@ -562,6 +625,8 @@ def _insert_biometric_log_record(
             latitude,
             longitude,
             accuracy_m,
+            shift_code,
+            shift_label,
             photo_path,
             photo_captured_at,
             note or None,
@@ -1053,7 +1118,7 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
         dict(row)
         for row in db.execute(
             """
-            SELECT punch_time, punch_type, sync_status
+            SELECT punch_time, punch_type, sync_status, shift_code, shift_label
             FROM biometric_logs
             WHERE employee_id=?
               AND warehouse_id=?
@@ -1066,7 +1131,7 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
     ]
     existing = db.execute(
         """
-        SELECT id, note
+        SELECT id, note, shift_code, shift_label
         FROM attendance_records
         WHERE employee_id=? AND attendance_date=?
         ORDER BY id DESC
@@ -1097,6 +1162,20 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
         None,
     )
     status = _derive_biometric_attendance_status(check_in)
+    shift_snapshot = next(
+        (
+            {
+                "shift_code": (log.get("shift_code") or "").strip().lower() or None,
+                "shift_label": (log.get("shift_label") or "").strip() or None,
+            }
+            for log in logs
+            if (log.get("shift_code") or "").strip() or (log.get("shift_label") or "").strip()
+        ),
+        {
+            "shift_code": (existing["shift_code"] if existing and existing["shift_code"] else None),
+            "shift_label": (existing["shift_label"] if existing and existing["shift_label"] else None),
+        },
+    )
 
     if existing:
         db.execute(
@@ -1106,6 +1185,8 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 check_in=?,
                 check_out=?,
                 status=?,
+                shift_code=?,
+                shift_label=?,
                 note=?,
                 updated_at=?
             WHERE id=?
@@ -1115,6 +1196,8 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 check_in,
                 check_out,
                 status,
+                shift_snapshot["shift_code"],
+                shift_snapshot["shift_label"],
                 GEO_ATTENDANCE_NOTE,
                 _current_timestamp(),
                 existing["id"],
@@ -1130,10 +1213,12 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 check_in,
                 check_out,
                 status,
+                shift_code,
+                shift_label,
                 note,
                 updated_at
             )
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 employee_id,
@@ -1142,6 +1227,8 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 check_in,
                 check_out,
                 status,
+                shift_snapshot["shift_code"],
+                shift_snapshot["shift_label"],
                 GEO_ATTENDANCE_NOTE,
                 _current_timestamp(),
             ),
@@ -1365,10 +1452,6 @@ def _clamp_dashboard_schedule_days(value):
 
 
 def _resolve_dashboard_warehouse(warehouses):
-    scope_warehouse = get_hris_scope()
-    if scope_warehouse:
-        return scope_warehouse
-
     selected_warehouse = _to_int(request.args.get("warehouse"))
     valid_ids = {warehouse["id"] for warehouse in warehouses}
     return selected_warehouse if selected_warehouse in valid_ids else None
@@ -1456,7 +1539,152 @@ def _build_dashboard_schedule_snapshot(db, selected_warehouse, start_date, days)
         "override_cells": override_cells,
         "manual_cells": manual_cells,
         "day_notes": sum(1 for row in preview_rows if row["note"]),
+        "note_dates": [row["iso_date"] for row in preview_rows if row["note"]],
         "remaining_members": max(0, len(schedule_members) - preview_count),
+    }
+
+
+def _build_dashboard_schedule_sections(db, warehouses, selected_warehouse, start_date, days):
+    selected_sections = []
+    if selected_warehouse:
+        selected_sections = [dict(warehouse) for warehouse in warehouses if warehouse["id"] == selected_warehouse]
+    else:
+        selected_sections = [dict(warehouse) for warehouse in warehouses]
+
+    sections = []
+    member_ids = set()
+    note_dates = set()
+    assigned_cells = 0
+    override_cells = 0
+    manual_cells = 0
+
+    for warehouse in selected_sections:
+        snapshot = _build_dashboard_schedule_snapshot(db, warehouse["id"], start_date, days)
+        snapshot["warehouse_id"] = warehouse["id"]
+        snapshot["warehouse_name"] = warehouse["name"]
+        snapshot["board_url"] = (
+            f"/schedule/?start={snapshot['start']}&days={snapshot['days']}&warehouse={warehouse['id']}"
+        )
+        sections.append(snapshot)
+
+        member_ids.update(member["employee_id"] for member in snapshot["members"])
+        note_dates.update(snapshot.get("note_dates", []))
+        assigned_cells += snapshot["assigned_cells"]
+        override_cells += snapshot["override_cells"]
+        manual_cells += snapshot["manual_cells"]
+
+    if not sections and selected_warehouse:
+        fallback_snapshot = _build_dashboard_schedule_snapshot(db, selected_warehouse, start_date, days)
+        fallback_snapshot["warehouse_id"] = selected_warehouse
+        fallback_snapshot["warehouse_name"] = "Gudang"
+        fallback_snapshot["board_url"] = (
+            f"/schedule/?start={fallback_snapshot['start']}&days={fallback_snapshot['days']}&warehouse={selected_warehouse}"
+        )
+        sections.append(fallback_snapshot)
+        member_ids.update(member["employee_id"] for member in fallback_snapshot["members"])
+        note_dates.update(fallback_snapshot.get("note_dates", []))
+        assigned_cells += fallback_snapshot["assigned_cells"]
+        override_cells += fallback_snapshot["override_cells"]
+        manual_cells += fallback_snapshot["manual_cells"]
+
+    start_value = start_date.isoformat()
+    end_value = (start_date + timedelta(days=days - 1)).isoformat()
+    if sections:
+        start_value = sections[0]["start"]
+        end_value = sections[0]["end"]
+
+    return {
+        "sections": sections,
+        "start": start_value,
+        "end": end_value,
+        "days": days,
+        "member_total": len(member_ids),
+        "assigned_cells": assigned_cells,
+        "override_cells": override_cells,
+        "manual_cells": manual_cells,
+        "day_notes": len(note_dates),
+    }
+
+
+def _fetch_dashboard_leave_alerts(db, selected_warehouse):
+    query = """
+        SELECT
+            l.id,
+            l.leave_type,
+            l.start_date,
+            l.end_date,
+            l.total_days,
+            l.status,
+            l.reason,
+            l.note,
+            l.created_at,
+            l.updated_at,
+            e.employee_code,
+            e.full_name,
+            w.name AS warehouse_name
+        FROM leave_requests l
+        LEFT JOIN employees e ON e.id = l.employee_id
+        LEFT JOIN warehouses w ON w.id = l.warehouse_id
+        WHERE l.status='pending'
+    """
+    params = []
+    if selected_warehouse:
+        query += " AND l.warehouse_id=?"
+        params.append(selected_warehouse)
+    query += " ORDER BY COALESCE(l.updated_at, l.created_at) DESC, l.id DESC LIMIT ?"
+    params.append(DASHBOARD_LEAVE_ALERT_LIMIT)
+
+    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    for row in rows:
+        row["leave_type_label"] = LEAVE_TYPE_LABELS.get(row["leave_type"], row["leave_type"])
+        row["employee_label"] = row["full_name"] or row["employee_code"] or "Karyawan"
+    return rows
+
+
+def _build_dashboard_leave_alert_summary(rows):
+    return {
+        "total": len(rows),
+        "sick": sum(1 for row in rows if row["leave_type"] == "sick"),
+        "permit": sum(1 for row in rows if row["leave_type"] == "permit"),
+        "annual": sum(1 for row in rows if row["leave_type"] == "annual"),
+        "special": sum(1 for row in rows if row["leave_type"] == "special"),
+    }
+
+
+def _fetch_dashboard_reminders(db, selected_warehouse, reminder_date):
+    query = """
+        SELECT
+            r.*,
+            w.name AS warehouse_name,
+            cu.username AS created_by_name,
+            uu.username AS updated_by_name
+        FROM dashboard_reminders r
+        LEFT JOIN warehouses w ON w.id = r.warehouse_id
+        LEFT JOIN users cu ON cu.id = r.created_by
+        LEFT JOIN users uu ON uu.id = r.updated_by
+        WHERE r.reminder_date=?
+    """
+    params = [reminder_date]
+
+    if selected_warehouse:
+        query += " AND (r.warehouse_id IS NULL OR r.warehouse_id=?)"
+        params.append(selected_warehouse)
+
+    query += " ORDER BY CASE WHEN r.status='open' THEN 0 ELSE 1 END, r.id DESC LIMIT ?"
+    params.append(DASHBOARD_REMINDER_LIMIT)
+
+    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    for row in rows:
+        row["status_label"] = DASHBOARD_REMINDER_STATUS_LABELS.get(row["status"], row["status"])
+        row["scope_label"] = row["warehouse_name"] or "Semua Gudang"
+    return rows
+
+
+def _build_dashboard_reminder_summary(rows):
+    return {
+        "total": len(rows),
+        "open": sum(1 for row in rows if row["status"] == "open"),
+        "done": sum(1 for row in rows if row["status"] == "done"),
     }
 
 
@@ -1504,12 +1732,17 @@ def _build_dashboard_summary(db, warehouses):
         draft_params.append(selected_warehouse)
     announcement_draft_count = db.execute(draft_query, draft_params).fetchone()[0]
 
-    schedule_snapshot = _build_dashboard_schedule_snapshot(
+    schedule_snapshot = _build_dashboard_schedule_sections(
         db,
+        warehouses,
         selected_warehouse,
         schedule_start,
         schedule_days,
     )
+    leave_alerts = _fetch_dashboard_leave_alerts(db, selected_warehouse)
+    leave_alert_summary = _build_dashboard_leave_alert_summary(leave_alerts)
+    dashboard_reminders = _fetch_dashboard_reminders(db, selected_warehouse, schedule_snapshot["start"])
+    reminder_summary = _build_dashboard_reminder_summary(dashboard_reminders)
 
     return {
         "filters": {
@@ -1526,6 +1759,10 @@ def _build_dashboard_summary(db, warehouses):
                 1 for item in active_announcements if item["audience"] == "warehouse_team"
             ),
         },
+        "leave_alerts": leave_alerts,
+        "leave_alert_summary": leave_alert_summary,
+        "reminders": dashboard_reminders,
+        "reminder_summary": reminder_summary,
         "schedule": schedule_snapshot,
     }
 
@@ -1545,6 +1782,105 @@ def _build_document_summary(documents):
             and record["review_date"] <= today_value
             and record["status"] == "active"
         ),
+    }
+
+
+def _fetch_daily_live_reports(db, selected_warehouse):
+    search = (request.args.get("daily_q") or "").strip()
+    report_type = (request.args.get("daily_type") or "all").strip().lower()
+    status = (request.args.get("daily_status") or "active").strip().lower()
+    date_from = _parse_iso_date((request.args.get("daily_date_from") or "").strip())
+    date_to = _parse_iso_date((request.args.get("daily_date_to") or "").strip())
+
+    if date_from and date_to and date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    query = """
+        SELECT
+            r.*,
+            u.username,
+            u.role AS user_role,
+            e.full_name AS employee_name,
+            w.name AS warehouse_name,
+            hu.username AS handled_username
+        FROM daily_live_reports r
+        LEFT JOIN users u ON u.id = r.user_id
+        LEFT JOIN employees e ON e.id = r.employee_id
+        LEFT JOIN warehouses w ON w.id = r.warehouse_id
+        LEFT JOIN users hu ON hu.id = r.handled_by
+        WHERE 1=1
+    """
+    params = []
+
+    if selected_warehouse:
+        query += " AND r.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    if search:
+        like = f"%{search}%"
+        query += """
+            AND (
+                COALESCE(r.title, '') LIKE ?
+                OR COALESCE(r.summary, '') LIKE ?
+                OR COALESCE(r.blocker_note, '') LIKE ?
+                OR COALESCE(r.follow_up_note, '') LIKE ?
+                OR COALESCE(u.username, '') LIKE ?
+                OR COALESCE(e.full_name, '') LIKE ?
+            )
+        """
+        params.extend([like, like, like, like, like, like])
+
+    if report_type in DAILY_LIVE_REPORT_TYPES:
+        query += " AND r.report_type=?"
+        params.append(report_type)
+    else:
+        report_type = "all"
+
+    if status == "active":
+        query += " AND r.status IN (?,?)"
+        params.extend(DAILY_LIVE_REPORT_ACTIVE_STATUSES)
+    elif status == "archived":
+        query += " AND r.status IN (?,?)"
+        params.extend(DAILY_LIVE_REPORT_ARCHIVE_STATUSES)
+    elif status in DAILY_LIVE_REPORT_STATUSES:
+        query += " AND r.status=?"
+        params.append(status)
+    else:
+        status = "active"
+
+    if date_from:
+        query += " AND r.report_date >= ?"
+        params.append(date_from.isoformat())
+
+    if date_to:
+        query += " AND r.report_date <= ?"
+        params.append(date_to.isoformat())
+
+    query += " ORDER BY r.report_date DESC, r.created_at DESC, r.id DESC"
+
+    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    for row in rows:
+        row["report_type_label"] = DAILY_LIVE_REPORT_TYPE_LABELS.get(row["report_type"], row["report_type"])
+        row["status_label"] = DAILY_LIVE_REPORT_STATUS_LABELS.get(row["status"], row["status"])
+        row["display_name"] = row["employee_name"] or row["username"] or "User"
+    return rows, {
+        "search": search,
+        "report_type": report_type,
+        "status": status,
+        "date_from": date_from.isoformat() if date_from else "",
+        "date_to": date_to.isoformat() if date_to else "",
+    }
+
+
+def _build_daily_live_report_summary(rows):
+    return {
+        "total": len(rows),
+        "submitted": sum(1 for row in rows if row["status"] == "submitted"),
+        "reviewed": sum(1 for row in rows if row["status"] == "reviewed"),
+        "follow_up": sum(1 for row in rows if row["status"] == "follow_up"),
+        "closed": sum(1 for row in rows if row["status"] == "closed"),
+        "archived": sum(1 for row in rows if row["status"] in DAILY_LIVE_REPORT_ARCHIVE_STATUSES),
+        "live": sum(1 for row in rows if row["report_type"] == "live"),
     }
 
 
@@ -1587,8 +1923,11 @@ def _build_report_snapshot(db):
     biometric_queue = count_from("biometric_logs", "sync_status=?", ["queued"])
     published_announcements = count_from("announcement_posts", "status=?", ["published"])
     active_documents = count_from("document_records", "status=?", ["active"])
+    pending_daily_reports = count_from("daily_live_reports", "status IN (?,?)", ["submitted", "follow_up"])
     paid_payroll = count_from("payroll_runs", "status=?", ["paid"])
     avg_score = avg_from("performance_reviews", "final_score")
+    daily_reports, daily_report_filters = _fetch_daily_live_reports(db, selected_warehouse)
+    daily_report_summary = _build_daily_live_report_summary(daily_reports)
 
     warehouse_name = "Semua Gudang"
     if selected_warehouse:
@@ -1598,7 +1937,7 @@ def _build_report_snapshot(db):
 
     summary = {
         "total_employees": total_employees,
-        "open_ops": open_leave + onboarding_live + offboarding_live + helpdesk_open + biometric_queue,
+        "open_ops": open_leave + onboarding_live + offboarding_live + helpdesk_open + biometric_queue + pending_daily_reports,
         "active_projects": active_projects,
         "avg_score": avg_score,
         "warehouse_name": warehouse_name,
@@ -1624,11 +1963,22 @@ def _build_report_snapshot(db):
         {"module": "Geotag Review", "value": biometric_queue, "detail": "Log geotag yang masih menunggu review atau verifikasi."},
         {"module": "Published Announcement", "value": published_announcements, "detail": "Pengumuman aktif yang sedang tayang."},
         {"module": "Active Documents", "value": active_documents, "detail": "Dokumen kerja yang sedang berlaku."},
+        {"module": "Daily & Live Reports", "value": pending_daily_reports, "detail": "Laporan operasional yang masih menunggu review atau follow up HR."},
         {"module": "Payroll Paid", "value": paid_payroll, "detail": "Run payroll yang sudah dibayar."},
         {"module": "Avg Performance", "value": f'{avg_score:.2f}', "detail": "Rata-rata skor review performa."},
     ]
 
-    return summary, {"warehouse_id": selected_warehouse}, workforce_rows, pipeline_rows, service_rows
+    filters = {"warehouse_id": selected_warehouse}
+    filters.update(daily_report_filters)
+    return (
+        summary,
+        filters,
+        workforce_rows,
+        pipeline_rows,
+        service_rows,
+        daily_reports,
+        daily_report_summary,
+    )
 
 
 def _fetch_employees(db):
@@ -2569,15 +2919,38 @@ def hris_index(module_slug=None):
         flash("Role ini tidak punya akses ke halaman HRIS", "error")
         return _hris_access_denied_redirect()
 
+    if module_slug == "attendance":
+        if not can_manage_hris_records("biometric"):
+            portal_redirect = _portal_redirect_for_module("biometric")
+            if portal_redirect is not None:
+                flash("Gunakan halaman self-service yang terpisah untuk modul attendance geotag.", "info")
+                return portal_redirect
+        redirect_target = url_for("hris.hris_index", module_slug="biometric")
+        query_string = request.query_string.decode("utf-8")
+        if query_string:
+            redirect_target = f"{redirect_target}?{query_string}"
+        return redirect(redirect_target)
+
+    if module_slug in {"leave", "biometric"} and not can_manage_hris_records(module_slug):
+        portal_redirect = _portal_redirect_for_module(module_slug)
+        if portal_redirect is not None:
+            flash("Gunakan halaman self-service yang terpisah untuk modul ini.", "info")
+            return portal_redirect
+
     db = get_db()
     role = session.get("role")
     modules = get_hris_modules(role)
-    default_module_slug = modules[0]["slug"]
-    selected_module = get_hris_module(module_slug or default_module_slug, role)
+    if not modules:
+        flash("Role ini tidak punya modul HRIS yang bisa dibuka", "error")
+        return _hris_access_denied_redirect()
+
+    root_module = get_hris_module("dashboard", role) or get_hris_module(modules[0]["slug"], role)
+    fallback_module = get_hris_module("helpdesk", role) or root_module
+    selected_module = get_hris_module(module_slug, role) if module_slug else root_module
 
     if selected_module is None:
         flash("Modul HRIS tidak tersedia untuk role ini", "error")
-        return redirect(f"/hris/{default_module_slug}")
+        return redirect(f"/hris/{fallback_module['slug']}")
 
     scope_warehouse = get_hris_scope()
 
@@ -2635,6 +3008,10 @@ def hris_index(module_slug=None):
     dashboard_filters = None
     dashboard_announcements = []
     dashboard_announcement_summary = None
+    dashboard_leave_alerts = []
+    dashboard_leave_alert_summary = None
+    dashboard_reminders = []
+    dashboard_reminder_summary = None
     dashboard_schedule = None
     documents = []
     document_summary = None
@@ -2644,6 +3021,8 @@ def hris_index(module_slug=None):
     report_workforce_rows = []
     report_pipeline_rows = []
     report_service_rows = []
+    daily_live_reports = []
+    daily_live_report_summary = None
     warehouses = db.execute(
         "SELECT * FROM warehouses ORDER BY name"
     ).fetchall()
@@ -2653,6 +3032,10 @@ def hris_index(module_slug=None):
         dashboard_filters = dashboard_summary["filters"]
         dashboard_announcements = dashboard_summary["announcements"]
         dashboard_announcement_summary = dashboard_summary["announcement_summary"]
+        dashboard_leave_alerts = dashboard_summary["leave_alerts"]
+        dashboard_leave_alert_summary = dashboard_summary["leave_alert_summary"]
+        dashboard_reminders = dashboard_summary["reminders"]
+        dashboard_reminder_summary = dashboard_summary["reminder_summary"]
         dashboard_schedule = dashboard_summary["schedule"]
     elif selected_module["slug"] == "employee":
         employees, search, status, selected_warehouse = _fetch_employees(db)
@@ -2767,7 +3150,15 @@ def hris_index(module_slug=None):
         }
         project_employees = _fetch_employee_options(db)
     elif selected_module["slug"] == "report":
-        report_summary, report_filters, report_workforce_rows, report_pipeline_rows, report_service_rows = _build_report_snapshot(db)
+        (
+            report_summary,
+            report_filters,
+            report_workforce_rows,
+            report_pipeline_rows,
+            report_service_rows,
+            daily_live_reports,
+            daily_live_report_summary,
+        ) = _build_report_snapshot(db)
     elif selected_module["slug"] == "biometric":
         biometric_logs, search, punch_type, sync_status, selected_warehouse, date_from, date_to = _fetch_biometric_logs(db)
         biometric_summary = _build_biometric_summary(biometric_logs)
@@ -2799,6 +3190,8 @@ def hris_index(module_slug=None):
             "status": status,
             "warehouse_id": selected_warehouse,
         }
+
+    report_return_to = request.full_path[:-1] if request.full_path.endswith("?") else request.full_path
 
     return render_template(
         "hris.html",
@@ -2858,6 +3251,10 @@ def hris_index(module_slug=None):
         dashboard_filters=dashboard_filters,
         dashboard_announcements=dashboard_announcements,
         dashboard_announcement_summary=dashboard_announcement_summary,
+        dashboard_leave_alerts=dashboard_leave_alerts,
+        dashboard_leave_alert_summary=dashboard_leave_alert_summary,
+        dashboard_reminders=dashboard_reminders,
+        dashboard_reminder_summary=dashboard_reminder_summary,
         dashboard_schedule=dashboard_schedule,
         documents=documents,
         document_summary=document_summary,
@@ -2867,6 +3264,8 @@ def hris_index(module_slug=None):
         report_workforce_rows=report_workforce_rows,
         report_pipeline_rows=report_pipeline_rows,
         report_service_rows=report_service_rows,
+        daily_live_reports=daily_live_reports,
+        daily_live_report_summary=daily_live_report_summary,
         warehouses=warehouses,
         can_manage_employee=can_manage_employee_records(),
         can_manage_attendance=can_manage_attendance_records(),
@@ -2882,6 +3281,10 @@ def hris_index(module_slug=None):
         can_manage_biometric=can_manage_biometric_records(),
         can_manage_announcement=can_manage_announcement_records(),
         can_manage_document=can_manage_document_records(),
+        can_manage_report=can_manage_hris_records("report"),
+        can_manage_dashboard=can_manage_hris_records("dashboard"),
+        can_manage_dashboard_reminders=can_manage_dashboard_reminders(),
+        report_return_to=report_return_to,
         employee_scope_warehouse=scope_warehouse,
         attendance_scope_warehouse=scope_warehouse,
         leave_scope_warehouse=scope_warehouse,
@@ -2898,6 +3301,169 @@ def hris_index(module_slug=None):
         document_scope_warehouse=scope_warehouse,
         report_scope_warehouse=scope_warehouse,
     )
+
+
+@hris_bp.route("/dashboard/reminder/add", methods=["POST"])
+def add_dashboard_reminder():
+    return_to = _safe_hris_return_to("/hris/")
+    if not can_manage_dashboard_reminders():
+        flash("Tidak punya akses untuk mengelola pengingat harian dashboard.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    reminder_date = _parse_iso_date((request.form.get("reminder_date") or "").strip())
+    title = (request.form.get("title") or "").strip()
+    note = (request.form.get("note") or "").strip()
+    warehouse_id = _to_int(request.form.get("warehouse_id"))
+
+    if reminder_date is None:
+        flash("Tanggal pengingat harian tidak valid.", "error")
+        return redirect(return_to)
+
+    if not title:
+        flash("Judul pengingat harian wajib diisi.", "error")
+        return redirect(return_to)
+
+    if warehouse_id:
+        warehouse = db.execute("SELECT id FROM warehouses WHERE id=?", (warehouse_id,)).fetchone()
+        if warehouse is None:
+            flash("Gudang pengingat tidak ditemukan.", "error")
+            return redirect(return_to)
+
+    db.execute(
+        """
+        INSERT INTO dashboard_reminders(
+            warehouse_id,
+            reminder_date,
+            title,
+            note,
+            status,
+            created_by,
+            updated_by,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?)
+        """,
+        (
+            warehouse_id,
+            reminder_date.isoformat(),
+            title,
+            note or None,
+            "open",
+            session.get("user_id"),
+            session.get("user_id"),
+            _current_timestamp(),
+        ),
+    )
+    db.commit()
+
+    flash("Pengingat harian berhasil ditambahkan ke dashboard HRIS.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/dashboard/reminder/toggle/<int:reminder_id>", methods=["POST"])
+def toggle_dashboard_reminder(reminder_id):
+    return_to = _safe_hris_return_to("/hris/")
+    if not can_manage_dashboard_reminders():
+        flash("Tidak punya akses untuk mengubah pengingat harian dashboard.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    reminder = db.execute(
+        "SELECT id, status FROM dashboard_reminders WHERE id=?",
+        (reminder_id,),
+    ).fetchone()
+    if reminder is None:
+        flash("Pengingat harian tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    requested_status = (request.form.get("status") or "").strip().lower()
+    if requested_status not in DASHBOARD_REMINDER_STATUSES:
+        requested_status = "done" if reminder["status"] == "open" else "open"
+
+    db.execute(
+        """
+        UPDATE dashboard_reminders
+        SET status=?,
+            updated_by=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            requested_status,
+            session.get("user_id"),
+            _current_timestamp(),
+            reminder_id,
+        ),
+    )
+    db.commit()
+
+    flash("Status pengingat harian berhasil diperbarui.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/dashboard/reminder/delete/<int:reminder_id>", methods=["POST"])
+def delete_dashboard_reminder(reminder_id):
+    return_to = _safe_hris_return_to("/hris/")
+    if not can_manage_dashboard_reminders():
+        flash("Tidak punya akses untuk menghapus pengingat harian dashboard.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    db.execute("DELETE FROM dashboard_reminders WHERE id=?", (reminder_id,))
+    db.commit()
+
+    flash("Pengingat harian berhasil dihapus.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/report/daily-live/update/<int:report_id>", methods=["POST"])
+def update_daily_live_report(report_id):
+    return_to = (request.form.get("return_to") or "").strip()
+    if not return_to.startswith("/hris/report"):
+        return_to = "/hris/report"
+
+    if not can_manage_hris_records("report"):
+        flash("Tidak punya akses untuk memproses report harian/live.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    report = db.execute(
+        "SELECT id FROM daily_live_reports WHERE id=?",
+        (report_id,),
+    ).fetchone()
+    if report is None:
+        flash("Report tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    status = _normalize_daily_live_report_status(request.form.get("status"))
+    hr_note = (request.form.get("hr_note") or "").strip()
+    handled_by = None if status == "submitted" else session.get("user_id")
+    handled_at = None if status == "submitted" else _current_timestamp()
+
+    db.execute(
+        """
+        UPDATE daily_live_reports
+        SET status=?,
+            hr_note=?,
+            handled_by=?,
+            handled_at=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            status,
+            hr_note or None,
+            handled_by,
+            handled_at,
+            _current_timestamp(),
+            report_id,
+        ),
+    )
+    db.commit()
+
+    flash("Status report harian/live berhasil diperbarui.", "success")
+    return redirect(return_to)
 
 
 @hris_bp.route("/employee/add", methods=["POST"])
@@ -3220,7 +3786,7 @@ def delete_attendance(attendance_id):
 def add_leave():
     if not can_manage_leave_records():
         flash("Tidak punya akses untuk mengelola leave", "error")
-        return redirect("/hris/leave")
+        return _portal_redirect_for_module("leave") or redirect("/hris/leave")
 
     db = get_db()
     leave_type = _normalize_leave_type(request.form.get("leave_type"))
@@ -3302,7 +3868,7 @@ def add_leave():
 def update_leave(leave_id):
     if not can_manage_leave_records():
         flash("Tidak punya akses untuk mengelola leave", "error")
-        return redirect("/hris/leave")
+        return _portal_redirect_for_module("leave") or redirect("/hris/leave")
 
     db = get_db()
     leave_request = _get_leave_request_by_id(db, leave_id)
@@ -3389,7 +3955,7 @@ def update_leave(leave_id):
 def delete_leave(leave_id):
     if not can_manage_leave_records():
         flash("Tidak punya akses untuk mengelola leave", "error")
-        return redirect("/hris/leave")
+        return _portal_redirect_for_module("leave") or redirect("/hris/leave")
 
     db = get_db()
     leave_request = _get_leave_request_by_id(db, leave_id)
@@ -4866,7 +5432,7 @@ def delete_project(project_id):
 def add_biometric():
     if not can_manage_biometric_records():
         flash("Tidak punya akses untuk mengelola geotag absensi", "error")
-        return redirect("/hris/biometric")
+        return _portal_redirect_for_module("biometric") or redirect("/hris/biometric")
 
     db = get_db()
     location_label = (request.form.get("location_label") or "").strip()
@@ -4934,7 +5500,7 @@ def add_biometric():
 def update_biometric(biometric_id):
     if not can_manage_biometric_records():
         flash("Tidak punya akses untuk mengelola geotag absensi", "error")
-        return redirect("/hris/biometric")
+        return _portal_redirect_for_module("biometric") or redirect("/hris/biometric")
 
     db = get_db()
     biometric = _get_biometric_log_by_id(db, biometric_id)
@@ -5044,7 +5610,7 @@ def update_biometric(biometric_id):
 def delete_biometric(biometric_id):
     if not can_manage_biometric_records():
         flash("Tidak punya akses untuk mengelola geotag absensi", "error")
-        return redirect("/hris/biometric")
+        return _portal_redirect_for_module("biometric") or redirect("/hris/biometric")
 
     db = get_db()
     biometric = _get_biometric_log_by_id(db, biometric_id)
@@ -5131,6 +5697,22 @@ def add_announcement():
     )
     db.commit()
 
+    if status == "published":
+        created_announcement = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        announcement = _get_announcement_by_id(db, created_announcement)
+        if announcement:
+            payload = build_announcement_notification_payload(dict(announcement))
+            notify_broadcast(
+                payload["subject"],
+                payload["message"],
+                audience=announcement["audience"],
+                warehouse_id=announcement["warehouse_id"],
+                push_title=payload["push_title"],
+                push_body=payload["push_body"],
+                push_url="/announcements/",
+                push_tag=payload["push_tag"],
+            )
+
     flash("Announcement berhasil ditambahkan", "success")
     return redirect("/hris/announcement")
 
@@ -5205,6 +5787,21 @@ def update_announcement(announcement_id):
         ),
     )
     db.commit()
+
+    if status == "published":
+        refreshed_announcement = _get_announcement_by_id(db, announcement_id)
+        if refreshed_announcement:
+            payload = build_announcement_notification_payload(dict(refreshed_announcement))
+            notify_broadcast(
+                payload["subject"],
+                payload["message"],
+                audience=refreshed_announcement["audience"],
+                warehouse_id=refreshed_announcement["warehouse_id"],
+                push_title=payload["push_title"],
+                push_body=payload["push_body"],
+                push_url="/announcements/",
+                push_tag=payload["push_tag"],
+            )
 
     flash("Announcement berhasil diupdate", "success")
     return redirect("/hris/announcement")

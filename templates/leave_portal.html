@@ -1,0 +1,145 @@
+﻿{% extends "base.html" %}
+
+{% block title %}Libur | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Self Service Leave{% endblock %}
+{% block page_title %}Form Libur / Cuti / Sakit{% endblock %}
+{% block page_subtitle %}Halaman pengajuan libur mandiri untuk semua akun login. Status pengajuan tidak diatur dari sini dan hanya diproses oleh HR atau Super Admin.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>User Login</p>
+        <h3>@{{ session.get("username", "guest") }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Role</p>
+        <h3>{{ session.get("role", "guest")|replace("_", " ")|title }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Pengajuan</p>
+        <h3>Pending Review</h3>
+    </div>
+    <div class="card-mini warning">
+        <p>Status Diproses Oleh</p>
+        <h3>HR / Super Admin</h3>
+    </div>
+</div>
+
+{% if linked_employee %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Identitas Pengaju</h2>
+            <p>Form ini otomatis terkunci ke profil karyawan yang terhubung dengan akun login, jadi pengajuan tidak bisa dibuat untuk orang lain.</p>
+        </div>
+    </div>
+    <div class="attendance-identity-grid">
+        <div class="meta-card">
+            <span>Karyawan</span>
+            <strong>{{ linked_employee.full_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Employee Code</span>
+            <strong>{{ linked_employee.employee_code }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Gudang</span>
+            <strong>{{ linked_employee.warehouse_name or "-" }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Posisi</span>
+            <strong>{{ linked_employee.position or "-" }}</strong>
+        </div>
+    </div>
+</div>
+
+<div class="form-box" data-leave-portal>
+    <div class="section-title">
+        <div>
+            <h2>Ajukan Libur</h2>
+            <p>Pilih jenis libur, isi rentang tanggal, lalu kirim. Status otomatis masuk sebagai <strong>Pending</strong> dan hanya HR atau Super Admin yang bisa mengubahnya.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/libur/submit">
+        <div class="form-grid">
+            <div>
+                <label>Tipe Libur</label>
+                <select name="leave_type">
+                    <option value="annual">Annual Leave</option>
+                    <option value="sick">Sakit</option>
+                    <option value="permit">Izin</option>
+                    <option value="special">Special</option>
+                    <option value="unpaid">Unpaid</option>
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Mulai</label>
+                <input type="date" name="start_date" required data-leave-start>
+            </div>
+            <div>
+                <label>Tanggal Selesai</label>
+                <input type="date" name="end_date" required data-leave-end>
+            </div>
+            <div>
+                <label>Total Hari</label>
+                <input type="text" value="-" readonly data-leave-total>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Alasan</label>
+                <textarea name="reason" rows="3" placeholder="Contoh: cuti keluarga, izin berobat, recovery, atau keperluan penting lainnya." required></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan Tambahan</label>
+                <textarea name="note" rows="3" placeholder="Opsional. Contoh: lampiran akan menyusul, perlu penyesuaian jadwal, atau kontak darurat."></textarea>
+            </div>
+        </div>
+        <div class="split-actions attendance-submit-row">
+            <button type="submit">Kirim Pengajuan Libur</button>
+        </div>
+    </form>
+</div>
+{% else %}
+<div class="form-box">
+    <div class="empty-state">
+        Akun ini belum ditautkan ke data karyawan, jadi halaman libur sudah bisa dibuka tetapi pengajuan belum bisa dipakai. Hubungkan akun ke employee dari halaman Admin terlebih dulu.
+    </div>
+</div>
+{% endif %}
+
+<script>
+(() => {
+    const shell = document.querySelector("[data-leave-portal]");
+    if (!shell) {
+        return;
+    }
+
+    const startInput = shell.querySelector("[data-leave-start]");
+    const endInput = shell.querySelector("[data-leave-end]");
+    const totalInput = shell.querySelector("[data-leave-total]");
+
+    const recalcTotal = () => {
+        const startValue = startInput?.value;
+        const endValue = endInput?.value;
+        if (!startValue || !endValue) {
+            totalInput.value = "-";
+            return;
+        }
+
+        const start = new Date(`${startValue}T00:00:00`);
+        const end = new Date(`${endValue}T00:00:00`);
+        const diff = Math.round((end - start) / 86400000);
+        if (Number.isNaN(diff) || diff < 0) {
+            totalInput.value = "Tanggal tidak valid";
+            return;
+        }
+
+        totalInput.value = String(diff + 1);
+    };
+
+    startInput?.addEventListener("change", recalcTotal);
+    endInput?.addEventListener("change", recalcTotal);
+})();
+</script>
+{% endblock %}
+

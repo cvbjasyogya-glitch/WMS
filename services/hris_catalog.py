@@ -19,6 +19,7 @@ HRIS_MODULES = (
         "summary": "Presensi, validasi kehadiran, aktivitas clock in-out, dan overtime.",
         "source": "horilla-1.0/attendance",
         "status": "Time Tracking",
+        "hidden": True,
     },
     {
         "slug": "leave",
@@ -92,8 +93,8 @@ HRIS_MODULES = (
     },
     {
         "slug": "biometric",
-        "label": "Geotag",
-        "summary": "Absensi berbasis lokasi, log check in-out, dan rekap kehadiran harian.",
+        "label": "Attendance Geotag",
+        "summary": "Rekap absensi berbasis lokasi yang menyatukan log geotag dan attendance harian.",
         "source": "horilla-1.0/biometric",
         "status": "Geo Attendance",
     },
@@ -115,14 +116,15 @@ HRIS_MODULES = (
 
 
 FULL_HRIS_ROLES = {"super_admin", "hr"}
+GLOBAL_HRIS_DASHBOARD_ROLES = {"owner", "super_admin", "hr", "admin", "leader", "staff"}
 SELF_SERVICE_HRIS_ROLES = {"leader", "admin", "staff"}
-SELF_SERVICE_HRIS_MODULES = {"leave", "helpdesk", "biometric"}
+SELF_SERVICE_HRIS_MODULES = {"helpdesk"}
 
 MODULE_VIEW_ROLE_MAP = {
-    "dashboard": set(FULL_HRIS_ROLES),
+    "dashboard": set(GLOBAL_HRIS_DASHBOARD_ROLES),
     "employee": set(FULL_HRIS_ROLES),
     "attendance": set(FULL_HRIS_ROLES),
-    "leave": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
+    "leave": set(FULL_HRIS_ROLES),
     "payroll": set(FULL_HRIS_ROLES),
     "recruitment": set(FULL_HRIS_ROLES),
     "onboarding": set(FULL_HRIS_ROLES),
@@ -132,14 +134,28 @@ MODULE_VIEW_ROLE_MAP = {
     "asset": set(FULL_HRIS_ROLES),
     "project": set(FULL_HRIS_ROLES),
     "report": set(FULL_HRIS_ROLES),
-    "biometric": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
+    "biometric": set(FULL_HRIS_ROLES),
     "announcement": set(FULL_HRIS_ROLES),
     "documents": set(FULL_HRIS_ROLES),
 }
 
 MODULE_MANAGE_ROLE_MAP = {
-    slug: set(roles)
-    for slug, roles in MODULE_VIEW_ROLE_MAP.items()
+    "dashboard": set(FULL_HRIS_ROLES),
+    "employee": set(FULL_HRIS_ROLES),
+    "attendance": set(FULL_HRIS_ROLES),
+    "leave": set(FULL_HRIS_ROLES),
+    "payroll": set(FULL_HRIS_ROLES),
+    "recruitment": set(FULL_HRIS_ROLES),
+    "onboarding": set(FULL_HRIS_ROLES),
+    "offboarding": set(FULL_HRIS_ROLES),
+    "pms": set(FULL_HRIS_ROLES),
+    "helpdesk": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
+    "asset": set(FULL_HRIS_ROLES),
+    "project": set(FULL_HRIS_ROLES),
+    "report": set(FULL_HRIS_ROLES),
+    "biometric": set(FULL_HRIS_ROLES),
+    "announcement": set(FULL_HRIS_ROLES),
+    "documents": set(FULL_HRIS_ROLES),
 }
 
 
@@ -165,7 +181,7 @@ def can_manage_hris_module(role, slug):
 
 
 def role_can_see_hris_navigation(role):
-    return role_has_hris_access(role)
+    return (role or "") in FULL_HRIS_ROLES
 
 
 def is_self_service_hris_module(role, slug):
@@ -182,6 +198,8 @@ def get_hris_modules(role=None):
         item = dict(module)
         item["can_view"] = can_view_hris_module(role, item["slug"]) if role is not None else True
         item["can_manage"] = can_manage_hris_module(role, item["slug"]) if role is not None else False
+        if item.get("hidden"):
+            continue
         if role is None or item["can_view"]:
             modules.append(item)
     return modules

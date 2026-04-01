@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}CRM | Mataram Sports WMS{% endblock %}
+{% block title %}CRM | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Customer Relationship Management{% endblock %}
 {% block page_title %}CRM Customer Hub{% endblock %}
 {% block page_subtitle %}Kelola contact customer, histori pembelian barang, dan data member secara terstruktur supaya tim bisa membaca pola belanja untuk analisis marketing maupun follow up toko.{% endblock %}
@@ -148,12 +148,12 @@
                     <label>Channel Marketing</label>
                     <input name="marketing_channel" placeholder="Meta Ads / Organik / Repeat Order">
                 </div>
-                <div style="grid-column: 1 / -1;">
+                <div class="span-full">
                     <label>Catatan CRM</label>
                     <textarea name="note" rows="3" placeholder="Contoh: suka brand Speedo, repeat order tiap akhir bulan, responsif via WA."></textarea>
                 </div>
             </div>
-            <div class="split-actions" style="margin-top:16px;">
+            <div class="split-actions stack-gap-md">
                 <button type="submit">Simpan Contact</button>
             </div>
         </form>
@@ -880,3 +880,4 @@ renderCrmPurchaseQueue();
 resetCrmPurchaseDraft();
 </script>
 {% endblock %}
+

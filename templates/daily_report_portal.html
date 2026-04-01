@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Report Harian | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Operational Daily Report{% endblock %}
+{% block page_title %}Form Report Harian & Live{% endblock %}
+{% block page_subtitle %}Portal ini bisa dipakai semua user login untuk kirim update kerja harian atau laporan live. Status review tidak diatur dari sini dan hanya diproses oleh HR atau Super Admin di HRIS.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>User Login</p>
+        <h3>@{{ session.get("username", "guest") }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Warehouse</p>
+        <h3>{{ session.get("warehouse_id", "-") }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Report Terkirim</p>
+        <h3>{{ daily_report_summary.total }}</h3>
+    </div>
+    <div class="card-mini warning">
+        <p>Diproses Oleh</p>
+        <h3>HR / Super Admin</h3>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Identitas Pelapor</h2>
+            <p>Laporan otomatis memakai akun login saat ini. Jika akun sudah ditautkan ke employee, data karyawan juga ikut terbaca untuk memudahkan review HR.</p>
+        </div>
+    </div>
+    <div class="attendance-identity-grid">
+        <div class="meta-card">
+            <span>Akun</span>
+            <strong>@{{ session.get("username", "guest") }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Role</span>
+            <strong>{{ session.get("role", "guest")|replace("_", " ")|title }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Gudang</span>
+            <strong>{{ linked_employee.warehouse_name if linked_employee else ("WH " ~ session.get("warehouse_id", "-")) }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Karyawan Tautan</span>
+            <strong>{{ linked_employee.full_name if linked_employee else "Belum Ditautkan" }}</strong>
+        </div>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Kirim Report</h2>
+            <p>Pilih tipe laporan, isi judul singkat, lalu jelaskan progres, kendala, dan tindak lanjut. Begitu disimpan, data akan langsung muncul di HRIS modul Report untuk tim HR.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/laporan-harian/submit">
+        <div class="form-grid">
+            <div>
+                <label>Tipe Report</label>
+                <select name="report_type">
+                    <option value="daily">Report Harian</option>
+                    <option value="live">Report Live</option>
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Report</label>
+                <input type="date" name="report_date" value="{{ today_value }}" required>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Judul Singkat</label>
+                <input type="text" name="title" placeholder="Contoh: Closing stok pagi, live campaign toko Mega, atau rekap kerja display." required>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Ringkasan Kerja</label>
+                <textarea name="summary" rows="4" placeholder="Jelaskan pekerjaan utama yang sudah dikerjakan, hasilnya, dan kondisi lapangan hari ini." required></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Kendala / Hambatan</label>
+                <textarea name="blocker_note" rows="3" placeholder="Opsional. Contoh: stok belum lengkap, sistem lambat, manpower kurang, atau approval belum turun."></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Tindak Lanjut</label>
+                <textarea name="follow_up_note" rows="3" placeholder="Opsional. Contoh: lanjut besok pagi, menunggu transfer barang, perlu follow up HR / owner / leader."></textarea>
+            </div>
+        </div>
+        <div class="split-actions attendance-submit-row">
+            <button type="submit">Kirim Report</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box stack-scroll-shell">
+    <div class="section-title">
+        <div>
+            <h2>Riwayat Report Saya</h2>
+            <p>Riwayat ini hanya untuk memastikan report yang kamu kirim sudah masuk. Status review tetap diproses dari HRIS oleh HR atau Super Admin.</p>
+        </div>
+    </div>
+    {% if recent_reports %}
+    <div class="stack-scroll-list">
+        {% for report in recent_reports %}
+        <div class="box stack-scroll-card report-portal-card">
+            <div class="section-title">
+                <div>
+                    <h3>{{ report.title }}</h3>
+                    <p>{{ report.report_date }} • {{ "Report Harian" if report.report_type == "daily" else "Report Live" }} • {{ report.warehouse_name or "-" }}</p>
+                </div>
+                <div class="report-status-stack">
+                    <span class="badge">{{ report.status|replace("_", " ") }}</span>
+                </div>
+            </div>
+            <div class="form-grid">
+                <div style="grid-column: 1 / -1;">
+                    <label>Ringkasan</label>
+                    <div class="empty-state report-portal-text">{{ report.summary }}</div>
+                </div>
+                <div>
+                    <label>Kendala</label>
+                    <div class="empty-state report-portal-text">{{ report.blocker_note or "-" }}</div>
+                </div>
+                <div>
+                    <label>Tindak Lanjut</label>
+                    <div class="empty-state report-portal-text">{{ report.follow_up_note or "-" }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan HR</label>
+                    <div class="empty-state report-portal-text">{{ report.hr_note or "Belum ada catatan review." }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada report yang dikirim dari akun ini.</div>
+    {% endif %}
+</div>
+{% endblock %}

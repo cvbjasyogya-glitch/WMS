@@ -3,6 +3,12 @@ from datetime import date as date_cls, timedelta
 from flask import Blueprint, flash, redirect, render_template, request, session
 
 from database import get_db
+from services.announcement_center import (
+    build_schedule_change_notification_payload,
+    create_schedule_change_event,
+    format_date_range,
+)
+from services.notification_service import notify_broadcast
 from services.rbac import has_permission, is_scoped_role
 
 
@@ -745,19 +751,20 @@ def save_schedule_entry():
         return _schedule_redirect()
 
     employee = db.execute(
-        "SELECT id, full_name FROM employees WHERE id=?",
+        "SELECT id, full_name, warehouse_id FROM employees WHERE id=?",
         (employee_id,),
     ).fetchone()
     if not employee:
         flash("Karyawan tidak ditemukan.", "error")
         return _schedule_redirect()
 
+    shift_meta = None
     if shift_code:
-        shift_exists = db.execute(
-            "SELECT code FROM schedule_shift_codes WHERE code=?",
+        shift_meta = db.execute(
+            "SELECT code, label FROM schedule_shift_codes WHERE code=?",
             (shift_code,),
         ).fetchone()
-        if not shift_exists:
+        if not shift_meta:
             flash("Kode shift tidak ditemukan.", "error")
             return _schedule_redirect()
 
@@ -804,6 +811,57 @@ def save_schedule_entry():
     except Exception:
         db.rollback()
         flash("Perubahan jadwal gagal disimpan.", "error")
+        return _schedule_redirect()
+
+    try:
+        date_range_label = format_date_range(start_date.isoformat(), end_date.isoformat())
+        employee_name = (employee["full_name"] or "Karyawan").strip()
+        if shift_code:
+            shift_label = (shift_meta["label"] or shift_code).strip()
+            schedule_message = f"Jadwal {employee_name} untuk {date_range_label} diubah ke shift {shift_label} ({shift_code})."
+            if note:
+                schedule_message += f" Catatan: {note}"
+            event_id = create_schedule_change_event(
+                db,
+                warehouse_id=employee["warehouse_id"],
+                event_kind="entry_update",
+                title=f"{employee_name} - {shift_label}",
+                message=schedule_message,
+                affected_employee_id=employee_id,
+                affected_employee_name=employee_name,
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                created_by=session.get("user_id"),
+            )
+        else:
+            schedule_message = f"Jadwal manual {employee_name} untuk {date_range_label} dibersihkan."
+            event_id = create_schedule_change_event(
+                db,
+                warehouse_id=employee["warehouse_id"],
+                event_kind="entry_clear",
+                title=f"{employee_name} - Jadwal Dibersihkan",
+                message=schedule_message,
+                affected_employee_id=employee_id,
+                affected_employee_name=employee_name,
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                created_by=session.get("user_id"),
+            )
+        db.commit()
+        payload = build_schedule_change_notification_payload(
+            {"id": event_id, "title": schedule_message.split(".")[0], "message": schedule_message}
+        )
+        notify_broadcast(
+            payload["subject"],
+            payload["message"],
+            warehouse_id=employee["warehouse_id"],
+            push_title=payload["push_title"],
+            push_body=payload["push_body"],
+            push_url="/announcements/",
+            push_tag=payload["push_tag"],
+        )
+    except Exception as exc:
+        print("SCHEDULE CHANGE BROADCAST ERROR:", exc)
 
     return _schedule_redirect()
 
@@ -845,6 +903,42 @@ def save_day_note():
     except Exception:
         db.rollback()
         flash("Catatan harian gagal disimpan.", "error")
+        return _schedule_redirect()
+
+    try:
+        selected_warehouse = _to_int(request.form.get("warehouse")) or _schedule_scope_warehouse()
+        date_label = format_date_range(schedule_date.isoformat())
+        if note:
+            note_message = f"Catatan jadwal untuk {date_label} diperbarui. Isi: {note}"
+            event_title = f"Catatan Jadwal {date_label}"
+        else:
+            note_message = f"Catatan jadwal untuk {date_label} dibersihkan."
+            event_title = f"Catatan Jadwal {date_label} Dibersihkan"
+        event_id = create_schedule_change_event(
+            db,
+            warehouse_id=selected_warehouse,
+            event_kind="day_note",
+            title=event_title,
+            message=note_message,
+            start_date=schedule_date.isoformat(),
+            end_date=schedule_date.isoformat(),
+            created_by=session.get("user_id"),
+        )
+        db.commit()
+        payload = build_schedule_change_notification_payload(
+            {"id": event_id, "title": event_title, "message": note_message}
+        )
+        notify_broadcast(
+            payload["subject"],
+            payload["message"],
+            warehouse_id=selected_warehouse,
+            push_title=payload["push_title"],
+            push_body=payload["push_body"],
+            push_url="/announcements/",
+            push_tag=payload["push_tag"],
+        )
+    except Exception as exc:
+        print("SCHEDULE DAY NOTE BROADCAST ERROR:", exc)
 
     return _schedule_redirect()
 

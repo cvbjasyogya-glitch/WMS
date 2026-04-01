@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Admin Access | Mataram Sports WMS{% endblock %}
+{% block title %}Admin Access | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}System Administration{% endblock %}
 {% block page_title %}Admin Access Center{% endblock %}
 {% block page_subtitle %}Pusat kontrol khusus untuk mengatur user, role, scope gudang, dan governance akses sistem tanpa tercampur dengan pengaturan gudang fisik.{% endblock %}
@@ -137,25 +137,25 @@
                 <label><input type="checkbox" name="notify_whatsapp"> Notifikasi WhatsApp</label>
             </div>
         </div>
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button type="submit">Tambah User</button>
         </div>
     </form>
 </div>
 
-<div class="table-box">
+<div class="table-box stack-scroll-shell">
     <div class="section-title">
         <div>
             <h2>Manajemen User</h2>
             <p>Perbarui identitas akun, role, password baru, dan scope gudang dari satu workspace yang khusus untuk akses.</p>
-            <p style="margin-top:6px; color:var(--text-soft);">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
+            <p class="muted-note">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
         </div>
     </div>
 
     {% if users %}
-    <div style="display:grid; gap:16px;">
+    <div class="stack-scroll-list">
         {% for u in users %}
-        <div class="box" style="margin-bottom:0;">
+        <div class="box stack-scroll-card box-no-margin">
             <form method="POST" action="/admin/update_user/{{ u.id }}">
                 <div class="form-grid">
                     <div>
@@ -220,11 +220,11 @@
                         <input type="password" name="password" placeholder="Opsional">
                     </div>
                 </div>
-                <div class="split-actions" style="margin-top:16px;">
+                <div class="split-actions stack-gap-md">
                     <button type="submit">Update User</button>
                 </div>
             </form>
-            <form method="POST" action="/admin/delete_user/{{ u.id }}" style="margin-top:12px;">
+            <form method="POST" action="/admin/delete_user/{{ u.id }}" class="stack-gap-sm">
                 <button type="submit" class="danger-button" onclick="return confirm('Hapus user ini?')">Hapus</button>
             </form>
         </div>
@@ -235,3 +235,5 @@
     {% endif %}
 </div>
 {% endblock %}
+
+

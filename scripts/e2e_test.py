@@ -12,6 +12,8 @@ os.environ["DATABASE_PATH"] = db_path
 
 from app import create_app
 from database import get_db
+from flask import session
+from services.request_service import create_request
 from werkzeug.security import generate_password_hash
 
 app = create_app()
@@ -57,7 +59,7 @@ with app.app_context():
     wh2 = warehouses[1]["id"]
 
     ensure_user("leader_e2e", "leader", wh1, "leader_e2e@example.test", "62810101")
-    ensure_user("admin_e2e", "admin", wh1, "admin_e2e@example.test", "62820202")
+    admin_id = ensure_user("admin_e2e", "admin", wh1, "admin_e2e@example.test", "62820202")
     ensure_user("leader_e2e2", "leader", wh2, "leader_e2e2@example.test", "62830303")
 
     db.execute(
@@ -65,7 +67,7 @@ with app.app_context():
         INSERT INTO stock_batches(product_id,variant_id,warehouse_id,qty,remaining_qty,cost,expiry_date,created_at)
         VALUES (?,?,?,?,?,?,?,datetime('now'))
         """,
-        (product_id, variant_id, wh1, 50, 50, 1000, None),
+        (product_id, variant_id, wh2, 50, 50, 1000, None),
     )
     db.commit()
 
@@ -75,30 +77,25 @@ with app.test_client() as client:
     response = client.post("/login", data={"username": "admin_e2e", "password": "pass1234"}, follow_redirects=True)
     print("Login admin status:", response.status_code)
 
-    response = client.post(
-        "/request/",
-        data={
-            "product_id": product_id,
-            "variant_id": variant_id,
-            "from_warehouse": wh1,
-            "to_warehouse": wh2,
-            "qty": 5,
-        },
-        follow_redirects=True,
-    )
-    print("Create request status:", response.status_code)
+    with app.test_request_context("/request/", method="POST"):
+        session["user_id"] = admin_id
+        request_id = create_request(product_id, variant_id, wh2, wh1, 5)
+
+    print("Create request id:", request_id)
 
     with app.app_context():
         db = get_db()
         request_row = db.execute(
             "SELECT id, status, requested_by FROM requests ORDER BY id DESC LIMIT 1"
         ).fetchone()
+        if not request_row:
+            raise SystemExit("Request creation failed")
         print("Newest request:", dict(request_row))
         request_id = request_row["id"]
 
     client.get("/logout")
 
-    response = client.post("/login", data={"username": "leader_e2e", "password": "pass1234"}, follow_redirects=True)
+    response = client.post("/login", data={"username": "leader_e2e2", "password": "pass1234"}, follow_redirects=True)
     print("Login leader status:", response.status_code)
 
     response = client.post(f"/request/approve/{request_id}", follow_redirects=True)

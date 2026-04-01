@@ -1,38 +1,23 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Chat | Mataram Sports WMS{% endblock %}
+{% block title %}Chat | ERP-CV.BJAS{% endblock %}
 {% block extra_head %}
 <script>window.__WMS_CHAT_PAGE__ = true;</script>
 {% endblock %}
-{% block eyebrow %}WhatsApp Style Internal Messaging{% endblock %}
+{% block eyebrow %}Live Chat{% endblock %}
 {% block page_title %}Chat Operasional Live{% endblock %}
-{% block page_subtitle %}Percakapan internal yang cepat untuk follow up leader, koordinasi gudang, dan respon instan ke user yang sedang aktif online tanpa harus buka aplikasi lain.{% endblock %}
+{% block page_subtitle %}Koordinasi internal realtime untuk follow up gudang, file kerja, sticker, dan panggilan langsung.{% endblock %}
+{% block page_header %}{% endblock %}
+{% block main_class %}chat-page-main{% endblock %}
+{% block page_content_class %}chat-page-content{% endblock %}
 
 {% block content %}
-<div class="summary">
-    <div class="card-mini">
-        <p>Percakapan Aktif</p>
-        <h3>{{ summary.threads }}</h3>
-    </div>
-    <div class="card-mini warning">
-        <p>Unread</p>
-        <h3>{{ summary.unread }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Leader Siap Dihubungi</p>
-        <h3>{{ summary.leaders }}</h3>
-    </div>
-    <div class="card-mini success">
-        <p>User Online</p>
-        <h3>{{ summary.online }}</h3>
-    </div>
-</div>
-
 <div
-    class="chat-shell box"
+    class="chat-shell chat-page-shell box"
     id="wmsChatShell"
     data-current-thread-id="{{ current_thread_id or '' }}"
     data-last-message-id="{{ current_thread_last_message_id or 0 }}"
+    data-max-attachment-bytes="{{ chat_attachment_max_bytes or 10485760 }}"
 >
     <aside class="chat-sidebar-panel">
         <div class="chat-sidebar-head">
@@ -40,14 +25,17 @@
                 <span class="chat-avatar">{{ current_user.username[:2]|upper }}</span>
                 <div>
                     <strong>{{ current_user.username }}</strong>
-                    <span>{{ current_user.role|replace('_', ' ')|title }}{% if current_user.warehouse_name %} • {{ current_user.warehouse_name }}{% endif %}</span>
+                    <span>{{ current_user.role|replace('_', ' ')|title }}{% if current_user.warehouse_name %} | {{ current_user.warehouse_name }}{% endif %}</span>
                 </div>
             </div>
-            <span class="badge green">Realtime Ready</span>
+            <div class="chat-sidebar-actions">
+                <span class="badge green">Realtime Ready</span>
+                <button type="button" class="ghost-button" id="chatCreateGroupButton">Buat Grup</button>
+            </div>
         </div>
 
         <div class="chat-search-row">
-            <input type="text" id="chatSearchInput" placeholder="Cari percakapan, leader, atau user online">
+            <input type="text" id="chatSearchInput" placeholder="Cari percakapan, leader, grup, atau user online">
         </div>
 
         <div class="chat-tab-row">
@@ -60,7 +48,7 @@
             <div class="chat-tab-panel active" data-chat-tab="threads">
                 <div class="chat-list-caption">
                     <strong>Riwayat Chat</strong>
-                    <small>Urut otomatis berdasarkan pesan terbaru dan unread.</small>
+                    <small>Direct chat dan grup diurut otomatis berdasarkan pesan terbaru dan unread.</small>
                 </div>
                 <div id="chatThreadList" class="chat-thread-list">
                     {% if threads %}
@@ -75,10 +63,11 @@
                             <div class="chat-thread-body">
                                 <div class="chat-thread-topline">
                                     <strong>{{ thread.partner_name }}</strong>
+                                    {% if thread.thread_type == "group" %}<span class="badge">Grup</span>{% endif %}
                                     {% if thread.partner_online %}<span class="badge green">Online</span>{% endif %}
                                 </div>
                                 <div class="chat-thread-meta">
-                                    {{ thread.partner_role_label }} • {{ thread.partner_warehouse_label }}
+                                    {{ thread.partner_role_label }} | {{ thread.partner_warehouse_label }}
                                 </div>
                                 <p>{{ thread.last_message_prefix }}{{ thread.last_message_preview }}</p>
                             </div>
@@ -91,7 +80,7 @@
                         </a>
                         {% endfor %}
                     {% else %}
-                    <div class="chat-list-empty">Belum ada thread. Mulai percakapan dari tab kontak atau leader.</div>
+                    <div class="chat-list-empty">Belum ada thread. Mulai percakapan dari tab kontak atau buat grup baru.</div>
                     {% endif %}
                 </div>
             </div>
@@ -99,7 +88,7 @@
             <div class="chat-tab-panel" data-chat-tab="contacts">
                 <div class="chat-list-caption">
                     <strong>Semua Akun</strong>
-                    <small>Kontak online dan role lintas gudang bisa langsung dibuka jadi thread.</small>
+                    <small>Kontak online lintas gudang bisa langsung dibuka jadi thread baru.</small>
                 </div>
                 <div id="chatContactList" class="chat-contact-list">
                     {% for contact in contacts %}
@@ -116,7 +105,7 @@
                                 {% if contact.is_online %}<span class="badge green">Online</span>{% endif %}
                             </div>
                             <div class="chat-thread-meta">
-                                {{ contact.role_label }} • {{ contact.warehouse_label }}
+                                {{ contact.role_label }} | {{ contact.warehouse_label }}
                             </div>
                         </div>
                     </button>
@@ -127,7 +116,7 @@
             <div class="chat-tab-panel" data-chat-tab="leaders">
                 <div class="chat-list-caption">
                     <strong>Leader Priority</strong>
-                    <small>Shortcut cepat untuk broadcast koordinasi ke leader yang sedang aktif.</small>
+                    <small>Shortcut cepat untuk follow up leader yang sedang aktif.</small>
                 </div>
                 <div id="chatLeaderList" class="chat-contact-list">
                     {% set leader_state = namespace(count=0) %}
@@ -146,7 +135,7 @@
                                     {% if contact.is_online %}<span class="badge green">Online</span>{% endif %}
                                 </div>
                                 <div class="chat-thread-meta">
-                                    {{ contact.role_label }} • {{ contact.warehouse_label }}
+                                    {{ contact.role_label }} | {{ contact.warehouse_label }}
                                 </div>
                             </div>
                         </button>
@@ -159,25 +148,42 @@
         </div>
     </aside>
 
-    <section class="chat-main-panel">
+    <section class="chat-main-panel {% if not selected_thread %}chat-main-panel-empty{% endif %}">
         {% if selected_thread %}
         <header class="chat-main-head" id="chatMainHead">
             <div class="chat-thread-focus">
+                <button type="button" class="ghost-button chat-mobile-back" id="chatMobileBackButton" aria-label="Kembali ke daftar chat">Daftar</button>
                 <span class="chat-avatar">{{ selected_thread.partner_initials }}</span>
                 <div>
                     <strong id="chatPartnerName">{{ selected_thread.partner_name }}</strong>
                     <span id="chatPartnerMeta">
-                        {{ selected_thread.partner_role_label }} • {{ selected_thread.partner_warehouse_label }}
-                        {% if selected_thread.partner_online %} • Online{% endif %}
+                        {{ selected_thread.partner_role_label }} | {{ selected_thread.partner_warehouse_label }}
+                        {% if selected_thread.partner_online %} | Online{% endif %}
                     </span>
                 </div>
             </div>
             <div class="chat-focus-actions">
+                <button type="button" class="ghost-button chat-action-button" id="chatVoiceCallButton">Telp</button>
+                <button type="button" class="ghost-button chat-action-button" id="chatVideoCallButton">Video Call</button>
                 <span class="badge {% if selected_thread.partner_online %}green{% endif %}" id="chatPartnerStatus">
                     {{ "Online" if selected_thread.partner_online else "Offline" }}
                 </span>
             </div>
         </header>
+
+        <div
+            class="chat-participant-strip {% if selected_thread.thread_type != 'group' %}is-hidden{% endif %}"
+            id="chatParticipantStrip"
+        >
+            {% if selected_thread.thread_type == "group" %}
+                {% for participant in selected_thread.participants if not participant.is_current %}
+                <span class="chat-member-pill">
+                    <span class="chat-avatar mini">{{ participant.initials }}</span>
+                    <span>{{ participant.username }}</span>
+                </span>
+                {% endfor %}
+            {% endif %}
+        </div>
 
         <div class="chat-message-board" id="chatMessageBoard">
             {% for message in messages %}
@@ -188,8 +194,33 @@
                     <strong>{{ message.sender_name }}</strong>
                 </div>
                 {% endif %}
-                <div class="chat-message-bubble">
+                <div class="chat-message-bubble chat-message-type-{{ message.message_type }}">
+                    {% if message.message_type == "attachment" %}
+                    <div class="chat-message-attachment">
+                        <div>
+                            <strong>{{ message.attachment_name }}</strong>
+                            <span>{{ message.attachment_size_label }}</span>
+                        </div>
+                        <a href="{{ message.attachment_url }}" target="_blank" rel="noopener">Buka</a>
+                    </div>
+                    {% if message.body %}<p>{{ message.body }}</p>{% endif %}
+                    {% elif message.message_type == "sticker" %}
+                    <div class="chat-sticker-bubble{% if message.sticker_image_url %} has-image{% endif %}">
+                        {% if message.sticker_image_url %}
+                        <img src="{{ message.sticker_image_url }}" alt="{{ message.sticker.label if message.sticker else 'Sticker Gambar' }}" loading="lazy">
+                        {% else %}
+                        <span>{{ message.sticker.emoji if message.sticker else "STK" }}</span>
+                        <strong>{{ message.sticker.label if message.sticker else message.body }}</strong>
+                        {% endif %}
+                    </div>
+                    {% elif message.message_type == "call" %}
+                    <div class="chat-call-bubble">
+                        <strong>{{ message.call_label }}</strong>
+                        <p>{{ message.body }}</p>
+                    </div>
+                    {% else %}
                     <p>{{ message.body }}</p>
+                    {% endif %}
                     <time>{{ message.created_label }}</time>
                 </div>
             </article>
@@ -197,17 +228,121 @@
         </div>
 
         <form class="chat-composer" id="chatComposerForm" data-thread-id="{{ selected_thread.id }}">
-            <textarea id="chatComposerInput" rows="1" placeholder="Ketik pesan untuk {{ selected_thread.partner_name }} lalu tekan Enter atau tombol kirim"></textarea>
+            <div class="chat-composer-tools">
+                <button type="button" class="ghost-button chat-tool-button" id="chatAttachButton">Attach File</button>
+                <button type="button" class="ghost-button chat-tool-button" id="chatStickerToggle">Sticker</button>
+                <small class="helper-text">Lampiran maksimal {{ (chat_attachment_max_bytes / (1024 * 1024))|round(0, 'floor')|int }} MB per file.</small>
+            </div>
+            <div class="chat-composer-inputs">
+                <input type="file" id="chatAttachmentInput" hidden accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx">
+                <input type="file" id="chatStickerImageInput" hidden accept=".png,.jpg,.jpeg,.gif,.webp">
+                <div class="chat-attachment-preview" id="chatAttachmentPreview" hidden></div>
+                <textarea id="chatComposerInput" rows="1" placeholder="Ketik pesan untuk {{ selected_thread.partner_name }} lalu tekan Enter atau tombol kirim"></textarea>
+                <div class="chat-sticker-panel" id="chatStickerPanel" hidden>
+                    <button type="button" class="chat-sticker-button chat-sticker-upload-button" id="chatStickerUploadButton">
+                        <span>+</span>
+                        <strong>Upload Sticker</strong>
+                    </button>
+                    {% for sticker in stickers %}
+                    <button type="button" class="chat-sticker-button" data-sticker-code="{{ sticker.code }}">
+                        <span>{{ sticker.emoji }}</span>
+                        <strong>{{ sticker.label }}</strong>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
             <button type="submit" id="chatComposerButton">Kirim</button>
         </form>
         {% else %}
         <div class="chat-empty-state">
             <div class="chat-empty-art">MS</div>
             <h2>Pilih kontak untuk mulai chat</h2>
-            <p>Gunakan tab `Kontak` atau `Leader` di sisi kiri untuk membuka thread baru. Notifikasi akan muncul cepat untuk user yang sedang aktif online.</p>
+            <p>Gunakan tab `Kontak`, `Leader`, atau buat grup baru dari panel kiri. Attach file, sticker, dan voice atau video call siap dipakai saat thread direct sudah dipilih.</p>
         </div>
         {% endif %}
+
+        <div class="chat-call-layer" id="chatCallLayer" hidden>
+            <div class="chat-call-card" id="chatCallCard" data-mode="voice">
+                <div class="chat-call-head">
+                    <span class="chat-call-chip" id="chatCallChip">Voice Call</span>
+                    <span class="badge" id="chatCallNetworkBadge">WebRTC Ready</span>
+                </div>
+
+                <div class="chat-call-stage" id="chatCallStage">
+                    <video class="chat-call-remote-video" id="chatCallRemoteVideo" autoplay playsinline hidden></video>
+                    <video class="chat-call-local-video" id="chatCallLocalVideo" autoplay playsinline muted hidden></video>
+
+                    <div class="chat-call-avatar-fallback" id="chatCallFallback">
+                        <span class="chat-avatar chat-call-avatar-badge" id="chatCallPartnerInitials">MS</span>
+                        <div class="chat-call-meta">
+                            <strong id="chatCallPartnerName">Live Chat</strong>
+                            <span class="chat-call-status" id="chatCallStatusText">Menunggu panggilan</span>
+                            <p class="chat-call-hint" id="chatCallHint">
+                                Call browser akan lebih stabil saat akses dari HTTPS atau localhost.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-call-actions">
+                    <div class="chat-call-secondary-actions is-hidden" id="chatCallSecondaryActions">
+                        <button type="button" class="ghost-button chat-call-control" id="chatCallMuteButton">Mute</button>
+                        <button type="button" class="ghost-button chat-call-control" id="chatCallCameraButton">Matikan Kamera</button>
+                    </div>
+
+                    <div class="chat-call-incoming-actions" id="chatCallIncomingActions" hidden>
+                        <button type="button" class="ghost-button" id="chatCallAcceptButton">Angkat</button>
+                        <button type="button" class="ghost-button chat-call-danger" id="chatCallDeclineButton">Tolak</button>
+                    </div>
+
+                    <div class="chat-call-primary-actions" id="chatCallPrimaryActions" hidden>
+                        <button type="button" class="ghost-button chat-call-danger" id="chatCallEndButton">Akhiri</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </section>
+</div>
+
+<div class="chat-modal-backdrop" id="chatGroupModal" hidden>
+    <div class="chat-modal-card">
+        <div class="chat-modal-head">
+            <div>
+                <strong>Buat Grup Baru</strong>
+                <span>Pilih minimal dua member lain untuk mulai koordinasi grup.</span>
+            </div>
+            <button type="button" class="ghost-button" id="chatGroupCloseButton">Tutup</button>
+        </div>
+        <div class="chat-modal-form">
+            <label>
+                Nama Grup
+                <input type="text" id="chatGroupNameInput" placeholder="Contoh: Koordinasi Gudang Mega">
+            </label>
+            <label>
+                Deskripsi
+                <textarea id="chatGroupDescriptionInput" rows="3" placeholder="Opsional, untuk jelaskan tujuan grup"></textarea>
+            </label>
+            <div class="chat-modal-members">
+                <strong>Pilih Member</strong>
+                <div class="chat-group-member-list" id="chatGroupMemberList">
+                    {% for contact in contacts %}
+                    <label class="chat-group-member-option">
+                        <input type="checkbox" value="{{ contact.id }}">
+                        <span class="chat-avatar mini">{{ contact.initials }}</span>
+                        <span>
+                            <strong>{{ contact.username }}</strong>
+                            <small>{{ contact.role_label }} | {{ contact.warehouse_label }}</small>
+                        </span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="chat-modal-actions">
+            <button type="button" class="ghost-button" id="chatGroupCancelButton">Batal</button>
+            <button type="button" id="chatGroupSubmitButton">Buat Grup</button>
+        </div>
+    </div>
 </div>
 
 <script id="chatBootstrapData" type="application/json">
@@ -215,13 +350,19 @@
     "threads": threads,
     "contacts": contacts,
     "selected_thread": selected_thread,
+    "current_user": current_user_payload,
     "current_thread_id": current_thread_id,
     "current_thread_last_message_id": current_thread_last_message_id,
-    "unread_total": unread_total
+    "unread_total": unread_total,
+    "stickers": stickers,
+    "auto_start_call_mode": auto_start_call_mode,
+    "webrtc_ice_servers": chat_webrtc_ice_servers
 }|tojson }}
 </script>
 {% endblock %}
 
 {% block extra_scripts %}
 <script src="/static/js/chat_page.js"></script>
+<script src="/static/js/chat_call.js"></script>
 {% endblock %}
+

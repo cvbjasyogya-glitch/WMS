@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Request Owner | Mataram Sports WMS{% endblock %}
+{% block title %}Request Owner | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Owner Request Queue{% endblock %}
 {% block page_title %}Request Barang ke Owner{% endblock %}
 {% block page_subtitle %}Kirim permintaan barang langsung ke owner lewat batch composer yang konsisten dengan inbound, outbound, dan transfer, lalu pantau statusnya di satu antrian khusus.{% endblock %}
@@ -104,7 +104,7 @@
             </table>
         </div>
 
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button id="ownerRequestSubmitButton" type="submit">Kirim ke Owner</button>
         </div>
     </form>
@@ -439,3 +439,4 @@ resetOwnerRequestDraft();
 renderOwnerRequestQueue();
 </script>
 {% endblock %}
+

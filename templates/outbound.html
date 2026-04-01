@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Outbound | Mataram Sports WMS{% endblock %}
+{% block title %}Outbound | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Outbound Flow{% endblock %}
 {% block page_title %}Barang Keluar{% endblock %}
 {% block page_subtitle %}Pilih satu item, isi qty keluar, lalu tambahkan ke daftar kerja agar proses outbound banyak barang terasa cepat dan tetap aman terhadap stok.{% endblock %}
@@ -110,7 +110,7 @@
             </table>
         </div>
 
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button id="outboundSubmitButton" type="submit">Simpan Outbound</button>
         </div>
     </form>
@@ -392,3 +392,4 @@ resetOutboundDraft();
 renderOutboundQueue();
 </script>
 {% endblock %}
+

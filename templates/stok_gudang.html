@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Stok Gudang | Mataram Sports WMS{% endblock %}
+{% block title %}Stok Gudang | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Warehouse Inventory Surface{% endblock %}
 {% block page_title %}Stok Gudang{% endblock %}
 {% block page_subtitle %}Workspace inti untuk memantau kuantitas, valuasi inventori, aging batch, dan penyesuaian stok dengan tampilan yang lebih nyaman dipakai dari desktop maupun mobile.{% endblock %}
@@ -20,23 +20,23 @@
 <div class="summary stock-summary-grid">
     <div class="card-mini">
         <p>Total Variant</p>
-        <h3>{{ summary.total_variants }}</h3>
+        <h3 data-stock-summary="total_variants">{{ summary.total_variants }}</h3>
         <small class="helper-text">Item yang lolos dari filter aktif.</small>
     </div>
     <div class="card-mini">
         <p>Total Qty</p>
-        <h3>{{ summary.total_qty }}</h3>
+        <h3 data-stock-summary="total_qty">{{ summary.total_qty }}</h3>
         <small class="helper-text">Akumulasi stok siap operasional.</small>
     </div>
     <div class="card-mini">
         <p>Nilai Inventori</p>
-        <h3>Rp {{ "{:,.0f}".format(summary.inventory_value) }}</h3>
+        <h3 data-stock-summary="inventory_value">Rp {{ "{:,.0f}".format(summary.inventory_value) }}</h3>
         <small class="helper-text">Menggunakan harga nett lalu fallback ke discount/retail.</small>
     </div>
     <div class="card-mini {% if summary.zero_count or summary.low_count %}warning{% endif %}">
         <p>Perlu Atensi</p>
-        <h3>{{ summary.zero_count + summary.low_count }}</h3>
-        <small class="helper-text">{{ summary.zero_count }} kosong, {{ summary.low_count }} menipis.</small>
+        <h3 data-stock-summary="attention_count">{{ summary.zero_count + summary.low_count }}</h3>
+        <small class="helper-text" data-stock-summary="attention_breakdown">{{ summary.zero_count }} kosong, {{ summary.low_count }} menipis.</small>
     </div>
 </div>
 
@@ -47,11 +47,11 @@
     </div>
     <div class="meta-card">
         <span>Stock Siap Jual</span>
-        <strong>{{ summary.ready_count }}</strong>
+        <strong data-stock-summary="ready_count">{{ summary.ready_count }}</strong>
     </div>
     <div class="meta-card">
         <span>Stock Habis</span>
-        <strong>{{ summary.zero_count }}</strong>
+        <strong data-stock-summary="zero_count">{{ summary.zero_count }}</strong>
     </div>
     <div class="meta-card">
         <span>Near Expiry</span>
@@ -90,11 +90,16 @@
         <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
     </select>
     <button type="submit">Filter</button>
+    {% if can('direct_stock_ops') %}
     <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
+    {% endif %}
 </form>
 
 {% if is_scoped_user %}
 <small class="helper-text">Filter gudang dikunci ke gudang yang terhubung dengan akun Anda.</small>
+{% endif %}
+{% if not can('manage_product_master') %}
+<small class="helper-text">Field SKU, nama, variant, dan harga ditampilkan sebagai read only untuk role ini.</small>
 {% endif %}
 
 <div class="table-box stock-detail-box">
@@ -119,97 +124,103 @@
                 <th>
                     <a href="{{ sort_links.sku }}" class="sort-link {% if sort_state.field == 'sku' %}active{% endif %}">
                         <span>SKU</span>
-                        {% if sort_state.field == 'sku' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'sku' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.name }}" class="sort-link {% if sort_state.field == 'name' %}active{% endif %}">
                         <span>Produk</span>
-                        {% if sort_state.field == 'name' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'name' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.variant }}" class="sort-link {% if sort_state.field == 'variant' %}active{% endif %}">
                         <span>Variant</span>
-                        {% if sort_state.field == 'variant' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'variant' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.qty }}" class="sort-link {% if sort_state.field == 'qty' %}active{% endif %}">
                         <span>Qty</span>
-                        {% if sort_state.field == 'qty' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'qty' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.status }}" class="sort-link {% if sort_state.field == 'status' %}active{% endif %}">
                         <span>Status</span>
-                        {% if sort_state.field == 'status' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'status' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>Adjust</th>
                 <th>
                     <a href="{{ sort_links.price_retail }}" class="sort-link {% if sort_state.field == 'price_retail' %}active{% endif %}">
                         <span>Retail</span>
-                        {% if sort_state.field == 'price_retail' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'price_retail' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.price_discount }}" class="sort-link {% if sort_state.field == 'price_discount' %}active{% endif %}">
                         <span>Discount</span>
-                        {% if sort_state.field == 'price_discount' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'price_discount' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.price_nett }}" class="sort-link {% if sort_state.field == 'price_nett' %}active{% endif %}">
                         <span>Nett</span>
-                        {% if sort_state.field == 'price_nett' %}<span class="sort-indicator">{{ '▲' if sort_state.direction == 'asc' else '▼' }}</span>{% endif %}
+                        {% if sort_state.field == 'price_nett' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.age }}" class="sort-link {% if sort_state.field == 'age' %}active{% endif %}">
                         <span>Aging</span>
-                        {% if sort_state.field == 'age' %}<span class="sort-indicator">{{ '▼' if sort_state.direction == 'desc' else '▲' }}</span>{% endif %}
+                        {% if sort_state.field == 'age' %}<span class="sort-indicator">{{ 'â–¼' if sort_state.direction == 'desc' else 'â–²' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.created_at }}" class="sort-link {% if sort_state.field == 'created_at' %}active{% endif %}">
                         <span>Tanggal Masuk</span>
-                        {% if sort_state.field == 'created_at' %}<span class="sort-indicator">{{ '▼' if sort_state.direction == 'desc' else '▲' }}</span>{% endif %}
+                        {% if sort_state.field == 'created_at' %}<span class="sort-indicator">{{ 'â–¼' if sort_state.direction == 'desc' else 'â–²' }}</span>{% endif %}
                     </a>
                 </th>
             </tr>
         </thead>
         <tbody>
             {% for s in data %}
-            <tr class="{% if s.qty == 0 %}zero{% elif s.qty < 5 %}warning{% endif %}">
+            {% set best_price = s.price_nett if s.price_nett > 0 else (s.price_discount if s.price_discount > 0 else s.price_retail) %}
+            <tr
+                class="{% if s.qty == 0 %}zero{% elif s.qty < 5 %}warning{% endif %}"
+                data-stock-row
+                data-qty="{{ s.qty }}"
+                data-best-price="{{ best_price }}"
+            >
                 <td>
                     <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
                 </td>
                 <td>
-                    <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}">
+                    <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                 </td>
                 <td>
-                    <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}">
+                    <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                 </td>
                 <td>
-                    <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}">
+                    <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                 </td>
                 <td class="qty-text">
                     {% if s.qty == 0 %}
-                    <span class="badge red">{{ s.qty }}</span>
+                    <span class="badge red" data-stock-qty-badge>{{ s.qty }}</span>
                     {% elif s.qty < 5 %}
-                    <span class="badge orange">{{ s.qty }}</span>
+                    <span class="badge orange" data-stock-qty-badge>{{ s.qty }}</span>
                     {% else %}
-                    <span class="badge green">{{ s.qty }}</span>
+                    <span class="badge green" data-stock-qty-badge>{{ s.qty }}</span>
                     {% endif %}
                 </td>
                 <td>
                     {% if s.qty == 0 %}
-                    <span class="badge red">Kosong</span>
+                    <span class="badge red" data-stock-status-badge>Kosong</span>
                     {% elif s.qty < 5 %}
-                    <span class="badge orange">Menipis</span>
+                    <span class="badge orange" data-stock-status-badge>Menipis</span>
                     {% else %}
-                    <span class="badge green">Aman</span>
+                    <span class="badge green" data-stock-status-badge>Aman</span>
                     {% endif %}
                 </td>
                 <td>
@@ -221,19 +232,19 @@
                 <td>
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}">
+                        <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
                 </td>
                 <td>
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}">
+                        <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
                 </td>
                 <td>
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}">
+                        <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
                 </td>
                 <td>{{ s.age_days }} hari</td>
@@ -262,6 +273,196 @@
 
 {% block extra_scripts %}
 <script>
+const stockPageState = {
+    filter: "{{ stock_state }}",
+    summary: {
+        totalVariants: {{ summary.total_variants }},
+        totalQty: {{ summary.total_qty }},
+        inventoryValue: {{ summary.inventory_value|round(2) }},
+        zeroCount: {{ summary.zero_count }},
+        lowCount: {{ summary.low_count }},
+        readyCount: {{ summary.ready_count }}
+    }
+};
+const STOCK_LOW_THRESHOLD = 5;
+
+function notifyStockMessage(message, type = "info") {
+    if (typeof window.showToast === "function") {
+        window.showToast(message);
+        return;
+    }
+    if (type === "error") {
+        alert(message);
+    }
+}
+
+function formatRupiahNumber(value) {
+    return `Rp ${Math.round(value).toLocaleString("id-ID")}`;
+}
+
+function getStockLevel(qty) {
+    if (qty <= 0) {
+        return "zero";
+    }
+    if (qty < STOCK_LOW_THRESHOLD) {
+        return "low";
+    }
+    return "ready";
+}
+
+function rowMatchesCurrentFilter(qty) {
+    if (stockPageState.filter === "all") {
+        return true;
+    }
+    if (stockPageState.filter === "zero") {
+        return qty <= 0;
+    }
+    if (stockPageState.filter === "low") {
+        return qty > 0 && qty < STOCK_LOW_THRESHOLD;
+    }
+    if (stockPageState.filter === "ready") {
+        return qty >= STOCK_LOW_THRESHOLD;
+    }
+    return true;
+}
+
+function renderStockSummary() {
+    const attentionCount = stockPageState.summary.zeroCount + stockPageState.summary.lowCount;
+    const summaryMap = {
+        total_variants: String(stockPageState.summary.totalVariants),
+        total_qty: String(stockPageState.summary.totalQty),
+        inventory_value: formatRupiahNumber(stockPageState.summary.inventoryValue),
+        attention_count: String(attentionCount),
+        attention_breakdown: `${stockPageState.summary.zeroCount} kosong, ${stockPageState.summary.lowCount} menipis.`,
+        ready_count: String(stockPageState.summary.readyCount),
+        zero_count: String(stockPageState.summary.zeroCount)
+    };
+
+    document.querySelectorAll("[data-stock-summary]").forEach((node) => {
+        const key = node.dataset.stockSummary;
+        if (summaryMap[key] !== undefined) {
+            node.textContent = summaryMap[key];
+        }
+    });
+}
+
+function updateSummaryCounts(previousQty, nextQty, bestPrice) {
+    const previousMatches = rowMatchesCurrentFilter(previousQty);
+    const nextMatches = rowMatchesCurrentFilter(nextQty);
+    const previousLevel = getStockLevel(previousQty);
+    const nextLevel = getStockLevel(nextQty);
+
+    if (previousMatches) {
+        stockPageState.summary.totalQty -= previousQty;
+        stockPageState.summary.inventoryValue -= previousQty * bestPrice;
+        stockPageState.summary.totalVariants -= 1;
+        if (previousLevel === "zero") {
+            stockPageState.summary.zeroCount -= 1;
+        } else if (previousLevel === "low") {
+            stockPageState.summary.lowCount -= 1;
+        } else {
+            stockPageState.summary.readyCount -= 1;
+        }
+    }
+
+    if (nextMatches) {
+        stockPageState.summary.totalQty += nextQty;
+        stockPageState.summary.inventoryValue += nextQty * bestPrice;
+        stockPageState.summary.totalVariants += 1;
+        if (nextLevel === "zero") {
+            stockPageState.summary.zeroCount += 1;
+        } else if (nextLevel === "low") {
+            stockPageState.summary.lowCount += 1;
+        } else {
+            stockPageState.summary.readyCount += 1;
+        }
+    }
+
+    renderStockSummary();
+}
+
+function getBestPriceFromRow(row) {
+    const nett = parseFloat(row.querySelector('[data-field="price_nett"]')?.value || "0") || 0;
+    const discount = parseFloat(row.querySelector('[data-field="price_discount"]')?.value || "0") || 0;
+    const retail = parseFloat(row.querySelector('[data-field="price_retail"]')?.value || "0") || 0;
+
+    if (nett > 0) {
+        return nett;
+    }
+    if (discount > 0) {
+        return discount;
+    }
+    return retail;
+}
+
+function updateRowVisual(row, nextQty) {
+    const qtyBadge = row.querySelector("[data-stock-qty-badge]");
+    const statusBadge = row.querySelector("[data-stock-status-badge]");
+    const level = getStockLevel(nextQty);
+
+    row.dataset.qty = String(nextQty);
+    row.classList.remove("zero", "warning");
+    qtyBadge.classList.remove("red", "orange", "green");
+    statusBadge.classList.remove("red", "orange", "green");
+
+    qtyBadge.textContent = String(nextQty);
+
+    if (level === "zero") {
+        row.classList.add("zero");
+        qtyBadge.classList.add("red");
+        statusBadge.classList.add("red");
+        statusBadge.textContent = "Kosong";
+    } else if (level === "low") {
+        row.classList.add("warning");
+        qtyBadge.classList.add("orange");
+        statusBadge.classList.add("orange");
+        statusBadge.textContent = "Menipis";
+    } else {
+        qtyBadge.classList.add("green");
+        statusBadge.classList.add("green");
+        statusBadge.textContent = "Aman";
+    }
+}
+
+function ensureStockEmptyState() {
+    const tbody = document.querySelector(".stock-table tbody");
+    if (!tbody) {
+        return;
+    }
+
+    const rows = tbody.querySelectorAll("tr[data-stock-row]");
+    const existingEmptyRow = tbody.querySelector(".stock-table-empty-row");
+    if (rows.length > 0) {
+        existingEmptyRow?.remove();
+        return;
+    }
+
+    if (existingEmptyRow) {
+        return;
+    }
+
+    const emptyRow = document.createElement("tr");
+    emptyRow.className = "stock-table-empty-row";
+    emptyRow.innerHTML = '<td colspan="12"><div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div></td>';
+    tbody.appendChild(emptyRow);
+}
+
+function applyAdjustedQtyToRow(row, nextQty) {
+    const previousQty = parseInt(row.dataset.qty || "0", 10);
+    const bestPrice = getBestPriceFromRow(row);
+
+    updateSummaryCounts(previousQty, nextQty, bestPrice);
+
+    if (!rowMatchesCurrentFilter(nextQty)) {
+        row.remove();
+        ensureStockEmptyState();
+        return;
+    }
+
+    updateRowVisual(row, nextQty);
+    ensureStockEmptyState();
+}
+
 document.getElementById("checkAll")?.addEventListener("change", function() {
     document.querySelectorAll(".row-check").forEach((cb) => {
         cb.checked = this.checked;
@@ -325,12 +526,18 @@ function adjustStock(button) {
     .then((res) => res.json())
     .then((data) => {
         if (data.status === "success") {
-            location.reload();
+            const nextQty = Number.isInteger(data.qty) ? data.qty : (parseInt(row.dataset.qty || "0", 10) + qty);
+            applyAdjustedQtyToRow(row, nextQty);
+            input.value = "";
+            row.querySelector(".row-check")?.removeAttribute("checked");
+            row.querySelector(".row-check") && (row.querySelector(".row-check").checked = false);
+            document.getElementById("checkAll") && (document.getElementById("checkAll").checked = false);
+            notifyStockMessage(data.message || "Stock berhasil diupdate.");
             return;
         }
-        alert(data.message || "Adjust stok gagal.");
+        notifyStockMessage(data.message || "Adjust stok gagal.", "error");
     })
-    .catch(() => alert("Terjadi error saat adjust stok."))
+    .catch(() => notifyStockMessage("Terjadi error saat adjust stok.", "error"))
     .finally(() => {
         button.disabled = false;
     });
@@ -364,12 +571,23 @@ function bulkAdjust() {
     .then((res) => res.json())
     .then((data) => {
         if (data.status === "success") {
-            location.reload();
+            selected.forEach((checkbox) => {
+                const row = checkbox.closest("tr");
+                if (!row || !row.matches("[data-stock-row]")) {
+                    return;
+                }
+                const currentQty = parseInt(row.dataset.qty || "0", 10);
+                applyAdjustedQtyToRow(row, currentQty + parseInt(qty, 10));
+                checkbox.checked = false;
+            });
+            document.getElementById("checkAll") && (document.getElementById("checkAll").checked = false);
+            notifyStockMessage(data.message || "Bulk adjust berhasil.");
             return;
         }
-        alert(data.message || "Bulk adjust gagal.");
+        notifyStockMessage(data.message || "Bulk adjust gagal.", "error");
     })
-    .catch(() => alert("Terjadi error saat bulk adjust."));
+    .catch(() => notifyStockMessage("Terjadi error saat bulk adjust.", "error"));
 }
 </script>
 {% endblock %}
+

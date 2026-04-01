@@ -54,6 +54,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "product_variants", "price_discount", "REAL DEFAULT 0")
     _ensure_column(cursor, "product_variants", "price_nett", "REAL DEFAULT 0")
     _ensure_column(cursor, "product_variants", "variant_code", "TEXT")
+    _ensure_column(cursor, "product_variants", "color", "TEXT")
     _ensure_column(cursor, "product_variants", "gtin", "TEXT")
     _ensure_column(cursor, "product_variants", "no_gtin", "INTEGER DEFAULT 0")
 
@@ -67,6 +68,7 @@ def migrate_schema(cursor):
     # per-account notification preferences
     _ensure_column(cursor, "users", "notify_email", "INTEGER DEFAULT 1")
     _ensure_column(cursor, "users", "notify_whatsapp", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "users", "chat_sound_volume", "REAL DEFAULT 0.85")
     # user assigned warehouse (for single-warehouse roles)
     _ensure_column(cursor, "users", "warehouse_id", "INTEGER")
     _ensure_column(cursor, "users", "employee_id", "INTEGER")
@@ -91,6 +93,8 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "attendance_records", "check_in", "TEXT")
     _ensure_column(cursor, "attendance_records", "check_out", "TEXT")
     _ensure_column(cursor, "attendance_records", "status", "TEXT DEFAULT 'present'")
+    _ensure_column(cursor, "attendance_records", "shift_code", "TEXT")
+    _ensure_column(cursor, "attendance_records", "shift_label", "TEXT")
     _ensure_column(cursor, "attendance_records", "note", "TEXT")
     _ensure_column(cursor, "attendance_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "leave_requests", "employee_id", "INTEGER")
@@ -222,6 +226,8 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "biometric_logs", "latitude", "REAL")
     _ensure_column(cursor, "biometric_logs", "longitude", "REAL")
     _ensure_column(cursor, "biometric_logs", "accuracy_m", "REAL DEFAULT 0")
+    _ensure_column(cursor, "biometric_logs", "shift_code", "TEXT")
+    _ensure_column(cursor, "biometric_logs", "shift_label", "TEXT")
     _ensure_column(cursor, "biometric_logs", "photo_path", "TEXT")
     _ensure_column(cursor, "biometric_logs", "photo_captured_at", "TEXT")
     _ensure_column(cursor, "biometric_logs", "note", "TEXT")
@@ -251,6 +257,30 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "document_records", "handled_by", "INTEGER")
     _ensure_column(cursor, "document_records", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "document_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "daily_live_reports", "user_id", "INTEGER")
+    _ensure_column(cursor, "daily_live_reports", "employee_id", "INTEGER")
+    _ensure_column(cursor, "daily_live_reports", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "daily_live_reports", "report_type", "TEXT DEFAULT 'daily'")
+    _ensure_column(cursor, "daily_live_reports", "report_date", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "title", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "summary", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "blocker_note", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "follow_up_note", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "status", "TEXT DEFAULT 'submitted'")
+    _ensure_column(cursor, "daily_live_reports", "hr_note", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "handled_by", "INTEGER")
+    _ensure_column(cursor, "daily_live_reports", "handled_at", "TIMESTAMP")
+    _ensure_column(cursor, "daily_live_reports", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "chat_threads", "thread_type", "TEXT DEFAULT 'direct'")
+    _ensure_column(cursor, "chat_threads", "group_name", "TEXT")
+    _ensure_column(cursor, "chat_threads", "group_description", "TEXT")
+    _ensure_column(cursor, "chat_messages", "message_type", "TEXT DEFAULT 'text'")
+    _ensure_column(cursor, "chat_messages", "attachment_name", "TEXT")
+    _ensure_column(cursor, "chat_messages", "attachment_path", "TEXT")
+    _ensure_column(cursor, "chat_messages", "attachment_mime", "TEXT")
+    _ensure_column(cursor, "chat_messages", "attachment_size", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "chat_messages", "sticker_code", "TEXT")
+    _ensure_column(cursor, "chat_messages", "call_mode", "TEXT")
 
 
 def init_db(db_path=None):
@@ -292,6 +322,7 @@ def init_db(db_path=None):
         price_discount REAL DEFAULT 0,
         price_nett REAL DEFAULT 0,
         variant_code TEXT,
+        color TEXT,
         gtin TEXT,
         no_gtin INTEGER DEFAULT 0,
         UNIQUE(product_id, variant),
@@ -500,6 +531,8 @@ def init_db(db_path=None):
         check_in TEXT,
         check_out TEXT,
         status TEXT DEFAULT 'present',
+        shift_code TEXT,
+        shift_label TEXT,
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -734,6 +767,8 @@ def init_db(db_path=None):
         latitude REAL,
         longitude REAL,
         accuracy_m REAL DEFAULT 0,
+        shift_code TEXT,
+        shift_label TEXT,
         photo_path TEXT,
         photo_captured_at TEXT,
         note TEXT,
@@ -786,6 +821,49 @@ def init_db(db_path=None):
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
         FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS daily_live_reports(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        employee_id INTEGER,
+        warehouse_id INTEGER NOT NULL,
+        report_type TEXT DEFAULT 'daily',
+        report_date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        blocker_note TEXT,
+        follow_up_note TEXT,
+        status TEXT DEFAULT 'submitted',
+        hr_note TEXT,
+        handled_by INTEGER,
+        handled_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE SET NULL,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS dashboard_reminders(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER,
+        reminder_date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        note TEXT,
+        status TEXT DEFAULT 'open',
+        created_by INTEGER,
+        updated_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(created_by) REFERENCES users(id),
+        FOREIGN KEY(updated_by) REFERENCES users(id)
     )
     """)
 
@@ -894,6 +972,9 @@ def init_db(db_path=None):
     CREATE TABLE IF NOT EXISTS chat_threads(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         direct_key TEXT NOT NULL UNIQUE,
+        thread_type TEXT DEFAULT 'direct',
+        group_name TEXT,
+        group_description TEXT,
         created_by INTEGER,
         last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -922,6 +1003,13 @@ def init_db(db_path=None):
         thread_id INTEGER NOT NULL,
         sender_id INTEGER NOT NULL,
         body TEXT NOT NULL,
+        message_type TEXT DEFAULT 'text',
+        attachment_name TEXT,
+        attachment_path TEXT,
+        attachment_mime TEXT,
+        attachment_size INTEGER DEFAULT 0,
+        sticker_code TEXT,
+        call_mode TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
         FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE
@@ -937,6 +1025,43 @@ def init_db(db_path=None):
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY(active_thread_id) REFERENCES chat_threads(id) ON DELETE SET NULL
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS chat_call_sessions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL,
+        initiator_id INTEGER NOT NULL,
+        receiver_id INTEGER NOT NULL,
+        call_mode TEXT NOT NULL DEFAULT 'voice',
+        status TEXT NOT NULL DEFAULT 'pending',
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        answered_at TIMESTAMP,
+        ended_at TIMESTAMP,
+        ended_by INTEGER,
+        last_signal_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
+        FOREIGN KEY(initiator_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(ended_by) REFERENCES users(id) ON DELETE SET NULL
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS chat_call_signals(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        call_id INTEGER NOT NULL,
+        thread_id INTEGER NOT NULL,
+        sender_id INTEGER NOT NULL,
+        recipient_id INTEGER NOT NULL,
+        signal_type TEXT NOT NULL,
+        payload TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(call_id) REFERENCES chat_call_sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
+        FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE
     )
     """)
 
@@ -993,6 +1118,43 @@ def init_db(db_path=None):
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS schedule_change_events(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER,
+        audience TEXT DEFAULT 'all',
+        event_kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT,
+        affected_employee_id INTEGER,
+        affected_employee_name TEXT,
+        start_date TEXT,
+        end_date TEXT,
+        target_url TEXT DEFAULT '/schedule/',
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(affected_employee_id) REFERENCES employees(id) ON DELETE SET NULL,
+        FOREIGN KEY(created_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS push_subscriptions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh_key TEXT NOT NULL,
+        auth_key TEXT NOT NULL,
+        user_agent TEXT,
+        is_active INTEGER DEFAULT 1,
+        last_notified_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
     # ==========================
     # STOCK OPNAME RESULTS
     # ==========================
@@ -1037,20 +1199,33 @@ def init_db(db_path=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_biometric_logs_main ON biometric_logs(warehouse_id, punch_time, punch_type, sync_status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_announcement_posts_main ON announcement_posts(warehouse_id, audience, status, publish_date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_document_records_main ON document_records(warehouse_id, document_type, status, effective_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_daily_live_reports_main ON daily_live_reports(warehouse_id, report_date, report_type, status, user_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_reminders_main ON dashboard_reminders(reminder_date, warehouse_id, status)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_customers_main ON crm_customers(warehouse_id, customer_name, customer_type)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_memberships_main ON crm_memberships(warehouse_id, tier, status, join_date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_records_main ON crm_purchase_records(warehouse_id, purchase_date, customer_id, member_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_items_main ON crm_purchase_items(purchase_id, product_id, variant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_member_records_main ON crm_member_records(warehouse_id, record_date, member_id, record_type)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_main ON chat_threads(last_message_at, updated_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_group ON chat_threads(thread_type, group_name, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_thread_members(user_id, thread_id, last_read_message_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id, id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_sender ON chat_messages(sender_id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_type ON chat_messages(thread_id, message_type, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_user_presence_last_seen ON user_presence(last_seen_at, active_thread_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_sessions_open ON chat_call_sessions(status, initiator_id, receiver_id, thread_id, started_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_sessions_thread ON chat_call_sessions(thread_id, status, started_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_signals_recipient ON chat_call_signals(recipient_id, id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_signals_call ON chat_call_signals(call_id, id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_shift_codes_main ON schedule_shift_codes(sort_order, code, is_active)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_profiles_main ON schedule_employee_profiles(display_group, display_order, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_entries_main ON schedule_entries(employee_id, schedule_date, shift_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_day_notes_main ON schedule_day_notes(schedule_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_change_events_main ON schedule_change_events(warehouse_id, created_at, event_kind)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id, is_active, updated_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_scope_role ON users(role, warehouse_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_requests_flow ON requests(status, from_warehouse, to_warehouse, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requested_by, status, created_at)")
 
     # ==========================
     # APPROVALS (for inbound/outbound/adjust requests)
@@ -1104,6 +1279,21 @@ def init_db(db_path=None):
         FOREIGN KEY(user_id) REFERENCES users(id)
     )
     """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS login_attempts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT,
+        ip_address TEXT,
+        success INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(recipient, channel, subject, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_lookup ON password_resets(user_id, code, used, expires_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, success, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, success, created_at)")
 
     # ==========================
     # SEED

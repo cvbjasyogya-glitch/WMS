@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% macro filter_hidden_inputs() -%}
 <input type="hidden" name="start" value="{{ filters.start }}">
@@ -8,15 +8,13 @@
 {% endif %}
 {%- endmacro %}
 
-{% block title %}Penjadwalan | Mataram Sports Platform{% endblock %}
+{% block title %}Jadwal | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}WMS Scheduling Board{% endblock %}
-{% block page_title %}Penjadwalan Tim{% endblock %}
+{% block page_title %}Jadwal Tim{% endblock %}
 {% block page_subtitle %}Board ini menyatukan jadwal manual dengan data HRIS. Approved leave, status off, absensi khusus, dan offboarding aktif akan otomatis menimpa shift manual supaya planner operasional selalu membaca kondisi staf yang paling aktual.{% endblock %}
 
 {% block page_actions %}
-{% if show_hris_navigation and can_view_hris_module("leave") %}
-<a class="ghost-button" href="/hris/leave">Buka Leave</a>
-{% endif %}
+<a class="ghost-button" href="/libur/">Buka Libur</a>
 {% if show_hris_navigation and can_view_hris_module("offboarding") %}
 <a class="ghost-button" href="/hris/offboarding">Buka Offboarding</a>
 {% endif %}
@@ -138,12 +136,12 @@
                     <label>Tanggal Selesai</label>
                     <input type="date" name="entry_end_date" value="{{ range_end }}" required>
                 </div>
-                <div style="grid-column: 1 / -1;">
+                <div class="span-full">
                     <label>Catatan Shift</label>
                     <textarea name="note" rows="3" placeholder="Contoh: backup live host, training, atau standby event."></textarea>
                 </div>
             </div>
-            <div class="split-actions" style="margin-top:16px;">
+            <div class="split-actions stack-gap-md">
                 <button type="submit">Terapkan Jadwal</button>
             </div>
         </form>
@@ -163,12 +161,12 @@
                     <label>Tanggal</label>
                     <input type="date" name="schedule_date" value="{{ filters.start }}" required>
                 </div>
-                <div style="grid-column: 1 / -1;">
+                <div class="span-full">
                     <label>Catatan</label>
                     <textarea name="note" rows="4" placeholder="Contoh: launching campaign Ramadan, training POS, visit owner, dan lain-lain."></textarea>
                 </div>
             </div>
-            <div class="split-actions" style="margin-top:16px;">
+            <div class="split-actions stack-gap-md">
                 <button type="submit">Simpan Catatan</button>
             </div>
         </form>
@@ -214,7 +212,7 @@
                 </label>
             </div>
         </div>
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button type="submit">Tambah Shift</button>
         </div>
     </form>
@@ -257,7 +255,7 @@
                     </label>
                 </div>
             </div>
-            <div class="split-actions" style="margin-top:16px;">
+            <div class="split-actions stack-gap-md">
                 <button type="submit">Simpan Shift</button>
             </div>
         </form>
@@ -311,12 +309,12 @@
                         <span>Masuk ke board penjadwalan</span>
                     </label>
                 </div>
-                <div style="grid-column: 1 / -1;">
+                <div class="span-full">
                     <label>Catatan Profil</label>
                     <textarea name="profile_note" rows="2" placeholder="Catatan display khusus untuk staff ini.">{{ employee.profile_note }}</textarea>
                 </div>
             </div>
-            <div class="split-actions" style="margin-top:16px;">
+            <div class="split-actions stack-gap-md">
                 <button type="submit">Simpan Preferensi</button>
             </div>
         </form>
@@ -334,65 +332,102 @@
     <div class="section-title">
         <div>
             <h2>Board Penjadwalan</h2>
-            <p>Header board dibagi menjadi grup kerja, label lokasi, dan nama staf agar cepat dibaca saat tim lintas gudang tampil dalam satu lembar.</p>
+            <p>Board tampil sebagai studio operasional yang fokus ke staf, ritme hari, dan override aktif, jadi lebih cepat dibaca dibanding layout spreadsheet tradisional.</p>
         </div>
     </div>
 
     {% if schedule_members %}
-    <div class="schedule-board-wrap">
-        <table class="schedule-board">
-            <thead>
-                <tr>
-                    <th class="schedule-axis-cell schedule-sticky">Job Description</th>
-                    {% for group in schedule_groups %}
-                    <th colspan="{{ group.members|length }}" class="schedule-group-header">{{ group.label }}</th>
-                    {% endfor %}
-                    <th rowspan="3" class="schedule-note-header">Ket.</th>
-                </tr>
-                <tr>
-                    <th class="schedule-axis-cell schedule-sticky">Lokasi Kerja / Sistem</th>
-                    {% for member in schedule_members %}
-                    <th class="schedule-location-header">{{ member.location_label_display }}</th>
-                    {% endfor %}
-                </tr>
-                <tr>
-                    <th class="schedule-axis-cell schedule-sticky">Tanggal | Nama Staf</th>
-                    {% for member in schedule_members %}
-                    <th class="schedule-name-header">{{ member.display_name }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in board_rows %}
-                <tr class="{% if row.is_weekend %}schedule-row-weekend{% endif %}">
-                    <th class="schedule-day-header schedule-sticky">{{ row.label }}</th>
-                    {% for cell in row.cells %}
-                    <td class="schedule-board-cell">
-                        {% if cell %}
-                        <span
-                            class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
-                            style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
-                            title="{{ cell.title }}"
-                        >{{ cell.code }}</span>
-                        {% else %}
-                        <span class="schedule-empty">-</span>
-                        {% endif %}
-                    </td>
-                    {% endfor %}
-                    <td class="schedule-note-cell">
+    <div class="schedule-board-hero">
+        <div>
+            <span class="badge">Live Board</span>
+            <h3>Studio jadwal harian yang lebih clean dan fokus ke tim</h3>
+            <p>Kolom staf dibuat seperti kartu operasional, sementara rail tanggal di kiri menjaga ritme hari tetap mudah dipindai.</p>
+        </div>
+        <div class="schedule-board-hero-meta">
+            <span>{{ filters.days }} hari</span>
+            <span>{{ schedule_groups|length }} cluster</span>
+            <span>{{ summary.override_cells }} override</span>
+        </div>
+    </div>
+    <div class="schedule-board-wrap schedule-board-studio-wrap">
+        <div class="schedule-board-studio">
+            <aside class="schedule-board-rail">
+                <div class="schedule-board-rail-head">
+                    <span class="schedule-board-rail-kicker">Timeline</span>
+                    <strong>{{ filters.start }} s/d {{ range_end }}</strong>
+                    <p>Catatan harian dan momen weekend tampil di rail kiri agar planner cepat menangkap ritme minggu ini.</p>
+                </div>
+                <div class="schedule-board-rail-body">
+                    {% for row in board_rows %}
+                    <article class="schedule-day-tile {% if row.is_weekend %}schedule-day-tile-weekend{% endif %}">
+                        <div class="schedule-day-tile-top">
+                            <span class="schedule-day-tile-date">{{ row.iso_date }}</span>
+                            {% if row.note %}
+                            <span class="schedule-day-note-tag">Catatan</span>
+                            {% endif %}
+                        </div>
+                        <strong>{{ row.label }}</strong>
                         {% if row.note %}
-                        <div class="schedule-note-text">{{ row.note }}</div>
+                        <p>{{ row.note }}</p>
                         {% else %}
-                        <span class="schedule-empty">-</span>
+                        <p class="schedule-day-tile-empty">Tidak ada catatan khusus.</p>
                         {% endif %}
-                    </td>
-                </tr>
+                    </article>
+                    {% endfor %}
+                </div>
+            </aside>
+            <div class="schedule-member-stage">
+                {% for member_index in range(schedule_members|length) %}
+                {% set member = schedule_members[member_index] %}
+                <article class="schedule-member-column">
+                    <header class="schedule-member-header">
+                        <div class="schedule-member-header-top">
+                            <span class="schedule-member-group">{{ member.display_group_label }}</span>
+                            <span class="schedule-member-location">{{ member.location_label_display }}</span>
+                        </div>
+                        <strong>{{ member.display_name }}</strong>
+                        <p>{{ member.full_name }}</p>
+                        <small>{{ member.position or member.department or "Tim Operasional" }}</small>
+                    </header>
+                    <div class="schedule-member-cells">
+                        {% for row in board_rows %}
+                        {% set cell = row.cells[member_index] %}
+                        <div class="schedule-slot {% if row.is_weekend %}schedule-slot-weekend{% endif %} {% if cell and cell.source != 'manual' %}schedule-slot-auto{% endif %}">
+                            <div class="schedule-slot-top">
+                                <span class="schedule-slot-date">{{ row.iso_date[5:] }}</span>
+                                {% if row.note %}
+                                <span class="schedule-slot-dot" title="{{ row.note }}"></span>
+                                {% endif %}
+                            </div>
+                            {% if cell %}
+                            <span
+                                class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
+                                style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
+                                title="{{ cell.title }}"
+                            >{{ cell.code }}</span>
+                            <span class="schedule-slot-label">{{ cell.label }}</span>
+                            {% if cell.note %}
+                            <span class="schedule-slot-note">{{ cell.note }}</span>
+                            {% elif cell.source != 'manual' %}
+                            <span class="schedule-slot-meta">Override HRIS</span>
+                            {% else %}
+                            <span class="schedule-slot-meta">Shift manual aktif</span>
+                            {% endif %}
+                            {% else %}
+                            <span class="schedule-empty">Open</span>
+                            <span class="schedule-slot-meta">Belum ada shift</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </article>
                 {% endfor %}
-            </tbody>
-        </table>
+            </div>
+        </div>
     </div>
     {% else %}
     <div class="alert info">Belum ada staf yang siap ditampilkan pada board ini. Tambahkan data karyawan di HRIS lalu aktifkan opsi tampil di board jika perlu.</div>
     {% endif %}
 </div>
 {% endblock %}
+

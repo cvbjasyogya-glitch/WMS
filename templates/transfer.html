@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Transfer | Mataram Sports WMS{% endblock %}
+{% block title %}Transfer | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Inter-Warehouse Flow{% endblock %}
 {% block page_title %}Transfer Antar Gudang{% endblock %}
 {% block page_subtitle %}Susun perpindahan stok dengan pola pilih item lalu tambah ke daftar batch, supaya transfer banyak barang terasa konsisten dengan inbound dan outbound.{% endblock %}
@@ -113,7 +113,7 @@
             </table>
         </div>
 
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button id="transferSubmitButton" type="submit">Proses Transfer</button>
         </div>
     </form>
@@ -430,3 +430,4 @@ resetTransferDraft();
 renderTransferQueue();
 </script>
 {% endblock %}
+

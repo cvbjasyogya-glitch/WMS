@@ -1,0 +1,130 @@
+﻿{% extends "base.html" %}
+
+{% block title %}Pengaturan Akun | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Account Preferences{% endblock %}
+{% block page_title %}Pengaturan Akun{% endblock %}
+{% block page_subtitle %}Atur kontak akun dan volume notifikasi chat personal tanpa harus lewat panel admin.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Username</p>
+        <h3>@{{ account_user.username }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Role</p>
+        <h3>{{ account_user.role|replace("_", " ")|title }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Gudang</p>
+        <h3>{{ account_user.warehouse_name or "Global" }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Volume Chat</p>
+        <h3><span data-chat-volume-label>{{ chat_sound_volume_percent }}</span>%</h3>
+    </div>
+</div>
+
+<form method="POST" class="form-box account-settings-form" id="accountSettingsForm">
+    <div class="section-title">
+        <div>
+            <h2>Preferensi Akun</h2>
+            <p>Perubahan berlaku untuk akun login ini dan langsung dipakai oleh notifikasi chat realtime.</p>
+        </div>
+    </div>
+
+    <div class="form-grid">
+        <div>
+            <label>Email</label>
+            <input type="email" name="email" value="{{ account_user.email or '' }}" placeholder="Opsional untuk notifikasi email">
+        </div>
+        <div>
+            <label>WhatsApp / Telepon</label>
+            <input type="text" name="phone" value="{{ account_user.phone or '' }}" placeholder="Opsional untuk notifikasi WA">
+        </div>
+    </div>
+
+    <div class="ops-config-grid stack-gap-md">
+        <label class="ops-config-card">
+            <span class="variant-mini-label">Email Notif</span>
+            <strong>Aktifkan Notifikasi Email</strong>
+            <small class="helper-text">Dipakai untuk reset password dan notifikasi sistem bila email tersedia.</small>
+            <input type="checkbox" name="notify_email" {% if account_user.notify_email %}checked{% endif %}>
+        </label>
+        <label class="ops-config-card">
+            <span class="variant-mini-label">WA Notif</span>
+            <strong>Aktifkan Notifikasi WhatsApp</strong>
+            <small class="helper-text">Dipakai jika nomor sudah diisi dan gateway WA aktif di sistem.</small>
+            <input type="checkbox" name="notify_whatsapp" {% if account_user.notify_whatsapp %}checked{% endif %}>
+        </label>
+        <div class="ops-config-card">
+            <span class="variant-mini-label">Chat Sound</span>
+            <strong>Volume Notifikasi Chat</strong>
+            <small class="helper-text">Atur 0-100%. Nilai 0 akan membisukan suara, tapi toast chat tetap muncul.</small>
+            <div class="account-volume-row">
+                <input
+                    type="range"
+                    name="chat_sound_volume"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value="{{ chat_sound_volume_percent }}"
+                    data-chat-volume-input
+                >
+                <span class="badge" data-chat-volume-label>{{ chat_sound_volume_percent }}%</span>
+            </div>
+            <div class="split-actions stack-gap-sm">
+                <button type="button" class="ghost-button" data-chat-preview-sound>Preview Suara</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="split-actions stack-gap-lg">
+        <button type="submit">Simpan Pengaturan</button>
+    </div>
+</form>
+
+<script>
+(() => {
+    const form = document.getElementById("accountSettingsForm");
+    if (!form) {
+        return;
+    }
+
+    const rangeInput = form.querySelector("[data-chat-volume-input]");
+    const previewButton = form.querySelector("[data-chat-preview-sound]");
+    const volumeLabels = Array.from(document.querySelectorAll("[data-chat-volume-label]"));
+
+    const syncLabels = () => {
+        const safeValue = Math.max(0, Math.min(Number(rangeInput?.value || 0), 100));
+        volumeLabels.forEach((node) => {
+            node.textContent = `${safeValue}`;
+            if (node.classList.contains("badge")) {
+                node.textContent = `${safeValue}%`;
+            }
+        });
+    };
+
+    rangeInput?.addEventListener("input", syncLabels);
+    previewButton?.addEventListener("click", () => {
+        const safeValue = Math.max(0, Math.min(Number(rangeInput?.value || 0), 100));
+        if (safeValue <= 0) {
+            if (typeof window.showToast === "function") {
+                window.showToast("Volume chat sedang 0%. Naikkan slider dulu untuk mendengar preview.");
+            }
+            return;
+        }
+        const sound = new Audio("/static/notif.mp3");
+        sound.volume = safeValue / 100;
+        sound.play().catch(() => {
+            if (typeof window.showToast === "function") {
+                window.showToast("Klik dulu halaman ini jika browser masih memblokir preview suara.");
+            }
+        });
+    });
+
+    syncLabels();
+})();
+</script>
+{% endblock %}
+

@@ -2,16 +2,19 @@ import os
 import shutil
 import unittest
 import json
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime, timedelta, timezone
 from io import BytesIO
+from unittest.mock import patch
 from uuid import uuid4
 import zipfile
 
 import init_db as init_db_module
+import services.notification_service as notification_service
 from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
-from werkzeug.security import generate_password_hash
+from routes.chat import _format_timestamp_label
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 class WmsRoutesTestCase(unittest.TestCase):
@@ -31,6 +34,11 @@ class WmsRoutesTestCase(unittest.TestCase):
             SESSION_COOKIE_SECURE=False,
             BIOMETRIC_PHOTO_UPLOAD_FOLDER=self.photo_upload_root,
             BIOMETRIC_PHOTO_URL_PREFIX="/static/test-geotag",
+            SECRET_KEY="test-secret-key",
+            LOGIN_THROTTLE_LIMIT=3,
+            LOGIN_THROTTLE_WINDOW_SECONDS=300,
+            PASSWORD_MIN_LENGTH=8,
+            PASSWORD_RESET_TTL_MINUTES=15,
         )
         self.client = self.app.test_client()
 
@@ -282,7 +290,10 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         for path in [
             "/",
+            "/announcements/",
             "/absen/",
+            "/libur/",
+            "/laporan-harian/",
             "/schedule/",
             "/crm/",
             "/chat/",
@@ -305,12 +316,60 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('@admin', html)
                 self.assertIn('data-theme-toggle', html)
                 self.assertIn('>WMS<', html)
-                self.assertIn('>HRIS<', html)
-                self.assertIn('>Chat<', html)
+                self.assertIn('>Pengumuman<', html)
                 self.assertIn('>Absen<', html)
+                self.assertIn('>Libur<', html)
+                self.assertIn('>Report Harian<', html)
+                if path == "/chat/":
+                    self.assertIn("Chat Operasional Live", html)
+                else:
+                    self.assertIn('data-chat-widget-launcher', html)
 
         admin_page = self.client.get("/admin/", follow_redirects=False)
         self.assertEqual(admin_page.status_code, 302)
+
+    def test_hr_role_hides_wms_sidebar_group(self):
+        self.login_hr_user("hr_nav_only", "pass1234")
+
+        response = self.client.get("/hris/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('>HRIS<', html)
+        self.assertNotIn('>WMS<', html)
+
+    def test_health_and_ready_endpoints_are_public_and_hardened(self):
+        health_response = self.client.get("/health")
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(health_response.get_json()["status"], "ok")
+        self.assertIn("X-Request-ID", health_response.headers)
+        self.assertEqual(health_response.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertIn("microphone=(self)", health_response.headers.get("Permissions-Policy", ""))
+        self.assertIn("frame-ancestors 'self'", health_response.headers.get("Content-Security-Policy", ""))
+
+        ready_response = self.client.get("/ready")
+        self.assertEqual(ready_response.status_code, 200)
+        self.assertEqual(ready_response.get_json()["database"], "ok")
+        self.assertIn("X-Request-ID", ready_response.headers)
+
+        login_page = self.client.get("/login")
+        self.assertEqual(login_page.status_code, 200)
+        self.assertIn("no-store", login_page.headers.get("Cache-Control", ""))
+
+    def test_service_worker_route_is_public(self):
+        response = self.client.get("/service-worker.js")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('addEventListener("push"', body)
+        self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
+
+    def test_notify_roles_empty_list_is_hardened(self):
+        with self.app.app_context():
+            result = notification_service.notify_roles([], "Audit", "Tidak ada role")
+            db = get_db()
+            count = db.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+
+        self.assertEqual(result, {"email": [], "wa": []})
+        self.assertEqual(count, 0)
 
     def test_schedule_route_renders_for_admin_view_only(self):
         self.login()
@@ -335,7 +394,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/schedule/?start=2026-03-30&days=7")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Penjadwalan Tim", html)
+        self.assertIn("Jadwal Tim", html)
         self.assertIn("View Only", html)
         self.assertIn('name="warehouse" disabled', html)
         self.assertIn("Ayu", html)
@@ -354,6 +413,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Display Staf di Board", schedule_html)
         self.assertIn('>HRIS<', schedule_html)
         self.assertIn('href="/hris/leave"', schedule_html)
+        self.assertIn('href="/libur/"', schedule_html)
 
         hris_response = self.client.get("/hris/employee")
         self.assertEqual(hris_response.status_code, 200)
@@ -366,6 +426,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             full_name="Ajeng Schedule",
             warehouse_id=1,
             position="HR Staff",
+        )
+        mega_employee_id = self.create_employee_record(
+            employee_code="EMP-HRIS-MEGA",
+            full_name="Caca Mega",
+            warehouse_id=2,
+            position="Marketing",
         )
         today = date_cls.today().isoformat()
 
@@ -403,6 +469,13 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (employee_id, today, "P", "Opening shift", 1),
             )
+            db.execute(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                (mega_employee_id, today, "PM", "Host live sore", 1),
+            )
             db.commit()
 
         self.login("hr_dashboard", "pass1234")
@@ -413,9 +486,243 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Announcement Aktif", html)
         self.assertIn("Briefing Gudang Pagi", html)
         self.assertIn("Jadwal Tim", html)
+        self.assertIn("Jadwal Gudang Mataram", html)
+        self.assertIn("Jadwal Gudang Mega", html)
         self.assertIn("Ajeng", html)
+        self.assertIn("Caca", html)
         self.assertIn("Opening shift", html)
-        self.assertIn(f'href="/schedule/?start={today}&days=7"', html)
+        self.assertIn(f'href="/schedule/?start={today}&amp;days=7&amp;warehouse=1"', html)
+        self.assertIn(f'href="/schedule/?start={today}&amp;days=7&amp;warehouse=2"', html)
+
+    def test_announcement_center_renders_hris_announcements_and_schedule_changes(self):
+        self.login()
+        today = date_cls.today().isoformat()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO announcement_posts(
+                    warehouse_id,
+                    title,
+                    audience,
+                    publish_date,
+                    status,
+                    channel,
+                    message,
+                    handled_by
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Pengumuman Shift Pagi",
+                    "all",
+                    today,
+                    "published",
+                    "Portal HRIS",
+                    "Briefing pagi dipindah ke area inbound.",
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO schedule_change_events(
+                    warehouse_id,
+                    audience,
+                    event_kind,
+                    title,
+                    message,
+                    start_date,
+                    end_date,
+                    created_by
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "all",
+                    "entry_update",
+                    "Rina - Pagi",
+                    "Jadwal Rina untuk hari ini diubah ke shift Pagi.",
+                    today,
+                    today,
+                    1,
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/announcements/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Pusat Pengumuman", html)
+        self.assertIn("Pengumuman Shift Pagi", html)
+        self.assertIn("Perubahan Jadwal", html)
+        self.assertIn("Rina - Pagi", html)
+        self.assertIn("Aktifkan Notif Perangkat", html)
+
+    def test_published_announcement_broadcasts_notifications_and_appears_for_staff(self):
+        self.create_user(
+            "staff_pengumuman",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="staff@example.com",
+            notify_email=1,
+        )
+        self.login_hr_user("hr_pengumuman_broadcast", "pass1234")
+
+        response = self.client.post(
+            "/hris/announcement/add",
+            data={
+                "warehouse_id": "1",
+                "title": "Info SOP Baru",
+                "audience": "all",
+                "publish_date": date_cls.today().isoformat(),
+                "status": "published",
+                "channel": "HRIS",
+                "message": "SOP loading diperbarui mulai hari ini.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            notification = db.execute(
+                """
+                SELECT subject, message, status
+                FROM notifications
+                WHERE subject=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Pengumuman baru: Info SOP Baru",),
+            ).fetchone()
+
+        self.assertIsNotNone(notification)
+        self.assertIn("SOP loading diperbarui", notification["message"])
+
+        self.logout()
+        self.login("staff_pengumuman", "pass1234")
+        page = self.client.get("/announcements/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Info SOP Baru", page.get_data(as_text=True))
+
+    def test_schedule_changes_are_logged_and_visible_in_announcement_center(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ANN-SCH",
+            full_name="Dian Schedule",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user(
+            "staff_schedule_alert",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="schedule@example.com",
+            notify_email=1,
+        )
+        self.login_hr_user("hr_schedule_alert", "pass1234")
+
+        response = self.client.post(
+            "/schedule/entry/save",
+            data={
+                "employee_id": str(employee_id),
+                "shift_code": "P",
+                "entry_start_date": "2026-03-30",
+                "entry_end_date": "2026-03-30",
+                "note": "Tukar shift karena briefing",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            event = db.execute(
+                """
+                SELECT title, message
+                FROM schedule_change_events
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            notification = db.execute(
+                """
+                SELECT subject
+                FROM notifications
+                WHERE subject LIKE 'Perubahan jadwal:%'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(event)
+        self.assertIn("Dian Schedule", event["title"])
+        self.assertIn("Tukar shift karena briefing", event["message"])
+        self.assertIsNotNone(notification)
+
+        self.logout()
+        self.login("staff_schedule_alert", "pass1234")
+        page = self.client.get("/announcements/")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("Dian Schedule", html)
+        self.assertIn("Tukar shift karena briefing", html)
+
+    def test_staff_can_open_global_hris_dashboard_with_split_warehouse_preview(self):
+        own_employee_id = self.create_employee_record(
+            employee_code="EMP-STAFF-DB",
+            full_name="Staff Dashboard",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        mataram_employee_id = self.create_employee_record(
+            employee_code="EMP-DB-MTR",
+            full_name="Nopal Mataram",
+            warehouse_id=1,
+            position="Leader",
+        )
+        mega_employee_id = self.create_employee_record(
+            employee_code="EMP-DB-MGA",
+            full_name="Lifia Mega",
+            warehouse_id=2,
+            position="Marketing",
+        )
+        self.create_user("staff_dashboard_view", "pass1234", "staff", warehouse_id=1, employee_id=own_employee_id)
+        today = date_cls.today().isoformat()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                (mataram_employee_id, today, "P", "Shift Mataram", 1),
+            )
+            db.execute(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                (mega_employee_id, today, "S", "Shift Mega", 1),
+            )
+            db.commit()
+
+        self.login("staff_dashboard_view", "pass1234")
+        response = self.client.get(f"/hris/?schedule_start={today}&days=7")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Dashboard HRIS", html)
+        self.assertIn("Jadwal Gudang Mataram", html)
+        self.assertIn("Jadwal Gudang Mega", html)
+        self.assertIn("Nopal", html)
+        self.assertIn("Lifia", html)
+        self.assertNotIn("Kelola Announcement", html)
+        self.assertNotIn('name="warehouse" disabled', html)
 
     def test_hr_can_save_schedule_profile_and_entry(self):
         self.create_user("hr_scheduler", "pass1234", "hr")
@@ -651,7 +958,10 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         chat_page = self.client.get("/chat/")
         self.assertEqual(chat_page.status_code, 200)
-        self.assertIn("Chat Operasional Live", chat_page.get_data(as_text=True))
+        chat_html = chat_page.get_data(as_text=True)
+        self.assertIn("Chat Operasional Live", chat_html)
+        self.assertIn("/static/notif.mp3", chat_html)
+        self.assertIn("/static/js/chat_realtime.js", chat_html)
 
         start_thread = self.client.post(
             "/chat/thread/start",
@@ -727,6 +1037,387 @@ class WmsRoutesTestCase(unittest.TestCase):
         realtime_after_payload = realtime_after_open.get_json()
         self.assertEqual(realtime_after_payload["status"], "ok")
         self.assertEqual(realtime_after_payload["unread_total"], 0)
+        self.assertEqual(realtime_after_payload["incoming"], [])
+        self.assertEqual(realtime_after_payload["threads"][0]["unread_count"], 0)
+
+    def test_chat_widget_launcher_and_bootstrap_render_for_chat_users(self):
+        self.create_user("leader_widget", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_widget", "pass1234")
+
+        dashboard_response = self.client.get("/")
+        self.assertEqual(dashboard_response.status_code, 200)
+        dashboard_html = dashboard_response.get_data(as_text=True)
+        self.assertIn("data-chat-widget-launcher", dashboard_html)
+        self.assertIn("Live Chat", dashboard_html)
+        self.assertNotIn('id="chatSidebarUnread"', dashboard_html)
+
+        bootstrap_response = self.client.get("/chat/widget/bootstrap")
+        self.assertEqual(bootstrap_response.status_code, 200)
+        bootstrap_payload = bootstrap_response.get_json()
+        self.assertEqual(bootstrap_payload["status"], "ok")
+        self.assertIn("threads", bootstrap_payload)
+        self.assertIn("contacts", bootstrap_payload)
+        self.assertIn("stickers", bootstrap_payload)
+        self.assertIn("attachment_max_bytes", bootstrap_payload)
+
+    def test_chat_timestamp_label_uses_local_offset(self):
+        current_utc = datetime.now(timezone.utc).replace(second=0, microsecond=0, tzinfo=None)
+        raw_timestamp = current_utc.strftime("%Y-%m-%d %H:%M:%S")
+        expected_label = (current_utc + timedelta(hours=7)).strftime("%H:%M")
+        self.assertEqual(_format_timestamp_label(raw_timestamp), expected_label)
+
+    def test_chat_supports_group_attachment_sticker_and_call_request(self):
+        self.create_user("group_admin", "pass1234", "admin", warehouse_id=1)
+        self.create_user("group_leader", "pass1234", "leader", warehouse_id=1)
+        self.create_user("group_staff", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("group_leader")
+        staff_user_id = self.get_user_id("group_staff")
+
+        self.login("group_admin", "pass1234")
+
+        create_group = self.client.post(
+            "/chat/group/create",
+            json={
+                "group_name": "Koordinasi Live",
+                "group_description": "Follow up inbound dan konten",
+                "member_ids": [leader_user_id, staff_user_id],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_group.status_code, 200)
+        group_payload = create_group.get_json()
+        self.assertEqual(group_payload["status"], "ok")
+        thread_id = group_payload["thread_id"]
+
+        sticker_send = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            json={"sticker_code": "ok"},
+            follow_redirects=False,
+        )
+        self.assertEqual(sticker_send.status_code, 200)
+        self.assertEqual(sticker_send.get_json()["message"]["message_type"], "sticker")
+
+        call_send = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            json={"call_mode": "video"},
+            follow_redirects=False,
+        )
+        self.assertEqual(call_send.status_code, 200)
+        self.assertEqual(call_send.get_json()["message"]["message_type"], "call")
+
+        attachment_send = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            data={
+                "message": "Draft revisi terlampir",
+                "attachment": (BytesIO(b"chat attachment"), "brief.txt"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(attachment_send.status_code, 200)
+        attachment_payload = attachment_send.get_json()
+        self.assertEqual(attachment_payload["message"]["message_type"], "attachment")
+        self.assertEqual(attachment_payload["message"]["attachment_name"], "brief.txt")
+
+        page = self.client.get(f"/chat/?thread={thread_id}")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("Koordinasi Live", html)
+        self.assertIn("Attach File", html)
+        self.assertIn("Video Call", html)
+        self.assertIn("Sticker", html)
+
+        with self.app.app_context():
+            db = get_db()
+            thread_row = db.execute(
+                "SELECT thread_type, group_name FROM chat_threads WHERE id=?",
+                (thread_id,),
+            ).fetchone()
+            member_count = db.execute(
+                "SELECT COUNT(*) FROM chat_thread_members WHERE thread_id=?",
+                (thread_id,),
+            ).fetchone()[0]
+            message_types = db.execute(
+                """
+                SELECT message_type
+                FROM chat_messages
+                WHERE thread_id=?
+                ORDER BY id DESC
+                LIMIT 4
+                """,
+                (thread_id,),
+            ).fetchall()
+
+        self.assertEqual(thread_row["thread_type"], "group")
+        self.assertEqual(thread_row["group_name"], "Koordinasi Live")
+        self.assertEqual(member_count, 3)
+        self.assertIn("attachment", [row["message_type"] for row in message_types])
+        self.assertIn("call", [row["message_type"] for row in message_types])
+        self.assertIn("sticker", [row["message_type"] for row in message_types])
+
+    def test_chat_supports_uploaded_image_sticker(self):
+        self.create_user("sticker_admin", "pass1234", "admin", warehouse_id=1)
+        self.create_user("sticker_leader", "pass1234", "leader", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("sticker_leader")
+
+        self.login("sticker_admin", "pass1234")
+
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        sticker_send = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            data={
+                "sticker_image": (BytesIO(b"fake-webp-binary"), "promo.webp"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(sticker_send.status_code, 200)
+        sticker_payload = sticker_send.get_json()
+        self.assertEqual(sticker_payload["message"]["message_type"], "sticker")
+        self.assertEqual(sticker_payload["message"]["attachment_name"], "promo.webp")
+        self.assertTrue(sticker_payload["message"]["attachment_url"].startswith("/static/uploads/chat/"))
+        self.assertTrue(sticker_payload["message"]["sticker"]["is_custom"])
+
+        page = self.client.get(f"/chat/?thread={thread_id}")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("Upload Sticker", html)
+        self.assertIn("/static/uploads/chat/", html)
+
+        with self.app.app_context():
+            db = get_db()
+            sticker_row = db.execute(
+                """
+                SELECT message_type, attachment_name, attachment_path, sticker_code
+                FROM chat_messages
+                WHERE thread_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (thread_id,),
+            ).fetchone()
+
+        self.assertEqual(sticker_row["message_type"], "sticker")
+        self.assertEqual(sticker_row["attachment_name"], "promo.webp")
+        self.assertIsNotNone(sticker_row["attachment_path"])
+        self.assertIsNone(sticker_row["sticker_code"])
+
+    def test_chat_webrtc_call_flow_supports_start_signal_accept_and_end(self):
+        self.create_user("call_admin", "pass1234", "admin", warehouse_id=1)
+        self.create_user("call_leader", "pass1234", "leader", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("call_leader")
+        caller_user_id = self.get_user_id("call_admin")
+
+        self.login("call_admin", "pass1234")
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        chat_page = self.client.get(f"/chat/?thread={thread_id}")
+        self.assertEqual(chat_page.status_code, 200)
+        chat_html = chat_page.get_data(as_text=True)
+        self.assertIn("/static/js/chat_call.js", chat_html)
+        self.assertIn('id="chatCallLayer"', chat_html)
+
+        start_call = self.client.post(
+            f"/chat/thread/{thread_id}/call/start",
+            json={"mode": "voice"},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_call.status_code, 200)
+        start_payload = start_call.get_json()
+        self.assertEqual(start_payload["status"], "ok")
+        self.assertEqual(start_payload["call"]["status"], "ringing")
+        call_id = start_payload["call"]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            call_message = db.execute(
+                """
+                SELECT message_type, call_mode
+                FROM chat_messages
+                WHERE thread_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (thread_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(call_message)
+        self.assertEqual(call_message["message_type"], "call")
+        self.assertEqual(call_message["call_mode"], "voice")
+
+        self.logout()
+        self.login("call_leader", "pass1234")
+
+        callee_poll = self.client.get("/chat/call/poll?after_signal_id=0", follow_redirects=False)
+        self.assertEqual(callee_poll.status_code, 200)
+        callee_poll_payload = callee_poll.get_json()
+        self.assertEqual(callee_poll_payload["status"], "ok")
+        self.assertTrue(any(item["id"] == call_id and item["can_accept"] for item in callee_poll_payload["calls"]))
+        self.assertIn("invite", [item["signal_type"] for item in callee_poll_payload["signals"]])
+
+        accept_call = self.client.post(
+            f"/chat/call/{call_id}/accept",
+            json={},
+            follow_redirects=False,
+        )
+        self.assertEqual(accept_call.status_code, 200)
+        accept_payload = accept_call.get_json()
+        self.assertEqual(accept_payload["call"]["status"], "connecting")
+
+        self.logout()
+        self.login("call_admin", "pass1234")
+
+        caller_poll = self.client.get("/chat/call/poll?after_signal_id=0", follow_redirects=False)
+        self.assertEqual(caller_poll.status_code, 200)
+        caller_poll_payload = caller_poll.get_json()
+        self.assertEqual(caller_poll_payload["status"], "ok")
+        self.assertIn("accept", [item["signal_type"] for item in caller_poll_payload["signals"]])
+
+        offer_signal = self.client.post(
+            f"/chat/call/{call_id}/signal",
+            json={
+                "signal_type": "offer",
+                "payload": {
+                    "sdp": {
+                        "type": "offer",
+                        "sdp": "fake-offer-sdp",
+                    }
+                },
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(offer_signal.status_code, 200)
+        self.assertEqual(offer_signal.get_json()["call"]["status"], "connecting")
+
+        self.logout()
+        self.login("call_leader", "pass1234")
+
+        callee_offer_poll = self.client.get("/chat/call/poll?after_signal_id=0", follow_redirects=False)
+        self.assertEqual(callee_offer_poll.status_code, 200)
+        callee_offer_payload = callee_offer_poll.get_json()
+        self.assertIn("offer", [item["signal_type"] for item in callee_offer_payload["signals"]])
+
+        answer_signal = self.client.post(
+            f"/chat/call/{call_id}/signal",
+            json={
+                "signal_type": "answer",
+                "payload": {
+                    "sdp": {
+                        "type": "answer",
+                        "sdp": "fake-answer-sdp",
+                    }
+                },
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(answer_signal.status_code, 200)
+        self.assertEqual(answer_signal.get_json()["call"]["status"], "active")
+
+        self.logout()
+        self.login("call_admin", "pass1234")
+
+        caller_answer_poll = self.client.get("/chat/call/poll?after_signal_id=0", follow_redirects=False)
+        self.assertEqual(caller_answer_poll.status_code, 200)
+        caller_answer_payload = caller_answer_poll.get_json()
+        self.assertIn("answer", [item["signal_type"] for item in caller_answer_payload["signals"]])
+
+        end_call = self.client.post(
+            f"/chat/call/{call_id}/end",
+            json={},
+            follow_redirects=False,
+        )
+        self.assertEqual(end_call.status_code, 200)
+        self.assertEqual(end_call.get_json()["call"]["status"], "ended")
+
+        with self.app.app_context():
+            db = get_db()
+            call_row = db.execute(
+                """
+                SELECT status, ended_by
+                FROM chat_call_sessions
+                WHERE id=?
+                """,
+                (call_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(call_row)
+        self.assertEqual(call_row["status"], "ended")
+        self.assertEqual(call_row["ended_by"], caller_user_id)
+
+    def test_chat_real_call_rejects_group_threads(self):
+        self.create_user("group_call_admin", "pass1234", "admin", warehouse_id=1)
+        self.create_user("group_call_leader", "pass1234", "leader", warehouse_id=1)
+        self.create_user("group_call_staff", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("group_call_leader")
+        staff_user_id = self.get_user_id("group_call_staff")
+
+        self.login("group_call_admin", "pass1234")
+        create_group = self.client.post(
+            "/chat/group/create",
+            json={
+                "group_name": "Call Grup Test",
+                "group_description": "Validasi pembatasan call grup",
+                "member_ids": [leader_user_id, staff_user_id],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_group.status_code, 200)
+        thread_id = create_group.get_json()["thread_id"]
+
+        start_call = self.client.post(
+            f"/chat/thread/{thread_id}/call/start",
+            json={"mode": "voice"},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_call.status_code, 400)
+        self.assertIn("direct", start_call.get_json()["message"].lower())
+
+    def test_chat_rejects_attachment_over_10mb(self):
+        self.create_user("chat_limit_admin", "pass1234", "admin", warehouse_id=1)
+        self.create_user("chat_limit_leader", "pass1234", "leader", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("chat_limit_leader")
+
+        self.login("chat_limit_admin", "pass1234")
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        oversized_file = BytesIO(b"x" * ((10 * 1024 * 1024) + 1))
+        response = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            data={
+                "message": "Lampiran besar",
+                "attachment": (oversized_file, "oversized.zip"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("10.0 MB", payload["message"])
 
     def test_staff_cannot_access_crm_page(self):
         self.create_user("staff_crm", "pass1234", "staff", warehouse_id=1)
@@ -901,13 +1592,16 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_hris_attendance_route_renders_operational_view(self):
         self.login_hr_user()
-        response = self.client.get("/hris/attendance")
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
+        response = self.client.get("/hris/attendance", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/hris/biometric", response.headers["Location"])
+
+        html = self.client.get(response.headers["Location"]).get_data(as_text=True)
         self.assertIn("HRIS Integration Hub", html)
-        self.assertIn("Attendance", html)
-        self.assertIn("Log Kehadiran", html)
-        self.assertIn("Tambah Attendance", html)
+        self.assertIn("Attendance Geotag", html)
+        self.assertIn("Rekap Absensi Geotag", html)
+        self.assertNotIn("Log Kehadiran", html)
+        self.assertNotIn("Tambah Attendance", html)
 
     def test_hris_leave_route_renders_operational_view(self):
         self.login_hr_user()
@@ -1015,10 +1709,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("HRIS Integration Hub", html)
-        self.assertIn("Geotag", html)
-        self.assertIn("Log Geotag Absensi", html)
-        self.assertIn("Tambah Absen Geotag", html)
+        self.assertIn("Attendance Geotag", html)
         self.assertIn("Rekap Absensi Geotag", html)
+        self.assertNotIn("Log Geotag Absensi", html)
+        self.assertNotIn("Tambah Absen Geotag", html)
+        self.assertNotIn('href="/hris/attendance"', html)
 
     def test_attendance_portal_renders_for_logged_in_user(self):
         self.login()
@@ -1026,7 +1721,65 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Absen Foto & Geotag", html)
-        self.assertIn("Riwayat Absen Terakhir", html)
+        self.assertIn("Mode Hari Ini", html)
+        self.assertNotIn("Riwayat Absen Terakhir", html)
+        self.assertIn("belum ditautkan ke data karyawan", html.lower())
+
+    def test_account_settings_updates_chat_volume_and_contact_preferences(self):
+        self.create_user(
+            "account_pref_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="old@example.com",
+            phone="08123",
+        )
+        self.login("account_pref_user", "pass1234")
+
+        page = self.client.get("/account/settings")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Pengaturan Akun", page.get_data(as_text=True))
+
+        save_response = self.client.post(
+            "/account/settings",
+            data={
+                "email": "new@example.com",
+                "phone": "628111111111",
+                "notify_email": "on",
+                "chat_sound_volume": "35",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(save_response.status_code, 302)
+        self.assertIn("/account/settings", save_response.headers["Location"])
+
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("chat_sound_volume"), 0.35)
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute(
+                """
+                SELECT email, phone, notify_email, notify_whatsapp, chat_sound_volume
+                FROM users
+                WHERE username=?
+                """,
+                ("account_pref_user",),
+            ).fetchone()
+
+        self.assertEqual(user["email"], "new@example.com")
+        self.assertEqual(user["phone"], "628111111111")
+        self.assertEqual(user["notify_email"], 1)
+        self.assertEqual(user["notify_whatsapp"], 0)
+        self.assertEqual(user["chat_sound_volume"], 0.35)
+
+    def test_leave_portal_renders_for_logged_in_user(self):
+        self.login()
+        response = self.client.get("/libur/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Form Libur / Cuti / Sakit", html)
+        self.assertIn("Status pengajuan tidak diatur dari sini", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
 
     def test_hris_announcement_route_renders_operational_view(self):
@@ -2453,15 +3206,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.create_user("portal_staff", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
         self.login("portal_staff", "pass1234")
+        today = date_cls.today().isoformat()
 
         submit_response = self.client.post(
             "/absen/submit",
             data={
+                "shift_code": "pagi",
                 "location_label": "Gudang Mataram - Pintu Utama",
                 "latitude": "-8.583140",
                 "longitude": "116.116798",
                 "accuracy_m": "7.5",
-                "punch_time": "2026-09-02T07:58",
+                "punch_time": f"{today}T07:58",
                 "punch_type": "check_in",
                 "note": "Masuk shift pagi",
                 "photo_data_url": self.build_camera_photo_data_url(),
@@ -2476,7 +3231,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             biometric = db.execute(
                 """
                 SELECT employee_id, warehouse_id, device_name, device_user_id, location_label, punch_type,
-                       sync_status, note, photo_path
+                       sync_status, shift_code, shift_label, note, photo_path
                 FROM biometric_logs
                 WHERE employee_id=?
                 ORDER BY id DESC
@@ -2486,13 +3241,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             attendance = db.execute(
                 """
-                SELECT attendance_date, check_in, status, note
+                SELECT attendance_date, check_in, status, shift_code, shift_label, note
                 FROM attendance_records
-                WHERE employee_id=? AND attendance_date='2026-09-02'
+                WHERE employee_id=? AND attendance_date=?
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (employee_id,),
+                (employee_id, today),
             ).fetchone()
 
         self.assertIsNotNone(biometric)
@@ -2502,26 +3257,724 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(biometric["location_label"], "Gudang Mataram - Pintu Utama")
         self.assertEqual(biometric["punch_type"], "check_in")
         self.assertEqual(biometric["sync_status"], "synced")
-        self.assertIn("Captured from attendance portal", biometric["note"])
+        self.assertEqual(biometric["shift_code"], "pagi")
+        self.assertIn("08.00 - 16.00", biometric["shift_label"])
+        self.assertIn("Attendance portal check in", biometric["note"])
         self.assertTrue(biometric["photo_path"])
         self.assertTrue(os.path.exists(os.path.join(self.photo_upload_root, biometric["photo_path"])))
         self.assertIsNotNone(attendance)
-        self.assertEqual(attendance["attendance_date"], "2026-09-02")
+        self.assertEqual(attendance["attendance_date"], today)
         self.assertEqual(attendance["check_in"], "07:58")
         self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertIn("08.00 - 16.00", attendance["shift_label"])
         self.assertEqual(attendance["note"], "Synced from geotag")
 
         portal_page = self.client.get("/absen/")
         self.assertEqual(portal_page.status_code, 200)
         portal_html = portal_page.get_data(as_text=True)
         self.assertIn("Portal Attendance", portal_html)
-        self.assertIn("/static/test-geotag/", portal_html)
+        self.assertNotIn("Riwayat Absen Terakhir", portal_html)
 
-        hris_page = self.client.get("/hris/biometric")
-        self.assertEqual(hris_page.status_code, 200)
-        hris_html = hris_page.get_data(as_text=True)
-        self.assertIn("Lihat Foto", hris_html)
-        self.assertIn("/static/test-geotag/", hris_html)
+        hris_page = self.client.get("/hris/biometric", follow_redirects=False)
+        self.assertEqual(hris_page.status_code, 302)
+        self.assertIn("/absen/", hris_page.headers["Location"])
+
+    def test_attendance_portal_auto_switches_to_check_out_and_locks_after_complete(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-AUTO",
+            full_name="Portal Auto",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_auto", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_auto", "pass1234")
+        today = date_cls.today().isoformat()
+
+        first_submit = self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Pagi",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:55",
+                "note": "Masuk shift pagi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(first_submit.status_code, 302)
+
+        second_submit = self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Sore",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T17:12",
+                "note": "Pulang shift",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(second_submit.status_code, 302)
+
+        third_submit = self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Extra",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "5.0",
+                "punch_time": f"{today}T19:15",
+                "note": "Tidak boleh masuk lagi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(third_submit.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            logs = db.execute(
+                """
+                SELECT punch_type, punch_time, shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id ASC
+                """,
+                (employee_id,),
+            ).fetchall()
+            attendance = db.execute(
+                """
+                SELECT check_in, check_out, status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual([row["punch_type"] for row in logs], ["check_in", "check_out"])
+        self.assertEqual({row["shift_code"] for row in logs}, {"pagi"})
+        self.assertEqual(attendance["check_in"], "07:55")
+        self.assertEqual(attendance["check_out"], "17:12")
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertIn("08.00 - 16.00", attendance["shift_label"])
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("Sudah Lengkap", portal_html)
+        self.assertIn("Absensi Hari Ini Lengkap", portal_html)
+
+    def test_attendance_portal_uses_mega_shift_schedule_labels(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-MEGA",
+            full_name="Portal Mega",
+            warehouse_id=2,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_mega", "pass1234", "staff", warehouse_id=2, employee_id=employee_id)
+        self.login("portal_mega", "pass1234")
+
+        response = self.client.get("/absen/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Shift Pagi | 09.00 - 17.00", html)
+        self.assertIn("Shift Siang | 13.00 - 21.00", html)
+
+    def test_attendance_portal_supports_break_flow_before_check_out(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-BREAK",
+            full_name="Portal Break",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_break", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_break", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:50",
+                "note": "Mulai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        portal_page = self.client.get("/absen/")
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("Break Start", portal_html)
+        self.assertIn("Check Out", portal_html)
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T12:00",
+                "note": "Mulai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        break_page = self.client.get("/absen/")
+        break_html = break_page.get_data(as_text=True)
+        self.assertIn("Break Finish", break_html)
+        self.assertIn("Check Out", break_html)
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_finish",
+                "location_label": "Gudang Mataram - Kembali",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.2",
+                "punch_time": f"{today}T12:30",
+                "note": "Selesai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_out",
+                "location_label": "Gudang Mataram - Pulang",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "5.4",
+                "punch_time": f"{today}T17:10",
+                "note": "Selesai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            logs = db.execute(
+                """
+                SELECT punch_type
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id ASC
+                """,
+                (employee_id,),
+            ).fetchall()
+            attendance = db.execute(
+                """
+                SELECT check_in, check_out, status
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(
+            [row["punch_type"] for row in logs],
+            ["check_in", "break_start", "break_finish", "check_out"],
+        )
+        self.assertEqual(attendance["check_in"], "07:50")
+        self.assertEqual(attendance["check_out"], "17:10")
+        self.assertEqual(attendance["status"], "present")
+
+    def test_leave_portal_submits_pending_request_without_status_field(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVE-001",
+            full_name="Portal Leave",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_leave", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_leave", "pass1234")
+
+        submit_response = self.client.post(
+            "/libur/submit",
+            data={
+                "leave_type": "sick",
+                "start_date": "2026-09-03",
+                "end_date": "2026-09-04",
+                "reason": "Butuh istirahat dan kontrol kesehatan",
+                "note": "Sudah koordinasi dengan leader",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/libur/", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            leave_request = db.execute(
+                """
+                SELECT employee_id, leave_type, total_days, status, reason, note, handled_by
+                FROM leave_requests
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(leave_request)
+        self.assertEqual(leave_request["employee_id"], employee_id)
+        self.assertEqual(leave_request["leave_type"], "sick")
+        self.assertEqual(leave_request["total_days"], 2)
+        self.assertEqual(leave_request["status"], "pending")
+        self.assertEqual(leave_request["reason"], "Butuh istirahat dan kontrol kesehatan")
+        self.assertEqual(leave_request["note"], "Sudah koordinasi dengan leader")
+        self.assertIsNone(leave_request["handled_by"])
+
+        hris_leave = self.client.get("/hris/leave", follow_redirects=False)
+        self.assertEqual(hris_leave.status_code, 302)
+        self.assertIn("/libur/", hris_leave.headers["Location"])
+
+    def test_leave_portal_submission_appears_in_hris_dashboard_alerts(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVE-ALERT",
+            full_name="Portal Leave Alert",
+            warehouse_id=1,
+            position="Admin Gudang",
+        )
+        self.create_user("portal_leave_alert", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_leave_alert", "pass1234")
+
+        self.client.post(
+            "/libur/submit",
+            data={
+                "leave_type": "sick",
+                "start_date": "2026-09-10",
+                "end_date": "2026-09-10",
+                "reason": "Demam dan perlu istirahat",
+                "note": "Sudah kabari leader shift pagi",
+            },
+            follow_redirects=False,
+        )
+
+        self.logout()
+        self.login_hr_user("hr_dashboard_leave", "pass1234")
+        response = self.client.get("/hris/?warehouse=1&schedule_start=2026-09-10")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Notif Pengajuan Libur", html)
+        self.assertIn("Portal Leave Alert", html)
+        self.assertIn("Demam dan perlu istirahat", html)
+        self.assertIn("Sakit", html)
+
+    def test_hr_dashboard_reminders_are_visible_and_manageable_only_for_hr(self):
+        self.login_hr_user("hr_dashboard_note", "pass1234")
+
+        add_response = self.client.post(
+            "/hris/dashboard/reminder/add",
+            data={
+                "reminder_date": "2026-09-11",
+                "warehouse_id": "1",
+                "title": "Follow up libur shift siang",
+                "note": "Pastikan approval libur dan backup jadwal sore sudah beres.",
+                "return_to": "/hris/?warehouse=1&schedule_start=2026-09-11",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_response.status_code, 302)
+        self.assertIn("/hris/?warehouse=1&schedule_start=2026-09-11", add_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            reminder = db.execute(
+                """
+                SELECT id, warehouse_id, reminder_date, title, note, status
+                FROM dashboard_reminders
+                WHERE title=?
+                """,
+                ("Follow up libur shift siang",),
+            ).fetchone()
+
+        self.assertIsNotNone(reminder)
+        self.assertEqual(reminder["warehouse_id"], 1)
+        self.assertEqual(reminder["reminder_date"], "2026-09-11")
+        self.assertEqual(reminder["status"], "open")
+
+        dashboard_response = self.client.get("/hris/?warehouse=1&schedule_start=2026-09-11")
+        self.assertEqual(dashboard_response.status_code, 200)
+        dashboard_html = dashboard_response.get_data(as_text=True)
+        self.assertIn("Pengingat Harian", dashboard_html)
+        self.assertIn("Follow up libur shift siang", dashboard_html)
+
+        toggle_response = self.client.post(
+            f"/hris/dashboard/reminder/toggle/{reminder['id']}",
+            data={
+                "status": "done",
+                "return_to": "/hris/?warehouse=1&schedule_start=2026-09-11",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(toggle_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            updated = db.execute(
+                "SELECT status FROM dashboard_reminders WHERE id=?",
+                (reminder["id"],),
+            ).fetchone()
+        self.assertEqual(updated["status"], "done")
+
+        self.logout()
+        self.create_user("staff_dashboard_note", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_dashboard_note", "pass1234")
+
+        staff_response = self.client.get("/hris/?warehouse=1&schedule_start=2026-09-11")
+        self.assertEqual(staff_response.status_code, 200)
+        staff_html = staff_response.get_data(as_text=True)
+        self.assertNotIn("Pengingat Harian", staff_html)
+        self.assertNotIn("Follow up libur shift siang", staff_html)
+
+        denied_response = self.client.post(
+            "/hris/dashboard/reminder/add",
+            data={
+                "reminder_date": "2026-09-11",
+                "warehouse_id": "1",
+                "title": "Reminder staff tidak boleh simpan",
+                "return_to": "/hris/?warehouse=1&schedule_start=2026-09-11",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(denied_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            denied_note = db.execute(
+                "SELECT id FROM dashboard_reminders WHERE title=?",
+                ("Reminder staff tidak boleh simpan",),
+            ).fetchone()
+        self.assertIsNone(denied_note)
+
+        self.logout()
+        self.create_user("super_dashboard_note", "pass1234", "super_admin")
+        self.login("super_dashboard_note", "pass1234")
+
+        super_response = self.client.get("/hris/?warehouse=1&schedule_start=2026-09-11")
+        self.assertEqual(super_response.status_code, 200)
+        super_html = super_response.get_data(as_text=True)
+        self.assertNotIn("Pengingat Harian", super_html)
+
+        super_denied = self.client.post(
+            "/hris/dashboard/reminder/add",
+            data={
+                "reminder_date": "2026-09-11",
+                "warehouse_id": "1",
+                "title": "Reminder super admin tidak boleh simpan",
+                "return_to": "/hris/?warehouse=1&schedule_start=2026-09-11",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(super_denied.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            denied_super_note = db.execute(
+                "SELECT id FROM dashboard_reminders WHERE title=?",
+                ("Reminder super admin tidak boleh simpan",),
+            ).fetchone()
+        self.assertIsNone(denied_super_note)
+
+    def test_daily_report_portal_is_available_to_all_users_and_submits_to_hris_report(self):
+        self.create_user("ops_daily", "pass1234", "staff", warehouse_id=1)
+        self.login("ops_daily", "pass1234")
+
+        page_response = self.client.get("/laporan-harian/")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("Form Report Harian &amp; Live", page_html)
+
+        submit_response = self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "live",
+                "report_date": "2026-09-05",
+                "title": "Live promo toko Mega",
+                "summary": "Promo berjalan normal dan traffic naik saat sesi kedua.",
+                "blocker_note": "Banner depan sempat terlambat dipasang.",
+                "follow_up_note": "Besok perlu cek ulang materi promo pagi.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/laporan-harian/", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                """
+                SELECT report_type, report_date, title, summary, blocker_note, follow_up_note, status, warehouse_id
+                FROM daily_live_reports
+                WHERE title=?
+                """,
+                ("Live promo toko Mega",),
+            ).fetchone()
+
+        self.assertIsNotNone(report)
+        self.assertEqual(report["report_type"], "live")
+        self.assertEqual(report["status"], "submitted")
+        self.assertEqual(report["warehouse_id"], 1)
+
+        self.logout()
+        self.login_hr_user("hr_report_view", "pass1234")
+        hris_report_response = self.client.get("/hris/report")
+        self.assertEqual(hris_report_response.status_code, 200)
+        hris_html = hris_report_response.get_data(as_text=True)
+        self.assertIn("Daily & Live Report Feed", hris_html)
+        self.assertIn("Live promo toko Mega", hris_html)
+
+    def test_only_hr_or_super_admin_can_update_daily_report_status(self):
+        self.create_user("staff_report_owner", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_report_owner", "pass1234")
+        self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": "2026-09-06",
+                "title": "Closing stok sore",
+                "summary": "Semua rak utama sudah dirapikan dan stok display dicek.",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                "SELECT id, status FROM daily_live_reports WHERE title=?",
+                ("Closing stok sore",),
+            ).fetchone()
+
+        denied_response = self.client.post(
+            f"/hris/report/daily-live/update/{report['id']}",
+            data={"status": "reviewed", "hr_note": "Sudah dicek"},
+            follow_redirects=False,
+        )
+        self.assertEqual(denied_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            unchanged = db.execute(
+                "SELECT status, hr_note FROM daily_live_reports WHERE id=?",
+                (report["id"],),
+            ).fetchone()
+
+        self.assertEqual(unchanged["status"], "submitted")
+        self.assertIsNone(unchanged["hr_note"])
+
+        self.logout()
+        self.login_hr_user("hr_report_update", "pass1234")
+        approve_response = self.client.post(
+            f"/hris/report/daily-live/update/{report['id']}",
+            data={"status": "follow_up", "hr_note": "Lengkapi detail manpower shift berikutnya."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+        self.assertIn("/hris/report", approve_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            updated = db.execute(
+                "SELECT status, hr_note, handled_by FROM daily_live_reports WHERE id=?",
+                (report["id"],),
+            ).fetchone()
+
+        self.assertEqual(updated["status"], "follow_up")
+        self.assertEqual(updated["hr_note"], "Lengkapi detail manpower shift berikutnya.")
+        self.assertIsNotNone(updated["handled_by"])
+
+    def test_daily_report_feed_defaults_to_active_and_supports_archive_date_filter(self):
+        self.create_user("report_ops_filter", "pass1234", "staff", warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            ops_user = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("report_ops_filter",),
+            ).fetchone()
+
+            db.executemany(
+                """
+                INSERT INTO daily_live_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    report_type,
+                    report_date,
+                    title,
+                    summary,
+                    blocker_note,
+                    follow_up_note,
+                    status,
+                    hr_note,
+                    handled_by,
+                    handled_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        ops_user["id"],
+                        None,
+                        1,
+                        "daily",
+                        "2026-09-08",
+                        "Report aktif pagi",
+                        "Masih menunggu review HR.",
+                        None,
+                        None,
+                        "submitted",
+                        None,
+                        None,
+                        None,
+                        "2026-09-08 09:00:00",
+                    ),
+                    (
+                        ops_user["id"],
+                        None,
+                        1,
+                        "live",
+                        "2026-09-07",
+                        "Report arsip reviewed",
+                        "Sudah selesai ditinjau.",
+                        None,
+                        None,
+                        "reviewed",
+                        "Sudah dicek",
+                        1,
+                        "2026-09-07 19:00:00",
+                        "2026-09-07 19:00:00",
+                    ),
+                    (
+                        ops_user["id"],
+                        None,
+                        1,
+                        "daily",
+                        "2026-08-29",
+                        "Report arsip lama",
+                        "Sudah closed minggu lalu.",
+                        None,
+                        None,
+                        "closed",
+                        "Arsip lama",
+                        1,
+                        "2026-08-29 18:00:00",
+                        "2026-08-29 18:00:00",
+                    ),
+                ],
+            )
+            db.commit()
+
+        self.login_hr_user("hr_report_archive", "pass1234")
+
+        active_response = self.client.get("/hris/report")
+        self.assertEqual(active_response.status_code, 200)
+        active_html = active_response.get_data(as_text=True)
+        self.assertIn("Report aktif pagi", active_html)
+        self.assertNotIn("Report arsip reviewed", active_html)
+        self.assertNotIn("Report arsip lama", active_html)
+        self.assertIn("Feed Aktif", active_html)
+
+        archive_response = self.client.get(
+            "/hris/report?daily_status=archived&daily_date_from=2026-09-01&daily_date_to=2026-09-07"
+        )
+        self.assertEqual(archive_response.status_code, 200)
+        archive_html = archive_response.get_data(as_text=True)
+        self.assertIn("Report arsip reviewed", archive_html)
+        self.assertNotIn("Report aktif pagi", archive_html)
+        self.assertNotIn("Report arsip lama", archive_html)
+
+    def test_daily_report_review_redirect_preserves_active_filter(self):
+        self.create_user("report_ops_return", "pass1234", "staff", warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            ops_user = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("report_ops_return",),
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO daily_live_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    report_type,
+                    report_date,
+                    title,
+                    summary,
+                    blocker_note,
+                    follow_up_note,
+                    status,
+                    hr_note,
+                    handled_by,
+                    handled_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    ops_user["id"],
+                    None,
+                    1,
+                    "daily",
+                    "2026-09-09",
+                    "Perlu review cepat",
+                    "Butuh approval agar hilang dari feed aktif.",
+                    None,
+                    None,
+                    "submitted",
+                    None,
+                    None,
+                    None,
+                    "2026-09-09 08:30:00",
+                ),
+            )
+            db.commit()
+            report = db.execute(
+                "SELECT id FROM daily_live_reports WHERE title=?",
+                ("Perlu review cepat",),
+            ).fetchone()
+
+        self.login_hr_user("hr_report_return", "pass1234")
+        update_response = self.client.post(
+            f"/hris/report/daily-live/update/{report['id']}",
+            data={
+                "status": "reviewed",
+                "hr_note": "Sudah beres",
+                "return_to": "/hris/report?daily_status=active&daily_date_from=2026-09-01&daily_date_to=2026-09-30",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+        self.assertIn("/hris/report?daily_status=active", update_response.headers["Location"])
+
+        filtered_response = self.client.get(update_response.headers["Location"])
+        self.assertEqual(filtered_response.status_code, 200)
+        filtered_html = filtered_response.get_data(as_text=True)
+        self.assertNotIn("Perlu review cepat", filtered_html)
 
     def test_admin_can_manage_announcement_records_in_hris(self):
         self.login_hr_user()
@@ -2735,6 +4188,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "variant_rows_json": json.dumps([
                     {
                         "variant": "39",
+                        "color": "Hitam",
                         "price_retail": "649900",
                         "price_discount": "552415",
                         "price_nett": "500000",
@@ -2745,6 +4199,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     },
                     {
                         "variant": "40",
+                        "color": "Putih",
                         "price_retail": "649900",
                         "price_discount": "552415",
                         "price_nett": "500000",
@@ -2768,7 +4223,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             variants_rows = db.execute(
                 """
-                SELECT variant, qty.qty, variant_code, gtin, no_gtin
+                SELECT variant, color, qty.qty, variant_code, gtin, no_gtin
                 FROM product_variants pv
                 LEFT JOIN (
                     SELECT variant_id, SUM(qty) AS qty
@@ -2782,16 +4237,113 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchall()
 
         self.assertEqual(len(variants_rows), 2)
-        self.assertEqual(variants_rows[0]["variant"], "39")
+        self.assertEqual(variants_rows[0]["variant"], "39 / Hitam")
+        self.assertEqual(variants_rows[0]["color"], "Hitam")
         self.assertEqual(variants_rows[0]["qty"], 1)
         self.assertEqual(variants_rows[0]["variant_code"], "BED-39")
         self.assertEqual(variants_rows[0]["gtin"], "899990000039")
         self.assertEqual(variants_rows[0]["no_gtin"], 0)
-        self.assertEqual(variants_rows[1]["variant"], "40")
+        self.assertEqual(variants_rows[1]["variant"], "40 / Putih")
+        self.assertEqual(variants_rows[1]["color"], "Putih")
         self.assertIsNone(variants_rows[1]["qty"])
         self.assertEqual(variants_rows[1]["variant_code"], "BED-40")
         self.assertEqual(variants_rows[1]["gtin"], "")
         self.assertEqual(variants_rows[1]["no_gtin"], 1)
+
+    def test_add_product_supports_same_size_with_different_colors(self):
+        self.login()
+        sku = "COLOR-" + uuid4().hex[:6].upper()
+        response = self.client.post(
+            "/products/add",
+            data={
+                "sku": sku,
+                "name": "Produk Warna",
+                "category_name": "Testing",
+                "warehouse_id": "1",
+                "variant_rows_json": json.dumps([
+                    {
+                        "variant": "39",
+                        "color": "Hitam",
+                        "price_retail": "300000",
+                        "qty": "1",
+                        "variant_code": "CLR-39-BLK",
+                    },
+                    {
+                        "variant": "39",
+                        "color": "Putih",
+                        "price_retail": "300000",
+                        "qty": "2",
+                        "variant_code": "CLR-39-WHT",
+                    },
+                ]),
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                (sku,),
+            ).fetchone()
+            variants_rows = db.execute(
+                """
+                SELECT variant, color
+                FROM product_variants
+                WHERE product_id=?
+                ORDER BY variant
+                """,
+                (product["id"],),
+            ).fetchall()
+
+        self.assertEqual([row["variant"] for row in variants_rows], ["39 / Hitam", "39 / Putih"])
+        self.assertEqual([row["color"] for row in variants_rows], ["Hitam", "Putih"])
+
+    def test_add_product_supports_ajax_without_page_redirect(self):
+        self.login()
+        sku = "AJAX-" + uuid4().hex[:6].upper()
+        response = self.client.post(
+            "/products/add",
+            data={
+                "sku": sku,
+                "name": "Produk Ajax",
+                "category_name": "Testing",
+                "warehouse_id": "1",
+                "variant_rows_json": json.dumps([
+                    {
+                        "variant": "44",
+                        "price_retail": "350000",
+                        "price_discount": "300000",
+                        "price_nett": "275000",
+                        "qty": "2",
+                        "variant_code": "AJX-44",
+                        "gtin": "899990000044",
+                    }
+                ]),
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["sku"], sku)
+        self.assertIn("Produk berhasil ditambahkan", payload["message"])
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                (sku,),
+            ).fetchone()
+
+        self.assertIsNotNone(product)
 
     def test_products_page_uses_10_item_pagination(self):
         self.login()
@@ -2991,6 +4543,96 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(request_rows[1]["qty"], 3)
         self.assertEqual(request_rows[1]["status"], "pending")
 
+    def test_source_leader_can_reject_request_and_notify_requester(self):
+        self.create_user("leader_request_reject", "pass1234", "leader", warehouse_id=2)
+        self.create_user("super_req_reject", "pass1234", "super_admin")
+        self.login("super_req_reject", "pass1234")
+        response, product_id, variants_rows = self.create_product(qty=10, variants="44", warehouse_id="2")
+        self.assertEqual(response.status_code, 302)
+        self.logout()
+
+        self.login()
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE users
+                SET email=?, notify_email=1
+                WHERE username=?
+                """,
+                ("admin_requester@example.com", "admin"),
+            )
+            db.commit()
+
+        request_response = self.client.post(
+            "/request/",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variants_rows[0]["id"]),
+                "from_warehouse": "1",
+                "to_warehouse": "2",
+                "qty": "2",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                """
+                SELECT id, status
+                FROM requests
+                WHERE product_id=? AND variant_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variants_rows[0]["id"]),
+            ).fetchone()
+
+        self.assertIsNotNone(request_row)
+        self.assertEqual(request_row["status"], "pending")
+
+        self.logout()
+        self.login("leader_request_reject", "pass1234")
+
+        reject_response = self.client.post(
+            f"/request/reject/{request_row['id']}",
+            data={"reason": "Stok dialokasikan untuk prioritas lain"},
+            follow_redirects=False,
+        )
+        self.assertEqual(reject_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_after = db.execute(
+                """
+                SELECT status, reason, approved_by
+                FROM requests
+                WHERE id=?
+                """,
+                (request_row["id"],),
+            ).fetchone()
+            notification = db.execute(
+                """
+                SELECT recipient, subject, message
+                FROM notifications
+                WHERE recipient=?
+                  AND subject LIKE ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("admin_requester@example.com", f"Request antar gudang #{request_row['id']}%"),
+            ).fetchone()
+
+        self.assertIsNotNone(request_after)
+        self.assertEqual(request_after["status"], "rejected")
+        self.assertEqual(request_after["reason"], "Stok dialokasikan untuk prioritas lain")
+        self.assertEqual(request_after["approved_by"], self.get_user_id("leader_request_reject"))
+        self.assertIsNotNone(notification)
+        self.assertIn("ditolak", notification["subject"])
+        self.assertIn("Stok dialokasikan untuk prioritas lain", notification["message"])
+
     def test_request_notifications_only_target_source_leader_owner_and_super_admin(self):
         self.create_user(
             "leader_mataram_notify",
@@ -3146,6 +4788,73 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(notifications), 1)
         self.assertEqual(notifications[0]["role"], "owner")
         self.assertEqual(notifications[0]["recipient"], "owner_notify@example.com")
+
+    def test_bulk_delete_product_cleans_related_wms_records(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="DEL")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO requests(
+                    product_id,
+                    variant_id,
+                    from_warehouse,
+                    to_warehouse,
+                    qty,
+                    status,
+                    requested_by
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (product_id, variant_id, 1, 2, 2, "pending", 1),
+            )
+            db.execute(
+                """
+                INSERT INTO approvals(
+                    type,
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    qty,
+                    note,
+                    status,
+                    requested_by
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                ("ADJUST", product_id, variant_id, 1, -1, "Cleanup test", "pending", 1),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/products/bulk-delete",
+            json={"ids": [product_id]},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            product_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id=?",
+                (product_id,),
+            ).fetchone()[0]
+            request_count = db.execute(
+                "SELECT COUNT(*) FROM requests WHERE product_id=?",
+                (product_id,),
+            ).fetchone()[0]
+            approval_count = db.execute(
+                "SELECT COUNT(*) FROM approvals WHERE product_id=?",
+                (product_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(product_count, 0)
+        self.assertEqual(request_count, 0)
+        self.assertEqual(approval_count, 0)
 
     def test_owner_can_update_owner_request_status_and_notify_requester(self):
         self.create_user("owner_manager", "pass1234", "owner")
@@ -3589,6 +5298,148 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(reset_row)
         self.assertEqual(len(reset_row["code"]), 6)
 
+    def test_forgot_password_invalidates_previous_reset_codes(self):
+        self.create_user(
+            "reset_rotate",
+            "pass1234",
+            "admin",
+            warehouse_id=1,
+            email="rotate@example.test",
+            notify_email=1,
+        )
+
+        first = self.client.post(
+            "/forgot",
+            data={"identifier": "rotate@example.test"},
+            follow_redirects=False,
+        )
+        second = self.client.post(
+            "/forgot",
+            data={"identifier": "rotate@example.test"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT pr.code, pr.used
+                FROM password_resets pr
+                JOIN users u ON u.id = pr.user_id
+                WHERE u.username=?
+                ORDER BY pr.id DESC
+                """,
+                ("reset_rotate",),
+            ).fetchall()
+
+        self.assertGreaterEqual(len(rows), 2)
+        self.assertEqual(rows[0]["used"], 0)
+        self.assertEqual(rows[1]["used"], 1)
+
+    def test_reset_password_enforces_minimum_length(self):
+        self.create_user(
+            "reset_policy",
+            "pass1234",
+            "admin",
+            warehouse_id=1,
+            email="policy@example.test",
+            notify_email=1,
+        )
+
+        self.client.post(
+            "/forgot",
+            data={"identifier": "policy@example.test"},
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            code = db.execute(
+                """
+                SELECT pr.code
+                FROM password_resets pr
+                JOIN users u ON u.id = pr.user_id
+                WHERE u.username=?
+                ORDER BY pr.id DESC
+                LIMIT 1
+                """,
+                ("reset_policy",),
+            ).fetchone()["code"]
+
+        short_reset = self.client.post(
+            "/reset",
+            data={
+                "username": "reset_policy",
+                "code": code,
+                "password": "123",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(short_reset.status_code, 200)
+        self.assertIn("Password minimal 8 karakter", short_reset.get_data(as_text=True))
+
+        bad_login = self.login("reset_policy", "123")
+        self.assertEqual(bad_login.status_code, 302)
+        good_login = self.login("reset_policy", "pass1234")
+        self.assertEqual(good_login.status_code, 302)
+
+    def test_login_rate_limit_blocks_repeated_failures(self):
+        self.create_user("throttle_user", "pass1234", "admin", warehouse_id=1)
+
+        for _ in range(3):
+            response = self.client.post(
+                "/login",
+                data={"username": "throttle_user", "password": "salah"},
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 302)
+
+        blocked = self.client.post(
+            "/login",
+            data={"username": "throttle_user", "password": "pass1234"},
+            follow_redirects=True,
+        )
+        self.assertEqual(blocked.status_code, 200)
+        self.assertIn("Terlalu banyak percobaan login", blocked.get_data(as_text=True))
+
+        with self.client.session_transaction() as sess:
+            self.assertIsNone(sess.get("user_id"))
+
+        with self.app.app_context():
+            db = get_db()
+            attempts = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM login_attempts
+                WHERE identifier=?
+                """,
+                ("throttle_user",),
+            ).fetchone()[0]
+
+        self.assertEqual(attempts, 3)
+
+    def test_send_whatsapp_marks_http_failure(self):
+        if notification_service.http_requests is None:
+            self.skipTest("requests library unavailable")
+
+        class FakeResponse:
+            ok = False
+            status_code = 500
+            headers = {"Content-Type": "application/json"}
+
+            @staticmethod
+            def json():
+                return {"status": False}
+
+        with patch.dict(os.environ, {"FONNTE_API_KEY": "test-key"}, clear=False):
+            with patch.object(notification_service.http_requests, "post", return_value=FakeResponse()):
+                result = notification_service.send_whatsapp("628123456789", "Halo")
+
+        self.assertFalse(result)
+
     def test_products_page_respects_selected_warehouse_for_super_admin(self):
         self.create_user("superboss", "admin123", "super_admin")
         self.login("superboss", "admin123")
@@ -3600,6 +5451,41 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = page.get_data(as_text=True)
 
         self.assertIn('<option value="2" selected>', html)
+
+    def test_set_warehouse_respects_global_and_scoped_roles(self):
+        self.create_user("warehouse_super", "pass1234", "super_admin")
+        self.login("warehouse_super", "pass1234")
+
+        super_response = self.client.post(
+            "/set_warehouse",
+            data={"warehouse_id": "2"},
+            follow_redirects=False,
+        )
+        self.assertEqual(super_response.status_code, 200)
+        self.assertEqual(super_response.get_json()["warehouse_id"], 2)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("warehouse_id"), 2)
+
+        self.logout()
+
+        scoped_employee_id = self.create_employee_record(
+            employee_code="EMP-ADM-WH",
+            full_name="Admin Scoped Warehouse",
+            warehouse_id=1,
+            position="Admin",
+        )
+        self.create_user("warehouse_admin", "pass1234", "admin", warehouse_id=1, employee_id=scoped_employee_id)
+        self.login("warehouse_admin", "pass1234")
+
+        scoped_response = self.client.post(
+            "/set_warehouse",
+            data={"warehouse_id": "2"},
+            follow_redirects=False,
+        )
+        self.assertEqual(scoped_response.status_code, 200)
+        self.assertEqual(scoped_response.get_json()["warehouse_id"], 1)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("warehouse_id"), 1)
 
     def test_admin_adjust_requires_approval_and_leader_can_approve(self):
         self.create_user("leader_test", "pass1234", "leader", warehouse_id=1)
@@ -3676,8 +5562,32 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["status"], "error")
 
+    def test_leader_ajax_adjust_returns_updated_qty_payload(self):
+        self.create_user("leader_qty_payload", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_qty_payload", "pass1234")
+        _, product_id, variants_rows = self.create_product(variants="QTYAJX")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "2",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["qty"], 7)
+
     def test_scoped_role_pages_lock_warehouse_inputs(self):
         for username, role in [
+            ("admin_scope", "admin"),
             ("leader_scope", "leader"),
             ("staff_scope", "staff"),
         ]:
@@ -3716,18 +5626,18 @@ class WmsRoutesTestCase(unittest.TestCase):
             request_html = request_response.get_data(as_text=True)
             self.assertIn('name="to_warehouse" required disabled', request_html)
 
-            if role == "leader":
+            if role in {"leader", "admin"}:
                 crm_response = self.client.get("/crm/")
                 self.assertEqual(crm_response.status_code, 200)
                 crm_html = crm_response.get_data(as_text=True)
                 self.assertIn('name="warehouse" disabled', crm_html)
                 self.assertIn('name="warehouse_id" required disabled', crm_html)
 
-                leave_response = self.client.get("/hris/leave")
+                leave_response = self.client.get("/libur/")
                 self.assertEqual(leave_response.status_code, 200)
                 leave_html = leave_response.get_data(as_text=True)
-                self.assertIn('name="warehouse" disabled', leave_html)
-                self.assertIn(f'value="{employee_id}"', leave_html)
+                self.assertIn("Ajukan Libur", leave_html)
+                self.assertNotIn('name="status"', leave_html)
 
                 helpdesk_response = self.client.get("/hris/helpdesk")
                 self.assertEqual(helpdesk_response.status_code, 200)
@@ -3735,13 +5645,15 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('name="warehouse" disabled', helpdesk_html)
                 self.assertIn(f'value="{employee_id}"', helpdesk_html)
 
-                biometric_response = self.client.get("/hris/biometric")
+                biometric_response = self.client.get("/absen/")
                 self.assertEqual(biometric_response.status_code, 200)
                 biometric_html = biometric_response.get_data(as_text=True)
-                self.assertIn('name="warehouse" disabled', biometric_html)
-                self.assertIn(f'value="{employee_id}"', biometric_html)
+                self.assertIn("Form Absen Mandiri", biometric_html)
+                self.assertNotIn("Riwayat Absen Terakhir", biometric_html)
 
                 for blocked_path in [
+                    "/hris/leave",
+                    "/hris/biometric",
                     "/hris/employee",
                     "/hris/attendance",
                     "/hris/payroll",
@@ -3757,36 +5669,52 @@ class WmsRoutesTestCase(unittest.TestCase):
                 ]:
                     blocked_response = self.client.get(blocked_path, follow_redirects=False)
                     self.assertEqual(blocked_response.status_code, 302)
-                    self.assertIn("/hris/leave", blocked_response.headers["Location"])
+                    expected_target = (
+                        "/libur/"
+                        if blocked_path == "/hris/leave"
+                        else "/absen/"
+                        if blocked_path in {"/hris/biometric", "/hris/attendance"}
+                        else "/hris/helpdesk"
+                    )
+                    self.assertIn(expected_target, blocked_response.headers["Location"])
             else:
                 dashboard_response = self.client.get("/")
                 dashboard_html = dashboard_response.get_data(as_text=True)
-                self.assertIn('/hris/leave', dashboard_html)
+                self.assertIn('/libur/', dashboard_html)
                 self.assertNotIn('>CRM<', dashboard_html)
+                self.assertNotIn('>HRIS<', dashboard_html)
 
                 staff_hris_root = self.client.get("/hris/", follow_redirects=False)
                 self.assertEqual(staff_hris_root.status_code, 200)
 
-                leave_response = self.client.get("/hris/leave")
+                leave_response = self.client.get("/libur/")
                 self.assertEqual(leave_response.status_code, 200)
-                self.assertIn(f'value="{employee_id}"', leave_response.get_data(as_text=True))
+                self.assertIn("Ajukan Libur", leave_response.get_data(as_text=True))
 
                 helpdesk_response = self.client.get("/hris/helpdesk")
                 self.assertEqual(helpdesk_response.status_code, 200)
                 self.assertIn(f'value="{employee_id}"', helpdesk_response.get_data(as_text=True))
 
-                biometric_response = self.client.get("/hris/biometric")
+                biometric_response = self.client.get("/absen/")
                 self.assertEqual(biometric_response.status_code, 200)
-                self.assertIn(f'value="{employee_id}"', biometric_response.get_data(as_text=True))
+                self.assertIn("Form Absen Mandiri", biometric_response.get_data(as_text=True))
 
                 staff_hris_module = self.client.get("/hris/employee", follow_redirects=False)
                 self.assertEqual(staff_hris_module.status_code, 302)
-                self.assertIn("/hris/leave", staff_hris_module.headers["Location"])
+                self.assertIn("/hris/helpdesk", staff_hris_module.headers["Location"])
+
+                staff_leave_module = self.client.get("/hris/leave", follow_redirects=False)
+                self.assertEqual(staff_leave_module.status_code, 302)
+                self.assertIn("/libur/", staff_leave_module.headers["Location"])
+
+                staff_biometric_module = self.client.get("/hris/biometric", follow_redirects=False)
+                self.assertEqual(staff_biometric_module.status_code, 302)
+                self.assertIn("/absen/", staff_biometric_module.headers["Location"])
 
                 staff_crm_root = self.client.get("/crm/", follow_redirects=False)
                 self.assertEqual(staff_crm_root.status_code, 302)
                 self.assertIn("/schedule/", staff_crm_root.headers["Location"])
-                self.assertIn("/hris/leave", schedule_html)
+                self.assertIn("/libur/", schedule_html)
                 self.assertNotIn("/hris/offboarding", schedule_html)
 
             self.logout()
@@ -3798,27 +5726,19 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
             position="Warehouse Staff",
         )
-        other_employee_id = self.create_employee_record(
-            employee_code="EMP-OTH-HRIS",
-            full_name="Other Employee",
-            warehouse_id=1,
-            position="Warehouse Staff",
-        )
         self.create_user("staff_hris_self", "pass1234", "staff", warehouse_id=1, employee_id=own_employee_id)
         self.login("staff_hris_self", "pass1234")
 
         blocked_response = self.client.get("/hris/payroll", follow_redirects=False)
         self.assertEqual(blocked_response.status_code, 302)
-        self.assertIn("/hris/leave", blocked_response.headers["Location"])
+        self.assertIn("/hris/helpdesk", blocked_response.headers["Location"])
 
         leave_response = self.client.post(
-            "/hris/leave/add",
+            "/libur/submit",
             data={
-                "employee_id": str(other_employee_id),
                 "leave_type": "sick",
                 "start_date": "2026-04-10",
                 "end_date": "2026-04-10",
-                "status": "pending",
                 "reason": "Tes pembatasan",
                 "note": "Tidak boleh untuk employee lain",
             },
@@ -3843,17 +5763,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(helpdesk_response.status_code, 302)
 
         biometric_response = self.client.post(
-            "/hris/biometric/add",
+            "/absen/submit",
             data={
-                "employee_id": str(own_employee_id),
                 "location_label": "Gudang Mataram - Self Service",
                 "latitude": "-8.583140",
                 "longitude": "116.116798",
                 "accuracy_m": "10",
                 "punch_time": "2026-09-01T08:10",
                 "punch_type": "check_in",
-                "sync_status": "synced",
                 "note": "Check in staff",
+                "photo_data_url": self.build_camera_photo_data_url(),
             },
             follow_redirects=False,
         )
@@ -3861,7 +5780,9 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
-            leave_count = db.execute("SELECT COUNT(*) FROM leave_requests").fetchone()[0]
+            leave_request = db.execute(
+                "SELECT employee_id, status, reason FROM leave_requests ORDER BY id DESC LIMIT 1"
+            ).fetchone()
             helpdesk = db.execute(
                 "SELECT employee_id, ticket_title FROM helpdesk_tickets ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -3869,7 +5790,10 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "SELECT employee_id, location_label FROM biometric_logs ORDER BY id DESC LIMIT 1"
             ).fetchone()
 
-        self.assertEqual(leave_count, 0)
+        self.assertIsNotNone(leave_request)
+        self.assertEqual(leave_request["employee_id"], own_employee_id)
+        self.assertEqual(leave_request["status"], "pending")
+        self.assertEqual(leave_request["reason"], "Tes pembatasan")
         self.assertIsNotNone(helpdesk)
         self.assertEqual(helpdesk["employee_id"], own_employee_id)
         self.assertEqual(helpdesk["ticket_title"], "Scanner error")
@@ -3959,6 +5883,73 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(approval)
         self.assertEqual(approval["status"], "pending")
         self.assertEqual(approval["type"], "ADJUST")
+
+    def test_staff_cannot_manage_product_master(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="LOCK")
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.create_user("staff_master_lock", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_master_lock", "pass1234")
+
+        products_page = self.client.get("/products/")
+        self.assertEqual(products_page.status_code, 200)
+        products_html = products_page.get_data(as_text=True)
+        self.assertNotIn("Tambah Produk", products_html)
+        self.assertNotIn("Hapus Terpilih", products_html)
+
+        add_response = self.client.post(
+            "/products/add",
+            data={
+                "sku": "STAFF-BLOCKED",
+                "name": "Produk Staff",
+                "category_name": "Testing",
+                "warehouse_id": "1",
+                "variants": "S",
+                "qty": "1",
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_response.status_code, 403)
+        self.assertEqual(add_response.get_json()["status"], "error")
+
+        update_response = self.client.post(
+            "/stock/update-field",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "field": "name",
+                "value": "Tidak boleh diubah",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 403)
+        self.assertEqual(update_response.get_json()["status"], "error")
+
+        preview_response = self.client.post(
+            "/products/import/preview",
+            data={
+                "file": (BytesIO(b"sku,name,category,qty\nA-1,Produk,Cat,1\n"), "products.csv"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(preview_response.status_code, 403)
+        self.assertEqual(preview_response.get_json()["status"], "error")
+
+        bulk_delete_response = self.client.post(
+            "/products/bulk-delete",
+            json={"ids": [product_id]},
+            follow_redirects=False,
+        )
+        self.assertEqual(bulk_delete_response.status_code, 403)
+        self.assertEqual(bulk_delete_response.get_json()["status"], "error")
 
     def test_request_check_new_ignores_restored_pending_requests(self):
         self.login()
@@ -4081,6 +6072,39 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(rio)
         self.assertEqual(rio["role"], "super_admin")
         self.assertIsNone(rio["warehouse_id"])
+
+    def test_restore_repair_uses_configurable_bootstrap_accounts(self):
+        self.app.config["RESTORE_SUPER_ADMINS"] = ["customroot"]
+        self.app.config["RESTORE_BOOTSTRAP_ADMINS"] = ["opsadmin"]
+        self.app.config["RESTORE_BOOTSTRAP_LEADERS"] = ["opsleader"]
+
+        self.create_user("customroot", "admin123", "staff", warehouse_id=1)
+        self.create_user("opsadmin", "admin123", "staff", warehouse_id=2)
+        self.create_user("opsleader", "admin123", "staff", warehouse_id=2)
+
+        repair_restored_data(self.app)
+
+        with self.app.app_context():
+            db = get_db()
+            root_user = db.execute(
+                "SELECT role, warehouse_id FROM users WHERE username=?",
+                ("customroot",),
+            ).fetchone()
+            admin_user = db.execute(
+                "SELECT role, warehouse_id FROM users WHERE username=?",
+                ("opsadmin",),
+            ).fetchone()
+            leader_user = db.execute(
+                "SELECT role, warehouse_id FROM users WHERE username=?",
+                ("opsleader",),
+            ).fetchone()
+
+        self.assertEqual(root_user["role"], "super_admin")
+        self.assertIsNone(root_user["warehouse_id"])
+        self.assertEqual(admin_user["role"], "admin")
+        self.assertEqual(admin_user["warehouse_id"], 1)
+        self.assertEqual(leader_user["role"], "leader")
+        self.assertEqual(leader_user["warehouse_id"], 1)
 
     def test_stock_page_renders_rupiah_prefix_and_export(self):
         self.login()
@@ -4327,6 +6351,102 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(gudang_stock["qty"], 2)
         self.assertEqual(so_rows, 2)
         self.assertEqual(history_rows, 2)
+
+    def test_stock_opname_submit_uses_latest_server_stock_and_returns_refresh_payload(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="SOREF")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE stock
+                SET qty=?
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (8, product_id, variant_id),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "display_id": 1,
+                "gudang_id": 2,
+                "page": 1,
+                "q": "",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_system": 5,
+                        "display_physical": 6,
+                        "gudang_system": 0,
+                        "gudang_physical": 0,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 1)
+        self.assertIn("summary", payload)
+        self.assertIn("data", payload)
+
+        with self.app.app_context():
+            db = get_db()
+            so_row = db.execute(
+                """
+                SELECT system_qty, physical_qty, diff_qty
+                FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            display_stock = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertIsNotNone(so_row)
+        self.assertEqual(so_row["system_qty"], 8)
+        self.assertEqual(so_row["physical_qty"], 6)
+        self.assertEqual(so_row["diff_qty"], -2)
+        self.assertEqual(display_stock["qty"], 6)
+
+    def test_stock_opname_submit_returns_success_when_stock_already_synced(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="SOSYNC")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "display_id": 1,
+                "gudang_id": 2,
+                "page": 1,
+                "q": "",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_system": 1,
+                        "display_physical": 5,
+                        "gudang_system": 0,
+                        "gudang_physical": 0,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 0)
+        self.assertIn("stok sudah sinkron", payload["message"].lower())
 
 
 if __name__ == "__main__":

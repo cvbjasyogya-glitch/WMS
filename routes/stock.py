@@ -357,6 +357,26 @@ def _build_stock_summary(rows):
     }
 
 
+def _fetch_current_stock_qty(db, product_id, variant_id, warehouse_id):
+    row = db.execute(
+        """
+        SELECT COALESCE(qty, 0) AS qty
+        FROM stock
+        WHERE product_id=? AND variant_id=? AND warehouse_id=?
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchone()
+    return int(row["qty"] or 0) if row else 0
+
+
+def _can_manage_product_master():
+    return has_permission(session.get("role"), "manage_product_master")
+
+
+def _stock_json_error(message, status_code=400):
+    return jsonify({"status": "error", "message": message}), status_code
+
+
 @stock_bp.route("/")
 def stock_table():
     db = get_db()
@@ -542,7 +562,14 @@ def adjust():
 
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
                 if ok:
-                    return jsonify({"status": "success"})
+                    updated_qty = _fetch_current_stock_qty(db, product_id, variant_id, warehouse_id)
+                    return jsonify(
+                        {
+                            "status": "success",
+                            "message": "Stock berhasil diupdate",
+                            "qty": updated_qty,
+                        }
+                    )
                 return jsonify({"status": "error", "message": "Stock gagal / tidak cukup"})
 
             if ok:
@@ -601,6 +628,12 @@ def adjust():
 
 @stock_bp.route("/update-field", methods=["POST"])
 def update_field():
+    if not _can_manage_product_master():
+        return _stock_json_error(
+            "Akses edit master produk hanya tersedia untuk admin, leader, owner, atau super admin.",
+            403,
+        )
+
     db = get_db()
 
     try:
@@ -609,11 +642,11 @@ def update_field():
         field = request.form.get("field")
         value = (request.form.get("value") or "").strip()
     except:
-        return jsonify({"status": "error"})
+        return _stock_json_error("Input tidak valid")
 
     try:
         if not value:
-            return jsonify({"status": "error", "message": "Tidak boleh kosong"})
+            return _stock_json_error("Tidak boleh kosong")
 
         if field == "sku":
             exist = db.execute(
@@ -622,7 +655,7 @@ def update_field():
             ).fetchone()
 
             if exist:
-                return jsonify({"status": "error", "message": "SKU sudah ada"})
+                return _stock_json_error("SKU sudah ada")
 
             db.execute("UPDATE products SET sku=? WHERE id=?", (value, product_id))
 
@@ -636,10 +669,10 @@ def update_field():
             try:
                 val = float(value)
             except:
-                return jsonify({"status": "error", "message": "Harus angka"})
+                return _stock_json_error("Harus angka")
             db.execute(f"UPDATE product_variants SET {field}=? WHERE id=?", (val, variant_id))
         else:
-            return jsonify({"status": "error", "message": "Field tidak dikenal"})
+            return _stock_json_error("Field tidak dikenal")
 
         db.commit()
         return jsonify({"status": "success"})
@@ -647,7 +680,7 @@ def update_field():
     except Exception as e:
         print("UPDATE ERROR:", e)
         db.rollback()
-        return jsonify({"status": "error"})
+        return _stock_json_error("Update gagal disimpan", 500)
 
 
 @stock_bp.route("/bulk-adjust", methods=["POST"])

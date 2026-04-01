@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Request | Mataram Sports WMS{% endblock %}
+{% block title %}Request | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Request Queue{% endblock %}
 {% block page_title %}Request Antar Gudang{% endblock %}
 {% block page_subtitle %}Susun banyak item request lewat pola pilih item lalu tambah ke daftar kerja, sehingga permintaan antar gudang jauh lebih cepat saat SKU sudah banyak.{% endblock %}
@@ -106,7 +106,7 @@
             </table>
         </div>
 
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button id="requestSubmitButton" type="submit">Buat Request</button>
         </div>
     </form>
@@ -148,9 +148,15 @@
                 </td>
                 <td>
                     {% if r.status == "pending" and r.can_approve %}
-                    <form method="POST" action="/request/approve/{{ r.id }}">
-                        <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
-                    </form>
+                    <div class="table-action-stack">
+                        <form method="POST" action="/request/approve/{{ r.id }}">
+                            <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
+                        </form>
+                        <form method="POST" action="/request/reject/{{ r.id }}" class="table-action-row">
+                            <input name="reason" placeholder="Alasan penolakan" class="approval-reason-input">
+                            <button type="submit" class="danger-button" onclick="return confirm('Tolak request ini?')">Reject</button>
+                        </form>
+                    </div>
                     {% else %}
                     <span class="mono">-</span>
                     {% endif %}
@@ -475,3 +481,4 @@ resetRequestDraft();
 renderRequestQueue();
 </script>
 {% endblock %}
+

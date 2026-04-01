@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Warehouse Admin | Mataram Sports WMS{% endblock %}
+{% block title %}Warehouse Admin | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}System Administration{% endblock %}
 {% block page_title %}Warehouse System Control{% endblock %}
 {% block page_subtitle %}Halaman khusus untuk mengelola gudang aktif, melihat beban pemakaian tiap gudang, dan menjaga struktur warehouse tetap bersih untuk WMS maupun HRIS.{% endblock %}
@@ -66,7 +66,7 @@
                 <small class="helper-text">Gunakan nama yang konsisten karena gudang ini akan menjadi referensi stock, request, employee, dan schedule.</small>
             </div>
         </div>
-        <div class="split-actions" style="margin-top:16px;">
+        <div class="split-actions stack-gap-md">
             <button type="submit">Tambah Gudang</button>
         </div>
     </form>
@@ -116,3 +116,4 @@
     {% endif %}
 </div>
 {% endblock %}
+

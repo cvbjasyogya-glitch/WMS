@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
-{% block title %}Stock Opname | Mataram Sports WMS{% endblock %}
+{% block title %}Stock Opname | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Physical Count Control{% endblock %}
 {% block page_title %}Stock Opname{% endblock %}
 {% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas dan tetap stabil untuk data restore lama.{% endblock %}
@@ -17,22 +17,22 @@
 <div class="summary">
     <div class="card-mini">
         <p>Data Tampil</p>
-        <h3>{{ summary["items"] }}</h3>
+        <h3 id="soSummaryItems">{{ summary["items"] }}</h3>
         <small class="helper-text">Baris SKU pada halaman aktif.</small>
     </div>
     <div class="card-mini">
         <p>Qty Display</p>
-        <h3>{{ summary.display_qty }}</h3>
+        <h3 id="soSummaryDisplayQty">{{ summary.display_qty }}</h3>
         <small class="helper-text">Stok sistem area display.</small>
     </div>
     <div class="card-mini">
         <p>Qty Gudang</p>
-        <h3>{{ summary.gudang_qty }}</h3>
+        <h3 id="soSummaryGudangQty">{{ summary.gudang_qty }}</h3>
         <small class="helper-text">Stok sistem area gudang.</small>
     </div>
-    <div class="card-mini {% if summary.gap_count %}warning{% endif %}">
+    <div class="card-mini {% if summary.gap_count %}warning{% endif %}" id="soSummaryGapCard">
         <p>Selisih Lokasi</p>
-        <h3>{{ summary.gap_count }}</h3>
+        <h3 id="soSummaryGapCount">{{ summary.gap_count }}</h3>
         <small class="helper-text">Item yang qty display dan gudangnya memang berbeda.</small>
     </div>
 </div>
@@ -40,15 +40,15 @@
 <div class="meta-grid">
     <div class="meta-card">
         <span>Display Aktif</span>
-        <strong>{{ display_name }}</strong>
+        <strong id="soDisplayName">{{ display_name }}</strong>
     </div>
     <div class="meta-card">
         <span>Gudang Aktif</span>
-        <strong>{{ gudang_name }}</strong>
+        <strong id="soGudangName">{{ gudang_name }}</strong>
     </div>
     <div class="meta-card">
         <span>Page</span>
-        <strong>{{ page }} / {{ total_pages }}</strong>
+        <strong id="soMetaPage">{{ page }} / {{ total_pages }}</strong>
     </div>
     <div class="meta-card">
         <span>Mode</span>
@@ -158,6 +158,58 @@ function syncExportLinks() {
     if (exportReportLink) {
         exportReportLink.href = "/so/export_report?display_id=" + displayId + "&gudang_id=" + gudangId;
     }
+}
+
+function renderSummary(summary) {
+    if (!summary) return;
+    const itemsNode = document.getElementById("soSummaryItems");
+    const displayQtyNode = document.getElementById("soSummaryDisplayQty");
+    const gudangQtyNode = document.getElementById("soSummaryGudangQty");
+    const gapCountNode = document.getElementById("soSummaryGapCount");
+    const gapCardNode = document.getElementById("soSummaryGapCard");
+
+    if (itemsNode) itemsNode.innerText = summary.items ?? 0;
+    if (displayQtyNode) displayQtyNode.innerText = summary.display_qty ?? 0;
+    if (gudangQtyNode) gudangQtyNode.innerText = summary.gudang_qty ?? 0;
+    if (gapCountNode) gapCountNode.innerText = summary.gap_count ?? 0;
+    if (gapCardNode) {
+        gapCardNode.classList.toggle("warning", Number(summary.gap_count || 0) > 0);
+    }
+}
+
+function syncWarehouseSelectors() {
+    const displaySelect = document.getElementById("displaySelect");
+    const gudangSelect = document.getElementById("gudangSelect");
+    if (displaySelect) displaySelect.value = String(displayId);
+    if (gudangSelect) gudangSelect.value = String(gudangId);
+}
+
+function applySoPayload(payload) {
+    if (!payload) return;
+
+    currentPage = payload.page ?? currentPage;
+    totalPages = payload.total_pages ?? totalPages;
+    displayId = payload.display_id ?? displayId;
+    gudangId = payload.gudang_id ?? gudangId;
+
+    renderTable(payload.data || []);
+    renderSummary(payload.summary || {});
+    syncWarehouseSelectors();
+    syncExportLinks();
+
+    const pageInfoNode = document.getElementById("pageInfo");
+    const metaPageNode = document.getElementById("soMetaPage");
+    const displayNameNode = document.getElementById("soDisplayName");
+    const gudangNameNode = document.getElementById("soGudangName");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    if (pageInfoNode) pageInfoNode.innerText = "Page " + currentPage + " / " + totalPages;
+    if (metaPageNode) metaPageNode.innerText = currentPage + " / " + totalPages;
+    if (displayNameNode && payload.display_name) displayNameNode.innerText = payload.display_name;
+    if (gudangNameNode && payload.gudang_name) gudangNameNode.innerText = payload.gudang_name;
+    if (prevBtn) prevBtn.disabled = currentPage <= 1;
+    if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 }
 
 function parseRowNumber(input) {
@@ -323,15 +375,7 @@ function loadPage(page) {
         return res.json();
     })
     .then((data) => {
-        currentPage = data.page;
-        totalPages = data.total_pages;
-        renderTable(data.data);
-
-        document.getElementById("pageInfo").innerText = "Page " + currentPage + " / " + totalPages;
-        const prevBtn = document.getElementById("prevBtn");
-        const nextBtn = document.getElementById("nextBtn");
-        if (prevBtn) prevBtn.disabled = currentPage <= 1;
-        if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+        applySoPayload(data);
     })
     .catch(() => alert("Gagal memuat data stock opname."));
 }
@@ -375,10 +419,16 @@ function submitSO() {
 
     fetch("/so/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest"
+        },
         body: JSON.stringify({
             display_id: displayId,
             gudang_id: gudangId,
+            q: currentSearch,
+            page: currentPage,
             items: state.items
         })
     })
@@ -390,8 +440,8 @@ function submitSO() {
         return data;
     })
     .then((data) => {
+        applySoPayload(data);
         alert(data.message || "SO berhasil disimpan.");
-        location.reload();
     })
     .catch((error) => alert(error.message || "Gagal menyimpan stock opname."))
     .finally(() => {
@@ -429,3 +479,4 @@ if (prevBtn) prevBtn.disabled = currentPage <= 1;
 if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 </script>
 {% endblock %}
+
