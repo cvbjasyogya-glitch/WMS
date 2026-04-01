@@ -5,7 +5,7 @@
     <a href="{{ pagination.prev_url }}" class="pagination-link pagination-edge">Prev</a>
     {% endif %}
 
-    {% for item in pagination.items %}
+    {% for item in pagination["items"] %}
         {% if item.kind == 'ellipsis' %}
         <span class="pagination-ellipsis">...</span>
         {% else %}

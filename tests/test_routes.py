@@ -4633,6 +4633,28 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload_two["page"], 2)
         self.assertGreaterEqual(len(payload_two["items"]), 1)
 
+    def test_stock_page_uses_10_item_pagination(self):
+        self.login()
+        for index in range(12):
+            response, _, _ = self.create_product(
+                sku=f"STKPAG-{index:02d}-{uuid4().hex[:4].upper()}",
+                qty=1,
+                variants=f"SV{index}",
+            )
+            self.assertEqual(response.status_code, 302)
+
+        page_one = self.client.get("/stock/?q=STKPAG-")
+        page_one_html = page_one.get_data(as_text=True)
+        self.assertEqual(page_one.status_code, 200)
+        self.assertEqual(page_one_html.count('class="stock-adjust-button"'), 10)
+        self.assertIn("Page 1 / 2", page_one_html)
+
+        page_two = self.client.get("/stock/?q=STKPAG-&page=2")
+        page_two_html = page_two.get_data(as_text=True)
+        self.assertEqual(page_two.status_code, 200)
+        self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 2)
+        self.assertIn("Page 2 / 2", page_two_html)
+
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
         self.login()
