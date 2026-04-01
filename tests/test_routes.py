@@ -458,6 +458,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("View Only", html)
         self.assertIn('name="warehouse" disabled', html)
         self.assertIn("Ayu", html)
+        self.assertIn("Compact", html)
+        self.assertIn("Cozy", html)
         self.assertNotIn("Atur Jadwal Manual", html)
         self.assertNotIn("Master Shift", html)
 

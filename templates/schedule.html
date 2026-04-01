@@ -340,87 +340,115 @@
     <div class="schedule-board-hero">
         <div>
             <span class="badge">Live Board</span>
-            <h3>Studio jadwal harian yang lebih clean dan fokus ke tim</h3>
-            <p>Kolom staf dibuat seperti kartu operasional, sementara rail tanggal di kiri menjaga ritme hari tetap mudah dipindai.</p>
+            <h3>Studio jadwal operasional yang tetap rapi saat staf bertambah banyak</h3>
+            <p>Board ditata sebagai lane per staf dengan header tanggal sticky, jadi data besar tetap enak dibaca tanpa pecah saat jumlah karyawan bertambah.</p>
         </div>
-        <div class="schedule-board-hero-meta">
-            <span>{{ filters.days }} hari</span>
-            <span>{{ schedule_groups|length }} cluster</span>
-            <span>{{ summary.override_cells }} override</span>
+        <div class="schedule-board-hero-actions">
+            <div class="schedule-density-toggle" data-schedule-density-toggle>
+                <button type="button" class="schedule-density-button" data-schedule-density-button="compact">Compact</button>
+                <button type="button" class="schedule-density-button" data-schedule-density-button="cozy">Cozy</button>
+            </div>
+            <div class="schedule-board-hero-meta">
+                <span>{{ filters.days }} hari</span>
+                <span>{{ schedule_groups|length }} cluster</span>
+                <span>{{ summary.override_cells }} override</span>
+            </div>
         </div>
     </div>
-    <div class="schedule-board-wrap schedule-board-studio-wrap">
-        <div class="schedule-board-studio">
-            <aside class="schedule-board-rail">
-                <div class="schedule-board-rail-head">
-                    <span class="schedule-board-rail-kicker">Timeline</span>
+    <div
+        class="schedule-board-wrap schedule-board-lane-wrap"
+        data-schedule-board-shell
+        data-schedule-density-default="{{ 'compact' if schedule_members|length >= 10 or filters.days >= 21 else 'cozy' }}"
+    >
+        <div class="schedule-board-lane" style="--schedule-day-count: {{ board_rows|length }};">
+            <div class="schedule-board-lane-head">
+                <div class="schedule-board-lane-axis">
+                    <span class="schedule-board-rail-kicker">Roster</span>
                     <strong>{{ filters.start }} s/d {{ range_end }}</strong>
-                    <p>Catatan harian dan momen weekend tampil di rail kiri agar planner cepat menangkap ritme minggu ini.</p>
+                    <p>Staf diletakkan di kiri dan hari di atas, jadi board jauh lebih stabil untuk tim kecil maupun besar.</p>
                 </div>
-                <div class="schedule-board-rail-body">
+                <div class="schedule-board-lane-days">
                     {% for row in board_rows %}
-                    <article class="schedule-day-tile {% if row.is_weekend %}schedule-day-tile-weekend{% endif %}">
-                        <div class="schedule-day-tile-top">
-                            <span class="schedule-day-tile-date">{{ row.iso_date }}</span>
+                    <article class="schedule-lane-day-card {% if row.is_weekend %}schedule-lane-day-card-weekend{% endif %}">
+                        <div class="schedule-lane-day-top">
+                            <span class="schedule-lane-day-short">{{ row.day_short }}</span>
                             {% if row.note %}
-                            <span class="schedule-day-note-tag">Catatan</span>
+                            <span class="schedule-slot-dot" title="{{ row.note }}"></span>
                             {% endif %}
                         </div>
-                        <strong>{{ row.label }}</strong>
+                        <strong>{{ row.day_number }}/{{ row.month_number }}</strong>
+                        <span>{{ row.iso_date }}</span>
                         {% if row.note %}
-                        <p>{{ row.note }}</p>
+                        <small>{{ row.note }}</small>
                         {% else %}
-                        <p class="schedule-day-tile-empty">Tidak ada catatan khusus.</p>
+                        <small>Tidak ada catatan khusus.</small>
                         {% endif %}
                     </article>
                     {% endfor %}
                 </div>
-            </aside>
-            <div class="schedule-member-stage">
-                {% for member_index in range(schedule_members|length) %}
-                {% set member = schedule_members[member_index] %}
-                <article class="schedule-member-column">
-                    <header class="schedule-member-header">
-                        <div class="schedule-member-header-top">
-                            <span class="schedule-member-group">{{ member.display_group_label }}</span>
-                            <span class="schedule-member-location">{{ member.location_label_display }}</span>
+            </div>
+            <div class="schedule-board-lane-body">
+                {% for group in schedule_groups %}
+                <section class="schedule-lane-group">
+                    <div class="schedule-lane-group-head">
+                        <div>
+                            <span class="schedule-board-rail-kicker">Cluster</span>
+                            <strong>{{ group.label }}</strong>
                         </div>
-                        <strong>{{ member.display_name }}</strong>
-                        <p>{{ member.full_name }}</p>
-                        <small>{{ member.position or member.department or "Tim Operasional" }}</small>
-                    </header>
-                    <div class="schedule-member-cells">
-                        {% for row in board_rows %}
-                        {% set cell = row.cells[member_index] %}
-                        <div class="schedule-slot {% if row.is_weekend %}schedule-slot-weekend{% endif %} {% if cell and cell.source != 'manual' %}schedule-slot-auto{% endif %}">
-                            <div class="schedule-slot-top">
-                                <span class="schedule-slot-date">{{ row.iso_date[5:] }}</span>
-                                {% if row.note %}
-                                <span class="schedule-slot-dot" title="{{ row.note }}"></span>
-                                {% endif %}
+                        <span class="badge">{{ group.members|length }} staf</span>
+                    </div>
+                    <div class="schedule-lane-group-rows">
+                        {% for member in group.members %}
+                        <article class="schedule-lane-row">
+                            <header class="schedule-lane-member">
+                                <div class="schedule-member-header-top">
+                                    <span class="schedule-member-group">{{ member.display_group_label }}</span>
+                                    <span class="schedule-member-location">{{ member.location_label_display }}</span>
+                                </div>
+                                <strong>{{ member.display_name }}</strong>
+                                <p>{{ member.full_name }}</p>
+                                <small>{{ member.position or member.department or "Tim Operasional" }}</small>
+                            </header>
+                            <div class="schedule-lane-track">
+                                {% for row in board_rows %}
+                                {% set cell = row.cells[member.board_index] %}
+                                <div
+                                    class="schedule-lane-cell {% if row.is_weekend %}schedule-lane-cell-weekend{% endif %} {% if cell and cell.source != 'manual' %}schedule-lane-cell-auto{% endif %}"
+                                    title="{% if cell %}{{ cell.title }}{% else %}Belum ada shift{% endif %}{% if row.note %} | Catatan hari: {{ row.note }}{% endif %}"
+                                >
+                                    <div class="schedule-lane-cell-top">
+                                        {% if cell %}
+                                        <span
+                                            class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
+                                            style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
+                                        >{{ cell.code }}</span>
+                                        {% else %}
+                                        <span class="schedule-empty">Open</span>
+                                        {% endif %}
+                                        {% if row.note %}
+                                        <span class="schedule-slot-dot" title="{{ row.note }}"></span>
+                                        {% endif %}
+                                    </div>
+                                    {% if cell %}
+                                    <strong class="schedule-lane-cell-label">{{ cell.label }}</strong>
+                                    {% if cell.note %}
+                                    <span class="schedule-lane-cell-meta">{{ cell.note }}</span>
+                                    {% elif cell.source != 'manual' %}
+                                    <span class="schedule-lane-cell-meta">Override HRIS</span>
+                                    {% else %}
+                                    <span class="schedule-lane-cell-meta">Shift manual aktif</span>
+                                    {% endif %}
+                                    {% else %}
+                                    <strong class="schedule-lane-cell-label">Belum ada shift</strong>
+                                    <span class="schedule-lane-cell-meta">Slot masih open</span>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
                             </div>
-                            {% if cell %}
-                            <span
-                                class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
-                                style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
-                                title="{{ cell.title }}"
-                            >{{ cell.code }}</span>
-                            <span class="schedule-slot-label">{{ cell.label }}</span>
-                            {% if cell.note %}
-                            <span class="schedule-slot-note">{{ cell.note }}</span>
-                            {% elif cell.source != 'manual' %}
-                            <span class="schedule-slot-meta">Override HRIS</span>
-                            {% else %}
-                            <span class="schedule-slot-meta">Shift manual aktif</span>
-                            {% endif %}
-                            {% else %}
-                            <span class="schedule-empty">Open</span>
-                            <span class="schedule-slot-meta">Belum ada shift</span>
-                            {% endif %}
-                        </div>
+                        </article>
                         {% endfor %}
                     </div>
-                </article>
+                </section>
                 {% endfor %}
             </div>
         </div>
@@ -429,5 +457,55 @@
     <div class="alert info">Belum ada staf yang siap ditampilkan pada board ini. Tambahkan data karyawan di HRIS lalu aktifkan opsi tampil di board jika perlu.</div>
     {% endif %}
 </div>
+
+<script>
+(() => {
+    const boardShell = document.querySelector("[data-schedule-board-shell]");
+    if (!boardShell) {
+        return;
+    }
+
+    const toggle = document.querySelector("[data-schedule-density-toggle]");
+    const buttons = Array.from(document.querySelectorAll("[data-schedule-density-button]"));
+    const storageKey = "erp.schedule.boardDensity";
+    const defaultDensity = boardShell.dataset.scheduleDensityDefault || "cozy";
+
+    const readDensity = () => {
+        try {
+            const persisted = window.localStorage.getItem(storageKey);
+            if (persisted === "compact" || persisted === "cozy") {
+                return persisted;
+            }
+        } catch (error) {
+        }
+        return defaultDensity;
+    };
+
+    const applyDensity = (density) => {
+        const nextDensity = density === "compact" ? "compact" : "cozy";
+        boardShell.dataset.scheduleDensity = nextDensity;
+        buttons.forEach((button) => {
+            const isActive = button.dataset.scheduleDensityButton === nextDensity;
+            button.classList.toggle("is-active", isActive);
+            button.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+        if (toggle) {
+            toggle.dataset.activeDensity = nextDensity;
+        }
+        try {
+            window.localStorage.setItem(storageKey, nextDensity);
+        } catch (error) {
+        }
+    };
+
+    buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+            applyDensity(button.dataset.scheduleDensityButton || defaultDensity);
+        });
+    });
+
+    applyDensity(readDensity());
+})();
+</script>
 {% endblock %}
 

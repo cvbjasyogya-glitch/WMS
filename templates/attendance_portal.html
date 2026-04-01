@@ -101,8 +101,10 @@
                         <button type="button" class="ghost-button" data-camera-start {% if portal_punch_mode == "complete" %}disabled{% endif %}>Aktifkan Kamera</button>
                         <button type="button" class="ghost-button" data-camera-capture disabled>Ambil Foto</button>
                         <button type="button" class="ghost-button" data-camera-retake disabled {% if portal_punch_mode == "complete" %}disabled{% endif %}>Ulangi Foto</button>
+                        <button type="button" class="ghost-button" data-camera-fallback hidden {% if portal_punch_mode == "complete" %}disabled{% endif %}>Kamera Perangkat</button>
+                        <input type="file" accept="image/*" capture="user" data-camera-file-input hidden>
                     </div>
-                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen, lalu sistem akan menyusun stamp geotag otomatis seperti aplikasi absensi mobile.</small>
+                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen. Jika preview live gagal muncul di browser tertentu, tombol Kamera Perangkat akan dipakai sebagai fallback aman.</small>
                 </div>
 
                 <div class="attendance-form-panel">
@@ -219,6 +221,8 @@
     const startButton = portal.querySelector("[data-camera-start]");
     const captureButton = portal.querySelector("[data-camera-capture]");
     const retakeButton = portal.querySelector("[data-camera-retake]");
+    const fallbackButton = portal.querySelector("[data-camera-fallback]");
+    const fallbackInput = portal.querySelector("[data-camera-file-input]");
     const cameraStatus = portal.querySelector("[data-camera-status]");
     const locationButton = portal.querySelector("[data-location-capture]");
     const locationStatus = portal.querySelector("[data-location-status]");
@@ -651,18 +655,47 @@
         }
     };
 
-    const stopCamera = () => {
-        if (!activeStream) {
-            return;
-        }
-        activeStream.getTracks().forEach((track) => track.stop());
-        activeStream = null;
-        video.srcObject = null;
-    };
-
     const setCameraState = (message, tone = "idle") => {
         cameraStatus.textContent = message;
         cameraStatus.dataset.state = tone;
+    };
+
+    const toggleFallbackCapture = (visible) => {
+        if (!fallbackButton) {
+            return;
+        }
+        fallbackButton.hidden = !visible;
+        fallbackButton.disabled = portalLocked || !visible;
+    };
+
+    const describeCameraError = (error) => {
+        if (!window.isSecureContext) {
+            return "Kamera live hanya bisa berjalan di halaman HTTPS yang aman. Browser akan memakai fallback Kamera Perangkat.";
+        }
+
+        const errorName = error && error.name ? error.name : "";
+        if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
+            return "Izin kamera ditolak atau browser masih memblokir kamera untuk halaman ini.";
+        }
+        if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+            return "Perangkat tidak menemukan kamera aktif di device ini.";
+        }
+        if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+            return "Kamera sedang dipakai aplikasi lain atau browser gagal membaca stream kamera.";
+        }
+        if (errorName === "OverconstrainedError" || errorName === "ConstraintNotSatisfiedError") {
+            return "Preset kamera depan default tidak cocok dengan device ini. Gunakan fallback Kamera Perangkat.";
+        }
+        if (errorName === "SecurityError") {
+            return "Browser memblokir akses kamera untuk halaman ini. Pastikan halaman dibuka langsung, bukan dari webview yang membatasi kamera.";
+        }
+        if (errorName === "AbortError") {
+            return "Akses kamera terhenti mendadak. Coba aktifkan lagi atau gunakan fallback Kamera Perangkat.";
+        }
+        if (error && error.message === "CameraPreviewTimeout") {
+            return "Izin kamera sudah diberikan, tapi preview live tidak sempat muncul. Gunakan fallback Kamera Perangkat.";
+        }
+        return "Preview kamera belum bisa dibuka di browser ini. Gunakan fallback Kamera Perangkat agar absen tetap bisa dipakai.";
     };
 
     const syncCameraReadyState = () => {
@@ -680,6 +713,138 @@
         preview.hidden = true;
         video.hidden = false;
         retakeButton.disabled = true;
+    };
+
+    const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result || "");
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+
+    const waitForVideoReady = () => new Promise((resolve, reject) => {
+        let settled = false;
+        let timeoutId = null;
+
+        const finish = (error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+            video.removeEventListener("loadedmetadata", handleReady);
+            video.removeEventListener("loadeddata", handleReady);
+            video.removeEventListener("canplay", handleReady);
+            video.removeEventListener("playing", handleReady);
+            video.removeEventListener("error", handleError);
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve();
+        };
+
+        const handleError = () => finish(new Error("CameraPreviewFailed"));
+        const handleReady = async () => {
+            if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !(video.videoWidth || video.videoHeight)) {
+                return;
+            }
+            try {
+                await video.play();
+            } catch (error) {
+            }
+            finish();
+        };
+
+        timeoutId = window.setTimeout(() => {
+            finish(new Error("CameraPreviewTimeout"));
+        }, 4500);
+
+        video.addEventListener("loadedmetadata", handleReady);
+        video.addEventListener("loadeddata", handleReady);
+        video.addEventListener("canplay", handleReady);
+        video.addEventListener("playing", handleReady);
+        video.addEventListener("error", handleError);
+        handleReady();
+    });
+
+    const cameraStreamPresets = [
+        {
+            video: {
+                facingMode: { ideal: "user" },
+                aspectRatio: { ideal: 0.75 },
+                width: { ideal: 1080, max: 1440 },
+                height: { ideal: 1440, max: 1920 },
+            },
+            audio: false,
+        },
+        {
+            video: {
+                facingMode: { ideal: "user" },
+                width: { ideal: 960 },
+                height: { ideal: 1280 },
+            },
+            audio: false,
+        },
+        {
+            video: {
+                facingMode: { ideal: "user" },
+            },
+            audio: false,
+        },
+        {
+            video: true,
+            audio: false,
+        },
+    ];
+
+    const stopCamera = () => {
+        if (activeStream) {
+            activeStream.getTracks().forEach((track) => track.stop());
+            activeStream = null;
+        }
+        try {
+            video.pause();
+        } catch (error) {
+        }
+        video.srcObject = null;
+    };
+
+    const startCameraStream = async () => {
+        stopCamera();
+        resetPreviewState();
+        captureButton.disabled = true;
+        setCameraState("Menyiapkan kamera. Tunggu sebentar sampai preview siap dipakai.", "idle");
+
+        let lastError = null;
+        for (const constraints of cameraStreamPresets) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                activeStream = stream;
+                video.srcObject = stream;
+                video.autoplay = true;
+                video.muted = true;
+                video.defaultMuted = true;
+                video.playsInline = true;
+                video.setAttribute("autoplay", "autoplay");
+                video.setAttribute("muted", "muted");
+                video.setAttribute("playsinline", "true");
+                video.setAttribute("webkit-playsinline", "true");
+                video.hidden = false;
+                preview.hidden = true;
+                await waitForVideoReady();
+                syncCameraReadyState();
+                toggleFallbackCapture(false);
+                return;
+            } catch (error) {
+                lastError = error;
+                stopCamera();
+            }
+        }
+
+        throw lastError || new Error("CameraUnavailable");
     };
 
     const syncShiftTimeDisplay = () => {
@@ -765,42 +930,22 @@
         if (portalLocked) {
             return;
         }
+        if (!window.isSecureContext) {
+            toggleFallbackCapture(true);
+            setCameraState("Kamera live butuh halaman HTTPS yang aman. Pakai tombol Kamera Perangkat di bawah ini.", "error");
+            return;
+        }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setCameraState("Browser ini tidak mendukung akses kamera langsung.", "error");
+            toggleFallbackCapture(true);
+            setCameraState("Browser ini tidak mendukung preview kamera langsung. Pakai tombol Kamera Perangkat.", "error");
             return;
         }
 
         try {
-            stopCamera();
-            activeStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: "user",
-                    aspectRatio: { ideal: 0.75 },
-                    width: { ideal: 1080, max: 1440 },
-                    height: { ideal: 1440, max: 1920 },
-                },
-                audio: false,
-            });
-            video.srcObject = activeStream;
-            resetPreviewState();
-            captureButton.disabled = true;
-            setCameraState("Menyiapkan kamera. Tunggu sebentar sampai preview siap dipakai.", "idle");
-
-            const handleReady = async () => {
-                try {
-                    await video.play();
-                } catch (error) {
-                }
-                syncCameraReadyState();
-            };
-
-            if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-                handleReady();
-            } else {
-                video.addEventListener("loadedmetadata", handleReady, { once: true });
-            }
+            await startCameraStream();
         } catch (error) {
-            setCameraState("Izin kamera ditolak atau kamera tidak tersedia pada device ini.", "error");
+            toggleFallbackCapture(true);
+            setCameraState(describeCameraError(error), "error");
         }
     });
 
@@ -842,6 +987,48 @@
     });
 
     video.addEventListener("canplay", syncCameraReadyState);
+    video.addEventListener("loadeddata", syncCameraReadyState);
+
+    fallbackButton?.addEventListener("click", () => {
+        if (portalLocked || !fallbackInput) {
+            return;
+        }
+        fallbackInput.value = "";
+        fallbackInput.click();
+    });
+
+    fallbackInput?.addEventListener("change", async (event) => {
+        if (portalLocked) {
+            return;
+        }
+
+        const selectedFile = Array.from(event.target.files || [])[0];
+        if (!selectedFile) {
+            return;
+        }
+
+        if (!selectedFile.type.startsWith("image/")) {
+            setCameraState("File yang dipilih bukan gambar. Pakai kamera perangkat untuk mengambil foto wajah.", "error");
+            event.target.value = "";
+            return;
+        }
+
+        try {
+            stopCamera();
+            resetPreviewState();
+            rawPhotoDataUrl = await readFileAsDataUrl(selectedFile);
+            syncPunchTime();
+            await refreshStampedPreview();
+            captureButton.disabled = true;
+            retakeButton.disabled = false;
+            toggleFallbackCapture(true);
+            setCameraState("Foto berhasil diambil dari kamera perangkat. Jika sudah pas, lanjut ambil lokasi lalu simpan absen.", "success");
+        } catch (error) {
+            setCameraState("Foto dari kamera perangkat belum bisa dibaca. Coba ulangi lagi.", "error");
+        }
+
+        event.target.value = "";
+    });
 
     locationButton.addEventListener("click", () => {
         if (portalLocked) {

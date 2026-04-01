@@ -302,6 +302,7 @@ def _build_schedule_members(employee_rows):
         if row["employment_status"] == "inactive" and not row["has_offboarding"]:
             continue
 
+        row["board_index"] = len(members)
         members.append(row)
     return members
 
@@ -546,6 +547,15 @@ def _build_day_notes(db, start_date, end_date):
 
 def _build_board_rows(schedule_members, start_date, end_date, entry_map, override_map, day_notes):
     board_rows = []
+    short_day_names = [
+        "Sen",
+        "Sel",
+        "Rab",
+        "Kam",
+        "Jum",
+        "Sab",
+        "Min",
+    ]
     for current_day in _daterange(start_date, end_date):
         iso_date = current_day.isoformat()
         cells = []
@@ -559,6 +569,9 @@ def _build_board_rows(schedule_members, start_date, end_date, entry_map, overrid
             {
                 "iso_date": iso_date,
                 "label": _format_schedule_day(current_day),
+                "day_short": short_day_names[current_day.weekday()],
+                "day_number": f"{current_day.day:02d}",
+                "month_number": f"{current_day.month:02d}",
                 "is_weekend": current_day.weekday() >= 5,
                 "cells": cells,
                 "note": day_notes.get(iso_date, ""),
