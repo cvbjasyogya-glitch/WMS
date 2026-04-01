@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Meeting Live | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Coordination Meeting{% endblock %}
+{% block page_title %}Meeting Live Zoom{% endblock %}
+{% block page_subtitle %}Portal rapat internal berbasis Zoom Meeting SDK untuk join meeting lebih cepat, tetap hemat daya, dan lebih aman dipakai langsung dari workspace operasional.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions meeting-page-actions">
+    <span class="status-pill {% if zoom_sdk_ready %}success{% else %}warning{% endif %}">
+        {% if zoom_sdk_ready %}SDK Ready{% else %}Butuh Konfigurasi{% endif %}
+    </span>
+    <span class="status-pill">Zoom SDK {{ zoom_sdk_version }}</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="summary meeting-summary-grid">
+    <div class="card-mini {% if zoom_sdk_ready %}success{% endif %}">
+        <p>Status Meeting</p>
+        <h3>{% if zoom_sdk_ready %}Siap Join{% else %}Belum Aktif{% endif %}</h3>
+        <small class="helper-text">
+            {% if zoom_sdk_ready %}
+            Signature backend sudah siap, user bisa join langsung dari browser.
+            {% else %}
+            Isi SDK key dan secret di server agar meeting bisa dipakai penuh.
+            {% endif %}
+        </small>
+    </div>
+    <div class="card-mini">
+        <p>Mode Bawaan</p>
+        <h3>Smart Saver</h3>
+        <small class="helper-text">Preview kamera dimatikan dulu agar baterai dan data lebih irit di mobile.</small>
+    </div>
+    <div class="card-mini">
+        <p>Endpoint</p>
+        <h3>{{ zoom_web_endpoint }}</h3>
+        <small class="helper-text">Mode web meeting penuh dengan tampilan client-view yang familiar.</small>
+    </div>
+    <div class="card-mini info">
+        <p>Bahasa Default</p>
+        <h3>{{ zoom_default_language }}</h3>
+        <small class="helper-text">Bisa diganti per meeting untuk kebutuhan user lintas tim atau eksternal.</small>
+    </div>
+</div>
+
+<section
+    class="form-box meeting-portal-shell"
+    id="meetingPortalRoot"
+    data-signature-endpoint="/meetings/signature"
+    data-session-endpoint="/meetings/session"
+    data-sdk-ready="{{ '1' if zoom_sdk_ready else '0' }}"
+>
+    <div class="section-title">
+        <div>
+            <h2>Masuk Meeting</h2>
+            <p>Isi nomor meeting dan passcode, pilih profil join yang paling sesuai, lalu masuk lewat browser tanpa pindah sistem.</p>
+        </div>
+        <div class="status-row">
+            <span class="status-pill" id="meetingPortalState">Siap dipakai</span>
+            <span class="status-pill" id="meetingRecentState">Belum ada room cepat</span>
+        </div>
+    </div>
+
+    {% if not zoom_sdk_ready %}
+    <div class="flash warning">
+        Meeting belum aktif di server. Isi env <code>ZOOM_MEETING_SDK_KEY</code> dan <code>ZOOM_MEETING_SDK_SECRET</code> dulu, lalu reload aplikasi.
+    </div>
+    {% endif %}
+
+    <div class="meeting-portal-layout">
+        <form class="meeting-join-form" id="meetingJoinForm" autocomplete="off">
+            <div class="meeting-field-grid">
+                <label>
+                    Meeting Number
+                    <input type="text" name="meetingNumber" inputmode="numeric" placeholder="Contoh: 123 456 7890" required>
+                    <small class="helper-text">Nomor meeting Zoom, cukup angka. Paste invite juga boleh.</small>
+                </label>
+                <label>
+                    Passcode
+                    <input type="text" name="passcode" placeholder="Passcode meeting">
+                    <small class="helper-text">Kosongkan jika room memang tidak memakai passcode.</small>
+                </label>
+                <label>
+                    Judul Meeting
+                    <input type="text" name="topic" placeholder="Contoh: Daily Gudang Mega">
+                    <small class="helper-text">Opsional, hanya untuk memudahkan daftar room cepat.</small>
+                </label>
+                <label>
+                    Nama Tampilan
+                    <input type="text" name="displayName" value="{{ default_display_name }}" required>
+                    <small class="helper-text">Nama ini yang akan terlihat di dalam meeting.</small>
+                </label>
+                <label>
+                    Email
+                    <input type="email" name="email" value="{{ default_email }}" placeholder="Opsional">
+                    <small class="helper-text">Isi jika host meminta email peserta untuk pencatatan.</small>
+                </label>
+                <label>
+                    Bahasa Meeting
+                    <select name="language">
+                        {% for value, label in meeting_language_options %}
+                        <option value="{{ value }}" {% if value == zoom_default_language %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+
+            <div class="meeting-profile-stack">
+                <div class="section-title compact">
+                    <div>
+                        <h3>Profil Join</h3>
+                        <p>Pilih mode paling ringan atau paling visual sesuai kondisi jaringan dan device.</p>
+                    </div>
+                </div>
+                <div class="meeting-profile-grid">
+                    {% for profile in meeting_join_profiles %}
+                    <label class="meeting-profile-card {% if profile.slug == default_meeting_profile %}is-selected{% endif %}" data-meeting-profile-card>
+                        <input type="radio" name="profile" value="{{ profile.slug }}" {% if profile.slug == default_meeting_profile %}checked{% endif %}>
+                        <div class="meeting-profile-topline">
+                            <strong>{{ profile.label }}</strong>
+                            <span class="status-pill">{{ profile.badge }}</span>
+                        </div>
+                        <p>{{ profile.description }}</p>
+                        <small>{{ profile.summary }}</small>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="meeting-form-actions">
+                <button type="submit" class="ghost-button primary" {% if not zoom_sdk_ready %}disabled{% endif %}>Gabung di Browser</button>
+                <button type="button" class="ghost-button" id="meetingSaveRoomButton">Simpan Room Cepat</button>
+                <button type="reset" class="ghost-button subtle" id="meetingResetButton">Reset</button>
+            </div>
+        </form>
+
+        <aside class="meeting-side-panel">
+            <section class="meeting-side-card">
+                <div class="section-title compact">
+                    <div>
+                        <h3>Room Cepat</h3>
+                        <p>Simpan room yang sering dipakai supaya tim tinggal klik saat briefing atau follow up.</p>
+                    </div>
+                </div>
+                <div class="meeting-room-list" id="meetingRoomList">
+                    <div class="empty-state">Belum ada room cepat tersimpan di browser ini.</div>
+                </div>
+            </section>
+
+            <section class="meeting-side-card">
+                <div class="section-title compact">
+                    <div>
+                        <h3>Preset Hemat</h3>
+                        <p>Dirancang supaya lebih aman untuk device operasional harian.</p>
+                    </div>
+                </div>
+                <ul class="meeting-benefit-list">
+                    <li>Preview kamera dimatikan dulu pada mode hemat agar browser lebih ringan.</li>
+                    <li>User tetap bisa aktifkan kamera manual setelah masuk meeting saat dibutuhkan.</li>
+                    <li>Form sudah menyimpan room cepat di browser tanpa query URL yang panjang.</li>
+                    <li>Halaman meeting dibuka terpisah agar tidak bentrok dengan panel ERP.</li>
+                </ul>
+            </section>
+        </aside>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/meeting_portal.js"></script>
+{% endblock %}

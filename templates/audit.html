@@ -23,6 +23,7 @@
     {% endif %}
     <select name="action">
         <option value="">Semua Aksi</option>
+        <option value="IMPORT" {% if request.args.get('action') == 'IMPORT' %}selected{% endif %}>IMPORT</option>
         <option value="INBOUND" {% if request.args.get('action') == 'INBOUND' %}selected{% endif %}>INBOUND</option>
         <option value="OUTBOUND" {% if request.args.get('action') == 'OUTBOUND' %}selected{% endif %}>OUTBOUND</option>
         <option value="TRANSFER" {% if request.args.get('action') == 'TRANSFER' %}selected{% endif %}>TRANSFER</option>
@@ -48,8 +49,8 @@
         </div>
     </div>
 
-    {% if data %}
-    <table>
+    {% if grouped_data %}
+    <table class="audit-log-table">
         <thead>
             <tr>
                 <th>Tanggal</th>
@@ -64,17 +65,60 @@
             </tr>
         </thead>
         <tbody>
-            {% for r in data %}
+            {% for row in grouped_data %}
             <tr>
-                <td>{{ r.date or '-' }}</td>
-                <td>{{ r.username or 'System' }}</td>
-                <td><span class="badge">{{ r.action or '-' }}</span></td>
-                <td>{{ r.sku or '-' }} - {{ r.product_name or '-' }}</td>
-                <td>{{ r.variant or '-' }}</td>
-                <td>{{ r.warehouse_name or '-' }}</td>
-                <td class="mono">{{ r.qty or 0 }}</td>
-                <td>{{ r.note or '-' }}</td>
-                <td>{{ r.ip_address or '-' }}</td>
+                <td>{{ row.date }}</td>
+                <td>{{ row.username }}</td>
+                <td><span class="badge">{{ row.action }}</span></td>
+                <td class="audit-series-cell">
+                    <strong>{{ row.product_name }}</strong>
+                    {% if row.has_dropdown %}
+                    <small class="helper-text audit-series-meta">{{ row.item_count }} SKU dalam satu seri import.</small>
+                    {% else %}
+                    <small class="helper-text audit-series-meta">{{ row["items"][0].sku if row["items"] else '-' }}</small>
+                    {% endif %}
+                </td>
+                <td class="audit-variant-cell">
+                    {% if row.has_dropdown %}
+                    <details class="audit-variant-disclosure">
+                        <summary class="audit-variant-summary">
+                            <span class="audit-variant-summary-copy">
+                                {{ row.item_count }} varian
+                                <small>{{ row.category_caption }}</small>
+                            </span>
+                            <span class="status-pill">{{ row.category_caption }}</span>
+                        </summary>
+                        <div class="audit-variant-groups">
+                            {% for category in row.categories %}
+                            <section class="audit-variant-group">
+                                <div class="audit-variant-group-head">
+                                    <strong>{{ category.label }}</strong>
+                                    <span class="status-pill">{{ category.count }}</span>
+                                </div>
+                                <div class="audit-variant-items">
+                                    {% for item in category["items"] %}
+                                    <article class="audit-variant-item">
+                                        <strong>{{ item.variant }}</strong>
+                                        <small>{{ item.sku }}</small>
+                                        <span class="mono">Qty {{ item.qty }}</span>
+                                    </article>
+                                    {% endfor %}
+                                </div>
+                            </section>
+                            {% endfor %}
+                        </div>
+                    </details>
+                    {% else %}
+                    <div class="audit-variant-inline">
+                        <strong>{{ row["items"][0].variant if row["items"] else '-' }}</strong>
+                        <small>{{ row["categories"][0].label if row["categories"] else 'Default' }}</small>
+                    </div>
+                    {% endif %}
+                </td>
+                <td>{{ row.warehouse_name }}</td>
+                <td class="mono">{{ row.qty_total }}</td>
+                <td>{{ row.note }}</td>
+                <td>{{ row.ip_address }}</td>
             </tr>
             {% endfor %}
         </tbody>

@@ -25,6 +25,22 @@ DEFAULT_SHIFT_CODES = (
     ("SO2", "Stock Opname 2", "#d8e4ff", "#234a87", 80),
 )
 
+LIVE_SCHEDULE_SLOTS = (
+    ("09:00", "9:00"),
+    ("10:00", "10:00"),
+    ("11:00", "11:00"),
+    ("12:00", "12:00"),
+    ("13:00", "13:00"),
+    ("14:00", "14:00"),
+    ("15:00", "15:00"),
+    ("16:00", "16:00"),
+    ("17:00", "17:00"),
+    ("18:00", "18:00"),
+    ("19:00", "19:00"),
+    ("20:00-20:45", "20:00 - 20:45"),
+)
+LIVE_SCHEDULE_SLOT_KEYS = {slot_key for slot_key, _ in LIVE_SCHEDULE_SLOTS}
+
 LEAVE_OVERRIDE_STYLES = {
     "annual": ("CUTI", "Cuti Tahunan", "#f8d77f", "#5c3b00"),
     "sick": ("SAKIT", "Cuti Sakit", "#f3a58f", "#6d2117"),
@@ -187,6 +203,32 @@ def _get_warehouse_label(warehouses, warehouse_id):
     return "Semua Gudang"
 
 
+def _resolve_schedule_display_name(full_name, custom_name=None, employee_code=None):
+    custom_label = (custom_name or "").strip()
+    if custom_label:
+        return custom_label
+
+    safe_name = (full_name or "").strip()
+    if safe_name:
+        return safe_name.split()[0]
+
+    fallback_code = (employee_code or "").strip()
+    return fallback_code or "Staf"
+
+
+def _resolve_schedule_location_label(location_label=None, warehouse_name=None, work_location=None):
+    custom_label = (location_label or "").strip()
+    if custom_label:
+        return custom_label
+
+    safe_warehouse = (warehouse_name or "").strip()
+    if safe_warehouse:
+        return safe_warehouse
+
+    safe_work_location = (work_location or "").strip()
+    return safe_work_location or "-"
+
+
 def _seed_default_shift_codes(db):
     db.executemany(
         """
@@ -263,20 +305,21 @@ def _fetch_employees_for_schedule(db, warehouse_id=None):
     rows = [dict(row) for row in db.execute(query, params).fetchall()]
 
     for row in rows:
-        full_name = (row["full_name"] or "").strip()
-        custom_name = (row["custom_name"] or "").strip()
-        row["display_name"] = custom_name or (full_name.split()[0] if full_name else row["employee_code"] or "Staf")
+        row["display_name"] = _resolve_schedule_display_name(
+            row["full_name"],
+            row["custom_name"],
+            row["employee_code"],
+        )
         row["display_group_label"] = (
             (row["display_group"] or "").strip()
             or (row["position"] or "").strip()
             or (row["department"] or "").strip()
             or "Tim Operasional"
         )
-        row["location_label_display"] = (
-            (row["location_label"] or "").strip()
-            or (row["warehouse_name"] or "").strip()
-            or (row["work_location"] or "").strip()
-            or "-"
+        row["location_label_display"] = _resolve_schedule_location_label(
+            row["location_label"],
+            row["warehouse_name"],
+            row["work_location"],
         )
         row["include_in_schedule"] = bool(row["include_in_schedule"])
         row["has_offboarding"] = bool(row["has_offboarding"])
@@ -580,6 +623,88 @@ def _build_board_rows(schedule_members, start_date, end_date, entry_map, overrid
     return board_rows
 
 
+def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date, end_date):
+    if selected_warehouse:
+        target_warehouses = [warehouse for warehouse in warehouses if warehouse["id"] == selected_warehouse]
+    else:
+        target_warehouses = list(warehouses)
+
+    sections = []
+    for warehouse in target_warehouses:
+        rows = db.execute(
+            """
+            SELECT
+                l.schedule_date,
+                l.slot_key,
+                l.channel_label,
+                l.note,
+                l.employee_id,
+                e.full_name,
+                e.employee_code,
+                w.name AS warehouse_name,
+                e.work_location,
+                COALESCE(sp.custom_name, '') AS custom_name,
+                COALESCE(sp.location_label, '') AS location_label
+            FROM schedule_live_entries l
+            LEFT JOIN employees e ON e.id = l.employee_id
+            LEFT JOIN warehouses w ON w.id = e.warehouse_id
+            LEFT JOIN schedule_employee_profiles sp ON sp.employee_id = e.id
+            WHERE l.warehouse_id=?
+              AND l.schedule_date BETWEEN ? AND ?
+            ORDER BY l.schedule_date, l.slot_key, l.id
+            """,
+            (warehouse["id"], start_date.isoformat(), end_date.isoformat()),
+        ).fetchall()
+
+        entry_map = {}
+        total_assignments = 0
+        for row in rows:
+            entry_map[(row["schedule_date"], row["slot_key"])] = {
+                "employee_id": row["employee_id"],
+                "display_name": _resolve_schedule_display_name(
+                    row["full_name"],
+                    row["custom_name"],
+                    row["employee_code"],
+                ),
+                "channel_label": (row["channel_label"] or "").strip(),
+                "note": (row["note"] or "").strip(),
+                "location_label_display": _resolve_schedule_location_label(
+                    row["location_label"],
+                    row["warehouse_name"],
+                    row["work_location"],
+                ),
+            }
+            total_assignments += 1
+
+        section_rows = []
+        for current_day in _daterange(start_date, end_date):
+            iso_date = current_day.isoformat()
+            section_rows.append(
+                {
+                    "iso_date": iso_date,
+                    "label": _format_schedule_day(current_day),
+                    "is_weekend": current_day.weekday() >= 5,
+                    "cells": [
+                        entry_map.get((iso_date, slot_key))
+                        for slot_key, _ in LIVE_SCHEDULE_SLOTS
+                    ],
+                }
+            )
+
+        sections.append(
+            {
+                "warehouse_id": warehouse["id"],
+                "warehouse_name": warehouse["name"],
+                "title": f"Jadwal Live {warehouse['name']}",
+                "rows": section_rows,
+                "total_assignments": total_assignments,
+                "slot_count": len(LIVE_SCHEDULE_SLOTS),
+            }
+        )
+
+    return sections
+
+
 @schedule_bp.route("/")
 def schedule_page():
     if not _require_schedule_view():
@@ -618,6 +743,13 @@ def schedule_page():
         override_map,
         day_notes,
     )
+    live_sections = _build_live_schedule_sections(
+        db,
+        warehouses,
+        selected_warehouse,
+        start_date,
+        end_date,
+    )
 
     legend_items = [
         {"code": "CUTI", "label": "Approved leave dari HRIS", "bg_color": "#f8d77f", "text_color": "#5c3b00"},
@@ -647,6 +779,8 @@ def schedule_page():
         schedule_members=schedule_members,
         schedule_groups=schedule_groups,
         board_rows=board_rows,
+        live_sections=live_sections,
+        live_slots=[{"key": slot_key, "label": slot_label} for slot_key, slot_label in LIVE_SCHEDULE_SLOTS],
         shift_codes=shift_codes,
         active_shift_codes=active_shift_codes,
         employee_rows=employee_rows,
@@ -657,6 +791,148 @@ def schedule_page():
         legend_items=legend_items,
         range_end=end_date.isoformat(),
     )
+
+
+@schedule_bp.route("/live/save", methods=["POST"])
+def save_live_schedule_entry():
+    if not _require_schedule_manage():
+        return _schedule_redirect()
+
+    db = get_db()
+    scoped_warehouse = _schedule_scope_warehouse()
+    warehouse_id = scoped_warehouse or _to_int(request.form.get("live_warehouse_id"))
+    schedule_date = _parse_iso_date(request.form.get("live_schedule_date"))
+    slot_key = (request.form.get("slot_key") or "").strip()
+    employee_id = _to_int(request.form.get("employee_id"))
+    channel_label = (request.form.get("channel_label") or "").strip()
+    note = (request.form.get("note") or "").strip()
+
+    if not warehouse_id or not schedule_date or slot_key not in LIVE_SCHEDULE_SLOT_KEYS:
+        flash("Gudang, tanggal, dan slot live wajib diisi.", "error")
+        return _schedule_redirect()
+
+    warehouse = db.execute(
+        "SELECT id, name FROM warehouses WHERE id=?",
+        (warehouse_id,),
+    ).fetchone()
+    if not warehouse:
+        flash("Gudang live tidak ditemukan.", "error")
+        return _schedule_redirect()
+
+    employee = None
+    if employee_id:
+        employee = db.execute(
+            """
+            SELECT id, full_name, warehouse_id
+            FROM employees
+            WHERE id=?
+            """,
+            (employee_id,),
+        ).fetchone()
+        if not employee:
+            flash("Staf live tidak ditemukan.", "error")
+            return _schedule_redirect()
+        if employee["warehouse_id"] != warehouse_id:
+            flash("Staf live harus berasal dari gudang yang sama dengan board live yang dipilih.", "error")
+            return _schedule_redirect()
+
+    try:
+        if employee_id:
+            db.execute(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?)
+                ON CONFLICT(warehouse_id, schedule_date, slot_key) DO UPDATE SET
+                    employee_id=excluded.employee_id,
+                    channel_label=excluded.channel_label,
+                    note=excluded.note,
+                    updated_by=excluded.updated_by,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    warehouse_id,
+                    schedule_date.isoformat(),
+                    slot_key,
+                    employee_id,
+                    channel_label or None,
+                    note or None,
+                    session.get("user_id"),
+                ),
+            )
+            flash("Jadwal live berhasil disimpan.", "success")
+        else:
+            db.execute(
+                """
+                DELETE FROM schedule_live_entries
+                WHERE warehouse_id=?
+                  AND schedule_date=?
+                  AND slot_key=?
+                """,
+                (warehouse_id, schedule_date.isoformat(), slot_key),
+            )
+            flash("Slot jadwal live berhasil dibersihkan.", "success")
+        db.commit()
+    except Exception:
+        db.rollback()
+        flash("Jadwal live gagal disimpan.", "error")
+        return _schedule_redirect()
+
+    try:
+        slot_label = dict(LIVE_SCHEDULE_SLOTS).get(slot_key, slot_key)
+        date_label = format_date_range(schedule_date.isoformat())
+        if employee:
+            employee_name = (employee["full_name"] or "Staf").strip()
+            detail_label = channel_label or "Live Session"
+            live_message = (
+                f"Jadwal live {employee_name} untuk {date_label} slot {slot_label} di {warehouse['name']} "
+                f"diatur ke {detail_label}."
+            )
+            if note:
+                live_message += f" Catatan: {note}"
+            event_title = f"Live {slot_label} - {employee_name}"
+            event_kind = "live_schedule_update"
+        else:
+            live_message = f"Jadwal live untuk {date_label} slot {slot_label} di {warehouse['name']} dibersihkan."
+            event_title = f"Live {slot_label} Dibersihkan"
+            event_kind = "live_schedule_clear"
+
+        event_id = create_schedule_change_event(
+            db,
+            warehouse_id=warehouse_id,
+            event_kind=event_kind,
+            title=event_title,
+            message=live_message,
+            affected_employee_id=employee["id"] if employee else None,
+            affected_employee_name=(employee["full_name"] if employee else None),
+            start_date=schedule_date.isoformat(),
+            end_date=schedule_date.isoformat(),
+            created_by=session.get("user_id"),
+        )
+        db.commit()
+        payload = build_schedule_change_notification_payload(
+            {"id": event_id, "title": event_title, "message": live_message}
+        )
+        notify_broadcast(
+            payload["subject"],
+            payload["message"],
+            warehouse_id=warehouse_id,
+            push_title=payload["push_title"],
+            push_body=payload["push_body"],
+            push_url="/announcements/",
+            push_tag=payload["push_tag"],
+        )
+    except Exception as exc:
+        print("LIVE SCHEDULE BROADCAST ERROR:", exc)
+
+    return _schedule_redirect()
 
 
 @schedule_bp.route("/shift-code/save", methods=["POST"])

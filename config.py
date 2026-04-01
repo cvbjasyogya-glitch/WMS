@@ -133,6 +133,18 @@ class Config:
             ]
         }
     ]
+    ZOOM_MEETING_SDK_KEY = (os.getenv("ZOOM_MEETING_SDK_KEY") or "").strip()
+    ZOOM_MEETING_SDK_SECRET = (
+        os.getenv("ZOOM_MEETING_SDK_SECRET")
+        or os.getenv("CLIENT_SECRET")
+        or ""
+    ).strip()
+    ZOOM_MEETING_SDK_VERSION = (os.getenv("ZOOM_MEETING_SDK_VERSION") or "5.1.4").strip()
+    ZOOM_MEETING_WEB_ENDPOINT = (os.getenv("ZOOM_MEETING_WEB_ENDPOINT") or "zoom.us").strip()
+    ZOOM_MEETING_DEFAULT_LANGUAGE = (os.getenv("ZOOM_MEETING_DEFAULT_LANGUAGE") or "id-ID").strip()
+    ZOOM_MEETING_SIGNATURE_TTL_SECONDS = int(
+        os.getenv("ZOOM_MEETING_SIGNATURE_TTL_SECONDS", str(2 * 60 * 60))
+    )
     WEBPUSH_PUBLIC_KEY = WEBPUSH_PUBLIC_KEY_DEFAULT
     WEBPUSH_PRIVATE_KEY = WEBPUSH_PRIVATE_KEY_DEFAULT
     WEBPUSH_SUBJECT = os.getenv("WEBPUSH_SUBJECT", "mailto:admin@example.com")

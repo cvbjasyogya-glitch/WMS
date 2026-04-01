@@ -292,6 +292,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         for path in [
             "/",
             "/announcements/",
+            "/meetings/",
             "/absen/",
             "/libur/",
             "/laporan-harian/",
@@ -319,6 +320,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('data-theme-toggle', html)
                 self.assertIn('>WMS<', html)
                 self.assertIn('>Pengumuman<', html)
+                self.assertIn('>Meeting Live<', html)
                 self.assertIn('>Absen<', html)
                 self.assertIn('>Libur<', html)
                 self.assertIn('>Report Harian<', html)
@@ -375,6 +377,73 @@ class WmsRoutesTestCase(unittest.TestCase):
         warehouse_names = {warehouse["name"] for warehouse in payload["items"][0]["warehouses"]}
         self.assertIn("Gudang Mataram", warehouse_names)
         self.assertIn("Gudang Mega", warehouse_names)
+
+    def test_meeting_portal_renders_for_logged_in_user(self):
+        self.login()
+        response = self.client.get("/meetings/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Meeting Live Zoom", html)
+        self.assertIn('data-signature-endpoint="/meetings/signature"', html)
+        self.assertIn("Smart Saver", html)
+
+    def test_meeting_signature_endpoint_returns_sdk_signature_when_configured(self):
+        self.app.config.update(
+            ZOOM_MEETING_SDK_KEY="sdk-key-demo",
+            ZOOM_MEETING_SDK_SECRET="sdk-secret-demo",
+            ZOOM_MEETING_SDK_VERSION="5.1.4",
+        )
+        self.login()
+
+        response = self.client.post(
+            "/meetings/signature",
+            json={
+                "meetingNumber": "123 456 7890",
+                "passcode": "pass123",
+                "displayName": "Rio",
+                "email": "rio@example.com",
+                "language": "id-ID",
+                "profile": "smart-saver",
+                "topic": "Daily Gudang",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["sdkKey"], "sdk-key-demo")
+        self.assertEqual(payload["meetingNumber"], "1234567890")
+        self.assertEqual(payload["profile"], "smart-saver")
+        self.assertEqual(len(payload["signature"].split(".")), 3)
+
+    def test_meeting_signature_endpoint_returns_503_when_sdk_not_configured(self):
+        self.app.config.update(
+            ZOOM_MEETING_SDK_KEY="",
+            ZOOM_MEETING_SDK_SECRET="",
+        )
+        self.login()
+        response = self.client.post(
+            "/meetings/signature",
+            json={
+                "meetingNumber": "1234567890",
+                "displayName": "Rio",
+            },
+        )
+        self.assertEqual(response.status_code, 503)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+
+    def test_meeting_session_page_renders_zoom_assets_when_configured(self):
+        self.app.config.update(
+            ZOOM_MEETING_SDK_KEY="sdk-key-demo",
+            ZOOM_MEETING_SDK_SECRET="sdk-secret-demo",
+            ZOOM_MEETING_SDK_VERSION="5.1.4",
+        )
+        self.login()
+        response = self.client.get("/meetings/session?state=demo-state")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Meeting Stage", html)
+        self.assertIn("source.zoom.us/5.1.4/zoom-meeting-5.1.4.min.js", html)
 
     def test_health_and_ready_endpoints_are_public_and_hardened(self):
         health_response = self.client.get("/health")
@@ -496,8 +565,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("View Only", html)
         self.assertIn('name="warehouse" disabled', html)
         self.assertIn("Ayu", html)
-        self.assertIn("Compact", html)
-        self.assertIn("Cozy", html)
+        self.assertIn("Board Mingguan", html)
+        self.assertIn("Tanggal", html)
+        self.assertIn("Jadwal Live", html)
         self.assertNotIn("Atur Jadwal Manual", html)
         self.assertNotIn("Master Shift", html)
 
@@ -509,6 +579,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(schedule_response.status_code, 200)
         schedule_html = schedule_response.get_data(as_text=True)
         self.assertIn("Atur Jadwal Manual", schedule_html)
+        self.assertIn("Atur Jadwal Live", schedule_html)
         self.assertIn("Master Shift", schedule_html)
         self.assertIn("Display Staf di Board", schedule_html)
         self.assertIn('>HRIS<', schedule_html)
@@ -898,7 +969,56 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(board_response.status_code, 200)
         board_html = board_response.get_data(as_text=True)
         self.assertIn("Ajeng", board_html)
-        self.assertIn("Kickoff minggu baru", board_html)
+
+    def test_hr_can_save_live_schedule_entry_and_render_live_board(self):
+        self.create_user("hr_live", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-LIVE",
+            full_name="Caca Live",
+            warehouse_id=1,
+            position="Marketplace Host",
+        )
+
+        self.login("hr_live", "pass1234")
+
+        live_response = self.client.post(
+            "/schedule/live/save",
+            data={
+                "live_warehouse_id": "1",
+                "live_schedule_date": "2026-03-31",
+                "slot_key": "13:00",
+                "employee_id": str(employee_id),
+                "channel_label": "Shopee Mega + IG",
+                "note": "Host takeover promo",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(live_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            live_entry = db.execute(
+                """
+                SELECT warehouse_id, schedule_date, slot_key, employee_id, channel_label, note
+                FROM schedule_live_entries
+                WHERE warehouse_id=1 AND schedule_date='2026-03-31' AND slot_key='13:00'
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(live_entry)
+        self.assertEqual(live_entry["employee_id"], employee_id)
+        self.assertEqual(live_entry["channel_label"], "Shopee Mega + IG")
+        self.assertEqual(live_entry["note"], "Host takeover promo")
+
+        board_response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(board_response.status_code, 200)
+        board_html = board_response.get_data(as_text=True)
+        self.assertIn("Jadwal Live Gudang Mataram", board_html)
+        self.assertIn("Shopee Mega + IG", board_html)
+        self.assertIn("Caca", board_html)
 
     def test_admin_can_manage_crm_contacts_purchases_and_members(self):
         self.login()
@@ -1824,6 +1944,71 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Mode Hari Ini", html)
         self.assertNotIn("Riwayat Absen Terakhir", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
+
+    def test_attendance_portal_renders_location_scope_dropdown_for_linked_user(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-LOC-001",
+            full_name="Portal Location Scope",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_scope", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_scope", "pass1234")
+
+        response = self.client.get("/absen/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('name="location_scope"', html)
+        self.assertIn("Gudang Mataram", html)
+        self.assertIn("Gudang Mega", html)
+        self.assertIn("Event", html)
+        self.assertIn("Lainnya", html)
+
+    def test_attendance_portal_redirects_back_when_photo_payload_too_large(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-LIMIT",
+            full_name="Portal Limit",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_limit", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_limit", "pass1234")
+        today = date_cls.today().isoformat()
+        original_limit = self.app.config["MAX_CONTENT_LENGTH"]
+        self.app.config["MAX_CONTENT_LENGTH"] = 1024
+
+        try:
+            response = self.client.post(
+                "/absen/submit",
+                data={
+                    "shift_code": "pagi",
+                    "location_label": "Gudang Mataram - Pintu Utama",
+                    "latitude": "-8.583140",
+                    "longitude": "116.116798",
+                    "accuracy_m": "7.5",
+                    "punch_time": f"{today}T07:58",
+                    "punch_type": "check_in",
+                    "note": "Masuk shift pagi",
+                    "photo_data_url": "data:image/jpeg;base64," + ("A" * 5000),
+                },
+                follow_redirects=True,
+            )
+        finally:
+            self.app.config["MAX_CONTENT_LENGTH"] = original_limit
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ukuran foto absen terlalu besar", html)
+        self.assertIn("Absen Foto & Geotag", html)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric_count = db.execute(
+                "SELECT COUNT(*) FROM biometric_logs WHERE employee_id=?",
+                (employee_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(biometric_count, 0)
 
     def test_account_settings_updates_chat_volume_and_contact_preferences(self):
         self.create_user(
@@ -3380,6 +3565,45 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
 
+    def test_attendance_portal_requires_detail_when_location_scope_is_other(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-OTHER",
+            full_name="Portal Other Scope",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_other", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_other", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "other",
+                "location_other_detail": "",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:58",
+                "punch_type": "check_in",
+                "note": "Masuk shift pagi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/absen/", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            biometric_count = db.execute(
+                "SELECT COUNT(*) FROM biometric_logs WHERE employee_id=?",
+                (employee_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(biometric_count, 0)
+
     def test_attendance_portal_auto_switches_to_check_out_and_locks_after_complete(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-AUTO",
@@ -3739,6 +3963,66 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(recap_response.status_code, 200)
         recap_html = recap_response.get_data(as_text=True)
         self.assertIn("Baru Mulai", recap_html)
+
+    def test_attendance_portal_rejects_punch_time_that_moves_backwards(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-BACKWARD",
+            full_name="Portal Backward Time",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_backward", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_backward", "pass1234")
+        today = date_cls.today().isoformat()
+
+        first_submit = self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T08:30",
+                "note": "Masuk kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(first_submit.status_code, 302)
+
+        second_submit = self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T08:10",
+                "note": "Jam mundur",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(second_submit.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            logs = db.execute(
+                """
+                SELECT punch_type, punch_time
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id ASC
+                """,
+                (employee_id,),
+            ).fetchall()
+
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0]["punch_type"], "check_in")
+        self.assertEqual(logs[0]["punch_time"][11:16], "08:30")
 
     def test_leave_portal_submits_pending_request_without_status_field(self):
         employee_id = self.create_employee_record(
@@ -5527,6 +5811,72 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(variant["variant"], "default")
         self.assertEqual(stock["qty"], 1)
 
+    def test_import_csv_with_semicolon_delimiter_is_supported(self):
+        self.login()
+        sku = "IMP-SC-" + uuid4().hex[:6].upper()
+        csv_bytes = (
+            "sku;name;category;variant;qty;price_retail;price_discount;price_nett\n"
+            f"{sku};Produk CSV Excel;Testing;43;2;210000;190000;160000\n"
+        ).encode()
+
+        preview_response = self.client.post(
+            "/products/import/preview",
+            data={"file": (BytesIO(csv_bytes), "sample-semicolon.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(preview_response.get_json()["rows"][0]["sku"], sku)
+
+        import_response = self.client.post(
+            "/products/import",
+            data={"file": (BytesIO(csv_bytes), "sample-semicolon.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(import_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                (sku,),
+            ).fetchone()
+
+        self.assertIsNotNone(product)
+
+    def test_import_allows_zero_qty_to_create_product_master_without_stock(self):
+        self.login()
+        sku = "IMP-ZERO-" + uuid4().hex[:6].upper()
+        csv_bytes = (
+            "sku,name,category,variant,qty,price_retail,price_discount,price_nett\n"
+            f"{sku},Produk Zero Stock,Testing,44,0,220000,0,0\n"
+        ).encode()
+
+        import_response = self.client.post(
+            "/products/import",
+            data={"file": (BytesIO(csv_bytes), "sample-zero.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(import_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                (sku,),
+            ).fetchone()
+            variant = db.execute(
+                "SELECT id, variant FROM product_variants WHERE product_id=?",
+                (product["id"],),
+            ).fetchone()
+            stock = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product["id"], variant["id"]),
+            ).fetchone()
+
+        self.assertIsNotNone(product)
+        self.assertEqual(variant["variant"], "44")
+        self.assertIsNone(stock)
+
     def test_forgot_password_creates_reset_code_without_error(self):
         self.create_user(
             "reset_user",
@@ -6484,6 +6834,100 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login("owner_audit", "pass1234")
         response = self.client.get("/audit/")
         self.assertEqual(response.status_code, 200)
+
+    def test_audit_page_groups_import_rows_by_series_with_variant_dropdown(self):
+        self.create_user("owner_audit_group", "pass1234", "owner")
+
+        with self.app.app_context():
+            db = get_db()
+            warehouse = db.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()
+            warehouse_id = warehouse["id"]
+
+            db.execute(
+                "INSERT INTO products(sku, name, category_id) VALUES (?,?,NULL)",
+                ("B/S-ADIDAS-00003", "B/S EPP CLB"),
+            )
+            product_one = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("B/S-ADIDAS-00003",),
+            ).fetchone()
+            db.execute(
+                "INSERT INTO product_variants(product_id, variant) VALUES (?,?)",
+                (product_one["id"], "PINK"),
+            )
+            variant_one = db.execute(
+                "SELECT id FROM product_variants WHERE product_id=? AND variant=?",
+                (product_one["id"], "PINK"),
+            ).fetchone()
+
+            db.execute(
+                "INSERT INTO products(sku, name, category_id) VALUES (?,?,NULL)",
+                ("B/S-ADIDAS-00004", "B/S EPP CLB"),
+            )
+            product_two = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("B/S-ADIDAS-00004",),
+            ).fetchone()
+            db.execute(
+                "INSERT INTO product_variants(product_id, variant) VALUES (?,?)",
+                (product_two["id"], "BIRU"),
+            )
+            variant_two = db.execute(
+                "SELECT id FROM product_variants WHERE product_id=? AND variant=?",
+                (product_two["id"], "BIRU"),
+            ).fetchone()
+
+            user = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("owner_audit_group",),
+            ).fetchone()
+
+            for product_id, variant_id, qty in (
+                (product_one["id"], variant_one["id"], 4),
+                (product_two["id"], variant_two["id"], 6),
+            ):
+                db.execute(
+                    """
+                    INSERT INTO stock_history(
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                        action,
+                        type,
+                        qty,
+                        note,
+                        user_id,
+                        ip_address,
+                        user_agent,
+                        date
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                        "IMPORT",
+                        "IN",
+                        qty,
+                        "Bulk Import",
+                        user["id"],
+                        "127.0.0.1",
+                        "pytest",
+                        "2026-03-31 13:15:47",
+                    ),
+                )
+            db.commit()
+
+        self.login("owner_audit_group", "pass1234")
+        response = self.client.get("/audit/?action=IMPORT")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("2 varian", html)
+        self.assertIn("Kategori Warna", html)
+        self.assertIn("PINK", html)
+        self.assertIn("BIRU", html)
+        self.assertIn("B/S EPP CLB", html)
 
     def test_stock_opname_page_supports_selected_warehouses_and_exports(self):
         self.login()

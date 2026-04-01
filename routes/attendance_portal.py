@@ -37,6 +37,13 @@ ATTENDANCE_SHIFT_SCHEDULES = {
     },
 }
 
+ATTENDANCE_LOCATION_SCOPE_LABELS = {
+    "mataram": "Gudang Mataram",
+    "mega": "Gudang Mega",
+    "event": "Event",
+    "other": "Lainnya",
+}
+
 
 def _resolve_shift_warehouse_key(linked_employee):
     source = dict(linked_employee) if linked_employee is not None and not isinstance(linked_employee, dict) else (linked_employee or {})
@@ -44,6 +51,23 @@ def _resolve_shift_warehouse_key(linked_employee):
     if "mega" in warehouse_name:
         return "mega"
     return "mataram"
+
+
+def _resolve_default_location_scope(linked_employee):
+    warehouse_key = _resolve_shift_warehouse_key(linked_employee)
+    return "mega" if warehouse_key == "mega" else "mataram"
+
+
+def _build_location_scope_options(linked_employee):
+    default_scope = _resolve_default_location_scope(linked_employee)
+    return [
+        {
+            "value": value,
+            "label": label,
+            "selected": value == default_scope,
+        }
+        for value, label in ATTENDANCE_LOCATION_SCOPE_LABELS.items()
+    ]
 
 
 def _normalize_shift_code(value):
@@ -86,9 +110,18 @@ def _has_open_break(day_logs):
         punch_type = log["punch_type"]
         if punch_type == "break_start":
             break_open = True
-        elif punch_type == "break_finish":
+        elif punch_type in {"break_finish", "check_out"}:
             break_open = False
     return break_open
+
+
+def _extract_latest_day_punch_time(day_logs):
+    latest_punch_time = None
+    for log in day_logs:
+        safe_punch_time = (log.get("punch_time") or "").strip()
+        if safe_punch_time and (latest_punch_time is None or safe_punch_time > latest_punch_time):
+            latest_punch_time = safe_punch_time
+    return latest_punch_time
 
 
 def _build_attendance_punch_options(attendance_today, day_logs):
@@ -202,6 +235,7 @@ def _fetch_attendance_portal_state(db):
     return {
         "linked_employee": linked_employee,
         "attendance_today": attendance_today,
+        "day_logs": day_logs,
         "today_date": today_date,
         "punch_mode": punch_mode,
         "punch_options": punch_options,
@@ -211,6 +245,8 @@ def _fetch_attendance_portal_state(db):
         "selected_shift_time_label": selected_shift_option["time_label"] if selected_shift_option else "-",
         "shift_locked": bool(selected_shift.get("shift_code") or (attendance_today and attendance_today.get("check_in"))),
         "warehouse_shift_key": _resolve_shift_warehouse_key(linked_employee) if linked_employee else "mataram",
+        "location_scope_options": _build_location_scope_options(linked_employee) if linked_employee else [],
+        "default_location_scope": _resolve_default_location_scope(linked_employee) if linked_employee else "mataram",
     }
 
 
@@ -236,6 +272,8 @@ def index():
         portal_selected_shift_time_label=portal_state["selected_shift_time_label"],
         portal_shift_locked=portal_state["shift_locked"],
         portal_warehouse_shift_key=portal_state["warehouse_shift_key"],
+        portal_location_scope_options=portal_state["location_scope_options"],
+        portal_default_location_scope=portal_state["default_location_scope"],
     )
 
 
@@ -249,8 +287,11 @@ def submit():
 
     portal_state = _fetch_attendance_portal_state(db)
     attendance_today = portal_state["attendance_today"]
+    day_logs = portal_state["day_logs"]
     punch_mode = portal_state["punch_mode"]
     punch_options = portal_state["punch_options"]
+    location_scope = (request.form.get("location_scope") or "").strip().lower()
+    location_other_detail = (request.form.get("location_other_detail") or "").strip()
     location_label = (request.form.get("location_label") or "").strip()
     latitude = _normalize_latitude(request.form.get("latitude"))
     longitude = _normalize_longitude(request.form.get("longitude"))
@@ -284,6 +325,15 @@ def submit():
     note = (request.form.get("note") or "").strip()
     photo_data_url = request.form.get("photo_data_url")
 
+    if location_scope in ATTENDANCE_LOCATION_SCOPE_LABELS:
+        if location_scope == "other":
+            if not location_other_detail:
+                flash("Kalau pilih lokasi Lainnya, jelaskan dulu lokasinya secara singkat.", "error")
+                return redirect("/absen/")
+            location_label = f"Lainnya - {location_other_detail}"
+        else:
+            location_label = ATTENDANCE_LOCATION_SCOPE_LABELS[location_scope]
+
     if punch_mode == "complete":
         flash("Absensi hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari HR atau Super Admin.", "error")
         return redirect("/absen/")
@@ -298,6 +348,15 @@ def submit():
 
     if latitude is None or longitude is None:
         flash("Koordinat geotag belum valid. Ambil lokasi dulu sebelum absen.", "error")
+        return redirect("/absen/")
+
+    latest_day_punch_time = _extract_latest_day_punch_time(day_logs)
+    if latest_day_punch_time and punch_time < latest_day_punch_time:
+        latest_display = latest_day_punch_time[11:16]
+        flash(
+            f"Jam absen tidak boleh lebih awal dari log terakhir hari ini ({latest_display}). Cek lagi urutan check in, break, atau check out.",
+            "error",
+        )
         return redirect("/absen/")
 
     duplicate = db.execute(

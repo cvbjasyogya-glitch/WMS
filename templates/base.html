@@ -89,7 +89,8 @@
     </div>
 
     <nav class="sidebar-nav">
-        {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') %}
+        {% set is_meeting_active = request.path.startswith('/meetings') %}
+        {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') or is_meeting_active %}
         {% set is_announcements_active = request.path.startswith('/announcements') %}
         {% set is_crm_active = request.path.startswith('/crm') %}
         {% set is_product_lookup_active = request.path.startswith('/info-produk') %}
@@ -104,6 +105,9 @@
             <p class="sidebar-section-label">Koordinasi</p>
             <div class="sidebar-group sidebar-single {% if is_announcements_active %}active{% endif %}">
                 <a href="/announcements/" class="{% if is_announcements_active %}active{% endif %}">Pengumuman</a>
+            </div>
+            <div class="sidebar-group sidebar-single {% if is_meeting_active %}active{% endif %}">
+                <a href="/meetings/" class="{% if is_meeting_active %}active{% endif %}">Meeting Live</a>
             </div>
             <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_coordination_active %}active{% endif %}" {% if is_coordination_active %}open{% endif %}>
                 <summary class="sidebar-group-toggle">

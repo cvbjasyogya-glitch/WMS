@@ -155,7 +155,17 @@
                         </div>
                         <div class="span-full">
                             <label>Titik Lokasi</label>
-                            <input name="location_label" data-location-label-input placeholder="Contoh: Gudang Mataram - Area Depan Toko" {% if portal_punch_mode == "complete" %}disabled{% endif %} required>
+                            <input type="hidden" name="location_label" data-location-label-input>
+                            <select name="location_scope" data-location-scope-select {% if portal_punch_mode == "complete" %}disabled{% endif %} required>
+                                {% for option in portal_location_scope_options %}
+                                <option value="{{ option.value }}" {% if option.value == portal_default_location_scope %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="helper-text">Lokasi akan ikut diambil otomatis saat kamu klik Ambil Foto. Pilih titik kerja yang paling sesuai dulu.</small>
+                        </div>
+                        <div class="span-full" data-location-other-wrap hidden>
+                            <label>Jelaskan Lokasi Lainnya</label>
+                            <input name="location_other_detail" data-location-other-input placeholder="Contoh: Booth event Lombok Epicentrum, Area parkir belakang, atau lokasi kerja khusus lainnya" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                         </div>
                         <div>
                             <label>Latitude</label>
@@ -174,10 +184,10 @@
                             <input type="text" value="Belum diambil" data-location-status readonly>
                         </div>
                         <div class="split-actions span-full stack-gap-xs">
-                            <button type="button" class="ghost-button" data-location-capture {% if portal_punch_mode == "complete" %}disabled{% endif %}>Ambil Lokasi Saat Ini</button>
+                            <button type="button" class="ghost-button" data-location-capture {% if portal_punch_mode == "complete" %}disabled{% endif %}>Refresh Lokasi</button>
                         </div>
                         <div class="span-full">
-                            <small class="helper-text" data-location-helper>Pastikan GPS aktif agar koordinat dan akurasi bisa terbaca dengan benar.</small>
+                            <small class="helper-text" data-location-helper>Pastikan GPS aktif. Setelah foto diambil, portal akan otomatis membaca lokasi agar tidak perlu dua kali kerja.</small>
                         </div>
                         <div class="span-full">
                             <label>Catatan</label>
@@ -227,6 +237,9 @@
     const locationButton = portal.querySelector("[data-location-capture]");
     const locationStatus = portal.querySelector("[data-location-status]");
     const locationHelper = portal.querySelector("[data-location-helper]");
+    const locationScopeSelect = portal.querySelector("[data-location-scope-select]");
+    const locationOtherWrap = portal.querySelector("[data-location-other-wrap]");
+    const locationOtherInput = portal.querySelector("[data-location-other-input]");
     const latitudeInput = portal.querySelector("[data-latitude-input]");
     const longitudeInput = portal.querySelector("[data-longitude-input]");
     const accuracyInput = portal.querySelector("[data-accuracy-input]");
@@ -245,6 +258,14 @@
     let activeStream = null;
     let rawPhotoDataUrl = "";
     let submitInProgress = false;
+    let locationRequestPromise = null;
+
+    const LOCATION_SCOPE_LABELS = {
+        mataram: "Gudang Mataram",
+        mega: "Gudang Mega",
+        event: "Event",
+        other: "Lainnya",
+    };
 
     const formatDateTimeLocal = (date) => {
         const pad = (value) => String(value).padStart(2, "0");
@@ -322,9 +343,43 @@
         return `Akurasi ${rawValue} m`;
     };
 
+    const buildResolvedLocationLabel = () => {
+        const scopeValue = (locationScopeSelect?.value || "").trim().toLowerCase();
+        if (scopeValue === "other") {
+            const detail = (locationOtherInput?.value || "").trim();
+            if (!detail) {
+                return "Lainnya | Lokasi belum dijelaskan";
+            }
+            return `Lainnya - ${detail}`;
+        }
+
+        return LOCATION_SCOPE_LABELS[scopeValue]
+            || (locationLabelInput?.value || "").trim()
+            || warehouseName
+            || "Lokasi kerja";
+    };
+
+    const syncLocationLabelInput = () => {
+        if (!locationLabelInput) {
+            return;
+        }
+        locationLabelInput.value = buildResolvedLocationLabel();
+    };
+
+    const syncLocationScopeUi = () => {
+        const isOtherScope = (locationScopeSelect?.value || "").trim().toLowerCase() === "other";
+        if (locationOtherWrap) {
+            locationOtherWrap.hidden = !isOtherScope;
+        }
+        if (locationOtherInput) {
+            locationOtherInput.required = isOtherScope;
+        }
+        syncLocationLabelInput();
+    };
+
     const buildLocationLines = () => {
         const lines = [];
-        const locationLabel = (locationLabelInput?.value || "").trim();
+        const locationLabel = buildResolvedLocationLabel();
         lines.push(locationLabel || `${warehouseName || "Lokasi kerja"} | Lokasi belum diisi`);
 
         if (latitudeInput.value && longitudeInput.value) {
@@ -386,7 +441,7 @@
     const buildMapPreviewSvg = () => {
         const lat = latitudeInput.value || "-8.583140";
         const lng = longitudeInput.value || "116.116798";
-        const label = escapeSvgText((locationLabelInput?.value || warehouseName || "GPS Snapshot").trim().slice(0, 32));
+        const label = escapeSvgText((buildResolvedLocationLabel() || warehouseName || "GPS Snapshot").trim().slice(0, 32));
         const codeSeed = `${lat}${lng}`.replace(/[^0-9]/g, "").slice(0, 8) || "24598134";
         const accentA = `#${(parseInt(codeSeed.slice(0, 6), 10) % 0xffffff).toString(16).padStart(6, "0")}`;
         const accentB = `#${(parseInt(codeSeed.slice(2, 8), 10) % 0xffffff).toString(16).padStart(6, "0")}`;
@@ -452,6 +507,80 @@
         }
 
         context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+    };
+
+    const estimateDataUrlBytes = (dataUrl) => {
+        const safeValue = String(dataUrl || "");
+        const commaIndex = safeValue.indexOf(",");
+        if (commaIndex === -1) {
+            return 0;
+        }
+
+        const base64Data = safeValue.slice(commaIndex + 1);
+        const paddingMatch = base64Data.match(/=+$/);
+        const paddingLength = paddingMatch ? paddingMatch[0].length : 0;
+        return Math.max(0, Math.ceil((base64Data.length * 3) / 4) - paddingLength);
+    };
+
+    const exportAdaptiveCanvasJpeg = (sourceCanvas, options = {}) => {
+        const maxBytes = options.maxBytes || (420 * 1024);
+        const initialQuality = options.initialQuality || 0.82;
+        const minQuality = options.minQuality || 0.44;
+        const qualityStep = options.qualityStep || 0.08;
+        const downscaleFactor = options.downscaleFactor || 0.88;
+        const minWidth = Math.max(1, options.minWidth || Math.round(sourceCanvas.width * 0.68));
+        const minHeight = Math.max(1, options.minHeight || Math.round(sourceCanvas.height * 0.68));
+
+        let workingCanvas = document.createElement("canvas");
+        let workingContext = workingCanvas.getContext("2d");
+        workingCanvas.width = sourceCanvas.width;
+        workingCanvas.height = sourceCanvas.height;
+        workingContext.drawImage(sourceCanvas, 0, 0);
+
+        let exportedDataUrl = "";
+
+        const encodeAtBestFit = () => {
+            let quality = initialQuality;
+            exportedDataUrl = workingCanvas.toDataURL("image/jpeg", quality);
+
+            while (estimateDataUrlBytes(exportedDataUrl) > maxBytes && quality > (minQuality + 0.001)) {
+                quality = Math.max(minQuality, Number((quality - qualityStep).toFixed(2)));
+                exportedDataUrl = workingCanvas.toDataURL("image/jpeg", quality);
+                if (quality === minQuality) {
+                    break;
+                }
+            }
+        };
+
+        encodeAtBestFit();
+
+        while (
+            estimateDataUrlBytes(exportedDataUrl) > maxBytes
+            && (workingCanvas.width > minWidth || workingCanvas.height > minHeight)
+        ) {
+            const nextWidth = Math.max(minWidth, Math.round(workingCanvas.width * downscaleFactor));
+            const nextHeight = Math.max(minHeight, Math.round(workingCanvas.height * downscaleFactor));
+
+            if (nextWidth === workingCanvas.width && nextHeight === workingCanvas.height) {
+                break;
+            }
+
+            const resizedCanvas = document.createElement("canvas");
+            const resizedContext = resizedCanvas.getContext("2d");
+            resizedCanvas.width = nextWidth;
+            resizedCanvas.height = nextHeight;
+            resizedContext.imageSmoothingEnabled = true;
+            resizedContext.imageSmoothingQuality = "high";
+            resizedContext.fillStyle = "#0b1320";
+            resizedContext.fillRect(0, 0, nextWidth, nextHeight);
+            resizedContext.drawImage(workingCanvas, 0, 0, workingCanvas.width, workingCanvas.height, 0, 0, nextWidth, nextHeight);
+
+            workingCanvas = resizedCanvas;
+            workingContext = resizedContext;
+            encodeAtBestFit();
+        }
+
+        return exportedDataUrl;
     };
 
     const composeStampedPhoto = async () => {
@@ -631,7 +760,15 @@
             targetHeight - 54
         );
 
-        return canvas.toDataURL("image/jpeg", 0.86);
+        return exportAdaptiveCanvasJpeg(canvas, {
+            maxBytes: 420 * 1024,
+            initialQuality: 0.8,
+            minQuality: 0.42,
+            qualityStep: 0.08,
+            downscaleFactor: 0.88,
+            minWidth: 720,
+            minHeight: 960,
+        });
     };
 
     const refreshStampedPreview = async () => {
@@ -855,6 +992,65 @@
         shiftTimeDisplay.value = selectedOption ? (selectedOption.dataset.timeLabel || "") : "";
     };
 
+    const requestCurrentLocation = ({ autoTriggered = false } = {}) => {
+        if (locationRequestPromise) {
+            return locationRequestPromise;
+        }
+
+        if (!navigator.geolocation) {
+            locationStatus.value = "Browser tidak mendukung GPS";
+            locationHelper.textContent = "Perangkat ini tidak bisa mengirim geotag dari browser.";
+            return Promise.resolve(false);
+        }
+
+        syncLocationScopeUi();
+        locationStatus.value = autoTriggered ? "Mengambil lokasi otomatis..." : "Mengambil lokasi...";
+        locationHelper.textContent = autoTriggered
+            ? "Foto sudah diambil. Portal sedang membaca koordinat secara otomatis."
+            : "Tunggu sebentar sampai koordinat selesai dibaca dari browser.";
+        if (locationButton) {
+            locationButton.disabled = true;
+        }
+
+        locationRequestPromise = new Promise((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    latitudeInput.value = position.coords.latitude.toFixed(6);
+                    longitudeInput.value = position.coords.longitude.toFixed(6);
+                    accuracyInput.value = position.coords.accuracy ? position.coords.accuracy.toFixed(2) : "";
+                    syncLocationLabelInput();
+                    locationStatus.value = "Lokasi berhasil direkam";
+                    locationHelper.textContent = autoTriggered
+                        ? "Koordinat berhasil diambil otomatis. Kamu bisa langsung simpan absen."
+                        : "Koordinat dan akurasi sudah terisi. Kamu bisa langsung simpan absen.";
+                    if (rawPhotoDataUrl) {
+                        refreshStampedPreview();
+                    }
+                    resolve(true);
+                },
+                (error) => {
+                    locationStatus.value = "Lokasi gagal";
+                    locationHelper.textContent = error && error.message
+                        ? `GPS gagal dibaca: ${error.message}`
+                        : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi.";
+                    resolve(false);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0,
+                }
+            );
+        }).finally(() => {
+            if (locationButton && !portalLocked) {
+                locationButton.disabled = false;
+            }
+            locationRequestPromise = null;
+        });
+
+        return locationRequestPromise;
+    };
+
     const exportCompressedFrame = () => {
         const sourceWidth = video.videoWidth || 0;
         const sourceHeight = video.videoHeight || 0;
@@ -863,7 +1059,7 @@
         }
 
         const longestEdge = Math.max(sourceWidth, sourceHeight);
-        const maxEdge = 1080;
+        const maxEdge = 960;
         const scale = Math.min(maxEdge / longestEdge, 1);
         const targetWidth = Math.max(Math.round(sourceWidth * scale), 1);
         const targetHeight = Math.max(Math.round(sourceHeight * scale), 1);
@@ -888,11 +1084,20 @@
             targetHeight
         );
 
-        return canvas.toDataURL("image/jpeg", 0.84);
+        return exportAdaptiveCanvasJpeg(canvas, {
+            maxBytes: 560 * 1024,
+            initialQuality: 0.76,
+            minQuality: 0.48,
+            qualityStep: 0.08,
+            downscaleFactor: 0.9,
+            minWidth: Math.max(Math.round(targetWidth * 0.7), 640),
+            minHeight: Math.max(Math.round(targetHeight * 0.7), 640),
+        });
     };
 
     syncPunchTime();
     syncShiftTimeDisplay();
+    syncLocationScopeUi();
     if (!portalLocked) {
         window.setInterval(() => {
             syncPunchTime();
@@ -915,6 +1120,20 @@
 
     punchTypeSelect?.addEventListener("change", () => {
         syncPunchTime();
+        if (rawPhotoDataUrl) {
+            refreshStampedPreview();
+        }
+    });
+
+    locationScopeSelect?.addEventListener("change", () => {
+        syncLocationScopeUi();
+        if (rawPhotoDataUrl) {
+            refreshStampedPreview();
+        }
+    });
+
+    locationOtherInput?.addEventListener("input", () => {
+        syncLocationScopeUi();
         if (rawPhotoDataUrl) {
             refreshStampedPreview();
         }
@@ -949,7 +1168,7 @@
         }
     });
 
-    captureButton.addEventListener("click", () => {
+    captureButton.addEventListener("click", async () => {
         if (portalLocked) {
             return;
         }
@@ -971,11 +1190,19 @@
 
         rawPhotoDataUrl = dataUrl;
         syncPunchTime();
-        refreshStampedPreview();
+        syncLocationScopeUi();
+        await refreshStampedPreview();
         captureButton.disabled = true;
         retakeButton.disabled = false;
-        setCameraState("Foto berhasil diambil. Stamp geotag sudah disusun. Jika sudah pas, lanjut ambil lokasi lalu simpan absen.", "success");
+        setCameraState("Foto berhasil diambil. Portal sedang membaca lokasi otomatis.", "idle");
         stopCamera();
+        const autoLocationOk = await requestCurrentLocation({ autoTriggered: true });
+        setCameraState(
+            autoLocationOk
+                ? "Foto dan lokasi berhasil direkam otomatis. Kalau sudah pas, langsung simpan absen."
+                : "Foto berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen.",
+            autoLocationOk ? "success" : "error"
+        );
     });
 
     retakeButton.addEventListener("click", () => {
@@ -1018,11 +1245,19 @@
             resetPreviewState();
             rawPhotoDataUrl = await readFileAsDataUrl(selectedFile);
             syncPunchTime();
+            syncLocationScopeUi();
             await refreshStampedPreview();
             captureButton.disabled = true;
             retakeButton.disabled = false;
             toggleFallbackCapture(true);
-            setCameraState("Foto berhasil diambil dari kamera perangkat. Jika sudah pas, lanjut ambil lokasi lalu simpan absen.", "success");
+            setCameraState("Foto dari kamera perangkat berhasil diambil. Portal sedang membaca lokasi otomatis.", "idle");
+            const autoLocationOk = await requestCurrentLocation({ autoTriggered: true });
+            setCameraState(
+                autoLocationOk
+                    ? "Foto perangkat dan lokasi berhasil direkam otomatis. Kalau sudah pas, langsung simpan absen."
+                    : "Foto perangkat berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen.",
+                autoLocationOk ? "success" : "error"
+            );
         } catch (error) {
             setCameraState("Foto dari kamera perangkat belum bisa dibaca. Coba ulangi lagi.", "error");
         }
@@ -1034,37 +1269,7 @@
         if (portalLocked) {
             return;
         }
-        if (!navigator.geolocation) {
-            locationStatus.value = "Browser tidak mendukung GPS";
-            locationHelper.textContent = "Perangkat ini tidak bisa mengirim geotag dari browser.";
-            return;
-        }
-
-        locationStatus.value = "Mengambil lokasi...";
-        locationHelper.textContent = "Tunggu sebentar sampai koordinat selesai dibaca dari browser.";
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                latitudeInput.value = position.coords.latitude.toFixed(6);
-                longitudeInput.value = position.coords.longitude.toFixed(6);
-                accuracyInput.value = position.coords.accuracy ? position.coords.accuracy.toFixed(2) : "";
-                locationStatus.value = "Lokasi berhasil direkam";
-                locationHelper.textContent = "Koordinat dan akurasi sudah terisi. Kamu bisa langsung simpan absen.";
-                if (rawPhotoDataUrl) {
-                    refreshStampedPreview();
-                }
-            },
-            (error) => {
-                locationStatus.value = "Lokasi gagal";
-                locationHelper.textContent = error && error.message
-                    ? `GPS gagal dibaca: ${error.message}`
-                    : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi.";
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0,
-            }
-        );
+        requestCurrentLocation({ autoTriggered: false });
     });
 
     form.addEventListener("submit", async (event) => {
@@ -1082,10 +1287,19 @@
             return;
         }
 
+        syncLocationScopeUi();
+        if ((locationScopeSelect?.value || "").trim().toLowerCase() === "other" && !(locationOtherInput?.value || "").trim()) {
+            event.preventDefault();
+            locationStatus.value = "Lokasi lainnya wajib";
+            locationHelper.textContent = "Kalau pilih Lainnya, jelaskan dulu lokasinya secara singkat.";
+            locationOtherInput?.focus();
+            return;
+        }
+
         if (!latitudeInput.value || !longitudeInput.value) {
             event.preventDefault();
             locationStatus.value = "Lokasi wajib";
-            locationHelper.textContent = "Ambil lokasi dulu sebelum menyimpan absen.";
+            locationHelper.textContent = "Lokasi otomatis belum masuk. Tekan Refresh Lokasi lalu coba simpan lagi.";
             return;
         }
 

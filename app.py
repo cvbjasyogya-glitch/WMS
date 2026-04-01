@@ -9,6 +9,7 @@ from services.notification_service import send_email, send_whatsapp
 from services.rbac import has_permission, is_scoped_role
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import RequestEntityTooLarge
 from init_db import init_db
 import sqlite3
 
@@ -37,6 +38,7 @@ from routes.daily_report_portal import daily_report_portal_bp
 from routes.leave_portal import leave_portal_bp
 from routes.account import account_bp
 from routes.announcement_center import announcement_center_bp
+from routes.meetings import meetings_bp
 
 # 🔥 TAMBAHAN WAJIB
 from routes.stock_opname import so_bp
@@ -72,13 +74,15 @@ def _build_security_headers():
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Permissions-Policy": "camera=(self), geolocation=(self), microphone=(self), interest-cohort=()",
         "Content-Security-Policy": (
-            "default-src 'self' data: blob:; "
-            "img-src 'self' data: blob:; "
-            "media-src 'self' data: blob:; "
-            "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "font-src 'self' data:; "
-            "connect-src 'self'; "
+            "default-src 'self' data: blob: https://source.zoom.us; "
+            "img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us; "
+            "media-src 'self' data: blob: https://*.zoom.us; "
+            "style-src 'self' 'unsafe-inline' https://source.zoom.us; "
+            "script-src 'self' 'unsafe-inline' https://source.zoom.us; "
+            "font-src 'self' data: https://source.zoom.us; "
+            "connect-src 'self' blob: https://source.zoom.us https://*.zoom.us wss://*.zoom.us; "
+            "frame-src 'self' https://*.zoom.us; "
+            "worker-src 'self' blob:; "
             "frame-ancestors 'self'; "
             "base-uri 'self'; "
             "form-action 'self'"
@@ -510,6 +514,27 @@ def create_app():
     def forbidden(e):
         return "Akses ditolak", 403
 
+    @app.errorhandler(RequestEntityTooLarge)
+    def request_too_large(e):
+        if request.path.startswith("/absen"):
+            flash(
+                "Ukuran foto absen terlalu besar. Ambil ulang foto atau pakai kamera perangkat supaya file lebih kecil.",
+                "error",
+            )
+            return redirect("/absen/")
+
+        if request.path.startswith("/hris/biometric"):
+            flash(
+                "Ukuran foto geotag terlalu besar. Ambil ulang foto dengan ukuran lebih kecil lalu simpan lagi.",
+                "error",
+            )
+            return redirect("/hris/biometric")
+
+        if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+            return jsonify({"ok": False, "message": "Ukuran data yang dikirim terlalu besar"}), 413
+
+        return "Ukuran data yang dikirim terlalu besar", 413
+
     # ==========================
     # REGISTER BP
     # ==========================
@@ -532,6 +557,7 @@ def create_app():
     app.register_blueprint(attendance_portal_bp)
     app.register_blueprint(daily_report_portal_bp)
     app.register_blueprint(leave_portal_bp)
+    app.register_blueprint(meetings_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(announcement_center_bp)
 

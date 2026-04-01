@@ -1119,6 +1119,24 @@ def init_db(db_path=None):
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS schedule_live_entries(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER NOT NULL,
+        schedule_date TEXT NOT NULL,
+        slot_key TEXT NOT NULL,
+        employee_id INTEGER,
+        channel_label TEXT,
+        note TEXT,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(warehouse_id, schedule_date, slot_key),
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE SET NULL,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS schedule_change_events(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         warehouse_id INTEGER,
@@ -1221,6 +1239,7 @@ def init_db(db_path=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_profiles_main ON schedule_employee_profiles(display_group, display_order, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_entries_main ON schedule_entries(employee_id, schedule_date, shift_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_day_notes_main ON schedule_day_notes(schedule_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_live_entries_main ON schedule_live_entries(warehouse_id, schedule_date, slot_key)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_change_events_main ON schedule_change_events(warehouse_id, created_at, event_kind)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id, is_active, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_scope_role ON users(role, warehouse_id)")

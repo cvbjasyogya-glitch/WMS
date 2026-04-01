@@ -343,6 +343,70 @@
         {% endif %}
     </div>
 </details>
+
+<details class="form-box schedule-panel-disclosure">
+    <summary class="schedule-panel-summary">
+        <div class="schedule-panel-summary-copy">
+            <h2>Atur Jadwal Live</h2>
+            <p>Susun slot live harian per jam untuk host, CS, admin marketplace, atau tim promo yang harus tampil real-time di board.</p>
+        </div>
+        <div class="schedule-panel-summary-meta">
+            <span class="badge">{{ live_slots|length }} slot</span>
+            <span class="schedule-panel-summary-state">Buka Panel</span>
+        </div>
+    </summary>
+    <div class="schedule-panel-content">
+        <form method="POST" action="/schedule/live/save">
+            {{ filter_hidden_inputs() }}
+            <div class="form-grid">
+                <div>
+                    <label>Tanggal Live</label>
+                    <input type="date" name="live_schedule_date" value="{{ filters.start }}" required>
+                </div>
+                <div>
+                    <label>Slot Jam</label>
+                    <select name="slot_key" required>
+                        {% for slot in live_slots %}
+                        <option value="{{ slot.key }}">{{ slot.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Gudang</label>
+                    <select name="live_warehouse_id" {% if scoped_schedule_warehouse %}disabled{% endif %} required>
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id or (not selected_warehouse and scoped_schedule_warehouse == warehouse.id) or (not selected_warehouse and not scoped_schedule_warehouse and loop.first) %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if scoped_schedule_warehouse %}
+                    <input type="hidden" name="live_warehouse_id" value="{{ scoped_schedule_warehouse }}">
+                    {% endif %}
+                </div>
+                <div>
+                    <label>Staf</label>
+                    <select name="employee_id">
+                        <option value="">Kosongkan slot / open</option>
+                        {% for employee in employee_rows %}
+                        <option value="{{ employee.employee_id }}">{{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Label Channel</label>
+                    <input name="channel_label" placeholder="Contoh: Shopee Mega + IG">
+                </div>
+                <div class="span-full">
+                    <label>Catatan Live</label>
+                    <textarea name="note" rows="3" placeholder="Contoh: takeover promo, live kolaborasi, backup admin chat, atau briefing host."></textarea>
+                </div>
+            </div>
+            <div class="split-actions stack-gap-md">
+                <button type="submit">Simpan Jadwal Live</button>
+            </div>
+            <small class="helper-text">Pilih staf untuk mengisi slot live, atau kosongkan staf untuk membersihkan slot pada jam tersebut.</small>
+        </form>
+    </div>
+</details>
 {% else %}
 <div class="alert info">Mode lihat aktif. HR dan Super Admin bisa menambah shift, mengatur header staf, dan menulis catatan harian langsung dari halaman ini.</div>
 {% endif %}
@@ -351,209 +415,134 @@
     <div class="section-title">
         <div>
             <h2>Board Penjadwalan</h2>
-            <p>Board tampil sebagai studio operasional yang fokus ke staf, ritme hari, dan override aktif, jadi lebih cepat dibaca dibanding layout spreadsheet tradisional.</p>
+            <p>Board mingguan ditampilkan dalam format tabel yang lebih familiar, lebih cepat dipindai, dan tetap aman saat jumlah staf banyak.</p>
         </div>
     </div>
 
     {% if schedule_members %}
-    <div class="schedule-board-hero">
+    <div class="schedule-matrix-toolbar">
         <div>
-            <span class="badge">Weekly Board</span>
-            <h3>Board jadwal mingguan yang lebih clean, lebih cepat dipindai, dan nyaman dibaca tim operasional</h3>
-            <p>Setiap staf punya identity card di kiri, sementara 7 hari kerja tampil sebagai tile mingguan yang tegas. Hasilnya lebih enak dibaca cepat tanpa rasa spreadsheet.</p>
+            <span class="badge">Board Mingguan</span>
+            <h3>Jadwal tampil 7 hari dengan header staf tetap dan area yang bisa digeser saat kolom karyawan banyak.</h3>
+            <p>Geser ke kanan untuk melihat staf lain. Format ini sengaja dipadatkan supaya nyaman dibaca di laptop, tablet, dan mobile.</p>
         </div>
-        <div class="schedule-board-hero-actions">
-            <div class="schedule-density-toggle" data-schedule-density-toggle>
-                <button type="button" class="schedule-density-button" data-schedule-density-button="compact">Compact</button>
-                <button type="button" class="schedule-density-button" data-schedule-density-button="cozy">Cozy</button>
-            </div>
-            <div class="schedule-board-hero-meta">
-                <span>{{ filters.days }} hari</span>
-                <span>{{ schedule_groups|length }} cluster</span>
-                <span>{{ summary.override_cells }} override</span>
-            </div>
+        <div class="schedule-matrix-meta">
+            <span>{{ filters.days }} hari</span>
+            <span>{{ summary.employees }} staf</span>
+            <span>{{ summary.override_cells }} override</span>
+            <span>{{ filters.start }} s/d {{ range_end }}</span>
         </div>
     </div>
-    <div
-        class="schedule-board-wrap schedule-board-lane-wrap"
-        data-schedule-board-shell
-        data-schedule-density-default="{{ 'compact' if schedule_members|length >= 8 else 'cozy' }}"
-    >
-        <div class="schedule-board-lane" style="--schedule-day-count: {{ board_rows|length }};">
-            <div class="schedule-board-lane-head">
-                <div class="schedule-board-lane-axis">
-                    <span class="schedule-board-rail-kicker">Minggu Aktif</span>
-                    <div class="schedule-axis-range">
-                        <strong>{{ filters.start }}</strong>
-                        <span>Sampai {{ range_end }}</span>
-                    </div>
-                    <div class="schedule-axis-meta">
-                        <span>{{ summary.employees }} staf</span>
-                        <span>{{ summary.manual_cells + summary.override_cells }} slot terisi</span>
-                        <span>Geser kanan kiri untuk lihat 7 hari</span>
-                    </div>
-                    <p>Board ini sengaja difokuskan ke 1 minggu kerja supaya tetap lapang di laptop, tablet, dan layar kecil.</p>
-                </div>
-                <div class="schedule-board-lane-days">
-                    {% for row in board_rows %}
-                    <article class="schedule-lane-day-card {% if row.is_weekend %}schedule-lane-day-card-weekend{% endif %}">
-                        <div class="schedule-lane-day-top">
-                            <span class="schedule-lane-day-short">{{ row.day_short }}</span>
-                            <span class="schedule-lane-day-date">{{ row.day_number }}/{{ row.month_number }}</span>
-                            {% if row.note %}
-                            <span class="schedule-slot-dot" title="{{ row.note }}"></span>
-                            {% endif %}
-                        </div>
-                        <strong>{{ row.label }}</strong>
-                        {% if row.note %}
-                        <small class="schedule-lane-day-note">{{ row.note }}</small>
-                        {% else %}
-                        <small class="schedule-lane-day-note schedule-lane-day-note-muted">Hari operasional normal.</small>
-                        {% endif %}
-                    </article>
+    <div class="schedule-matrix-wrap">
+        <table class="schedule-matrix">
+            <thead>
+                <tr>
+                    <th class="schedule-matrix-date-head">Tanggal</th>
+                    {% for member in schedule_members %}
+                    <th class="schedule-matrix-member-head">
+                        <strong>{{ member.display_name }}</strong>
+                        <small>{{ member.location_label_display }}</small>
+                    </th>
                     {% endfor %}
-                </div>
-            </div>
-            <div class="schedule-board-lane-body">
-                {% for group in schedule_groups %}
-                <section class="schedule-lane-group">
-                    <div class="schedule-lane-group-head">
-                        <div>
-                            <span class="schedule-board-rail-kicker">Cluster</span>
-                            <strong>{{ group.label }}</strong>
-                        </div>
-                        <span class="badge">{{ group.members|length }} staf</span>
-                    </div>
-                    <div class="schedule-lane-group-rows">
-                        {% for member in group.members %}
-                        <article class="schedule-lane-row">
-                            <header class="schedule-lane-member">
-                                <div class="schedule-lane-member-shell">
-                                    <div class="schedule-lane-member-avatar">
-                                        {{ (member.display_name or member.full_name or "Staf")[:2] }}
-                                    </div>
-                                    <div class="schedule-lane-member-body">
-                                        <div class="schedule-member-header-top">
-                                            <span class="schedule-member-group">{{ member.display_group_label }}</span>
-                                            <span class="schedule-member-location">{{ member.location_label_display }}</span>
-                                        </div>
-                                        <div class="schedule-member-name-row">
-                                            <strong>{{ member.display_name }}</strong>
-                                            {% if member.has_offboarding %}
-                                            <span class="schedule-member-status">Offboarding</span>
-                                            {% endif %}
-                                        </div>
-                                        <p>{{ member.full_name }}</p>
-                                        <small>{{ member.position or member.department or "Tim Operasional" }}</small>
-                                    </div>
-                                </div>
-                            </header>
-                            <div class="schedule-lane-track">
-                                {% for row in board_rows %}
-                                {% set cell = row.cells[member.board_index] %}
-                                <div
-                                    class="schedule-lane-cell {% if row.is_weekend %}schedule-lane-cell-weekend{% endif %} {% if cell and cell.source != 'manual' %}schedule-lane-cell-auto{% endif %}"
-                                    title="{% if cell %}{{ cell.title }}{% else %}Belum ada shift{% endif %}{% if row.note %} | Catatan hari: {{ row.note }}{% endif %}"
-                                >
-                                    <div class="schedule-lane-cell-top">
-                                        {% if cell %}
-                                        <span
-                                            class="schedule-chip {% if cell.source != 'manual' %}schedule-chip-auto{% endif %}"
-                                            style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
-                                        >{{ cell.code }}</span>
-                                        {% else %}
-                                        <span class="schedule-empty">Open</span>
-                                        {% endif %}
-                                        <span class="schedule-lane-cell-tone {% if cell and cell.source != 'manual' %}schedule-lane-cell-tone-auto{% elif cell %}schedule-lane-cell-tone-manual{% else %}schedule-lane-cell-tone-open{% endif %}">
-                                            {% if cell and cell.source != 'manual' %}
-                                            Auto
-                                            {% elif cell %}
-                                            Manual
-                                            {% else %}
-                                            Open
-                                            {% endif %}
-                                        </span>
-                                        {% if row.note %}
-                                        <span class="schedule-slot-dot" title="{{ row.note }}"></span>
-                                        {% endif %}
-                                    </div>
-                                    {% if cell %}
-                                    <strong class="schedule-lane-cell-label">{{ cell.label }}</strong>
-                                    {% if cell.note %}
-                                    <span class="schedule-lane-cell-meta">{{ cell.note }}</span>
-                                    {% elif cell.source != 'manual' %}
-                                    <span class="schedule-lane-cell-meta">Terhubung dari HRIS</span>
-                                    {% else %}
-                                    <span class="schedule-lane-cell-meta">Shift aktif di board</span>
-                                    {% endif %}
-                                    {% else %}
-                                    <strong class="schedule-lane-cell-label">Belum diisi</strong>
-                                    <span class="schedule-lane-cell-meta">Masih tersedia untuk dijadwalkan</span>
-                                    {% endif %}
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </article>
-                        {% endfor %}
-                    </div>
-                </section>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in board_rows %}
+                <tr class="{% if row.is_weekend %}is-weekend{% endif %}">
+                    <th class="schedule-matrix-date-cell" title="{% if row.note %}{{ row.note }}{% else %}{{ row.label }}{% endif %}">
+                        <div class="schedule-matrix-date-main">{{ row.label }}</div>
+                        {% if row.note %}
+                        <div class="schedule-matrix-date-note">{{ row.note }}</div>
+                        {% endif %}
+                    </th>
+                    {% for member in schedule_members %}
+                    {% set cell = row.cells[member.board_index] %}
+                    <td
+                        class="schedule-matrix-cell {% if cell and cell.source != 'manual' %}is-auto{% endif %}"
+                        title="{% if cell %}{{ cell.title }}{% else %}Belum ada shift{% endif %}"
+                    >
+                        {% if cell %}
+                        <span
+                            class="schedule-matrix-pill"
+                            style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
+                        >{{ cell.code }}</span>
+                        <small class="schedule-matrix-cell-label">{{ cell.label }}</small>
+                        {% else %}
+                        <span class="schedule-matrix-empty">-</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
                 {% endfor %}
-            </div>
-        </div>
+            </tbody>
+        </table>
     </div>
     {% else %}
     <div class="alert info">Belum ada staf yang siap ditampilkan pada board ini. Tambahkan data karyawan di HRIS lalu aktifkan opsi tampil di board jika perlu.</div>
     {% endif %}
 </div>
 
-<script>
-(() => {
-    const boardShell = document.querySelector("[data-schedule-board-shell]");
-    if (!boardShell) {
-        return;
-    }
+<div class="table-box schedule-live-shell">
+    <div class="section-title">
+        <div>
+            <h2>Jadwal Live</h2>
+            <p>Board live ini fokus ke slot jam-per-jam supaya tim cepat melihat siapa yang pegang kanal promo, marketplace, atau live session di setiap jam operasional.</p>
+        </div>
+    </div>
 
-    const toggle = document.querySelector("[data-schedule-density-toggle]");
-    const buttons = Array.from(document.querySelectorAll("[data-schedule-density-button]"));
-    const storageKey = "erp.schedule.boardDensity";
-    const defaultDensity = boardShell.dataset.scheduleDensityDefault || "cozy";
-
-    const readDensity = () => {
-        try {
-            const persisted = window.localStorage.getItem(storageKey);
-            if (persisted === "compact" || persisted === "cozy") {
-                return persisted;
-            }
-        } catch (error) {
-        }
-        return defaultDensity;
-    };
-
-    const applyDensity = (density) => {
-        const nextDensity = density === "compact" ? "compact" : "cozy";
-        boardShell.dataset.scheduleDensity = nextDensity;
-        buttons.forEach((button) => {
-            const isActive = button.dataset.scheduleDensityButton === nextDensity;
-            button.classList.toggle("is-active", isActive);
-            button.setAttribute("aria-pressed", isActive ? "true" : "false");
-        });
-        if (toggle) {
-            toggle.dataset.activeDensity = nextDensity;
-        }
-        try {
-            window.localStorage.setItem(storageKey, nextDensity);
-        } catch (error) {
-        }
-    };
-
-    buttons.forEach((button) => {
-        button.addEventListener("click", () => {
-            applyDensity(button.dataset.scheduleDensityButton || defaultDensity);
-        });
-    });
-
-    applyDensity(readDensity());
-})();
-</script>
+    {% if live_sections %}
+        {% for live_section in live_sections %}
+        <div class="schedule-live-section">
+            <div class="schedule-live-section-head">
+                <div>
+                    <span class="badge">Live Board</span>
+                    <h3>{{ live_section.title }}</h3>
+                    <p>{{ filters.start }} s/d {{ range_end }} · {{ live_section.total_assignments }} slot terisi</p>
+                </div>
+                <div class="schedule-live-section-meta">
+                    <span>{{ live_section.slot_count }} slot / hari</span>
+                    <span>{{ filters.days }} hari</span>
+                </div>
+            </div>
+            <div class="schedule-live-wrap">
+                <table class="schedule-live-table">
+                    <thead>
+                        <tr>
+                            <th class="schedule-live-date-head">Tgl / Jam</th>
+                            {% for slot in live_slots %}
+                            <th class="schedule-live-slot-head">{{ slot.label }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in live_section.rows %}
+                        <tr class="{% if row.is_weekend %}is-weekend{% endif %}">
+                            <th class="schedule-live-date-cell">{{ row.label }}</th>
+                            {% for cell in row.cells %}
+                            <td class="schedule-live-cell {% if cell %}is-filled{% endif %}">
+                                {% if cell %}
+                                <strong class="schedule-live-person">{{ cell.display_name }}</strong>
+                                {% if cell.channel_label %}
+                                <small class="schedule-live-channel">{{ cell.channel_label }}</small>
+                                {% endif %}
+                                {% if cell.note %}
+                                <span class="schedule-live-note">{{ cell.note }}</span>
+                                {% endif %}
+                                {% else %}
+                                <span class="schedule-live-empty">-</span>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="alert info">Belum ada board live pada rentang yang dipilih. HR atau Super Admin bisa mulai isi slot live dari panel di atas.</div>
+    {% endif %}
+</div>
 {% endblock %}
 

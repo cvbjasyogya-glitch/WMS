@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#07111f">
+    <title>Meeting Live | ERP-CV.BJAS</title>
+    <link rel="icon" type="image/png" href="/static/brand/mataram-logo.png">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    {% if zoom_sdk_ready %}
+    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/react.min.js"></script>
+    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/react-dom.min.js"></script>
+    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/redux.min.js"></script>
+    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/redux-thunk.min.js"></script>
+    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/zoom-meeting-{{ zoom_sdk_version }}.min.js"></script>
+    {% endif %}
+</head>
+<body class="meeting-stage-page">
+    <div
+        id="meetingSessionRoot"
+        class="meeting-session-root"
+        data-sdk-ready="{{ '1' if zoom_sdk_ready else '0' }}"
+        data-sdk-version="{{ zoom_sdk_version }}"
+        data-web-endpoint="{{ zoom_web_endpoint }}"
+        data-leave-url="{{ default_leave_url }}"
+    >
+        <section class="meeting-session-shell">
+            <div class="meeting-session-topbar">
+                <a href="/meetings/" class="ghost-button">Kembali ke Portal Meeting</a>
+                <span class="status-pill">Zoom SDK {{ zoom_sdk_version }}</span>
+            </div>
+
+            <div class="meeting-session-hero">
+                <div>
+                    <p class="page-eyebrow">Meeting Stage</p>
+                    <h1>Menyiapkan ruang meeting</h1>
+                    <p class="page-subtitle">Halaman ini membuka Zoom client view secara penuh. Simpan tab ini tetap aktif sampai proses join selesai.</p>
+                </div>
+                <div class="status-row">
+                    <span class="status-pill" id="meetingStageProfilePill">Profil: -</span>
+                    <span class="status-pill" id="meetingStageNetworkPill">Status: Menunggu data</span>
+                </div>
+            </div>
+
+            <div class="meeting-stage-box" id="meetingStageBox">
+                <div class="meeting-stage-loader" id="meetingStageLoader">
+                    <div class="meeting-stage-loader-dot"></div>
+                    <strong id="meetingStageTitle">Menyiapkan Zoom Meeting...</strong>
+                    <p id="meetingStageDescription">Mengambil data room dari portal dan menyalakan client view.</p>
+                </div>
+
+                <div class="meeting-stage-hints" id="meetingStageHints">
+                    <div class="meeting-stage-hint-card">
+                        <span class="status-pill">Hemat Daya</span>
+                        <p>Kamera tidak perlu langsung diaktifkan. Masuk meeting dulu, lalu nyalakan video hanya saat perlu.</p>
+                    </div>
+                    <div class="meeting-stage-hint-card">
+                        <span class="status-pill">Hemat Kuota</span>
+                        <p>Mode Smart Saver dan Audio First menonaktifkan preview kamera di awal agar traffic lebih ringan.</p>
+                    </div>
+                    <div class="meeting-stage-hint-card">
+                        <span class="status-pill">Stabil</span>
+                        <p>Gunakan headset atau Wi-Fi stabil saat rapat ramai supaya mikrofon dan audio lebih konsisten.</p>
+                    </div>
+                </div>
+
+                <div class="flash error meeting-stage-error" id="meetingStageError" hidden></div>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/js/meeting_session.js"></script>
+</body>
+</html>

@@ -391,34 +391,31 @@ def _read_import_file(file):
 
     try:
         return pd.read_excel(file)
-    except Exception:
-        file.stream.seek(0)
-        return pd.read_csv(file)
+    except Exception as exc:
+        raise RuntimeError("Format Excel lama (.xls) belum bisa dibaca di server ini. Gunakan template .xlsx atau .csv.") from exc
 
 
-def _read_import_dataset(file):
-    filename = (file.filename or "").lower()
-
-    if filename.endswith(".xlsx"):
-        return _read_xlsx_dataset(file)
-
-    if pd is not None:
-        df = _read_import_file(file)
-        df.columns = [c.strip().lower() for c in df.columns]
-        df = df.fillna("")
-        rows = [row for row in df.to_dict(orient="records") if _row_has_content(row)]
-        return list(df.columns), rows
-
-    if not filename.endswith(".csv"):
-        raise RuntimeError(
-            "Format file belum didukung. Gunakan template .xlsx atau .csv."
-        )
-
+def _read_csv_dataset(file):
     file.stream.seek(0)
     raw = file.stream.read()
-    text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else str(raw)
+    if isinstance(raw, bytes):
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+    else:
+        text = str(raw)
 
-    reader = csv.DictReader(StringIO(text))
+    sample = text[:4096]
+    delimiter = ","
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        delimiter = dialect.delimiter or ","
+    except csv.Error:
+        if ";" in sample and sample.count(";") >= sample.count(","):
+            delimiter = ";"
+
+    reader = csv.DictReader(StringIO(text), delimiter=delimiter)
     if not reader.fieldnames:
         raise ValueError("Format tidak valid")
 
@@ -436,6 +433,27 @@ def _read_import_dataset(file):
 
     file.stream.seek(0)
     return normalized_fields, rows
+
+
+def _read_import_dataset(file):
+    filename = (file.filename or "").lower()
+
+    if filename.endswith(".xlsx"):
+        return _read_xlsx_dataset(file)
+
+    if filename.endswith(".csv"):
+        return _read_csv_dataset(file)
+
+    if filename.endswith(".xls"):
+        df = _read_import_file(file)
+        df.columns = [c.strip().lower() for c in df.columns]
+        df = df.fillna("")
+        rows = [row for row in df.to_dict(orient="records") if _row_has_content(row)]
+        return list(df.columns), rows
+
+    raise RuntimeError(
+        "Format file belum didukung. Gunakan template .xlsx atau .csv."
+    )
 
 
 def _upsert_variant(
@@ -1000,7 +1018,7 @@ def import_products():
                         row.get("warehouse_id"),
                         default_warehouse_id,
                     )
-                    if not sku or not name or qty <= 0:
+                    if not sku or not name or qty < 0:
                         continue
 
                     price_retail = _to_float(row.get("price_retail"))
@@ -1041,7 +1059,8 @@ def import_products():
                         gtin=gtin,
                         no_gtin=no_gtin,
                     )
-                    variant_payloads.append((product_id, variant_id, warehouse_id, qty))
+                    if qty > 0:
+                        variant_payloads.append((product_id, variant_id, warehouse_id, qty))
 
                 except Exception as e:
                     print("ROW ERROR:", e)
