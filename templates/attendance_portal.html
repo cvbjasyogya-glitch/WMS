@@ -219,13 +219,119 @@
                         </button>
                     </div>
                     {% if portal_punch_mode == "complete" %}
-                    <small class="helper-text">Check in dan check out hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari HR atau Super Admin.</small>
+                    <small class="helper-text">Check in dan check out hari ini sudah lengkap. Kalau tadi salah pilih tipe absen atau jamnya keliru, koreksi langsung dari riwayat absen di bawah.</small>
                     {% else %}
                     <small class="helper-text">Foto akan dikompresi otomatis supaya tetap tajam, tidak kepotong, hemat space, dan hasil akhirnya langsung bertipe stamped geotag.</small>
                     {% endif %}
                 </div>
             </div>
         </form>
+    </section>
+
+    <section id="riwayat-absen" class="form-box attendance-history-card">
+        <div class="section-title">
+            <div>
+                <h2>Riwayat Absen Sebelumnya</h2>
+                <p>Lihat ringkasan check in, break, dan check out beberapa hari terakhir. Kalau tadi salah pilih `Pulang` padahal harus `Istirahat`, perbaiki langsung dari riwayat ini.</p>
+            </div>
+        </div>
+        <small class="helper-text">Perubahan manual log absensi hanya tersedia untuk akun HR dan Super Admin.</small>
+
+        {% if attendance_history %}
+        <div class="attendance-log-list">
+            {% for item in attendance_history %}
+            <article class="attendance-log-card">
+                <div class="attendance-log-head">
+                    <div>
+                        <h3>{{ item.attendance_date }}</h3>
+                        <p>{{ item.shift_label }}</p>
+                    </div>
+                    <div class="attendance-log-badges">
+                        <span class="badge {{ item.status_badge }}">{{ item.status_label }}</span>
+                        <span class="badge">{{ item.log_count }} Log</span>
+                    </div>
+                </div>
+
+                <div class="attendance-log-summary">
+                    <div class="meta-card">
+                        <span>Masuk</span>
+                        <strong>{{ item.check_in }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Pulang</span>
+                        <strong>{{ item.check_out }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Update Terakhir</span>
+                        <strong>{{ item.updated_at_label }}</strong>
+                    </div>
+                </div>
+
+                <p class="attendance-log-note">{{ item.note }}</p>
+
+                <details class="attendance-log-detail">
+                    <summary>Lihat Log Hari Itu</summary>
+                    <div class="attendance-log-events">
+                        {% if item.logs %}
+                            {% for log in item.logs %}
+                            <div class="attendance-log-event">
+                                <div>
+                                    <strong>{{ log.punch_label }}</strong>
+                                    <p>{{ log.location_label }}</p>
+                                </div>
+                                <div class="attendance-log-event-meta">
+                                    <span class="badge{% if log.sync_status == 'manual' %} orange{% elif log.sync_status == 'synced' %} green{% elif log.sync_status == 'failed' %} red{% endif %}">{{ log.sync_status|replace('_', ' ')|title }}</span>
+                                    <strong>{{ log.punch_time_label }}</strong>
+                                </div>
+                                {% if log.note %}
+                                <p class="attendance-log-event-note">{{ log.note }}</p>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="empty-state">Belum ada detail log geotag untuk hari ini.</div>
+                        {% endif %}
+                    </div>
+                </details>
+
+                {% if item.can_edit_check_out %}
+                <details class="attendance-log-detail attendance-log-edit">
+                    <summary>Perbaiki Log Terakhir</summary>
+                    <form method="POST" action="/absen/log/{{ item.check_out_log_id }}/edit" class="attendance-log-edit-form">
+                        <div class="form-grid">
+                            <div>
+                                <label>Tipe Absen Yang Benar</label>
+                                <select name="punch_type" required>
+                                    {% for option in item.edit_punch_type_options %}
+                                    <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <small class="helper-text">Pakai `Break Start` kalau tadi harusnya absen istirahat, bukan pulang.</small>
+                            </div>
+                            <div>
+                                <label>Jam Log Baru</label>
+                                <input type="datetime-local" name="punch_time" value="{{ item.edit_check_out_value }}" required>
+                                <small class="helper-text">Tanggal tetap harus sama. Kamu bisa perbaiki tipe dan jam log terakhir di hari itu.</small>
+                            </div>
+                            <div class="span-full">
+                                <label>Catatan Koreksi</label>
+                                <textarea name="note" rows="2" placeholder="Contoh: tadi salah klik pulang, harusnya mulai istirahat"></textarea>
+                            </div>
+                        </div>
+                        <div class="split-actions attendance-history-actions">
+                            <button type="submit">Simpan Perbaikan Log</button>
+                        </div>
+                    </form>
+                </details>
+                {% elif item.show_correction_hint %}
+                <small class="helper-text">Log ini hanya bisa dikoreksi oleh HR atau Super Admin.</small>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">Belum ada riwayat absen yang bisa ditampilkan untuk akun ini.</div>
+        {% endif %}
     </section>
 </div>
 {% else %}

@@ -9171,6 +9171,112 @@ body .attendance-submit-row {
     justify-content: flex-end;
 }
 
+body .attendance-history-card {
+    scroll-margin-top: calc(112px + env(safe-area-inset-top));
+}
+
+body .attendance-log-list {
+    display: grid;
+    gap: 16px;
+}
+
+body .attendance-log-card {
+    display: grid;
+    gap: 14px;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 18px;
+    background:
+        linear-gradient(180deg, rgba(10, 20, 36, 0.78), rgba(10, 18, 31, 0.88));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+body .attendance-log-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+body .attendance-log-head h3,
+body .attendance-log-head p,
+body .attendance-log-note,
+body .attendance-log-event p,
+body .attendance-log-event-note {
+    margin: 0;
+}
+
+body .attendance-log-head p,
+body .attendance-log-note,
+body .attendance-log-event p,
+body .attendance-log-event-note {
+    color: var(--text-muted);
+}
+
+body .attendance-log-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+body .attendance-log-summary {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+body .attendance-log-detail {
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 18px;
+    background: rgba(148, 163, 184, 0.06);
+    overflow: hidden;
+}
+
+body .attendance-log-detail summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 14px 16px;
+    font-weight: 700;
+}
+
+body .attendance-log-detail summary::-webkit-details-marker {
+    display: none;
+}
+
+body .attendance-log-events,
+body .attendance-log-edit-form {
+    padding: 0 16px 16px;
+}
+
+body .attendance-log-events {
+    display: grid;
+    gap: 12px;
+}
+
+body .attendance-log-event {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(8, 15, 28, 0.38);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+body .attendance-log-event-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+body .attendance-history-actions {
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
 body .report-portal-card,
 body .report-review-text {
     min-width: 0;
@@ -9318,6 +9424,10 @@ body .biometric-attendance-status-select:focus {
         scroll-margin-top: calc(154px + env(safe-area-inset-top));
     }
 
+    body .attendance-history-card {
+        scroll-margin-top: calc(154px + env(safe-area-inset-top));
+    }
+
     body .attendance-camera-frame {
         min-height: 280px;
     }
@@ -9328,6 +9438,16 @@ body .biometric-attendance-status-select:focus {
 }
 
 @media (max-width: 720px) {
+    body .attendance-log-head,
+    body .attendance-log-event-meta,
+    body .attendance-history-actions {
+        align-items: stretch;
+    }
+
+    body .attendance-history-actions button {
+        width: 100%;
+    }
+
     body .attendance-history-item {
         grid-template-columns: 1fr;
     }

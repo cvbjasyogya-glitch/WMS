@@ -2879,7 +2879,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Absen Foto & Geotag", html)
         self.assertIn("Mode Hari Ini", html)
         self.assertIn('href="#foto-absen"', html)
-        self.assertNotIn("Riwayat Absen Terakhir", html)
+        self.assertNotIn("Riwayat Absen Sebelumnya", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
 
     def test_attendance_portal_renders_location_scope_dropdown_for_linked_user(self):
@@ -4497,7 +4497,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(portal_page.status_code, 200)
         portal_html = portal_page.get_data(as_text=True)
         self.assertIn("Portal Attendance", portal_html)
-        self.assertNotIn("Riwayat Absen Terakhir", portal_html)
+        self.assertIn("Riwayat Absen Sebelumnya", portal_html)
+        self.assertIn("Lihat Log Hari Itu", portal_html)
 
         hris_page = self.client.get("/hris/biometric", follow_redirects=False)
         self.assertEqual(hris_page.status_code, 302)
@@ -4686,6 +4687,386 @@ class WmsRoutesTestCase(unittest.TestCase):
         portal_html = portal_page.get_data(as_text=True)
         self.assertIn("Sudah Lengkap", portal_html)
         self.assertIn("Absensi Hari Ini Lengkap", portal_html)
+
+    def test_attendance_portal_shows_recent_history_with_daily_logs(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-HISTORY",
+            full_name="Portal History",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_history", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_history", "pass1234")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, check_out, status, shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-03-30",
+                    "08:02",
+                    "17:05",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    "2026-03-30 17:05:00",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, device_user_id, punch_time, punch_type, sync_status,
+                    location_label, latitude, longitude, accuracy_m, note, shift_code, shift_label
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "portal_history",
+                    "2026-03-30 08:02:00",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Pintu Depan",
+                    -8.58314,
+                    116.116798,
+                    7.5,
+                    "Attendance portal check in",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, device_user_id, punch_time, punch_type, sync_status,
+                    location_label, latitude, longitude, accuracy_m, note, shift_code, shift_label
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "portal_history",
+                    "2026-03-30 17:05:00",
+                    "check_out",
+                    "synced",
+                    "Gudang Mataram - Pintu Depan",
+                    -8.58314,
+                    116.116798,
+                    6.5,
+                    "Attendance portal check out",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/absen/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Riwayat Absen Sebelumnya", html)
+        self.assertIn("Lihat Log Hari Itu", html)
+        self.assertIn("Log ini hanya bisa dikoreksi oleh HR atau Super Admin.", html)
+        self.assertNotIn("Perbaiki Log Terakhir", html)
+        self.assertIn("2026-03-30", html)
+        self.assertIn("17:05", html)
+
+    def test_hr_can_edit_attendance_portal_check_out_and_resync_attendance(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-EDIT-OUT",
+            full_name="Portal Edit Out",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("hr_edit_out", "pass1234", "hr", warehouse_id=1, employee_id=employee_id)
+        self.login("hr_edit_out", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:55",
+                "punch_type": "check_in",
+                "note": "Masuk pagi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Pulang",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T17:05",
+                "punch_type": "check_out",
+                "note": "Pulang awalnya",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            checkout_log = db.execute(
+                """
+                SELECT id
+                FROM biometric_logs
+                WHERE employee_id=? AND punch_type='check_out'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(checkout_log)
+
+        response = self.client.post(
+            f"/absen/log/{checkout_log['id']}/edit",
+            data={
+                "punch_type": "check_out",
+                "punch_time": f"{today}T17:30",
+                "note": "Tadi salah klik jam pulang",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/absen/#riwayat-absen", response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            checkout_after = db.execute(
+                """
+                SELECT punch_time, sync_status, note
+                FROM biometric_logs
+                WHERE id=?
+                """,
+                (checkout_log["id"],),
+            ).fetchone()
+            attendance_after = db.execute(
+                """
+                SELECT check_in, check_out, status, note
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(checkout_after["punch_time"][11:16], "17:30")
+        self.assertEqual(checkout_after["sync_status"], "manual")
+        self.assertIn("Koreksi log portal:", checkout_after["note"])
+        self.assertEqual(attendance_after["check_in"], "07:55")
+        self.assertEqual(attendance_after["check_out"], "17:30")
+        self.assertEqual(attendance_after["status"], "present")
+        self.assertEqual(attendance_after["note"], "Synced from geotag")
+
+    def test_hr_can_change_wrong_check_out_to_break_start(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-FIX-BREAK",
+            full_name="Portal Fix Break",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("hr_fix_break", "pass1234", "hr", warehouse_id=1, employee_id=employee_id)
+        self.login("hr_fix_break", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:55",
+                "punch_type": "check_in",
+                "note": "Masuk pagi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T12:00",
+                "punch_type": "check_out",
+                "note": "Salah klik harusnya break",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            checkout_log = db.execute(
+                """
+                SELECT id
+                FROM biometric_logs
+                WHERE employee_id=? AND punch_type='check_out'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(checkout_log)
+
+        response = self.client.post(
+            f"/absen/log/{checkout_log['id']}/edit",
+            data={
+                "punch_type": "break_start",
+                "punch_time": f"{today}T12:00",
+                "note": "Harusnya mulai istirahat",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/absen/#riwayat-absen", response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            corrected_log = db.execute(
+                """
+                SELECT punch_type, punch_time, sync_status, note
+                FROM biometric_logs
+                WHERE id=?
+                """,
+                (checkout_log["id"],),
+            ).fetchone()
+            attendance_after = db.execute(
+                """
+                SELECT check_in, check_out, status
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(corrected_log["punch_type"], "break_start")
+        self.assertEqual(corrected_log["punch_time"][11:16], "12:00")
+        self.assertEqual(corrected_log["sync_status"], "manual")
+        self.assertIn("Koreksi log portal:", corrected_log["note"])
+        self.assertEqual(attendance_after["check_in"], "07:55")
+        self.assertIsNone(attendance_after["check_out"])
+        self.assertEqual(attendance_after["status"], "present")
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("Break Finish", portal_html)
+        self.assertNotIn("Absensi Hari Ini Lengkap", portal_html)
+
+    def test_staff_cannot_edit_attendance_portal_punch_log(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-NO-EDIT",
+            full_name="Portal No Edit",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_no_edit", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_no_edit", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:55",
+                "punch_type": "check_in",
+                "note": "Masuk pagi",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Pulang",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T17:05",
+                "punch_type": "check_out",
+                "note": "Pulang awalnya",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            checkout_log = db.execute(
+                """
+                SELECT id
+                FROM biometric_logs
+                WHERE employee_id=? AND punch_type='check_out'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(checkout_log)
+
+        response = self.client.post(
+            f"/absen/log/{checkout_log['id']}/edit",
+            data={
+                "punch_type": "break_start",
+                "punch_time": f"{today}T12:00",
+                "note": "Tidak boleh bisa diubah staff",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/absen/#riwayat-absen", response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            corrected_log = db.execute(
+                """
+                SELECT punch_type, punch_time, sync_status
+                FROM biometric_logs
+                WHERE id=?
+                """,
+                (checkout_log["id"],),
+            ).fetchone()
+
+        self.assertEqual(corrected_log["punch_type"], "check_out")
+        self.assertEqual(corrected_log["punch_time"][11:16], "17:05")
+        self.assertEqual(corrected_log["sync_status"], "synced")
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("Log ini hanya bisa dikoreksi oleh HR atau Super Admin.", portal_html)
+        self.assertNotIn("Perbaiki Log Terakhir", portal_html)
 
     def test_attendance_portal_uses_mega_shift_schedule_labels(self):
         employee_id = self.create_employee_record(
@@ -7757,7 +8138,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertEqual(biometric_response.status_code, 200)
                 biometric_html = biometric_response.get_data(as_text=True)
                 self.assertIn("Form Absen Mandiri", biometric_html)
-                self.assertNotIn("Riwayat Absen Terakhir", biometric_html)
+                self.assertIn("Riwayat Absen Sebelumnya", biometric_html)
 
                 for blocked_path in [
                     "/hris/leave",
