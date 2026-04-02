@@ -5823,6 +5823,10 @@ def add_announcement():
                 push_body=payload["push_body"],
                 push_url="/announcements/",
                 push_tag=payload["push_tag"],
+                category="announcement",
+                link_url="/announcements/",
+                source_type="announcement",
+                source_id=str(created_announcement),
             )
 
     flash("Announcement berhasil ditambahkan", "success")
@@ -5913,6 +5917,10 @@ def update_announcement(announcement_id):
                 push_body=payload["push_body"],
                 push_url="/announcements/",
                 push_tag=payload["push_tag"],
+                category="announcement",
+                link_url="/announcements/",
+                source_type="announcement",
+                source_id=str(announcement_id),
             )
 
     flash("Announcement berhasil diupdate", "success")

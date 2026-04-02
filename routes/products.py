@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, jsonify, flash, session
 from database import get_db
+from services.notification_service import notify_operational_event
 from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import add_stock
@@ -991,6 +992,9 @@ def import_products():
     default_warehouse_id = wh["id"] if wh else 1
 
     CHUNK_SIZE = 200
+    imported_variant_count = 0
+    imported_total_qty = 0
+    affected_warehouse_ids = set()
 
     category_cache = {r["name"]: r["id"] for r in db.execute("SELECT id,name FROM categories")}
     product_cache = {r["sku"]: r["id"] for r in db.execute("SELECT id,sku FROM products")}
@@ -1003,6 +1007,9 @@ def import_products():
             db.execute("BEGIN")
 
             variant_payloads = []
+            chunk_variant_count = 0
+            chunk_total_qty = 0
+            chunk_warehouse_ids = set()
 
             for row in chunk:
                 try:
@@ -1070,6 +1077,9 @@ def import_products():
             stock_final = []
             for p_id, v_id, warehouse_id, qty in variant_payloads:
                 stock_final.append((p_id, v_id, warehouse_id, qty, qty))
+                chunk_variant_count += 1
+                chunk_total_qty += qty
+                chunk_warehouse_ids.add(warehouse_id)
 
             db.executemany("""
             INSERT INTO stock_batches(product_id,variant_id,warehouse_id,qty,remaining_qty,cost,created_at)
@@ -1099,11 +1109,33 @@ def import_products():
             """)
 
             db.commit()
+            imported_variant_count += chunk_variant_count
+            imported_total_qty += chunk_total_qty
+            affected_warehouse_ids.update(chunk_warehouse_ids)
 
         except Exception as e:
             db.rollback()
             print("CHUNK ERROR:", e)
 
     IMPORT_PROGRESS[job_id]["status"] = "done"
+    if imported_total_qty > 0:
+        try:
+            warehouse_id = next(iter(affected_warehouse_ids)) if len(affected_warehouse_ids) == 1 else None
+            notify_operational_event(
+                f"Import produk selesai: {imported_variant_count} varian",
+                (
+                    f"Bulk import menambahkan {imported_total_qty} stok ke "
+                    f"{imported_variant_count} varian produk."
+                ),
+                warehouse_id=warehouse_id,
+                category="inventory",
+                link_url="/products/",
+                source_type="product_import_job",
+                source_id=job_id,
+                push_title="Import produk selesai",
+                push_body=f"{imported_variant_count} varian | Qty {imported_total_qty}",
+            )
+        except Exception as exc:
+            print("PRODUCT IMPORT NOTIFICATION ERROR:", exc)
 
     return jsonify({"job_id": job_id})

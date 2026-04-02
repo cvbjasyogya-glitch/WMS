@@ -223,7 +223,7 @@ def reset_password():
         cleanup_password_resets(db)
         user = db.execute('SELECT * FROM users WHERE username=? LIMIT 1', (username,)).fetchone()
         if not user:
-            flash('User tidak ditemukan', 'error')
+            flash('Kode tidak valid atau kadaluarsa', 'error')
             return redirect(url_for('auth.reset_password'))
 
         pr = db.execute('SELECT * FROM password_resets WHERE user_id=? AND code=? AND used=0 AND expires_at > datetime("now") ORDER BY id DESC LIMIT 1', (user['id'], code)).fetchone()

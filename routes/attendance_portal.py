@@ -13,6 +13,7 @@ from routes.hris import (
     _normalize_longitude,
     _save_biometric_photo_data,
 )
+from services.notification_service import notify_operational_event
 
 
 attendance_portal_bp = Blueprint("attendance_portal", __name__, url_prefix="/absen")
@@ -37,6 +38,15 @@ ATTENDANCE_SHIFT_SCHEDULES = {
     },
 }
 
+ATTENDANCE_SHIFT_PROFILE_LABELS = {
+    "mataram": "Gudang Mataram",
+    "mega": "Gudang Mega",
+}
+
+ATTENDANCE_SHIFT_PROFILE_HELPERS = {
+    "mataram": "Gudang Mataram: Shift Pagi 08.00 - 16.00, Shift Siang 13.00 - 21.00.",
+    "mega": "Gudang Mega: Shift Pagi 09.00 - 17.00, Shift Siang 13.00 - 21.00.",
+}
 ATTENDANCE_LOCATION_SCOPE_LABELS = {
     "mataram": "Gudang Mataram",
     "mega": "Gudang Mega",
@@ -75,14 +85,69 @@ def _normalize_shift_code(value):
     return shift_code if shift_code in {"pagi", "siang"} else None
 
 
+def _normalize_shift_profile_key(value):
+    shift_profile_key = (value or "").strip().lower()
+    return shift_profile_key if shift_profile_key in ATTENDANCE_SHIFT_SCHEDULES else None
+
+
+def _can_choose_shift_profile():
+    return session.get("role") in {"hr", "super_admin"}
+
+
+def _resolve_shift_profile_key_from_label(shift_label, fallback_key="mataram"):
+    safe_label = str(shift_label or "").strip().lower()
+    if not safe_label:
+        return fallback_key
+
+    for profile_key, schedule_map in ATTENDANCE_SHIFT_SCHEDULES.items():
+        for schedule_item in schedule_map.values():
+            label = _build_shift_label(schedule_item).strip().lower()
+            time_label = f"{schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}".strip().lower()
+            if safe_label == label or time_label in safe_label:
+                return profile_key
+
+    return fallback_key
+
+
 def _build_shift_label(schedule_item):
     if not schedule_item:
         return "-"
     return f"{schedule_item['label']} | {schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}"
 
 
-def _build_shift_options(linked_employee):
-    warehouse_key = _resolve_shift_warehouse_key(linked_employee)
+def _build_shift_profile_options(selected_profile_key):
+    return [
+        {
+            "value": profile_key,
+            "label": ATTENDANCE_SHIFT_PROFILE_LABELS.get(profile_key, "Gudang Mataram"),
+            "helper_text": ATTENDANCE_SHIFT_PROFILE_HELPERS.get(profile_key, ""),
+            "selected": profile_key == selected_profile_key,
+        }
+        for profile_key in ("mataram", "mega")
+    ]
+
+
+def _build_shift_profiles_payload():
+    payload = {}
+    for profile_key in ("mataram", "mega"):
+        schedule_map = ATTENDANCE_SHIFT_SCHEDULES.get(profile_key, ATTENDANCE_SHIFT_SCHEDULES["mataram"])
+        payload[profile_key] = {
+            "label": ATTENDANCE_SHIFT_PROFILE_LABELS.get(profile_key, "Gudang Mataram"),
+            "helper_text": ATTENDANCE_SHIFT_PROFILE_HELPERS.get(profile_key, ""),
+            "options": [
+                {
+                    "value": shift_code,
+                    "label": _build_shift_label(schedule_item),
+                    "time_label": f"{schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}",
+                }
+                for shift_code, schedule_item in schedule_map.items()
+            ],
+        }
+    return payload
+
+
+def _build_shift_options(linked_employee, shift_profile_key=None):
+    warehouse_key = _normalize_shift_profile_key(shift_profile_key) or _resolve_shift_warehouse_key(linked_employee)
     schedule_map = ATTENDANCE_SHIFT_SCHEDULES.get(warehouse_key, ATTENDANCE_SHIFT_SCHEDULES["mataram"])
     return [
         {
@@ -186,6 +251,11 @@ def _resolve_selected_shift(attendance_today, day_logs):
     return {"shift_code": None, "shift_label": None}
 
 
+def _resolve_selected_shift_profile_key(linked_employee, selected_shift):
+    fallback_key = _resolve_shift_warehouse_key(linked_employee) if linked_employee else "mataram"
+    return _resolve_shift_profile_key_from_label(selected_shift.get("shift_label"), fallback_key)
+
+
 def _fetch_attendance_portal_state(db):
     linked_employee = _get_self_service_employee(db)
     if linked_employee:
@@ -222,8 +292,9 @@ def _fetch_attendance_portal_state(db):
 
     punch_mode = _resolve_attendance_punch_mode(attendance_today, day_logs)
     punch_options = _build_attendance_punch_options(attendance_today, day_logs)
-    shift_options = _build_shift_options(linked_employee) if linked_employee else []
     selected_shift = _resolve_selected_shift(attendance_today, day_logs)
+    selected_shift_profile_key = _resolve_selected_shift_profile_key(linked_employee, selected_shift)
+    shift_options = _build_shift_options(linked_employee, selected_shift_profile_key) if linked_employee else []
     selected_shift_code = _normalize_shift_code(selected_shift.get("shift_code"))
     if not selected_shift_code and linked_employee:
         selected_shift_code = _resolve_default_shift_code(linked_employee)
@@ -245,6 +316,12 @@ def _fetch_attendance_portal_state(db):
         "selected_shift_time_label": selected_shift_option["time_label"] if selected_shift_option else "-",
         "shift_locked": bool(selected_shift.get("shift_code") or (attendance_today and attendance_today.get("check_in"))),
         "warehouse_shift_key": _resolve_shift_warehouse_key(linked_employee) if linked_employee else "mataram",
+        "allow_shift_profile_choice": bool(linked_employee and _can_choose_shift_profile()),
+        "shift_profile_key": selected_shift_profile_key,
+        "shift_profile_label": ATTENDANCE_SHIFT_PROFILE_LABELS.get(selected_shift_profile_key, "Gudang Mataram"),
+        "shift_profile_helper": ATTENDANCE_SHIFT_PROFILE_HELPERS.get(selected_shift_profile_key, ""),
+        "shift_profile_options": _build_shift_profile_options(selected_shift_profile_key) if linked_employee and _can_choose_shift_profile() else [],
+        "shift_profiles_payload": _build_shift_profiles_payload() if linked_employee else {},
         "location_scope_options": _build_location_scope_options(linked_employee) if linked_employee else [],
         "default_location_scope": _resolve_default_location_scope(linked_employee) if linked_employee else "mataram",
     }
@@ -272,6 +349,12 @@ def index():
         portal_selected_shift_time_label=portal_state["selected_shift_time_label"],
         portal_shift_locked=portal_state["shift_locked"],
         portal_warehouse_shift_key=portal_state["warehouse_shift_key"],
+        portal_allow_shift_profile_choice=portal_state["allow_shift_profile_choice"],
+        portal_selected_shift_profile_key=portal_state["shift_profile_key"],
+        portal_selected_shift_profile_label=portal_state["shift_profile_label"],
+        portal_selected_shift_profile_helper=portal_state["shift_profile_helper"],
+        portal_shift_profile_options=portal_state["shift_profile_options"],
+        portal_shift_profiles_payload=portal_state["shift_profiles_payload"],
         portal_location_scope_options=portal_state["location_scope_options"],
         portal_default_location_scope=portal_state["default_location_scope"],
     )
@@ -284,6 +367,7 @@ def submit():
     if linked_employee is None:
         flash("Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin.", "error")
         return redirect("/absen/")
+    linked_employee = dict(linked_employee)
 
     portal_state = _fetch_attendance_portal_state(db)
     attendance_today = portal_state["attendance_today"]
@@ -309,7 +393,17 @@ def submit():
         punch_time = f"{date_cls.today().isoformat()} {normalized_punch_time[11:19]}"
     else:
         punch_time = _current_timestamp()
+    requested_shift_profile_key = (
+        portal_state["shift_profile_key"]
+        if portal_state["shift_locked"]
+        else (
+            _normalize_shift_profile_key(request.form.get("shift_profile_key")) or portal_state["shift_profile_key"]
+            if portal_state["allow_shift_profile_choice"]
+            else portal_state["shift_profile_key"]
+        )
+    )
     requested_shift_code = _normalize_shift_code(request.form.get("shift_code"))
+    active_shift_options = _build_shift_options(linked_employee, requested_shift_profile_key)
     if portal_state["shift_locked"] and portal_state["selected_shift_code"]:
         shift_code = portal_state["selected_shift_code"]
     elif requested_shift_code:
@@ -317,8 +411,8 @@ def submit():
     else:
         shift_code = _resolve_default_shift_code(linked_employee, normalized_punch_time)
     shift_option = next(
-        (option for option in portal_state["shift_options"] if option["value"] == shift_code),
-        portal_state["shift_options"][0] if portal_state["shift_options"] else None,
+        (option for option in active_shift_options if option["value"] == shift_code),
+        active_shift_options[0] if active_shift_options else None,
     )
     shift_code = shift_option["value"] if shift_option else None
     shift_label = shift_option["label"] if shift_option else None
@@ -379,7 +473,7 @@ def submit():
     if attendance_today and attendance_today["attendance_date"]:
         note_parts.append(f"Daily attendance {attendance_today['attendance_date']}")
 
-    _insert_biometric_log_record(
+    biometric_log_id = _insert_biometric_log_record(
         db,
         employee_id=linked_employee["id"],
         warehouse_id=linked_employee["warehouse_id"],
@@ -398,6 +492,31 @@ def submit():
         photo_path=photo_path,
     )
     db.commit()
+
+    try:
+        employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
+        warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()
+        punch_label = _get_attendance_punch_label(punch_type)
+        attendance_message = (
+            f"{employee_label} merekam {punch_label} di {warehouse_label}"
+            f" pada {punch_time[11:16]} dari titik {location_label}."
+        )
+        if shift_label:
+            attendance_message += f" Shift aktif: {shift_label}."
+
+        notify_operational_event(
+            f"Absensi {punch_label}: {employee_label}",
+            attendance_message,
+            warehouse_id=linked_employee["warehouse_id"],
+            category="attendance",
+            link_url="/absen/",
+            source_type="biometric_log",
+            source_id=str(biometric_log_id),
+            push_title=f"Absensi {punch_label}",
+            push_body=f"{employee_label} | {warehouse_label} | {punch_time[11:16]}",
+        )
+    except Exception as exc:
+        print("ATTENDANCE NOTIFICATION ERROR:", exc)
 
     flash(f"{_get_attendance_punch_label(punch_type)} berhasil direkam.", "success")
     return redirect("/absen/")

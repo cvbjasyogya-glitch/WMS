@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.request_service import approve_request
-from services.notification_service import notify_roles, notify_user
+from services.notification_service import notify_operational_event, notify_roles, notify_user
 from services.rbac import has_permission, is_scoped_role
 import os
 
@@ -202,6 +202,10 @@ def _notify_request_requester(request_row, verb):
             f"sebanyak {request_row['qty']} item dari {request_row['from_name']} ke {request_row['to_name']} "
             f"telah {verb}.{reason_line}"
         ),
+        category="request",
+        link_url="/request/",
+        source_type="warehouse_request",
+        source_id=str(request_row["id"]),
     )
 
 
@@ -483,7 +487,15 @@ def request_barang():
                 f"Ke: {w2['name']}"
             )
             try:
-                notify_roles(["leader", "owner", "super_admin"], subj, msg, warehouse_id=from_wh)
+                notify_roles(
+                    ["leader", "owner", "super_admin"],
+                    subj,
+                    msg,
+                    warehouse_id=from_wh,
+                    category="request",
+                    link_url="/request/",
+                    source_type="warehouse_request",
+                )
             except Exception as e:
                 print("NOTIFY ERROR:", e)
 
@@ -634,7 +646,14 @@ def request_owner_barang():
                 f"Item pertama: {labels[0]}"
             )
             try:
-                notify_roles(["owner"], subject, message)
+                notify_roles(
+                    ["owner"],
+                    subject,
+                    message,
+                    category="owner_request",
+                    link_url="/request/owner",
+                    source_type="owner_request",
+                )
             except Exception as exc:
                 print("OWNER REQUEST NOTIFY ERROR:", exc)
 
@@ -708,6 +727,10 @@ def update_owner_request(id):
                     owner_request["requested_by"],
                     f"Request ke owner #{id} {allowed_statuses[status]}",
                     f"Request ke owner dengan ID #{id} telah diubah menjadi status {allowed_statuses[status]}.",
+                    category="owner_request",
+                    link_url="/request/owner",
+                    source_type="owner_request",
+                    source_id=str(id),
                 )
         except Exception as exc:
             print("OWNER REQUEST USER NOTIFY ERROR:", exc)
@@ -747,6 +770,34 @@ def approve_request_route(id):
     updated_request = _fetch_request_row(db, id)
 
     if success:
+        try:
+            if updated_request:
+                variant_label = (
+                    "Default"
+                    if str(updated_request["variant"]).lower() == "default"
+                    else updated_request["variant"]
+                )
+                notify_operational_event(
+                    f"Transfer antar gudang diproses: {updated_request['sku']}",
+                    (
+                        f"{updated_request['sku']} - {updated_request['product_name']} / {variant_label} "
+                        f"sebanyak {updated_request['qty']} item dipindahkan dari "
+                        f"{updated_request['from_name']} ke {updated_request['to_name']}."
+                    ),
+                    warehouse_id=updated_request["from_warehouse"],
+                    category="inventory",
+                    link_url="/request/",
+                    source_type="warehouse_transfer",
+                    source_id=str(updated_request["id"]),
+                    push_title="Transfer antar gudang",
+                    push_body=(
+                        f"{updated_request['sku']} | "
+                        f"{updated_request['from_name']} -> {updated_request['to_name']}"
+                    ),
+                )
+        except Exception as exc:
+            print("REQUEST TRANSFER NOTIFICATION ERROR:", exc)
+
         try:
             _notify_request_requester(updated_request, "disetujui")
         except Exception as exc:

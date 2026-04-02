@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, session
 
 from database import get_db
-from services.notification_service import notify_roles
+from services.notification_service import notify_operational_event, notify_roles
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import add_stock
 
@@ -151,7 +151,7 @@ def inbound():
             warehouse_id = user_wh or warehouse_id
 
         warehouse = db.execute(
-            "SELECT id FROM warehouses WHERE id=?",
+            "SELECT id, name FROM warehouses WHERE id=?",
             (warehouse_id,),
         ).fetchone()
 
@@ -168,6 +168,7 @@ def inbound():
                 db.execute("BEGIN")
 
                 processed = 0
+                first_label = ""
                 for item in items:
                     record = _fetch_item_record(
                         db,
@@ -189,9 +190,33 @@ def inbound():
                     ):
                         raise Exception(f'Gagal memproses inbound untuk {_format_item_label(record)}')
 
+                    if not first_label:
+                        first_label = _format_item_label(record)
                     processed += 1
 
                 db.commit()
+
+                try:
+                    notify_operational_event(
+                        f"Inbound selesai: {processed} item",
+                        (
+                            f"{processed} item inbound berhasil diproses di "
+                            f"{(warehouse['name'] or f'Gudang {warehouse_id}').strip()}. "
+                            f"Item pertama: {first_label or '-'}."
+                        ),
+                        warehouse_id=warehouse_id,
+                        category="inventory",
+                        link_url="/inbound/",
+                        source_type="inbound_batch",
+                        push_title="Inbound berhasil diproses",
+                        push_body=(
+                            f"{processed} item | "
+                            f"{(warehouse['name'] or f'Gudang {warehouse_id}').strip()}"
+                        ),
+                    )
+                except Exception as exc:
+                    print("INBOUND NOTIFICATION ERROR:", exc)
+
                 flash(f"{processed} item inbound berhasil diproses", "success")
 
             elif has_permission(role, "request_stock_ops"):
@@ -235,6 +260,9 @@ def inbound():
                         "Permintaan Inbound Massal",
                         f"Ada {len(items)} item inbound yang menunggu approval.",
                         warehouse_id=warehouse_id,
+                        category="approval",
+                        link_url="/approvals",
+                        source_type="approval_queue",
                     )
                 except Exception as exc:
                     print("NOTIFY ERROR:", exc)

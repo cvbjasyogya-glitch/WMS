@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.stock_service import add_stock, remove_stock, adjust_stock
-from services.notification_service import notify_roles, notify_user
+from services.notification_service import notify_operational_event, notify_roles, notify_user
 from services.rbac import has_permission
 
 approvals_bp = Blueprint("approvals", __name__, url_prefix="/approvals")
@@ -12,6 +12,41 @@ def require_leader():
         flash("Akses ditolak", "error")
         return False
     return True
+
+
+def _approval_result_link(approval_row):
+    approval_type = str((approval_row or {}).get("type") or "").strip().upper()
+    if approval_type == "INBOUND":
+        return "/inbound"
+    if approval_type == "OUTBOUND":
+        return "/outbound"
+    if approval_type == "ADJUST":
+        return "/stock/"
+    return "/approvals"
+
+
+def _approval_item_context(db, approval_row):
+    if not approval_row:
+        return None
+
+    return db.execute(
+        """
+        SELECT
+            p.sku,
+            p.name AS product_name,
+            COALESCE(v.variant, 'default') AS variant_name,
+            w.name AS warehouse_name
+        FROM products p
+        JOIN product_variants v ON v.product_id = p.id
+        JOIN warehouses w ON w.id = ?
+        WHERE p.id=? AND v.id=?
+        """,
+        (
+            approval_row.get("warehouse_id"),
+            approval_row.get("product_id"),
+            approval_row.get("variant_id"),
+        ),
+    ).fetchone()
 
 
 @approvals_bp.route("/")
@@ -93,13 +128,50 @@ def approve(id):
         if ok:
             db.execute("UPDATE approvals SET status='approved', approved_by=?, approved_at=datetime('now') WHERE id=?", (session.get('user_id'), id))
             db.commit()
+
+            try:
+                approval_item = _approval_item_context(db, a)
+                if approval_item:
+                    variant_label = (
+                        "Default"
+                        if str(approval_item["variant_name"]).lower() == "default"
+                        else approval_item["variant_name"]
+                    )
+                    approval_type = str(a.get("type") or "APPROVAL").strip().upper()
+                    notify_operational_event(
+                        f"Approval {approval_type} diproses",
+                        (
+                            f"{approval_type} untuk {approval_item['sku']} - {approval_item['product_name']} / "
+                            f"{variant_label} sebanyak {a.get('qty')} item di "
+                            f"{(approval_item['warehouse_name'] or f'Gudang {a.get('warehouse_id')}').strip()} "
+                            "sudah dijalankan."
+                        ),
+                        warehouse_id=a.get("warehouse_id"),
+                        category="inventory",
+                        link_url=_approval_result_link(a),
+                        source_type="approval_execution",
+                        source_id=str(a.get("id")),
+                        push_title=f"Approval {approval_type}",
+                        push_body=f"{approval_item['sku']} | Qty {a.get('qty')}",
+                    )
+            except Exception as exc:
+                print("APPROVAL EXECUTION NOTIFICATION ERROR:", exc)
+
             flash('Approval disetujui dan aksi dijalankan', 'success')
             # notify requester
             try:
                 if a.get('requested_by'):
                     subj = f"Permintaan {a.get('type')} #{a.get('id')} disetujui"
                     msg = f"Permintaan Anda (ID #{a.get('id')}) telah disetujui dan diproses oleh {session.get('user_id')}"
-                    notify_user(a.get('requested_by'), subj, msg)
+                    notify_user(
+                        a.get('requested_by'),
+                        subj,
+                        msg,
+                        category="approval",
+                        link_url=_approval_result_link(a),
+                        source_type="approval_result",
+                        source_id=str(a.get("id")),
+                    )
             except Exception:
                 pass
         else:
@@ -111,7 +183,15 @@ def approve(id):
                 if a.get('requested_by'):
                     subj = f"Permintaan {a.get('type')} #{a.get('id')} gagal diproses"
                     msg = f"Permintaan Anda (ID #{a.get('id')}) ditolak atau gagal diproses oleh {session.get('user_id')}"
-                    notify_user(a.get('requested_by'), subj, msg)
+                    notify_user(
+                        a.get('requested_by'),
+                        subj,
+                        msg,
+                        category="approval",
+                        link_url=_approval_result_link(a),
+                        source_type="approval_result",
+                        source_id=str(a.get("id")),
+                    )
             except Exception:
                 pass
 
@@ -151,7 +231,15 @@ def reject(id):
         if a and a.get('requested_by'):
             subj = f"Permintaan {a.get('type')} #{a.get('id')} ditolak"
             msg = f"Permintaan Anda (ID #{a.get('id')}) telah ditolak oleh {session.get('user_id')}. Alasan: {reason}"
-            notify_user(a.get('requested_by'), subj, msg)
+            notify_user(
+                a.get('requested_by'),
+                subj,
+                msg,
+                category="approval",
+                link_url=_approval_result_link(a),
+                source_type="approval_result",
+                source_id=str(a.get("id")),
+            )
     except Exception:
         pass
 

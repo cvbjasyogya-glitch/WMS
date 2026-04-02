@@ -1,5 +1,6 @@
 from flask import Blueprint, Response, jsonify, render_template, request, session
 from database import get_db
+from services.notification_service import notify_operational_event
 import csv
 from io import StringIO
 
@@ -419,6 +420,22 @@ def submit_so():
                 "processed": processed,
             }
         )
+        try:
+            notify_operational_event(
+                f"Stock opname tersimpan: {processed} penyesuaian",
+                (
+                    f"Hasil stock opname berhasil disimpan untuk "
+                    f"{payload['display_name']} dan {payload['gudang_name']} "
+                    f"dengan {processed} penyesuaian stok."
+                ),
+                category="inventory",
+                link_url="/so",
+                source_type="stock_opname_session",
+                push_title="Stock opname tersimpan",
+                push_body=f"{processed} penyesuaian | {payload['display_name']} & {payload['gudang_name']}",
+            )
+        except Exception as exc:
+            print("STOCK OPNAME NOTIFICATION ERROR:", exc)
         return jsonify(payload)
 
     except Exception as e:

@@ -1309,7 +1309,29 @@ def init_db(db_path=None):
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS web_notifications(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        category TEXT DEFAULT 'system',
+        title TEXT NOT NULL,
+        message TEXT,
+        link_url TEXT DEFAULT '/notifications/',
+        actor_user_id INTEGER,
+        actor_name TEXT,
+        source_type TEXT,
+        source_id TEXT,
+        dedupe_key TEXT,
+        is_read INTEGER DEFAULT 0,
+        read_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+    """)
+
     c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(recipient, channel, subject, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_user_feed ON web_notifications(user_id, is_read, created_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_dedupe ON web_notifications(user_id, dedupe_key, created_at DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_lookup ON password_resets(user_id, code, used, expires_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, success, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, success, created_at)")

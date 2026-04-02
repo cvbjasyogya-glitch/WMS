@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     const bootstrapNode = document.getElementById("chatBootstrapData");
     const callLayer = document.getElementById("chatCallLayer");
     if (!bootstrapNode || !callLayer) {
@@ -51,6 +51,8 @@
         endingInFlight: false,
         muted: false,
         cameraOff: false,
+        autoPickupCallId: Number(bootstrap.auto_pickup_call_id || 0) || null,
+        autoPickupConsumed: false,
     };
 
     function notify(message) {
@@ -81,6 +83,14 @@
             window.clearTimeout(state.dismissTimer);
             state.dismissTimer = null;
         }
+    }
+
+    function startIncomingRingtone() {
+        window.WmsChatRealtime?.startCallRingtone?.();
+    }
+
+    function stopIncomingRingtone() {
+        window.WmsChatRealtime?.stopCallRingtone?.();
     }
 
     function defaultHint(call) {
@@ -237,6 +247,7 @@
         state.endingInFlight = false;
         state.muted = false;
         state.cameraOff = false;
+        stopIncomingRingtone();
         callLayer.hidden = true;
         if (incomingActions) {
             incomingActions.hidden = true;
@@ -322,6 +333,12 @@
         }
         if (secondaryActions) {
             secondaryActions.classList.toggle("is-hidden", !showControls);
+        }
+
+        if (incomingVisible) {
+            startIncomingRingtone();
+        } else {
+            stopIncomingRingtone();
         }
 
         updateToggleButtons();
@@ -514,6 +531,7 @@
             showControls: false,
             showEndAction: false,
         });
+        stopIncomingRingtone();
         resetPeerConnection();
         stopLocalStream();
         scheduleDismiss(2200);
@@ -632,6 +650,17 @@
 
         if (matchingCall) {
             renderCall(matchingCall);
+            if (
+                matchingCall.can_accept
+                && state.autoPickupCallId
+                && Number(matchingCall.id) === Number(state.autoPickupCallId)
+                && !state.autoPickupConsumed
+            ) {
+                state.autoPickupConsumed = true;
+                window.setTimeout(() => {
+                    acceptCall();
+                }, 120);
+            }
             return;
         }
 
@@ -648,6 +677,16 @@
                     navigator.vibrate([180, 80, 180]);
                 } catch (error) {
                 }
+            }
+            if (
+                state.autoPickupCallId
+                && Number(incomingCall.id) === Number(state.autoPickupCallId)
+                && !state.autoPickupConsumed
+            ) {
+                state.autoPickupConsumed = true;
+                window.setTimeout(() => {
+                    acceptCall();
+                }, 120);
             }
             return;
         }
@@ -726,6 +765,7 @@
                     hintText: error.message || defaultHint(error.payload.call),
                 });
             } else {
+                stopIncomingRingtone();
                 notify(error.message || "Panggilan gagal dimulai.");
                 resetCallUi();
             }
@@ -753,7 +793,10 @@
                     showEndAction: true,
                 });
             }
+            removeAutoCallQuery();
         } catch (error) {
+            stopIncomingRingtone();
+            removeAutoCallQuery();
             notify(error.message || "Panggilan gagal diterima.");
             resetCallUi();
         }
@@ -781,6 +824,8 @@
             }
         } catch (error) {
         } finally {
+            stopIncomingRingtone();
+            removeAutoCallQuery();
             resetPeerConnection();
             stopLocalStream();
             scheduleDismiss(1200);
@@ -810,6 +855,7 @@
         } catch (error) {
         } finally {
             state.endingInFlight = false;
+            stopIncomingRingtone();
             resetPeerConnection();
             stopLocalStream();
             scheduleDismiss(1200);
@@ -818,10 +864,12 @@
 
     function removeAutoCallQuery() {
         const url = new URL(window.location.href);
-        if (!url.searchParams.has("call")) {
+        const hadAutoCall = url.searchParams.has("call") || url.searchParams.has("pickup_call");
+        if (!hadAutoCall) {
             return;
         }
         url.searchParams.delete("call");
+        url.searchParams.delete("pickup_call");
         window.history.replaceState({}, "", url.toString());
     }
 
@@ -879,6 +927,7 @@
         if (state.pollTimer) {
             window.clearInterval(state.pollTimer);
         }
+        stopIncomingRingtone();
         if (state.call?.id && isOpenCall(state.call) && navigator.sendBeacon) {
             try {
                 navigator.sendBeacon(
@@ -890,3 +939,4 @@
         }
     });
 })();
+

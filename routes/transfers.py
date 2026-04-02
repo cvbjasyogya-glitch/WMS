@@ -3,7 +3,7 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, jsonify, session
 
 from database import get_db
-from services.notification_service import notify_roles
+from services.notification_service import notify_operational_event, notify_roles
 from services.request_service import create_request, approve_request
 from services.rbac import has_permission, is_scoped_role
 
@@ -180,6 +180,7 @@ def transfer():
                 db.execute("BEGIN")
 
                 processed = 0
+                first_label = ""
                 for item in items:
                     req_id = create_request(
                         item["product_id"],
@@ -199,9 +200,29 @@ def transfer():
                             f'Transfer gagal untuk {labels[(item["product_id"], item["variant_id"])]}'
                         )
 
+                    if not first_label:
+                        first_label = labels[(item["product_id"], item["variant_id"])]
                     processed += 1
 
                 db.commit()
+
+                try:
+                    notify_operational_event(
+                        f"Transfer selesai: {processed} item",
+                        (
+                            f"{processed} item berhasil dipindahkan dari {wh1['name']} ke {wh2['name']}. "
+                            f"Item pertama: {first_label or '-'}."
+                        ),
+                        warehouse_id=from_wh,
+                        category="inventory",
+                        link_url="/transfers/",
+                        source_type="direct_transfer_batch",
+                        push_title="Transfer gudang selesai",
+                        push_body=f"{processed} item | {wh1['name']} -> {wh2['name']}",
+                    )
+                except Exception as exc:
+                    print("TRANSFER NOTIFICATION ERROR:", exc)
+
                 flash(f"{processed} item transfer berhasil diproses (FIFO)", "success")
             except Exception as exc:
                 db.rollback()
@@ -245,7 +266,15 @@ def transfer():
                     f"Ke: {wh2['name']}"
                 )
                 try:
-                    notify_roles(["leader", "owner", "super_admin"], subj, msg, warehouse_id=from_wh)
+                    notify_roles(
+                        ["leader", "owner", "super_admin"],
+                        subj,
+                        msg,
+                        warehouse_id=from_wh,
+                        category="request",
+                        link_url="/request/",
+                        source_type="warehouse_request",
+                    )
                 except Exception:
                     pass
 

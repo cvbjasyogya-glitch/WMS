@@ -44,7 +44,6 @@
             <p data-push-status-copy>Memeriksa dukungan notifikasi perangkat...</p>
             <div class="announcement-permission-actions">
                 <button type="button" class="ghost-button" data-enable-device-notifications>Aktifkan Sekarang</button>
-                <button type="button" class="ghost-button" data-disable-device-notifications>Nonaktifkan</button>
             </div>
         </div>
         <div class="box announcement-permission-card">
@@ -133,14 +132,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-window.wmsPushConfig = {
-    publicKey: {{ webpush_public_key|tojson }},
-    subscribeUrl: "/announcements/push/subscribe",
-    unsubscribeUrl: "/announcements/push/unsubscribe",
-    serviceWorkerUrl: "/service-worker.js"
-};
-</script>
-<script src="/static/js/push_notifications.js"></script>
 <script src="/static/js/announcement_center.js"></script>
 {% endblock %}

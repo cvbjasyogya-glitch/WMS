@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Notifikasi | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Notification Center{% endblock %}
+{% block page_title %}Semua Notifikasi{% endblock %}
+{% block page_subtitle %}Pantau semua kejadian penting dari absen, inbound, outbound, transfer, stok, approval, chat, dan pengumuman dalam satu inbox. Notifikasi yang sudah dibaca otomatis hilang dari daftar aktif.{% endblock %}
+
+{% block page_actions %}
+<button type="button" class="ghost-button" data-notification-enable-device>Aktifkan Notif Perangkat</button>
+<button type="button" class="ghost-button" data-notification-mark-all data-notification-surface="page">Tandai Semua Dibaca</button>
+<button type="button" class="ghost-button danger" data-notification-delete-all data-notification-surface="page">Hapus Semua</button>
+{% endblock %}
+
+{% block content %}
+<section class="cards notifications-summary-cards">
+    <article class="card-mini {% if notification_summary.total %}success{% endif %}">
+        <p>Total Notifikasi</p>
+        <h3 data-notification-total>{{ notification_summary.total }}</h3>
+    </article>
+    <article class="card-mini {% if notification_summary.unread %}warning{% endif %}">
+        <p>Belum Dibaca</p>
+        <h3 data-notification-unread>{{ notification_summary.unread }}</h3>
+    </article>
+    <article class="card-mini">
+        <p>Status Device</p>
+        <h3 data-notification-device-label>Memeriksa...</h3>
+    </article>
+</section>
+
+<section
+    class="panel notifications-page-shell"
+    data-notification-page
+    data-notification-initial-filter="{{ notifications_filter }}"
+>
+    <div class="notification-center-head is-page">
+        <div>
+            <p class="section-kicker">Inbox Aktivitas</p>
+            <h2>Ringkasan Semua Event</h2>
+            <p class="helper-text">Gunakan filter untuk fokus ke notif baru. Aktivitas absen, inbound, outbound, transfer, stok, chat, dan pengumuman sekarang ikut terkumpul di sini, lalu otomatis hilang setelah dibaca.</p>
+        </div>
+        <span class="status-pill notification-device-pill" data-notification-device-status>Belum dicek</span>
+    </div>
+
+    <div class="notification-center-toolbar is-page">
+        <div class="notification-center-tabs" role="tablist" aria-label="Filter semua notifikasi">
+            <button
+                type="button"
+                class="notification-tab {% if notifications_filter != 'unread' %}active{% endif %}"
+                data-notification-filter="all"
+                data-notification-surface="page"
+            >
+                Semua
+            </button>
+            <button
+                type="button"
+                class="notification-tab {% if notifications_filter == 'unread' %}active{% endif %}"
+                data-notification-filter="unread"
+                data-notification-surface="page"
+            >
+                Belum Dibaca
+            </button>
+        </div>
+        <div class="notification-center-actions">
+            <button type="button" class="ghost-button notification-mini-action" data-notification-enable-device>Aktifkan Device</button>
+            <button type="button" class="ghost-button notification-mini-action" data-notification-mark-all data-notification-surface="page">Tandai Semua</button>
+            <button type="button" class="ghost-button notification-mini-action danger" data-notification-delete-all data-notification-surface="page">Hapus Semua</button>
+        </div>
+    </div>
+
+    <div class="notification-center-meta" data-notification-page-summary>
+        {{ notification_summary.unread }} belum dibaca dari {{ notification_summary.total }} notifikasi.
+    </div>
+
+    <div class="notification-center-list is-page" data-notification-page-list>
+        {% if notifications %}
+            {% for item in notifications %}
+            <article class="notification-card" data-notification-card data-notification-id="{{ item.id }}">
+                <a
+                    href="{{ item.link_url or '/notifications/' }}"
+                    class="notification-entry {% if not item.is_read %}is-unread{% endif %}"
+                    data-notification-entry-link
+                    data-notification-id="{{ item.id }}"
+                >
+                    <span class="notification-entry-icon {{ item.category or 'system' }}" aria-hidden="true">
+                        {{ (item.category or 'NT')[:2]|upper }}
+                    </span>
+                    <div class="notification-entry-body">
+                        <div class="notification-entry-topline">
+                            <strong>{{ item.title }}</strong>
+                            <time>{{ item.created_at }}</time>
+                        </div>
+                        <p>{{ item.message }}</p>
+                        <div class="notification-entry-meta">
+                            <span class="notification-chip">{{ item.category or 'system' }}</span>
+                            {% if item.actor_name %}<span>{{ item.actor_name }}</span>{% endif %}
+                            {% if not item.is_read %}<span class="notification-unread-dot" aria-hidden="true"></span>{% endif %}
+                        </div>
+                    </div>
+                </a>
+                <div class="notification-entry-actions">
+                    <button type="button" class="ghost-button notification-entry-action danger" data-notification-delete data-notification-id="{{ item.id }}">Hapus</button>
+                </div>
+            </article>
+            {% endfor %}
+        {% else %}
+        <div class="notification-center-empty">Belum ada notifikasi di inbox. Aktivitas baru dari sistem akan mulai muncul di sini.</div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

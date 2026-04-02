@@ -7,6 +7,7 @@ from flask import Blueprint, current_app, flash, jsonify, redirect, render_templ
 from werkzeug.utils import secure_filename
 
 from database import get_db
+from services.notification_service import create_web_notification
 from services.rbac import has_permission
 
 
@@ -1108,6 +1109,12 @@ def chat_page():
     if auto_start_call_mode not in SUPPORTED_CALL_MODES:
         auto_start_call_mode = None
 
+    auto_pickup_call_id = _to_int(request.args.get("pickup_call"))
+    if auto_pickup_call_id:
+        call_scope = _fetch_call_session_row(db, auto_pickup_call_id, current_user["id"])
+        if not call_scope or int(call_scope["thread_id"]) != int(selected_thread["id"] if selected_thread else 0):
+            auto_pickup_call_id = None
+
     summary = {
         "threads": len(threads),
         "leaders": sum(1 for contact in contacts if contact["is_leader"]),
@@ -1131,6 +1138,7 @@ def chat_page():
         chat_attachment_max_bytes=_get_chat_attachment_max_bytes(),
         current_user_payload=_serialize_current_user(current_user),
         auto_start_call_mode=auto_start_call_mode,
+        auto_pickup_call_id=auto_pickup_call_id,
         chat_webrtc_ice_servers=current_app.config.get("CHAT_WEBRTC_ICE_SERVERS", []),
     )
 
@@ -1318,6 +1326,21 @@ def send_message(thread_id):
                 VALUES (?, ?, 'chat', ?, ?, ?, 'queued')
                 """,
                 (recipient["id"], recipient["role"], recipient["username"], subject, preview),
+            )
+        except Exception:
+            pass
+        try:
+            create_web_notification(
+                recipient["id"],
+                subject,
+                preview,
+                category="chat",
+                link_url=f"/chat/?thread={thread_id}",
+                actor_user_id=current_user["id"],
+                actor_name=current_user["username"],
+                source_type="chat_message",
+                source_id=str(message_id),
+                dedupe_key=f"chat-message:{message_id}",
             )
         except Exception:
             pass
@@ -1693,3 +1716,4 @@ def update_presence():
     )
 
     return jsonify({"status": "ok"})
+

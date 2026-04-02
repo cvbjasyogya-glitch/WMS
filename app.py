@@ -1,7 +1,9 @@
 import os
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 from flask import Flask, session, redirect, url_for, request, flash, g, jsonify
+from flask.sessions import SecureCookieSessionInterface
 from config import Config
 from database import close_db, get_db
 from datetime import datetime, timezone
@@ -39,8 +41,9 @@ from routes.leave_portal import leave_portal_bp
 from routes.account import account_bp
 from routes.announcement_center import announcement_center_bp
 from routes.meetings import meetings_bp
+from routes.notifications import notifications_bp
 
-# 🔥 TAMBAHAN WAJIB
+# ðŸ”¥ TAMBAHAN WAJIB
 from routes.stock_opname import so_bp
 from services.hris_catalog import (
     can_manage_hris_module,
@@ -52,7 +55,7 @@ from services.hris_catalog import (
 )
 
 
-SESSION_TIMEOUT = 15 * 60
+SESSION_TIMEOUT = int(getattr(Config, "PERMANENT_SESSION_LIFETIME").total_seconds())
 
 
 def _normalized_restore_usernames(raw_value):
@@ -73,6 +76,10 @@ def _build_security_headers():
         "X-Frame-Options": "SAMEORIGIN",
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Permissions-Policy": "camera=(self), geolocation=(self), microphone=(self), interest-cohort=()",
+        "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Origin-Agent-Cluster": "?1",
+        "X-Permitted-Cross-Domain-Policies": "none",
         "Content-Security-Policy": (
             "default-src 'self' data: blob: https://source.zoom.us; "
             "img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us; "
@@ -88,6 +95,82 @@ def _build_security_headers():
             "form-action 'self'"
         ),
     }
+
+
+class RequestAwareSessionInterface(SecureCookieSessionInterface):
+    def get_cookie_secure(self, app):
+        return bool(app.config.get("SESSION_COOKIE_SECURE")) or request.is_secure
+
+
+def _normalized_host_name(raw_value):
+    candidate = str(raw_value or "").strip()
+    if not candidate:
+        return ""
+
+    if "://" in candidate:
+        parsed = urlsplit(candidate)
+        return (parsed.hostname or "").strip().lower().rstrip(".")
+
+    if candidate.startswith("[") and "]" in candidate:
+        candidate = candidate[1:candidate.index("]")]
+    else:
+        candidate = candidate.split(":", 1)[0]
+
+    return candidate.strip().lower().rstrip(".")
+
+
+def _normalized_port(scheme, port):
+    if port is not None:
+        try:
+            return int(port)
+        except (TypeError, ValueError):
+            pass
+    return 443 if str(scheme or "").lower() == "https" else 80
+
+
+def _is_same_origin_url(candidate_url):
+    candidate = str(candidate_url or "").strip()
+    if not candidate:
+        return False
+
+    parsed_candidate = urlsplit(candidate)
+    request_origin = urlsplit(request.host_url)
+    if not parsed_candidate.scheme or not parsed_candidate.hostname:
+        return False
+
+    return (
+        parsed_candidate.scheme.lower() == request_origin.scheme.lower()
+        and _normalized_host_name(parsed_candidate.hostname or "")
+        == _normalized_host_name(request_origin.hostname or "")
+        and _normalized_port(parsed_candidate.scheme, parsed_candidate.port)
+        == _normalized_port(request_origin.scheme, request_origin.port)
+    )
+
+
+def _is_allowed_host(candidate_host, allowed_hosts):
+    normalized_candidate = _normalized_host_name(candidate_host)
+    if not normalized_candidate:
+        return False
+
+    normalized_allowed = [
+        str(item).strip().lower()
+        for item in (allowed_hosts or [])
+        if str(item).strip()
+    ]
+    if not normalized_allowed:
+        return True
+
+    for allowed_host in normalized_allowed:
+        if allowed_host.startswith("."):
+            suffix = allowed_host[1:].strip().lower().rstrip(".")
+            if normalized_candidate == suffix or normalized_candidate.endswith(f".{suffix}"):
+                return True
+            continue
+
+        if normalized_candidate == _normalized_host_name(allowed_host):
+            return True
+
+    return False
 
 
 # ==============================
@@ -302,7 +385,12 @@ def create_app():
     )
     app.config.setdefault("CHAT_UPLOAD_URL_PREFIX", "/static/uploads/chat")
 
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    app.session_interface = RequestAwareSessionInterface()
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_proto=max(0, int(app.config.get("PROXY_FIX_X_PROTO", 1))),
+        x_host=max(0, int(app.config.get("PROXY_FIX_X_HOST", 0))),
+    )
     init_db(app.config["DATABASE"])
 
     app.teardown_appcontext(close_db)
@@ -315,6 +403,40 @@ def create_app():
             or uuid4().hex
         )
 
+    @app.before_request
+    def enforce_allowed_hosts():
+        allowed_hosts = app.config.get("ALLOWED_HOSTS") or []
+        if not allowed_hosts:
+            return
+
+        if _is_allowed_host(request.host, allowed_hosts):
+            return
+
+        return "Host tidak diizinkan", 400
+
+    @app.before_request
+    def enforce_same_origin_writes():
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return
+
+        if not app.config.get("ENFORCE_SAME_ORIGIN_POSTS", True):
+            return
+
+        if app.config.get("TESTING") and not app.config.get(
+            "ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS",
+            False,
+        ):
+            return
+
+        origin = (request.headers.get("Origin") or "").strip()
+        referer = (request.headers.get("Referer") or "").strip()
+
+        if origin and not _is_same_origin_url(origin):
+            return "Permintaan lintas situs ditolak", 403
+
+        if not origin and referer and not _is_same_origin_url(referer):
+            return "Permintaan lintas situs ditolak", 403
+
     @app.after_request
     def apply_response_hardening(response):
         request_id_header = app.config.get("REQUEST_ID_HEADER", "X-Request-ID")
@@ -323,9 +445,15 @@ def create_app():
         for header_name, header_value in _build_security_headers().items():
             response.headers.setdefault(header_name, header_value)
 
+        if request.is_secure:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+
         if (
             (request.endpoint or "").startswith("auth.")
-            or response.headers.get("Set-Cookie")
+            or (response.mimetype == "text/html" and session.get("user_id"))
         ):
             response.headers["Cache-Control"] = "no-store, max-age=0"
             response.headers["Pragma"] = "no-cache"
@@ -560,8 +688,9 @@ def create_app():
     app.register_blueprint(meetings_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(announcement_center_bp)
+    app.register_blueprint(notifications_bp)
 
-    # 🔥 TAMBAHAN WAJIB
+    # ðŸ”¥ TAMBAHAN WAJIB
     app.register_blueprint(so_bp)
 
     ensure_super_admin(app)

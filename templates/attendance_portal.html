@@ -81,6 +81,7 @@
         data-employee-name="{{ linked_employee.full_name }}"
         data-warehouse-name="{{ linked_employee.warehouse_name or '-' }}"
         data-today-date="{{ today_date }}"
+        data-shift-profiles='{{ portal_shift_profiles_payload|tojson }}'
     >
         <div class="section-title">
             <div>
@@ -111,6 +112,23 @@
                     <input type="hidden" name="photo_data_url" data-photo-input>
                     <input type="hidden" name="punch_time" data-punch-time-input>
                     <div class="form-grid">
+                        {% if portal_allow_shift_profile_choice %}
+                        <div>
+                            <label>Profil Jam Gudang</label>
+                            {% if portal_shift_locked and portal_selected_shift_profile_key %}
+                            <input type="hidden" name="shift_profile_key" value="{{ portal_selected_shift_profile_key }}">
+                            <input type="text" value="{{ portal_selected_shift_profile_label }}" readonly>
+                            <small class="helper-text">Pilihan jam terkunci mengikuti profil saat check in pertama hari ini.</small>
+                            {% else %}
+                            <select name="shift_profile_key" data-shift-profile-select {% if portal_punch_mode == "complete" %}disabled{% endif %}>
+                                {% for option in portal_shift_profile_options %}
+                                <option value="{{ option.value }}" {% if option.value == portal_selected_shift_profile_key %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="helper-text" data-shift-profile-helper>{{ portal_selected_shift_profile_helper }}</small>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                         <div>
                             <label>Shift Kerja</label>
                             {% if portal_shift_locked and portal_selected_shift %}
@@ -123,13 +141,7 @@
                                 <option value="{{ option.value }}" data-time-label="{{ option.time_label }}" {% if option.value == portal_selected_shift %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
                             </select>
-                            <small class="helper-text">
-                                {% if portal_warehouse_shift_key == "mega" %}
-                                Gudang Mega: Shift Pagi 09.00 - 17.00, Shift Siang 13.00 - 21.00.
-                                {% else %}
-                                Gudang Mataram: Shift Pagi 08.00 - 16.00, Shift Siang 13.00 - 21.00.
-                                {% endif %}
-                            </small>
+                            <small class="helper-text" data-shift-helper>{{ portal_selected_shift_profile_helper }}</small>
                             {% endif %}
                         </div>
                         <div>
@@ -243,7 +255,10 @@
     const latitudeInput = portal.querySelector("[data-latitude-input]");
     const longitudeInput = portal.querySelector("[data-longitude-input]");
     const accuracyInput = portal.querySelector("[data-accuracy-input]");
+    const shiftProfileSelect = portal.querySelector("[data-shift-profile-select]");
+    const shiftProfileHelper = portal.querySelector("[data-shift-profile-helper]");
     const shiftSelect = portal.querySelector("[data-shift-select]");
+    const shiftHelper = portal.querySelector("[data-shift-helper]");
     const punchTypeSelect = portal.querySelector("[data-punch-type-select]");
     const shiftTimeDisplay = portal.querySelector("[data-shift-time-display]");
     const locationLabelInput = portal.querySelector("[data-location-label-input]");
@@ -255,6 +270,13 @@
     const employeeName = portal.dataset.employeeName || "";
     const warehouseName = portal.dataset.warehouseName || "";
     const todayDate = portal.dataset.todayDate || "";
+    const shiftProfiles = (() => {
+        try {
+            return JSON.parse(portal.dataset.shiftProfiles || "{}");
+        } catch (error) {
+            return {};
+        }
+    })();
     let activeStream = null;
     let rawPhotoDataUrl = "";
     let submitInProgress = false;
@@ -289,6 +311,20 @@
         const now = new Date();
         punchTimeInput.value = formatDateTimeLocal(now);
         punchTimeDisplay.value = formatDateTimeLabel(now);
+    };
+
+    const getActiveShiftProfileKey = () => {
+        const requestedValue = (shiftProfileSelect?.value || "").trim().toLowerCase();
+        if (requestedValue && shiftProfiles[requestedValue]) {
+            return requestedValue;
+        }
+        if (warehouseName.toLowerCase().includes("mega") && shiftProfiles.mega) {
+            return "mega";
+        }
+        if (shiftProfiles.mataram) {
+            return "mataram";
+        }
+        return Object.keys(shiftProfiles)[0] || "mataram";
     };
 
     const escapeSvgText = (value) => String(value || "")
@@ -992,6 +1028,31 @@
         shiftTimeDisplay.value = selectedOption ? (selectedOption.dataset.timeLabel || "") : "";
     };
 
+    const syncShiftProfileUi = () => {
+        const profileKey = getActiveShiftProfileKey();
+        const profile = shiftProfiles[profileKey] || null;
+        const currentShiftValue = (shiftSelect?.value || "").trim().toLowerCase() || "pagi";
+
+        if (shiftProfileHelper) {
+            shiftProfileHelper.textContent = profile?.helper_text || "";
+        }
+        if (shiftHelper) {
+            shiftHelper.textContent = profile?.helper_text || "";
+        }
+
+        if (shiftSelect && profile && Array.isArray(profile.options) && !portalLocked) {
+            shiftSelect.innerHTML = profile.options.map((option) => {
+                const isSelected = option.value === currentShiftValue;
+                return `<option value="${option.value}" data-time-label="${option.time_label}" ${isSelected ? "selected" : ""}>${option.label}</option>`;
+            }).join("");
+
+            if (!Array.from(shiftSelect.options).some((option) => option.value === currentShiftValue)) {
+                shiftSelect.selectedIndex = 0;
+            }
+        }
+
+        syncShiftTimeDisplay();
+    };
     const requestCurrentLocation = ({ autoTriggered = false } = {}) => {
         if (locationRequestPromise) {
             return locationRequestPromise;
@@ -1096,7 +1157,7 @@
     };
 
     syncPunchTime();
-    syncShiftTimeDisplay();
+    syncShiftProfileUi();
     syncLocationScopeUi();
     if (!portalLocked) {
         window.setInterval(() => {
@@ -1110,6 +1171,13 @@
         locationStatus.value = "Absensi lengkap";
         locationHelper.textContent = "Tidak perlu ambil foto atau lokasi lagi untuk hari ini.";
     }
+
+    shiftProfileSelect?.addEventListener("change", () => {
+        syncShiftProfileUi();
+        if (rawPhotoDataUrl) {
+            refreshStampedPreview();
+        }
+    });
 
     shiftSelect?.addEventListener("change", () => {
         syncShiftTimeDisplay();

@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     const config = window.wmsChatRealtimeConfig;
     if (!config || !config.enabled) {
         return;
@@ -6,17 +6,36 @@
 
     const originalTitle = document.title;
     const soundUrl = config.soundUrl || "";
+    const callPollUrl = config.callPollUrl || "";
+    const presenceUrl = config.presenceUrl || "/chat/presence";
+    const callRingtoneUrl = config.callRingtoneUrl || soundUrl;
     const configuredVolume = Math.max(0, Math.min(Number(config.soundVolume ?? 0.85), 1));
+    const callVolume = Math.max(0, Math.min(Number(config.callVolume ?? configuredVolume), 1));
     const primerAudio = soundUrl ? new Audio(soundUrl) : null;
+    const callPrimerAudio = callRingtoneUrl ? new Audio(callRingtoneUrl) : null;
+    const incomingBanner = document.getElementById("chatIncomingBanner");
+    const incomingBannerAvatar = document.getElementById("chatIncomingBannerAvatar");
+    const incomingBannerTitle = document.getElementById("chatIncomingBannerTitle");
+    const incomingBannerMeta = document.getElementById("chatIncomingBannerMeta");
+    const incomingBannerAccept = document.getElementById("chatIncomingBannerAccept");
+    const incomingBannerDecline = document.getElementById("chatIncomingBannerDecline");
+
     let isHydrated = false;
     let lastToastMessageId = 0;
+    let lastCallSignalId = 0;
     let heartbeatTimer = null;
     let pollTimer = null;
+    let callPollTimer = null;
     let pollInFlight = false;
+    let callPollInFlight = false;
     let soundUnlocked = false;
     let pendingSound = false;
+    let pendingCallSound = false;
     let soundHintShown = false;
     let soundUnlockBound = false;
+    let activeIncomingCall = null;
+    let activeCallRingtone = null;
+    let bannerActionInFlight = false;
     const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
     const lowDataMode = Boolean(
         navigator.connection
@@ -27,11 +46,18 @@
     );
     const unreadPollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;
     const heartbeatIntervalMs = lowDataMode ? 22000 : compactViewport ? 16000 : 12000;
+    const callPollIntervalMs = lowDataMode ? 3500 : compactViewport ? 2400 : 1800;
 
-    if (primerAudio) {
-        primerAudio.preload = "auto";
-        primerAudio.volume = configuredVolume;
-    }
+    [
+        [primerAudio, configuredVolume],
+        [callPrimerAudio, callVolume],
+    ].forEach(([audioNode, volume]) => {
+        if (!audioNode) {
+            return;
+        }
+        audioNode.preload = "auto";
+        audioNode.volume = volume;
+    });
 
     function getUnreadNodes() {
         return Array.from(document.querySelectorAll("[data-chat-unread-badge]"));
@@ -61,40 +87,76 @@
         updateDocumentTitle(safeCount);
     }
 
+    function primeAudioElement(audioNode) {
+        return new Promise((resolve, reject) => {
+            if (!audioNode) {
+                resolve(false);
+                return;
+            }
+
+            try {
+                audioNode.muted = true;
+                const playPromise = audioNode.play();
+                if (playPromise && typeof playPromise.catch === "function") {
+                    playPromise
+                        .then(() => {
+                            audioNode.pause();
+                            audioNode.currentTime = 0;
+                            audioNode.muted = false;
+                            resolve(true);
+                        })
+                        .catch((error) => {
+                            audioNode.muted = false;
+                            reject(error);
+                        });
+                    return;
+                }
+                audioNode.pause();
+                audioNode.currentTime = 0;
+                audioNode.muted = false;
+                resolve(true);
+            } catch (error) {
+                audioNode.muted = false;
+                reject(error);
+            }
+        });
+    }
+
     function primeSound() {
-        if (!primerAudio || soundUnlocked) {
+        if (soundUnlocked) {
             return;
         }
 
-        try {
-            primerAudio.muted = true;
-            const playPromise = primerAudio.play();
-            if (playPromise && typeof playPromise.catch === "function") {
-                playPromise
-                    .then(() => {
-                        primerAudio.pause();
-                        primerAudio.currentTime = 0;
-                        primerAudio.muted = false;
-                        soundUnlocked = true;
-
-                        if (pendingSound) {
-                            pendingSound = false;
-                            playSound();
-                        }
-                    })
-                    .catch(() => {
-                        primerAudio.muted = false;
-                        soundUnlockBound = false;
-                    });
-            }
-        } catch (error) {
-            primerAudio.muted = false;
-            soundUnlockBound = false;
+        const primerNodes = [primerAudio, callPrimerAudio].filter(Boolean);
+        if (!primerNodes.length) {
+            soundUnlocked = true;
+            return;
         }
+
+        Promise.allSettled(primerNodes.map((audioNode) => primeAudioElement(audioNode)))
+            .then((results) => {
+                if (!results.some((item) => item.status === "fulfilled")) {
+                    soundUnlockBound = false;
+                    return;
+                }
+
+                soundUnlocked = true;
+                if (pendingSound) {
+                    pendingSound = false;
+                    playSound();
+                }
+                if (pendingCallSound) {
+                    pendingCallSound = false;
+                    startCallRingtone();
+                }
+            })
+            .catch(() => {
+                soundUnlockBound = false;
+            });
     }
 
     function bindSoundUnlock() {
-        if (!primerAudio || soundUnlocked || soundUnlockBound) {
+        if (soundUnlocked || soundUnlockBound) {
             return;
         }
 
@@ -138,6 +200,58 @@
         }
     }
 
+    function stopCallRingtone() {
+        pendingCallSound = false;
+        if (!activeCallRingtone) {
+            return;
+        }
+        try {
+            activeCallRingtone.pause();
+            activeCallRingtone.currentTime = 0;
+        } catch (error) {
+        }
+        activeCallRingtone = null;
+    }
+
+    function startCallRingtone() {
+        if (!callRingtoneUrl || callVolume <= 0 || activeCallRingtone) {
+            return;
+        }
+
+        try {
+            const ringtone = new Audio(callRingtoneUrl);
+            ringtone.preload = "auto";
+            ringtone.loop = true;
+            ringtone.currentTime = 0;
+            ringtone.volume = callVolume;
+            activeCallRingtone = ringtone;
+            const playPromise = ringtone.play();
+            if (playPromise && typeof playPromise.catch === "function") {
+                playPromise.catch(() => {
+                    if (activeCallRingtone === ringtone) {
+                        activeCallRingtone = null;
+                    }
+                    pendingCallSound = true;
+                    bindSoundUnlock();
+                    if (!soundHintShown && typeof window.showToast === "function") {
+                        soundHintShown = true;
+                        window.showToast("Klik sekali di halaman untuk mengaktifkan suara notifikasi call.");
+                    }
+                });
+            }
+        } catch (error) {
+            pendingCallSound = true;
+            bindSoundUnlock();
+        }
+
+        try {
+            if (navigator.vibrate) {
+                navigator.vibrate([180, 90, 180, 90, 180]);
+            }
+        } catch (error) {
+        }
+    }
+
     function pushIncomingNotifications(items, suppressThreadId) {
         items.forEach((item) => {
             const messageId = Number(item.id || 0);
@@ -147,8 +261,8 @@
             lastToastMessageId = messageId;
 
             if (
-                suppressThreadId &&
-                Number(item.thread_id || 0) === Number(suppressThreadId) &&
+                suppressThreadId
+                && Number(item.thread_id || 0) === Number(suppressThreadId) &&
                 document.visibilityState === "visible"
             ) {
                 return;
@@ -158,8 +272,8 @@
                 ? `${item.sender_name || "Pesan baru"} | ${item.thread_label}`
                 : (item.sender_name || "Pesan baru");
             const preview = `${sourceLabel}: ${item.preview || ""}`
-                .replace(/â€¢/g, "|")
-                .replace(/â€¦/g, "...")
+                .replace(/Ã¢â‚¬Â¢/g, "|")
+                .replace(/Ã¢â‚¬Â¦/g, "...")
                 .trim();
             if (typeof window.showToast === "function") {
                 window.showToast(preview);
@@ -184,13 +298,107 @@
         lastToastMessageId = Math.max(lastToastMessageId, latestIncomingId);
     }
 
+    function setBannerBusy(isBusy) {
+        bannerActionInFlight = Boolean(isBusy);
+        [incomingBannerAccept, incomingBannerDecline].forEach((button) => {
+            if (!button) {
+                return;
+            }
+            button.disabled = bannerActionInFlight;
+        });
+    }
+
+    function buildPickupUrl(call) {
+        const url = new URL("/chat/", window.location.origin);
+        url.searchParams.set("thread", String(call.thread_id || 0));
+        url.searchParams.set("pickup_call", String(call.id || 0));
+        return url.toString();
+    }
+
+    function hideIncomingCallBanner() {
+        activeIncomingCall = null;
+        setBannerBusy(false);
+        if (incomingBanner) {
+            incomingBanner.hidden = true;
+            incomingBanner.classList.remove("is-ringing");
+        }
+        stopCallRingtone();
+    }
+
+    function showIncomingCallBanner(call) {
+        if (!incomingBanner || !call || window.__WMS_CHAT_PAGE__) {
+            return;
+        }
+
+        const previousCallId = Number(activeIncomingCall?.id || 0);
+        activeIncomingCall = call;
+        if (incomingBannerAvatar) {
+            incomingBannerAvatar.textContent = call.partner_initials || "MS";
+        }
+        if (incomingBannerTitle) {
+            incomingBannerTitle.textContent = `${call.call_label || "Telp"} dari ${call.partner_name || "Live Chat"}`;
+        }
+        if (incomingBannerMeta) {
+            incomingBannerMeta.textContent = `${call.partner_role_label || "-"} | ${call.partner_warehouse_label || "Global"}`;
+        }
+        incomingBanner.hidden = false;
+        incomingBanner.classList.add("is-ringing");
+        setBannerBusy(false);
+        startCallRingtone();
+
+        if (Number(call.id || 0) !== previousCallId && typeof window.showToast === "function") {
+            window.showToast(`${call.call_label || "Telp"} masuk dari ${call.partner_name || "kontak"}.`);
+        }
+    }
+
+    async function declineIncomingCall() {
+        if (!activeIncomingCall || bannerActionInFlight) {
+            return;
+        }
+
+        setBannerBusy(true);
+        try {
+            const response = await fetch(`/chat/call/${activeIncomingCall.id}/decline`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: JSON.stringify({}),
+            });
+            if (!response.ok) {
+                throw new Error("Decline call gagal diproses.");
+            }
+            hideIncomingCallBanner();
+            if (typeof window.showToast === "function") {
+                window.showToast("Panggilan ditolak.");
+            }
+        } catch (error) {
+            setBannerBusy(false);
+            if (typeof window.showToast === "function") {
+                window.showToast("Panggilan belum bisa ditolak. Coba lagi.");
+            }
+        }
+    }
+
+    function syncCallPayload(payload) {
+        const calls = Array.isArray(payload.calls) ? payload.calls : [];
+        const incomingCall = calls.find((item) => item && item.can_accept);
+        if (incomingCall) {
+            showIncomingCallBanner(incomingCall);
+        } else if (activeIncomingCall) {
+            hideIncomingCallBanner();
+        }
+        lastCallSignalId = Math.max(lastCallSignalId, Number(payload.latest_signal_id || 0));
+    }
+
     async function sendHeartbeat() {
         try {
             const threadId = typeof window.WmsChatPage?.getCurrentThreadId === "function"
                 ? window.WmsChatPage.getCurrentThreadId()
                 : null;
 
-            await fetch(config.presenceUrl, {
+            await fetch(presenceUrl, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -252,10 +460,49 @@
         }
     }
 
+    async function pollIncomingCalls() {
+        if (window.__WMS_CHAT_PAGE__ || !callPollUrl || callPollInFlight || document.visibilityState === "hidden") {
+            return;
+        }
+
+        callPollInFlight = true;
+        try {
+            const response = await fetch(`${callPollUrl}?after_signal_id=${encodeURIComponent(String(lastCallSignalId || 0))}`, {
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
+            if (!response.ok) {
+                return;
+            }
+            const payload = await response.json();
+            syncCallPayload(payload);
+        } catch (error) {
+        } finally {
+            callPollInFlight = false;
+        }
+    }
+
+    incomingBannerAccept?.addEventListener("click", () => {
+        if (!activeIncomingCall || bannerActionInFlight) {
+            return;
+        }
+        stopCallRingtone();
+        setBannerBusy(true);
+        window.location.href = buildPickupUrl(activeIncomingCall);
+    });
+
+    incomingBannerDecline?.addEventListener("click", () => {
+        declineIncomingCall();
+    });
+
     window.WmsChatRealtime = {
         updateUnreadBadge,
         syncPayload,
         sendHeartbeat,
+        playSound,
+        startCallRingtone,
+        stopCallRingtone,
         getLastToastMessageId() {
             return lastToastMessageId;
         },
@@ -269,7 +516,9 @@
     sendHeartbeat();
     if (!window.__WMS_CHAT_PAGE__) {
         pollUnreadOnly();
+        pollIncomingCalls();
         pollTimer = window.setInterval(pollUnreadOnly, unreadPollIntervalMs);
+        callPollTimer = window.setInterval(pollIncomingCalls, callPollIntervalMs);
     }
     heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatIntervalMs);
 
@@ -280,6 +529,7 @@
         sendHeartbeat();
         if (!window.__WMS_CHAT_PAGE__) {
             pollUnreadOnly();
+            pollIncomingCalls();
         }
     });
 
@@ -287,8 +537,12 @@
         if (pollTimer) {
             window.clearInterval(pollTimer);
         }
+        if (callPollTimer) {
+            window.clearInterval(callPollTimer);
+        }
         if (heartbeatTimer) {
             window.clearInterval(heartbeatTimer);
         }
+        stopCallRingtone();
     });
 })();

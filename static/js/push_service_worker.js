@@ -8,14 +8,15 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("push", (event) => {
     const payload = event.data ? event.data.json() : {};
-    const title = payload.title || "Pengumuman Baru";
+    const title = payload.title || "Notifikasi Baru";
     const options = {
         body: payload.body || "Ada update baru yang perlu dicek.",
         icon: payload.icon || "/static/brand/mataram-logo.png",
         badge: payload.badge || "/static/brand/mataram-logo.png",
-        tag: payload.tag || "announcement-center",
+        tag: payload.tag || "notification-center",
         data: {
-            url: payload.url || "/announcements/"
+            url: payload.url || "/notifications/",
+            notification_id: payload.notification_id || null
         }
     };
 
@@ -23,7 +24,7 @@ self.addEventListener("push", (event) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
-    const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || "/announcements/";
+    const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || "/notifications/";
     event.notification.close();
 
     event.waitUntil(

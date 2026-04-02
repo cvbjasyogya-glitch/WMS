@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
@@ -263,6 +263,84 @@
 </main>
 
 </div>
+
+{% if has_app_shell %}
+<div class="notification-center-root" id="notificationCenterRoot" data-notification-root>
+    <button
+        type="button"
+        class="notification-center-toggle"
+        data-notification-toggle
+        aria-controls="notificationCenterPanel"
+        aria-expanded="false"
+        aria-label="Buka pusat notifikasi"
+        title="Buka pusat notifikasi"
+    >
+        <span class="notification-center-toggle-icon" aria-hidden="true">&#128276;</span>
+        <span class="notification-center-toggle-label">Notifikasi</span>
+        <span class="notification-center-badge" data-notification-badge hidden>0</span>
+    </button>
+
+    <section
+        class="notification-center-panel"
+        id="notificationCenterPanel"
+        data-notification-panel
+        hidden
+        aria-hidden="true"
+    >
+        <div class="notification-center-head">
+            <div>
+                <p class="section-kicker">Notification Center</p>
+                <h2>Semua Notifikasi</h2>
+                <p class="helper-text">Semua aktivitas penting dari absen, inbound, outbound, stok, transfer, approval, chat, dan pengumuman akan terkumpul di sini. Notif yang sudah dibaca otomatis hilang dari inbox.</p>
+            </div>
+            <span class="status-pill notification-device-pill" data-notification-device-status>Belum dicek</span>
+        </div>
+
+        <div class="notification-center-toolbar">
+            <div class="notification-center-tabs" role="tablist" aria-label="Filter notifikasi cepat">
+                <button type="button" class="notification-tab" data-notification-filter="all" data-notification-surface="panel">Semua</button>
+                <button type="button" class="notification-tab active" data-notification-filter="unread" data-notification-surface="panel">Belum Dibaca</button>
+            </div>
+            <div class="notification-center-actions">
+                <button type="button" class="ghost-button notification-mini-action" data-notification-enable-device>Notif Device</button>
+                <button type="button" class="ghost-button notification-mini-action" data-notification-mark-all data-notification-surface="panel">Baca Semua</button>
+                <button type="button" class="ghost-button notification-mini-action danger" data-notification-delete-all data-notification-surface="panel">Hapus Semua</button>
+            </div>
+        </div>
+
+        <div class="notification-center-meta" data-notification-panel-summary>Memuat notifikasi terbaru...</div>
+        <div class="notification-center-list" data-notification-panel-list>
+            <div class="notification-center-empty">Memuat notifikasi...</div>
+        </div>
+
+        <div class="notification-center-foot">
+            <a href="/notifications/" class="ghost-button notification-mini-action">Lihat Semua</a>
+        </div>
+    </section>
+</div>
+{% endif %}
+
+{% if has_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
+<aside class="chat-incoming-banner" id="chatIncomingBanner" hidden aria-live="assertive" aria-atomic="true">
+    <div class="chat-incoming-banner-media">
+        <span class="chat-avatar" id="chatIncomingBannerAvatar">MS</span>
+    </div>
+    <div class="chat-incoming-banner-copy">
+        <strong id="chatIncomingBannerTitle">Panggilan Masuk</strong>
+        <p id="chatIncomingBannerMeta">Ada panggilan baru yang menunggu respons Anda.</p>
+    </div>
+    <div class="chat-incoming-banner-actions">
+        <button type="button" class="chat-incoming-banner-answer" id="chatIncomingBannerAccept">
+            <span aria-hidden="true">&#128222;</span>
+            <span>Angkat</span>
+        </button>
+        <button type="button" class="chat-incoming-banner-decline" id="chatIncomingBannerDecline">
+            <span aria-hidden="true">&#10006;</span>
+            <span>Tolak</span>
+        </button>
+    </div>
+</aside>
+{% endif %}
 
 {% if has_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
 <div class="chat-widget-root" id="chatWidgetRoot">
@@ -564,13 +642,35 @@ window.addEventListener("resize", () => {
 });
 </script>
 
+{% if has_app_shell %}
+<script>
+window.wmsPushConfig = {
+    publicKey: {{ config.get("WEBPUSH_PUBLIC_KEY", "")|tojson }},
+    subscribeUrl: "/announcements/push/subscribe",
+    unsubscribeUrl: "/announcements/push/unsubscribe",
+    serviceWorkerUrl: "/service-worker.js"
+};
+window.wmsNotificationCenterConfig = {
+    apiUrl: "/notifications/api",
+    pageUrl: "/notifications/",
+    markReadUrlTemplate: "/notifications/api/__id__/read",
+    markAllReadUrl: "/notifications/api/mark-all-read",
+    deleteUrlTemplate: "/notifications/api/__id__/delete",
+    deleteAllUrl: "/notifications/api/delete-all"
+};
+</script>
+<script src="/static/js/push_notifications.js"></script>
+<script src="/static/js/web_notifications.js"></script>
+{% endif %}
 {% if can("view_chat") %}
 <script>
 window.wmsChatRealtimeConfig = {
     enabled: true,
     pollUrl: "/chat/realtime",
+    callPollUrl: "/chat/call/poll",
     presenceUrl: "/chat/presence",
     soundUrl: "/static/notif.mp3",
+    callRingtoneUrl: "/static/audio/chat-call-ringtone.mp3",
     soundVolume: {{ session.get("chat_sound_volume", 0.85)|tojson }}
 };
 </script>
@@ -583,3 +683,4 @@ window.wmsChatRealtimeConfig = {
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
+

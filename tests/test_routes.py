@@ -453,6 +453,15 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(health_response.headers.get("X-Content-Type-Options"), "nosniff")
         self.assertIn("microphone=(self)", health_response.headers.get("Permissions-Policy", ""))
         self.assertIn("frame-ancestors 'self'", health_response.headers.get("Content-Security-Policy", ""))
+        self.assertEqual(
+            health_response.headers.get("Cross-Origin-Opener-Policy"),
+            "same-origin-allow-popups",
+        )
+        self.assertEqual(health_response.headers.get("Origin-Agent-Cluster"), "?1")
+        self.assertEqual(
+            health_response.headers.get("X-Permitted-Cross-Domain-Policies"),
+            "none",
+        )
 
         ready_response = self.client.get("/ready")
         self.assertEqual(ready_response.status_code, 200)
@@ -462,6 +471,56 @@ class WmsRoutesTestCase(unittest.TestCase):
         login_page = self.client.get("/login")
         self.assertEqual(login_page.status_code, 200)
         self.assertIn("no-store", login_page.headers.get("Cache-Control", ""))
+
+    def test_https_login_sets_secure_cookie_and_hsts(self):
+        self.create_user("secure_user", "pass1234", "super_admin")
+
+        response = self.client.post(
+            "/login",
+            base_url="https://localhost",
+            data={"username": "secure_user", "password": "pass1234"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("Secure", response.headers.get("Set-Cookie", ""))
+        self.assertEqual(
+            response.headers.get("Strict-Transport-Security"),
+            "max-age=31536000; includeSubDomains",
+        )
+
+    def test_cross_site_post_is_rejected_when_origin_check_is_enabled(self):
+        self.app.config["ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS"] = True
+
+        response = self.client.post(
+            "/login",
+            data={"username": "admin", "password": "admin123"},
+            headers={"Origin": "https://evil.example"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("lintas situs", response.get_data(as_text=True))
+
+    def test_host_allowlist_blocks_untrusted_host_when_configured(self):
+        self.app.config["ALLOWED_HOSTS"] = ["localhost", "127.0.0.1"]
+
+        response = self.client.get(
+            "/login",
+            base_url="http://evil.example",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Host tidak diizinkan", response.get_data(as_text=True))
+
+    def test_authenticated_html_pages_are_not_cacheable(self):
+        self.login()
+
+        response = self.client.get("/", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
 
     def test_login_redirects_back_to_requested_page_with_query_string(self):
         self.create_user("next_user", "pass1234", "super_admin")
@@ -731,6 +790,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Perubahan Jadwal", html)
         self.assertIn("Rina - Pagi", html)
         self.assertIn("Aktifkan Notif Perangkat", html)
+        self.assertNotIn("Nonaktifkan", html)
 
     def test_published_announcement_broadcasts_notifications_and_appears_for_staff(self):
         self.create_user(
@@ -758,6 +818,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
 
+        staff_user_id = self.get_user_id("staff_pengumuman")
+
         with self.app.app_context():
             db = get_db()
             notification = db.execute(
@@ -770,15 +832,160 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 ("Pengumuman baru: Info SOP Baru",),
             ).fetchone()
+            web_notification = db.execute(
+                """
+                SELECT category, title, link_url, is_read
+                FROM web_notifications
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (staff_user_id,),
+            ).fetchone()
 
         self.assertIsNotNone(notification)
         self.assertIn("SOP loading diperbarui", notification["message"])
+        self.assertIsNotNone(web_notification)
+        self.assertEqual(web_notification["category"], "announcement")
+        self.assertEqual(web_notification["title"], "Pengumuman baru: Info SOP Baru")
+        self.assertEqual(web_notification["link_url"], "/announcements/")
+        self.assertEqual(web_notification["is_read"], 0)
 
         self.logout()
         self.login("staff_pengumuman", "pass1234")
         page = self.client.get("/announcements/")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Info SOP Baru", page.get_data(as_text=True))
+
+        notification_page = self.client.get("/notifications/")
+        self.assertEqual(notification_page.status_code, 200)
+        notification_html = notification_page.get_data(as_text=True)
+        self.assertIn("Semua Notifikasi", notification_html)
+        self.assertIn("data-notification-page-list", notification_html)
+        self.assertIn("Hapus Semua", notification_html)
+
+        notification_api = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(notification_api.status_code, 200)
+        notification_payload = notification_api.get_json()
+        self.assertEqual(notification_payload["status"], "ok")
+        self.assertGreaterEqual(notification_payload["unread_count"], 1)
+        self.assertTrue(
+            any(item["title"] == "Pengumuman baru: Info SOP Baru" for item in notification_payload["items"])
+        )
+
+        mark_all = self.client.post("/notifications/api/mark-all-read")
+        self.assertEqual(mark_all.status_code, 200)
+        self.assertEqual(mark_all.get_json()["unread_count"], 0)
+
+    def test_notifications_api_hides_items_after_mark_read(self):
+        self.create_user("staff_notif_read", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_notif_read", "pass1234")
+        user_id = self.get_user_id("staff_notif_read")
+
+        with self.app.app_context():
+            notification_service.create_web_notification(
+                user_id,
+                "Tes Notifikasi Read",
+                "Notif ini harus hilang dari inbox setelah dibaca.",
+                category="system",
+                link_url="/notifications/",
+                source_type="test_notification",
+                source_id="read-hide-case",
+            )
+
+        list_before = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(list_before.status_code, 200)
+        before_payload = list_before.get_json()
+        target_item = next(
+            (item for item in before_payload["items"] if item["title"] == "Tes Notifikasi Read"),
+            None,
+        )
+        self.assertIsNotNone(target_item)
+
+        mark_read = self.client.post(f"/notifications/api/{target_item['id']}/read")
+        self.assertEqual(mark_read.status_code, 200)
+        self.assertEqual(mark_read.get_json()["unread_count"], 0)
+
+        list_after = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(list_after.status_code, 200)
+        after_payload = list_after.get_json()
+        self.assertFalse(
+            any(item["title"] == "Tes Notifikasi Read" for item in after_payload["items"])
+        )
+
+        unread_after = self.client.get("/notifications/api?filter=unread&limit=10")
+        self.assertEqual(unread_after.status_code, 200)
+        unread_payload = unread_after.get_json()
+        self.assertFalse(
+            any(item["title"] == "Tes Notifikasi Read" for item in unread_payload["items"])
+        )
+
+    def test_notifications_api_supports_delete_single_and_delete_all(self):
+        self.create_user("staff_notif_delete", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_notif_delete", "pass1234")
+        user_id = self.get_user_id("staff_notif_delete")
+
+        with self.app.app_context():
+            notification_service.create_web_notification(
+                user_id,
+                "Tes Hapus Satu",
+                "Notif pertama untuk delete single.",
+                category="system",
+                link_url="/notifications/",
+                source_type="test_notification",
+                source_id="delete-one-case",
+            )
+            notification_service.create_web_notification(
+                user_id,
+                "Tes Hapus Semua",
+                "Notif kedua untuk delete all.",
+                category="system",
+                link_url="/notifications/",
+                source_type="test_notification",
+                source_id="delete-all-case",
+            )
+
+        list_before = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(list_before.status_code, 200)
+        before_payload = list_before.get_json()
+        self.assertEqual(len(before_payload["items"]), 2)
+        self.assertEqual(before_payload["total_count"], 2)
+
+        delete_target = next(
+            (item for item in before_payload["items"] if item["title"] == "Tes Hapus Satu"),
+            None,
+        )
+        self.assertIsNotNone(delete_target)
+
+        delete_one = self.client.post(f"/notifications/api/{delete_target['id']}/delete")
+        self.assertEqual(delete_one.status_code, 200)
+        delete_one_payload = delete_one.get_json()
+        self.assertTrue(delete_one_payload["deleted"])
+        self.assertEqual(delete_one_payload["total_count"], 1)
+
+        list_after_one = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(list_after_one.status_code, 200)
+        after_one_payload = list_after_one.get_json()
+        self.assertEqual(after_one_payload["total_count"], 1)
+        self.assertFalse(
+            any(item["title"] == "Tes Hapus Satu" for item in after_one_payload["items"])
+        )
+        self.assertTrue(
+            any(item["title"] == "Tes Hapus Semua" for item in after_one_payload["items"])
+        )
+
+        delete_all = self.client.post("/notifications/api/delete-all")
+        self.assertEqual(delete_all.status_code, 200)
+        delete_all_payload = delete_all.get_json()
+        self.assertEqual(delete_all_payload["deleted"], 1)
+        self.assertEqual(delete_all_payload["total_count"], 0)
+        self.assertEqual(delete_all_payload["unread_count"], 0)
+
+        list_after_all = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(list_after_all.status_code, 200)
+        after_all_payload = list_after_all.get_json()
+        self.assertEqual(after_all_payload["total_count"], 0)
+        self.assertEqual(after_all_payload["items"], [])
 
     def test_schedule_changes_are_logged_and_visible_in_announcement_center(self):
         employee_id = self.create_employee_record(
@@ -1224,15 +1431,34 @@ class WmsRoutesTestCase(unittest.TestCase):
                 LIMIT 1
                 """
             ).fetchone()
+            web_notification_row = db.execute(
+                """
+                SELECT category, title, message, link_url
+                FROM web_notifications
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (leader_user_id,),
+            ).fetchone()
 
         self.assertIsNotNone(stored_message)
         self.assertEqual(stored_message["body"], "Leader tolong cek request masuk hari ini.")
         self.assertIsNotNone(notification_row)
         self.assertEqual(notification_row["channel"], "chat")
         self.assertEqual(notification_row["recipient"], "leader_chat")
+        self.assertIsNotNone(web_notification_row)
+        self.assertEqual(web_notification_row["category"], "chat")
+        self.assertEqual(web_notification_row["link_url"], f"/chat/?thread={thread_id}")
+        self.assertIn("Leader tolong cek request masuk hari ini.", web_notification_row["message"])
 
         self.logout()
         self.login("leader_chat", "pass1234")
+
+        web_notification_api = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(web_notification_api.status_code, 200)
+        web_notification_payload = web_notification_api.get_json()
+        self.assertTrue(any(item["category"] == "chat" for item in web_notification_payload["items"]))
 
         realtime_before_open = self.client.get(
             "/chat/realtime?since_message_id=0&include_threads=1",
@@ -1269,6 +1495,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         dashboard_html = dashboard_response.get_data(as_text=True)
         self.assertIn("data-chat-widget-launcher", dashboard_html)
         self.assertIn("Live Chat", dashboard_html)
+        self.assertIn('id="chatIncomingBanner"', dashboard_html)
+        self.assertIn('callPollUrl: "/chat/call/poll"', dashboard_html)
+        self.assertIn('callRingtoneUrl: "/static/audio/chat-call-ringtone.mp3"', dashboard_html)
         self.assertNotIn('id="chatSidebarUnread"', dashboard_html)
 
         bootstrap_response = self.client.get("/chat/widget/bootstrap")
@@ -1483,6 +1712,10 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.logout()
         self.login("call_leader", "pass1234")
+
+        pickup_page = self.client.get(f"/chat/?thread={thread_id}&pickup_call={call_id}")
+        self.assertEqual(pickup_page.status_code, 200)
+        self.assertIn(f'"auto_pickup_call_id": {call_id}', pickup_page.get_data(as_text=True))
 
         callee_poll = self.client.get("/chat/call/poll?after_signal_id=0", follow_redirects=False)
         self.assertEqual(callee_poll.status_code, 200)
@@ -3565,6 +3798,59 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
 
+    def test_attendance_portal_submission_appears_in_notification_center(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-NOTIFY",
+            full_name="Portal Attendance Notify",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("owner_activity", "pass1234", "owner")
+        self.create_user("portal_notify", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_notify", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Gerbang Timur",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T07:57",
+                "punch_type": "check_in",
+                "note": "Masuk kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        actor_notifications = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(actor_notifications.status_code, 200)
+        actor_payload = actor_notifications.get_json()
+        self.assertTrue(
+            any(
+                item["category"] == "attendance"
+                and item["title"] == "Absensi Check In: Portal Attendance Notify"
+                and item["link_url"] == "/absen/"
+                for item in actor_payload["items"]
+            )
+        )
+
+        self.logout()
+        self.login("owner_activity", "pass1234")
+        owner_notifications = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(owner_notifications.status_code, 200)
+        owner_payload = owner_notifications.get_json()
+        self.assertTrue(
+            any(
+                item["category"] == "attendance"
+                and item["title"] == "Absensi Check In: Portal Attendance Notify"
+                for item in owner_payload["items"]
+            )
+        )
     def test_attendance_portal_requires_detail_when_location_scope_is_other(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-OTHER",
@@ -3711,6 +3997,73 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Shift Pagi | 09.00 - 17.00", html)
         self.assertIn("Shift Siang | 13.00 - 21.00", html)
+
+    def test_attendance_portal_hr_can_choose_mataram_or_mega_shift_profile(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-HR-PROFILE",
+            full_name="Portal HR Profile",
+            warehouse_id=1,
+            position="HR Staff",
+        )
+        self.create_user("portal_hr_profile", "pass1234", "hr", employee_id=employee_id)
+        self.login("portal_hr_profile", "pass1234")
+        today = date_cls.today().isoformat()
+
+        response = self.client.get("/absen/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('name="shift_profile_key"', html)
+        self.assertIn("Profil Jam Gudang", html)
+        self.assertIn("Gudang Mataram", html)
+        self.assertIn("Gudang Mega", html)
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_profile_key": "mega",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Area HR",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T08:55",
+                "punch_type": "check_in",
+                "note": "HR pilih jam Mega",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["shift_code"], "pagi")
+        self.assertIn("09.00 - 17.00", biometric["shift_label"])
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertIn("09.00 - 17.00", attendance["shift_label"])
 
     def test_attendance_portal_supports_break_flow_before_check_out(self):
         employee_id = self.create_employee_record(
@@ -5036,6 +5389,80 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(stock_rows), 2)
         self.assertEqual(stock_rows[0]["qty"], 8)
         self.assertEqual(stock_rows[1]["qty"], 7)
+
+    def test_inventory_activity_notifications_reach_monitoring_roles(self):
+        self.create_user("owner_inventory_monitor", "pass1234", "owner")
+        self.create_user("leader_inventory_notify", "pass1234", "leader", warehouse_id=1)
+
+        self.login()
+        response, product_id, variants_rows = self.create_product(qty=10, variants="41")
+        self.assertEqual(response.status_code, 302)
+        self.logout()
+
+        self.login("leader_inventory_notify", "pass1234")
+        inbound_response = self.client.post(
+            "/inbound/",
+            data={
+                "warehouse_id": "1",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variants_rows[0]["id"],
+                            "qty": 3,
+                            "note": "Restock notifikasi",
+                            "cost": 245000,
+                            "custom_date": "2026-03-30",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(inbound_response.status_code, 302)
+
+        outbound_response = self.client.post(
+            "/outbound/",
+            data={
+                "warehouse_id": "1",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variants_rows[0]["id"],
+                            "qty": 2,
+                            "note": "Order notifikasi",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(outbound_response.status_code, 302)
+        self.logout()
+
+        self.login("owner_inventory_monitor", "pass1234")
+        notification_response = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(notification_response.status_code, 200)
+        payload = notification_response.get_json()
+        items = payload["items"]
+
+        self.assertTrue(
+            any(
+                item["category"] == "inventory"
+                and item["title"] == "Inbound selesai: 1 item"
+                and item["link_url"] == "/inbound/"
+                for item in items
+            )
+        )
+        self.assertTrue(
+            any(
+                item["category"] == "inventory"
+                and item["title"] == "Outbound selesai: 1 item"
+                and item["link_url"] == "/outbound/"
+                for item in items
+            )
+        )
 
     def test_admin_can_create_bulk_request_batch(self):
         self.create_user("super_req_batch", "pass1234", "super_admin")

@@ -51,10 +51,21 @@
 
         const config = getConfig();
         const registration = await ensureRegistration();
-        const subscription = await registration.pushManager.getSubscription();
+        let subscription = await registration.pushManager.getSubscription();
 
-        if (!subscription || !config.publicKey || Notification.permission !== "granted") {
+        if (Notification.permission !== "granted") {
             return subscription;
+        }
+
+        if (!config.publicKey) {
+            return subscription;
+        }
+
+        if (!subscription) {
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(config.publicKey)
+            });
         }
 
         await postSubscription(config.subscribeUrl, subscription.toJSON());
@@ -72,8 +83,7 @@
         }
 
         const config = getConfig();
-        const registration = await ensureRegistration();
-        const subscription = await registration.pushManager.getSubscription();
+        const subscription = await syncSubscriptionWithServer();
 
         return {
             supported: true,
@@ -137,27 +147,9 @@
     }
 
     async function disable() {
-        if (!supportsPush()) {
-            return {
-                ok: false,
-                reason: "unsupported"
-            };
-        }
-
-        const config = getConfig();
-        const registration = await ensureRegistration();
-        const subscription = await registration.pushManager.getSubscription();
-
-        if (subscription) {
-            await postSubscription(config.unsubscribeUrl, { endpoint: subscription.endpoint });
-            await subscription.unsubscribe();
-        } else {
-            await postSubscription(config.unsubscribeUrl, {});
-        }
-
         return {
-            ok: true,
-            reason: "disabled"
+            ok: false,
+            reason: "locked_after_enabled"
         };
     }
 

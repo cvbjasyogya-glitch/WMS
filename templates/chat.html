@@ -163,11 +163,28 @@
                 </div>
             </div>
             <div class="chat-focus-actions">
-                <button type="button" class="ghost-button chat-action-button" id="chatVoiceCallButton">Telp</button>
-                <button type="button" class="ghost-button chat-action-button" id="chatVideoCallButton">Video Call</button>
                 <span class="badge {% if selected_thread.partner_online %}green{% endif %}" id="chatPartnerStatus">
                     {{ "Online" if selected_thread.partner_online else "Offline" }}
                 </span>
+                <button type="button" class="ghost-button chat-action-button chat-action-icon" id="chatVoiceCallButton" aria-label="Telp">
+                    <span aria-hidden="true">&#128222;</span>
+                </button>
+                <button type="button" class="ghost-button chat-action-button chat-action-icon" id="chatVideoCallButton" aria-label="Video Call">
+                    <span aria-hidden="true">&#127909;</span>
+                </button>
+                <details class="chat-focus-menu">
+                    <summary class="ghost-button chat-focus-menu-toggle" aria-label="Menu chat penuh">
+                        <span aria-hidden="true">&#8942;</span>
+                    </summary>
+                    <div class="chat-focus-menu-panel">
+                        <a href="#chatComposerInput" class="chat-focus-menu-item">Ketik Pesan</a>
+                        <a href="#chatMessageBoard" class="chat-focus-menu-item">Area Percakapan</a>
+                        {% if selected_thread.thread_type == "group" %}
+                        <a href="#chatParticipantStrip" class="chat-focus-menu-item">Lihat Member</a>
+                        {% endif %}
+                        <a href="/chat/?thread={{ selected_thread.id }}" class="chat-focus-menu-item">Refresh Chat</a>
+                    </div>
+                </details>
             </div>
         </header>
 
@@ -356,6 +373,7 @@
     "unread_total": unread_total,
     "stickers": stickers,
     "auto_start_call_mode": auto_start_call_mode,
+    "auto_pickup_call_id": auto_pickup_call_id,
     "webrtc_ice_servers": chat_webrtc_ice_servers
 }|tojson }}
 </script>
@@ -365,4 +383,6 @@
 <script src="/static/js/chat_page.js"></script>
 <script src="/static/js/chat_call.js"></script>
 {% endblock %}
+
+
 

@@ -928,6 +928,10 @@ def save_live_schedule_entry():
             push_body=payload["push_body"],
             push_url="/announcements/",
             push_tag=payload["push_tag"],
+            category="schedule",
+            link_url="/announcements/",
+            source_type="schedule_change",
+            source_id=str(event_id),
         )
     except Exception as exc:
         print("LIVE SCHEDULE BROADCAST ERROR:", exc)
@@ -1148,6 +1152,10 @@ def save_schedule_entry():
             push_body=payload["push_body"],
             push_url="/announcements/",
             push_tag=payload["push_tag"],
+            category="schedule",
+            link_url="/announcements/",
+            source_type="schedule_change",
+            source_id=str(event_id),
         )
     except Exception as exc:
         print("SCHEDULE CHANGE BROADCAST ERROR:", exc)
@@ -1225,6 +1233,10 @@ def save_day_note():
             push_body=payload["push_body"],
             push_url="/announcements/",
             push_tag=payload["push_tag"],
+            category="schedule",
+            link_url="/announcements/",
+            source_type="schedule_change",
+            source_id=str(event_id),
         )
     except Exception as exc:
         print("SCHEDULE DAY NOTE BROADCAST ERROR:", exc)

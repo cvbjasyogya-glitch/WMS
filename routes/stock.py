@@ -8,7 +8,7 @@ from flask import Blueprint, Response, render_template, request, session, redire
 from database import get_db
 
 from services.stock_service import adjust_stock
-from services.notification_service import notify_roles
+from services.notification_service import notify_operational_event, notify_roles
 from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role
 
@@ -587,6 +587,44 @@ def adjust():
 
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
                 if ok:
+                    try:
+                        stock_item = db.execute(
+                            """
+                            SELECT
+                                p.sku,
+                                p.name AS product_name,
+                                COALESCE(v.variant, 'default') AS variant_name,
+                                w.name AS warehouse_name
+                            FROM products p
+                            JOIN product_variants v ON v.product_id = p.id
+                            JOIN warehouses w ON w.id = ?
+                            WHERE p.id=? AND v.id=?
+                            """,
+                            (warehouse_id, product_id, variant_id),
+                        ).fetchone()
+                        if stock_item:
+                            variant_label = (
+                                "Default"
+                                if str(stock_item["variant_name"]).lower() == "default"
+                                else stock_item["variant_name"]
+                            )
+                            qty_label = f"+{qty}" if qty > 0 else str(qty)
+                            notify_operational_event(
+                                f"Adjustment stok: {stock_item['sku']} - {stock_item['product_name']}",
+                                (
+                                    f"Stok {stock_item['sku']} - {stock_item['product_name']} / {variant_label} "
+                                    f"di {(stock_item['warehouse_name'] or f'Gudang {warehouse_id}').strip()} "
+                                    f"diubah sebanyak {qty_label}."
+                                ),
+                                warehouse_id=warehouse_id,
+                                category="inventory",
+                                link_url="/stock/",
+                                source_type="stock_adjustment",
+                                push_title="Adjustment stok",
+                                push_body=f"{stock_item['sku']} | {qty_label}",
+                            )
+                    except Exception as exc:
+                        print("STOCK ADJUST NOTIFICATION ERROR:", exc)
                     updated_qty = _fetch_current_stock_qty(db, product_id, variant_id, warehouse_id)
                     return jsonify(
                         {
@@ -598,6 +636,44 @@ def adjust():
                 return jsonify({"status": "error", "message": "Stock gagal / tidak cukup"})
 
             if ok:
+                try:
+                    stock_item = db.execute(
+                        """
+                        SELECT
+                            p.sku,
+                            p.name AS product_name,
+                            COALESCE(v.variant, 'default') AS variant_name,
+                            w.name AS warehouse_name
+                        FROM products p
+                        JOIN product_variants v ON v.product_id = p.id
+                        JOIN warehouses w ON w.id = ?
+                        WHERE p.id=? AND v.id=?
+                        """,
+                        (warehouse_id, product_id, variant_id),
+                    ).fetchone()
+                    if stock_item:
+                        variant_label = (
+                            "Default"
+                            if str(stock_item["variant_name"]).lower() == "default"
+                            else stock_item["variant_name"]
+                        )
+                        qty_label = f"+{qty}" if qty > 0 else str(qty)
+                        notify_operational_event(
+                            f"Adjustment stok: {stock_item['sku']} - {stock_item['product_name']}",
+                            (
+                                f"Stok {stock_item['sku']} - {stock_item['product_name']} / {variant_label} "
+                                f"di {(stock_item['warehouse_name'] or f'Gudang {warehouse_id}').strip()} "
+                                f"diubah sebanyak {qty_label}."
+                            ),
+                            warehouse_id=warehouse_id,
+                            category="inventory",
+                            link_url="/stock/",
+                            source_type="stock_adjustment",
+                            push_title="Adjustment stok",
+                            push_body=f"{stock_item['sku']} | {qty_label}",
+                        )
+                except Exception as exc:
+                    print("STOCK ADJUST NOTIFICATION ERROR:", exc)
                 flash("Stock berhasil diupdate", "success")
             else:
                 flash("Stock gagal / tidak cukup", "error")
@@ -626,7 +702,15 @@ def adjust():
                 f"Produk:{product_id} Variant:{variant_id} Gudang:{warehouse_id} Qty:{qty}"
             )
             try:
-                notify_roles(["leader", "owner", "super_admin"], subj, msg, warehouse_id=warehouse_id)
+                notify_roles(
+                    ["leader", "owner", "super_admin"],
+                    subj,
+                    msg,
+                    warehouse_id=warehouse_id,
+                    category="approval",
+                    link_url="/approvals",
+                    source_type="approval_queue",
+                )
             except Exception as e:
                 print("NOTIFY ERROR:", e)
 

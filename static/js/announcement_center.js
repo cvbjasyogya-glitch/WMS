@@ -3,9 +3,43 @@
     const statusPill = document.querySelector("[data-push-status-pill]");
     const statusCopy = document.querySelector("[data-push-status-copy]");
     const enableButtons = document.querySelectorAll("[data-enable-device-notifications]");
-    const disableButtons = document.querySelectorAll("[data-disable-device-notifications]");
+
+    enableButtons.forEach((button) => {
+        if (!button.dataset.defaultLabel) {
+            button.dataset.defaultLabel = button.textContent.trim();
+        }
+    });
+
+    function syncEnableButtons(state) {
+        enableButtons.forEach((button) => {
+            const defaultLabel = button.dataset.defaultLabel || "Aktifkan Notif Perangkat";
+
+            if (!state || !state.supported) {
+                button.disabled = true;
+                button.textContent = "Tidak Didukung";
+                return;
+            }
+
+            if (state.permission === "denied") {
+                button.disabled = true;
+                button.textContent = "Izin Diblokir";
+                return;
+            }
+
+            if (state.permission === "granted") {
+                button.disabled = true;
+                button.textContent = state.hasSubscription ? "Notif Aktif" : "Izin Aktif";
+                return;
+            }
+
+            button.disabled = false;
+            button.textContent = defaultLabel;
+        });
+    }
 
     function renderStatus(state) {
+        syncEnableButtons(state);
+
         if (!statusPill || !statusCopy) {
             return;
         }
@@ -18,13 +52,13 @@
 
         if (state.permission === "granted" && state.hasSubscription) {
             statusPill.textContent = "Aktif";
-            statusCopy.textContent = "Notifikasi perangkat sudah aktif. Pengumuman dan perubahan jadwal akan dikirim ke browser ini.";
+            statusCopy.textContent = "Notifikasi perangkat sudah aktif dan akan tetap dipertahankan di browser ini walau halaman direfresh.";
             return;
         }
 
         if (state.permission === "granted" && !state.configured) {
             statusPill.textContent = "Izin Aktif";
-            statusCopy.textContent = "Izin browser sudah aktif, tetapi server push belum dikonfigurasi. Fallback email dan WhatsApp tetap berjalan.";
+            statusCopy.textContent = "Izin browser sudah aktif dan tetap tersimpan setelah reload. Server push belum dikonfigurasi, jadi fallback email dan WhatsApp tetap berjalan.";
             return;
         }
 
@@ -61,22 +95,6 @@
             button.disabled = true;
             try {
                 await pushApi.enable();
-            } catch (error) {
-            }
-            button.disabled = false;
-            await refreshStatus();
-        });
-    });
-
-    disableButtons.forEach((button) => {
-        button.addEventListener("click", async () => {
-            if (!pushApi || typeof pushApi.disable !== "function") {
-                renderStatus({ supported: false });
-                return;
-            }
-            button.disabled = true;
-            try {
-                await pushApi.disable();
             } catch (error) {
             }
             button.disabled = false;

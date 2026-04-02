@@ -30,6 +30,16 @@ def _env_flag(name, default=False):
     return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _int_env(name, default=0):
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return int(default)
+    try:
+        return int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def _load_or_create_secret_key():
     env_secret = (os.getenv("SECRET_KEY") or "").strip()
     if env_secret:
@@ -115,11 +125,25 @@ class Config:
     # ==========================
     SECRET_KEY = SECRET_KEY_DEFAULT
 
+    SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "wms_session")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
-    # Default dibuat aman untuk akses lokal/non-HTTPS agar session login tidak hilang.
-    # Aktifkan explicit via SESSION_COOKIE_SECURE=1 saat deploy di HTTPS.
+    # Cookie session akan otomatis ditandai Secure saat request datang lewat HTTPS.
+    # Nilai config ini tetap bisa dipaksa aktif via SESSION_COOKIE_SECURE=1.
     SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", False)
+    SESSION_REFRESH_EACH_REQUEST = False
+    PREFERRED_URL_SCHEME = os.getenv(
+        "PREFERRED_URL_SCHEME",
+        "https" if IS_PRODUCTION else "http",
+    )
+    PROXY_FIX_X_PROTO = _int_env("PROXY_FIX_X_PROTO", 1)
+    PROXY_FIX_X_HOST = _int_env("PROXY_FIX_X_HOST", 0)
+    ALLOWED_HOSTS = _csv_env("ALLOWED_HOSTS", "")
+    ENFORCE_SAME_ORIGIN_POSTS = _env_flag("ENFORCE_SAME_ORIGIN_POSTS", True)
+    ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS = _env_flag(
+        "ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS",
+        False,
+    )
 
     PERMANENT_SESSION_LIFETIME = timedelta(hours=1)
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(12 * 1024 * 1024)))
