@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, flash, jsonify, redirect, render_templ
 from werkzeug.utils import secure_filename
 
 from database import get_db
-from services.notification_service import create_web_notification
+from services.notification_service import push_user_notification
 from services.rbac import has_permission
 
 
@@ -1347,7 +1347,7 @@ def send_message(thread_id):
         except Exception:
             pass
         try:
-            create_web_notification(
+            push_user_notification(
                 recipient["id"],
                 subject,
                 preview,
@@ -1358,6 +1358,9 @@ def send_message(thread_id):
                 source_type="chat_message",
                 source_id=str(message_id),
                 dedupe_key=f"chat-message:{message_id}",
+                push_title=subject,
+                push_body=preview,
+                push_tag=f"chat-thread-{thread_id}-message-{message_id}",
             )
         except Exception:
             pass
@@ -1428,6 +1431,28 @@ def start_call(thread_id):
             "call_mode": call_mode,
         },
     )
+    try:
+        push_user_notification(
+            partner_id,
+            f"{_call_label_for_mode(call_mode)} dari {current_user['username']}",
+            f"{current_user['username']} mencoba menghubungi Anda lewat chat.",
+            category="chat",
+            link_url=f"/chat/?thread={thread_id}&pickup_call={call_id}",
+            actor_user_id=current_user["id"],
+            actor_name=current_user["username"],
+            source_type="chat_call",
+            source_id=str(call_id),
+            dedupe_key=f"chat-call:{call_id}:invite",
+            push_title=f"{_call_label_for_mode(call_mode)} masuk",
+            push_body=f"{current_user['username']} menelepon Anda. Ketuk untuk membuka panggilan.",
+            push_tag=f"chat-call-{call_id}",
+            require_interaction=True,
+            renotify=True,
+            actions=[{"action": "open", "title": "Buka Call"}],
+            vibrate=[300, 150, 300, 150, 300],
+        )
+    except Exception:
+        pass
 
     call_row = _fetch_call_session_row(db, call_id, current_user["id"])
     return jsonify(

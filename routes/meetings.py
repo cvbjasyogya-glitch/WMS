@@ -158,7 +158,7 @@ def signature():
             jsonify(
                 {
                     "status": "error",
-                    "message": "Meeting SDK belum dikonfigurasi di server. Isi ZOOM_MEETING_SDK_KEY dan ZOOM_MEETING_SDK_SECRET dulu.",
+                    "message": "Meeting SDK belum dikonfigurasi di server. Isi ZOOM_MEETING_SDK_KEY/CLIENT_ID dan ZOOM_MEETING_SDK_SECRET/CLIENT_SECRET dulu.",
                 }
             ),
             503,

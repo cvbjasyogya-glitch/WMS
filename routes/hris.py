@@ -105,6 +105,8 @@ DASHBOARD_REMINDER_STATUS_LABELS = {
 }
 DASHBOARD_LEAVE_ALERT_LIMIT = 8
 DASHBOARD_REMINDER_LIMIT = 10
+BIOMETRIC_MANUAL_STATUS_ROLES = {"hr", "super_admin"}
+BIOMETRIC_ADJUSTABLE_ATTENDANCE_STATUSES = {"present", "late"}
 
 GEO_ATTENDANCE_NOTE = "Synced from geotag"
 DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
@@ -207,6 +209,10 @@ def can_manage_project_records():
 
 def can_manage_biometric_records():
     return can_manage_hris_records("biometric")
+
+
+def can_adjust_biometric_attendance_status():
+    return session.get("role") in BIOMETRIC_MANUAL_STATUS_ROLES
 
 
 def can_manage_announcement_records():
@@ -895,6 +901,31 @@ def _get_attendance_by_id(db, attendance_id):
     return db.execute(query, params).fetchone()
 
 
+def _get_attendance_by_employee_date(db, employee_id, attendance_date):
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            a.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position,
+            w.name AS warehouse_name
+        FROM attendance_records a
+        JOIN employees e ON a.employee_id = e.id
+        LEFT JOIN warehouses w ON a.warehouse_id = w.id
+        WHERE a.employee_id=? AND a.attendance_date=?
+    """
+    params = [employee_id, attendance_date]
+
+    if scope_warehouse:
+        query += " AND a.warehouse_id=?"
+        params.append(scope_warehouse)
+
+    query += " ORDER BY a.id DESC LIMIT 1"
+    return db.execute(query, params).fetchone()
+
+
 def _get_leave_request_by_id(db, leave_id):
     scope_warehouse = get_hris_scope()
     query = """
@@ -1237,7 +1268,7 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
     ]
     existing = db.execute(
         """
-        SELECT id, note, shift_code, shift_label
+        SELECT id, note, shift_code, shift_label, status_override
         FROM attendance_records
         WHERE employee_id=? AND attendance_date=?
         ORDER BY id DESC
@@ -1281,10 +1312,12 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
             "shift_label": (existing["shift_label"] if existing and existing["shift_label"] else None),
         },
     )
-    status = _derive_biometric_attendance_status_with_shift(
+    derived_status = _derive_biometric_attendance_status_with_shift(
         check_in,
         shift_snapshot.get("shift_label"),
     )
+    status_override = (existing["status_override"] if existing and existing["status_override"] else "").strip().lower()
+    status = status_override if status_override in ATTENDANCE_STATUSES else derived_status
 
     if existing:
         db.execute(
@@ -2759,6 +2792,14 @@ def _fetch_biometric_logs(db):
     sync_status = (request.args.get("sync_status") or "all").strip().lower()
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
+    today_label = date_cls.today().isoformat()
+    if not date_from and not date_to:
+        date_from = today_label
+        date_to = today_label
+    elif date_from and not date_to:
+        date_to = date_from
+    elif date_to and not date_from:
+        date_from = date_to
     scope_warehouse = get_hris_scope()
 
     if scope_warehouse:
@@ -2854,7 +2895,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
     placeholders = ",".join(["?"] * len(employee_ids))
     attendance_rows = db.execute(
         f"""
-        SELECT employee_id, attendance_date, check_in, check_out, status, note, shift_code, shift_label
+        SELECT employee_id, attendance_date, check_in, check_out, status, note, shift_code, shift_label, status_override
         FROM attendance_records
         WHERE employee_id IN ({placeholders})
           AND attendance_date BETWEEN ? AND ?
@@ -2906,12 +2947,15 @@ def _build_biometric_recap_rows(db, biometric_logs):
         recap_rows.append(
             {
                 "attendance_date": attendance_date,
+                "employee_id": employee_id,
                 "employee_code": latest_log["employee_code"],
                 "full_name": latest_log["full_name"],
                 "warehouse_name": latest_log["warehouse_name"],
                 "attendance_status": (attendance.get("status") or "-"),
+                "attendance_status_value": (attendance.get("status") or "present"),
                 "attendance_status_label": attendance_display["label"],
                 "attendance_status_badge": attendance_display["badge_class"],
+                "status_override_active": bool(attendance.get("status_override")),
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",
                 "geo_check_in": (check_in_log["punch_time"][11:16] if check_in_log else "-"),
@@ -3402,6 +3446,7 @@ def hris_index(module_slug=None):
         can_manage_asset=can_manage_asset_records(),
         can_manage_project=can_manage_project_records(),
         can_manage_biometric=can_manage_biometric_records(),
+        can_adjust_biometric_status=can_adjust_biometric_attendance_status(),
         can_manage_announcement=can_manage_announcement_records(),
         can_manage_document=can_manage_document_records(),
         can_manage_report=can_manage_hris_records("report"),
@@ -5617,6 +5662,67 @@ def add_biometric():
 
     flash("Log geotag berhasil ditambahkan", "success")
     return redirect("/hris/biometric")
+
+
+@hris_bp.route("/biometric/attendance-status", methods=["POST"])
+def update_biometric_attendance_status():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_adjust_biometric_attendance_status():
+        flash("Hanya HR dan Super Admin yang bisa mengubah status absen geotag.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    employee_id = _to_int(request.form.get("employee_id"))
+    attendance_date = (request.form.get("attendance_date") or "").strip()
+    requested_status = _normalize_attendance_status(request.form.get("status"))
+
+    if requested_status not in BIOMETRIC_ADJUSTABLE_ATTENDANCE_STATUSES:
+        flash("Status geotag hanya bisa diubah ke Present atau Late.", "error")
+        return redirect(return_to)
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None or not attendance_date:
+        flash("Data attendance geotag tidak valid.", "error")
+        return redirect(return_to)
+
+    attendance = _get_attendance_by_employee_date(db, employee_id, attendance_date)
+    if attendance is None:
+        flash("Data attendance geotag tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    derived_status = _derive_biometric_attendance_status_with_shift(
+        attendance["check_in"],
+        attendance["shift_label"],
+    )
+    status_override = requested_status if requested_status != derived_status else None
+    override_timestamp = _current_timestamp()
+
+    db.execute(
+        """
+        UPDATE attendance_records
+        SET status=?,
+            status_override=?,
+            status_override_by=?,
+            status_override_at=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            requested_status,
+            status_override,
+            session.get("user_id") if status_override else None,
+            override_timestamp if status_override else None,
+            override_timestamp,
+            attendance["id"],
+        ),
+    )
+    db.commit()
+
+    if status_override:
+        flash("Status absen geotag berhasil diubah manual.", "success")
+    else:
+        flash("Status absen geotag dikembalikan ke hitungan otomatis.", "success")
+    return redirect(return_to)
 
 
 @hris_bp.route("/biometric/update/<int:biometric_id>", methods=["POST"])

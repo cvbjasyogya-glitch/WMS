@@ -3604,9 +3604,26 @@
     <div class="section-title">
         <div>
             <h2>Rekap Absensi Geotag</h2>
-            <p>Rekap ini membaca hasil attendance harian yang dibentuk dari log geotag, sehingga HR dan operasional bisa langsung melihat jam masuk, jam pulang, dan titik absensi per staf.</p>
+            <p>Rekap ini membaca hasil attendance harian yang dibentuk dari log geotag. Default-nya hanya menampilkan absen hari ini supaya panel tetap ringkas, lalu bisa diganti manual ke hari lain saat dibutuhkan.</p>
         </div>
     </div>
+
+    <form method="GET" class="top-bar products-filter-bar" style="margin-bottom:18px;">
+        {% if biometric_scope_warehouse %}
+        <input type="hidden" name="warehouse" value="{{ biometric_scope_warehouse }}">
+        {% else %}
+        <select name="warehouse">
+            <option value="">Semua Gudang</option>
+            {% for w in warehouses %}
+            <option value="{{ w.id }}" {% if biometric_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+        <input type="date" name="date_from" value="{{ biometric_filters.date_from }}">
+        <input type="date" name="date_to" value="{{ biometric_filters.date_to }}">
+        <button type="submit">Tampilkan Hari</button>
+    </form>
+    <small class="helper-text">HR dan Super Admin bisa mengubah badge Present/Late langsung dari tabel ini. Untuk reset ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</small>
 
     {% if biometric_recap_rows %}
     <table>
@@ -3625,6 +3642,9 @@
                 <th>Foto Terakhir</th>
                 <th>Log</th>
                 <th>Status</th>
+                {% if can_adjust_biometric_status %}
+                <th>Aksi HR</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -3634,7 +3654,12 @@
                 <td class="mono">{{ row.employee_code }}</td>
                 <td>{{ row.full_name }}</td>
                 <td>{{ row.warehouse_name or '-' }}</td>
-                <td><span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span></td>
+                <td>
+                    <span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span>
+                    {% if row.status_override_active %}
+                    <div><small class="helper-text">Manual HR</small></div>
+                    {% endif %}
+                </td>
                 <td>{{ row.attendance_check_in }} - {{ row.attendance_check_out }}</td>
                 <td>{{ row.geo_check_in }}</td>
                 <td>{{ row.geo_check_out }}</td>
@@ -3649,6 +3674,20 @@
                 </td>
                 <td>{{ row.log_count }}</td>
                 <td><span class="badge {{ row.recap_status_badge }}">{{ row.recap_status_label }}</span></td>
+                {% if can_adjust_biometric_status %}
+                <td>
+                    <form method="POST" action="/hris/biometric/attendance-status" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0;">
+                        <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                        <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
+                        <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                        <select name="status" style="min-width:120px;">
+                            <option value="present" {% if row.attendance_status_value == 'present' %}selected{% endif %}>Present</option>
+                            <option value="late" {% if row.attendance_status_value == 'late' %}selected{% endif %}>Late</option>
+                        </select>
+                        <button type="submit">Simpan</button>
+                    </form>
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>

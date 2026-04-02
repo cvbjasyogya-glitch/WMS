@@ -342,6 +342,142 @@ def create_web_notification(
         return None
 
 
+def push_user_notification(
+    user_id,
+    title,
+    message,
+    *,
+    category=None,
+    link_url=None,
+    actor_user_id=None,
+    actor_name=None,
+    source_type=None,
+    source_id=None,
+    dedupe_key=None,
+    push_title=None,
+    push_body=None,
+    push_tag=None,
+    push_icon=None,
+    push_badge=None,
+    require_interaction=False,
+    renotify=False,
+    silent=False,
+    actions=None,
+    vibrate=None,
+):
+    try:
+        normalized_user_id = int(user_id)
+    except (TypeError, ValueError):
+        return {"web": [], "push": []}
+
+    normalized_title = (title or "").strip()
+    normalized_message = (message or "").strip()
+    if not normalized_title and not normalized_message:
+        return {"web": [], "push": []}
+
+    db = get_db()
+    recipient = db.execute(
+        """
+        SELECT id, role
+        FROM users
+        WHERE id=?
+        LIMIT 1
+        """,
+        (normalized_user_id,),
+    ).fetchone()
+    if recipient is None:
+        return {"web": [], "push": []}
+
+    notification_id = create_web_notification(
+        normalized_user_id,
+        normalized_title,
+        normalized_message,
+        category=category,
+        link_url=link_url,
+        actor_user_id=actor_user_id,
+        actor_name=actor_name,
+        source_type=source_type or "user_push_notification",
+        source_id=source_id,
+        dedupe_key=dedupe_key,
+    )
+    if not notification_id:
+        return {"web": [], "push": []}
+
+    resolved_link = _resolve_notification_link_url(link_url)
+    results = {"web": [{"user_id": normalized_user_id}], "push": []}
+    push_payload = {
+        "title": (push_title or normalized_title or "Notifikasi Baru").strip()[:120],
+        "body": (push_body or normalized_message or "").strip()[:180],
+        "url": resolved_link,
+        "tag": (push_tag or f"user-event-{notification_id}").strip()[:120],
+        "icon": push_icon or "/static/brand/mataram-logo.png",
+        "badge": push_badge or "/static/brand/mataram-logo.png",
+        "notification_id": notification_id,
+        "requireInteraction": bool(require_interaction),
+        "renotify": bool(renotify),
+        "silent": bool(silent),
+    }
+    if isinstance(actions, list) and actions:
+        push_payload["actions"] = [
+            {
+                "action": str(item.get("action") or "").strip()[:40],
+                "title": str(item.get("title") or "").strip()[:40],
+            }
+            for item in actions
+            if isinstance(item, dict)
+            and str(item.get("action") or "").strip()
+            and str(item.get("title") or "").strip()
+        ][:2]
+        if push_payload["actions"]:
+            push_payload["actionUrls"] = {
+                item["action"]: resolved_link
+                for item in push_payload["actions"]
+            }
+    if isinstance(vibrate, (list, tuple)) and vibrate:
+        push_payload["vibrate"] = [
+            int(value)
+            for value in vibrate
+            if isinstance(value, (int, float)) and int(value) >= 0
+        ][:8]
+
+    subscriptions = db.execute(
+        """
+        SELECT id, endpoint, p256dh_key, auth_key
+        FROM push_subscriptions
+        WHERE user_id=? AND is_active=1
+        ORDER BY updated_at DESC, id DESC
+        """,
+        (normalized_user_id,),
+    ).fetchall()
+    for subscription in subscriptions:
+        endpoint = _normalize_recipient(subscription["endpoint"])
+        if not endpoint:
+            continue
+        if _notification_exists_recent(db, endpoint, "push", normalized_title, normalized_message):
+            continue
+        ok = _send_web_push(db, subscription, push_payload)
+        if ok is None:
+            continue
+        results["push"].append({"to": endpoint, "ok": ok})
+        _insert_notification_record(
+            db,
+            normalized_user_id,
+            recipient["role"],
+            "push",
+            endpoint,
+            normalized_title,
+            normalized_message,
+            ok,
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        pass
+
+    return results
+
+
 def fetch_user_web_notifications(user_id, *, unread_only=False, hide_read=True, limit=12, since_id=None):
     try:
         normalized_user_id = int(user_id)
@@ -956,20 +1092,28 @@ def notify_user(
     source_type=None,
     source_id=None,
     dedupe_key=None,
+    push_title=None,
+    push_body=None,
+    push_tag=None,
+    require_interaction=False,
+    renotify=False,
+    silent=False,
+    actions=None,
+    vibrate=None,
 ):
     db = get_db()
     try:
         u = db.execute("SELECT id, email, phone, notify_email, notify_whatsapp FROM users WHERE id=?", (user_id,)).fetchone()
         if not u:
-            return {"email": [], "wa": []}
+            return {"email": [], "wa": [], "push": []}
 
         u = dict(u)
 
-        results = {"email": [], "wa": []}
+        results = {"email": [], "wa": [], "push": []}
         email = _normalize_recipient(u.get("email"))
         phone = _normalize_recipient(u.get("phone"))
 
-        create_web_notification(
+        push_results = push_user_notification(
             u.get("id"),
             subject,
             message,
@@ -978,7 +1122,16 @@ def notify_user(
             source_type=source_type or "user_notification",
             source_id=source_id,
             dedupe_key=dedupe_key,
+            push_title=push_title,
+            push_body=push_body,
+            push_tag=push_tag,
+            require_interaction=require_interaction,
+            renotify=renotify,
+            silent=silent,
+            actions=actions,
+            vibrate=vibrate,
         )
+        results["push"] = push_results.get("push", [])
 
         if email and u.get("notify_email"):
             if not _notification_exists_recent(db, email, 'email', subject, message):
@@ -1008,7 +1161,7 @@ def notify_user(
         return results
     except Exception as e:
         print("notify_user error:", e)
-        return {"email": [], "wa": []}
+        return {"email": [], "wa": [], "push": []}
 
 
 def notify_broadcast(

@@ -134,7 +134,7 @@
 
         await postSubscription(config.subscribeUrl, subscription.toJSON());
         await registration.showNotification("Notifikasi perangkat aktif", {
-            body: "Pengumuman HRIS dan perubahan jadwal akan dikirim ke perangkat ini.",
+            body: "Chat, telpon masuk, pengumuman HRIS, dan perubahan jadwal akan dikirim ke perangkat ini.",
             icon: "/static/brand/mataram-logo.png",
             badge: "/static/brand/mataram-logo.png",
             tag: "announcement-center-enabled"

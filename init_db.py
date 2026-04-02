@@ -95,6 +95,9 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "attendance_records", "status", "TEXT DEFAULT 'present'")
     _ensure_column(cursor, "attendance_records", "shift_code", "TEXT")
     _ensure_column(cursor, "attendance_records", "shift_label", "TEXT")
+    _ensure_column(cursor, "attendance_records", "status_override", "TEXT")
+    _ensure_column(cursor, "attendance_records", "status_override_by", "INTEGER")
+    _ensure_column(cursor, "attendance_records", "status_override_at", "TIMESTAMP")
     _ensure_column(cursor, "attendance_records", "note", "TEXT")
     _ensure_column(cursor, "attendance_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "leave_requests", "employee_id", "INTEGER")
@@ -533,6 +536,9 @@ def init_db(db_path=None):
         status TEXT DEFAULT 'present',
         shift_code TEXT,
         shift_label TEXT,
+        status_override TEXT,
+        status_override_by INTEGER,
+        status_override_at TIMESTAMP,
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

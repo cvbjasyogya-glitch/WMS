@@ -221,7 +221,7 @@
 
     async function joinMeeting(data) {
         if (!sdkReady) {
-            showPortalMessage("Meeting belum aktif di server. Hubungi admin untuk mengisi SDK key dan secret.", "warning");
+            showPortalMessage("Meeting belum aktif di server. Hubungi admin untuk mengisi SDK key/secret atau CLIENT_ID/CLIENT_SECRET.", "warning");
             return;
         }
         if (!data.meetingNumber) {

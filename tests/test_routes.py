@@ -2,6 +2,7 @@ import os
 import shutil
 import unittest
 import json
+import importlib
 from datetime import date as date_cls, datetime, timedelta, timezone
 from io import BytesIO
 from unittest.mock import patch
@@ -432,6 +433,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "error")
 
+    def test_config_accepts_zoom_client_id_and_client_secret_fallbacks(self):
+        import config as config_module
+
+        with patch.dict(
+            os.environ,
+            {
+                "ZOOM_MEETING_SDK_KEY": "",
+                "ZOOM_MEETING_SDK_SECRET": "",
+                "CLIENT_ID": "client-id-demo",
+                "CLIENT_SECRET": "client-secret-demo",
+            },
+            clear=False,
+        ):
+            config_module = importlib.reload(config_module)
+            try:
+                self.assertEqual(config_module.Config.ZOOM_MEETING_SDK_KEY, "client-id-demo")
+                self.assertEqual(config_module.Config.ZOOM_MEETING_SDK_SECRET, "client-secret-demo")
+            finally:
+                importlib.reload(config_module)
+
     def test_meeting_session_page_renders_zoom_assets_when_configured(self):
         self.app.config.update(
             ZOOM_MEETING_SDK_KEY="sdk-key-demo",
@@ -608,6 +629,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn('addEventListener("push"', body)
+        self.assertIn("requireInteraction", body)
         self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
 
     def test_secret_key_persists_to_file_when_env_is_missing(self):
@@ -1556,6 +1578,130 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("stickers", bootstrap_payload)
         self.assertIn("attachment_max_bytes", bootstrap_payload)
 
+    def test_chat_message_pushes_notification_to_subscribed_recipient(self):
+        self.create_user("staff_chat_push", "pass1234", "staff", warehouse_id=1)
+        self.create_user("leader_chat_push", "pass1234", "leader", warehouse_id=1)
+        leader_user_id = self.get_user_id("leader_chat_push")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO push_subscriptions(user_id, endpoint, p256dh_key, auth_key, user_agent, is_active)
+                VALUES (?,?,?,?,?,1)
+                """,
+                (
+                    leader_user_id,
+                    "https://push.example.test/chat-message",
+                    "p256dh-chat-message",
+                    "auth-chat-message",
+                    "pytest",
+                ),
+            )
+            db.commit()
+
+        self.login("staff_chat_push", "pass1234")
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        with patch("services.notification_service._send_web_push", return_value=True) as push_mock:
+            send_message = self.client.post(
+                f"/chat/thread/{thread_id}/send",
+                json={"message": "Ada update inbound yang perlu dicek sekarang."},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(send_message.status_code, 200)
+        self.assertTrue(push_mock.called)
+        push_payload = push_mock.call_args[0][2]
+        self.assertEqual(push_payload["url"], f"/chat/?thread={thread_id}")
+        self.assertIn("Ada update inbound", push_payload["body"])
+        self.assertIn(f"chat-thread-{thread_id}-message-", push_payload["tag"])
+
+        with self.app.app_context():
+            db = get_db()
+            push_notification = db.execute(
+                """
+                SELECT channel, recipient, subject
+                FROM notifications
+                WHERE channel='push'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(push_notification)
+        self.assertEqual(push_notification["recipient"], "https://push.example.test/chat-message")
+
+    def test_chat_call_pushes_incoming_call_notification_to_subscribed_recipient(self):
+        self.create_user("caller_push", "pass1234", "admin", warehouse_id=1)
+        self.create_user("callee_push", "pass1234", "leader", warehouse_id=1)
+        callee_user_id = self.get_user_id("callee_push")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO push_subscriptions(user_id, endpoint, p256dh_key, auth_key, user_agent, is_active)
+                VALUES (?,?,?,?,?,1)
+                """,
+                (
+                    callee_user_id,
+                    "https://push.example.test/chat-call",
+                    "p256dh-chat-call",
+                    "auth-chat-call",
+                    "pytest",
+                ),
+            )
+            db.commit()
+
+        self.login("caller_push", "pass1234")
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": callee_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        with patch("services.notification_service._send_web_push", return_value=True) as push_mock:
+            start_call = self.client.post(
+                f"/chat/thread/{thread_id}/call/start",
+                json={"mode": "video"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(start_call.status_code, 200)
+        self.assertTrue(push_mock.called)
+        push_payload = push_mock.call_args[0][2]
+        call_id = start_call.get_json()["call"]["id"]
+        self.assertEqual(push_payload["url"], f"/chat/?thread={thread_id}&pickup_call={call_id}")
+        self.assertTrue(push_payload["requireInteraction"])
+        self.assertTrue(push_payload["renotify"])
+        self.assertEqual(push_payload["tag"], f"chat-call-{call_id}")
+        self.assertIn("menelepon", push_payload["body"])
+        self.assertEqual(push_payload["actions"][0]["action"], "open")
+
+        with self.app.app_context():
+            db = get_db()
+            push_notification = db.execute(
+                """
+                SELECT channel, recipient, subject
+                FROM notifications
+                WHERE channel='push'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(push_notification)
+        self.assertEqual(push_notification["recipient"], "https://push.example.test/chat-call")
+
     def test_chat_presence_updates_user_presence_and_ignores_invalid_thread(self):
         self.create_user("leader_presence", "pass1234", "leader", warehouse_id=1)
         self.create_user("staff_presence", "pass1234", "staff", warehouse_id=1)
@@ -2275,6 +2421,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("HRIS Integration Hub", html)
         self.assertIn("Attendance Geotag", html)
         self.assertIn("Rekap Absensi Geotag", html)
+        self.assertIn("Tampilkan Hari", html)
         self.assertNotIn("Log Geotag Absensi", html)
         self.assertNotIn("Tambah Absen Geotag", html)
         self.assertNotIn('href="/hris/attendance"', html)
@@ -2294,6 +2441,279 @@ class WmsRoutesTestCase(unittest.TestCase):
         attendance_redirect = self.client.get("/hris/attendance", follow_redirects=False)
         self.assertEqual(attendance_redirect.status_code, 302)
         self.assertIn("/hris/biometric", attendance_redirect.headers["Location"])
+
+    def test_biometric_route_defaults_to_today_only(self):
+        today = date_cls.today().isoformat()
+        yesterday = (date_cls.today() - timedelta(days=1)).isoformat()
+        today_employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-TODAY",
+            full_name="Biometric Today Only",
+            warehouse_id=1,
+        )
+        old_employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OLD",
+            full_name="Biometric Old Record",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    today_employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    f"{today}T07:55",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Hari Ini",
+                    -8.58314,
+                    116.116798,
+                    7.5,
+                    "Masuk hari ini",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    today_employee_id,
+                    1,
+                    today,
+                    "07:55",
+                    "present",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    old_employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    f"{yesterday}T08:35",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Kemarin",
+                    -8.58314,
+                    116.116798,
+                    9.0,
+                    "Masuk kemarin",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    old_employee_id,
+                    1,
+                    yesterday,
+                    "08:35",
+                    "late",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        self.login_hr_user("hr_today_filter", "pass1234")
+        response = self.client.get("/hris/biometric")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Biometric Today Only", html)
+        self.assertNotIn("Biometric Old Record", html)
+        self.assertIn(f'name="date_from" value="{today}"', html)
+        self.assertIn(f'name="date_to" value="{today}"', html)
+
+    def test_hr_can_override_biometric_late_status_and_preserve_it_after_resync(self):
+        self.login_hr_user("hr_bio_override", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OVERRIDE-HR",
+            full_name="Biometric Override HR",
+            warehouse_id=1,
+        )
+
+        create_response = self.client.post(
+            "/hris/biometric/add",
+            data={
+                "employee_id": str(employee_id),
+                "location_label": "Gudang Mataram - Pintu Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "12.5",
+                "punch_time": "2026-09-01T08:40",
+                "punch_type": "check_in",
+                "sync_status": "synced",
+                "note": "Check in telat",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        override_response = self.client.post(
+            "/hris/biometric/attendance-status",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-01",
+                "status": "present",
+                "return_to": "/hris/biometric?date_from=2026-09-01&date_to=2026-09-01",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(override_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT status, status_override
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-01"),
+            ).fetchone()
+
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["status_override"], "present")
+
+        check_out_response = self.client.post(
+            "/hris/biometric/add",
+            data={
+                "employee_id": str(employee_id),
+                "location_label": "Gudang Mataram - Pintu Pulang",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "10.0",
+                "punch_time": "2026-09-01T17:05",
+                "punch_type": "check_out",
+                "sync_status": "synced",
+                "note": "Pulang kerja",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(check_out_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance_after = db.execute(
+                """
+                SELECT check_out, status, status_override
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-01"),
+            ).fetchone()
+
+        self.assertEqual(attendance_after["check_out"], "17:05")
+        self.assertEqual(attendance_after["status"], "present")
+        self.assertEqual(attendance_after["status_override"], "present")
+
+    def test_super_admin_can_override_biometric_late_status(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OVERRIDE-SA",
+            full_name="Biometric Override Super Admin",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-02T08:45",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Pintu Masuk",
+                    -8.58314,
+                    116.116798,
+                    8.0,
+                    "Masuk telat",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-02",
+                    "08:45",
+                    "late",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        self.create_user("super_bio_override", "pass1234", "super_admin")
+        self.login("super_bio_override", "pass1234")
+        response = self.client.post(
+            "/hris/biometric/attendance-status",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-02",
+                "status": "present",
+                "return_to": "/hris/biometric?date_from=2026-09-02&date_to=2026-09-02",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT status, status_override, status_override_by
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-02"),
+            ).fetchone()
+
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["status_override"], "present")
+        self.assertIsNotNone(attendance["status_override_by"])
 
     def test_attendance_portal_renders_for_logged_in_user(self):
         self.login()
@@ -4124,6 +4544,119 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Shift Pagi | 09.00 - 17.00", html)
         self.assertIn("Shift Siang | 13.00 - 21.00", html)
+
+    def test_attendance_portal_uses_special_shift_for_bu_ika(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-BUIKA",
+            full_name="Bu Ika Suryani",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_bu_ika", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_bu_ika", "pass1234")
+        today = date_cls.today().isoformat()
+
+        response = self.client.get("/absen/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Shift Khusus Bu Ika | 11.30 - 21.00", html)
+        self.assertIn("Jam khusus Bu Ika: 11.30 - 21.00.", html)
+        self.assertNotIn("Shift Pagi | 08.00 - 16.00", html)
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Area Admin",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.0",
+                "punch_time": f"{today}T11:40",
+                "punch_type": "check_in",
+                "note": "Masuk shift khusus Bu Ika",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT punch_time, shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT check_in, status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["shift_code"], "bu_ika")
+        self.assertIn("11.30 - 21.00", biometric["shift_label"])
+        self.assertEqual(biometric["punch_time"][11:16], "11:40")
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["check_in"], "11:40")
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "bu_ika")
+        self.assertIn("11.30 - 21.00", attendance["shift_label"])
+
+    def test_attendance_portal_marks_bu_ika_special_shift_late_after_eleven_minutes(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-BUIKA-LATE",
+            full_name="Bu Ika Lestari",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_bu_ika_late", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_bu_ika_late", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "location_label": "Gudang Mataram - Area Kasir",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.4",
+                "punch_time": f"{today}T11:41",
+                "punch_type": "check_in",
+                "note": "Masuk lewat batas toleransi Bu Ika",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT check_in, status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["check_in"], "11:41")
+        self.assertEqual(attendance["status"], "late")
+        self.assertEqual(attendance["shift_code"], "bu_ika")
+        self.assertIn("11.30 - 21.00", attendance["shift_label"])
 
     def test_attendance_portal_hr_can_choose_mataram_or_mega_shift_profile(self):
         employee_id = self.create_employee_record(

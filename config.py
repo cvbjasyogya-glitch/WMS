@@ -40,6 +40,17 @@ def _int_env(name, default=0):
         return int(default)
 
 
+def _first_env_value(*names, default=""):
+    for name in names:
+        raw_value = os.getenv(name)
+        if raw_value is None:
+            continue
+        normalized = str(raw_value).strip()
+        if normalized:
+            return normalized
+    return str(default).strip()
+
+
 def _load_or_create_secret_key():
     env_secret = (os.getenv("SECRET_KEY") or "").strip()
     if env_secret:
@@ -163,12 +174,19 @@ class Config:
             ]
         }
     ]
-    ZOOM_MEETING_SDK_KEY = (os.getenv("ZOOM_MEETING_SDK_KEY") or "").strip()
-    ZOOM_MEETING_SDK_SECRET = (
-        os.getenv("ZOOM_MEETING_SDK_SECRET")
-        or os.getenv("CLIENT_SECRET")
-        or ""
-    ).strip()
+    ZOOM_MEETING_SDK_KEY = _first_env_value(
+        "ZOOM_MEETING_SDK_KEY",
+        "CLIENT_ID",
+        "ZOOM_CLIENT_ID",
+        "ZOOM_SDK_KEY",
+        "ZOOM_SDK_CLIENT_ID",
+    )
+    ZOOM_MEETING_SDK_SECRET = _first_env_value(
+        "ZOOM_MEETING_SDK_SECRET",
+        "CLIENT_SECRET",
+        "ZOOM_CLIENT_SECRET",
+        "ZOOM_SDK_SECRET",
+    )
     ZOOM_MEETING_SDK_VERSION = (os.getenv("ZOOM_MEETING_SDK_VERSION") or "5.1.4").strip()
     ZOOM_MEETING_WEB_ENDPOINT = (os.getenv("ZOOM_MEETING_WEB_ENDPOINT") or "zoom.us").strip()
     ZOOM_MEETING_DEFAULT_LANGUAGE = (os.getenv("ZOOM_MEETING_DEFAULT_LANGUAGE") or "id-ID").strip()
