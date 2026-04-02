@@ -3,7 +3,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, current_app, render_template, request, redirect, session, url_for, flash
 from database import get_db
 from services.notification_service import send_email, send_whatsapp
-from services.rbac import is_scoped_role
+from services.rbac import is_scoped_role, normalize_role
 from services.auth_security import (
     clear_login_failures,
     get_client_ip,
@@ -102,9 +102,11 @@ def login():
         # ==============================
         session.clear()
 
+        normalized_role = normalize_role(user["role"])
+
         session["user_id"] = user["id"]
         session["username"] = user["username"]
-        session["role"] = user["role"]
+        session["role"] = normalized_role
         session["employee_id"] = user.get("employee_id")
         session["chat_sound_volume"] = float(
             user.get("chat_sound_volume")
@@ -117,7 +119,7 @@ def login():
         except Exception:
             user_wh = None
 
-        if user_wh and is_scoped_role(user["role"]):
+        if user_wh and is_scoped_role(normalized_role):
             session["warehouse_id"] = user_wh
         else:
             warehouse = db.execute("""
@@ -126,7 +128,7 @@ def login():
 
             session["warehouse_id"] = warehouse["id"] if warehouse else 1
 
-        if is_scoped_role(user["role"]) and session.get("warehouse_id"):
+        if is_scoped_role(normalized_role) and session.get("warehouse_id"):
             last_seen = db.execute(
                 """
                 SELECT COALESCE(MAX(id), 0)

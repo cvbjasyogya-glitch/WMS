@@ -27,7 +27,7 @@ from services.hris_catalog import (
 )
 from services.announcement_center import build_announcement_notification_payload
 from services.notification_service import notify_broadcast
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import has_permission, is_scoped_role, normalize_role
 
 
 hris_bp = Blueprint("hris", __name__, url_prefix="/hris")
@@ -212,7 +212,7 @@ def can_manage_biometric_records():
 
 
 def can_adjust_biometric_attendance_status():
-    return session.get("role") in BIOMETRIC_MANUAL_STATUS_ROLES
+    return normalize_role(session.get("role")) in BIOMETRIC_MANUAL_STATUS_ROLES
 
 
 def can_manage_announcement_records():

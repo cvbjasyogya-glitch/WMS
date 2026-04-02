@@ -2775,6 +2775,95 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["status_override"], "present")
         self.assertIsNotNone(attendance["status_override_by"])
 
+    def test_legacy_superadmin_role_can_adjust_biometric_status(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-LEGACY-SA",
+            full_name="Biometric Legacy Superadmin",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-04T08:45",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Pintu Masuk",
+                    -8.58314,
+                    116.116798,
+                    8.0,
+                    "Masuk telat",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-04",
+                    "08:45",
+                    "late",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        self.create_user("legacy_superadmin", "pass1234", "superadmin")
+        self.login("legacy_superadmin", "pass1234")
+
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("role"), "super_admin")
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-04&date_to=2026-09-04")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ubah Status Absen", html)
+
+        update_response = self.client.post(
+            "/hris/biometric/attendance-status",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-04",
+                "status": "present",
+                "return_to": "/hris/biometric?date_from=2026-09-04&date_to=2026-09-04",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT status, status_override
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-04"),
+            ).fetchone()
+
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["status_override"], "present")
+
     def test_attendance_portal_renders_for_logged_in_user(self):
         self.login()
         response = self.client.get("/absen/")

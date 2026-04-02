@@ -8,7 +8,7 @@ from config import Config
 from database import close_db, get_db
 from datetime import datetime, timezone
 from services.notification_service import send_email, send_whatsapp
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import has_permission, is_scoped_role, normalize_role
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -677,8 +677,9 @@ def create_app():
             flash("User tidak ditemukan, silakan login kembali", "error")
             return redirect(url_for("auth.login"))
 
+        normalized_role = normalize_role(user["role"])
         session["username"] = user["username"]
-        session["role"] = user["role"]
+        session["role"] = normalized_role
         session["employee_id"] = user["employee_id"]
         session["chat_sound_volume"] = float(
             user["chat_sound_volume"]
@@ -686,7 +687,7 @@ def create_app():
             else app.config.get("CHAT_SOUND_VOLUME_DEFAULT", 0.85)
         )
 
-        if is_scoped_role(user["role"]):
+        if is_scoped_role(normalized_role):
             session["warehouse_id"] = user["warehouse_id"] or 1
         elif not session.get("warehouse_id"):
             warehouse = db.execute(

@@ -1,3 +1,9 @@
+ROLE_ALIASES = {
+    "superadmin": "super_admin",
+    "super admin": "super_admin",
+    "super-admin": "super_admin",
+}
+
 ROLE_PERMISSIONS = {
     "super_admin": {
         "view_admin",
@@ -76,8 +82,13 @@ ROLE_PERMISSIONS = {
 }
 
 
+def normalize_role(role):
+    normalized = (role or "").strip().lower()
+    return ROLE_ALIASES.get(normalized, normalized)
+
+
 def get_permissions(role):
-    return ROLE_PERMISSIONS.get(role or "", set())
+    return ROLE_PERMISSIONS.get(normalize_role(role), set())
 
 
 def has_permission(role, permission):
