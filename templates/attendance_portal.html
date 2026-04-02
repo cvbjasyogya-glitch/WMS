@@ -105,7 +105,7 @@
                         <button type="button" class="ghost-button" data-camera-fallback hidden {% if portal_punch_mode == "complete" %}disabled{% endif %}>Kamera Perangkat</button>
                         <input type="file" accept="image/*" capture="user" data-camera-file-input hidden>
                     </div>
-                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen. Jika preview live gagal muncul di browser tertentu, tombol Kamera Perangkat akan dipakai sebagai fallback aman.</small>
+                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen. Frame akan menyesuaikan portrait atau horizontal mengikuti orientasi layar. Jika preview live gagal muncul di browser tertentu, tombol Kamera Perangkat akan dipakai sebagai fallback aman.</small>
                 </div>
 
                 <div class="attendance-form-panel">
@@ -239,6 +239,7 @@
     const video = portal.querySelector("[data-camera-video]");
     const preview = portal.querySelector("[data-camera-preview]");
     const canvas = portal.querySelector("[data-camera-canvas]");
+    const cameraFrame = portal.querySelector("[data-camera-frame]");
     const portalLocked = portal.dataset.portalLocked === "1";
     const startButton = portal.querySelector("[data-camera-start]");
     const captureButton = portal.querySelector("[data-camera-capture]");
@@ -302,6 +303,35 @@
             hour: "2-digit",
             minute: "2-digit",
         });
+    };
+
+    const getViewportOrientation = () => {
+        if (window.matchMedia && window.matchMedia("(orientation: landscape)").matches) {
+            return "landscape";
+        }
+        return window.innerWidth > window.innerHeight ? "landscape" : "portrait";
+    };
+
+    const inferMediaOrientation = (width, height, fallbackOrientation = getViewportOrientation()) => {
+        const safeWidth = Number(width) || 0;
+        const safeHeight = Number(height) || 0;
+        if (safeWidth > 0 && safeHeight > 0) {
+            if (safeWidth > safeHeight * 1.05) {
+                return "landscape";
+            }
+            if (safeHeight > safeWidth * 1.05) {
+                return "portrait";
+            }
+        }
+        return fallbackOrientation === "landscape" ? "landscape" : "portrait";
+    };
+
+    const setCameraFrameOrientation = (orientation) => {
+        if (!cameraFrame) {
+            return;
+        }
+        const normalizedOrientation = orientation === "landscape" ? "landscape" : "portrait";
+        cameraFrame.dataset.cameraOrientation = normalizedOrientation;
     };
 
     const syncPunchTime = () => {
@@ -545,6 +575,112 @@
         context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
     };
 
+    const buildStampLayout = (orientation) => {
+        const normalizedOrientation = orientation === "landscape" ? "landscape" : "portrait";
+
+        if (normalizedOrientation === "landscape") {
+            return {
+                orientation: "landscape",
+                targetWidth: 1440,
+                targetHeight: 1080,
+                mapCardX: 34,
+                mapCardY: 34,
+                mapCardWidth: 230,
+                mapCardHeight: 230,
+                brandX: 1404,
+                brandPrimaryY: 64,
+                brandSecondaryY: 94,
+                shiftChipY: 116,
+                edgeShadeRadius: 240,
+                edgeShadeExtent: 0.7,
+                footerFadeHeight: 320,
+                footerX: 38,
+                footerY: 778,
+                badgeWidth: 156,
+                badgeHeight: 60,
+                badgeRadius: 18,
+                badgeFontSize: 28,
+                badgeBaselineOffset: 39,
+                timeCardX: 212,
+                timeCardY: 776,
+                timeCardWidth: 236,
+                timeCardHeight: 68,
+                timeFontSize: 68,
+                timeBaselineOffset: 52,
+                dateFontSize: 30,
+                dateY: 888,
+                accentLineX: 38,
+                accentLineY: 910,
+                accentLineWidth: 8,
+                accentLineHeight: 118,
+                infoCardX: 56,
+                infoCardY: 908,
+                infoCardWidth: 1180,
+                infoCardHeight: 122,
+                infoCardRadius: 22,
+                locationFontSize: 22,
+                locationLineStartY: 948,
+                locationLineGapFirst: 28,
+                locationLineGap: 24,
+                locationMaxWidth: 1128,
+                footerCaptionFontSize: 18,
+                footerCaptionY: 1046,
+                verticalStampX: 1422,
+                verticalStampY: 540,
+            };
+        }
+
+        return {
+            orientation: "portrait",
+            targetWidth: 1080,
+            targetHeight: 1440,
+            mapCardX: 34,
+            mapCardY: 34,
+            mapCardWidth: 270,
+            mapCardHeight: 270,
+            brandX: 1044,
+            brandPrimaryY: 64,
+            brandSecondaryY: 94,
+            shiftChipY: 116,
+            edgeShadeRadius: 280,
+            edgeShadeExtent: 0.8,
+            footerFadeHeight: 520,
+            footerX: 42,
+            footerY: 1052,
+            badgeWidth: 132,
+            badgeHeight: 58,
+            badgeRadius: 18,
+            badgeFontSize: 30,
+            badgeBaselineOffset: 38,
+            timeCardX: 190,
+            timeCardY: 1050,
+            timeCardWidth: 244,
+            timeCardHeight: 66,
+            timeFontSize: 72,
+            timeBaselineOffset: 52,
+            dateFontSize: 30,
+            dateY: 1164,
+            accentLineX: 42,
+            accentLineY: 1184,
+            accentLineWidth: 8,
+            accentLineHeight: 192,
+            infoCardX: 60,
+            infoCardY: 1182,
+            infoCardWidth: 742,
+            infoCardHeight: 208,
+            infoCardRadius: 22,
+            locationFontSize: 24,
+            locationLineStartY: 1226,
+            locationLineGapFirst: 30,
+            locationLineGap: 28,
+            locationMaxWidth: 660,
+            footerCaptionFontSize: 18,
+            footerCaptionY: 1386,
+            verticalStampX: 1062,
+            verticalStampY: 720,
+        };
+    };
+
     const estimateDataUrlBytes = (dataUrl) => {
         const safeValue = String(dataUrl || "");
         const commaIndex = safeValue.indexOf(",");
@@ -629,8 +765,10 @@
             loadImage(buildMapPreviewSvg()),
         ]);
 
-        const targetWidth = 1080;
-        const targetHeight = 1440;
+        const layout = buildStampLayout(inferMediaOrientation(sourceImage.width, sourceImage.height));
+        const targetWidth = layout.targetWidth;
+        const targetHeight = layout.targetHeight;
+        setCameraFrameOrientation(layout.orientation);
         canvas.width = targetWidth;
         canvas.height = targetHeight;
 
@@ -649,47 +787,43 @@
         const edgeShade = context.createRadialGradient(
             targetWidth / 2,
             targetHeight / 2,
-            280,
+            layout.edgeShadeRadius,
             targetWidth / 2,
             targetHeight / 2,
-            targetHeight * 0.8
+            targetHeight * layout.edgeShadeExtent
         );
         edgeShade.addColorStop(0, "rgba(7, 17, 31, 0)");
         edgeShade.addColorStop(1, "rgba(7, 17, 31, 0.28)");
         context.fillStyle = edgeShade;
         context.fillRect(0, 0, targetWidth, targetHeight);
 
-        const footerFade = context.createLinearGradient(0, targetHeight - 520, 0, targetHeight);
+        const footerFade = context.createLinearGradient(0, targetHeight - layout.footerFadeHeight, 0, targetHeight);
         footerFade.addColorStop(0, "rgba(7, 17, 31, 0)");
         footerFade.addColorStop(1, "rgba(7, 17, 31, 0.72)");
         context.fillStyle = footerFade;
-        context.fillRect(0, targetHeight - 520, targetWidth, 520);
+        context.fillRect(0, targetHeight - layout.footerFadeHeight, targetWidth, layout.footerFadeHeight);
 
-        const mapCardX = 34;
-        const mapCardY = 34;
-        const mapCardWidth = 270;
-        const mapCardHeight = 270;
         context.save();
         context.shadowColor = "rgba(7, 17, 31, 0.24)";
         context.shadowBlur = 22;
         context.shadowOffsetY = 10;
-        drawRoundedRect(context, mapCardX, mapCardY, mapCardWidth, mapCardHeight, 28);
+        drawRoundedRect(context, layout.mapCardX, layout.mapCardY, layout.mapCardWidth, layout.mapCardHeight, 28);
         context.fillStyle = "rgba(255, 255, 255, 0.96)";
         context.fill();
         context.restore();
         context.strokeStyle = "rgba(255,255,255,0.72)";
         context.lineWidth = 2;
-        drawRoundedRect(context, mapCardX, mapCardY, mapCardWidth, mapCardHeight, 28);
+        drawRoundedRect(context, layout.mapCardX, layout.mapCardY, layout.mapCardWidth, layout.mapCardHeight, 28);
         context.stroke();
-        context.drawImage(mapImage, mapCardX + 10, mapCardY + 10, mapCardWidth - 20, mapCardHeight - 20);
+        context.drawImage(mapImage, layout.mapCardX + 10, layout.mapCardY + 10, layout.mapCardWidth - 20, layout.mapCardHeight - 20);
 
         context.fillStyle = "#f7c948";
         context.font = "700 30px 'Segoe UI', Arial, sans-serif";
         context.textAlign = "right";
-        context.fillText("ERP-CV.BJAS", targetWidth - 36, 64);
+        context.fillText("ERP-CV.BJAS", layout.brandX, layout.brandPrimaryY);
         context.fillStyle = "rgba(255,255,255,0.92)";
         context.font = "500 20px 'Segoe UI', Arial, sans-serif";
-        context.fillText("Geotag Attendance", targetWidth - 36, 94);
+        context.fillText("Geotag Attendance", layout.brandX, layout.brandSecondaryY);
 
         const shiftStampLabel = getShiftStampLabel();
         if (shiftStampLabel) {
@@ -697,8 +831,8 @@
             context.font = "700 18px 'Segoe UI', Arial, sans-serif";
             const shiftTextWidth = context.measureText(shiftStampLabel).width;
             const shiftChipWidth = Math.min(Math.max(shiftTextWidth + 36, 190), 360);
-            const shiftChipX = targetWidth - 36 - shiftChipWidth;
-            const shiftChipY = 116;
+            const shiftChipX = layout.brandX - shiftChipWidth;
+            const shiftChipY = layout.shiftChipY;
             drawRoundedRect(context, shiftChipX, shiftChipY, shiftChipWidth, 34, 17);
             context.fillStyle = "rgba(7, 17, 31, 0.34)";
             context.fill();
@@ -712,7 +846,7 @@
         }
 
         context.save();
-        context.translate(targetWidth - 18, targetHeight / 2);
+        context.translate(layout.verticalStampX, layout.verticalStampY);
         context.rotate(-Math.PI / 2);
         context.fillStyle = "rgba(255,255,255,0.88)";
         context.font = "600 16px 'Segoe UI', Arial, sans-serif";
@@ -739,61 +873,59 @@
             year: "numeric",
         });
 
-        const footerX = 42;
-        const footerY = targetHeight - 388;
         context.save();
-        drawRoundedRect(context, footerX, footerY, 132, 58, 18);
+        drawRoundedRect(context, layout.footerX, layout.footerY, layout.badgeWidth, layout.badgeHeight, layout.badgeRadius);
         context.fillStyle = badgePalette[badgeLabel] || "#16a34a";
         context.fill();
         context.fillStyle = "#ffffff";
-        context.font = "700 30px 'Segoe UI', Arial, sans-serif";
+        context.font = `700 ${layout.badgeFontSize}px 'Segoe UI', Arial, sans-serif`;
         context.textAlign = "center";
-        context.fillText(badgeLabel, footerX + 66, footerY + 38);
+        context.fillText(badgeLabel, layout.footerX + (layout.badgeWidth / 2), layout.footerY + layout.badgeBaselineOffset);
         context.restore();
 
         context.save();
         context.shadowColor = "rgba(7, 17, 31, 0.2)";
         context.shadowBlur = 20;
         context.shadowOffsetY = 6;
-        drawRoundedRect(context, footerX + 148, footerY - 2, 244, 66, 18);
+        drawRoundedRect(context, layout.timeCardX, layout.timeCardY, layout.timeCardWidth, layout.timeCardHeight, 18);
         context.fillStyle = "rgba(255,255,255,0.94)";
         context.fill();
         context.restore();
 
         context.fillStyle = "#07111f";
-        context.font = "800 72px 'Segoe UI', Arial, sans-serif";
+        context.font = `800 ${layout.timeFontSize}px 'Segoe UI', Arial, sans-serif`;
         context.textAlign = "left";
-        context.fillText(timeLabel, footerX + 164, footerY + 50);
+        context.fillText(timeLabel, layout.timeCardX + 16, layout.timeCardY + layout.timeBaselineOffset);
 
         context.fillStyle = "#ffffff";
-        context.font = "700 30px 'Segoe UI', Arial, sans-serif";
-        context.fillText(dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1), footerX, footerY + 112);
+        context.font = `700 ${layout.dateFontSize}px 'Segoe UI', Arial, sans-serif`;
+        context.fillText(dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1), layout.footerX, layout.dateY);
 
         context.fillStyle = "rgba(34, 211, 238, 0.96)";
-        context.fillRect(footerX, footerY + 132, 8, 192);
+        context.fillRect(layout.accentLineX, layout.accentLineY, layout.accentLineWidth, layout.accentLineHeight);
 
         context.save();
-        drawRoundedRect(context, footerX + 18, footerY + 130, 742, 208, 22);
+        drawRoundedRect(context, layout.infoCardX, layout.infoCardY, layout.infoCardWidth, layout.infoCardHeight, layout.infoCardRadius);
         context.fillStyle = "rgba(7, 17, 31, 0.18)";
         context.fill();
         context.restore();
 
         context.fillStyle = "#ffffff";
-        context.font = "600 24px 'Segoe UI', Arial, sans-serif";
-        let lineY = footerY + 174;
+        context.font = `600 ${layout.locationFontSize}px 'Segoe UI', Arial, sans-serif`;
+        let lineY = layout.locationLineStartY;
         buildLocationLines().forEach((lineText, lineIndex) => {
-            wrapText(context, lineText, 660).forEach((wrappedLine) => {
-                context.fillText(wrappedLine, footerX + 24, lineY);
-                lineY += lineIndex === 0 ? 30 : 28;
+            wrapText(context, lineText, layout.locationMaxWidth).forEach((wrappedLine) => {
+                context.fillText(wrappedLine, layout.infoCardX + 24, lineY);
+                lineY += lineIndex === 0 ? layout.locationLineGapFirst : layout.locationLineGap;
             });
         });
 
         context.fillStyle = "rgba(255,255,255,0.9)";
-        context.font = "500 18px 'Segoe UI', Arial, sans-serif";
+        context.font = `500 ${layout.footerCaptionFontSize}px 'Segoe UI', Arial, sans-serif`;
         context.fillText(
             `${employeeName} | ${getPunchTypeCaption()} | ${todayDate || punchDate.toLocaleDateString("id-ID")}`,
-            footerX + 24,
-            targetHeight - 54
+            layout.infoCardX + 24,
+            layout.footerCaptionY
         );
 
         return exportAdaptiveCanvasJpeg(canvas, {
@@ -802,8 +934,8 @@
             minQuality: 0.42,
             qualityStep: 0.08,
             downscaleFactor: 0.88,
-            minWidth: 720,
-            minHeight: 960,
+            minWidth: layout.orientation === "landscape" ? 960 : 720,
+            minHeight: layout.orientation === "landscape" ? 720 : 960,
         });
     };
 
@@ -875,6 +1007,7 @@
         const isReady = Boolean(activeStream) && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
         captureButton.disabled = !isReady;
         if (isReady) {
+            setCameraFrameOrientation(inferMediaOrientation(video.videoWidth, video.videoHeight));
             setCameraState("Kamera aktif. Pastikan wajah terlihat jelas lalu klik Ambil Foto.", "success");
         }
     };
@@ -886,6 +1019,7 @@
         preview.hidden = true;
         video.hidden = false;
         retakeButton.disabled = true;
+        setCameraFrameOrientation(getViewportOrientation());
     };
 
     const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
@@ -943,35 +1077,71 @@
         handleReady();
     });
 
-    const cameraStreamPresets = [
-        {
-            video: {
-                facingMode: { ideal: "user" },
-                aspectRatio: { ideal: 0.75 },
-                width: { ideal: 1080, max: 1440 },
-                height: { ideal: 1440, max: 1920 },
+    const buildCameraStreamPresets = () => {
+        const preferredOrientation = getViewportOrientation();
+
+        if (preferredOrientation === "landscape") {
+            return [
+                {
+                    video: {
+                        facingMode: { ideal: "user" },
+                        aspectRatio: { ideal: 4 / 3 },
+                        width: { ideal: 1280, max: 1920 },
+                        height: { ideal: 960, max: 1440 },
+                    },
+                    audio: false,
+                },
+                {
+                    video: {
+                        facingMode: { ideal: "user" },
+                        width: { ideal: 960 },
+                        height: { ideal: 720 },
+                    },
+                    audio: false,
+                },
+                {
+                    video: {
+                        facingMode: { ideal: "user" },
+                    },
+                    audio: false,
+                },
+                {
+                    video: true,
+                    audio: false,
+                },
+            ];
+        }
+
+        return [
+            {
+                video: {
+                    facingMode: { ideal: "user" },
+                    aspectRatio: { ideal: 3 / 4 },
+                    width: { ideal: 1080, max: 1440 },
+                    height: { ideal: 1440, max: 1920 },
+                },
+                audio: false,
             },
-            audio: false,
-        },
-        {
-            video: {
-                facingMode: { ideal: "user" },
-                width: { ideal: 960 },
-                height: { ideal: 1280 },
+            {
+                video: {
+                    facingMode: { ideal: "user" },
+                    width: { ideal: 960 },
+                    height: { ideal: 1280 },
+                },
+                audio: false,
             },
-            audio: false,
-        },
-        {
-            video: {
-                facingMode: { ideal: "user" },
+            {
+                video: {
+                    facingMode: { ideal: "user" },
+                },
+                audio: false,
             },
-            audio: false,
-        },
-        {
-            video: true,
-            audio: false,
-        },
-    ];
+            {
+                video: true,
+                audio: false,
+            },
+        ];
+    };
 
     const stopCamera = () => {
         if (activeStream) {
@@ -989,10 +1159,11 @@
         stopCamera();
         resetPreviewState();
         captureButton.disabled = true;
+        setCameraFrameOrientation(getViewportOrientation());
         setCameraState("Menyiapkan kamera. Tunggu sebentar sampai preview siap dipakai.", "idle");
 
         let lastError = null;
-        for (const constraints of cameraStreamPresets) {
+        for (const constraints of buildCameraStreamPresets()) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 activeStream = stream;
@@ -1118,6 +1289,7 @@
         if (!sourceWidth || !sourceHeight) {
             return null;
         }
+        setCameraFrameOrientation(inferMediaOrientation(sourceWidth, sourceHeight));
 
         const longestEdge = Math.max(sourceWidth, sourceHeight);
         const maxEdge = 960;
@@ -1157,6 +1329,7 @@
     };
 
     syncPunchTime();
+    setCameraFrameOrientation(getViewportOrientation());
     syncShiftProfileUi();
     syncLocationScopeUi();
     if (!portalLocked) {
@@ -1283,6 +1456,23 @@
 
     video.addEventListener("canplay", syncCameraReadyState);
     video.addEventListener("loadeddata", syncCameraReadyState);
+    preview.addEventListener("load", () => {
+        setCameraFrameOrientation(inferMediaOrientation(preview.naturalWidth, preview.naturalHeight));
+    });
+
+    const handleViewportChange = () => {
+        if (rawPhotoDataUrl && preview.naturalWidth && preview.naturalHeight) {
+            setCameraFrameOrientation(inferMediaOrientation(preview.naturalWidth, preview.naturalHeight, getViewportOrientation()));
+            return;
+        }
+        if (activeStream && video.videoWidth && video.videoHeight) {
+            setCameraFrameOrientation(inferMediaOrientation(video.videoWidth, video.videoHeight, getViewportOrientation()));
+            return;
+        }
+        setCameraFrameOrientation(getViewportOrientation());
+    };
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("orientationchange", handleViewportChange);
 
     fallbackButton?.addEventListener("click", () => {
         if (portalLocked || !fallbackInput) {

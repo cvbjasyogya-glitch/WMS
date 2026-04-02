@@ -9082,6 +9082,15 @@ body .attendance-camera-frame {
     justify-content: center;
 }
 
+body .attendance-camera-frame[data-camera-orientation="portrait"] {
+    aspect-ratio: 3 / 4;
+}
+
+body .attendance-camera-frame[data-camera-orientation="landscape"] {
+    aspect-ratio: 4 / 3;
+    min-height: 280px;
+}
+
 body .attendance-camera-frame video,
 body .attendance-camera-frame img,
 body .attendance-camera-frame canvas {
@@ -9253,11 +9262,12 @@ body .biometric-attendance-status-select:focus {
         grid-template-columns: 1fr;
     }
 
-    body .attendance-camera-frame,
-    body .attendance-camera-frame video,
-    body .attendance-camera-frame img,
-    body .attendance-camera-frame canvas {
+    body .attendance-camera-frame {
         min-height: 280px;
+    }
+
+    body .attendance-camera-frame[data-camera-orientation="landscape"] {
+        min-height: 240px;
     }
 }
 
