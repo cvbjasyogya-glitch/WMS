@@ -5,6 +5,10 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 3. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
 4. Pull the latest code, restart `wms.service`, then reload Nginx.
 
+Notes:
+- The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
+- Keep only one active Nginx server block for `erp.cvbjasyogya.cloud`. If `nginx -t` warns about a conflicting `server_name`, disable the older duplicate site before reloading Nginx.
+
 Recommended VPS commands:
 
 ```bash
@@ -18,6 +22,13 @@ sudo systemctl daemon-reload
 sudo systemctl restart wms.service
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+If Nginx reports a duplicate `server_name`, inspect and disable the older file:
+
+```bash
+sudo grep -R "server_name erp.cvbjasyogya.cloud" -n /etc/nginx/sites-available /etc/nginx/sites-enabled
+ls -l /etc/nginx/sites-enabled
 ```
 
 Quick checks:
