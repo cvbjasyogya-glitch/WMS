@@ -2878,6 +2878,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Absen Foto & Geotag", html)
         self.assertIn("Mode Hari Ini", html)
+        self.assertIn('href="#foto-absen"', html)
         self.assertNotIn("Riwayat Absen Terakhir", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
 
@@ -2895,6 +2896,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('name="location_scope"', html)
+        self.assertIn('id="foto-absen"', html)
         self.assertIn("Gudang Mataram", html)
         self.assertIn("Gudang Mega", html)
         self.assertIn("Event", html)
@@ -6257,6 +6259,41 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("black red-34", html)
         self.assertIn("black red-35", html)
         self.assertEqual(html.count('value="AERO COMFORT 4"'), 1)
+
+    def test_stock_page_groups_same_name_across_multiple_product_records(self):
+        self.login()
+        response_one, product_one_id, _ = self.create_product(
+            sku="AERO-33",
+            qty=2,
+            variants="black red-33",
+        )
+        response_two, product_two_id, _ = self.create_product(
+            sku="AERO-34",
+            qty=3,
+            variants="black red-34",
+        )
+        self.assertEqual(response_one.status_code, 302)
+        self.assertEqual(response_two.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id IN (?, ?)",
+                ("AERO COMFORT 4", product_one_id, product_two_id),
+            )
+            db.commit()
+
+        page = self.client.get("/stock/?q=AERO COMFORT 4", follow_redirects=False)
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+
+        self.assertIn('class="stock-variant-disclosure"', html)
+        self.assertIn("2 varian", html)
+        self.assertIn("2 SKU", html)
+        self.assertIn('value="AERO-33"', html)
+        self.assertIn('value="AERO-34"', html)
+        self.assertIn("<strong>AERO COMFORT 4</strong>", html)
+        self.assertNotIn('data-field="name" data-product', html)
 
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)

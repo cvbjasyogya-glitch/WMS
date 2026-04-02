@@ -202,10 +202,24 @@
                 </td>
                 {% endif %}
                 <td>
+                    {% if group.editable_master %}
                     <input class="edit-field mono" data-field="sku" data-product="{{ group.product_id }}" value="{{ group.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    {% else %}
+                    <div class="stock-group-summary-meta">
+                        <strong>{{ group.sku_count }} SKU</strong>
+                        <small>{{ group.sku_preview }}</small>
+                    </div>
+                    {% endif %}
                 </td>
                 <td>
+                    {% if group.editable_master %}
                     <input class="edit-field" data-field="name" data-product="{{ group.product_id }}" value="{{ group.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    {% else %}
+                    <div class="stock-group-summary-meta">
+                        <strong>{{ group.name }}</strong>
+                        <small>{{ group.product_count }} record produk digabung</small>
+                    </div>
+                    {% endif %}
                 </td>
                 <td colspan="{{ stock_group_colspan }}" class="stock-product-group-cell">
                     <details class="stock-variant-disclosure">
@@ -226,6 +240,7 @@
                                         {% if can_bulk_adjust_ui %}
                                         <th>Pilih</th>
                                         {% endif %}
+                                        <th>SKU</th>
                                         <th>Variant</th>
                                         <th>Qty</th>
                                         <th>Status</th>
@@ -253,6 +268,9 @@
                                             <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
                                         </td>
                                         {% endif %}
+                                        <td>
+                                            <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                        </td>
                                         <td>
                                             <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                                         </td>

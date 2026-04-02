@@ -689,6 +689,17 @@ body .header > div:last-child {
     min-width: min(100%, 260px);
 }
 
+body .page-actions > *,
+body .split-actions > *,
+body .split-actions > form,
+body .split-actions > form > *,
+body .notification-center-actions > *,
+body .chat-widget-head-actions > *,
+body .mobile-nav-actions > * {
+    min-width: 0;
+    max-width: 100%;
+}
+
 body .page-actions:empty {
     display: none;
 }
@@ -1713,6 +1724,7 @@ body .chat-widget-head {
 body .chat-widget-head strong {
     display: block;
     font-size: 1.1rem;
+    overflow-wrap: anywhere;
 }
 
 body .chat-widget-head span {
@@ -3361,6 +3373,22 @@ body .stock-group-check-cell {
     vertical-align: middle;
 }
 
+body .stock-group-summary-meta {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+body .stock-group-summary-meta strong {
+    color: #f8fafc;
+    font-size: 0.94rem;
+}
+
+body .stock-group-summary-meta small {
+    color: rgba(226, 232, 240, 0.74);
+    white-space: normal;
+}
+
 body .stock-product-group-cell {
     padding: 14px 16px;
 }
@@ -3411,6 +3439,7 @@ body .stock-variant-summary-pills {
     gap: 10px;
     flex-wrap: wrap;
     justify-content: flex-end;
+    min-width: 0;
 }
 
 body .stock-group-detail-panel {
@@ -3419,10 +3448,14 @@ body .stock-group-detail-panel {
     border-radius: 18px;
     border: 1px solid rgba(148, 163, 184, 0.14);
     background: rgba(8, 15, 28, 0.6);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
 }
 
 body .stock-group-variant-table {
     width: 100%;
+    min-width: 980px;
     border-collapse: collapse;
 }
 
@@ -4452,12 +4485,14 @@ body .section-title h3 {
     font-size: 1.1rem;
     letter-spacing: -0.03em;
     color: var(--text-strong);
+    overflow-wrap: anywhere;
 }
 
 body .section-title p {
     margin: 4px 0 0;
     color: var(--text-soft);
     font-size: 0.92rem;
+    overflow-wrap: anywhere;
 }
 
 body .mono {
@@ -9067,6 +9102,23 @@ body .attendance-form-panel {
     min-width: 0;
 }
 
+body .attendance-shortcut-link {
+    white-space: nowrap;
+}
+
+body .attendance-shortcut-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-grid;
+    place-items: center;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+body .attendance-capture-card {
+    scroll-margin-top: calc(112px + env(safe-area-inset-top));
+}
+
 body .attendance-camera-frame {
     position: relative;
     overflow: hidden;
@@ -9260,6 +9312,10 @@ body .biometric-attendance-status-select:focus {
 @media (max-width: 1080px) {
     body .attendance-capture-grid {
         grid-template-columns: 1fr;
+    }
+
+    body .attendance-capture-card {
+        scroll-margin-top: calc(154px + env(safe-area-inset-top));
     }
 
     body .attendance-camera-frame {
@@ -11231,6 +11287,47 @@ body.menu-open .notification-center-root {
     pointer-events: none;
 }
 
+@media (max-width: 1280px) {
+    body .page-hero {
+        flex-wrap: wrap;
+    }
+
+    body .page-actions-desktop-slot,
+    body .page-actions,
+    body .header > div:last-child {
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 960px) {
+    body .stock-product-group-cell {
+        padding: 12px;
+    }
+
+    body .stock-variant-summary {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    body .stock-variant-summary-pills {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    body .stock-group-detail-panel {
+        margin-top: 10px;
+        padding: 12px;
+    }
+
+    body .attendance-camera-actions > * {
+        flex: 1 1 calc(50% - 8px);
+        justify-content: center;
+    }
+}
+
 @media (max-width: 1080px) {
     body .notification-center-root {
         top: calc(88px + env(safe-area-inset-top));
@@ -11292,6 +11389,41 @@ body.menu-open .notification-center-root {
     }
 }
 
+@media (max-width: 640px) {
+    body .chat-incoming-banner {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    body .chat-incoming-banner-media {
+        align-self: center;
+    }
+
+    body .chat-widget-root {
+        left: 12px;
+        right: 12px;
+        justify-items: stretch;
+    }
+
+    body .chat-widget-launcher {
+        justify-self: end;
+    }
+
+    body .chat-widget-panel {
+        width: 100%;
+    }
+
+    body .notification-entry-topline {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    body .stock-group-summary-meta strong,
+    body .stock-variant-summary-copy strong {
+        font-size: 0.9rem;
+    }
+}
+
 @media (max-width: 560px) {
     body .notifications-summary-cards {
         grid-template-columns: 1fr;
@@ -11299,6 +11431,14 @@ body.menu-open .notification-center-root {
 
     body .notification-center-toggle-label {
         display: none;
+    }
+
+    body .attendance-camera-actions > * {
+        flex-basis: 100%;
+    }
+
+    body .stock-group-variant-table {
+        min-width: 860px;
     }
 }
 

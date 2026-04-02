@@ -4,6 +4,12 @@
 {% block eyebrow %}Attendance Portal{% endblock %}
 {% block page_title %}Absen Foto & Geotag{% endblock %}
 {% block page_subtitle %}Halaman khusus absen mandiri dengan kamera, geotag, dan pilihan shift kerja. Check in, break, dan check out dijalankan dalam satu alur harian, jadi user tidak perlu pindah modul atau membaca log tambahan.{% endblock %}
+{% block page_actions %}
+<a href="#foto-absen" class="ghost-button attendance-shortcut-link" aria-label="Langsung ke foto absen">
+    <span class="attendance-shortcut-icon" aria-hidden="true">&#128247;</span>
+    <span>Foto Absen</span>
+</a>
+{% endblock %}
 
 {% block content %}
 <div class="summary">
@@ -75,6 +81,7 @@
     </section>
 
     <section
+        id="foto-absen"
         class="form-box attendance-capture-card"
         data-attendance-portal
         data-portal-locked="{{ '1' if portal_punch_mode == 'complete' else '0' }}"

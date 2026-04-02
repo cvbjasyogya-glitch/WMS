@@ -364,13 +364,16 @@ def _build_stock_group(rows):
     low_count = 0
     ready_count = 0
     variants = []
+    skus = []
     created_dates = []
     oldest_age_days = 0
+    product_ids = []
 
     for row in rows:
         qty = int(row.get("qty") or 0)
         total_qty += qty
         oldest_age_days = max(oldest_age_days, int(row.get("age_days") or 0))
+        product_ids.append(row["product_id"])
 
         if qty <= 0:
             zero_count += 1
@@ -381,16 +384,25 @@ def _build_stock_group(rows):
 
         variant_name = (row.get("variant") or "-").strip() or "-"
         variants.append(variant_name)
+        skus.append((row.get("sku") or "-").strip() or "-")
 
         created_at = row.get("created_at")
         if created_at:
             created_dates.append(created_at[:10])
 
     variant_count = len(rows)
+    unique_product_ids = list(dict.fromkeys(product_ids))
+    unique_skus = list(dict.fromkeys(skus))
+    product_count = len(unique_product_ids)
     preview_items = variants[:3]
     variant_preview = ", ".join(preview_items)
     if variant_count > len(preview_items):
         variant_preview = f"{variant_preview}, +{variant_count - len(preview_items)} lainnya"
+
+    sku_preview_items = unique_skus[:3]
+    sku_preview = ", ".join(sku_preview_items)
+    if len(unique_skus) > len(sku_preview_items):
+        sku_preview = f"{sku_preview}, +{len(unique_skus) - len(sku_preview_items)} lainnya"
 
     if zero_count == variant_count:
         status_label = "Semua kosong"
@@ -418,6 +430,11 @@ def _build_stock_group(rows):
         "name": rows[0]["name"],
         "rows": rows,
         "is_grouped": variant_count > 1,
+        "product_count": product_count,
+        "multiple_products": product_count > 1,
+        "editable_master": product_count == 1,
+        "sku_count": len(unique_skus),
+        "sku_preview": sku_preview,
         "variant_count": variant_count,
         "variant_preview": variant_preview,
         "total_qty": total_qty,
@@ -431,14 +448,15 @@ def _build_stock_group(rows):
 
 def _group_stock_rows(rows):
     grouped_rows = []
-    groups_by_product = {}
+    groups_by_name = {}
 
     for row in rows:
-        product_id = row["product_id"]
-        if product_id not in groups_by_product:
-            groups_by_product[product_id] = []
-            grouped_rows.append(groups_by_product[product_id])
-        groups_by_product[product_id].append(row)
+        normalized_name = " ".join(str(row.get("name") or "").strip().lower().split())
+        group_key = normalized_name or f"product:{row['product_id']}"
+        if group_key not in groups_by_name:
+            groups_by_name[group_key] = []
+            grouped_rows.append(groups_by_name[group_key])
+        groups_by_name[group_key].append(row)
 
     return [_build_stock_group(group_rows) for group_rows in grouped_rows]
 
