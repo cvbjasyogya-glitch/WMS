@@ -291,7 +291,6 @@
             <div>
                 <p class="section-kicker">Notification Center</p>
                 <h2>Semua Notifikasi</h2>
-                <p class="helper-text">Semua aktivitas penting dari absen, inbound, outbound, stok, transfer, approval, chat, dan pengumuman akan terkumpul di sini. Notif yang sudah dibaca otomatis hilang dari inbox.</p>
             </div>
             <span class="status-pill notification-device-pill" data-notification-device-status>Belum dicek</span>
         </div>
@@ -643,36 +642,67 @@ window.addEventListener("resize", () => {
 </script>
 
 {% if has_app_shell %}
+<script id="wmsPushConfigData" type="application/json">
+{{ {
+    "publicKey": config.get("WEBPUSH_PUBLIC_KEY", ""),
+    "subscribeUrl": "/announcements/push/subscribe",
+    "unsubscribeUrl": "/announcements/push/unsubscribe",
+    "serviceWorkerUrl": "/service-worker.js"
+}|tojson }}
+</script>
+<script id="wmsNotificationCenterConfigData" type="application/json">
+{{ {
+    "apiUrl": "/notifications/api",
+    "pageUrl": "/notifications/",
+    "markReadUrlTemplate": "/notifications/api/__id__/read",
+    "markAllReadUrl": "/notifications/api/mark-all-read",
+    "deleteUrlTemplate": "/notifications/api/__id__/delete",
+    "deleteAllUrl": "/notifications/api/delete-all"
+}|tojson }}
+</script>
 <script>
-window.wmsPushConfig = {
-    publicKey: {{ config.get("WEBPUSH_PUBLIC_KEY", "")|tojson }},
-    subscribeUrl: "/announcements/push/subscribe",
-    unsubscribeUrl: "/announcements/push/unsubscribe",
-    serviceWorkerUrl: "/service-worker.js"
+window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
+    const node = document.getElementById(id);
+    if (!node) {
+        return {};
+    }
+    try {
+        return JSON.parse(node.textContent || "{}");
+    } catch (error) {
+        return {};
+    }
 };
-window.wmsNotificationCenterConfig = {
-    apiUrl: "/notifications/api",
-    pageUrl: "/notifications/",
-    markReadUrlTemplate: "/notifications/api/__id__/read",
-    markAllReadUrl: "/notifications/api/mark-all-read",
-    deleteUrlTemplate: "/notifications/api/__id__/delete",
-    deleteAllUrl: "/notifications/api/delete-all"
-};
+window.wmsPushConfig = window.wmsReadJsonScript("wmsPushConfigData");
+window.wmsNotificationCenterConfig = window.wmsReadJsonScript("wmsNotificationCenterConfigData");
 </script>
 <script src="/static/js/push_notifications.js"></script>
 <script src="/static/js/web_notifications.js"></script>
 {% endif %}
 {% if can("view_chat") %}
+<script id="wmsChatRealtimeConfigData" type="application/json">
+{{ {
+    "enabled": True,
+    "pollUrl": "/chat/realtime",
+    "callPollUrl": "/chat/call/poll",
+    "presenceUrl": "/chat/presence",
+    "soundUrl": "/static/notif.mp3",
+    "callRingtoneUrl": "/static/audio/chat-call-ringtone.mp3",
+    "soundVolume": session.get("chat_sound_volume", 0.85)
+}|tojson }}
+</script>
 <script>
-window.wmsChatRealtimeConfig = {
-    enabled: true,
-    pollUrl: "/chat/realtime",
-    callPollUrl: "/chat/call/poll",
-    presenceUrl: "/chat/presence",
-    soundUrl: "/static/notif.mp3",
-    callRingtoneUrl: "/static/audio/chat-call-ringtone.mp3",
-    soundVolume: {{ session.get("chat_sound_volume", 0.85)|tojson }}
+window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
+    const node = document.getElementById(id);
+    if (!node) {
+        return {};
+    }
+    try {
+        return JSON.parse(node.textContent || "{}");
+    } catch (error) {
+        return {};
+    }
 };
+window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigData");
 </script>
 <script src="/static/js/chat_realtime.js"></script>
 {% if has_app_shell and not request.path.startswith('/chat') %}

@@ -2422,9 +2422,69 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Attendance Geotag", html)
         self.assertIn("Rekap Absensi Geotag", html)
         self.assertIn("Tampilkan Hari", html)
+        self.assertIn("HR dan Super Admin bisa mengubah badge Present/Late langsung dari tabel ini.", html)
         self.assertNotIn("Log Geotag Absensi", html)
         self.assertNotIn("Tambah Absen Geotag", html)
         self.assertNotIn('href="/hris/attendance"', html)
+
+    def test_hris_biometric_recap_shows_inline_attendance_status_form_for_hr(self):
+        self.login_hr_user("hr_bio_form", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-FORM",
+            full_name="Biometric Inline Form",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-03T08:45",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Depan Kantor",
+                    -8.58314,
+                    116.116798,
+                    6.0,
+                    "Masuk telat",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-03",
+                    "08:45",
+                    "late",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-03&date_to=2026-09-03")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("/hris/biometric/attendance-status", html)
+        self.assertIn("Ubah Status Absen", html)
+        self.assertIn("Present", html)
+        self.assertIn("Late", html)
 
     def test_owner_can_access_hris_biometric_module(self):
         self.create_user("owner_biometric", "pass1234", "owner")
