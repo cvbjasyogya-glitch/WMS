@@ -102,6 +102,10 @@ class RequestAwareSessionInterface(SecureCookieSessionInterface):
         return bool(app.config.get("SESSION_COOKIE_SECURE")) or request.is_secure
 
 
+def _first_forwarded_value(raw_value):
+    return str(raw_value or "").split(",", 1)[0].strip()
+
+
 def _normalized_host_name(raw_value):
     candidate = str(raw_value or "").strip()
     if not candidate:
@@ -128,23 +132,86 @@ def _normalized_port(scheme, port):
     return 443 if str(scheme or "").lower() == "https" else 80
 
 
+def _split_host_port(raw_host):
+    candidate = str(raw_host or "").strip()
+    if not candidate:
+        return "", None
+
+    parsed = urlsplit(f"//{candidate}")
+    return _normalized_host_name(parsed.hostname or candidate), parsed.port
+
+
+def _request_origin_signatures():
+    signatures = set()
+
+    request_host_name, request_host_port = _split_host_port(request.host)
+    request_scheme = str(request.scheme or "").strip().lower() or "http"
+    if request_host_name:
+        signatures.add(
+            (
+                request_scheme,
+                request_host_name,
+                _normalized_port(request_scheme, request_host_port),
+            )
+        )
+
+    forwarded_proto = _first_forwarded_value(request.headers.get("X-Forwarded-Proto"))
+    forwarded_host = _first_forwarded_value(
+        request.headers.get("X-Forwarded-Host") or request.headers.get("Host")
+    )
+    forwarded_port = _first_forwarded_value(request.headers.get("X-Forwarded-Port"))
+
+    if forwarded_proto and forwarded_host:
+        forwarded_host_name, forwarded_host_port = _split_host_port(forwarded_host)
+        if forwarded_host_name:
+            signatures.add(
+                (
+                    forwarded_proto.lower(),
+                    forwarded_host_name,
+                    _normalized_port(
+                        forwarded_proto.lower(),
+                        forwarded_port or forwarded_host_port,
+                    ),
+                )
+            )
+
+    return signatures
+
+
 def _is_same_origin_url(candidate_url):
     candidate = str(candidate_url or "").strip()
     if not candidate:
         return False
 
     parsed_candidate = urlsplit(candidate)
-    request_origin = urlsplit(request.host_url)
     if not parsed_candidate.scheme or not parsed_candidate.hostname:
         return False
 
-    return (
-        parsed_candidate.scheme.lower() == request_origin.scheme.lower()
-        and _normalized_host_name(parsed_candidate.hostname or "")
-        == _normalized_host_name(request_origin.hostname or "")
-        and _normalized_port(parsed_candidate.scheme, parsed_candidate.port)
-        == _normalized_port(request_origin.scheme, request_origin.port)
+    candidate_signature = (
+        parsed_candidate.scheme.lower(),
+        _normalized_host_name(parsed_candidate.hostname or ""),
+        _normalized_port(parsed_candidate.scheme, parsed_candidate.port),
     )
+    request_signatures = _request_origin_signatures()
+
+    if candidate_signature in request_signatures:
+        return True
+
+    candidate_scheme, candidate_host, candidate_port = candidate_signature
+    if candidate_scheme not in {"http", "https"}:
+        return False
+
+    for request_scheme, request_host, request_port in request_signatures:
+        # Allow same host across HTTP/HTTPS boundary for reverse-proxy TLS termination.
+        if (
+            request_host == candidate_host
+            and request_scheme in {"http", "https"}
+            and candidate_port == _normalized_port(candidate_scheme, None)
+            and request_port == _normalized_port(request_scheme, None)
+        ):
+            return True
+
+    return False
 
 
 def _is_allowed_host(candidate_host, allowed_hosts):

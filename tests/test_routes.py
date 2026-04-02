@@ -502,6 +502,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertIn("lintas situs", response.get_data(as_text=True))
 
+    def test_same_host_https_origin_is_allowed_for_login_behind_tls_proxy(self):
+        self.app.config["ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS"] = True
+        self.create_user("proxy_login_user", "pass1234", "super_admin")
+
+        response = self.client.post(
+            "/login",
+            base_url="http://erp.cvbjasyogya.cloud",
+            data={"username": "proxy_login_user", "password": "pass1234"},
+            headers={"Origin": "https://erp.cvbjasyogya.cloud"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+
     def test_host_allowlist_blocks_untrusted_host_when_configured(self):
         self.app.config["ALLOWED_HOSTS"] = ["localhost", "127.0.0.1"]
 
