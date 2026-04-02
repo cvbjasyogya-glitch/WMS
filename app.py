@@ -488,6 +488,12 @@ def create_app():
         os.path.join(app.root_path, "static", "uploads", "chat"),
     )
     app.config.setdefault("CHAT_UPLOAD_URL_PREFIX", "/static/uploads/chat")
+    app.config.setdefault(
+        "DAILY_LIVE_REPORT_UPLOAD_FOLDER",
+        os.path.join(app.root_path, "static", "uploads", "daily_reports"),
+    )
+    app.config.setdefault("DAILY_LIVE_REPORT_UPLOAD_URL_PREFIX", "/static/uploads/daily_reports")
+    app.config.setdefault("DAILY_LIVE_REPORT_ATTACHMENT_MAX_BYTES", 10 * 1024 * 1024)
 
     app.session_interface = RequestAwareSessionInterface()
     app.wsgi_app = ProxyFix(

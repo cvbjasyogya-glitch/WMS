@@ -271,6 +271,10 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "daily_live_reports", "follow_up_note", "TEXT")
     _ensure_column(cursor, "daily_live_reports", "status", "TEXT DEFAULT 'submitted'")
     _ensure_column(cursor, "daily_live_reports", "hr_note", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "attachment_name", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "attachment_path", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "attachment_mime", "TEXT")
+    _ensure_column(cursor, "daily_live_reports", "attachment_size", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "daily_live_reports", "handled_by", "INTEGER")
     _ensure_column(cursor, "daily_live_reports", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "daily_live_reports", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -844,6 +848,10 @@ def init_db(db_path=None):
         follow_up_note TEXT,
         status TEXT DEFAULT 'submitted',
         hr_note TEXT,
+        attachment_name TEXT,
+        attachment_path TEXT,
+        attachment_mime TEXT,
+        attachment_size INTEGER DEFAULT 0,
         handled_by INTEGER,
         handled_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

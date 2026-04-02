@@ -3560,6 +3560,19 @@
                     <label>Tindak Lanjut</label>
                     <div class="empty-state report-review-text">{{ report.follow_up_note or "-" }}</div>
                 </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Lampiran Bukti</label>
+                    <div class="empty-state report-review-text">
+                        {% if report.attachment_url %}
+                        <a href="{{ report.attachment_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-inline-link">{{ report.attachment_name }}</a>
+                        {% if report.attachment_size %}
+                        <span class="helper-text">({{ report.attachment_size_label }})</span>
+                        {% endif %}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </div>
+                </div>
                 {% if can_manage_report %}
                 <div style="grid-column: 1 / -1;">
                     <form method="POST" action="/hris/report/daily-live/update/{{ report.id }}">
@@ -3623,7 +3636,7 @@
         <input type="date" name="date_to" value="{{ biometric_filters.date_to }}">
         <button type="submit">Tampilkan Hari</button>
     </form>
-    <small class="helper-text">HR dan Super Admin bisa mengubah badge Present/Late langsung dari tabel ini. Untuk reset ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</small>
+    <small class="helper-text">HR dan Super Admin bisa mengubah status Present/Late langsung dari dropdown rekap ini. Untuk reset ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</small>
 
     {% if biometric_recap_rows %}
     <table>
@@ -3652,24 +3665,29 @@
                 <td>{{ row.full_name }}</td>
                 <td>{{ row.warehouse_name or '-' }}</td>
                 <td>
-                    <span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span>
-                    {% if row.status_override_active %}
-                    <div><small class="helper-text">Manual HR</small></div>
-                    {% endif %}
                     {% if can_adjust_biometric_status %}
                     <form method="POST" action="/hris/biometric/attendance-status" class="biometric-attendance-status-form">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                         <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
                         <input type="hidden" name="return_to" value="{{ report_return_to }}">
-                        <label class="biometric-attendance-status-label">Ubah Status Absen</label>
-                        <div class="biometric-attendance-status-controls">
-                            <select name="status">
-                                <option value="present" {% if row.attendance_status_value == 'present' %}selected{% endif %}>Present</option>
-                                <option value="late" {% if row.attendance_status_value == 'late' %}selected{% endif %}>Late</option>
-                            </select>
-                            <button type="submit">Simpan</button>
-                        </div>
+                        <select
+                            name="status"
+                            class="biometric-attendance-status-select"
+                            aria-label="Ubah status absen {{ row.full_name }}"
+                            onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }"
+                        >
+                            <option value="present" {% if row.attendance_status_value == 'present' %}selected{% endif %}>Present</option>
+                            <option value="late" {% if row.attendance_status_value == 'late' %}selected{% endif %}>Late</option>
+                        </select>
                     </form>
+                    {% else %}
+                    <span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span>
+                    {% endif %}
+                    {% if row.status_override_active %}
+                    <div><small class="helper-text">Manual HR</small></div>
+                    {% endif %}
+                    {% if can_adjust_biometric_status and row.attendance_status_label not in ['Present', 'Late'] %}
+                    <div><small class="helper-text">{{ row.attendance_status_label }}</small></div>
                     {% endif %}
                 </td>
                 <td>{{ row.attendance_check_in }} - {{ row.attendance_check_out }}</td>

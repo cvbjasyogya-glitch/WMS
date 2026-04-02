@@ -3353,6 +3353,101 @@ body .stock-mobile-hint {
     margin-bottom: 14px;
 }
 
+body .stock-product-group-row > td {
+    vertical-align: top;
+}
+
+body .stock-group-check-cell {
+    vertical-align: middle;
+}
+
+body .stock-product-group-cell {
+    padding: 14px 16px;
+}
+
+body .stock-variant-disclosure {
+    width: 100%;
+}
+
+body .stock-variant-disclosure summary {
+    list-style: none;
+}
+
+body .stock-variant-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+body .stock-variant-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: rgba(11, 18, 32, 0.44);
+    cursor: pointer;
+}
+
+body .stock-variant-summary-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+body .stock-variant-summary-copy strong {
+    font-size: 0.96rem;
+    color: #f8fafc;
+}
+
+body .stock-variant-summary-copy small {
+    color: rgba(226, 232, 240, 0.78);
+    white-space: normal;
+}
+
+body .stock-variant-summary-pills {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+body .stock-group-detail-panel {
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(8, 15, 28, 0.6);
+}
+
+body .stock-group-variant-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+body .stock-group-variant-table th,
+body .stock-group-variant-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    text-align: left;
+    vertical-align: middle;
+}
+
+body .stock-group-variant-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+body .stock-group-variant-table .edit-field,
+body .stock-group-variant-table .money-input,
+body .stock-group-variant-table .adjust-input {
+    width: 100%;
+}
+
+body .stock-group-variant-table .money-input {
+    min-width: 140px;
+}
+
 body .variant-builder {
     padding: 0;
     margin-bottom: 14px;
@@ -9127,28 +9222,30 @@ body .biometric-photo-inline-link:hover {
 }
 
 body .biometric-attendance-status-form {
-    display: grid;
-    gap: 8px;
-    margin-top: 10px;
+    display: inline-flex;
+    margin: 0;
 }
 
-body .biometric-attendance-status-label {
-    color: var(--text-soft);
-    font-size: 0.75rem;
+body .biometric-attendance-status-select {
+    min-width: 132px;
+    min-height: 38px;
+    padding: 8px 36px 8px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.42);
+    color: #e5eefb;
+    font-size: 0.78rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    font-family: var(--mono);
+    cursor: pointer;
 }
 
-body .biometric-attendance-status-controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-body .biometric-attendance-status-controls select {
-    min-width: 120px;
+body .biometric-attendance-status-select:focus {
+    outline: none;
+    border-color: rgba(93, 183, 255, 0.6);
+    box-shadow: 0 0 0 3px rgba(93, 183, 255, 0.14);
 }
 
 @media (max-width: 1080px) {

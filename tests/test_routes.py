@@ -25,6 +25,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         os.makedirs(temp_root, exist_ok=True)
         self.db_path = os.path.join(temp_root, f"test_database_{uuid4().hex}.db")
         self.photo_upload_root = os.path.join(temp_root, f"uploads_{uuid4().hex}")
+        self.daily_report_upload_root = os.path.join(temp_root, f"daily_reports_{uuid4().hex}")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -36,6 +37,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             SESSION_COOKIE_SECURE=False,
             BIOMETRIC_PHOTO_UPLOAD_FOLDER=self.photo_upload_root,
             BIOMETRIC_PHOTO_URL_PREFIX="/static/test-geotag",
+            DAILY_LIVE_REPORT_UPLOAD_FOLDER=self.daily_report_upload_root,
+            DAILY_LIVE_REPORT_UPLOAD_URL_PREFIX="/static/test-daily-reports",
+            DAILY_LIVE_REPORT_ATTACHMENT_MAX_BYTES=10 * 1024 * 1024,
             SECRET_KEY="test-secret-key",
             LOGIN_THROTTLE_LIMIT=3,
             LOGIN_THROTTLE_WINDOW_SECONDS=300,
@@ -51,6 +55,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 os.remove(db_file)
         if os.path.isdir(self.photo_upload_root):
             shutil.rmtree(self.photo_upload_root)
+        if os.path.isdir(self.daily_report_upload_root):
+            shutil.rmtree(self.daily_report_upload_root)
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -2422,7 +2428,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Attendance Geotag", html)
         self.assertIn("Rekap Absensi Geotag", html)
         self.assertIn("Tampilkan Hari", html)
-        self.assertIn("HR dan Super Admin bisa mengubah badge Present/Late langsung dari tabel ini.", html)
+        self.assertIn("HR dan Super Admin bisa mengubah status Present/Late langsung dari dropdown rekap ini.", html)
         self.assertNotIn("Log Geotag Absensi", html)
         self.assertNotIn("Tambah Absen Geotag", html)
         self.assertNotIn('href="/hris/attendance"', html)
@@ -2482,7 +2488,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("/hris/biometric/attendance-status", html)
-        self.assertIn("Ubah Status Absen", html)
+        self.assertIn("biometric-attendance-status-select", html)
+        self.assertIn("requestSubmit", html)
         self.assertIn("Present", html)
         self.assertIn("Late", html)
 
@@ -2834,7 +2841,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/hris/biometric?date_from=2026-09-04&date_to=2026-09-04")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Ubah Status Absen", html)
+        self.assertIn("biometric-attendance-status-select", html)
 
         update_response = self.client.post(
             "/hris/biometric/attendance-status",
@@ -5469,6 +5476,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_response.status_code, 200)
         page_html = page_response.get_data(as_text=True)
         self.assertIn("Form Report Harian &amp; Live", page_html)
+        self.assertIn('name="attachment"', page_html)
 
         submit_response = self.client.post(
             "/laporan-harian/submit",
@@ -5479,7 +5487,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "summary": "Promo berjalan normal dan traffic naik saat sesi kedua.",
                 "blocker_note": "Banner depan sempat terlambat dipasang.",
                 "follow_up_note": "Besok perlu cek ulang materi promo pagi.",
+                "attachment": (BytesIO(b"%PDF-1.4 bukti live report"), "bukti-live.pdf"),
             },
+            content_type="multipart/form-data",
             follow_redirects=False,
         )
         self.assertEqual(submit_response.status_code, 302)
@@ -5489,7 +5499,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             report = db.execute(
                 """
-                SELECT report_type, report_date, title, summary, blocker_note, follow_up_note, status, warehouse_id
+                SELECT report_type, report_date, title, summary, blocker_note, follow_up_note, status,
+                       warehouse_id, attachment_name, attachment_path, attachment_mime, attachment_size
                 FROM daily_live_reports
                 WHERE title=?
                 """,
@@ -5500,6 +5511,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(report["report_type"], "live")
         self.assertEqual(report["status"], "submitted")
         self.assertEqual(report["warehouse_id"], 1)
+        self.assertEqual(report["attachment_name"], "bukti-live.pdf")
+        self.assertTrue(report["attachment_path"])
+        self.assertEqual(report["attachment_mime"], "application/pdf")
+        self.assertGreater(report["attachment_size"], 0)
+        self.assertTrue(os.path.exists(os.path.join(self.daily_report_upload_root, report["attachment_path"])))
+
+        portal_after_submit = self.client.get("/laporan-harian/")
+        self.assertEqual(portal_after_submit.status_code, 200)
+        portal_after_html = portal_after_submit.get_data(as_text=True)
+        self.assertIn("bukti-live.pdf", portal_after_html)
+        self.assertIn("/static/test-daily-reports/", portal_after_html)
 
         self.logout()
         self.login_hr_user("hr_report_view", "pass1234")
@@ -5508,6 +5530,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         hris_html = hris_report_response.get_data(as_text=True)
         self.assertIn("Daily & Live Report Feed", hris_html)
         self.assertIn("Live promo toko Mega", hris_html)
+        self.assertIn("bukti-live.pdf", hris_html)
 
     def test_only_hr_or_super_admin_can_update_daily_report_status(self):
         self.create_user("staff_report_owner", "pass1234", "staff", warehouse_id=1)
@@ -5567,6 +5590,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(updated["status"], "follow_up")
         self.assertEqual(updated["hr_note"], "Lengkapi detail manpower shift berikutnya.")
         self.assertIsNotNone(updated["handled_by"])
+
+    def test_daily_report_portal_rejects_attachment_for_non_live_report(self):
+        self.create_user("ops_daily_plain", "pass1234", "staff", warehouse_id=1)
+        self.login("ops_daily_plain", "pass1234")
+
+        submit_response = self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": "2026-09-06",
+                "title": "Report harian biasa",
+                "summary": "Tidak boleh pakai lampiran bukti karena bukan report live.",
+                "attachment": (BytesIO(b"fake-image"), "bukti.png"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertEqual(submit_response.status_code, 200)
+        submit_html = submit_response.get_data(as_text=True)
+        self.assertIn("Lampiran bukti hanya tersedia untuk report live.", submit_html)
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                "SELECT id FROM daily_live_reports WHERE title=?",
+                ("Report harian biasa",),
+            ).fetchone()
+
+        self.assertIsNone(report)
 
     def test_daily_report_feed_defaults_to_active_and_supports_archive_date_filter(self):
         self.create_user("report_ops_filter", "pass1234", "staff", warehouse_id=1)
@@ -6177,6 +6229,34 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_two.status_code, 200)
         self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 2)
         self.assertIn("Page 2 / 2", page_two_html)
+
+    def test_stock_page_groups_same_product_variants_into_dropdown(self):
+        self.login()
+        response, product_id, _ = self.create_product(
+            sku="AERO-COMFORT-4",
+            qty=2,
+            variants="black red-33,black red-34,black red-35",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id=?",
+                ("AERO COMFORT 4", product_id),
+            )
+            db.commit()
+
+        page = self.client.get("/stock/?q=AERO-COMFORT-4", follow_redirects=False)
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+
+        self.assertIn('class="stock-variant-disclosure"', html)
+        self.assertIn("3 varian", html)
+        self.assertIn("black red-33", html)
+        self.assertIn("black red-34", html)
+        self.assertIn("black red-35", html)
+        self.assertEqual(html.count('value="AERO COMFORT 4"'), 1)
 
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)

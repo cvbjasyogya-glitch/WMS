@@ -189,7 +189,129 @@
             </tr>
         </thead>
         <tbody>
-            {% for s in data %}
+            {% for group in grouped_data %}
+            {% if group.is_grouped %}
+            <tr
+                class="stock-product-group-row {% if group.status_tone == 'red' %}zero{% elif group.status_tone == 'orange' %}warning{% endif %}"
+                data-stock-group-summary-row
+                data-group-product="{{ group.product_id }}"
+            >
+                {% if can_bulk_adjust_ui %}
+                <td class="stock-group-check-cell">
+                    <input type="checkbox" class="stock-group-check" data-stock-group-check>
+                </td>
+                {% endif %}
+                <td>
+                    <input class="edit-field mono" data-field="sku" data-product="{{ group.product_id }}" value="{{ group.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                </td>
+                <td>
+                    <input class="edit-field" data-field="name" data-product="{{ group.product_id }}" value="{{ group.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                </td>
+                <td colspan="{{ stock_group_colspan }}" class="stock-product-group-cell">
+                    <details class="stock-variant-disclosure">
+                        <summary class="stock-variant-summary">
+                            <span class="stock-variant-summary-copy">
+                                <strong data-stock-group-count>{{ group.variant_count }} varian</strong>
+                                <small data-stock-group-preview>{{ group.variant_preview }}</small>
+                            </span>
+                            <span class="stock-variant-summary-pills">
+                                <span class="badge {{ group.qty_tone }}" data-stock-group-qty-badge>{{ group.total_qty }}</span>
+                                <span class="badge {{ group.status_tone }}" data-stock-group-status-badge>{{ group.status_label }}</span>
+                            </span>
+                        </summary>
+                        <div class="stock-group-detail-panel">
+                            <table class="stock-group-variant-table">
+                                <thead>
+                                    <tr>
+                                        {% if can_bulk_adjust_ui %}
+                                        <th>Pilih</th>
+                                        {% endif %}
+                                        <th>Variant</th>
+                                        <th>Qty</th>
+                                        <th>Status</th>
+                                        {% if can_adjust_stock_ui %}
+                                        <th>Adjust</th>
+                                        {% endif %}
+                                        <th>Retail</th>
+                                        <th>Discount</th>
+                                        <th>Nett</th>
+                                        <th>Aging</th>
+                                        <th>Tanggal Masuk</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for s in group.rows %}
+                                    {% set best_price = s.price_nett if s.price_nett > 0 else (s.price_discount if s.price_discount > 0 else s.price_retail) %}
+                                    <tr
+                                        class="{% if s.qty == 0 %}zero{% elif s.qty < 5 %}warning{% endif %}"
+                                        data-stock-row
+                                        data-qty="{{ s.qty }}"
+                                        data-best-price="{{ best_price }}"
+                                    >
+                                        {% if can_bulk_adjust_ui %}
+                                        <td>
+                                            <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
+                                        </td>
+                                        {% endif %}
+                                        <td>
+                                            <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                        </td>
+                                        <td class="qty-text">
+                                            {% if s.qty == 0 %}
+                                            <span class="badge red" data-stock-qty-badge>{{ s.qty }}</span>
+                                            {% elif s.qty < 5 %}
+                                            <span class="badge orange" data-stock-qty-badge>{{ s.qty }}</span>
+                                            {% else %}
+                                            <span class="badge green" data-stock-qty-badge>{{ s.qty }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if s.qty == 0 %}
+                                            <span class="badge red" data-stock-status-badge>Kosong</span>
+                                            {% elif s.qty < 5 %}
+                                            <span class="badge orange" data-stock-status-badge>Menipis</span>
+                                            {% else %}
+                                            <span class="badge green" data-stock-status-badge>Aman</span>
+                                            {% endif %}
+                                        </td>
+                                        {% if can_adjust_stock_ui %}
+                                        <td>
+                                            <div class="stock-adjust-actions">
+                                                <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
+                                                <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
+                                            </div>
+                                        </td>
+                                        {% endif %}
+                                        <td>
+                                            <div class="money-input">
+                                                <span>Rp</span>
+                                                <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="money-input">
+                                                <span>Rp</span>
+                                                <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="money-input">
+                                                <span>Rp</span>
+                                                <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                            </div>
+                                        </td>
+                                        <td>{{ s.age_days }} hari</td>
+                                        <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                </td>
+            </tr>
+            {% else %}
+            {% set s = group.rows[0] %}
             {% set best_price = s.price_nett if s.price_nett > 0 else (s.price_discount if s.price_discount > 0 else s.price_retail) %}
             <tr
                 class="{% if s.qty == 0 %}zero{% elif s.qty < 5 %}warning{% endif %}"
@@ -258,6 +380,7 @@
                 <td>{{ s.age_days }} hari</td>
                 <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
             </tr>
+            {% endif %}
             {% endfor %}
         </tbody>
     </table>
@@ -306,6 +429,169 @@ function getStockLevel(qty) {
         return "low";
     }
     return "ready";
+}
+
+function applyToneClasses(node, tone) {
+    if (!node) {
+        return;
+    }
+    node.classList.remove("red", "orange", "green");
+    if (tone) {
+        node.classList.add(tone);
+    }
+}
+
+function getGroupSummaryRow(source) {
+    if (!source) {
+        return null;
+    }
+    return source.closest("[data-stock-group-summary-row]");
+}
+
+function getGroupVariantRows(groupSummaryRow) {
+    if (!groupSummaryRow) {
+        return [];
+    }
+    return Array.from(groupSummaryRow.querySelectorAll("tr[data-stock-row]"));
+}
+
+function buildGroupVariantPreview(rows) {
+    const variants = rows
+        .map((row) => row.querySelector('[data-field="variant"]')?.value.trim() || "-")
+        .filter(Boolean);
+
+    if (!variants.length) {
+        return "-";
+    }
+
+    const preview = variants.slice(0, 3).join(", ");
+    if (variants.length <= 3) {
+        return preview;
+    }
+    return `${preview}, +${variants.length - 3} lainnya`;
+}
+
+function getGroupStatusSnapshot(rows) {
+    const snapshot = {
+        totalQty: 0,
+        variantCount: rows.length,
+        zeroCount: 0,
+        lowCount: 0,
+        readyCount: 0
+    };
+
+    rows.forEach((row) => {
+        const qty = parseInt(row.dataset.qty || "0", 10);
+        snapshot.totalQty += qty;
+
+        if (qty <= 0) {
+            snapshot.zeroCount += 1;
+        } else if (qty < STOCK_LOW_THRESHOLD) {
+            snapshot.lowCount += 1;
+        } else {
+            snapshot.readyCount += 1;
+        }
+    });
+
+    if (snapshot.zeroCount === snapshot.variantCount) {
+        snapshot.statusLabel = "Semua kosong";
+        snapshot.statusTone = "red";
+    } else if (snapshot.zeroCount > 0 || snapshot.lowCount > 0) {
+        const parts = [];
+        if (snapshot.zeroCount > 0) {
+            parts.push(`${snapshot.zeroCount} kosong`);
+        }
+        if (snapshot.lowCount > 0) {
+            parts.push(`${snapshot.lowCount} menipis`);
+        }
+        snapshot.statusLabel = parts.join(", ");
+        snapshot.statusTone = snapshot.zeroCount > 0 ? "red" : "orange";
+    } else {
+        snapshot.statusLabel = `${snapshot.readyCount} aman`;
+        snapshot.statusTone = "green";
+    }
+
+    if (snapshot.totalQty <= 0) {
+        snapshot.qtyTone = "red";
+    } else if (snapshot.zeroCount > 0 || snapshot.lowCount > 0) {
+        snapshot.qtyTone = "orange";
+    } else {
+        snapshot.qtyTone = "green";
+    }
+
+    return snapshot;
+}
+
+function updateGroupSelectionState(groupSummaryRow) {
+    if (!groupSummaryRow) {
+        return;
+    }
+
+    const groupCheckbox = groupSummaryRow.querySelector("[data-stock-group-check]");
+    if (!groupCheckbox) {
+        return;
+    }
+
+    const checkboxes = groupSummaryRow.querySelectorAll(".row-check");
+    const checkedCount = Array.from(checkboxes).filter((checkbox) => checkbox.checked).length;
+
+    groupCheckbox.checked = checkedCount > 0 && checkedCount === checkboxes.length;
+    groupCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+}
+
+function updateMasterCheckboxState() {
+    const masterCheckbox = document.getElementById("checkAll");
+    if (!masterCheckbox) {
+        return;
+    }
+
+    const checkboxes = Array.from(document.querySelectorAll(".row-check"));
+    const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+
+    masterCheckbox.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+    masterCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+}
+
+function renderGroupSummary(groupSummaryRow) {
+    if (!groupSummaryRow) {
+        return;
+    }
+
+    const rows = getGroupVariantRows(groupSummaryRow);
+    if (!rows.length) {
+        groupSummaryRow.remove();
+        return;
+    }
+
+    const countNode = groupSummaryRow.querySelector("[data-stock-group-count]");
+    const previewNode = groupSummaryRow.querySelector("[data-stock-group-preview]");
+    const qtyBadge = groupSummaryRow.querySelector("[data-stock-group-qty-badge]");
+    const statusBadge = groupSummaryRow.querySelector("[data-stock-group-status-badge]");
+    const snapshot = getGroupStatusSnapshot(rows);
+
+    if (countNode) {
+        countNode.textContent = `${snapshot.variantCount} varian`;
+    }
+    if (previewNode) {
+        previewNode.textContent = buildGroupVariantPreview(rows);
+    }
+    if (qtyBadge) {
+        qtyBadge.textContent = String(snapshot.totalQty);
+        applyToneClasses(qtyBadge, snapshot.qtyTone);
+    }
+    if (statusBadge) {
+        statusBadge.textContent = snapshot.statusLabel;
+        applyToneClasses(statusBadge, snapshot.statusTone);
+    }
+
+    groupSummaryRow.classList.remove("zero", "warning");
+    if (snapshot.statusTone === "red") {
+        groupSummaryRow.classList.add("zero");
+    } else if (snapshot.statusTone === "orange") {
+        groupSummaryRow.classList.add("warning");
+    }
+
+    updateGroupSelectionState(groupSummaryRow);
 }
 
 function rowMatchesCurrentFilter(qty) {
@@ -448,16 +734,21 @@ function ensureStockEmptyState() {
 function applyAdjustedQtyToRow(row, nextQty) {
     const previousQty = parseInt(row.dataset.qty || "0", 10);
     const bestPrice = getBestPriceFromRow(row);
+    const groupSummaryRow = getGroupSummaryRow(row);
 
     updateSummaryCounts(previousQty, nextQty, bestPrice);
 
     if (!rowMatchesCurrentFilter(nextQty)) {
         row.remove();
+        renderGroupSummary(groupSummaryRow);
+        updateMasterCheckboxState();
         ensureStockEmptyState();
         return;
     }
 
     updateRowVisual(row, nextQty);
+    renderGroupSummary(groupSummaryRow);
+    updateMasterCheckboxState();
     ensureStockEmptyState();
 }
 
@@ -465,12 +756,37 @@ document.getElementById("checkAll")?.addEventListener("change", function() {
     document.querySelectorAll(".row-check").forEach((cb) => {
         cb.checked = this.checked;
     });
+    document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+        updateGroupSelectionState(groupSummaryRow);
+    });
+    updateMasterCheckboxState();
+});
+
+document.addEventListener("change", function(event) {
+    if (event.target.matches(".row-check")) {
+        updateGroupSelectionState(getGroupSummaryRow(event.target));
+        updateMasterCheckboxState();
+        return;
+    }
+
+    if (event.target.matches("[data-stock-group-check]")) {
+        const groupSummaryRow = getGroupSummaryRow(event.target);
+        if (!groupSummaryRow) {
+            return;
+        }
+        groupSummaryRow.querySelectorAll(".row-check").forEach((checkbox) => {
+            checkbox.checked = event.target.checked;
+        });
+        event.target.indeterminate = false;
+        updateMasterCheckboxState();
+    }
 });
 
 document.querySelectorAll(".edit-field").forEach((input) => {
     input.addEventListener("change", function() {
         const field = this.dataset.field;
         const value = this.value.trim();
+        const groupSummaryRow = getGroupSummaryRow(this);
 
         if (!value) {
             alert("Field tidak boleh kosong.");
@@ -492,6 +808,11 @@ document.querySelectorAll(".edit-field").forEach((input) => {
         .then((data) => {
             if (data.status !== "success") {
                 alert(data.message || "Update gagal disimpan.");
+                return;
+            }
+
+            if (field === "variant") {
+                renderGroupSummary(groupSummaryRow);
             }
         })
         .catch(() => alert("Terjadi error saat update data."));
@@ -529,7 +850,8 @@ function adjustStock(button) {
             input.value = "";
             row.querySelector(".row-check")?.removeAttribute("checked");
             row.querySelector(".row-check") && (row.querySelector(".row-check").checked = false);
-            document.getElementById("checkAll") && (document.getElementById("checkAll").checked = false);
+            updateGroupSelectionState(getGroupSummaryRow(row));
+            updateMasterCheckboxState();
             notifyStockMessage(data.message || "Stock berhasil diupdate.");
             return;
         }
@@ -578,7 +900,10 @@ function bulkAdjust() {
                 applyAdjustedQtyToRow(row, currentQty + parseInt(qty, 10));
                 checkbox.checked = false;
             });
-            document.getElementById("checkAll") && (document.getElementById("checkAll").checked = false);
+            document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+                updateGroupSelectionState(groupSummaryRow);
+            });
+            updateMasterCheckboxState();
             notifyStockMessage(data.message || "Bulk adjust berhasil.");
             return;
         }
@@ -586,6 +911,11 @@ function bulkAdjust() {
     })
     .catch(() => notifyStockMessage("Terjadi error saat bulk adjust.", "error"));
 }
+
+document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+    renderGroupSummary(groupSummaryRow);
+});
+updateMasterCheckboxState();
 </script>
 {% endblock %}
 

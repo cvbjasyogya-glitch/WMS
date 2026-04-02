@@ -6,7 +6,10 @@ from database import get_db
 from routes.hris import (
     _current_timestamp,
     _get_self_service_employee,
+    _get_daily_live_report_attachment_url,
     _normalize_daily_live_report_type,
+    _store_daily_live_report_attachment,
+    _format_upload_size,
 )
 
 
@@ -34,6 +37,9 @@ def _build_daily_report_portal_context(db):
             (user_id,),
         ).fetchall()
     ]
+    for report in recent_reports:
+        report["attachment_url"] = _get_daily_live_report_attachment_url(report.get("attachment_path"))
+        report["attachment_size_label"] = _format_upload_size(report.get("attachment_size"))
     summary = {
         "total": len(recent_reports),
         "submitted": sum(1 for item in recent_reports if item["status"] == "submitted"),
@@ -66,6 +72,7 @@ def submit():
     summary = (request.form.get("summary") or "").strip()
     blocker_note = (request.form.get("blocker_note") or "").strip()
     follow_up_note = (request.form.get("follow_up_note") or "").strip()
+    attachment = request.files.get("attachment")
 
     if not title or not summary:
         flash("Judul dan isi laporan wajib diisi.", "error")
@@ -81,6 +88,22 @@ def submit():
         flash("Tanggal laporan tidak valid.", "error")
         return redirect("/laporan-harian/")
 
+    attachment_meta = {
+        "attachment_name": None,
+        "attachment_path": None,
+        "attachment_mime": None,
+        "attachment_size": 0,
+    }
+    if attachment and (attachment.filename or "").strip():
+        if report_type != "live":
+            flash("Lampiran bukti hanya tersedia untuk report live.", "error")
+            return redirect("/laporan-harian/")
+        try:
+            attachment_meta = _store_daily_live_report_attachment(attachment)
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect("/laporan-harian/")
+
     db.execute(
         """
         INSERT INTO daily_live_reports(
@@ -95,11 +118,15 @@ def submit():
             follow_up_note,
             status,
             hr_note,
+            attachment_name,
+            attachment_path,
+            attachment_mime,
+            attachment_size,
             handled_by,
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             session.get("user_id"),
@@ -113,6 +140,10 @@ def submit():
             follow_up_note or None,
             "submitted",
             None,
+            attachment_meta["attachment_name"],
+            attachment_meta["attachment_path"],
+            attachment_meta["attachment_mime"],
+            int(attachment_meta["attachment_size"] or 0),
             None,
             None,
             _current_timestamp(),

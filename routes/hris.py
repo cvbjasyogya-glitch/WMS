@@ -6,6 +6,7 @@ from datetime import date as date_cls, datetime, timedelta
 from uuid import uuid4
 
 from flask import Blueprint, current_app, render_template, request, redirect, flash, session, url_for
+from werkzeug.utils import secure_filename
 
 from database import get_db
 from routes.schedule import (
@@ -96,6 +97,7 @@ DAILY_LIVE_REPORT_STATUS_LABELS = {
     "follow_up": "Perlu Follow Up",
     "closed": "Closed",
 }
+DAILY_LIVE_REPORT_ATTACHMENT_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 DAILY_LIVE_REPORT_ACTIVE_STATUSES = ("submitted", "follow_up")
 DAILY_LIVE_REPORT_ARCHIVE_STATUSES = ("reviewed", "closed")
 DASHBOARD_REMINDER_STATUSES = {"open", "done"}
@@ -580,6 +582,74 @@ def _normalize_daily_live_report_type(value):
 def _normalize_daily_live_report_status(value):
     status = (value or "").strip().lower()
     return status if status in DAILY_LIVE_REPORT_STATUSES else "submitted"
+
+
+def _format_upload_size(size_bytes):
+    try:
+        size = max(int(size_bytes or 0), 0)
+    except (TypeError, ValueError):
+        size = 0
+
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _get_daily_live_report_attachment_max_bytes():
+    configured = current_app.config.get("DAILY_LIVE_REPORT_ATTACHMENT_MAX_BYTES", 10 * 1024 * 1024)
+    try:
+        return max(int(configured), 0)
+    except (TypeError, ValueError):
+        return 10 * 1024 * 1024
+
+
+def _get_daily_live_report_upload_folder():
+    upload_folder = current_app.config.get("DAILY_LIVE_REPORT_UPLOAD_FOLDER")
+    if not upload_folder:
+        upload_folder = os.path.join(current_app.root_path, "static", "uploads", "daily_reports")
+    os.makedirs(upload_folder, exist_ok=True)
+    return upload_folder
+
+
+def _get_daily_live_report_attachment_url(attachment_path):
+    if not attachment_path:
+        return None
+    safe_name = os.path.basename(attachment_path)
+    base_url = current_app.config.get("DAILY_LIVE_REPORT_UPLOAD_URL_PREFIX", "/static/uploads/daily_reports").rstrip("/")
+    return f"{base_url}/{safe_name}"
+
+
+def _store_daily_live_report_attachment(file_storage):
+    filename = secure_filename(file_storage.filename or "")
+    if not filename:
+        raise ValueError("File bukti report tidak valid.")
+
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in DAILY_LIVE_REPORT_ATTACHMENT_EXTENSIONS:
+        raise ValueError("Lampiran bukti hanya mendukung JPG, PNG, WEBP, atau PDF.")
+
+    upload_folder = _get_daily_live_report_upload_folder()
+    stored_name = f"daily_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}{extension}"
+    target_path = os.path.join(upload_folder, stored_name)
+    file_storage.save(target_path)
+
+    attachment_size = os.path.getsize(target_path)
+    max_bytes = _get_daily_live_report_attachment_max_bytes()
+    if max_bytes and attachment_size > max_bytes:
+        try:
+            os.remove(target_path)
+        except OSError:
+            pass
+        raise ValueError(f"Ukuran lampiran maksimal {_format_upload_size(max_bytes)} per file.")
+
+    return {
+        "attachment_name": filename,
+        "attachment_path": stored_name,
+        "attachment_mime": (file_storage.mimetype or "").strip() or None,
+        "attachment_size": attachment_size,
+    }
 
 
 def _insert_biometric_log_record(
@@ -2005,6 +2075,8 @@ def _fetch_daily_live_reports(db, selected_warehouse):
         row["report_type_label"] = DAILY_LIVE_REPORT_TYPE_LABELS.get(row["report_type"], row["report_type"])
         row["status_label"] = DAILY_LIVE_REPORT_STATUS_LABELS.get(row["status"], row["status"])
         row["display_name"] = row["employee_name"] or row["username"] or "User"
+        row["attachment_url"] = _get_daily_live_report_attachment_url(row.get("attachment_path"))
+        row["attachment_size_label"] = _format_upload_size(row.get("attachment_size"))
     return rows, {
         "search": search,
         "report_type": report_type,

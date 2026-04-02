@@ -358,6 +358,91 @@ def _build_stock_summary(rows):
     }
 
 
+def _build_stock_group(rows):
+    total_qty = 0
+    zero_count = 0
+    low_count = 0
+    ready_count = 0
+    variants = []
+    created_dates = []
+    oldest_age_days = 0
+
+    for row in rows:
+        qty = int(row.get("qty") or 0)
+        total_qty += qty
+        oldest_age_days = max(oldest_age_days, int(row.get("age_days") or 0))
+
+        if qty <= 0:
+            zero_count += 1
+        elif qty < LOW_STOCK_THRESHOLD:
+            low_count += 1
+        else:
+            ready_count += 1
+
+        variant_name = (row.get("variant") or "-").strip() or "-"
+        variants.append(variant_name)
+
+        created_at = row.get("created_at")
+        if created_at:
+            created_dates.append(created_at[:10])
+
+    variant_count = len(rows)
+    preview_items = variants[:3]
+    variant_preview = ", ".join(preview_items)
+    if variant_count > len(preview_items):
+        variant_preview = f"{variant_preview}, +{variant_count - len(preview_items)} lainnya"
+
+    if zero_count == variant_count:
+        status_label = "Semua kosong"
+        status_tone = "red"
+    elif zero_count > 0:
+        status_label = f"{zero_count} kosong, {low_count} menipis"
+        status_tone = "red"
+    elif low_count > 0:
+        status_label = f"{low_count} menipis"
+        status_tone = "orange"
+    else:
+        status_label = f"{ready_count} aman"
+        status_tone = "green"
+
+    if total_qty <= 0:
+        qty_tone = "red"
+    elif zero_count > 0 or low_count > 0:
+        qty_tone = "orange"
+    else:
+        qty_tone = "green"
+
+    return {
+        "product_id": rows[0]["product_id"],
+        "sku": rows[0]["sku"],
+        "name": rows[0]["name"],
+        "rows": rows,
+        "is_grouped": variant_count > 1,
+        "variant_count": variant_count,
+        "variant_preview": variant_preview,
+        "total_qty": total_qty,
+        "qty_tone": qty_tone,
+        "status_label": status_label,
+        "status_tone": status_tone,
+        "oldest_age_days": oldest_age_days,
+        "oldest_created_at": min(created_dates) if created_dates else None,
+    }
+
+
+def _group_stock_rows(rows):
+    grouped_rows = []
+    groups_by_product = {}
+
+    for row in rows:
+        product_id = row["product_id"]
+        if product_id not in groups_by_product:
+            groups_by_product[product_id] = []
+            grouped_rows.append(groups_by_product[product_id])
+        groups_by_product[product_id].append(row)
+
+    return [_build_stock_group(group_rows) for group_rows in grouped_rows]
+
+
 def _fetch_current_stock_qty(db, product_id, variant_id, warehouse_id):
     row = db.execute(
         """
@@ -425,6 +510,7 @@ def stock_table():
         params + [limit, offset],
     ).fetchall()
     data = [dict(r) for r in rows]
+    grouped_data = _group_stock_rows(data)
 
     total = db.execute(
         f"SELECT COUNT(*) FROM ({base_query}) stock_rows",
@@ -455,10 +541,13 @@ def stock_table():
         group_size=5,
     )
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
+    can_adjust_stock_ui = _can_render_stock_adjust_controls()
+    can_bulk_adjust_ui = has_permission(session.get("role"), "direct_stock_ops")
 
     return render_template(
         "stok_gudang.html",
         data=data,
+        grouped_data=grouped_data,
         search=search,
         warehouses=warehouses,
         warehouse_id=warehouse_id,
@@ -472,8 +561,9 @@ def stock_table():
         stock_state=stock_state,
         summary=summary,
         pagination=pagination,
-        can_adjust_stock_ui=_can_render_stock_adjust_controls(),
-        can_bulk_adjust_ui=has_permission(session.get("role"), "direct_stock_ops"),
+        can_adjust_stock_ui=can_adjust_stock_ui,
+        can_bulk_adjust_ui=can_bulk_adjust_ui,
+        stock_group_colspan=8 + (1 if can_adjust_stock_ui else 0),
     )
 
 

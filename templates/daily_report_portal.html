@@ -60,11 +60,11 @@
         </div>
     </div>
 
-    <form method="POST" action="/laporan-harian/submit">
+    <form method="POST" action="/laporan-harian/submit" enctype="multipart/form-data" data-daily-live-report-form>
         <div class="form-grid">
             <div>
                 <label>Tipe Report</label>
-                <select name="report_type">
+                <select name="report_type" data-report-type-select>
                     <option value="daily">Report Harian</option>
                     <option value="live">Report Live</option>
                 </select>
@@ -88,6 +88,11 @@
             <div style="grid-column: 1 / -1;">
                 <label>Tindak Lanjut</label>
                 <textarea name="follow_up_note" rows="3" placeholder="Opsional. Contoh: lanjut besok pagi, menunggu transfer barang, perlu follow up HR / owner / leader."></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;" data-live-attachment-wrap hidden>
+                <label>Lampiran Bukti</label>
+                <input type="file" name="attachment" accept=".jpg,.jpeg,.png,.webp,.pdf" data-live-attachment-input>
+                <small class="helper-text">Opsional khusus report live. Format yang didukung: JPG, PNG, WEBP, atau PDF. Maksimal 10 MB per file.</small>
             </div>
         </div>
         <div class="split-actions attendance-submit-row">
@@ -133,6 +138,19 @@
                     <label>Catatan HR</label>
                     <div class="empty-state report-portal-text">{{ report.hr_note or "Belum ada catatan review." }}</div>
                 </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Lampiran Bukti</label>
+                    <div class="empty-state report-portal-text">
+                        {% if report.attachment_url %}
+                        <a href="{{ report.attachment_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-inline-link">{{ report.attachment_name }}</a>
+                        {% if report.attachment_size %}
+                        <span class="helper-text">({{ report.attachment_size_label }})</span>
+                        {% endif %}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </div>
         {% endfor %}
@@ -141,4 +159,32 @@
     <div class="empty-state">Belum ada report yang dikirim dari akun ini.</div>
     {% endif %}
 </div>
+<script>
+(() => {
+    const form = document.querySelector("[data-daily-live-report-form]");
+    if (!form) {
+        return;
+    }
+
+    const reportTypeSelect = form.querySelector("[data-report-type-select]");
+    const attachmentWrap = form.querySelector("[data-live-attachment-wrap]");
+    const attachmentInput = form.querySelector("[data-live-attachment-input]");
+
+    const syncAttachmentField = () => {
+        const isLive = (reportTypeSelect?.value || "").trim().toLowerCase() === "live";
+        if (attachmentWrap) {
+            attachmentWrap.hidden = !isLive;
+        }
+        if (attachmentInput) {
+            attachmentInput.disabled = !isLive;
+            if (!isLive) {
+                attachmentInput.value = "";
+            }
+        }
+    };
+
+    syncAttachmentField();
+    reportTypeSelect?.addEventListener("change", syncAttachmentField);
+})();
+</script>
 {% endblock %}
