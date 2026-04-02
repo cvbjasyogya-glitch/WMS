@@ -26,6 +26,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.db_path = os.path.join(temp_root, f"test_database_{uuid4().hex}.db")
         self.photo_upload_root = os.path.join(temp_root, f"uploads_{uuid4().hex}")
         self.daily_report_upload_root = os.path.join(temp_root, f"daily_reports_{uuid4().hex}")
+        self.document_upload_root = os.path.join(temp_root, f"document_uploads_{uuid4().hex}")
+        self.document_signature_root = os.path.join(temp_root, f"document_signatures_{uuid4().hex}")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -40,6 +42,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             DAILY_LIVE_REPORT_UPLOAD_FOLDER=self.daily_report_upload_root,
             DAILY_LIVE_REPORT_UPLOAD_URL_PREFIX="/static/test-daily-reports",
             DAILY_LIVE_REPORT_ATTACHMENT_MAX_BYTES=10 * 1024 * 1024,
+            DOCUMENT_RECORD_UPLOAD_FOLDER=self.document_upload_root,
+            DOCUMENT_RECORD_UPLOAD_URL_PREFIX="/static/test-documents",
+            DOCUMENT_RECORD_ATTACHMENT_MAX_BYTES=15 * 1024 * 1024,
+            DOCUMENT_RECORD_SIGNATURE_FOLDER=self.document_signature_root,
+            DOCUMENT_RECORD_SIGNATURE_URL_PREFIX="/static/test-document-signatures",
+            DOCUMENT_RECORD_SIGNATURE_MAX_BYTES=2 * 1024 * 1024,
             SECRET_KEY="test-secret-key",
             LOGIN_THROTTLE_LIMIT=3,
             LOGIN_THROTTLE_WINDOW_SECONDS=300,
@@ -57,6 +65,10 @@ class WmsRoutesTestCase(unittest.TestCase):
             shutil.rmtree(self.photo_upload_root)
         if os.path.isdir(self.daily_report_upload_root):
             shutil.rmtree(self.daily_report_upload_root)
+        if os.path.isdir(self.document_upload_root):
+            shutil.rmtree(self.document_upload_root)
+        if os.path.isdir(self.document_signature_root):
+            shutil.rmtree(self.document_signature_root)
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -331,6 +343,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('>Absen<', html)
                 self.assertIn('>Libur<', html)
                 self.assertIn('>Report Harian<', html)
+                self.assertIn('data-attendance-shortcut', html)
+                self.assertIn('href="/absen/#foto-absen"', html)
                 if path == "/chat/":
                     self.assertIn("Chat Operasional Live", html)
                 else:
@@ -699,11 +713,25 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("View Only", html)
         self.assertIn('name="warehouse" disabled', html)
         self.assertIn("Ayu", html)
-        self.assertIn("Board Mingguan", html)
+        self.assertIn("Board 7 Hari", html)
         self.assertIn("Tanggal", html)
         self.assertIn("Jadwal Live", html)
         self.assertNotIn("Atur Jadwal Manual", html)
         self.assertNotIn("Master Shift", html)
+
+    def test_schedule_route_supports_extended_day_range_options(self):
+        self.login()
+
+        response = self.client.get("/schedule/?start=2026-03-30&days=30")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('<option value="14"', html)
+        self.assertIn('<option value="30" selected>', html)
+        self.assertIn('<option value="60"', html)
+        self.assertIn('<option value="90"', html)
+        self.assertIn(">30 hari</option>", html)
+        self.assertIn("2026-03-30 s/d 2026-04-28", html)
+        self.assertIn("2026-04-28", html)
 
     def test_hr_role_can_manage_schedule_and_hris(self):
         self.create_user("hr_ops", "pass1234", "hr")
@@ -1348,6 +1376,49 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual([row["schedule_date"] for row in rows], ["2026-03-31", "2026-04-01", "2026-04-02"])
         self.assertTrue(all(row["employee_id"] == employee_id for row in rows))
         self.assertTrue(all(row["channel_label"] == "TikTok Live" for row in rows))
+
+    def test_hr_can_save_schedule_entry_for_ninety_day_range(self):
+        self.create_user("hr_schedule_90", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-90",
+            full_name="Ninety Day Planner",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+
+        self.login("hr_schedule_90", "pass1234")
+        start_date = date_cls.fromisoformat("2026-03-30")
+        end_date = start_date + timedelta(days=89)
+
+        response = self.client.post(
+            "/schedule/entry/save",
+            data={
+                "employee_id": str(employee_id),
+                "shift_code": "P",
+                "entry_start_date": start_date.isoformat(),
+                "entry_end_date": end_date.isoformat(),
+                "note": "Board panjang 90 hari",
+                "start": start_date.isoformat(),
+                "days": "90",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Jadwal manual berhasil diterapkan.", response.get_data(as_text=True))
+
+        with self.app.app_context():
+            db = get_db()
+            entry_count = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM schedule_entries
+                WHERE employee_id=?
+                  AND schedule_date BETWEEN ? AND ?
+                """,
+                (employee_id, start_date.isoformat(), end_date.isoformat()),
+            ).fetchone()[0]
+
+        self.assertEqual(entry_count, 90)
 
     def test_admin_can_manage_crm_contacts_purchases_and_members(self):
         self.login()
@@ -5523,8 +5594,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login("portal_open_break", "pass1234")
         current_stamp = datetime.now().replace(second=0, microsecond=0)
         today = current_stamp.date().isoformat()
-        check_in_stamp = current_stamp.isoformat(timespec="minutes")
-        break_start_stamp = current_stamp.isoformat(timespec="minutes")
+        check_in_stamp = (current_stamp - timedelta(minutes=20)).isoformat(timespec="minutes")
+        break_start_stamp = (current_stamp - timedelta(minutes=15)).isoformat(timespec="minutes")
 
         self.client.post(
             "/absen/submit",
@@ -5562,8 +5633,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(recap_response.status_code, 200)
         recap_html = recap_response.get_data(as_text=True)
         self.assertIn("Status Istirahat", recap_html)
+        self.assertIn("Durasi Istirahat", recap_html)
         self.assertIn("Present", recap_html)
         self.assertIn("Baru Mulai", recap_html)
+        self.assertIn("15 mnt", recap_html)
+        self.assertIn("data-break-timer", recap_html)
+        self.assertIn("Timer aktif", recap_html)
 
     def test_biometric_recap_shows_selesai_for_finished_break(self):
         employee_id = self.create_employee_record(
@@ -5627,6 +5702,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         recap_html = recap_response.get_data(as_text=True)
         self.assertIn("Status Istirahat", recap_html)
         self.assertIn("Selesai", recap_html)
+        self.assertIn("25 mnt", recap_html)
+        self.assertIn("Total istirahat", recap_html)
 
     def test_biometric_recap_only_shows_days_with_actual_attendance(self):
         employee_id = self.create_employee_record(
@@ -6393,6 +6470,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "review_date": "2026-12-01",
                 "owner_name": "Ops Manager",
                 "note": "Versi revisi untuk audit Q4",
+                "attachment": (BytesIO(b"%PDF-1.4 contoh lampiran SOP"), "sop-cycle-count.pdf"),
             },
             follow_redirects=False,
         )
@@ -6403,7 +6481,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             document = db.execute(
                 """
                 SELECT id, warehouse_id, document_title, document_code, document_type,
-                       status, effective_date, review_date, owner_name, note, handled_by
+                       status, effective_date, review_date, owner_name, note, handled_by,
+                       attachment_name, attachment_path, attachment_mime, attachment_size,
+                       signature_path, signed_by, signed_at
                 FROM document_records
                 WHERE document_code=?
                 """,
@@ -6419,6 +6499,29 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(document["owner_name"], "Ops Manager")
         self.assertEqual(document["note"], "Versi revisi untuk audit Q4")
         self.assertIsNotNone(document["handled_by"])
+        self.assertEqual(document["attachment_name"], "sop-cycle-count.pdf")
+        self.assertTrue((document["attachment_path"] or "").startswith("document_"))
+        self.assertEqual(document["attachment_mime"], "application/pdf")
+        self.assertGreater(document["attachment_size"], 0)
+        self.assertIsNone(document["signature_path"])
+
+        list_response = self.client.get("/hris/documents")
+        self.assertEqual(list_response.status_code, 200)
+        list_html = list_response.get_data(as_text=True)
+        self.assertIn("Halaman Pengesahan Dokumen", list_html)
+        self.assertIn("sop-cycle-count.pdf", list_html)
+        self.assertIn('data-document-signature-root', list_html)
+
+        signature_data = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2X8AAAAASUVORK5CYII="
+        )
+        sign_response = self.client.post(
+            f"/hris/documents/sign/{document['id']}",
+            data={"signature_data": signature_data},
+            follow_redirects=False,
+        )
+        self.assertEqual(sign_response.status_code, 302)
 
         update_response = self.client.post(
             f"/hris/documents/update/{document['id']}",
@@ -6442,7 +6545,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             document_after = db.execute(
                 """
                 SELECT warehouse_id, document_title, document_code, document_type, status,
-                       effective_date, review_date, owner_name, note, handled_by
+                       effective_date, review_date, owner_name, note, handled_by,
+                       attachment_name, attachment_path, signature_path, signed_by, signed_at
                 FROM document_records
                 WHERE id=?
                 """,
@@ -6459,6 +6563,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(document_after["owner_name"], "Senior Ops Manager")
         self.assertEqual(document_after["note"], "Dokumen diarsipkan setelah revisi final.")
         self.assertIsNotNone(document_after["handled_by"])
+        self.assertEqual(document_after["attachment_name"], "sop-cycle-count.pdf")
+        self.assertEqual(document_after["attachment_path"], document["attachment_path"])
+        self.assertTrue((document_after["signature_path"] or "").startswith("document_signature_"))
+        self.assertIsNotNone(document_after["signed_by"])
+        self.assertIsNotNone(document_after["signed_at"])
 
         delete_response = self.client.post(
             f"/hris/documents/delete/{document['id']}",

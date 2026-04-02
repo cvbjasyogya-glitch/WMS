@@ -89,6 +89,7 @@ ANNOUNCEMENT_AUDIENCES = {"all", "leaders", "warehouse_team"}
 ANNOUNCEMENT_STATUSES = {"draft", "published", "archived"}
 DOCUMENT_TYPES = {"policy", "sop", "form", "memo", "contract", "other"}
 DOCUMENT_STATUSES = {"draft", "active", "archived"}
+DOCUMENT_ATTACHMENT_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 DAILY_LIVE_REPORT_TYPES = {"daily", "live"}
 DAILY_LIVE_REPORT_STATUSES = {"submitted", "reviewed", "follow_up", "closed"}
 DAILY_LIVE_REPORT_TYPE_LABELS = {
@@ -656,6 +657,158 @@ def _store_daily_live_report_attachment(file_storage):
     }
 
 
+def _get_document_attachment_max_bytes():
+    configured = current_app.config.get("DOCUMENT_RECORD_ATTACHMENT_MAX_BYTES", 15 * 1024 * 1024)
+    try:
+        return max(int(configured), 0)
+    except (TypeError, ValueError):
+        return 15 * 1024 * 1024
+
+
+def _get_document_signature_max_bytes():
+    configured = current_app.config.get("DOCUMENT_RECORD_SIGNATURE_MAX_BYTES", 2 * 1024 * 1024)
+    try:
+        return max(int(configured), 0)
+    except (TypeError, ValueError):
+        return 2 * 1024 * 1024
+
+
+def _get_document_upload_folder():
+    upload_folder = current_app.config.get("DOCUMENT_RECORD_UPLOAD_FOLDER")
+    if not upload_folder:
+        upload_folder = os.path.join(current_app.root_path, "static", "uploads", "documents")
+    os.makedirs(upload_folder, exist_ok=True)
+    return upload_folder
+
+
+def _get_document_signature_folder():
+    upload_folder = current_app.config.get("DOCUMENT_RECORD_SIGNATURE_FOLDER")
+    if not upload_folder:
+        upload_folder = os.path.join(current_app.root_path, "static", "uploads", "document_signatures")
+    os.makedirs(upload_folder, exist_ok=True)
+    return upload_folder
+
+
+def _get_document_attachment_url(attachment_path):
+    if not attachment_path:
+        return None
+    safe_name = os.path.basename(attachment_path)
+    base_url = current_app.config.get("DOCUMENT_RECORD_UPLOAD_URL_PREFIX", "/static/uploads/documents").rstrip("/")
+    return f"{base_url}/{safe_name}"
+
+
+def _get_document_signature_url(signature_path):
+    if not signature_path:
+        return None
+    safe_name = os.path.basename(signature_path)
+    base_url = current_app.config.get(
+        "DOCUMENT_RECORD_SIGNATURE_URL_PREFIX",
+        "/static/uploads/document_signatures",
+    ).rstrip("/")
+    return f"{base_url}/{safe_name}"
+
+
+def _remove_document_file(stored_name, *, signature=False):
+    if not stored_name:
+        return
+
+    safe_name = os.path.basename(stored_name)
+    upload_folder = _get_document_signature_folder() if signature else _get_document_upload_folder()
+    target_path = os.path.join(upload_folder, safe_name)
+    if os.path.isfile(target_path):
+        try:
+            os.remove(target_path)
+        except OSError:
+            pass
+
+
+def _store_document_attachment(file_storage):
+    filename = secure_filename(file_storage.filename or "")
+    if not filename:
+        raise ValueError("File dokumen tidak valid.")
+
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in DOCUMENT_ATTACHMENT_EXTENSIONS:
+        raise ValueError("Lampiran dokumen hanya mendukung PDF, JPG, PNG, atau WEBP.")
+
+    upload_folder = _get_document_upload_folder()
+    stored_name = f"document_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}{extension}"
+    target_path = os.path.join(upload_folder, stored_name)
+    file_storage.save(target_path)
+
+    attachment_size = os.path.getsize(target_path)
+    max_bytes = _get_document_attachment_max_bytes()
+    if max_bytes and attachment_size > max_bytes:
+        try:
+            os.remove(target_path)
+        except OSError:
+            pass
+        raise ValueError(f"Ukuran lampiran dokumen maksimal {_format_upload_size(max_bytes)} per file.")
+
+    return {
+        "attachment_name": filename,
+        "attachment_path": stored_name,
+        "attachment_mime": (file_storage.mimetype or "").strip() or None,
+        "attachment_size": attachment_size,
+    }
+
+
+def _store_document_signature(signature_data):
+    raw_value = (signature_data or "").strip()
+    if not raw_value:
+        raise ValueError("Tanda tangan digital wajib diisi.")
+
+    if "," not in raw_value:
+        raise ValueError("Format tanda tangan digital tidak valid.")
+
+    header, encoded = raw_value.split(",", 1)
+    if not header.startswith("data:image/") or ";base64" not in header:
+        raise ValueError("Format tanda tangan digital tidak valid.")
+
+    mime_type = header[5:].split(";", 1)[0].strip().lower()
+    extension = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+    }.get(mime_type)
+    if not extension:
+        raise ValueError("Tanda tangan hanya mendukung format PNG, JPG, atau WEBP.")
+
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Data tanda tangan digital rusak atau tidak lengkap.") from exc
+
+    if len(payload) < 32:
+        raise ValueError("Tanda tangan digital terlalu pendek. Silakan ulangi tanda tangan.")
+
+    max_bytes = _get_document_signature_max_bytes()
+    if max_bytes and len(payload) > max_bytes:
+        raise ValueError(f"Ukuran tanda tangan digital maksimal {_format_upload_size(max_bytes)}.")
+
+    upload_folder = _get_document_signature_folder()
+    stored_name = f"document_signature_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}{extension}"
+    target_path = os.path.join(upload_folder, stored_name)
+    with open(target_path, "wb") as file_handle:
+        file_handle.write(payload)
+    return stored_name
+
+
+def _decorate_document_record(record):
+    item = dict(record)
+    item["attachment_url"] = _get_document_attachment_url(item.get("attachment_path"))
+    item["signature_url"] = _get_document_signature_url(item.get("signature_path"))
+    item["attachment_size_label"] = _format_upload_size(item.get("attachment_size"))
+    attachment_source = (item.get("attachment_name") or item.get("attachment_path") or "").lower()
+    attachment_mime = (item.get("attachment_mime") or "").strip().lower()
+    item["attachment_is_pdf"] = attachment_mime == "application/pdf" or attachment_source.endswith(".pdf")
+    item["attachment_is_image"] = attachment_mime.startswith("image/") or attachment_source.endswith(
+        (".jpg", ".jpeg", ".png", ".webp")
+    )
+    item["signature_status_label"] = "Sudah Disahkan" if item.get("signed_at") else "Belum Disahkan"
+    return item
+
+
 def _insert_biometric_log_record(
     db,
     *,
@@ -796,24 +949,11 @@ def _derive_biometric_attendance_status_with_shift(check_in_time, shift_label=No
 
 
 def _resolve_open_break_state(logs_sorted):
-    open_break_time = None
-    for log in logs_sorted:
-        punch_type = (log.get("punch_type") or "").strip().lower()
-        punch_time = (log.get("punch_time") or "").strip()
-        if punch_type == "break_start":
-            open_break_time = punch_time
-        elif punch_type in {"break_finish", "check_out"}:
-            open_break_time = None
-
-    if not open_break_time:
+    break_summary = _summarize_break_activity(logs_sorted)
+    if not break_summary["is_open"]:
         return None
 
-    try:
-        break_started_at = datetime.fromisoformat(open_break_time)
-    except ValueError:
-        return {"status_key": "break_started", "label": ATTENDANCE_STATUS_LABELS["break_started"], "badge_class": "orange"}
-
-    minutes_open = max(0, int((datetime.now() - break_started_at).total_seconds() // 60))
+    minutes_open = max(0, int(break_summary["open_seconds"] // 60))
     if minutes_open > 60:
         return {
             "status_key": "break_over_limit",
@@ -825,6 +965,69 @@ def _resolve_open_break_state(logs_sorted):
         "status_key": "break_started",
         "label": BREAK_STATUS_LABELS["break_started"],
         "badge_class": "orange",
+    }
+
+
+def _parse_biometric_datetime(value):
+    safe_value = (value or "").strip()
+    if not safe_value:
+        return None
+    try:
+        return datetime.fromisoformat(safe_value)
+    except ValueError:
+        return None
+
+
+def _format_break_duration_label(total_seconds, has_break_activity=False):
+    total_seconds = int(max(0, total_seconds or 0))
+    if total_seconds <= 0:
+        return "< 1 mnt" if has_break_activity else "-"
+
+    total_minutes = total_seconds // 60
+    if total_minutes <= 0:
+        return "< 1 mnt"
+
+    hours, minutes = divmod(total_minutes, 60)
+    if hours:
+        return f"{hours}j {minutes:02d}m"
+    return f"{total_minutes} mnt"
+
+
+def _summarize_break_activity(logs_sorted, current_time=None):
+    safe_logs = logs_sorted or []
+    now_value = current_time or datetime.now()
+    completed_seconds = 0
+    open_break_started_at = None
+    open_break_started_raw = ""
+    has_break_activity = False
+
+    for log in safe_logs:
+        punch_type = (log.get("punch_type") or "").strip().lower()
+        punch_time = (log.get("punch_time") or "").strip()
+        punch_dt = _parse_biometric_datetime(punch_time)
+        if punch_type == "break_start":
+            has_break_activity = True
+            open_break_started_at = punch_dt
+            open_break_started_raw = punch_time if punch_dt else ""
+        elif punch_type in {"break_finish", "check_out"}:
+            if open_break_started_at and punch_dt and punch_dt >= open_break_started_at:
+                completed_seconds += int((punch_dt - open_break_started_at).total_seconds())
+            open_break_started_at = None
+            open_break_started_raw = ""
+
+    open_seconds = 0
+    if open_break_started_at:
+        open_seconds = max(0, int((now_value - open_break_started_at).total_seconds()))
+
+    total_seconds = completed_seconds + open_seconds
+    return {
+        "has_break_activity": has_break_activity,
+        "is_open": bool(open_break_started_at),
+        "completed_seconds": completed_seconds,
+        "open_seconds": open_seconds,
+        "total_seconds": total_seconds,
+        "open_started_at_iso": open_break_started_raw,
+        "duration_label": _format_break_duration_label(total_seconds, has_break_activity),
     }
 
 
@@ -846,15 +1049,12 @@ def _build_attendance_status_display(status, logs_sorted=None):
 
 def _build_break_status_display(logs_sorted):
     safe_logs = logs_sorted or []
+    break_summary = _summarize_break_activity(safe_logs)
     break_state = _resolve_open_break_state(safe_logs)
     if break_state:
         return break_state
 
-    has_break_activity = any(
-        (log.get("punch_type") or "").strip().lower() == "break_start"
-        for log in safe_logs
-    )
-    if has_break_activity:
+    if break_summary["has_break_activity"]:
         return {
             "status_key": "break_finished",
             "label": BREAK_STATUS_LABELS["break_finished"],
@@ -1325,10 +1525,12 @@ def _get_document_by_id(db, document_id):
         SELECT
             d.*,
             w.name AS warehouse_name,
-            u.username AS handled_by_name
+            u.username AS handled_by_name,
+            su.username AS signed_by_name
         FROM document_records d
         LEFT JOIN warehouses w ON d.warehouse_id = w.id
         LEFT JOIN users u ON d.handled_by = u.id
+        LEFT JOIN users su ON d.signed_by = su.id
         WHERE d.id=?
     """
     params = [document_id]
@@ -3039,6 +3241,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
         recap_status_label, recap_status_badge = _build_biometric_status_meta(recap_status)
         attendance_display = _build_attendance_status_display(attendance.get("status"), logs_sorted)
         break_display = _build_break_status_display(logs_sorted)
+        break_summary = _summarize_break_activity(logs_sorted)
 
         recap_rows.append(
             {
@@ -3053,6 +3256,21 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "attendance_status_badge": attendance_display["badge_class"],
                 "break_status_label": break_display["label"],
                 "break_status_badge": break_display["badge_class"],
+                "break_duration_label": break_summary["duration_label"],
+                "break_duration_seconds": break_summary["total_seconds"],
+                "break_timer_active": break_summary["is_open"],
+                "break_timer_started_at": break_summary["open_started_at_iso"],
+                "break_timer_base_seconds": break_summary["completed_seconds"],
+                "break_timer_over_limit": break_summary["open_seconds"] > 3600,
+                "break_duration_note": (
+                    "Lewat 1 jam"
+                    if break_summary["open_seconds"] > 3600
+                    else "Timer aktif"
+                    if break_summary["is_open"]
+                    else "Total istirahat"
+                    if break_summary["has_break_activity"]
+                    else ""
+                ),
                 "status_override_active": bool(attendance.get("status_override")),
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",
@@ -3139,10 +3357,12 @@ def _fetch_documents(db):
         SELECT
             d.*,
             w.name AS warehouse_name,
-            u.username AS handled_by_name
+            u.username AS handled_by_name,
+            su.username AS signed_by_name
         FROM document_records d
         LEFT JOIN warehouses w ON d.warehouse_id = w.id
         LEFT JOIN users u ON d.handled_by = u.id
+        LEFT JOIN users su ON d.signed_by = su.id
         WHERE 1=1
     """
     params = []
@@ -3173,7 +3393,7 @@ def _fetch_documents(db):
 
     query += " ORDER BY d.effective_date DESC, d.id DESC"
 
-    documents = [dict(row) for row in db.execute(query, params).fetchall()]
+    documents = [_decorate_document_record(row) for row in db.execute(query, params).fetchall()]
     return documents, search, document_type, status, selected_warehouse
 
 
@@ -6177,6 +6397,7 @@ def add_document():
     review_date = (request.form.get("review_date") or "").strip()
     owner_name = (request.form.get("owner_name") or "").strip()
     note = (request.form.get("note") or "").strip()
+    attachment = request.files.get("attachment")
 
     if warehouse_id is None:
         flash("Gudang dokumen wajib diisi", "error")
@@ -6202,6 +6423,19 @@ def add_document():
         flash("Kode dokumen sudah digunakan", "error")
         return redirect("/hris/documents")
 
+    attachment_meta = {
+        "attachment_name": None,
+        "attachment_path": None,
+        "attachment_mime": None,
+        "attachment_size": 0,
+    }
+    if attachment and (attachment.filename or "").strip():
+        try:
+            attachment_meta = _store_document_attachment(attachment)
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect("/hris/documents")
+
     handled_by, handled_at = _build_document_handling(status)
     db.execute(
         """
@@ -6215,11 +6449,15 @@ def add_document():
             review_date,
             owner_name,
             note,
+            attachment_name,
+            attachment_path,
+            attachment_mime,
+            attachment_size,
             handled_by,
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             warehouse_id,
@@ -6231,6 +6469,10 @@ def add_document():
             review_date or None,
             owner_name or None,
             note or None,
+            attachment_meta["attachment_name"],
+            attachment_meta["attachment_path"],
+            attachment_meta["attachment_mime"],
+            int(attachment_meta["attachment_size"] or 0),
             handled_by,
             handled_at,
             _current_timestamp(),
@@ -6263,6 +6505,7 @@ def update_document(document_id):
     review_date = (request.form.get("review_date") or "").strip()
     owner_name = (request.form.get("owner_name") or "").strip()
     note = (request.form.get("note") or "").strip()
+    attachment = request.files.get("attachment")
 
     if warehouse_id is None:
         flash("Gudang dokumen wajib diisi", "error")
@@ -6288,6 +6531,23 @@ def update_document(document_id):
         flash("Kode dokumen sudah digunakan record lain", "error")
         return redirect("/hris/documents")
 
+    attachment_meta = {
+        "attachment_name": document["attachment_name"],
+        "attachment_path": document["attachment_path"],
+        "attachment_mime": document["attachment_mime"],
+        "attachment_size": int(document["attachment_size"] or 0),
+    }
+    reset_signature = False
+    if attachment and (attachment.filename or "").strip():
+        try:
+            attachment_meta = _store_document_attachment(attachment)
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect("/hris/documents")
+        if document["attachment_path"]:
+            _remove_document_file(document["attachment_path"])
+        reset_signature = True
+
     handled_by, handled_at = _build_document_handling(status)
     db.execute(
         """
@@ -6301,6 +6561,13 @@ def update_document(document_id):
             review_date=?,
             owner_name=?,
             note=?,
+            attachment_name=?,
+            attachment_path=?,
+            attachment_mime=?,
+            attachment_size=?,
+            signature_path=?,
+            signed_by=?,
+            signed_at=?,
             handled_by=?,
             handled_at=?,
             updated_at=?
@@ -6316,15 +6583,73 @@ def update_document(document_id):
             review_date or None,
             owner_name or None,
             note or None,
+            attachment_meta["attachment_name"],
+            attachment_meta["attachment_path"],
+            attachment_meta["attachment_mime"],
+            int(attachment_meta["attachment_size"] or 0),
+            None if reset_signature else document["signature_path"],
+            None if reset_signature else document["signed_by"],
+            None if reset_signature else document["signed_at"],
             handled_by,
             handled_at,
             _current_timestamp(),
             document_id,
         ),
     )
+    if reset_signature and document["signature_path"]:
+        _remove_document_file(document["signature_path"], signature=True)
     db.commit()
 
     flash("Document berhasil diupdate", "success")
+    return redirect("/hris/documents")
+
+
+@hris_bp.route("/documents/sign/<int:document_id>", methods=["POST"])
+def sign_document(document_id):
+    if not can_manage_document_records():
+        flash("Tidak punya akses untuk mengesahkan documents", "error")
+        return redirect("/hris/documents")
+
+    db = get_db()
+    document = _get_document_by_id(db, document_id)
+    if not document:
+        flash("Document tidak ditemukan", "error")
+        return redirect("/hris/documents")
+
+    if not document["attachment_path"]:
+        flash("Upload lampiran dokumen dulu sebelum pengesahan digital.", "error")
+        return redirect("/hris/documents")
+
+    signature_data = (request.form.get("signature_data") or "").strip()
+    try:
+        signature_path = _store_document_signature(signature_data)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect("/hris/documents")
+
+    if document["signature_path"] and document["signature_path"] != signature_path:
+        _remove_document_file(document["signature_path"], signature=True)
+
+    db.execute(
+        """
+        UPDATE document_records
+        SET signature_path=?,
+            signed_by=?,
+            signed_at=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            signature_path,
+            session.get("user_id"),
+            _current_timestamp(),
+            _current_timestamp(),
+            document_id,
+        ),
+    )
+    db.commit()
+
+    flash("Document berhasil disahkan dengan tanda tangan digital", "success")
     return redirect("/hris/documents")
 
 
@@ -6340,6 +6665,8 @@ def delete_document(document_id):
         flash("Document tidak ditemukan", "error")
         return redirect("/hris/documents")
 
+    _remove_document_file(document["attachment_path"])
+    _remove_document_file(document["signature_path"], signature=True)
     db.execute("DELETE FROM document_records WHERE id=?", (document_id,))
     db.commit()
 

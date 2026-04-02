@@ -322,6 +322,21 @@
 </div>
 {% endif %}
 
+{% if has_app_shell %}
+<div class="attendance-camera-shortcut-root">
+    <a
+        href="/absen/#foto-absen"
+        class="attendance-camera-shortcut-button"
+        data-attendance-shortcut
+        aria-label="Buka absen foto"
+        title="Absen Foto"
+    >
+        <span class="attendance-camera-shortcut-icon" aria-hidden="true">&#128247;</span>
+        <span class="attendance-camera-shortcut-label">Absen Foto</span>
+    </a>
+</div>
+{% endif %}
+
 {% if has_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
 <aside class="chat-incoming-banner" id="chatIncomingBanner" hidden aria-live="assertive" aria-atomic="true">
     <div class="chat-incoming-banner-media">

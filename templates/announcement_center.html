@@ -96,8 +96,8 @@
         {% endif %}
     </article>
 
-    <article class="panel announcement-stream">
-        <div class="announcement-stream-head">
+    <article class="panel announcement-stream announcement-stream-schedule">
+        <div class="announcement-stream-head announcement-stream-head-schedule">
             <div>
                 <p class="section-kicker">Schedule</p>
                 <h2>Perubahan Jadwal</h2>
@@ -105,9 +105,9 @@
             <a href="/schedule/" class="ghost-button">Buka Board</a>
         </div>
         {% if schedule_changes %}
-        <div class="announcement-feed announcement-feed-scroll">
+        <div class="announcement-feed announcement-feed-scroll announcement-feed-schedule">
             {% for event in schedule_changes %}
-            <article class="box announcement-event-card">
+            <article class="box announcement-event-card announcement-event-card-schedule">
                 <div class="announcement-event-head">
                     <div>
                         <h3>{{ event.title }}</h3>

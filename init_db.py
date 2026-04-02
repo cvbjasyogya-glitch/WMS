@@ -257,6 +257,13 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "document_records", "review_date", "TEXT")
     _ensure_column(cursor, "document_records", "owner_name", "TEXT")
     _ensure_column(cursor, "document_records", "note", "TEXT")
+    _ensure_column(cursor, "document_records", "attachment_name", "TEXT")
+    _ensure_column(cursor, "document_records", "attachment_path", "TEXT")
+    _ensure_column(cursor, "document_records", "attachment_mime", "TEXT")
+    _ensure_column(cursor, "document_records", "attachment_size", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "document_records", "signature_path", "TEXT")
+    _ensure_column(cursor, "document_records", "signed_by", "INTEGER")
+    _ensure_column(cursor, "document_records", "signed_at", "TIMESTAMP")
     _ensure_column(cursor, "document_records", "handled_by", "INTEGER")
     _ensure_column(cursor, "document_records", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "document_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -825,12 +832,20 @@ def init_db(db_path=None):
         review_date TEXT,
         owner_name TEXT,
         note TEXT,
+        attachment_name TEXT,
+        attachment_path TEXT,
+        attachment_mime TEXT,
+        attachment_size INTEGER DEFAULT 0,
+        signature_path TEXT,
+        signed_by INTEGER,
+        signed_at TIMESTAMP,
         handled_by INTEGER,
         handled_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
-        FOREIGN KEY(handled_by) REFERENCES users(id)
+        FOREIGN KEY(handled_by) REFERENCES users(id),
+        FOREIGN KEY(signed_by) REFERENCES users(id)
     )
     """)
 

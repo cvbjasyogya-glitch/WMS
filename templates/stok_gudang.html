@@ -307,7 +307,7 @@
                                         {% if can_adjust_stock_ui %}
                                         <td class="stock-col stock-col-adjust">
                                             <div class="stock-adjust-actions">
-                                                <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/-">
+                                                <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="Qty">
                                                 <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                                             </div>
                                         </td>
@@ -408,7 +408,7 @@
                 {% if can_adjust_stock_ui %}
                 <td>
                     <div class="stock-adjust-actions">
-                        <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/-">
+                        <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="Qty">
                         <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                     </div>
                 </td>

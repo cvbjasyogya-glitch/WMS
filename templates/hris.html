@@ -3648,6 +3648,7 @@
                 <th>Gudang</th>
                 <th>Status Absen</th>
                 <th>Status Istirahat</th>
+                <th>Durasi Istirahat</th>
                 <th>Absensi</th>
                 <th>Geo Masuk</th>
                 <th>Geo Pulang</th>
@@ -3692,6 +3693,27 @@
                     {% endif %}
                 </td>
                 <td><span class="badge{% if row.break_status_badge %} {{ row.break_status_badge }}{% endif %}">{{ row.break_status_label }}</span></td>
+                <td>
+                    <div class="biometric-break-duration-stack">
+                        <strong
+                            class="biometric-break-duration{% if row.break_timer_active %} is-live{% endif %}{% if row.break_timer_over_limit %} is-alert{% endif %}"
+                            {% if row.break_timer_active and row.break_timer_started_at %}
+                            data-break-timer
+                            data-break-started-at="{{ row.break_timer_started_at }}"
+                            data-break-base-seconds="{{ row.break_timer_base_seconds }}"
+                            data-break-limit-seconds="3600"
+                            {% endif %}
+                        >{{ row.break_duration_label }}</strong>
+                        {% if row.break_duration_note %}
+                        <small
+                            class="helper-text{% if row.break_timer_over_limit %} biometric-break-reminder-alert{% endif %}"
+                            {% if row.break_timer_active %}
+                            data-break-timer-note
+                            {% endif %}
+                        >{{ row.break_duration_note }}</small>
+                        {% endif %}
+                    </div>
+                </td>
                 <td>{{ row.attendance_check_in }} - {{ row.attendance_check_out }}</td>
                 <td>{{ row.geo_check_in }}</td>
                 <td>{{ row.geo_check_out }}</td>
@@ -4075,7 +4097,7 @@
         </div>
     </summary>
     <div class="panel-content">
-    <form method="POST" action="/hris/documents/add">
+    <form method="POST" action="/hris/documents/add" enctype="multipart/form-data">
         <div class="form-grid">
             <div>
                 <label>Gudang</label>
@@ -4129,6 +4151,11 @@
                 <input name="owner_name" placeholder="Contoh: Ops Manager">
             </div>
             <div style="grid-column: 1 / -1;">
+                <label>Lampiran Document</label>
+                <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                <small class="helper-text">Upload PDF, JPG, PNG, atau WEBP agar dokumen bisa dipreview dan disahkan langsung di HRIS.</small>
+            </div>
+            <div style="grid-column: 1 / -1;">
                 <label>Catatan</label>
                 <textarea name="note" rows="4" placeholder="Tuliskan ringkasan revisi, cakupan SOP, atau catatan distribusi dokumen."></textarea>
             </div>
@@ -4160,7 +4187,7 @@
         <div class="stack-scroll-list">
             {% for document in documents %}
             <div class="box stack-scroll-card" style="margin-bottom:0;">
-                <form method="POST" action="/hris/documents/update/{{ document.id }}">
+                <form method="POST" action="/hris/documents/update/{{ document.id }}" enctype="multipart/form-data">
                     <div class="form-grid">
                         <div>
                             <label>Gudang</label>
@@ -4213,6 +4240,17 @@
                             <input name="owner_name" value="{{ document.owner_name or '' }}">
                         </div>
                         <div style="grid-column: 1 / -1;">
+                            <label>Lampiran Document</label>
+                            <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                            <small class="helper-text">
+                                {% if document.attachment_name %}
+                                File aktif: {{ document.attachment_name }}{% if document.attachment_size_label %} • {{ document.attachment_size_label }}{% endif %}. Jika diganti, pengesahan lama akan direset.
+                                {% else %}
+                                Belum ada lampiran. Upload PDF, JPG, PNG, atau WEBP untuk preview dan pengesahan digital.
+                                {% endif %}
+                            </small>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
                             <label>Catatan</label>
                             <textarea name="note" rows="4">{{ document.note or '' }}</textarea>
                         </div>
@@ -4230,6 +4268,108 @@
                         <span>Handled At</span>
                         <strong>{{ document.handled_at or '-' }}</strong>
                     </div>
+                    <div class="meta-card">
+                        <span>Status Pengesahan</span>
+                        <strong>{{ document.signature_status_label }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Signed By</span>
+                        <strong>{{ document.signed_by_name or '-' }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Signed At</span>
+                        <strong>{{ document.signed_at or '-' }}</strong>
+                    </div>
+                </div>
+                <div class="hris-document-workspace">
+                    <section class="hris-document-preview-panel">
+                        <div class="hris-document-preview-banner">
+                            <div class="hris-document-preview-brand">
+                                <span class="hris-document-preview-brand-mark">HR</span>
+                                <div>
+                                    <strong>Halaman Pengesahan Dokumen</strong>
+                                    <span>{{ document.warehouse_name or "Semua Gudang" }} • {{ document.document_code }}</span>
+                                </div>
+                            </div>
+                            <div class="split-actions">
+                                {% if document.attachment_url %}
+                                <a href="{{ document.attachment_url }}" class="ghost-button" target="_blank" rel="noopener">Buka Dokumen</a>
+                                {% endif %}
+                                {% if document.signature_url %}
+                                <a href="{{ document.signature_url }}" class="ghost-button" target="_blank" rel="noopener">Lihat TTD</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="hris-document-preview-copy">
+                            <h3>{{ document.document_title }}</h3>
+                            <p>Preview dokumen dan area pengesahan digital ini bisa dipakai untuk SOP, policy, memo, atau form yang butuh tanda tangan internal.</p>
+                        </div>
+                        {% if document.attachment_url %}
+                            {% if document.attachment_is_pdf %}
+                            <div class="hris-document-preview-stage">
+                                <iframe src="{{ document.attachment_url }}#toolbar=1&navpanes=0&scrollbar=1" title="Preview {{ document.document_title }}"></iframe>
+                            </div>
+                            {% elif document.attachment_is_image %}
+                            <div class="hris-document-preview-stage image-only">
+                                <img src="{{ document.attachment_url }}" alt="Preview {{ document.document_title }}">
+                            </div>
+                            {% else %}
+                            <div class="hris-document-preview-empty">
+                                Format file belum bisa dipreview langsung. Buka dokumen di tab baru untuk melihat isi penuh.
+                            </div>
+                            {% endif %}
+                        {% else %}
+                        <div class="hris-document-preview-empty">
+                            Upload lampiran dokumen dulu agar preview dan pengesahan digital aktif seperti halaman contoh.
+                        </div>
+                        {% endif %}
+                        <div class="meta-grid hris-document-preview-meta">
+                            <div class="meta-card">
+                                <span>Lampiran</span>
+                                <strong>{{ document.attachment_name or "-" }}</strong>
+                            </div>
+                            <div class="meta-card">
+                                <span>Ukuran</span>
+                                <strong>{{ document.attachment_size_label if document.attachment_path else "-" }}</strong>
+                            </div>
+                            <div class="meta-card">
+                                <span>Owner</span>
+                                <strong>{{ document.owner_name or "-" }}</strong>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="hris-document-approval-panel">
+                        <div class="section-title">
+                            <div>
+                                <h3>Masukkan Tanda Tangan</h3>
+                                <p>Tarik tanda tangan di area ini lalu simpan pengesahan. Tanda tangan baru akan menggantikan pengesahan sebelumnya.</p>
+                            </div>
+                            <span class="badge {{ 'green' if document.signature_url else 'orange' }}">{{ document.signature_status_label }}</span>
+                        </div>
+
+                        {% if document.signature_url %}
+                        <div class="hris-document-signature-preview">
+                            <div class="hris-document-signature-preview-copy">
+                                <strong>Tanda Tangan Aktif</strong>
+                                <span>{{ document.signed_by_name or "User HRIS" }}{% if document.signed_at %} • {{ document.signed_at }}{% endif %}</span>
+                            </div>
+                            <img src="{{ document.signature_url }}" alt="Tanda tangan {{ document.document_title }}">
+                        </div>
+                        {% endif %}
+
+                        <form method="POST" action="/hris/documents/sign/{{ document.id }}" class="hris-document-sign-form">
+                            <input type="hidden" name="signature_data" value="" data-document-signature-input>
+                            <div class="hris-document-sign-pad" data-document-signature-root>
+                                <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>
+                            </div>
+                            <p class="hris-document-sign-help">Gunakan mouse atau sentuhan layar untuk menggambar tanda tangan. Pastikan lampiran dokumen sudah diupload sebelum menyimpan pengesahan.</p>
+                            <div class="split-actions">
+                                <button type="button" class="ghost-button" data-document-signature-clear>Ulangi Tanda Tangan</button>
+                                <button type="submit" {% if not document.attachment_url %}disabled{% endif %}>Simpan Pengesahan</button>
+                            </div>
+                        </form>
+                    </section>
                 </div>
                 <form method="POST" action="/hris/documents/delete/{{ document.id }}" style="margin-top:12px;">
                     <button type="submit" class="danger-button" onclick="return confirm('Hapus document ini?')">Hapus</button>
@@ -4249,6 +4389,8 @@
                     <th>Review</th>
                     <th>Status</th>
                     <th>Owner</th>
+                    <th>Lampiran</th>
+                    <th>Pengesahan</th>
                 </tr>
             </thead>
             <tbody>
@@ -4262,6 +4404,14 @@
                     <td>{{ document.review_date or '-' }}</td>
                     <td><span class="badge {{ 'green' if document.status == 'active' else 'orange' if document.status == 'draft' else 'red' }}">{{ document.status }}</span></td>
                     <td>{{ document.owner_name or '-' }}</td>
+                    <td>
+                        {% if document.attachment_url %}
+                        <a href="{{ document.attachment_url }}" target="_blank" rel="noopener">{{ document.attachment_name or 'Buka' }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ document.signature_status_label }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -4328,6 +4478,187 @@
     </div>
 </details>
 {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const initBreakTimers = function () {
+        const timerNodes = document.querySelectorAll("[data-break-timer]");
+        if (!timerNodes.length) {
+            return;
+        }
+
+        const formatDuration = function (totalSeconds) {
+            const safeSeconds = Math.max(0, Number(totalSeconds) || 0);
+            const hours = Math.floor(safeSeconds / 3600);
+            const minutes = Math.floor((safeSeconds % 3600) / 60);
+            const seconds = safeSeconds % 60;
+            return [hours, minutes, seconds].map(function (value) {
+                return String(value).padStart(2, "0");
+            }).join(":");
+        };
+
+        const updateTimers = function () {
+            timerNodes.forEach(function (node) {
+                const startedAtRaw = node.getAttribute("data-break-started-at") || "";
+                const startedAtMs = Date.parse(startedAtRaw);
+                if (!Number.isFinite(startedAtMs)) {
+                    return;
+                }
+
+                const baseSeconds = Number(node.getAttribute("data-break-base-seconds") || 0);
+                const limitSeconds = Number(node.getAttribute("data-break-limit-seconds") || 3600);
+                const liveSeconds = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+                const totalSeconds = baseSeconds + liveSeconds;
+                const isOverLimit = totalSeconds > limitSeconds;
+
+                node.textContent = formatDuration(totalSeconds);
+                node.classList.toggle("is-alert", isOverLimit);
+
+                const noteNode = node.parentElement ? node.parentElement.querySelector("[data-break-timer-note]") : null;
+                if (noteNode) {
+                    noteNode.textContent = isOverLimit ? "Lewat 1 jam" : "Timer aktif";
+                    noteNode.classList.toggle("biometric-break-reminder-alert", isOverLimit);
+                }
+            });
+        };
+
+        updateTimers();
+        window.setInterval(updateTimers, 1000);
+    };
+
+    const initDocumentSignaturePads = function () {
+        const signatureRoots = document.querySelectorAll("[data-document-signature-root]");
+        if (!signatureRoots.length) {
+            return;
+        }
+
+        signatureRoots.forEach(function (root) {
+            const canvas = root.querySelector("[data-document-signature-canvas]");
+            const form = root.closest("form");
+            const input = form ? form.querySelector("[data-document-signature-input]") : null;
+            const clearButton = form ? form.querySelector("[data-document-signature-clear]") : null;
+            if (!canvas || !form || !input) {
+                return;
+            }
+
+            const context = canvas.getContext("2d");
+            let drawing = false;
+            let hasStroke = false;
+
+            const prepareCanvas = function (restoreDataUrl) {
+                const rect = root.getBoundingClientRect();
+                const width = Math.max(Math.floor(rect.width || root.clientWidth || 280), 280);
+                const height = Math.max(Math.floor(rect.height || root.clientHeight || 180), 180);
+                const ratio = Math.max(window.devicePixelRatio || 1, 1);
+
+                canvas.width = Math.floor(width * ratio);
+                canvas.height = Math.floor(height * ratio);
+                canvas.style.width = width + "px";
+                canvas.style.height = height + "px";
+
+                context.setTransform(ratio, 0, 0, ratio, 0, 0);
+                context.clearRect(0, 0, width, height);
+                context.fillStyle = "#ffffff";
+                context.fillRect(0, 0, width, height);
+                context.lineCap = "round";
+                context.lineJoin = "round";
+                context.lineWidth = 2.6;
+                context.strokeStyle = "#0f172a";
+
+                if (restoreDataUrl) {
+                    const previewImage = new Image();
+                    previewImage.onload = function () {
+                        context.clearRect(0, 0, width, height);
+                        context.fillStyle = "#ffffff";
+                        context.fillRect(0, 0, width, height);
+                        context.drawImage(previewImage, 0, 0, width, height);
+                    };
+                    previewImage.src = restoreDataUrl;
+                }
+            };
+
+            const getPoint = function (event) {
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top,
+                };
+            };
+
+            const commitSignature = function () {
+                if (!hasStroke) {
+                    input.value = "";
+                    root.dataset.signatureReady = "0";
+                    return;
+                }
+                input.value = canvas.toDataURL("image/png");
+                root.dataset.signatureReady = "1";
+            };
+
+            const startDrawing = function (event) {
+                drawing = true;
+                hasStroke = true;
+                const point = getPoint(event);
+                context.beginPath();
+                context.moveTo(point.x, point.y);
+                event.preventDefault();
+            };
+
+            const moveDrawing = function (event) {
+                if (!drawing) {
+                    return;
+                }
+                const point = getPoint(event);
+                context.lineTo(point.x, point.y);
+                context.stroke();
+                event.preventDefault();
+            };
+
+            const stopDrawing = function () {
+                if (!drawing) {
+                    return;
+                }
+                drawing = false;
+                context.closePath();
+                commitSignature();
+            };
+
+            prepareCanvas(input.value);
+            canvas.addEventListener("pointerdown", startDrawing);
+            canvas.addEventListener("pointermove", moveDrawing);
+            canvas.addEventListener("pointerup", stopDrawing);
+            canvas.addEventListener("pointerleave", stopDrawing);
+            canvas.addEventListener("pointercancel", stopDrawing);
+
+            if (clearButton) {
+                clearButton.addEventListener("click", function () {
+                    hasStroke = false;
+                    input.value = "";
+                    prepareCanvas("");
+                    root.dataset.signatureReady = "0";
+                });
+            }
+
+            form.addEventListener("submit", function (event) {
+                if ((input.value || "").trim()) {
+                    return;
+                }
+                event.preventDefault();
+                window.alert("Tanda tangan digital belum diisi.");
+            });
+
+            window.addEventListener("resize", function () {
+                prepareCanvas(input.value);
+            });
+        });
+    };
+
+    initBreakTimers();
+    initDocumentSignaturePads();
+});
+</script>
 {% endblock %}
 
 

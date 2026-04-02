@@ -61,8 +61,10 @@
 
 <form method="GET" class="top-bar schedule-filter-bar">
     <input type="date" name="start" value="{{ filters.start }}">
-    <select name="days" aria-label="Rentang jadwal mingguan">
-        <option value="7" selected>7 hari</option>
+    <select name="days" aria-label="Rentang jadwal">
+        {% for day_option in schedule_day_options %}
+        <option value="{{ day_option }}" {% if filters.days == day_option %}selected{% endif %}>{{ day_option }} hari</option>
+        {% endfor %}
     </select>
     <select name="warehouse" {% if scoped_schedule_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
@@ -407,7 +409,7 @@
             <div class="split-actions stack-gap-md">
                 <button type="submit">Simpan Jadwal Live</button>
             </div>
-            <small class="helper-text">Pilih rentang tanggal mulai sampai selesai untuk isi slot live mingguan sekaligus, atau kosongkan staf untuk membersihkan slot pada semua tanggal yang dipilih.</small>
+            <small class="helper-text">Pilih rentang tanggal mulai sampai selesai untuk isi slot live sekaligus, atau kosongkan staf untuk membersihkan slot pada semua tanggal yang dipilih.</small>
         </form>
     </div>
 </details>
@@ -419,16 +421,16 @@
     <div class="section-title">
         <div>
             <h2>Board Penjadwalan</h2>
-            <p>Board mingguan ditampilkan dalam format tabel yang lebih familiar, lebih cepat dipindai, dan tetap aman saat jumlah staf banyak.</p>
+            <p>Board penjadwalan ditampilkan dalam format tabel yang lebih familiar, lebih cepat dipindai, dan tetap aman saat jumlah staf atau rentang hari makin besar.</p>
         </div>
     </div>
 
     {% if schedule_members %}
     <div class="schedule-matrix-toolbar">
         <div>
-            <span class="badge">Board Mingguan</span>
-            <h3>Jadwal tampil 7 hari dengan header staf tetap dan area yang bisa digeser saat kolom karyawan banyak.</h3>
-            <p>Geser ke kanan untuk melihat staf lain. Format ini sengaja dipadatkan supaya nyaman dibaca di laptop, tablet, dan mobile.</p>
+            <span class="badge">Board {{ filters.days }} Hari</span>
+            <h3>Jadwal tampil {{ filters.days }} hari dengan header staf tetap dan area yang bisa digeser saat kolom karyawan atau detail board makin banyak.</h3>
+            <p>Geser ke kanan untuk melihat staf lain. Format ini dijaga supaya nyaman dibaca di laptop, tablet, dan mobile tanpa ada kolom penting yang terpotong.</p>
         </div>
         <div class="schedule-matrix-meta">
             <span>{{ filters.days }} hari</span>

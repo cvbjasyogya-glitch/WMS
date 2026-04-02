@@ -61,6 +61,8 @@ EMPLOYMENT_OVERRIDE_STYLES = {
 }
 
 OFFBOARDING_STYLE = ("OFFBD", "Offboarding", "#f49797", "#6d1616")
+SCHEDULE_DAY_OPTIONS = (7, 14, 30, 60, 90)
+MAX_SCHEDULE_DAY_RANGE = max(SCHEDULE_DAY_OPTIONS)
 
 
 def _to_int(value, default=None):
@@ -95,9 +97,10 @@ def _default_schedule_start():
 
 
 def _clamp_days(value):
-    # Board jadwal sengaja dikunci mingguan supaya lane tetap stabil,
-    # mudah discroll, dan tidak pecah saat staf yang tampil banyak.
-    return 7
+    days = _to_int(value, SCHEDULE_DAY_OPTIONS[0])
+    if days in SCHEDULE_DAY_OPTIONS:
+        return days
+    return SCHEDULE_DAY_OPTIONS[0]
 
 
 def _daterange(start_date, end_date):
@@ -786,6 +789,7 @@ def schedule_page():
         employee_rows=employee_rows,
         summary=summary,
         filters=filters,
+        schedule_day_options=SCHEDULE_DAY_OPTIONS,
         can_manage_schedule=_can_manage_schedule(),
         scoped_schedule_warehouse=_schedule_scope_warehouse(),
         legend_items=legend_items,
@@ -817,8 +821,8 @@ def save_live_schedule_entry():
         flash("Tanggal selesai live tidak boleh lebih kecil dari tanggal mulai.", "error")
         return _schedule_redirect()
 
-    if (schedule_end - schedule_start).days > 62:
-        flash("Rentang jadwal live maksimal 63 hari per simpan.", "error")
+    if (schedule_end - schedule_start).days > (MAX_SCHEDULE_DAY_RANGE - 1):
+        flash(f"Rentang jadwal live maksimal {MAX_SCHEDULE_DAY_RANGE} hari per simpan.", "error")
         return _schedule_redirect()
 
     warehouse = db.execute(
@@ -1060,8 +1064,8 @@ def save_schedule_entry():
         flash("Tanggal selesai tidak boleh lebih kecil dari tanggal mulai.", "error")
         return _schedule_redirect()
 
-    if (end_date - start_date).days > 62:
-        flash("Rentang jadwal maksimal 63 hari per simpan.", "error")
+    if (end_date - start_date).days > (MAX_SCHEDULE_DAY_RANGE - 1):
+        flash(f"Rentang jadwal maksimal {MAX_SCHEDULE_DAY_RANGE} hari per simpan.", "error")
         return _schedule_redirect()
 
     employee = db.execute(
