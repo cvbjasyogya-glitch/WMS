@@ -102,7 +102,7 @@
 <small class="helper-text">Field SKU, nama, variant, dan harga ditampilkan sebagai read only untuk role ini.</small>
 {% endif %}
 
-<div class="table-box stock-detail-box">
+<div class="table-box stock-detail-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Inventori Detail</h2>
@@ -201,7 +201,7 @@
                     <input type="checkbox" class="stock-group-check" data-stock-group-check>
                 </td>
                 {% endif %}
-                <td>
+                <td class="stock-group-sku-cell">
                     {% if group.editable_master %}
                     <input class="edit-field mono" data-field="sku" data-product="{{ group.product_id }}" value="{{ group.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     {% else %}
@@ -211,7 +211,7 @@
                     </div>
                     {% endif %}
                 </td>
-                <td>
+                <td class="stock-group-name-cell">
                     {% if group.editable_master %}
                     <input class="edit-field" data-field="name" data-product="{{ group.product_id }}" value="{{ group.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     {% else %}
@@ -224,6 +224,10 @@
                 <td colspan="{{ stock_group_colspan }}" class="stock-product-group-cell">
                     <details class="stock-variant-disclosure">
                         <summary class="stock-variant-summary">
+                            <span class="stock-group-mobile-copy">
+                                <strong>{{ group.name }}</strong>
+                                <small>{{ group.sku_count }} SKU · {{ group.product_count }} record · {{ group.variant_count }} varian</small>
+                            </span>
                             <span class="stock-variant-summary-copy">
                                 <strong data-stock-group-count>{{ group.variant_count }} varian</strong>
                                 <small data-stock-group-preview>{{ group.variant_preview }}</small>
@@ -303,7 +307,7 @@
                                         {% if can_adjust_stock_ui %}
                                         <td class="stock-col stock-col-adjust">
                                             <div class="stock-adjust-actions">
-                                                <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
+                                                <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/-">
                                                 <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                                             </div>
                                         </td>
@@ -404,7 +408,7 @@
                 {% if can_adjust_stock_ui %}
                 <td>
                     <div class="stock-adjust-actions">
-                        <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
+                        <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/-">
                         <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                     </div>
                 </td>

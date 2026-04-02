@@ -3343,11 +3343,14 @@ body .stock-table .split-actions {
 }
 
 body .stock-adjust-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
+    justify-content: flex-start;
+    gap: 6px;
     min-width: 0;
+    width: max-content;
+    max-width: 100%;
+    white-space: nowrap;
 }
 
 body .stock-table .adjust-input {
@@ -3355,14 +3358,19 @@ body .stock-table .adjust-input {
 }
 
 body .stock-adjust-actions .adjust-input {
-    width: 100%;
+    flex: 0 1 64px;
+    width: 64px;
+    max-width: 64px;
 }
 
 body .stock-adjust-button {
-    min-width: 100px;
-    padding-inline: 18px;
-    justify-self: end;
+    flex: 0 0 auto;
+    min-width: 74px;
+    min-height: 40px;
+    padding-inline: 12px;
+    justify-self: start;
     white-space: nowrap;
+    box-shadow: none;
 }
 
 body .stock-table .money-input {
@@ -3434,6 +3442,23 @@ body .stock-group-summary-meta strong {
 body .stock-group-summary-meta small {
     color: rgba(226, 232, 240, 0.74);
     white-space: normal;
+}
+
+body .stock-group-mobile-copy {
+    display: none;
+    min-width: 0;
+}
+
+body .stock-group-mobile-copy strong {
+    display: block;
+    color: #f8fafc;
+    font-size: 0.94rem;
+}
+
+body .stock-group-mobile-copy small {
+    display: block;
+    margin-top: 4px;
+    color: rgba(226, 232, 240, 0.72);
 }
 
 body .stock-product-group-cell {
@@ -3534,19 +3559,19 @@ body .stock-group-variant-table .stock-col-variant {
 }
 
 body .stock-group-variant-table .stock-col-qty {
-    width: 84px;
+    width: 60px;
 }
 
 body .stock-group-variant-table .stock-col-status {
-    width: 110px;
+    width: 88px;
 }
 
 body .stock-group-variant-table .stock-col-adjust {
-    width: 164px;
+    width: 122px;
 }
 
 body .stock-group-variant-table .stock-col-price {
-    width: 160px;
+    width: 132px;
 }
 
 body .stock-group-variant-table .stock-col-aging {
@@ -3585,23 +3610,44 @@ body .stock-group-variant-table .money-input input {
 }
 
 body .stock-group-variant-table .stock-adjust-actions {
-    grid-template-columns: 72px minmax(0, 108px);
-    gap: 8px;
+    gap: 6px;
+    justify-content: flex-start;
+    width: max-content;
+    max-width: 100%;
 }
 
 body .stock-group-variant-table .adjust-input {
-    min-height: 42px;
-    padding: 10px 12px;
-    border-radius: 16px;
-    text-align: center;
+    min-height: 40px;
+    flex-basis: 52px;
+    width: 52px;
+    max-width: 52px;
+    padding: 9px 8px;
+    border-radius: 14px;
+    text-align: left;
 }
 
 body .stock-group-variant-table .stock-adjust-button {
-    min-height: 42px;
-    min-width: 0;
-    width: 100%;
-    padding-inline: 14px;
-    font-size: 0.92rem;
+    min-height: 40px;
+    min-width: 66px;
+    width: auto;
+    padding-inline: 10px;
+    font-size: 0.78rem;
+    letter-spacing: 0.01em;
+}
+
+body .stock-group-variant-table td.stock-col-adjust {
+    padding-left: 2px;
+    padding-right: 6px;
+}
+
+body .stock-group-variant-table td.stock-col-qty,
+body .stock-group-variant-table td.stock-col-status {
+    padding-left: 2px;
+    padding-right: 6px;
+}
+
+body .stock-group-variant-table td.stock-col-price {
+    padding-left: 6px;
 }
 
 body .stock-group-variant-table .qty-text,
@@ -8541,6 +8587,28 @@ body .announcement-feed {
     gap: 14px;
 }
 
+body .announcement-feed-scroll {
+    max-height: min(72dvh, 980px);
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+}
+
+body .announcement-feed-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+body .announcement-feed-scroll::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.08);
+    border-radius: 999px;
+}
+
+body .announcement-feed-scroll::-webkit-scrollbar-thumb {
+    background: rgba(93, 183, 255, 0.24);
+    border-radius: 999px;
+}
+
 body .announcement-event-card,
 body .announcement-permission-card {
     display: grid;
@@ -9016,6 +9084,11 @@ body .hris-dashboard-day-highlights span {
 }
 
 @media (max-width: 720px) {
+    body .announcement-feed-scroll {
+        max-height: min(62dvh, 760px);
+        padding-right: 2px;
+    }
+
     body .schedule-filter-bar {
         padding: 14px;
         border-radius: 22px;
@@ -10213,13 +10286,16 @@ body .schedule-matrix-meta span {
 }
 
 body .schedule-matrix-wrap {
-    overflow: auto;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
     border-radius: 24px;
     border: 1px solid rgba(115, 156, 214, 0.18);
     background: linear-gradient(180deg, rgba(11, 23, 40, 0.92), rgba(8, 18, 32, 0.98));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
 }
 
 body .schedule-matrix {
@@ -10428,12 +10504,15 @@ body .schedule-live-section-meta span {
 }
 
 body .schedule-live-wrap {
-    overflow: auto;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
     border-radius: 24px;
     border: 1px solid rgba(90, 126, 177, 0.22);
     background: linear-gradient(180deg, rgba(13, 23, 40, 0.98), rgba(10, 18, 32, 0.98));
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
 }
 
 body .schedule-live-table {
@@ -11551,6 +11630,20 @@ body.menu-open .notification-center-root {
 }
 
 @media (max-width: 960px) {
+    body .stock-group-summary-meta {
+        max-width: 140px;
+    }
+
+    body .stock-group-summary-meta small,
+    body .stock-group-mobile-copy small,
+    body .stock-variant-summary-copy small {
+        display: -webkit-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+
     body .stock-product-group-cell {
         padding: 12px;
     }
@@ -11598,6 +11691,47 @@ body.menu-open .notification-center-root {
 }
 
 @media (max-width: 720px) {
+    body .stock-table {
+        min-width: 1480px;
+    }
+
+    body .stock-product-group-row .stock-group-sku-cell,
+    body .stock-product-group-row .stock-group-name-cell {
+        display: none;
+    }
+
+    body .stock-product-group-row .stock-group-check-cell {
+        display: none;
+    }
+
+    body .stock-product-group-cell {
+        padding: 8px 0 0;
+    }
+
+    body .stock-group-mobile-copy {
+        display: grid;
+        gap: 2px;
+    }
+
+    body .stock-variant-summary {
+        align-items: flex-start;
+        gap: 10px;
+        padding: 14px;
+    }
+
+    body .stock-variant-summary-copy {
+        gap: 3px;
+    }
+
+    body .stock-variant-summary-copy strong {
+        font-size: 0.9rem;
+    }
+
+    body .stock-variant-summary-pills {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
     body .notification-center-head,
     body .notification-center-toolbar,
     body .notification-center-meta,
@@ -11870,6 +12004,15 @@ body.menu-open .notification-center-root {
 }
 
 @media (max-width: 540px) {
+    body .stock-table {
+        min-width: 1320px;
+    }
+
+    body .stock-group-mobile-copy strong,
+    body .stock-variant-summary-copy strong {
+        font-size: 0.86rem;
+    }
+
     body .main {
         gap: 12px;
         padding: 12px 10px calc(92px + env(safe-area-inset-bottom));

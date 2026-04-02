@@ -1302,6 +1302,53 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Shopee Mega + IG", board_html)
         self.assertIn("Caca", board_html)
 
+    def test_hr_can_save_live_schedule_entry_for_date_range(self):
+        self.create_user("hr_live_range", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-LIVE-RANGE",
+            full_name="Dina Range",
+            warehouse_id=1,
+            position="Live Host",
+        )
+
+        self.login("hr_live_range", "pass1234")
+
+        response = self.client.post(
+            "/schedule/live/save",
+            data={
+                "live_warehouse_id": "1",
+                "live_schedule_start": "2026-03-31",
+                "live_schedule_end": "2026-04-02",
+                "slot_key": "13:00",
+                "employee_id": str(employee_id),
+                "channel_label": "TikTok Live",
+                "note": "Jadwal seminggu promo",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Jadwal live berhasil disimpan untuk 3 hari.", response.get_data(as_text=True))
+
+        with self.app.app_context():
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT schedule_date, employee_id, channel_label
+                FROM schedule_live_entries
+                WHERE warehouse_id=1
+                  AND slot_key='13:00'
+                  AND schedule_date BETWEEN '2026-03-31' AND '2026-04-02'
+                ORDER BY schedule_date
+                """
+            ).fetchall()
+
+        self.assertEqual([row["schedule_date"] for row in rows], ["2026-03-31", "2026-04-01", "2026-04-02"])
+        self.assertTrue(all(row["employee_id"] == employee_id for row in rows))
+        self.assertTrue(all(row["channel_label"] == "TikTok Live" for row in rows))
+
     def test_admin_can_manage_crm_contacts_purchases_and_members(self):
         self.login()
         response, product_id, variants_rows = self.create_product(

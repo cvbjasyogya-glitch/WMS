@@ -801,14 +801,24 @@ def save_live_schedule_entry():
     db = get_db()
     scoped_warehouse = _schedule_scope_warehouse()
     warehouse_id = scoped_warehouse or _to_int(request.form.get("live_warehouse_id"))
-    schedule_date = _parse_iso_date(request.form.get("live_schedule_date"))
+    legacy_schedule_date = _parse_iso_date(request.form.get("live_schedule_date"))
+    schedule_start = _parse_iso_date(request.form.get("live_schedule_start")) or legacy_schedule_date
+    schedule_end = _parse_iso_date(request.form.get("live_schedule_end")) or schedule_start
     slot_key = (request.form.get("slot_key") or "").strip()
     employee_id = _to_int(request.form.get("employee_id"))
     channel_label = (request.form.get("channel_label") or "").strip()
     note = (request.form.get("note") or "").strip()
 
-    if not warehouse_id or not schedule_date or slot_key not in LIVE_SCHEDULE_SLOT_KEYS:
-        flash("Gudang, tanggal, dan slot live wajib diisi.", "error")
+    if not warehouse_id or not schedule_start or not schedule_end or slot_key not in LIVE_SCHEDULE_SLOT_KEYS:
+        flash("Gudang, rentang tanggal, dan slot live wajib diisi.", "error")
+        return _schedule_redirect()
+
+    if schedule_end < schedule_start:
+        flash("Tanggal selesai live tidak boleh lebih kecil dari tanggal mulai.", "error")
+        return _schedule_redirect()
+
+    if (schedule_end - schedule_start).days > 62:
+        flash("Rentang jadwal live maksimal 63 hari per simpan.", "error")
         return _schedule_redirect()
 
     warehouse = db.execute(
@@ -836,49 +846,60 @@ def save_live_schedule_entry():
             flash("Staf live harus berasal dari gudang yang sama dengan board live yang dipilih.", "error")
             return _schedule_redirect()
 
+    schedule_dates = [day.isoformat() for day in _daterange(schedule_start, schedule_end)]
+    total_days = len(schedule_dates)
+
     try:
         if employee_id:
-            db.execute(
-                """
-                INSERT INTO schedule_live_entries(
-                    warehouse_id,
-                    schedule_date,
-                    slot_key,
-                    employee_id,
-                    channel_label,
-                    note,
-                    updated_by
+            for schedule_date in schedule_dates:
+                db.execute(
+                    """
+                    INSERT INTO schedule_live_entries(
+                        warehouse_id,
+                        schedule_date,
+                        slot_key,
+                        employee_id,
+                        channel_label,
+                        note,
+                        updated_by
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                    ON CONFLICT(warehouse_id, schedule_date, slot_key) DO UPDATE SET
+                        employee_id=excluded.employee_id,
+                        channel_label=excluded.channel_label,
+                        note=excluded.note,
+                        updated_by=excluded.updated_by,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        warehouse_id,
+                        schedule_date,
+                        slot_key,
+                        employee_id,
+                        channel_label or None,
+                        note or None,
+                        session.get("user_id"),
+                    ),
                 )
-                VALUES (?,?,?,?,?,?,?)
-                ON CONFLICT(warehouse_id, schedule_date, slot_key) DO UPDATE SET
-                    employee_id=excluded.employee_id,
-                    channel_label=excluded.channel_label,
-                    note=excluded.note,
-                    updated_by=excluded.updated_by,
-                    updated_at=CURRENT_TIMESTAMP
-                """,
-                (
-                    warehouse_id,
-                    schedule_date.isoformat(),
-                    slot_key,
-                    employee_id,
-                    channel_label or None,
-                    note or None,
-                    session.get("user_id"),
-                ),
-            )
-            flash("Jadwal live berhasil disimpan.", "success")
+            if total_days == 1:
+                flash("Jadwal live berhasil disimpan.", "success")
+            else:
+                flash(f"Jadwal live berhasil disimpan untuk {total_days} hari.", "success")
         else:
-            db.execute(
-                """
-                DELETE FROM schedule_live_entries
-                WHERE warehouse_id=?
-                  AND schedule_date=?
-                  AND slot_key=?
-                """,
-                (warehouse_id, schedule_date.isoformat(), slot_key),
-            )
-            flash("Slot jadwal live berhasil dibersihkan.", "success")
+            for schedule_date in schedule_dates:
+                db.execute(
+                    """
+                    DELETE FROM schedule_live_entries
+                    WHERE warehouse_id=?
+                      AND schedule_date=?
+                      AND slot_key=?
+                    """,
+                    (warehouse_id, schedule_date, slot_key),
+                )
+            if total_days == 1:
+                flash("Slot jadwal live berhasil dibersihkan.", "success")
+            else:
+                flash(f"Slot jadwal live berhasil dibersihkan untuk {total_days} hari.", "success")
         db.commit()
     except Exception:
         db.rollback()
@@ -887,7 +908,7 @@ def save_live_schedule_entry():
 
     try:
         slot_label = dict(LIVE_SCHEDULE_SLOTS).get(slot_key, slot_key)
-        date_label = format_date_range(schedule_date.isoformat())
+        date_label = format_date_range(schedule_start.isoformat(), schedule_end.isoformat())
         if employee:
             employee_name = (employee["full_name"] or "Staf").strip()
             detail_label = channel_label or "Live Session"
@@ -912,8 +933,8 @@ def save_live_schedule_entry():
             message=live_message,
             affected_employee_id=employee["id"] if employee else None,
             affected_employee_name=(employee["full_name"] if employee else None),
-            start_date=schedule_date.isoformat(),
-            end_date=schedule_date.isoformat(),
+            start_date=schedule_start.isoformat(),
+            end_date=schedule_end.isoformat(),
             created_by=session.get("user_id"),
         )
         db.commit()

@@ -360,8 +360,12 @@
             {{ filter_hidden_inputs() }}
             <div class="form-grid">
                 <div>
-                    <label>Tanggal Live</label>
-                    <input type="date" name="live_schedule_date" value="{{ filters.start }}" required>
+                    <label>Tanggal Mulai</label>
+                    <input type="date" name="live_schedule_start" value="{{ filters.start }}" required>
+                </div>
+                <div>
+                    <label>Tanggal Selesai</label>
+                    <input type="date" name="live_schedule_end" value="{{ range_end }}" required>
                 </div>
                 <div>
                     <label>Slot Jam</label>
@@ -403,7 +407,7 @@
             <div class="split-actions stack-gap-md">
                 <button type="submit">Simpan Jadwal Live</button>
             </div>
-            <small class="helper-text">Pilih staf untuk mengisi slot live, atau kosongkan staf untuk membersihkan slot pada jam tersebut.</small>
+            <small class="helper-text">Pilih rentang tanggal mulai sampai selesai untuk isi slot live mingguan sekaligus, atau kosongkan staf untuk membersihkan slot pada semua tanggal yang dipilih.</small>
         </form>
     </div>
 </details>
