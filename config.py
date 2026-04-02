@@ -137,8 +137,14 @@ class Config:
         "https" if IS_PRODUCTION else "http",
     )
     PROXY_FIX_X_PROTO = _int_env("PROXY_FIX_X_PROTO", 1)
-    PROXY_FIX_X_HOST = _int_env("PROXY_FIX_X_HOST", 0)
+    PROXY_FIX_X_HOST = _int_env("PROXY_FIX_X_HOST", 1 if IS_PRODUCTION else 0)
     ALLOWED_HOSTS = _csv_env("ALLOWED_HOSTS", "")
+    CANONICAL_HOST = (os.getenv("CANONICAL_HOST") or "").strip()
+    CANONICAL_SCHEME = (
+        (os.getenv("CANONICAL_SCHEME") or PREFERRED_URL_SCHEME or "https")
+        .strip()
+        .lower()
+    )
     ENFORCE_SAME_ORIGIN_POSTS = _env_flag("ENFORCE_SAME_ORIGIN_POSTS", True)
     ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS = _env_flag(
         "ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS",

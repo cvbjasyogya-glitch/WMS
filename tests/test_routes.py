@@ -528,6 +528,39 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Host tidak diizinkan", response.get_data(as_text=True))
 
+    def test_canonical_host_redirects_get_requests_to_public_domain(self):
+        self.app.config.update(
+            CANONICAL_HOST="erp.cvbjasyogya.cloud",
+            CANONICAL_SCHEME="https",
+        )
+
+        response = self.client.get(
+            "/login?next=%2F",
+            base_url="http://wms.cvbjas.biz.id",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 308)
+        self.assertEqual(
+            response.headers["Location"],
+            "https://erp.cvbjasyogya.cloud/login?next=%2F",
+        )
+
+    def test_canonical_host_is_auto_allowed_when_allowlist_is_enabled(self):
+        self.app.config.update(
+            ALLOWED_HOSTS=["localhost", "127.0.0.1"],
+            CANONICAL_HOST="erp.cvbjasyogya.cloud",
+            CANONICAL_SCHEME="https",
+        )
+
+        response = self.client.get(
+            "/login",
+            base_url="https://erp.cvbjasyogya.cloud",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+
     def test_authenticated_html_pages_are_not_cacheable(self):
         self.login()
 

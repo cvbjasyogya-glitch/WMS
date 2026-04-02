@@ -240,6 +240,43 @@ def _is_allowed_host(candidate_host, allowed_hosts):
     return False
 
 
+def _canonical_request_location(app):
+    canonical_host_name, canonical_host_port = _split_host_port(
+        app.config.get("CANONICAL_HOST")
+    )
+    if not canonical_host_name:
+        return ""
+
+    canonical_scheme = (
+        str(app.config.get("CANONICAL_SCHEME") or request.scheme or "https")
+        .strip()
+        .lower()
+        or "https"
+    )
+    request_host_name, request_host_port = _split_host_port(request.host)
+    request_scheme = str(request.scheme or "http").strip().lower() or "http"
+
+    if (
+        request_host_name == canonical_host_name
+        and _normalized_port(request_scheme, request_host_port)
+        == _normalized_port(canonical_scheme, canonical_host_port)
+    ):
+        return ""
+
+    display_host = canonical_host_name
+    default_port = _normalized_port(canonical_scheme, None)
+    if canonical_host_port not in (None, default_port):
+        display_host = f"{display_host}:{canonical_host_port}"
+
+    target_path = request.full_path if request.query_string else request.path
+    if target_path.endswith("?"):
+        target_path = target_path[:-1]
+    if not target_path.startswith("/"):
+        target_path = f"/{target_path}"
+
+    return f"{canonical_scheme}://{display_host}{target_path or '/'}"
+
+
 # ==============================
 # AUTO SUPER ADMIN
 # ==============================
@@ -471,8 +508,25 @@ def create_app():
         )
 
     @app.before_request
+    def enforce_canonical_host():
+        canonical_location = _canonical_request_location(app)
+        if not canonical_location:
+            return
+
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            return redirect(canonical_location, code=308)
+
+        return "Host tidak diizinkan", 400
+
+    @app.before_request
     def enforce_allowed_hosts():
         allowed_hosts = app.config.get("ALLOWED_HOSTS") or []
+        canonical_host_name = _normalized_host_name(app.config.get("CANONICAL_HOST"))
+        if canonical_host_name and canonical_host_name not in {
+            _normalized_host_name(item)
+            for item in allowed_hosts
+        }:
+            allowed_hosts = list(allowed_hosts) + [canonical_host_name]
         if not allowed_hosts:
             return
 
