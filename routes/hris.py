@@ -2874,6 +2874,17 @@ def _build_biometric_recap_rows(db, biometric_logs):
         latest_log = logs_sorted[-1]
         attendance = attendance_map.get((employee_id, attendance_date), {})
 
+        # Rekap geotag hanya menampilkan hari yang benar-benar punya absensi inti.
+        # Log tambahan seperti break tanpa check-in/check-out tidak perlu muncul sendiri.
+        has_attendance_activity = bool(
+            attendance.get("check_in")
+            or attendance.get("check_out")
+            or check_in_log
+            or check_out_log
+        )
+        if not has_attendance_activity:
+            continue
+
         locations = []
         for log in logs_sorted:
             location_display = log["location_display"]

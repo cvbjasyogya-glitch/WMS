@@ -2168,6 +2168,22 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Tambah Absen Geotag", html)
         self.assertNotIn('href="/hris/attendance"', html)
 
+    def test_owner_can_access_hris_biometric_module(self):
+        self.create_user("owner_biometric", "pass1234", "owner")
+        self.login("owner_biometric", "pass1234")
+
+        response = self.client.get("/hris/biometric")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Attendance Geotag", html)
+        self.assertIn("Rekap Absensi Geotag", html)
+        self.assertIn('href="/hris/biometric"', html)
+
+        attendance_redirect = self.client.get("/hris/attendance", follow_redirects=False)
+        self.assertEqual(attendance_redirect.status_code, 302)
+        self.assertIn("/hris/biometric", attendance_redirect.headers["Location"])
+
     def test_attendance_portal_renders_for_logged_in_user(self):
         self.login()
         response = self.client.get("/absen/")
@@ -4316,6 +4332,83 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(recap_response.status_code, 200)
         recap_html = recap_response.get_data(as_text=True)
         self.assertIn("Baru Mulai", recap_html)
+
+    def test_biometric_recap_only_shows_days_with_actual_attendance(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-RECAP-ONLY",
+            full_name="Portal Recap Only Attendance",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+
+        orphan_date = "2026-04-02"
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id,
+                    warehouse_id,
+                    punch_time,
+                    punch_type,
+                    latitude,
+                    longitude,
+                    accuracy_m,
+                    location_label,
+                    sync_status,
+                    device_name,
+                    note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    f"{orphan_date}T12:15",
+                    "break_start",
+                    -8.583140,
+                    116.116798,
+                    6.0,
+                    "Gudang Mataram - Istirahat",
+                    "synced",
+                    "Mobile Geotag",
+                    "Break tanpa check in",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id,
+                    warehouse_id,
+                    attendance_date,
+                    check_in,
+                    check_out,
+                    status,
+                    note,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    orphan_date,
+                    None,
+                    None,
+                    "absent",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        self.create_user("hr_recap_filter", "pass1234", "hr")
+        self.login("hr_recap_filter", "pass1234")
+        recap_response = self.client.get(f"/hris/biometric?date_from={orphan_date}&date_to={orphan_date}")
+        self.assertEqual(recap_response.status_code, 200)
+        recap_html = recap_response.get_data(as_text=True)
+        self.assertNotIn("Portal Recap Only Attendance", recap_html)
+        self.assertIn("Belum ada rekap geotag pada filter yang dipilih.", recap_html)
 
     def test_attendance_portal_rejects_punch_time_that_moves_backwards(self):
         employee_id = self.create_employee_record(

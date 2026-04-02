@@ -116,6 +116,7 @@ HRIS_MODULES = (
 
 
 FULL_HRIS_ROLES = {"super_admin", "hr"}
+OWNER_HRIS_SPECIAL_ROLES = {"owner"}
 GLOBAL_HRIS_DASHBOARD_ROLES = {"owner", "super_admin", "hr", "admin", "leader", "staff"}
 SELF_SERVICE_HRIS_ROLES = {"leader", "admin", "staff"}
 SELF_SERVICE_HRIS_MODULES = {"helpdesk"}
@@ -134,7 +135,7 @@ MODULE_VIEW_ROLE_MAP = {
     "asset": set(FULL_HRIS_ROLES),
     "project": set(FULL_HRIS_ROLES),
     "report": set(FULL_HRIS_ROLES),
-    "biometric": set(FULL_HRIS_ROLES),
+    "biometric": set(FULL_HRIS_ROLES | OWNER_HRIS_SPECIAL_ROLES),
     "announcement": set(FULL_HRIS_ROLES),
     "documents": set(FULL_HRIS_ROLES),
 }
@@ -153,7 +154,7 @@ MODULE_MANAGE_ROLE_MAP = {
     "asset": set(FULL_HRIS_ROLES),
     "project": set(FULL_HRIS_ROLES),
     "report": set(FULL_HRIS_ROLES),
-    "biometric": set(FULL_HRIS_ROLES),
+    "biometric": set(FULL_HRIS_ROLES | OWNER_HRIS_SPECIAL_ROLES),
     "announcement": set(FULL_HRIS_ROLES),
     "documents": set(FULL_HRIS_ROLES),
 }
@@ -181,7 +182,7 @@ def can_manage_hris_module(role, slug):
 
 
 def role_can_see_hris_navigation(role):
-    return (role or "") in FULL_HRIS_ROLES
+    return (role or "") in (FULL_HRIS_ROLES | OWNER_HRIS_SPECIAL_ROLES)
 
 
 def is_self_service_hris_module(role, slug):
