@@ -5133,7 +5133,72 @@ class WmsRoutesTestCase(unittest.TestCase):
         recap_response = self.client.get(f"/hris/biometric?date_from={today}&date_to={today}")
         self.assertEqual(recap_response.status_code, 200)
         recap_html = recap_response.get_data(as_text=True)
+        self.assertIn("Status Istirahat", recap_html)
+        self.assertIn("Present", recap_html)
         self.assertIn("Baru Mulai", recap_html)
+
+    def test_biometric_recap_shows_selesai_for_finished_break(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-FINISH-BREAK",
+            full_name="Portal Finished Break",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_finish_break", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_finish_break", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:55",
+                "note": "Mulai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T12:00",
+                "note": "Mulai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_finish",
+                "location_label": "Gudang Mataram - Kembali",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T12:25",
+                "note": "Selesai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        self.create_user("hr_finish_break_view", "pass1234", "hr")
+        self.login("hr_finish_break_view", "pass1234")
+        recap_response = self.client.get(f"/hris/biometric?date_from={today}&date_to={today}")
+        self.assertEqual(recap_response.status_code, 200)
+        recap_html = recap_response.get_data(as_text=True)
+        self.assertIn("Status Istirahat", recap_html)
+        self.assertIn("Selesai", recap_html)
 
     def test_biometric_recap_only_shows_days_with_actual_attendance(self):
         employee_id = self.create_employee_record(

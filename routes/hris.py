@@ -78,7 +78,11 @@ ATTENDANCE_STATUS_LABELS = {
     "leave": "Leave",
     "absent": "Absent",
     "half_day": "Half Day",
+}
+BREAK_STATUS_LABELS = {
+    "break_not_started": "Belum",
     "break_started": "Baru Mulai",
+    "break_finished": "Selesai",
     "break_over_limit": "Istirahat > 1 Jam",
 }
 ANNOUNCEMENT_AUDIENCES = {"all", "leaders", "warehouse_team"}
@@ -813,22 +817,18 @@ def _resolve_open_break_state(logs_sorted):
     if minutes_open > 60:
         return {
             "status_key": "break_over_limit",
-            "label": ATTENDANCE_STATUS_LABELS["break_over_limit"],
+            "label": BREAK_STATUS_LABELS["break_over_limit"],
             "badge_class": "red",
         }
 
     return {
         "status_key": "break_started",
-        "label": ATTENDANCE_STATUS_LABELS["break_started"],
+        "label": BREAK_STATUS_LABELS["break_started"],
         "badge_class": "orange",
     }
 
 
 def _build_attendance_status_display(status, logs_sorted=None):
-    break_state = _resolve_open_break_state(logs_sorted or [])
-    if break_state:
-        return break_state
-
     safe_status = (status or "absent").strip().lower()
     if safe_status in {"present", "late"}:
         badge_class = "green"
@@ -842,7 +842,30 @@ def _build_attendance_status_display(status, logs_sorted=None):
         "label": ATTENDANCE_STATUS_LABELS.get(safe_status, safe_status.replace("_", " ").title()),
         "badge_class": badge_class,
     }
-    return "present"
+
+
+def _build_break_status_display(logs_sorted):
+    safe_logs = logs_sorted or []
+    break_state = _resolve_open_break_state(safe_logs)
+    if break_state:
+        return break_state
+
+    has_break_activity = any(
+        (log.get("punch_type") or "").strip().lower() == "break_start"
+        for log in safe_logs
+    )
+    if has_break_activity:
+        return {
+            "status_key": "break_finished",
+            "label": BREAK_STATUS_LABELS["break_finished"],
+            "badge_class": "green",
+        }
+
+    return {
+        "status_key": "break_not_started",
+        "label": BREAK_STATUS_LABELS["break_not_started"],
+        "badge_class": "",
+    }
 
 
 def _format_coordinate_pair(latitude, longitude):
@@ -3015,6 +3038,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
 
         recap_status_label, recap_status_badge = _build_biometric_status_meta(recap_status)
         attendance_display = _build_attendance_status_display(attendance.get("status"), logs_sorted)
+        break_display = _build_break_status_display(logs_sorted)
 
         recap_rows.append(
             {
@@ -3027,6 +3051,8 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "attendance_status_value": (attendance.get("status") or "present"),
                 "attendance_status_label": attendance_display["label"],
                 "attendance_status_badge": attendance_display["badge_class"],
+                "break_status_label": break_display["label"],
+                "break_status_badge": break_display["badge_class"],
                 "status_override_active": bool(attendance.get("status_override")),
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",

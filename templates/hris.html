@@ -3647,6 +3647,7 @@
                 <th>Nama</th>
                 <th>Gudang</th>
                 <th>Status Absen</th>
+                <th>Status Istirahat</th>
                 <th>Absensi</th>
                 <th>Geo Masuk</th>
                 <th>Geo Pulang</th>
@@ -3690,6 +3691,7 @@
                     <div><small class="helper-text">{{ row.attendance_status_label }}</small></div>
                     {% endif %}
                 </td>
+                <td><span class="badge{% if row.break_status_badge %} {{ row.break_status_badge }}{% endif %}">{{ row.break_status_label }}</span></td>
                 <td>{{ row.attendance_check_in }} - {{ row.attendance_check_out }}</td>
                 <td>{{ row.geo_check_in }}</td>
                 <td>{{ row.geo_check_out }}</td>
