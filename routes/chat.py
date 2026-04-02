@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -430,6 +431,22 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
         threads.append(item)
 
     return threads
+
+
+def _user_can_access_thread(db, current_user_id, thread_id):
+    if not thread_id:
+        return False
+
+    row = db.execute(
+        """
+        SELECT 1
+        FROM chat_thread_members
+        WHERE thread_id=? AND user_id=?
+        LIMIT 1
+        """,
+        (thread_id, current_user_id),
+    ).fetchone()
+    return bool(row)
 
 
 def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
@@ -1692,28 +1709,39 @@ def update_presence():
     if not _require_chat_view():
         return jsonify({"status": "error", "message": "Akses ditolak"}), 403
 
-    db = get_db()
     payload = request.get_json(silent=True) or {}
     current_path = (payload.get("path") or request.path or "").strip()[:255] or "/"
     active_thread_id = _to_int(payload.get("thread_id"))
+    current_user_id = session.get("user_id")
 
-    if active_thread_id:
-        thread_rows = _fetch_thread_summaries(db, session.get("user_id"), active_thread_id)
-        if not thread_rows:
+    try:
+        db = get_db()
+        try:
+            db.execute("PRAGMA busy_timeout = 1200")
+        except sqlite3.Error:
+            pass
+
+        if active_thread_id and not _user_can_access_thread(db, current_user_id, active_thread_id):
             active_thread_id = None
 
-    db.execute(
-        """
-        INSERT INTO user_presence(user_id, current_path, active_thread_id, last_seen_at, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON CONFLICT(user_id) DO UPDATE SET
-            current_path=excluded.current_path,
-            active_thread_id=excluded.active_thread_id,
-            last_seen_at=CURRENT_TIMESTAMP,
-            updated_at=CURRENT_TIMESTAMP
-        """,
-        (session.get("user_id"), current_path, active_thread_id),
-    )
+        db.execute(
+            """
+            INSERT INTO user_presence(user_id, current_path, active_thread_id, last_seen_at, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                current_path=excluded.current_path,
+                active_thread_id=excluded.active_thread_id,
+                last_seen_at=CURRENT_TIMESTAMP,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (current_user_id, current_path, active_thread_id),
+        )
+    except sqlite3.Error as exc:
+        current_app.logger.warning("CHAT PRESENCE SQLITE ERROR: %s", exc)
+        return jsonify({"status": "ok", "degraded": True})
+    except Exception as exc:
+        current_app.logger.warning("CHAT PRESENCE ERROR: %s", exc)
+        return jsonify({"status": "ok", "degraded": True})
 
     return jsonify({"status": "ok"})
 

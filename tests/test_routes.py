@@ -1509,6 +1509,70 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("stickers", bootstrap_payload)
         self.assertIn("attachment_max_bytes", bootstrap_payload)
 
+    def test_chat_presence_updates_user_presence_and_ignores_invalid_thread(self):
+        self.create_user("leader_presence", "pass1234", "leader", warehouse_id=1)
+        self.create_user("staff_presence", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("leader_presence")
+        self.assertIsNotNone(leader_user_id)
+
+        self.login("staff_presence", "pass1234")
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        presence_response = self.client.post(
+            "/chat/presence",
+            json={"path": "/hris/biometric", "thread_id": thread_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(presence_response.status_code, 200)
+        self.assertEqual(presence_response.get_json()["status"], "ok")
+
+        with self.app.app_context():
+            db = get_db()
+            current_user_id = self.get_user_id("staff_presence")
+            presence_row = db.execute(
+                """
+                SELECT current_path, active_thread_id
+                FROM user_presence
+                WHERE user_id=?
+                """,
+                (current_user_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(presence_row)
+        self.assertEqual(presence_row["current_path"], "/hris/biometric")
+        self.assertEqual(presence_row["active_thread_id"], thread_id)
+
+        invalid_presence_response = self.client.post(
+            "/chat/presence",
+            json={"path": "/info-produk/", "thread_id": 999999},
+            follow_redirects=False,
+        )
+        self.assertEqual(invalid_presence_response.status_code, 200)
+        self.assertEqual(invalid_presence_response.get_json()["status"], "ok")
+
+        with self.app.app_context():
+            db = get_db()
+            current_user_id = self.get_user_id("staff_presence")
+            invalid_presence_row = db.execute(
+                """
+                SELECT current_path, active_thread_id
+                FROM user_presence
+                WHERE user_id=?
+                """,
+                (current_user_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(invalid_presence_row)
+        self.assertEqual(invalid_presence_row["current_path"], "/info-produk/")
+        self.assertIsNone(invalid_presence_row["active_thread_id"])
+
     def test_chat_timestamp_label_uses_local_offset(self):
         current_utc = datetime.now(timezone.utc).replace(second=0, microsecond=0, tzinfo=None)
         raw_timestamp = current_utc.strftime("%Y-%m-%d %H:%M:%S")

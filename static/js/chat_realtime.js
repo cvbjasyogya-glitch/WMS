@@ -45,7 +45,7 @@
         )
     );
     const unreadPollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;
-    const heartbeatIntervalMs = lowDataMode ? 22000 : compactViewport ? 16000 : 12000;
+    const heartbeatIntervalMs = lowDataMode ? 45000 : compactViewport ? 30000 : 25000;
     const callPollIntervalMs = lowDataMode ? 3500 : compactViewport ? 2400 : 1800;
 
     [
