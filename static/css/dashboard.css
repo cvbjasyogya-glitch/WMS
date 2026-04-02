@@ -9,9 +9,9 @@
     --line: rgba(148, 163, 184, 0.18);
     --line-strong: rgba(148, 163, 184, 0.28);
     --text: #dbe7f5;
-    --text-muted: #95a9bf;
+    --text-muted: #758aa2;
     --text-strong: #081222;
-    --text-soft: #5f7289;
+    --text-soft: #475d76;
     --accent: #5db7ff;
     --accent-strong: #2189ff;
     --accent-soft: rgba(93, 183, 255, 0.16);
@@ -855,7 +855,7 @@ body .card-mini p {
     font-size: 0.82rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-soft);
+    color: #4f667f;
 }
 
 body .card h2,
@@ -1016,9 +1016,10 @@ body th {
     font-size: 0.78rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-soft);
-    background: rgba(12, 24, 43, 0.035);
+    color: #43586f;
+    background: rgba(12, 24, 43, 0.06);
     white-space: nowrap;
+    font-weight: 800;
 }
 
 body th .sort-link {
@@ -1111,6 +1112,13 @@ body .table-manual-sortdirection span {
 
 body td {
     white-space: normal;
+    color: var(--text-strong);
+}
+
+body td small,
+body td .helper-text,
+body td .stock-readonly-field small {
+    color: #596f87;
 }
 
 body .mono,
@@ -3361,6 +3369,45 @@ body .stock-table .money-input {
     min-width: 150px;
 }
 
+body .stock-readonly-field,
+body .stock-readonly-money {
+    min-height: 44px;
+    width: 100%;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(8, 15, 28, 0.46);
+    color: #e5eefb;
+}
+
+body .stock-readonly-field {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    line-height: 1.35;
+}
+
+body .stock-readonly-money {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+}
+
+body .stock-readonly-money span {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+}
+
+body .stock-readonly-money strong {
+    min-width: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #e5eefb;
+}
+
 body .stock-mobile-hint {
     margin-bottom: 14px;
 }
@@ -3444,7 +3491,7 @@ body .stock-variant-summary-pills {
 
 body .stock-group-detail-panel {
     margin-top: 12px;
-    padding: 14px;
+    padding: 12px;
     border-radius: 18px;
     border: 1px solid rgba(148, 163, 184, 0.14);
     background: rgba(8, 15, 28, 0.6);
@@ -3455,16 +3502,59 @@ body .stock-group-detail-panel {
 
 body .stock-group-variant-table {
     width: 100%;
-    min-width: 980px;
+    min-width: 1080px;
     border-collapse: collapse;
+    table-layout: fixed;
 }
 
 body .stock-group-variant-table th,
 body .stock-group-variant-table td {
-    padding: 12px 10px;
+    padding: 10px 8px;
     border-bottom: 1px solid rgba(148, 163, 184, 0.12);
     text-align: left;
     vertical-align: middle;
+}
+
+body .stock-group-variant-table th {
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+body .stock-group-variant-table .stock-col-select {
+    width: 56px;
+}
+
+body .stock-group-variant-table .stock-col-sku {
+    width: 88px;
+}
+
+body .stock-group-variant-table .stock-col-variant {
+    width: 152px;
+}
+
+body .stock-group-variant-table .stock-col-qty {
+    width: 84px;
+}
+
+body .stock-group-variant-table .stock-col-status {
+    width: 110px;
+}
+
+body .stock-group-variant-table .stock-col-adjust {
+    width: 164px;
+}
+
+body .stock-group-variant-table .stock-col-price {
+    width: 160px;
+}
+
+body .stock-group-variant-table .stock-col-aging {
+    width: 90px;
+}
+
+body .stock-group-variant-table .stock-col-date {
+    width: 118px;
 }
 
 body .stock-group-variant-table tbody tr:last-child td {
@@ -3477,8 +3567,46 @@ body .stock-group-variant-table .adjust-input {
     width: 100%;
 }
 
+body .stock-group-variant-table .edit-field {
+    min-height: 42px;
+    padding: 10px 12px;
+    border-radius: 16px;
+}
+
 body .stock-group-variant-table .money-input {
-    min-width: 140px;
+    min-width: 0;
+    min-height: 42px;
+    padding: 0 10px;
+    border-radius: 16px;
+}
+
+body .stock-group-variant-table .money-input input {
+    padding: 10px 0;
+}
+
+body .stock-group-variant-table .stock-adjust-actions {
+    grid-template-columns: 72px minmax(0, 108px);
+    gap: 8px;
+}
+
+body .stock-group-variant-table .adjust-input {
+    min-height: 42px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    text-align: center;
+}
+
+body .stock-group-variant-table .stock-adjust-button {
+    min-height: 42px;
+    min-width: 0;
+    width: 100%;
+    padding-inline: 14px;
+    font-size: 0.92rem;
+}
+
+body .stock-group-variant-table .qty-text,
+body .stock-group-variant-table .stock-col-aging {
+    white-space: nowrap;
 }
 
 body .variant-builder {
@@ -4309,7 +4437,7 @@ body .meta-card {
 body .meta-card span {
     display: block;
     margin-bottom: 8px;
-    color: #5a6f88;
+    color: #506882;
     font-size: 0.82rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -4462,7 +4590,7 @@ body .empty-state {
     text-align: center;
     border-radius: var(--radius-lg);
     border: 1px dashed rgba(148, 163, 184, 0.32);
-    color: var(--text-soft);
+    color: #51677f;
     background: rgba(255, 255, 255, 0.72);
 }
 
@@ -4490,7 +4618,7 @@ body .section-title h3 {
 
 body .section-title p {
     margin: 4px 0 0;
-    color: var(--text-soft);
+    color: #4c637b;
     font-size: 0.92rem;
     overflow-wrap: anywhere;
 }
@@ -6113,8 +6241,8 @@ html[data-theme="light"] {
     --theme-hero-border: rgba(116, 138, 165, 0.18);
     --theme-hero-shadow: 0 20px 40px rgba(44, 62, 84, 0.12);
     --theme-label-color: #10233b;
-    --theme-helper-color: #495f77;
-    --theme-card-kicker: #506882;
+    --theme-helper-color: #425974;
+    --theme-card-kicker: #48617b;
     --theme-card-value: #091a2e;
     --theme-page-eyebrow: #8b5a00;
     --theme-surface-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(245, 249, 253, 0.95));
@@ -6122,7 +6250,7 @@ html[data-theme="light"] {
     --theme-surface-shadow: 0 18px 34px rgba(36, 58, 84, 0.12);
     --theme-surface-topline: rgba(93, 183, 255, 0.12);
     --theme-table-header-bg: rgba(12, 24, 43, 0.04);
-    --theme-table-header-color: #43596f;
+    --theme-table-header-color: #3b536b;
     --theme-table-border: rgba(10, 24, 42, 0.08);
     --theme-table-hover: rgba(93, 183, 255, 0.08);
     --theme-input-bg: rgba(255, 255, 255, 0.92);
@@ -6134,7 +6262,7 @@ html[data-theme="light"] {
     --theme-disabled-bg: rgba(231, 238, 246, 0.92);
     --theme-disabled-color: #3c5168;
     --theme-disabled-border: rgba(84, 103, 129, 0.18);
-    --theme-money-span: #5f7289;
+    --theme-money-span: #526a84;
     --theme-filter-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(243, 247, 252, 0.92));
     --theme-filter-border: rgba(116, 138, 165, 0.16);
     --theme-ghost-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 245, 250, 0.94));
@@ -11559,6 +11687,315 @@ body.menu-open .notification-center-root {
 
     body .stock-group-variant-table {
         min-width: 860px;
+    }
+}
+
+@media (max-width: 720px) {
+    body .main {
+        gap: 14px;
+        padding: 14px 12px calc(96px + env(safe-area-inset-bottom));
+    }
+
+    body.minimal-shell .main {
+        padding: 20px 12px 18px;
+    }
+
+    body .panel,
+    body .page-hero,
+    body .card,
+    body .card-mini,
+    body .form-box,
+    body .table-box,
+    body .import-box,
+    body .box,
+    body .meta-card,
+    body .attendance-log-card,
+    body .notification-entry,
+    body .stock-variant-summary,
+    body .stock-group-detail-panel {
+        border-radius: 18px;
+    }
+
+    body .page-hero,
+    body .card,
+    body .card-mini,
+    body .form-box,
+    body .table-box,
+    body .import-box,
+    body .box,
+    body .meta-card,
+    body .attendance-log-card,
+    body .notification-entry {
+        padding: 14px;
+    }
+
+    body .page-hero {
+        gap: 14px;
+    }
+
+    body .page-hero-text {
+        max-width: none;
+    }
+
+    body .page-eyebrow {
+        margin-bottom: 8px;
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+    }
+
+    body .page-subtitle,
+    body .section-title p,
+    body .helper-text,
+    body small {
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    body .card,
+    body .card-mini,
+    body .meta-card {
+        gap: 6px;
+        min-height: 0;
+    }
+
+    body .card p,
+    body .card-mini p,
+    body .meta-card span {
+        margin-bottom: 4px;
+        font-size: 0.74rem;
+        letter-spacing: 0.08em;
+    }
+
+    body .card h2,
+    body .card-mini h3 {
+        margin-top: 8px;
+        font-size: clamp(1.25rem, 5.8vw, 1.6rem);
+    }
+
+    body .meta-card strong {
+        font-size: 1.12rem;
+        line-height: 1.16;
+    }
+
+    body .section-title {
+        margin-bottom: 12px;
+        gap: 10px;
+    }
+
+    body .section-title h2,
+    body .section-title h3 {
+        font-size: 1rem;
+    }
+
+    body input,
+    body select,
+    body textarea {
+        padding: 10px 12px;
+    }
+
+    body .money-input,
+    body .stock-readonly-field,
+    body .stock-readonly-money {
+        min-height: 42px;
+        gap: 8px;
+        padding-inline: 10px;
+    }
+
+    body .money-input input {
+        padding: 10px 0;
+    }
+
+    body button,
+    body .btn-link,
+    body a.btn-link {
+        min-height: 42px;
+        padding: 10px 14px;
+        font-size: 0.88rem;
+    }
+
+    body .badge,
+    body .status-pill,
+    body .mobile-chip {
+        min-height: 30px;
+        padding: 5px 10px;
+        font-size: 0.68rem;
+        letter-spacing: 0.05em;
+    }
+
+    body th,
+    body td {
+        padding: 10px 8px;
+    }
+
+    body .mobile-page-actions-slot .page-actions {
+        grid-auto-columns: minmax(136px, 70vw);
+        gap: 8px;
+    }
+
+    body .stock-product-group-cell {
+        padding: 10px;
+    }
+
+    body .stock-group-summary-meta small,
+    body .stock-variant-summary-copy small {
+        font-size: 0.76rem;
+        line-height: 1.4;
+    }
+
+    body .attendance-camera-frame {
+        min-height: 260px;
+        border-radius: 18px;
+    }
+
+    body .attendance-camera-frame[data-camera-orientation="landscape"] {
+        min-height: 220px;
+    }
+
+    body .attendance-log-list {
+        gap: 12px;
+    }
+
+    body .attendance-log-card {
+        gap: 12px;
+    }
+
+    body .attendance-log-summary {
+        grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+        gap: 10px;
+    }
+
+    body .notification-entry-icon {
+        border-radius: 14px;
+    }
+}
+
+@media (max-width: 540px) {
+    body .main {
+        gap: 12px;
+        padding: 12px 10px calc(92px + env(safe-area-inset-bottom));
+    }
+
+    body.minimal-shell .main {
+        padding: 18px 10px 16px;
+    }
+
+    body .page-hero,
+    body .card,
+    body .card-mini,
+    body .form-box,
+    body .table-box,
+    body .import-box,
+    body .box,
+    body .meta-card,
+    body .attendance-log-card,
+    body .notification-entry {
+        padding: 12px;
+        border-radius: 16px;
+    }
+
+    body .page-hero,
+    body .header,
+    body .section-title {
+        gap: 8px;
+    }
+
+    body .page-eyebrow {
+        margin-bottom: 6px;
+        font-size: 0.68rem;
+        letter-spacing: 0.12em;
+    }
+
+    body .page-subtitle,
+    body .section-title p,
+    body .helper-text,
+    body small {
+        font-size: 0.78rem;
+        line-height: 1.45;
+    }
+
+    body .card p,
+    body .card-mini p,
+    body .meta-card span {
+        font-size: 0.7rem;
+        letter-spacing: 0.07em;
+    }
+
+    body .card h2,
+    body .card-mini h3 {
+        margin-top: 6px;
+        font-size: clamp(1.1rem, 6vw, 1.36rem);
+    }
+
+    body .meta-card strong {
+        font-size: 1rem;
+    }
+
+    body .section-title {
+        margin-bottom: 10px;
+    }
+
+    body .section-title h2,
+    body .section-title h3 {
+        font-size: 0.94rem;
+    }
+
+    body input,
+    body select,
+    body textarea {
+        padding: 9px 11px;
+    }
+
+    body .money-input,
+    body .stock-readonly-field,
+    body .stock-readonly-money {
+        min-height: 40px;
+        padding-inline: 9px;
+    }
+
+    body button,
+    body .btn-link,
+    body a.btn-link {
+        min-height: 40px;
+        padding: 9px 12px;
+        font-size: 0.84rem;
+    }
+
+    body .badge,
+    body .status-pill,
+    body .mobile-chip {
+        min-height: 28px;
+        padding: 4px 9px;
+        font-size: 0.64rem;
+    }
+
+    body .stock-variant-summary,
+    body .stock-group-detail-panel {
+        padding: 10px;
+        border-radius: 16px;
+    }
+
+    body .attendance-camera-frame {
+        min-height: 230px;
+        border-radius: 16px;
+    }
+
+    body .attendance-camera-frame[data-camera-orientation="landscape"] {
+        min-height: 200px;
+    }
+
+    body .notification-entry {
+        gap: 10px;
+    }
+
+    body .notification-entry-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 0.78rem;
+    }
+
+    body .notification-chip {
+        min-height: 24px;
+        font-size: 0.66rem;
     }
 }
 

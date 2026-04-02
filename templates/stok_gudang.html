@@ -238,20 +238,20 @@
                                 <thead>
                                     <tr>
                                         {% if can_bulk_adjust_ui %}
-                                        <th>Pilih</th>
+                                        <th class="stock-col stock-col-select">Pilih</th>
                                         {% endif %}
-                                        <th>SKU</th>
-                                        <th>Variant</th>
-                                        <th>Qty</th>
-                                        <th>Status</th>
+                                        <th class="stock-col stock-col-sku">SKU</th>
+                                        <th class="stock-col stock-col-variant">Variant</th>
+                                        <th class="stock-col stock-col-qty">Qty</th>
+                                        <th class="stock-col stock-col-status">Status</th>
                                         {% if can_adjust_stock_ui %}
-                                        <th>Adjust</th>
+                                        <th class="stock-col stock-col-adjust">Adjust</th>
                                         {% endif %}
-                                        <th>Retail</th>
-                                        <th>Discount</th>
-                                        <th>Nett</th>
-                                        <th>Aging</th>
-                                        <th>Tanggal Masuk</th>
+                                        <th class="stock-col stock-col-price">Retail</th>
+                                        <th class="stock-col stock-col-price">Discount</th>
+                                        <th class="stock-col stock-col-price">Nett</th>
+                                        <th class="stock-col stock-col-aging">Aging</th>
+                                        <th class="stock-col stock-col-date">Tanggal Masuk</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -264,17 +264,25 @@
                                         data-best-price="{{ best_price }}"
                                     >
                                         {% if can_bulk_adjust_ui %}
-                                        <td>
+                                        <td class="stock-col stock-col-select">
                                             <input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}">
                                         </td>
                                         {% endif %}
-                                        <td>
+                                        <td class="stock-col stock-col-sku">
+                                            {% if can('manage_product_master') %}
                                             <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                            {% else %}
+                                            <div class="stock-readonly-field mono">{{ s.sku }}</div>
+                                            {% endif %}
                                         </td>
-                                        <td>
+                                        <td class="stock-col stock-col-variant">
+                                            {% if can('manage_product_master') %}
                                             <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                            {% else %}
+                                            <div class="stock-readonly-field">{{ s.variant }}</div>
+                                            {% endif %}
                                         </td>
-                                        <td class="qty-text">
+                                        <td class="stock-col stock-col-qty qty-text">
                                             {% if s.qty == 0 %}
                                             <span class="badge red" data-stock-qty-badge>{{ s.qty }}</span>
                                             {% elif s.qty < 5 %}
@@ -283,7 +291,7 @@
                                             <span class="badge green" data-stock-qty-badge>{{ s.qty }}</span>
                                             {% endif %}
                                         </td>
-                                        <td>
+                                        <td class="stock-col stock-col-status">
                                             {% if s.qty == 0 %}
                                             <span class="badge red" data-stock-status-badge>Kosong</span>
                                             {% elif s.qty < 5 %}
@@ -293,33 +301,45 @@
                                             {% endif %}
                                         </td>
                                         {% if can_adjust_stock_ui %}
-                                        <td>
+                                        <td class="stock-col stock-col-adjust">
                                             <div class="stock-adjust-actions">
                                                 <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="+/- qty">
                                                 <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
                                             </div>
                                         </td>
                                         {% endif %}
-                                        <td>
+                                        <td class="stock-col stock-col-price">
+                                            {% if can('manage_product_master') %}
                                             <div class="money-input">
                                                 <span>Rp</span>
                                                 <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             </div>
+                                            {% else %}
+                                            <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_retail or 0) }}</strong></div>
+                                            {% endif %}
                                         </td>
-                                        <td>
+                                        <td class="stock-col stock-col-price">
+                                            {% if can('manage_product_master') %}
                                             <div class="money-input">
                                                 <span>Rp</span>
                                                 <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             </div>
+                                            {% else %}
+                                            <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_discount or 0) }}</strong></div>
+                                            {% endif %}
                                         </td>
-                                        <td>
+                                        <td class="stock-col stock-col-price">
+                                            {% if can('manage_product_master') %}
                                             <div class="money-input">
                                                 <span>Rp</span>
                                                 <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             </div>
+                                            {% else %}
+                                            <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_nett or 0) }}</strong></div>
+                                            {% endif %}
                                         </td>
-                                        <td>{{ s.age_days }} hari</td>
-                                        <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
+                                        <td class="stock-col stock-col-aging">{{ s.age_days }} hari</td>
+                                        <td class="stock-col stock-col-date">{{ s.created_at[:10] if s.created_at else '-' }}</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -343,13 +363,25 @@
                 </td>
                 {% endif %}
                 <td>
+                    {% if can('manage_product_master') %}
                     <input class="edit-field mono" data-field="sku" data-product="{{ s.product_id }}" value="{{ s.sku }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    {% else %}
+                    <div class="stock-readonly-field mono">{{ s.sku }}</div>
+                    {% endif %}
                 </td>
                 <td>
+                    {% if can('manage_product_master') %}
                     <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    {% else %}
+                    <div class="stock-readonly-field">{{ s.name }}</div>
+                    {% endif %}
                 </td>
                 <td>
+                    {% if can('manage_product_master') %}
                     <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    {% else %}
+                    <div class="stock-readonly-field">{{ s.variant }}</div>
+                    {% endif %}
                 </td>
                 <td class="qty-text">
                     {% if s.qty == 0 %}
@@ -378,22 +410,34 @@
                 </td>
                 {% endif %}
                 <td>
+                    {% if can('manage_product_master') %}
                     <div class="money-input">
                         <span>Rp</span>
                         <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
+                    {% else %}
+                    <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_retail or 0) }}</strong></div>
+                    {% endif %}
                 </td>
                 <td>
+                    {% if can('manage_product_master') %}
                     <div class="money-input">
                         <span>Rp</span>
                         <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
+                    {% else %}
+                    <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_discount or 0) }}</strong></div>
+                    {% endif %}
                 </td>
                 <td>
+                    {% if can('manage_product_master') %}
                     <div class="money-input">
                         <span>Rp</span>
                         <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
+                    {% else %}
+                    <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_nett or 0) }}</strong></div>
+                    {% endif %}
                 </td>
                 <td>{{ s.age_days }} hari</td>
                 <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
