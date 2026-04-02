@@ -138,12 +138,16 @@ def approve(id):
                         else approval_item["variant_name"]
                     )
                     approval_type = str(a.get("type") or "APPROVAL").strip().upper()
+                    warehouse_label = (
+                        (approval_item["warehouse_name"] or "").strip()
+                        or f"Gudang {a.get('warehouse_id')}"
+                    )
                     notify_operational_event(
                         f"Approval {approval_type} diproses",
                         (
                             f"{approval_type} untuk {approval_item['sku']} - {approval_item['product_name']} / "
                             f"{variant_label} sebanyak {a.get('qty')} item di "
-                            f"{(approval_item['warehouse_name'] or f'Gudang {a.get('warehouse_id')}').strip()} "
+                            f"{warehouse_label} "
                             "sudah dijalankan."
                         ),
                         warehouse_id=a.get("warehouse_id"),
