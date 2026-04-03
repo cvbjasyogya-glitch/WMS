@@ -1,6 +1,7 @@
 import base64
 import binascii
 import os
+import sqlite3
 from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta
 from uuid import uuid4
@@ -154,6 +155,26 @@ def _safe_hris_return_to(default="/hris/"):
     if target.startswith("/hris"):
         return target
     return default
+
+
+def _get_table_columns(db, table_name):
+    safe_name = (table_name or "").strip()
+    if not safe_name:
+        return set()
+
+    try:
+        rows = db.execute(f"PRAGMA table_info({safe_name})").fetchall()
+    except Exception:
+        return set()
+
+    columns = set()
+    for row in rows:
+        try:
+            columns.add(row["name"])
+        except Exception:
+            if isinstance(row, (list, tuple)) and len(row) > 1:
+                columns.add(row[1])
+    return columns
 
 
 def can_view_hris_records(module_slug=None):
@@ -3257,20 +3278,39 @@ def _build_biometric_recap_rows(db, biometric_logs):
     if not grouped_logs:
         return []
 
-    placeholders = ",".join(["?"] * len(employee_ids))
-    attendance_rows = db.execute(
-        f"""
-        SELECT employee_id, attendance_date, check_in, check_out, status, note, shift_code, shift_label, status_override
-        FROM attendance_records
-        WHERE employee_id IN ({placeholders})
-          AND attendance_date BETWEEN ? AND ?
-        """,
-        list(employee_ids) + [min(dates), max(dates)],
-    ).fetchall()
-    attendance_map = {
-        (row["employee_id"], row["attendance_date"]): dict(row)
-        for row in attendance_rows
-    }
+    attendance_map = {}
+    attendance_columns = _get_table_columns(db, "attendance_records")
+    required_columns = {"employee_id", "attendance_date"}
+    if required_columns.issubset(attendance_columns):
+        placeholders = ",".join(["?"] * len(employee_ids))
+        attendance_select = [
+            "employee_id",
+            "attendance_date",
+            ("check_in" if "check_in" in attendance_columns else "NULL AS check_in"),
+            ("check_out" if "check_out" in attendance_columns else "NULL AS check_out"),
+            ("status" if "status" in attendance_columns else "NULL AS status"),
+            ("note" if "note" in attendance_columns else "NULL AS note"),
+            ("shift_code" if "shift_code" in attendance_columns else "NULL AS shift_code"),
+            ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
+            ("status_override" if "status_override" in attendance_columns else "NULL AS status_override"),
+        ]
+        try:
+            attendance_rows = db.execute(
+                f"""
+                SELECT {", ".join(attendance_select)}
+                FROM attendance_records
+                WHERE employee_id IN ({placeholders})
+                  AND attendance_date BETWEEN ? AND ?
+                """,
+                list(employee_ids) + [min(dates), max(dates)],
+            ).fetchall()
+        except sqlite3.DatabaseError:
+            attendance_rows = []
+
+        attendance_map = {
+            (row["employee_id"], row["attendance_date"]): dict(row)
+            for row in attendance_rows
+        }
 
     recap_rows = []
     for (employee_id, attendance_date), logs in grouped_logs.items():

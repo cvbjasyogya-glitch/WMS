@@ -2661,7 +2661,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Attendance Geotag", html)
         self.assertIn("Rekap Absensi Geotag", html)
         self.assertIn("Tampilkan Hari", html)
-        self.assertIn("HR dan Super Admin bisa mengubah status Present/Late langsung dari dropdown rekap ini.", html)
+        self.assertIn(
+            "HR dan Super Admin bisa mengubah status Present/Late dan jam masuk/pulang langsung dari rekap ini.",
+            html,
+        )
         self.assertNotIn("Log Geotag Absensi", html)
         self.assertNotIn("Tambah Absen Geotag", html)
         self.assertNotIn('href="/hris/attendance"', html)
@@ -2725,6 +2728,81 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("requestSubmit", html)
         self.assertIn("Present", html)
         self.assertIn("Late", html)
+
+    def test_hris_biometric_route_handles_legacy_attendance_schema_without_status_override(self):
+        self.login_hr_user("hr_bio_legacy_schema", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-LEGACY",
+            full_name="Biometric Legacy Schema",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute("ALTER TABLE attendance_records RENAME TO attendance_records_new")
+            db.execute(
+                """
+                CREATE TABLE attendance_records(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    employee_id INTEGER,
+                    warehouse_id INTEGER,
+                    attendance_date TEXT,
+                    check_in TEXT,
+                    check_out TEXT,
+                    status TEXT DEFAULT 'present',
+                    note TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            db.execute("DROP TABLE attendance_records_new")
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-03T08:40",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Pintu Masuk",
+                    -8.58314,
+                    116.116798,
+                    7.5,
+                    "Masuk normal",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-03",
+                    "08:40",
+                    "present",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-03&date_to=2026-09-03")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Biometric Legacy Schema", html)
+        self.assertIn("/hris/biometric/attendance-time", html)
 
     def test_owner_can_access_hris_biometric_module(self):
         self.create_user("owner_biometric", "pass1234", "owner")
