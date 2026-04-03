@@ -50,7 +50,16 @@
         <div class="workspace-app-grid">
             {% for item in section["items"] %}
             <a href="{{ item["href"] }}" class="workspace-app-tile accent-{{ item["accent"] }}">
-                <span class="workspace-app-icon">{{ item["icon"] }}</span>
+                <span class="workspace-app-icon" aria-hidden="true">
+                    <img
+                        src="{{ item["icon_asset"] }}"
+                        alt=""
+                        class="workspace-app-icon-image"
+                        loading="lazy"
+                        width="42"
+                        height="42"
+                    >
+                </span>
                 <div class="workspace-app-copy">
                     <strong>{{ item["label"] }}</strong>
                     <small>{{ item["summary"] }}</small>

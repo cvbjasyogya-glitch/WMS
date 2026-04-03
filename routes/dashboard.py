@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, session, request, jsonify
 from database import get_db
 from services.rbac import has_permission, is_scoped_role, normalize_role
 from services.hris_catalog import get_hris_navigation_modules, role_can_see_hris_navigation
+from services.workspace_icons import get_workspace_icon_asset, get_hris_workspace_icon_key
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -22,14 +23,15 @@ def default_dashboard():
     }
 
 
-def _workspace_tile(label, href, summary, badge, accent, icon):
+def _workspace_tile(label, href, summary, badge, accent, icon_key):
     return {
         "label": label,
         "href": href,
         "summary": summary,
         "badge": badge,
         "accent": accent,
-        "icon": icon,
+        "icon_key": icon_key,
+        "icon_asset": get_workspace_icon_asset(icon_key),
     }
 
 
@@ -44,7 +46,7 @@ def _build_workspace_sections(role):
             "Broadcast operasional, update penting, dan perubahan jadwal terbaru.",
             "Info",
             "sky",
-            "PG",
+            "coordination-pengumuman",
         ),
         _workspace_tile(
             "Meeting Live",
@@ -52,7 +54,7 @@ def _build_workspace_sections(role):
             "Masuk room meeting browser yang ringan untuk koordinasi cepat tim.",
             "Live",
             "violet",
-            "MT",
+            "coordination-meeting-live",
         ),
         _workspace_tile(
             "Absen Foto",
@@ -60,7 +62,7 @@ def _build_workspace_sections(role):
             "Clock in, break, dan check out dengan geotag dan foto langsung dari browser.",
             "Daily",
             "emerald",
-            "AB",
+            "coordination-absen-foto",
         ),
         _workspace_tile(
             "Libur",
@@ -68,7 +70,7 @@ def _build_workspace_sections(role):
             "Ajukan cuti dan lihat status approval bulanan dari satu portal sederhana.",
             "Leave",
             "amber",
-            "LV",
+            "coordination-libur",
         ),
         _workspace_tile(
             "Report Harian",
@@ -76,7 +78,7 @@ def _build_workspace_sections(role):
             "Kirim update kerja, report live, dan lampiran bukti dari portal harian.",
             "Report",
             "rose",
-            "RP",
+            "coordination-report-harian",
         ),
     ]
 
@@ -88,7 +90,7 @@ def _build_workspace_sections(role):
                 "Kelola board jadwal tim, live schedule, dan override operasional.",
                 "Planner",
                 "indigo",
-                "JD",
+                "coordination-jadwal",
             )
         )
 
@@ -99,7 +101,7 @@ def _build_workspace_sections(role):
             "Buka komunikasi cepat, panggilan, dan notifikasi lintas tim.",
             "Chat",
             "cyan",
-            "CT",
+            "coordination-chat-operasional",
         )
     )
 
@@ -111,7 +113,7 @@ def _build_workspace_sections(role):
                 "Kelola prospek, follow up, dan aktivitas pelanggan dalam satu panel.",
                 "CRM",
                 "orange",
-                "CM",
+                "coordination-crm",
             )
         )
 
@@ -131,7 +133,7 @@ def _build_workspace_sections(role):
                 "Masuk ke dashboard operasional gudang untuk monitor stok dan aktivitas terakhir.",
                 "WMS",
                 "blue",
-                "DB",
+                "wms-dashboard",
             ),
             _workspace_tile(
                 "Info Produk",
@@ -139,7 +141,7 @@ def _build_workspace_sections(role):
                 "Cari informasi SKU, harga, dan stok produk dengan lookup yang cepat.",
                 "Lookup",
                 "sky",
-                "IF",
+                "wms-info-produk",
             ),
             _workspace_tile(
                 "Stok & Produk",
@@ -147,7 +149,7 @@ def _build_workspace_sections(role):
                 "Monitor stok aktif, nilai jual, aging batch, dan kelola master produk dari workspace yang sama.",
                 "Studio",
                 "emerald",
-                "ST",
+                "wms-stok-produk",
             ),
             _workspace_tile(
                 "Inbound",
@@ -155,7 +157,7 @@ def _build_workspace_sections(role):
                 "Tambah batch barang masuk dengan panel kerja yang cepat dan rapi.",
                 "Flow",
                 "teal",
-                "IN",
+                "wms-inbound",
             ),
             _workspace_tile(
                 "Outbound",
@@ -163,7 +165,7 @@ def _build_workspace_sections(role):
                 "Kurangi stok keluar dengan validasi qty terhadap stok yang tersedia.",
                 "Flow",
                 "rose",
-                "OU",
+                "wms-outbound",
             ),
             _workspace_tile(
                 "Transfer",
@@ -171,7 +173,7 @@ def _build_workspace_sections(role):
                 "Pindahkan stok antar gudang dengan lane transfer yang jelas.",
                 "Flow",
                 "indigo",
-                "TR",
+                "wms-transfer",
             ),
             _workspace_tile(
                 "Request Gudang",
@@ -179,7 +181,7 @@ def _build_workspace_sections(role):
                 "Susun request antar gudang dan pantau approval-nya.",
                 "Queue",
                 "amber",
-                "RQ",
+                "wms-request-gudang",
             ),
             _workspace_tile(
                 "Request Owner",
@@ -187,7 +189,7 @@ def _build_workspace_sections(role):
                 "Kirim kebutuhan barang langsung ke owner melalui jalur request khusus.",
                 "Owner",
                 "orange",
-                "RO",
+                "wms-request-owner",
             ),
             _workspace_tile(
                 "Stock Opname",
@@ -195,7 +197,7 @@ def _build_workspace_sections(role):
                 "Cocokkan stok fisik dan sistem untuk display maupun gudang.",
                 "Control",
                 "slate",
-                "SO",
+                "wms-stock-opname",
             ),
         ]
 
@@ -207,7 +209,7 @@ def _build_workspace_sections(role):
                     "Review inbound, outbound, dan adjustment yang menunggu persetujuan.",
                     "Approval",
                     "pink",
-                    "AP",
+                    "wms-approvals",
                 )
             )
 
@@ -219,7 +221,7 @@ def _build_workspace_sections(role):
                     "Lacak histori perubahan dan transaksi operasional untuk investigasi cepat.",
                     "Trace",
                     "slate",
-                    "AU",
+                    "wms-audit-log",
                 )
             )
 
@@ -239,7 +241,7 @@ def _build_workspace_sections(role):
                 "Masuk ke dashboard HRIS untuk employee, leave, geotag, dan modul people ops.",
                 "People",
                 "cyan",
-                "HR",
+                "hris-home",
             )
         ]
 
@@ -251,7 +253,7 @@ def _build_workspace_sections(role):
                     module["summary"],
                     module.get("status", "HRIS"),
                     "sky" if module["slug"] in {"dashboard", "announcement"} else "violet",
-                    module["label"][:2].upper(),
+                    get_hris_workspace_icon_key(module["slug"]),
                 )
             )
 
@@ -270,7 +272,7 @@ def _build_workspace_sections(role):
             "Atur profil, preferensi notifikasi, dan pengaturan akun pribadi.",
             "Account",
             "slate",
-            "AK",
+            "utility-account-settings",
         )
     ]
 
@@ -282,7 +284,7 @@ def _build_workspace_sections(role):
                 "Kelola user, gudang, dan pengaturan sistem tingkat lanjut.",
                 "Admin",
                 "indigo",
-                "AD",
+                "utility-admin",
             )
         )
 

@@ -9,18 +9,35 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.db")
 
 
+def _database_error_with_repair_hint(path, exc):
+    return sqlite3.DatabaseError(
+        f"{exc}. Database '{path}' appears corrupted or unreadable. "
+        f"Stop the app and run 'python3 scripts/repair_sqlite_db.py {path} --replace', "
+        "or restore a valid backup before restarting the service."
+    )
+
+
 def get_connection(db_path=None):
     path = db_path or DB_PATH
     folder = os.path.dirname(path)
     if folder:
         os.makedirs(folder, exist_ok=True)
 
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
+    conn = None
+    try:
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
 
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    except sqlite3.DatabaseError as exc:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        raise _database_error_with_repair_hint(path, exc) from exc
 
     return conn
 

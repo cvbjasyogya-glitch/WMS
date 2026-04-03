@@ -367,6 +367,23 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('href="/workspace/" class="active">Pusat Modul</a>', html)
         self.assertIn('<a href="/workspace/" class="active">Home</a>', html)
 
+    def test_workspace_gateway_uses_svg_launcher_icons_instead_of_text_initials(self):
+        self.create_user("launcher_super", "pass1234", "super_admin", warehouse_id=1)
+        self.login("launcher_super", "pass1234")
+
+        response = self.client.get("/workspace/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('class="workspace-app-icon-image"', html)
+        self.assertIn('/static/icons/workspace/coordination-pengumuman.svg', html)
+        self.assertIn('/static/icons/workspace/coordination-meeting-live.svg', html)
+        self.assertIn('/static/icons/workspace/wms-dashboard.svg', html)
+        self.assertIn('/static/icons/workspace/hris-home.svg', html)
+        self.assertIn('/static/icons/workspace/utility-account-settings.svg', html)
+        self.assertNotIn('<span class="workspace-app-icon">PG</span>', html)
+        self.assertNotIn('<span class="workspace-app-icon">MT</span>', html)
+
     def test_schedule_page_opens_coordination_sidebar_group(self):
         self.login()
 
