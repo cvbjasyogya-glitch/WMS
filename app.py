@@ -2,7 +2,7 @@ import os
 from uuid import uuid4
 from urllib.parse import urlsplit
 
-from flask import Flask, session, redirect, url_for, request, flash, g, jsonify
+from flask import Flask, session, redirect, url_for, request, flash, g, jsonify, current_app
 from flask.sessions import SecureCookieSessionInterface
 from config import Config
 from database import close_db, get_db
@@ -71,6 +71,8 @@ def _normalized_restore_usernames(raw_value):
 
 
 def _build_security_headers():
+    meeting_domain = (current_app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip()
+    meeting_origin = f"https://{meeting_domain}" if meeting_domain else "https://meet.jit.si"
     return {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "SAMEORIGIN",
@@ -81,14 +83,14 @@ def _build_security_headers():
         "Origin-Agent-Cluster": "?1",
         "X-Permitted-Cross-Domain-Policies": "none",
         "Content-Security-Policy": (
-            "default-src 'self' data: blob: https://source.zoom.us; "
-            "img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us; "
-            "media-src 'self' data: blob: https://*.zoom.us; "
-            "style-src 'self' 'unsafe-inline' https://source.zoom.us; "
-            "script-src 'self' 'unsafe-inline' https://source.zoom.us; "
-            "font-src 'self' data: https://source.zoom.us; "
-            "connect-src 'self' blob: https://source.zoom.us https://*.zoom.us wss://*.zoom.us; "
-            "frame-src 'self' https://*.zoom.us; "
+            f"default-src 'self' data: blob: https://source.zoom.us {meeting_origin}; "
+            f"img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us {meeting_origin}; "
+            f"media-src 'self' data: blob: https://*.zoom.us {meeting_origin}; "
+            f"style-src 'self' 'unsafe-inline' https://source.zoom.us https://fonts.googleapis.com {meeting_origin}; "
+            f"script-src 'self' 'unsafe-inline' https://source.zoom.us {meeting_origin}; "
+            f"font-src 'self' data: https://source.zoom.us https://fonts.gstatic.com {meeting_origin}; "
+            f"connect-src 'self' blob: https://source.zoom.us https://*.zoom.us wss://*.zoom.us {meeting_origin} wss://*.jit.si; "
+            f"frame-src 'self' https://*.zoom.us {meeting_origin}; "
             "worker-src 'self' blob:; "
             "frame-ancestors 'self'; "
             "base-uri 'self'; "

@@ -27,7 +27,7 @@ from services.hris_catalog import (
     role_has_hris_access,
 )
 from services.announcement_center import build_announcement_notification_payload
-from services.notification_service import notify_broadcast
+from services.notification_service import notify_broadcast, notify_user
 from services.rbac import has_permission, is_scoped_role, normalize_role
 
 
@@ -511,6 +511,63 @@ def _build_leave_handling(status):
     if status == "pending":
         return None, None
     return session.get("user_id"), _current_timestamp()
+
+
+def _build_leave_notification_range_label(start_date, end_date):
+    start_value = str(start_date or "").strip()
+    end_value = str(end_date or "").strip()
+    if start_value and end_value and start_value != end_value:
+        return f"{start_value} s/d {end_value}"
+    return start_value or end_value or "-"
+
+
+def _notify_leave_request_status_change(db, leave_request, previous_status=None):
+    if not leave_request:
+        return
+
+    record = dict(leave_request) if not isinstance(leave_request, dict) else leave_request
+    current_status = _normalize_leave_status(record.get("status"))
+    prior_status = _normalize_leave_status(previous_status) if previous_status else ""
+    if current_status != "approved" or prior_status == "approved":
+        return
+
+    recipient = db.execute(
+        """
+        SELECT id
+        FROM users
+        WHERE employee_id=?
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+        (record.get("employee_id"),),
+    ).fetchone()
+    if not recipient:
+        return
+
+    leave_type_label = LEAVE_TYPE_LABELS.get(record.get("leave_type"), "Libur")
+    range_label = _build_leave_notification_range_label(record.get("start_date"), record.get("end_date"))
+    total_days = record.get("total_days") or 0
+    approver_label = (
+        (session.get("username") or "").strip()
+        or (record.get("handled_by_name") or "").strip()
+        or "HR / Super Admin"
+    )
+
+    notify_user(
+        recipient["id"],
+        f"Pengajuan {leave_type_label.lower()} disetujui",
+        (
+            f"Pengajuan {leave_type_label.lower()} untuk {range_label} "
+            f"({total_days} hari) telah disetujui oleh {approver_label}."
+        ),
+        category="leave",
+        link_url="/libur/",
+        source_type="leave_request_status",
+        source_id=f"{record.get('id')}:approved",
+        dedupe_key=f"leave_request_status:{record.get('id')}:approved",
+        push_title="Libur Disetujui",
+        push_body=f"{leave_type_label} | {range_label}",
+    )
 
 
 def _build_payroll_handling(status):
@@ -4311,7 +4368,7 @@ def add_leave():
 
     handled_by, handled_at = _build_leave_handling(status)
 
-    db.execute(
+    cursor = db.execute(
         """
         INSERT INTO leave_requests(
             employee_id,
@@ -4346,6 +4403,13 @@ def add_leave():
     )
     db.commit()
 
+    if status == "approved":
+        try:
+            created_leave = _get_leave_request_by_id(db, cursor.lastrowid)
+            _notify_leave_request_status_change(db, created_leave)
+        except Exception as exc:
+            print("LEAVE APPROVAL NOTIFICATION ERROR:", exc)
+
     flash("Leave request berhasil ditambahkan", "success")
     return redirect("/hris/leave")
 
@@ -4362,6 +4426,7 @@ def update_leave(leave_id):
         flash("Leave request tidak ditemukan", "error")
         return redirect("/hris/leave")
 
+    previous_status = leave_request["status"]
     leave_type = _normalize_leave_type(request.form.get("leave_type"))
     start_date = (request.form.get("start_date") or "").strip()
     end_date = (request.form.get("end_date") or "").strip()
@@ -4432,6 +4497,13 @@ def update_leave(leave_id):
         ),
     )
     db.commit()
+
+    if status == "approved" and previous_status != "approved":
+        try:
+            updated_leave = _get_leave_request_by_id(db, leave_id)
+            _notify_leave_request_status_change(db, updated_leave, previous_status=previous_status)
+        except Exception as exc:
+            print("LEAVE APPROVAL NOTIFICATION ERROR:", exc)
 
     flash("Leave request berhasil diupdate", "success")
     return redirect("/hris/leave")

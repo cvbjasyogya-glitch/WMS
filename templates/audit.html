@@ -10,38 +10,54 @@
 {% endblock %}
 
 {% block content %}
-<form method="GET" class="top-bar">
-    <input name="q" placeholder="Cari produk atau SKU" value="{{ request.args.get('q', '') }}">
-    <select name="warehouse" {% if session.get("role") == "admin" %}disabled{% endif %}>
-        <option value="">Semua Gudang</option>
-        {% for w in warehouses %}
-        <option value="{{ w.id }}" {% if selected_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
-        {% endfor %}
-    </select>
-    {% if session.get("role") == "admin" %}
-    <input type="hidden" name="warehouse" value="{{ selected_warehouse or '' }}">
-    {% endif %}
-    <select name="action">
-        <option value="">Semua Aksi</option>
-        <option value="IMPORT" {% if request.args.get('action') == 'IMPORT' %}selected{% endif %}>IMPORT</option>
-        <option value="INBOUND" {% if request.args.get('action') == 'INBOUND' %}selected{% endif %}>INBOUND</option>
-        <option value="OUTBOUND" {% if request.args.get('action') == 'OUTBOUND' %}selected{% endif %}>OUTBOUND</option>
-        <option value="TRANSFER" {% if request.args.get('action') == 'TRANSFER' %}selected{% endif %}>TRANSFER</option>
-        <option value="STOCK_OPNAME" {% if request.args.get('action') == 'STOCK_OPNAME' %}selected{% endif %}>STOCK_OPNAME</option>
-        <option value="ADJUST" {% if request.args.get('action') == 'ADJUST' %}selected{% endif %}>ADJUST</option>
-        <option value="EDIT_PRODUCT" {% if request.args.get('action') == 'EDIT_PRODUCT' %}selected{% endif %}>EDIT_PRODUCT</option>
-    </select>
-    <input type="text" name="user" placeholder="Filter user" value="{{ request.args.get('user', '') }}">
-    <input type="date" name="start_date" value="{{ request.args.get('start_date', '') }}">
-    <input type="date" name="end_date" value="{{ request.args.get('end_date', '') }}">
-    <button type="submit">Terapkan Filter</button>
-</form>
+<div class="wms-page-stack">
+<div class="wms-split-band">
+    <div class="wms-filter-band">
+        <form method="GET" class="top-bar">
+            <input name="q" placeholder="Cari produk atau SKU" value="{{ request.args.get('q', '') }}">
+            <select name="warehouse" {% if session.get("role") == "admin" %}disabled{% endif %}>
+                <option value="">Semua Gudang</option>
+                {% for w in warehouses %}
+                <option value="{{ w.id }}" {% if selected_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+                {% endfor %}
+            </select>
+            {% if session.get("role") == "admin" %}
+            <input type="hidden" name="warehouse" value="{{ selected_warehouse or '' }}">
+            {% endif %}
+            <select name="action">
+                <option value="">Semua Aksi</option>
+                <option value="IMPORT" {% if request.args.get('action') == 'IMPORT' %}selected{% endif %}>IMPORT</option>
+                <option value="INBOUND" {% if request.args.get('action') == 'INBOUND' %}selected{% endif %}>INBOUND</option>
+                <option value="OUTBOUND" {% if request.args.get('action') == 'OUTBOUND' %}selected{% endif %}>OUTBOUND</option>
+                <option value="TRANSFER" {% if request.args.get('action') == 'TRANSFER' %}selected{% endif %}>TRANSFER</option>
+                <option value="STOCK_OPNAME" {% if request.args.get('action') == 'STOCK_OPNAME' %}selected{% endif %}>STOCK_OPNAME</option>
+                <option value="ADJUST" {% if request.args.get('action') == 'ADJUST' %}selected{% endif %}>ADJUST</option>
+                <option value="EDIT_PRODUCT" {% if request.args.get('action') == 'EDIT_PRODUCT' %}selected{% endif %}>EDIT_PRODUCT</option>
+            </select>
+            <input type="text" name="user" placeholder="Filter user" value="{{ request.args.get('user', '') }}">
+            <input type="date" name="start_date" value="{{ request.args.get('start_date', '') }}">
+            <input type="date" name="end_date" value="{{ request.args.get('end_date', '') }}">
+            <button type="submit">Terapkan Filter</button>
+        </form>
 
-{% if session.get("role") == "admin" %}
-<small class="helper-text">Audit admin dibatasi ke gudang akun yang sedang ditetapkan.</small>
-{% endif %}
+        {% if session.get("role") == "admin" %}
+        <small class="helper-text">Audit admin dibatasi ke gudang akun yang sedang ditetapkan.</small>
+        {% endif %}
+    </div>
 
-<div class="table-box">
+    <aside class="wms-panel-note">
+        <strong>Pola Audit WMS</strong>
+        <p>Gunakan kombinasi filter aksi, user, dan rentang tanggal untuk mempersempit investigasi tanpa tenggelam oleh riwayat transaksi lain.</p>
+        <div class="wms-inline-status">
+            <span class="status-pill">{{ request.args.get('action') or 'Semua Aksi' }}</span>
+            <span class="status-pill">{{ request.args.get('user') or 'Semua User' }}</span>
+            <span class="status-pill">{% if selected_warehouse %}{% for w in warehouses %}{% if selected_warehouse == w.id %}{{ w.name }}{% endif %}{% endfor %}{% else %}Semua Gudang{% endif %}</span>
+        </div>
+        <small>Audit sangat berguna untuk melacak edit produk, approval, dan perpindahan stok yang memengaruhi kondisi gudang aktif.</small>
+    </aside>
+</div>
+
+<div class="table-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Riwayat Aktivitas</h2>
@@ -132,6 +148,7 @@
         <span class="status-pill">Page {{ page }}</span>
         <a href="?page={{ page+1 }}&q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}"><button type="button" class="ghost-button">Next</button></a>
     </div>
+</div>
 </div>
 {% endblock %}
 

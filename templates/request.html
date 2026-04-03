@@ -6,6 +6,58 @@
 {% block page_subtitle %}Susun banyak item request lewat pola pilih item lalu tambah ke daftar kerja, sehingga permintaan antar gudang jauh lebih cepat saat SKU sudah banyak.{% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
+<div class="wms-step-grid">
+    <article class="wms-step-card">
+        <span>Step 01</span>
+        <strong>Tentukan Gudang Asal dan Tujuan</strong>
+        <p>Route request harus jelas sejak awal supaya stok asal dan gudang penerima tidak tertukar saat approval diproses.</p>
+    </article>
+    <article class="wms-step-card">
+        <span>Step 02</span>
+        <strong>Tambah Item yang Dibutuhkan</strong>
+        <p>Pilih SKU aktif, isi qty request, lalu kumpulkan semuanya dalam satu batch agar proses antar gudang lebih cepat.</p>
+    </article>
+    <article class="wms-step-card">
+        <span>Step 03</span>
+        <strong>Kirim Batch Request</strong>
+        <p>Sistem akan cek ulang stok gudang asal sebelum request dikirim ke antrian approval sesuai scope akun.</p>
+    </article>
+</div>
+
+<div class="wms-kpi-grid">
+    <article class="wms-kpi-card">
+        <span>Route Aktif</span>
+        <strong id="requestSummaryLane">-</strong>
+        <small>Arah request antar gudang yang sedang dipakai.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Item Batch</span>
+        <strong id="requestSummaryCount">0</strong>
+        <small>Baris request yang sedang disusun.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Qty Request</span>
+        <strong id="requestSummaryQty">0</strong>
+        <small>Total qty yang akan diminta.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Risk Check</span>
+        <strong id="requestSummaryRisk">0</strong>
+        <small>Baris yang melebihi stok gudang asal.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Scope Antrian</span>
+        <strong>{% if is_scoped_user %}Scoped{% else %}Lintas Gudang{% endif %}</strong>
+        <small>Visibilitas request mengikuti role dan gudang akun.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Status</span>
+        <strong id="requestSummaryState">Draft</strong>
+        <small id="requestSummaryHelp">Belum ada item request di batch kerja.</small>
+    </article>
+</div>
+
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
@@ -91,7 +143,7 @@
 
         <small class="helper-text ops-mobile-hint">Semua item pada daftar bawah akan menggunakan gudang asal dan tujuan yang dipilih di atas.</small>
 
-        <div class="table-box ops-queue-box">
+        <div class="table-box ops-queue-box" data-scrollable-table="1">
             <table class="ops-queue-table request-queue-table">
                 <thead>
                     <tr>
@@ -112,7 +164,7 @@
     </form>
 </div>
 
-<div class="table-box">
+<div class="table-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Antrian Request</h2>
@@ -171,6 +223,7 @@
 </div>
 
 {% include "partials/item_picker_modal.html" %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -188,6 +241,12 @@ const requestDraftStockValue = document.getElementById("requestDraftStockValue")
 const requestDraftStockState = document.getElementById("requestDraftStockState");
 const requestDraftQty = document.getElementById("requestDraftQty");
 const requestDraftFeedback = document.getElementById("requestDraftFeedback");
+const requestSummaryLane = document.getElementById("requestSummaryLane");
+const requestSummaryCount = document.getElementById("requestSummaryCount");
+const requestSummaryQty = document.getElementById("requestSummaryQty");
+const requestSummaryRisk = document.getElementById("requestSummaryRisk");
+const requestSummaryState = document.getElementById("requestSummaryState");
+const requestSummaryHelp = document.getElementById("requestSummaryHelp");
 
 const requestDraft = {
     product_id: 0,
@@ -201,6 +260,34 @@ const requestDraft = {
 };
 
 const requestItems = [];
+
+function renderRequestWorkspaceSummary() {
+    const count = requestItems.length;
+    const totalQty = requestItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const riskCount = requestItems.filter((item) => Number(item.qty || 0) > Number(item.stock || 0)).length;
+    const fromLabel = requestFrom?.options[requestFrom.selectedIndex]?.text || "-";
+    const toLabel = requestTo?.options[requestTo.selectedIndex]?.text || "-";
+
+    if (requestSummaryLane) requestSummaryLane.textContent = `${fromLabel} -> ${toLabel}`;
+    if (requestSummaryCount) requestSummaryCount.textContent = String(count);
+    if (requestSummaryQty) requestSummaryQty.textContent = String(totalQty);
+    if (requestSummaryRisk) requestSummaryRisk.textContent = String(riskCount);
+
+    if (!requestSummaryState || !requestSummaryHelp) {
+        return;
+    }
+
+    if (!count) {
+        requestSummaryState.textContent = "Draft";
+        requestSummaryHelp.textContent = "Belum ada item request di batch kerja.";
+        return;
+    }
+
+    requestSummaryState.textContent = riskCount ? "Review" : "Siap";
+    requestSummaryHelp.textContent = riskCount
+        ? `${riskCount} baris perlu dicek ulang sebelum request dikirim.`
+        : `${count} item dengan total ${totalQty} qty siap masuk antrian request.`;
+}
 
 function renderRequestDraftStock(qty) {
     const safeQty = Number(qty || 0);
@@ -347,6 +434,7 @@ function renderRequestQueue() {
                 </td>
             </tr>
         `;
+        renderRequestWorkspaceSummary();
         return;
     }
 
@@ -367,6 +455,7 @@ function renderRequestQueue() {
             </td>
         </tr>
     `).join("");
+    renderRequestWorkspaceSummary();
 }
 
 function addRequestItem() {
@@ -462,11 +551,13 @@ requestFrom?.addEventListener("change", async () => {
     await refreshRequestDraftStock();
     await refreshRequestQueueStocks();
     requestPicker.refresh();
+    renderRequestWorkspaceSummary();
 });
 
 requestTo?.addEventListener("change", () => {
     renderWarehouseValidation();
     validateRequestDraft();
+    renderRequestWorkspaceSummary();
 });
 
 if (requestTo.value === requestFrom.value) {
@@ -479,6 +570,7 @@ if (requestTo.value === requestFrom.value) {
 renderWarehouseValidation();
 resetRequestDraft();
 renderRequestQueue();
+renderRequestWorkspaceSummary();
 </script>
 {% endblock %}
 

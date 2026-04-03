@@ -1,0 +1,239 @@
+<section
+    class="product-studio-shell {% if active_workspace == 'products' %}is-active{% endif %}"
+    id="productStudioPanel"
+    data-product-studio-panel
+>
+    <div class="section-title">
+        <div>
+            <h2>Studio Produk</h2>
+            <p>Master produk, import massal, dan daftar produk sekarang digabung ke workspace stok agar tim tidak perlu pindah halaman.</p>
+        </div>
+        <div class="status-row">
+            <span class="status-pill" data-product-summary-total>{{ product_studio.total_items }} Produk</span>
+            <span class="status-pill" data-product-summary-page>Page {{ product_studio.page }} / {{ product_studio.total_pages }}</span>
+        </div>
+    </div>
+
+    <div class="meta-grid products-meta-grid" id="productsMetaGrid">
+        <div class="meta-card">
+            <span>Gudang Aktif</span>
+            <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Produk Tampil</span>
+            <strong>{{ product_studio.data|length }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Halaman</span>
+            <strong>{{ product_studio.page }} / {{ product_studio.total_pages }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Pencarian</span>
+            <strong>{{ product_studio.search or 'Semua Produk' }}</strong>
+        </div>
+    </div>
+
+    <form method="GET" class="top-bar products-filter-bar">
+        <input type="hidden" name="workspace" value="products">
+        <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
+        <input type="hidden" name="q" value="{{ search }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="stock_state" value="{{ stock_state }}">
+        <input type="hidden" name="start_date" value="{{ start_date or '' }}">
+        <input type="hidden" name="end_date" value="{{ end_date or '' }}">
+        <input type="text" name="product_search" value="{{ product_studio.search }}" placeholder="Cari SKU, nama, atau kategori produk">
+        <button type="submit">Terapkan Filter Produk</button>
+        {% if can('manage_product_master') %}
+        <button type="button" class="ghost-button" onclick="toggleForm()">Tambah Produk</button>
+        <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
+        {% endif %}
+    </form>
+
+    {% if not can('manage_product_master') %}
+    <small class="helper-text">Akun ini hanya bisa melihat studio produk. Tambah, import, hapus, dan edit detail hanya tersedia untuk admin, leader, owner, atau super admin.</small>
+    {% endif %}
+
+    {% if can('manage_product_master') %}
+    <div class="import-box product-studio-import-box">
+        <div class="section-title">
+            <div>
+                <h3>Bulk Import Produk</h3>
+                <p>Unggah file Excel atau CSV untuk menambahkan banyak produk dari area kerja yang sama.</p>
+            </div>
+        </div>
+
+        <div id="importStatus"></div>
+
+        <div class="top-bar products-import-bar">
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+            <button type="button" class="ghost-button" onclick="previewImport()">Preview File</button>
+            <button type="button" onclick="submitImport()">Mulai Import</button>
+        </div>
+
+        <small class="helper-text">
+            Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
+            Kolom opsional: <span class="mono">color, variant_code, gtin</span>.
+        </small>
+
+        <div id="previewBox"></div>
+
+        <div id="progressWrapper" class="import-progress">
+            <div id="progressText" class="progress-text"></div>
+            <div class="progress-track">
+                <div id="progressBar" class="progress-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="formBox" class="form-box products-manual-box" {% if active_workspace == 'products' %}style="display:block;"{% else %}style="display:none;"{% endif %}>
+        <div class="section-title">
+            <div>
+                <h3>Tambah Produk Manual</h3>
+                <p>Masukkan data master, lalu susun variasi satu per satu tanpa meninggalkan workspace stok.</p>
+            </div>
+        </div>
+
+        <div id="manualProductStatus"></div>
+
+        <form id="manualProductForm" method="POST" action="/products/add" onsubmit="return handleManualSubmit(event)">
+            <input type="hidden" name="variant_rows_json" id="variantRowsJson">
+
+            <div class="form-grid">
+                <div>
+                    <label>SKU</label>
+                    <input type="text" name="sku" placeholder="Contoh: MS-SEP-001" required>
+                </div>
+                <div>
+                    <label>Nama Produk</label>
+                    <input type="text" name="name" placeholder="Masukkan nama produk" required>
+                </div>
+                <div>
+                    <label>Kategori</label>
+                    <input type="text" name="category_name" placeholder="Sepatu, Jersey, Aksesoris" required>
+                </div>
+                <div>
+                    <label>Gudang Awal</label>
+                    <select name="warehouse_id" {% if is_scoped_user %}disabled{% endif %}>
+                        {% for w in warehouses %}
+                        <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if is_scoped_user %}
+                    <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}">
+                    <small class="helper-text">Gudang awal dikunci mengikuti gudang akun Anda.</small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="section-title stack-gap-md">
+                <div>
+                    <h3>Variasi Manual</h3>
+                    <p>Setiap baris mewakili satu size, warna, atau kombinasi variasi produk.</p>
+                </div>
+                <button type="button" class="ghost-button" onclick="addVariantRow()">Tambah Baris</button>
+            </div>
+
+            <div class="table-box variant-builder" data-scrollable-table="1">
+                <table class="variant-builder-table">
+                    <thead>
+                        <tr>
+                            <th>Size / Variasi</th>
+                            <th>* Harga</th>
+                            <th>* Stok</th>
+                            <th>Kode Variasi</th>
+                            <th>GTIN Opsional</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="variantRowsBody"></tbody>
+                </table>
+            </div>
+
+            <small class="helper-text">
+                Jika hanya ada satu produk tanpa variasi, cukup isi satu baris dan biarkan kolom size kosong.
+            </small>
+
+            <div class="split-actions stack-gap-md">
+                <button id="btnSubmit" type="submit">Simpan Produk</button>
+                <button type="button" class="ghost-button" onclick="toggleForm()">Tutup Form</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="table-box products-list-box" id="productsListBox" data-scrollable-table="1">
+        <div class="section-title">
+            <div>
+                <h3>Daftar Master Produk</h3>
+                <p>Klik kanan pada baris produk untuk membuka editor detail tanpa keluar dari workspace.</p>
+            </div>
+        </div>
+
+        {% if product_studio.data %}
+        <table>
+            <thead>
+                <tr>
+                    {% if can('manage_product_master') %}
+                    <th><input type="checkbox" id="productCheckAll"></th>
+                    {% endif %}
+                    <th>SKU</th>
+                    <th>Nama</th>
+                    <th>Kategori</th>
+                    <th>Qty</th>
+                    <th>Aging</th>
+                    {% if can('manage_product_master') %}
+                    <th>Aksi</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in product_studio.data %}
+                <tr
+                    data-product-studio-row="1"
+                    data-product-id="{{ p.id }}"
+                    data-product-sku="{{ p.sku|e }}"
+                    data-product-name="{{ p.name|e }}"
+                    data-product-category="{{ (p.category or '')|e }}"
+                >
+                    {% if can('manage_product_master') %}
+                    <td><input type="checkbox" class="product-row-check" value="{{ p.id }}"></td>
+                    {% endif %}
+                    <td class="mono">{{ p.sku }}</td>
+                    <td>{{ p.name }}</td>
+                    <td>{{ p.category or '-' }}</td>
+                    <td>
+                        {% if p.qty == 0 %}
+                        <span class="badge red">{{ p.qty }}</span>
+                        {% else %}
+                        <span class="badge green">{{ p.qty }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% set age = p.age_days or 0 %}
+                        {% if age > 180 %}
+                        <span class="badge red">{{ age }} hari</span>
+                        {% elif age > 90 %}
+                        <span class="badge orange">{{ age }} hari</span>
+                        {% else %}
+                        <span class="badge">{{ age }} hari</span>
+                        {% endif %}
+                    </td>
+                    {% if can('manage_product_master') %}
+                    <td>
+                        <form method="POST" action="/products/delete/{{ p.id }}" onsubmit="return confirm('Hapus produk ini?')">
+                            <button type="submit" class="ghost-button">Hapus</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% set pagination = product_studio.pagination %}
+        {% include "partials/pagination_nav.html" %}
+        {% else %}
+        <div class="empty-state">Belum ada produk yang cocok dengan filter saat ini.</div>
+        {% endif %}
+    </div>
+</section>

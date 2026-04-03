@@ -4,16 +4,22 @@
         return;
     }
 
-    const sdkReady = root.dataset.sdkReady === "1";
-    const sdkVersion = root.dataset.sdkVersion || "5.1.4";
-    const webEndpoint = root.dataset.webEndpoint || "zoom.us";
+    const provider = root.dataset.provider || "jitsi";
+    const meetingDomain = root.dataset.meetingDomain || "meet.jit.si";
     const leaveUrl = root.dataset.leaveUrl || "/meetings/";
+    const participantLimit = Number(root.dataset.participantLimit || 10);
     const stageTitle = document.getElementById("meetingStageTitle");
     const stageDescription = document.getElementById("meetingStageDescription");
     const stageError = document.getElementById("meetingStageError");
     const stageBox = document.getElementById("meetingStageBox");
+    const stageHost = document.getElementById("meetingStageHost");
     const profilePill = document.getElementById("meetingStageProfilePill");
     const networkPill = document.getElementById("meetingStageNetworkPill");
+    const participantPill = document.getElementById("meetingStageParticipantPill");
+    const stageLoader = document.getElementById("meetingStageLoader");
+    const stageHints = document.getElementById("meetingStageHints");
+
+    let participantCount = 1;
 
     function setStageStatus(title, description) {
         if (stageTitle) {
@@ -35,6 +41,11 @@
         }
     }
 
+    function updateParticipantPill() {
+        const tone = participantCount > participantLimit ? "warning" : "success";
+        setPillState(participantPill, `Peserta: ${participantCount}`, tone);
+    }
+
     function showError(message) {
         if (stageError) {
             stageError.hidden = false;
@@ -53,7 +64,7 @@
 
         let rawValue = "";
         try {
-            rawValue = sessionStorage.getItem(`wms-zoom-state:${stateId}`) || "";
+            rawValue = sessionStorage.getItem(`wms-meeting-state:${stateId}`) || "";
         } catch (error) {
             throw new Error("Browser menolak membaca data sesi meeting. Coba ulangi dari portal.");
         }
@@ -69,73 +80,115 @@
         }
     }
 
-    function initZoomMeeting(meetingState) {
-        if (typeof window.ZoomMtg === "undefined") {
-            throw new Error("Zoom Meeting SDK tidak berhasil dimuat di browser ini.");
+    function revealMeetingStage() {
+        if (stageHost) {
+            stageHost.hidden = false;
+        }
+        if (stageLoader) {
+            stageLoader.hidden = true;
+        }
+        if (stageHints) {
+            stageHints.hidden = true;
+        }
+        if (stageBox) {
+            stageBox.classList.add("is-live");
+        }
+    }
+
+    function buildJitsiOptions(meetingState) {
+        return {
+            roomName: meetingState.roomName,
+            width: "100%",
+            height: "100%",
+            parentNode: stageHost,
+            lang: meetingState.language || "id-ID",
+            userInfo: {
+                displayName: meetingState.displayName || "Guest",
+                email: meetingState.email || "",
+            },
+            configOverwrite: {
+                prejoinPageEnabled: false,
+                disableDeepLinking: true,
+                startAudioOnly: Boolean(meetingState.startAudioOnly),
+                startWithVideoMuted: Boolean(meetingState.startWithVideoMuted),
+                startWithAudioMuted: false,
+                doNotStoreRoom: true,
+                enableClosePage: false,
+                hideConferenceTimer: false,
+                resolution: Number(meetingState.videoResolution || 360),
+                constraints: {
+                    video: {
+                        height: {
+                            ideal: Number(meetingState.videoResolution || 360),
+                            max: Number(meetingState.videoResolution || 540),
+                            min: 180,
+                        },
+                    },
+                },
+                channelLastN: Number(meetingState.channelLastN || 6),
+                enableLayerSuspension: true,
+                p2p: {
+                    enabled: true,
+                },
+                toolbarButtons: Array.isArray(meetingState.toolbarButtons) ? meetingState.toolbarButtons : undefined,
+                subject: meetingState.topic || "",
+            },
+            interfaceConfigOverwrite: {
+                MOBILE_APP_PROMO: false,
+                HIDE_INVITE_MORE_HEADER: true,
+                TILE_VIEW_MAX_COLUMNS: 3,
+                SHOW_JITSI_WATERMARK: false,
+                SHOW_WATERMARK_FOR_GUESTS: false,
+            },
+        };
+    }
+
+    function initBrowserMeeting(meetingState) {
+        if (provider !== "jitsi") {
+            throw new Error("Provider meeting ini belum didukung di browser room baru.");
+        }
+        if (typeof window.JitsiMeetExternalAPI === "undefined") {
+            throw new Error("Engine meeting browser tidak berhasil dimuat. Coba reload halaman ini.");
+        }
+        if (!stageHost) {
+            throw new Error("Area stage meeting tidak ditemukan.");
         }
 
         setPillState(profilePill, `Profil: ${meetingState.profileLabel || meetingState.profile || "-"}`, "success");
-        setPillState(networkPill, "Status: Menyiapkan client view", "warning");
-        setStageStatus("Menyiapkan Zoom Client View...", "SDK sedang memuat komponen meeting dan bahasa antarmuka.");
+        setPillState(networkPill, "Status: Menyiapkan room", "warning");
+        updateParticipantPill();
+        setStageStatus("Menyiapkan Browser Room...", "Menghubungkan user ke stage meeting ringan tanpa secret key server.");
 
-        window.ZoomMtg.setZoomJSLib(`https://source.zoom.us/${sdkVersion}/lib`, "/av");
-        window.ZoomMtg.preLoadWasm();
-        window.ZoomMtg.prepareWebSDK();
-        window.ZoomMtg.i18n.load(meetingState.language || "id-ID");
-        window.ZoomMtg.i18n.onLoad(function () {
-            window.ZoomMtg.init({
-                leaveUrl: meetingState.leaveUrl || leaveUrl,
-                webEndpoint: meetingState.webEndpoint || webEndpoint,
-                disableCORP: !window.crossOriginIsolated,
-                disablePreview: Boolean(meetingState.disablePreview),
-                success: function () {
-                    setPillState(networkPill, "Status: Menghubungkan", "warning");
-                    setStageStatus("Menghubungkan ke room...", "Meeting number dan signature sudah siap. Browser akan lanjut masuk ke room.");
+        const api = new window.JitsiMeetExternalAPI(meetingState.domain || meetingDomain, buildJitsiOptions(meetingState));
 
-                    window.ZoomMtg.join({
-                        meetingNumber: meetingState.meetingNumber,
-                        userName: meetingState.displayName,
-                        signature: meetingState.signature,
-                        passWord: meetingState.passcode,
-                        userEmail: meetingState.email || "",
-                        success: function () {
-                            setPillState(networkPill, "Status: Live", "success");
-                            setStageStatus("Meeting berhasil dibuka", "Client view sudah aktif. Jika UI Zoom tampil penuh, itu normal.");
-                            if (stageBox) {
-                                stageBox.classList.add("is-minimized");
-                            }
-                        },
-                        error: function (error) {
-                            const joinedMessage = error && (error.errorMessage || error.reason || error.message);
-                            showError(joinedMessage || "Zoom menolak join meeting. Cek nomor meeting, passcode, atau status room.");
-                        },
-                    });
-                },
-                error: function (error) {
-                    const initMessage = error && (error.errorMessage || error.reason || error.message);
-                    showError(initMessage || "Gagal menyalakan Zoom client view.");
-                },
-            });
+        api.addListener("videoConferenceJoined", function () {
+            revealMeetingStage();
+            setPillState(networkPill, "Status: Live", "success");
+            setStageStatus("Meeting berhasil dibuka", "Room browser sudah aktif. Kalau audio sudah masuk, meeting siap dipakai.");
+        });
 
-            if (typeof window.ZoomMtg.inMeetingServiceListener === "function") {
-                window.ZoomMtg.inMeetingServiceListener("onMeetingStatus", function (payload) {
-                    if (!payload || typeof payload.meetingStatus === "undefined") {
-                        return;
-                    }
-                    if (payload.meetingStatus === 2) {
-                        setPillState(networkPill, "Status: In Meeting", "success");
-                    }
-                });
-            }
+        api.addListener("participantJoined", function () {
+            participantCount += 1;
+            updateParticipantPill();
+        });
+
+        api.addListener("participantLeft", function () {
+            participantCount = Math.max(1, participantCount - 1);
+            updateParticipantPill();
+        });
+
+        api.addListener("readyToClose", function () {
+            window.location.href = leaveUrl;
+        });
+
+        api.addListener("videoConferenceLeft", function () {
+            window.location.href = leaveUrl;
         });
     }
 
     try {
-        if (!sdkReady) {
-            throw new Error("Meeting SDK belum dikonfigurasi di server. Hubungi admin untuk mengisi SDK key dan secret.");
-        }
         const meetingState = readMeetingState();
-        initZoomMeeting(meetingState);
+        initBrowserMeeting(meetingState);
     } catch (error) {
         showError(error.message || "Meeting tidak bisa dibuka.");
     }

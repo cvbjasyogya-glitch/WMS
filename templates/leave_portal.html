@@ -99,6 +99,92 @@
         </div>
     </form>
 </div>
+
+<div class="table-box stack-scroll-shell">
+    <div class="section-title">
+        <div>
+            <h2>Log Pengajuan {{ leave_log_month_label }}</h2>
+            <p>Riwayat di bawah otomatis fokus ke bulan yang dipilih, jadi saat bulan berganti tampilan log ikut refresh ke periode terbaru tanpa numpuk semua data.</p>
+        </div>
+    </div>
+
+    <form method="GET" action="/libur/" class="form-grid" style="margin-bottom:16px; grid-template-columns:minmax(180px, 240px) auto;">
+        <div>
+            <label>Periode Log</label>
+            <input type="month" name="month" value="{{ leave_log_month_value }}">
+        </div>
+        <div class="split-actions attendance-submit-row" style="margin:0; align-self:end;">
+            <button type="submit">Tampilkan Log</button>
+        </div>
+    </form>
+
+    <div class="summary">
+        <div class="card-mini">
+            <p>Total Pengajuan</p>
+            <h3>{{ leave_history_summary.total }}</h3>
+        </div>
+        <div class="card-mini {% if leave_history_summary.pending %}warning{% endif %}">
+            <p>Pending</p>
+            <h3>{{ leave_history_summary.pending }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Approved</p>
+            <h3>{{ leave_history_summary.approved }}</h3>
+        </div>
+        <div class="card-mini warning">
+            <p>Total Hari</p>
+            <h3>{{ leave_history_summary.total_days }}</h3>
+        </div>
+    </div>
+
+    {% if leave_history %}
+    <div class="stack-scroll-list">
+        {% for leave in leave_history %}
+        <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="section-title">
+                <div>
+                    <h3>{{ leave.leave_type_label }} • {{ leave.range_label }}</h3>
+                    <p>{{ leave.warehouse_name or "-" }} • Diajukan {{ leave.created_at_label }} • {{ leave.total_days }} hari</p>
+                </div>
+                <span class="badge {{ leave.status_badge_class }}">{{ leave.status_label }}</span>
+            </div>
+
+            <div class="attendance-identity-grid">
+                <div class="meta-card">
+                    <span>Diproses Oleh</span>
+                    <strong>{{ leave.handled_by_name or "Menunggu review" }}</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Diproses Pada</span>
+                    <strong>{{ leave.handled_at_label }}</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Status</span>
+                    <strong>{{ leave.status_label }}</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Total Hari</span>
+                    <strong>{{ leave.total_days }}</strong>
+                </div>
+            </div>
+
+            <div class="form-grid">
+                <div style="grid-column: 1 / -1;">
+                    <label>Alasan</label>
+                    <div class="empty-state">{{ leave.reason or "-" }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Tambahan</label>
+                    <div class="empty-state">{{ leave.note or "-" }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada pengajuan libur yang masuk di {{ leave_log_month_label }}.</div>
+    {% endif %}
+</div>
 {% else %}
 <div class="form-box">
     <div class="empty-state">

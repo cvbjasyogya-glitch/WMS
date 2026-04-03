@@ -47,9 +47,10 @@ def login():
     next_target = _safe_login_redirect_target(
         request.form.get("next") or request.args.get("next")
     )
+    default_target = url_for("dashboard.workspace_gateway")
 
     if request.method == "GET" and session.get("user_id"):
-        return redirect(next_target or "/")
+        return redirect(next_target or default_target)
 
     if request.method == "POST":
 
@@ -147,7 +148,7 @@ def login():
         session["last_active"] = datetime.now(timezone.utc).timestamp()
         session.permanent = True
 
-        return redirect(next_target or "/")
+        return redirect(next_target or default_target)
 
     return render_template("login.html", next_url=next_target or "")
 

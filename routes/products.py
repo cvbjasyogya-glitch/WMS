@@ -1,4 +1,6 @@
-from flask import Blueprint, render_template, request, redirect, jsonify, flash, session
+from urllib.parse import urlencode
+
+from flask import Blueprint, request, redirect, jsonify, flash, session
 from database import get_db
 from services.notification_service import notify_operational_event
 from services.pagination import build_pagination_state
@@ -19,6 +21,7 @@ except ImportError:
 products_bp = Blueprint("products", __name__, url_prefix="/products")
 
 IMPORT_PROGRESS = {}
+PRODUCT_STUDIO_REDIRECT_PATH = "/stock/"
 
 
 def _can_manage_product_master():
@@ -40,7 +43,7 @@ def _require_product_master_access(json_mode=False):
         return _products_json_error(message, 403)
 
     flash(message, "error")
-    return redirect("/products")
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
 
 
 def _is_ajax_request():
@@ -57,7 +60,7 @@ def _products_success_response(message, **payload):
         return jsonify(response), 200
 
     flash(message, "success")
-    return redirect("/products")
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
 
 
 def _products_error_response(message, status_code=400, **payload):
@@ -67,7 +70,7 @@ def _products_error_response(message, status_code=400, **payload):
         return jsonify(response), status_code
 
     flash(message, "error")
-    return redirect("/products")
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
 
 
 def _to_float(value):
@@ -263,6 +266,114 @@ def _resolve_import_warehouse(db, raw_warehouse_id, default_warehouse_id):
         (warehouse_id,),
     ).fetchone()
     return warehouse["id"] if warehouse else default_warehouse_id
+
+
+def build_product_studio_context(
+    db,
+    warehouse_id,
+    search="",
+    page=1,
+    base_path="/stock/",
+    extra_params=None,
+    page_param="product_page",
+):
+    search = (search or "").strip()
+
+    try:
+        page = int(page or 1)
+        if page < 1:
+            page = 1
+    except (TypeError, ValueError):
+        page = 1
+
+    limit = 10
+    offset = (page - 1) * limit
+    search_param = f"%{search}%"
+
+    data_raw = db.execute(
+        """
+        SELECT
+            p.id,
+            p.sku,
+            p.name,
+            COALESCE(c.name, '-') as category,
+            COALESCE((
+                SELECT SUM(qty)
+                FROM stock
+                WHERE product_id = p.id AND warehouse_id = ?
+            ),0) as qty,
+            MIN(b.created_at) as first_in,
+            COALESCE(
+                CAST((JULIANDAY('now') - JULIANDAY(MIN(b.created_at))) AS INTEGER),
+                0
+            ) as age_days
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN stock_batches b
+            ON p.id = b.product_id
+            AND b.warehouse_id = ?
+            AND b.remaining_qty > 0
+        WHERE
+            (? = '' OR
+             p.name LIKE ? OR
+             p.sku LIKE ? OR
+             c.name LIKE ?)
+        GROUP BY p.id
+        ORDER BY age_days DESC
+        LIMIT ? OFFSET ?
+        """,
+        (
+            warehouse_id,
+            warehouse_id,
+            search,
+            search_param,
+            search_param,
+            search_param,
+            limit,
+            offset,
+        ),
+    ).fetchall()
+
+    total = db.execute(
+        """
+        SELECT COUNT(*) as total
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE
+            (? = '' OR
+             p.name LIKE ? OR
+             p.sku LIKE ? OR
+             c.name LIKE ?)
+        """,
+        (
+            search,
+            search_param,
+            search_param,
+            search_param,
+        ),
+    ).fetchone()["total"]
+
+    total_pages = max(1, (total + limit - 1) // limit)
+    pagination_params = dict(extra_params or {})
+    pagination_params["product_search"] = search
+
+    pagination = build_pagination_state(
+        base_path,
+        page,
+        total_pages,
+        pagination_params,
+        group_size=5,
+        page_param=page_param,
+    )
+
+    return {
+        "data": [dict(r) for r in data_raw],
+        "search": search,
+        "page": page,
+        "total_pages": total_pages,
+        "total_items": total,
+        "pagination": pagination,
+    }
 
 
 def _resolve_picker_warehouse(db, raw_warehouse_id):
@@ -656,111 +767,26 @@ def product_picker():
 
 @products_bp.route("/")
 def products():
-
     db = get_db()
     warehouse_id = _resolve_products_warehouse(db)
+    params = {
+        "workspace": "products",
+        "warehouse": warehouse_id,
+    }
+
+    search = (request.args.get("search") or "").strip()
+    if search:
+        params["product_search"] = search
 
     try:
         page = int(request.args.get("page", 1))
-    except:
+    except (TypeError, ValueError):
         page = 1
 
-    search = request.args.get("search", "").strip()
+    if page > 1:
+        params["product_page"] = page
 
-    limit = 10
-    offset = (page - 1) * limit
-
-    search_param = f"%{search}%"
-
-    data_raw = db.execute("""
-        SELECT 
-            p.id,
-            p.sku,
-            p.name,
-            c.name as category,
-
-            COALESCE((
-                SELECT SUM(qty) 
-                FROM stock 
-                WHERE product_id = p.id AND warehouse_id = ?
-            ),0) as qty,
-
-            MIN(b.created_at) as first_in,
-
-            COALESCE(
-                CAST((JULIANDAY('now') - JULIANDAY(MIN(b.created_at))) AS INTEGER),
-                0
-            ) as age_days
-
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN stock_batches b
-            ON p.id = b.product_id
-            AND b.warehouse_id = ?
-            AND b.remaining_qty > 0
-
-        WHERE
-            (? = '' OR 
-             p.name LIKE ? OR 
-             p.sku LIKE ? OR 
-             c.name LIKE ?)
-
-        GROUP BY p.id
-        ORDER BY age_days DESC
-        LIMIT ? OFFSET ?
-    """, (
-        warehouse_id,
-        warehouse_id,
-        search,
-        search_param,
-        search_param,
-        search_param,
-        limit,
-        offset
-    )).fetchall()
-
-    total = db.execute("""
-        SELECT COUNT(*) as total
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        WHERE
-            (? = '' OR 
-             p.name LIKE ? OR 
-             p.sku LIKE ? OR 
-             c.name LIKE ?)
-    """, (
-        search,
-        search_param,
-        search_param,
-        search_param
-    )).fetchone()["total"]
-
-    total_pages = max(1, (total + limit - 1) // limit)
-    pagination = build_pagination_state(
-        "/products/",
-        page,
-        total_pages,
-        {
-            "search": search,
-            "warehouse": warehouse_id,
-        },
-        group_size=5,
-    )
-
-    data = [dict(r) for r in data_raw]
-
-    warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
-
-    return render_template(
-        "produk.html",
-        data=data,
-        warehouses=warehouses,
-        warehouse_id=warehouse_id,
-        search=search,
-        page=page,
-        total_pages=total_pages,
-        pagination=pagination,
-    )
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?{urlencode(params)}")
 
 
 @products_bp.route("/bulk-delete", methods=["POST"])
@@ -926,7 +952,7 @@ def delete_product(id):
         print("DELETE ERROR:", e)
         flash("Gagal menghapus produk", "error")
 
-    return redirect("/products")
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
 
 
 @products_bp.route("/import/progress/<job_id>")
@@ -1129,7 +1155,7 @@ def import_products():
                 ),
                 warehouse_id=warehouse_id,
                 category="inventory",
-                link_url="/products/",
+                link_url="/stock/?workspace=products",
                 source_type="product_import_job",
                 source_id=job_id,
                 push_title="Import produk selesai",

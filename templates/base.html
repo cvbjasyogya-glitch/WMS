@@ -13,6 +13,9 @@
 <link rel="icon" type="image/png" href="/static/brand/mataram-logo.png">
 <link rel="apple-touch-icon" href="/static/brand/mataram-logo.png">
 <link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <script>
 (() => {
     try {
@@ -92,6 +95,7 @@
     </div>
 
     <nav class="sidebar-nav">
+        {% set is_workspace_home_active = request.path.startswith('/workspace') %}
         {% set is_meeting_active = request.path.startswith('/meetings') %}
         {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') or is_meeting_active %}
         {% set is_announcements_active = request.path.startswith('/announcements') %}
@@ -112,7 +116,7 @@
             <div class="sidebar-group sidebar-single {% if is_meeting_active %}active{% endif %}">
                 <a href="/meetings/" class="{% if is_meeting_active %}active{% endif %}">Meeting Live</a>
             </div>
-            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_coordination_active %}active{% endif %}" {% if is_coordination_active %}open{% endif %}>
+            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_coordination_active %}active{% endif %}" data-sidebar-group="coordination" {% if is_coordination_active %}open{% endif %}>
                 <summary class="sidebar-group-toggle">
                     <span class="sidebar-group-label">Penjadwalan</span>
                     <span class="sidebar-group-icon" aria-hidden="true"></span>
@@ -130,6 +134,9 @@
         {% endif %}
         <div class="sidebar-section">
             <p class="sidebar-section-label">Workspace</p>
+            <div class="sidebar-group sidebar-single {% if is_workspace_home_active %}active{% endif %}" data-sidebar-group="workspace-home">
+                <a href="/workspace/" class="{% if is_workspace_home_active %}active{% endif %}">Pusat Modul</a>
+            </div>
             <div class="sidebar-group sidebar-single {% if is_product_lookup_active %}active{% endif %}">
                 <a href="/info-produk/" class="{% if is_product_lookup_active %}active{% endif %}">Info Produk</a>
             </div>
@@ -139,19 +146,18 @@
             </div>
             {% endif %}
             {% if not is_hr_role %}
-            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_wms_active %}active{% endif %}" {% if is_wms_active %}open{% endif %}>
+            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_wms_active %}active{% endif %}" data-sidebar-group="wms" {% if is_wms_active %}open{% endif %}>
                 <summary class="sidebar-group-toggle">
                     <span class="sidebar-group-label">WMS</span>
                     <span class="sidebar-group-icon" aria-hidden="true"></span>
                 </summary>
                 <div class="sidebar-subnav">
                     <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-                    <a href="/products" class="{% if request.path.startswith('/products') %}active{% endif %}">Produk</a>
-                    <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok Gudang</a>
+                    <a href="/stock" class="{% if request.path.startswith('/stock') or request.path.startswith('/products') %}active{% endif %}">Stok &amp; Produk</a>
                     <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
                     <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
                     <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
-                    <details class="sidebar-subgroup sidebar-disclosure {% if is_request_active %}active{% endif %}" {% if is_request_active %}open{% endif %}>
+                    <details class="sidebar-subgroup sidebar-disclosure {% if is_request_active %}active{% endif %}" data-sidebar-subgroup="request" {% if is_request_active %}open{% endif %}>
                         <summary class="sidebar-subgroup-toggle">
                             <span class="sidebar-subgroup-label">Request</span>
                             <span class="sidebar-group-icon" aria-hidden="true"></span>
@@ -172,7 +178,7 @@
             </details>
             {% endif %}
             {% if sidebar_hris_modules %}
-            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_hris_active %}active{% endif %}" {% if is_hris_active %}open{% endif %}>
+            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_hris_active %}active{% endif %}" data-sidebar-group="hris" {% if is_hris_active %}open{% endif %}>
                 <summary class="sidebar-group-toggle">
                     <span class="sidebar-group-label">HRIS</span>
                     <span class="sidebar-group-icon" aria-hidden="true"></span>
@@ -452,7 +458,7 @@
 
 {% if has_app_shell %}
 <nav class="mobile-dock">
-    <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
+    <a href="/workspace/" class="{% if request.path.startswith('/workspace') %}active{% endif %}">Home</a>
     <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok</a>
     <a href="/request" class="{% if request.path.startswith('/request') %}active{% endif %}">Request</a>
     <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Opname</a>
@@ -467,6 +473,98 @@ const pageActionsDesktopSlot = document.getElementById("pageActionsDesktopSlot")
 const mobilePageActionsSlot = document.getElementById("mobilePageActionsSlot");
 const mobileCommandDeck = document.getElementById("mobileCommandDeck");
 const mobileCommandBadge = document.getElementById("mobileCommandBadge");
+const SIDEBAR_SCROLL_KEY = "wms-sidebar-scroll-top";
+const SIDEBAR_DISCLOSURE_KEY = "wms-sidebar-disclosure-state";
+
+function getSidebarNode() {
+    return document.getElementById("menu");
+}
+
+function readSidebarStorage(key, fallback) {
+    try {
+        const value = sessionStorage.getItem(key);
+        return value === null ? fallback : value;
+    } catch (error) {
+        return fallback;
+    }
+}
+
+function writeSidebarStorage(key, value) {
+    try {
+        sessionStorage.setItem(key, value);
+    } catch (error) {
+    }
+}
+
+function captureSidebarDisclosureState() {
+    const state = {};
+    document.querySelectorAll("#menu details[data-sidebar-group], #menu details[data-sidebar-subgroup]").forEach((node) => {
+        const key = node.dataset.sidebarGroup || `subgroup:${node.dataset.sidebarSubgroup || ""}`;
+        if (!key) {
+            return;
+        }
+        state[key] = node.open;
+    });
+    return state;
+}
+
+function persistSidebarDisclosureState() {
+    if (!hasAppShell) {
+        return;
+    }
+    writeSidebarStorage(SIDEBAR_DISCLOSURE_KEY, JSON.stringify(captureSidebarDisclosureState()));
+}
+
+function restoreSidebarDisclosureState() {
+    if (!hasAppShell) {
+        return;
+    }
+
+    let storedState = {};
+    try {
+        storedState = JSON.parse(readSidebarStorage(SIDEBAR_DISCLOSURE_KEY, "{}")) || {};
+    } catch (error) {
+        storedState = {};
+    }
+
+    document.querySelectorAll("#menu details[data-sidebar-group], #menu details[data-sidebar-subgroup]").forEach((node) => {
+        const key = node.dataset.sidebarGroup || `subgroup:${node.dataset.sidebarSubgroup || ""}`;
+        if (!key || storedState[key] === undefined) {
+            return;
+        }
+        node.open = Boolean(storedState[key]);
+    });
+}
+
+function persistSidebarScrollPosition() {
+    if (!hasAppShell) {
+        return;
+    }
+    const sidebar = getSidebarNode();
+    if (!sidebar) {
+        return;
+    }
+    writeSidebarStorage(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop || 0));
+}
+
+function restoreSidebarScrollPosition() {
+    if (!hasAppShell) {
+        return;
+    }
+    const sidebar = getSidebarNode();
+    if (!sidebar) {
+        return;
+    }
+
+    const storedTop = parseInt(readSidebarStorage(SIDEBAR_SCROLL_KEY, "0"), 10);
+    if (!Number.isFinite(storedTop) || storedTop <= 0) {
+        return;
+    }
+
+    window.requestAnimationFrame(() => {
+        sidebar.scrollTop = storedTop;
+    });
+}
 
 function getDeviceMode() {
     if (window.innerWidth <= 767) {
@@ -620,9 +718,20 @@ document.querySelectorAll(".flash").forEach((flash) => {
 if (hasAppShell) {
     document.querySelectorAll("#menu nav a, #menu .sidebar-footer a, #menu form button").forEach((node) => {
         node.addEventListener("click", () => {
+            persistSidebarScrollPosition();
+            persistSidebarDisclosureState();
             if (window.innerWidth <= 1080) {
                 closeMenu();
             }
+        });
+    });
+
+    const sidebarNode = getSidebarNode();
+    sidebarNode?.addEventListener("scroll", persistSidebarScrollPosition, { passive: true });
+    document.querySelectorAll("#menu details[data-sidebar-group], #menu details[data-sidebar-subgroup]").forEach((node) => {
+        node.addEventListener("toggle", () => {
+            persistSidebarDisclosureState();
+            restoreSidebarScrollPosition();
         });
     });
 }
@@ -641,9 +750,11 @@ if (hasAppShell) {
     } catch (error) {
         applyDesktopSidebarState(false, false);
     }
+    restoreSidebarDisclosureState();
 }
 
 syncResponsiveShell();
+restoreSidebarScrollPosition();
 
 window.addEventListener("resize", () => {
     if (!hasAppShell) {
@@ -656,6 +767,12 @@ window.addEventListener("resize", () => {
         applyDesktopSidebarState(false, false);
     }
     syncResponsiveShell();
+    restoreSidebarScrollPosition();
+});
+
+window.addEventListener("beforeunload", () => {
+    persistSidebarDisclosureState();
+    persistSidebarScrollPosition();
 });
 </script>
 
@@ -727,7 +844,6 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
 <script src="/static/js/chat_widget.js"></script>
 {% endif %}
 {% endif %}
-<script src="/static/js/manual_table_sort.js"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

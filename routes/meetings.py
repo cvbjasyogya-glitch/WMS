@@ -1,8 +1,4 @@
-import base64
-import hashlib
-import hmac
-import json
-import time
+from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
@@ -15,68 +11,133 @@ meetings_bp = Blueprint("meetings", __name__, url_prefix="/meetings")
 MEETING_LANGUAGE_OPTIONS = [
     ("id-ID", "Bahasa Indonesia"),
     ("en-US", "English"),
-    ("zh-CN", "Chinese"),
-    ("ja-JP", "Japanese"),
 ]
 
 MEETING_JOIN_PROFILES = [
     {
-        "slug": "smart-saver",
-        "label": "Smart Saver",
-        "badge": "Default",
-        "description": "Preview kamera dimatikan, cocok untuk meeting harian yang perlu hemat daya dan kuota.",
-        "summary": "Paling aman untuk mobile dan jaringan campuran.",
-        "disable_preview": True,
-        "camera_strategy": "manual",
-    },
-    {
         "slug": "audio-first",
         "label": "Audio First",
-        "badge": "Kuota Rendah",
-        "description": "Masuk dengan fokus audio dulu. Aktifkan kamera manual hanya saat benar-benar perlu.",
-        "summary": "Cocok untuk follow up cepat dan jaringan lemah.",
-        "disable_preview": True,
+        "badge": "Recommended",
+        "description": "Masuk dengan audio dulu, kamera tetap mati di awal supaya paling ringan untuk briefing dan koordinasi cepat.",
+        "summary": "Paling aman untuk 6-10 orang di jaringan campuran.",
         "camera_strategy": "manual",
+        "start_audio_only": True,
+        "start_with_video_muted": True,
+        "video_resolution": 360,
+        "channel_last_n": 6,
+        "toolbar_compact": True,
+    },
+    {
+        "slug": "smart-saver",
+        "label": "Smart Saver",
+        "badge": "Hemat",
+        "description": "Tetap fokus ke performa ringan. Audio aktif, kamera mati di awal, cocok untuk mobile dan laptop operasional.",
+        "summary": "Bagus untuk daily check dan follow up gudang.",
+        "camera_strategy": "manual",
+        "start_audio_only": False,
+        "start_with_video_muted": True,
+        "video_resolution": 360,
+        "channel_last_n": 6,
+        "toolbar_compact": True,
     },
     {
         "slug": "balanced",
         "label": "Balanced",
         "badge": "Stabil",
-        "description": "Experience standar dengan ruang untuk diskusi audio dan video saat diperlukan.",
-        "summary": "Pilihan aman untuk desktop dan laptop kantor.",
-        "disable_preview": False,
+        "description": "Masuk dengan setting moderat, tetap aman untuk diskusi rutin tanpa terlalu membebani browser.",
+        "summary": "Cocok untuk standup tim dan review operasional.",
         "camera_strategy": "optional",
+        "start_audio_only": False,
+        "start_with_video_muted": True,
+        "video_resolution": 540,
+        "channel_last_n": 8,
+        "toolbar_compact": False,
     },
     {
         "slug": "presentation",
         "label": "Presentation",
-        "badge": "Presentasi",
-        "description": "Lebih cocok saat perlu screen sharing, demo produk, atau rapat eksternal formal.",
-        "summary": "Kualitas visual diutamakan, konsumsi daya lebih tinggi.",
-        "disable_preview": False,
+        "badge": "Visual",
+        "description": "Dipakai saat perlu share layar, demo, atau presentasi yang lebih visual. Kamera boleh aktif dari awal.",
+        "summary": "Pakai saat koneksi peserta cukup stabil.",
         "camera_strategy": "ready",
+        "start_audio_only": False,
+        "start_with_video_muted": False,
+        "video_resolution": 720,
+        "channel_last_n": 10,
+        "toolbar_compact": False,
     },
 ]
 
 DEFAULT_MEETING_PROFILE = MEETING_JOIN_PROFILES[0]["slug"]
+DEFAULT_TOOLBAR_BUTTONS = [
+    "microphone",
+    "camera",
+    "desktop",
+    "chat",
+    "participants-pane",
+    "tileview",
+    "raisehand",
+    "hangup",
+    "settings",
+    "fullscreen",
+]
+COMPACT_TOOLBAR_BUTTONS = [
+    "microphone",
+    "camera",
+    "chat",
+    "participants-pane",
+    "hangup",
+    "settings",
+]
 
 
-def _b64url_encode(raw_bytes):
-    return base64.urlsafe_b64encode(raw_bytes).rstrip(b"=").decode("ascii")
+def _meeting_domain():
+    domain = str(current_app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip().lower()
+    if domain.startswith("http://") or domain.startswith("https://"):
+        parsed = urlsplit(domain)
+        domain = parsed.netloc or parsed.path
+    return domain or "meet.jit.si"
 
 
-def _zoom_sdk_ready():
-    return bool(
-        current_app.config.get("ZOOM_MEETING_SDK_KEY")
-        and current_app.config.get("ZOOM_MEETING_SDK_SECRET")
-    )
+def _meeting_room_prefix():
+    raw_value = str(current_app.config.get("JITSI_ROOM_PREFIX") or "erp-bjas").strip().lower()
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in raw_value)
+    cleaned = "-".join(part for part in cleaned.split("-") if part)
+    return cleaned or "erp-bjas"
 
 
-def _sanitize_meeting_number(raw_value):
-    digits_only = "".join(ch for ch in str(raw_value or "") if ch.isdigit())
-    if len(digits_only) < 9 or len(digits_only) > 12:
-        return ""
-    return digits_only
+def _sanitize_room_name(raw_value, fallback=""):
+    candidate = str(raw_value or "").strip()
+    if candidate.startswith("http://") or candidate.startswith("https://"):
+        parsed = urlsplit(candidate)
+        path_segments = [segment for segment in parsed.path.split("/") if segment]
+        candidate = path_segments[-1] if path_segments else ""
+
+    if not candidate:
+        candidate = str(fallback or "").strip()
+
+    candidate = candidate.replace(" ", "-").replace("/", "-").replace("\\", "-").lower()
+    cleaned = []
+    last_dash = False
+    for char in candidate:
+        if char.isalnum() or char in {"-", "_"}:
+            cleaned.append(char)
+            last_dash = False
+            continue
+        if not last_dash:
+            cleaned.append("-")
+            last_dash = True
+
+    room_name = "".join(cleaned).strip("-_")
+    room_name = "-".join(part for part in room_name.split("-") if part)
+
+    if not room_name:
+        room_name = _meeting_room_prefix()
+
+    if len(room_name) < 6:
+        room_name = f"{_meeting_room_prefix()}-{room_name}"
+
+    return room_name[:72]
 
 
 def _sanitize_display_name(raw_value):
@@ -84,8 +145,12 @@ def _sanitize_display_name(raw_value):
     return safe_name[:64]
 
 
-def _sanitize_passcode(raw_value):
-    return str(raw_value or "").strip()[:64]
+def _sanitize_topic(raw_value):
+    return " ".join(str(raw_value or "").strip().split())[:120]
+
+
+def _sanitize_email(raw_value):
+    return str(raw_value or "").strip()[:120]
 
 
 def _resolve_join_profile(raw_value):
@@ -94,35 +159,6 @@ def _resolve_join_profile(raw_value):
         if profile["slug"] == chosen:
             return profile
     return MEETING_JOIN_PROFILES[0]
-
-
-def _create_meeting_signature(meeting_number, role):
-    sdk_key = current_app.config.get("ZOOM_MEETING_SDK_KEY", "")
-    sdk_secret = current_app.config.get("ZOOM_MEETING_SDK_SECRET", "")
-    issued_at = int(time.time()) - 30
-    expires_at = issued_at + int(current_app.config.get("ZOOM_MEETING_SIGNATURE_TTL_SECONDS", 7200))
-
-    header = {"alg": "HS256", "typ": "JWT"}
-    payload = {
-        "sdkKey": sdk_key,
-        "mn": str(meeting_number),
-        "role": int(role),
-        "iat": issued_at,
-        "exp": expires_at,
-        "appKey": sdk_key,
-        "tokenExp": expires_at,
-    }
-
-    encoded_header = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    encoded_payload = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    signing_input = f"{encoded_header}.{encoded_payload}".encode("utf-8")
-    signature = hmac.new(
-        sdk_secret.encode("utf-8"),
-        signing_input,
-        hashlib.sha256,
-    ).digest()
-    encoded_signature = _b64url_encode(signature)
-    return f"{encoded_header}.{encoded_payload}.{encoded_signature}"
 
 
 def _get_current_user_email():
@@ -134,80 +170,84 @@ def _get_current_user_email():
     return (user["email"] if user and user["email"] else "").strip()
 
 
+def _build_meeting_url(room_name):
+    return f"https://{_meeting_domain()}/{room_name}"
+
+
+def _build_meeting_payload(source):
+    profile = _resolve_join_profile(source.get("profile"))
+    display_name = _sanitize_display_name(source.get("displayName") or session.get("username") or "Guest")
+    topic = _sanitize_topic(source.get("topic"))
+    room_name = _sanitize_room_name(
+        source.get("roomName") or source.get("meetingNumber"),
+        fallback=topic or display_name or _meeting_room_prefix(),
+    )
+    language = str(
+        source.get("language")
+        or current_app.config.get("MEETING_DEFAULT_LANGUAGE")
+        or current_app.config.get("ZOOM_MEETING_DEFAULT_LANGUAGE")
+        or "id-ID"
+    ).strip()
+    participant_limit = max(6, min(int(current_app.config.get("JITSI_ROOM_MAX_PARTICIPANTS", 10)), 12))
+
+    return {
+        "status": "success",
+        "provider": "jitsi",
+        "domain": _meeting_domain(),
+        "roomName": room_name,
+        "roomUrl": _build_meeting_url(room_name),
+        "displayName": display_name,
+        "email": _sanitize_email(source.get("email")),
+        "language": language or "id-ID",
+        "profile": profile["slug"],
+        "profileLabel": profile["label"],
+        "topic": topic or f"Meeting {room_name}",
+        "leaveUrl": "/meetings/",
+        "cameraStrategy": profile["camera_strategy"],
+        "startAudioOnly": bool(profile["start_audio_only"]),
+        "startWithVideoMuted": bool(profile["start_with_video_muted"]),
+        "videoResolution": int(profile["video_resolution"]),
+        "channelLastN": int(profile["channel_last_n"]),
+        "participantLimit": participant_limit,
+        "toolbarButtons": COMPACT_TOOLBAR_BUTTONS if profile["toolbar_compact"] else DEFAULT_TOOLBAR_BUTTONS,
+    }
+
+
 @meetings_bp.route("/")
 def portal():
-    configured = _zoom_sdk_ready()
     return render_template(
         "meetings.html",
-        zoom_sdk_ready=configured,
-        zoom_sdk_version=current_app.config.get("ZOOM_MEETING_SDK_VERSION", "5.1.4"),
-        zoom_default_language=current_app.config.get("ZOOM_MEETING_DEFAULT_LANGUAGE", "id-ID"),
-        zoom_web_endpoint=current_app.config.get("ZOOM_MEETING_WEB_ENDPOINT", "zoom.us"),
+        meeting_provider="jitsi",
+        meeting_ready=True,
+        meeting_backend_label="Browser Room",
+        meeting_embed_domain=_meeting_domain(),
         meeting_join_profiles=MEETING_JOIN_PROFILES,
         meeting_language_options=MEETING_LANGUAGE_OPTIONS,
         default_meeting_profile=DEFAULT_MEETING_PROFILE,
         default_display_name=_sanitize_display_name(session.get("username") or "Guest"),
         default_email=_get_current_user_email(),
+        meeting_participant_limit=max(6, min(int(current_app.config.get("JITSI_ROOM_MAX_PARTICIPANTS", 10)), 12)),
     )
 
 
 @meetings_bp.post("/signature")
 def signature():
-    if not _zoom_sdk_ready():
-        return (
-            jsonify(
-                {
-                    "status": "error",
-                    "message": "Meeting SDK belum dikonfigurasi di server. Isi ZOOM_MEETING_SDK_KEY/CLIENT_ID dan ZOOM_MEETING_SDK_SECRET/CLIENT_SECRET dulu.",
-                }
-            ),
-            503,
-        )
-
     payload = request.get_json(silent=True) or request.form
-    meeting_number = _sanitize_meeting_number(payload.get("meetingNumber"))
-    display_name = _sanitize_display_name(payload.get("displayName") or session.get("username"))
-    passcode = _sanitize_passcode(payload.get("passcode"))
-    email = str(payload.get("email") or "").strip()[:120]
-    language = str(payload.get("language") or current_app.config.get("ZOOM_MEETING_DEFAULT_LANGUAGE", "id-ID")).strip()
-    profile = _resolve_join_profile(payload.get("profile"))
-    topic = " ".join(str(payload.get("topic") or "").strip().split())[:120]
-
-    if not meeting_number:
-        return jsonify({"status": "error", "message": "Nomor meeting Zoom wajib diisi dengan format angka yang valid."}), 400
-    if not display_name:
+    prepared = _build_meeting_payload(payload)
+    if not prepared["roomName"]:
+        return jsonify({"status": "error", "message": "Nama room meeting wajib diisi."}), 400
+    if not prepared["displayName"]:
         return jsonify({"status": "error", "message": "Nama tampilan meeting wajib diisi."}), 400
-
-    signature_value = _create_meeting_signature(meeting_number, 0)
-    return jsonify(
-        {
-            "status": "success",
-            "signature": signature_value,
-            "sdkKey": current_app.config.get("ZOOM_MEETING_SDK_KEY", ""),
-            "meetingNumber": meeting_number,
-            "displayName": display_name,
-            "passcode": passcode,
-            "email": email,
-            "language": language,
-            "profile": profile["slug"],
-            "profileLabel": profile["label"],
-            "topic": topic,
-            "leaveUrl": "/meetings/",
-            "webEndpoint": current_app.config.get("ZOOM_MEETING_WEB_ENDPOINT", "zoom.us"),
-            "sdkVersion": current_app.config.get("ZOOM_MEETING_SDK_VERSION", "5.1.4"),
-            "cameraStrategy": profile["camera_strategy"],
-            "disablePreview": bool(profile["disable_preview"]),
-        }
-    )
+    return jsonify(prepared)
 
 
 @meetings_bp.route("/session")
 def session_page():
     return render_template(
         "meeting_session.html",
-        zoom_sdk_ready=_zoom_sdk_ready(),
-        zoom_sdk_version=current_app.config.get("ZOOM_MEETING_SDK_VERSION", "5.1.4"),
-        zoom_web_endpoint=current_app.config.get("ZOOM_MEETING_WEB_ENDPOINT", "zoom.us"),
+        meeting_provider="jitsi",
+        meeting_embed_domain=_meeting_domain(),
         default_leave_url="/meetings/",
         meeting_join_profiles=MEETING_JOIN_PROFILES,
+        meeting_participant_limit=max(6, min(int(current_app.config.get("JITSI_ROOM_MAX_PARTICIPANTS", 10)), 12)),
     )

@@ -14,6 +14,25 @@
 {% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
+<div class="wms-step-grid">
+    <article class="wms-step-card">
+        <span>Step 01</span>
+        <strong>Pilih Display dan Gudang</strong>
+        <p>Gunakan pasangan lokasi yang tepat agar perbandingan stok sistem dan fisik dibaca dari sumber yang relevan.</p>
+    </article>
+    <article class="wms-step-card">
+        <span>Step 02</span>
+        <strong>Masukkan Hitungan Fisik</strong>
+        <p>Isi qty hasil hitung lapangan. Selisih display dan gudang akan dihitung real-time pada setiap baris.</p>
+    </article>
+    <article class="wms-step-card">
+        <span>Step 03</span>
+        <strong>Simpan Hasil SO</strong>
+        <p>Gunakan simpan hanya saat hasil hitung sudah final supaya histori stock opname tetap rapi dan akurat.</p>
+    </article>
+</div>
+
 <div class="summary">
     <div class="card-mini">
         <p>Data Tampil</p>
@@ -74,7 +93,7 @@
 
 <small class="helper-text">Display dan gudang otomatis dipisah supaya stock opname tidak tertimpa ke gudang yang sama. Qty sistem di halaman ini mengambil sumber data `stock` yang sama dengan halaman `Stok Gudang` untuk warehouse yang sedang dipilih.</small>
 
-<div class="table-box">
+<div class="table-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Perbandingan Stok Sistem vs Fisik</h2>
@@ -137,6 +156,7 @@
         <button type="button" class="ghost-button" id="resetSoBtn" onclick="resetSOInputs()">Reset Halaman</button>
         <button type="button" id="saveSoStickyBtn" onclick="submitSO()" disabled>Simpan Hasil SO</button>
     </div>
+</div>
 </div>
 {% endblock %}
 

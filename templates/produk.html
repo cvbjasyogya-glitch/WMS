@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
 <div class="meta-grid products-meta-grid" id="productsMetaGrid">
     <div class="meta-card">
         <span>Gudang Aktif</span>
@@ -29,6 +30,24 @@
         <span>Pencarian</span>
         <strong>{{ search or 'Semua Produk' }}</strong>
     </div>
+</div>
+
+<div class="wms-command-grid">
+    <a href="/stock" class="wms-command-card">
+        <span>Workspace</span>
+        <strong>Lihat Stok Aktif</strong>
+        <p>Buka inventory surface untuk melihat dampak master produk ke stok gudang dan aging batch.</p>
+    </a>
+    <a href="/inbound" class="wms-command-card">
+        <span>Workflow</span>
+        <strong>Inbound Barang</strong>
+        <p>Setelah master siap, lanjutkan ke inbound untuk menambah stok operasional ke gudang terkait.</p>
+    </a>
+    <a href="/audit" class="wms-command-card">
+        <span>Trace</span>
+        <strong>Audit Master</strong>
+        <p>Gunakan audit log untuk melacak perubahan produk, import massal, dan update data sensitif lainnya.</p>
+    </a>
 </div>
 
 <form method="GET" class="top-bar products-filter-bar">
@@ -137,7 +156,7 @@
             <button type="button" class="ghost-button" onclick="addVariantRow()">Tambah Baris</button>
         </div>
 
-        <div class="table-box variant-builder">
+        <div class="table-box variant-builder" data-scrollable-table="1">
             <table class="variant-builder-table">
                 <thead>
                     <tr>
@@ -166,7 +185,7 @@
 </div>
 {% endif %}
 
-<div class="table-box products-list-box" id="productsListBox">
+<div class="table-box products-list-box" id="productsListBox" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Daftar Produk</h2>
@@ -233,6 +252,7 @@
     {% else %}
     <div class="empty-state">Belum ada produk yang cocok dengan filter saat ini.</div>
     {% endif %}
+</div>
 </div>
 {% endblock %}
 

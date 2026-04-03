@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Pusat Modul | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Simple Work Gateway{% endblock %}
+{% block page_title %}Pilih Area Kerja{% endblock %}
+{% block page_subtitle %}Setelah login, masuk dulu ke gateway yang lebih ringan dan mudah dipahami. Dari sini Anda bisa pilih modul kerja yang memang relevan dengan role dan gudang aktif.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions workspace-gateway-actions">
+    <a href="/" class="btn-link">Buka Dashboard WMS</a>
+    <a href="/account/settings" class="ghost-button">Pengaturan Akun</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="workspace-gateway">
+    <div class="workspace-summary-grid">
+        <article class="workspace-summary-card">
+            <span>User Aktif</span>
+            <strong>@{{ username }}</strong>
+            <small>Akun yang sedang menggunakan ERP sekarang.</small>
+        </article>
+        <article class="workspace-summary-card">
+            <span>Role</span>
+            <strong>{{ role_label }}</strong>
+            <small>Modul launcher akan menyesuaikan hak akses role ini.</small>
+        </article>
+        <article class="workspace-summary-card">
+            <span>Gudang Aktif</span>
+            <strong>{{ warehouse_name }}</strong>
+            <small>Gudang aktif dipakai untuk context halaman operasional yang berbasis gudang.</small>
+        </article>
+        <article class="workspace-summary-card">
+            <span>Total Shortcut</span>
+            <strong>{{ total_modules }}</strong>
+            <small>Semua launcher di bawah hanya menampilkan modul yang relevan untuk akun ini.</small>
+        </article>
+    </div>
+
+    {% for section in sections %}
+    <section class="workspace-section">
+        <div class="section-title">
+            <div>
+                <h2>{{ section["title"] }}</h2>
+                <p>{{ section["summary"] }}</p>
+            </div>
+            <span class="status-pill">{{ section["items"]|length }} Modul</span>
+        </div>
+
+        <div class="workspace-app-grid">
+            {% for item in section["items"] %}
+            <a href="{{ item["href"] }}" class="workspace-app-tile accent-{{ item["accent"] }}">
+                <span class="workspace-app-icon">{{ item["icon"] }}</span>
+                <div class="workspace-app-copy">
+                    <strong>{{ item["label"] }}</strong>
+                    <small>{{ item["summary"] }}</small>
+                </div>
+                <span class="workspace-app-badge">{{ item["badge"] }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+{% endblock %}

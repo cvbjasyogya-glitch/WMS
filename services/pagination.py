@@ -1,7 +1,7 @@
 from urllib.parse import urlencode
 
 
-def build_pagination_state(base_path, page, total_pages, params=None, group_size=5):
+def build_pagination_state(base_path, page, total_pages, params=None, group_size=5, page_param="page"):
     total_pages = max(1, int(total_pages or 1))
     page = max(1, min(int(page or 1), total_pages))
     group_size = max(1, int(group_size or 5))
@@ -14,7 +14,7 @@ def build_pagination_state(base_path, page, total_pages, params=None, group_size
 
     def build_url(target_page):
         query = dict(params)
-        query["page"] = target_page
+        query[page_param] = target_page
         encoded = urlencode(query, doseq=True)
         return f"{base_path}?{encoded}" if encoded else base_path
 

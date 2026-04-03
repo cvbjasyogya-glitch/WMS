@@ -6,6 +6,58 @@
 {% block page_subtitle %}Susun perpindahan stok dengan pola pilih item lalu tambah ke daftar batch, supaya transfer banyak barang terasa konsisten dengan inbound dan outbound.{% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
+    <div class="wms-step-grid">
+        <article class="wms-step-card">
+            <span>Step 01</span>
+            <strong>Atur Rute Gudang</strong>
+            <p>Pilih gudang asal dan tujuan lebih dulu agar checker stok dan FIFO membaca rute perpindahan yang benar.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 02</span>
+            <strong>Bentuk Batch Transfer</strong>
+            <p>Ambil item dari gudang asal, isi qty transfer, lalu kumpulkan semua perpindahan di satu daftar kerja.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 03</span>
+            <strong>Review Lane Transfer</strong>
+            <p>Sebelum submit, sistem akan cek ulang stok agar tidak ada transfer yang melebihi gudang asal.</p>
+        </article>
+    </div>
+
+    <div class="wms-kpi-grid">
+        <article class="wms-kpi-card">
+            <span>Workflow</span>
+            <strong>{% if can("direct_transfer") %}Direct{% else %}Approval{% endif %}</strong>
+            <small>Mode transfer aktif untuk akun ini.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Lane</span>
+            <strong id="transferSummaryLane">-</strong>
+            <small>Rute aktif dari gudang asal ke tujuan.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Item Batch</span>
+            <strong id="transferSummaryCount">0</strong>
+            <small>Baris transfer dalam draft.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Qty Transfer</span>
+            <strong id="transferSummaryQty">0</strong>
+            <small>Total qty yang akan dipindahkan.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Risk Check</span>
+            <strong id="transferSummaryRisk">0</strong>
+            <small>Baris yang melebihi stok gudang asal.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Status</span>
+            <strong id="transferSummaryState">Draft</strong>
+            <small id="transferSummaryHelp">Belum ada item transfer di batch kerja.</small>
+        </article>
+    </div>
+
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
@@ -98,7 +150,7 @@
 
         <small class="helper-text ops-mobile-hint">Semua item pada daftar bawah akan diproses dari gudang asal ke gudang tujuan yang dipilih di atas.</small>
 
-        <div class="table-box ops-queue-box">
+        <div class="table-box ops-queue-box" data-scrollable-table="1">
             <table class="ops-queue-table request-queue-table">
                 <thead>
                     <tr>
@@ -120,6 +172,7 @@
 </div>
 
 {% include "partials/item_picker_modal.html" %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -137,6 +190,12 @@ const transferDraftStockValue = document.getElementById("transferDraftStockValue
 const transferDraftStockState = document.getElementById("transferDraftStockState");
 const transferDraftQty = document.getElementById("transferDraftQty");
 const transferDraftFeedback = document.getElementById("transferDraftFeedback");
+const transferSummaryLane = document.getElementById("transferSummaryLane");
+const transferSummaryCount = document.getElementById("transferSummaryCount");
+const transferSummaryQty = document.getElementById("transferSummaryQty");
+const transferSummaryRisk = document.getElementById("transferSummaryRisk");
+const transferSummaryState = document.getElementById("transferSummaryState");
+const transferSummaryHelp = document.getElementById("transferSummaryHelp");
 
 const transferDraft = {
     product_id: 0,
@@ -150,6 +209,34 @@ const transferDraft = {
 };
 
 const transferItems = [];
+
+function renderTransferWorkspaceSummary() {
+    const count = transferItems.length;
+    const totalQty = transferItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const riskCount = transferItems.filter((item) => Number(item.qty || 0) > Number(item.stock || 0)).length;
+    const fromLabel = transferFrom?.options[transferFrom.selectedIndex]?.text || "-";
+    const toLabel = transferTo?.options[transferTo.selectedIndex]?.text || "-";
+
+    if (transferSummaryLane) transferSummaryLane.textContent = `${fromLabel} -> ${toLabel}`;
+    if (transferSummaryCount) transferSummaryCount.textContent = String(count);
+    if (transferSummaryQty) transferSummaryQty.textContent = String(totalQty);
+    if (transferSummaryRisk) transferSummaryRisk.textContent = String(riskCount);
+
+    if (!transferSummaryState || !transferSummaryHelp) {
+        return;
+    }
+
+    if (!count) {
+        transferSummaryState.textContent = "Draft";
+        transferSummaryHelp.textContent = "Belum ada item transfer di batch kerja.";
+        return;
+    }
+
+    transferSummaryState.textContent = riskCount ? "Review" : "Siap";
+    transferSummaryHelp.textContent = riskCount
+        ? `${riskCount} baris perlu dicek ulang sebelum transfer diproses.`
+        : `${count} item dengan total ${totalQty} qty siap dipindahkan.`;
+}
 
 function renderTransferWarehouseValidation() {
     if (transferFrom.value && transferFrom.value === transferTo.value) {
@@ -296,6 +383,7 @@ function renderTransferQueue() {
                 </td>
             </tr>
         `;
+        renderTransferWorkspaceSummary();
         return;
     }
 
@@ -316,6 +404,7 @@ function renderTransferQueue() {
             </td>
         </tr>
     `).join("");
+    renderTransferWorkspaceSummary();
 }
 
 function addTransferItem() {
@@ -411,11 +500,13 @@ transferFrom?.addEventListener("change", async () => {
     await refreshTransferDraftStock();
     await refreshTransferQueueStocks();
     transferPicker.refresh();
+    renderTransferWorkspaceSummary();
 });
 
 transferTo?.addEventListener("change", () => {
     renderTransferWarehouseValidation();
     validateTransferDraft();
+    renderTransferWorkspaceSummary();
 });
 
 if (transferTo.value === transferFrom.value) {
@@ -428,6 +519,7 @@ if (transferTo.value === transferFrom.value) {
 renderTransferWarehouseValidation();
 resetTransferDraft();
 renderTransferQueue();
+renderTransferWorkspaceSummary();
 </script>
 {% endblock %}
 

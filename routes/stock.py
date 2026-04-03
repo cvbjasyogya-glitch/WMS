@@ -10,10 +10,16 @@ from database import get_db
 from services.stock_service import adjust_stock
 from services.notification_service import notify_operational_event, notify_roles
 from services.pagination import build_pagination_state
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import has_permission, is_scoped_role, normalize_role
+from routes.products import build_product_studio_context
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/stock")
 LOW_STOCK_THRESHOLD = 5
+WORKSPACE_MODES = {"inventory", "products"}
+
+
+def _can_view_inventory_value():
+    return normalize_role(session.get("role")) in {"owner", "super_admin"}
 DEFAULT_SORT = "qty_asc"
 
 SORT_DEFINITIONS = {
@@ -231,6 +237,7 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         ? as warehouse_id,
         p.sku,
         p.name,
+        COALESCE(c.name, '') as category_name,
         v.variant,
         COALESCE(v.price_retail, 0) as price_retail,
         COALESCE(v.price_discount, 0) as price_discount,
@@ -254,6 +261,7 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         ) as expiry_date
     FROM products p
     JOIN product_variants v ON v.product_id = p.id
+    LEFT JOIN categories c ON c.id = p.category_id
     LEFT JOIN stock s
         ON s.product_id = p.id
         AND s.variant_id = v.id
@@ -428,6 +436,7 @@ def _build_stock_group(rows):
         "product_id": rows[0]["product_id"],
         "sku": rows[0]["sku"],
         "name": rows[0]["name"],
+        "category_name": rows[0].get("category_name") or "",
         "rows": rows,
         "is_grouped": variant_count > 1,
         "product_count": product_count,
@@ -461,6 +470,13 @@ def _group_stock_rows(rows):
     return [_build_stock_group(group_rows) for group_rows in grouped_rows]
 
 
+def _flatten_grouped_stock_rows(grouped_rows):
+    flattened_rows = []
+    for group in grouped_rows:
+        flattened_rows.extend(group.get("rows", []))
+    return flattened_rows
+
+
 def _fetch_current_stock_qty(db, product_id, variant_id, warehouse_id):
     row = db.execute(
         """
@@ -471,6 +487,30 @@ def _fetch_current_stock_qty(db, product_id, variant_id, warehouse_id):
         (product_id, variant_id, warehouse_id),
     ).fetchone()
     return int(row["qty"] or 0) if row else 0
+
+
+def _resolve_category_id(db, category_name):
+    category_name = (category_name or "").strip()
+    if not category_name:
+        raise ValueError("Kategori tidak boleh kosong")
+
+    category = db.execute(
+        "SELECT id FROM categories WHERE name=?",
+        (category_name,),
+    ).fetchone()
+    if category:
+        return category["id"]
+
+    cursor = db.execute(
+        "INSERT INTO categories(name) VALUES (?)",
+        (category_name,),
+    )
+    return cursor.lastrowid
+
+
+def _get_workspace_mode():
+    workspace = (request.args.get("workspace") or "inventory").strip().lower()
+    return workspace if workspace in WORKSPACE_MODES else "inventory"
 
 
 def _can_manage_product_master():
@@ -493,9 +533,11 @@ def stock_table():
     db = get_db()
 
     search = (request.args.get("q") or "").strip()
+    product_search = (request.args.get("product_search") or "").strip()
     sort = _normalize_sort(request.args.get("sort"))
     stock_state = _get_stock_state()
     warehouse_id = _resolve_stock_warehouse(db)
+    workspace = _get_workspace_mode()
 
     start_date = parse_date(request.args.get("start_date"))
     end_date = parse_date(request.args.get("end_date"))
@@ -506,6 +548,13 @@ def stock_table():
             page = 1
     except:
         page = 1
+
+    try:
+        product_page = int(request.args.get("product_page", 1))
+        if product_page < 1:
+            product_page = 1
+    except:
+        product_page = 1
 
     limit = 10
     offset = (page - 1) * limit
@@ -519,31 +568,23 @@ def stock_table():
         stock_state,
     )
 
-    rows = db.execute(
-        f"""
-        {base_query}
-        ORDER BY {order_by}, age_days DESC
-        LIMIT ? OFFSET ?
-        """,
-        params + [limit, offset],
-    ).fetchall()
-    data = [dict(r) for r in rows]
-    grouped_data = _group_stock_rows(data)
-
-    total = db.execute(
-        f"SELECT COUNT(*) FROM ({base_query}) stock_rows",
-        params,
-    ).fetchone()[0]
-
-    summary_rows = [
+    all_filtered_rows = [
         dict(r)
         for r in db.execute(
             f"{base_query} ORDER BY {order_by}, age_days DESC",
             params,
         ).fetchall()
     ]
-    summary = _build_stock_summary(summary_rows)
-    total_pages = max(1, (total + limit - 1) // limit)
+    grouped_stock_rows = _group_stock_rows(all_filtered_rows)
+    total_groups = len(grouped_stock_rows)
+    grouped_data = grouped_stock_rows[offset: offset + limit]
+    data = _flatten_grouped_stock_rows(grouped_data)
+
+    summary = _build_stock_summary(all_filtered_rows)
+    can_view_inventory_value = _can_view_inventory_value()
+    if not can_view_inventory_value:
+        summary["inventory_value"] = 0
+    total_pages = max(1, (total_groups + limit - 1) // limit)
     pagination = build_pagination_state(
         "/stock/",
         page,
@@ -561,6 +602,23 @@ def stock_table():
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
     can_adjust_stock_ui = _can_render_stock_adjust_controls()
     can_bulk_adjust_ui = has_permission(session.get("role"), "direct_stock_ops")
+    product_studio = build_product_studio_context(
+        db,
+        warehouse_id=warehouse_id,
+        search=product_search,
+        page=product_page,
+        base_path="/stock/",
+        extra_params={
+            "workspace": "products",
+            "warehouse": warehouse_id,
+            "q": search,
+            "sort": sort,
+            "stock_state": stock_state,
+            "start_date": start_date.isoformat() if start_date else "",
+            "end_date": end_date.isoformat() if end_date else "",
+        },
+        page_param="product_page",
+    )
 
     return render_template(
         "stok_gudang.html",
@@ -578,10 +636,13 @@ def stock_table():
         sort_links=_build_sort_links(),
         stock_state=stock_state,
         summary=summary,
+        can_view_inventory_value=can_view_inventory_value,
         pagination=pagination,
         can_adjust_stock_ui=can_adjust_stock_ui,
         can_bulk_adjust_ui=can_bulk_adjust_ui,
         stock_group_colspan=8 + (1 if can_adjust_stock_ui else 0),
+        product_studio=product_studio,
+        active_workspace=workspace,
     )
 
 
@@ -898,6 +959,73 @@ def update_field():
         print("UPDATE ERROR:", e)
         db.rollback()
         return _stock_json_error("Update gagal disimpan", 500)
+
+
+@stock_bp.route("/update-detail", methods=["POST"])
+def update_detail():
+    if not _can_manage_product_master():
+        return _stock_json_error(
+            "Akses edit master produk hanya tersedia untuk admin, leader, owner, atau super admin.",
+            403,
+        )
+
+    db = get_db()
+
+    try:
+        product_id = int(request.form.get("product_id") or 0)
+        variant_id = int(request.form.get("variant_id") or 0)
+        sku = (request.form.get("sku") or "").strip()
+        name = (request.form.get("name") or "").strip()
+        category_name = (request.form.get("category_name") or "").strip()
+        variant = (request.form.get("variant") or "").strip()
+        price_retail = float(request.form.get("price_retail") or 0)
+        price_discount = float(request.form.get("price_discount") or 0)
+        price_nett = float(request.form.get("price_nett") or 0)
+    except (TypeError, ValueError):
+        return _stock_json_error("Input detail produk tidak valid")
+
+    if not product_id or not sku or not name or not category_name:
+        return _stock_json_error("SKU, nama produk, dan kategori wajib diisi")
+
+    if min(price_retail, price_discount, price_nett) < 0:
+        return _stock_json_error("Harga tidak boleh minus")
+
+    try:
+        duplicate = db.execute(
+            "SELECT id FROM products WHERE sku=? AND id!=?",
+            (sku, product_id),
+        ).fetchone()
+        if duplicate:
+            return _stock_json_error("SKU sudah dipakai produk lain")
+
+        category_id = _resolve_category_id(db, category_name)
+
+        db.execute("BEGIN")
+        db.execute(
+            "UPDATE products SET sku=?, name=?, category_id=? WHERE id=?",
+            (sku, name, category_id, product_id),
+        )
+
+        if variant_id:
+            if not variant:
+                db.rollback()
+                return _stock_json_error("Variant wajib diisi untuk baris detail")
+
+            db.execute(
+                """
+                UPDATE product_variants
+                SET variant=?, price_retail=?, price_discount=?, price_nett=?
+                WHERE id=? AND product_id=?
+                """,
+                (variant, price_retail, price_discount, price_nett, variant_id, product_id),
+            )
+
+        db.commit()
+        return jsonify({"status": "success", "message": "Detail produk berhasil diperbarui."})
+    except Exception as error:
+        print("UPDATE DETAIL ERROR:", error)
+        db.rollback()
+        return _stock_json_error("Detail produk gagal diperbarui", 500)
 
 
 @stock_bp.route("/bulk-adjust", methods=["POST"])

@@ -6,7 +6,26 @@
 {% block page_subtitle %}Daftar permintaan inbound/outbound/adjust yang menunggu persetujuan leader atau owner.{% endblock %}
 
 {% block content %}
-<div class="table-box">
+<div class="wms-page-stack">
+    <div class="wms-command-grid">
+        <a href="/request/" class="wms-command-card">
+            <span>Source</span>
+            <strong>Request Antar Gudang</strong>
+            <p>Lihat permintaan transfer yang biasanya menjadi sumber approval operasional lintas gudang.</p>
+        </a>
+        <a href="/stock" class="wms-command-card">
+            <span>Reference</span>
+            <strong>Stock Surface</strong>
+            <p>Cek kondisi stok aktif sebelum menyetujui inbound, outbound, atau adjustment bernilai besar.</p>
+        </a>
+        <a href="/audit" class="wms-command-card">
+            <span>Trace</span>
+            <strong>Audit Log</strong>
+            <p>Masuk ke jejak aktivitas kalau approval perlu diverifikasi dengan histori transaksi sebelumnya.</p>
+        </a>
+    </div>
+
+<div class="table-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Antrian Approval</h2>
@@ -60,6 +79,7 @@
     {% else %}
     <div class="empty-state">Tidak ada approval yang menunggu.</div>
     {% endif %}
+</div>
 </div>
 {% endblock %}
 

@@ -2,45 +2,38 @@
 
 {% block title %}Meeting Live | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Coordination Meeting{% endblock %}
-{% block page_title %}Meeting Live Zoom{% endblock %}
-{% block page_subtitle %}Portal rapat internal berbasis Zoom Meeting SDK untuk join meeting lebih cepat, tetap hemat daya, dan lebih aman dipakai langsung dari workspace operasional.{% endblock %}
+{% block page_title %}Meeting Live Browser{% endblock %}
+{% block page_subtitle %}Portal meeting ringan tanpa secret key server. Dibuat supaya tim 6-10 orang bisa rapat cepat langsung dari browser dengan mode audio-first, room cepat, dan stage meeting yang lebih stabil untuk operasional harian.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions meeting-page-actions">
-    <span class="status-pill {% if zoom_sdk_ready %}success{% else %}warning{% endif %}">
-        {% if zoom_sdk_ready %}SDK Ready{% else %}Butuh Konfigurasi{% endif %}
-    </span>
-    <span class="status-pill">Zoom SDK {{ zoom_sdk_version }}</span>
+    <span class="status-pill success">{{ meeting_backend_label }}</span>
+    <span class="status-pill">Ideal {{ meeting_participant_limit }} peserta</span>
+    <span class="status-pill">{{ meeting_embed_domain }}</span>
 </div>
 {% endblock %}
 
 {% block content %}
 <div class="summary meeting-summary-grid">
-    <div class="card-mini {% if zoom_sdk_ready %}success{% endif %}">
+    <div class="card-mini success">
         <p>Status Meeting</p>
-        <h3>{% if zoom_sdk_ready %}Siap Join{% else %}Belum Aktif{% endif %}</h3>
-        <small class="helper-text">
-            {% if zoom_sdk_ready %}
-            Signature backend sudah siap, user bisa join langsung dari browser.
-            {% else %}
-            Isi SDK key dan secret di server agar meeting bisa dipakai penuh.
-            {% endif %}
-        </small>
+        <h3>Siap Dipakai</h3>
+        <small class="helper-text">Room browser aktif tanpa butuh secret key server atau signature backend.</small>
     </div>
     <div class="card-mini">
-        <p>Mode Bawaan</p>
-        <h3>Smart Saver</h3>
-        <small class="helper-text">Preview kamera dimatikan dulu agar baterai dan data lebih irit di mobile.</small>
+        <p>Mode Default</p>
+        <h3>Audio First</h3>
+        <small class="helper-text">Paling aman untuk rapat rutin, briefing, dan follow up cepat.</small>
     </div>
     <div class="card-mini">
-        <p>Endpoint</p>
-        <h3>{{ zoom_web_endpoint }}</h3>
-        <small class="helper-text">Mode web meeting penuh dengan tampilan client-view yang familiar.</small>
+        <p>Peserta Aman</p>
+        <h3>6 - {{ meeting_participant_limit }}</h3>
+        <small class="helper-text">Preset difokuskan ke tim kecil-menengah supaya lebih stabil dan tidak berat.</small>
     </div>
     <div class="card-mini info">
-        <p>Bahasa Default</p>
-        <h3>{{ zoom_default_language }}</h3>
-        <small class="helper-text">Bisa diganti per meeting untuk kebutuhan user lintas tim atau eksternal.</small>
+        <p>Provider</p>
+        <h3>{{ meeting_embed_domain }}</h3>
+        <small class="helper-text">Join langsung dari browser, tanpa pindah ke aplikasi lain.</small>
     </div>
 </div>
 
@@ -49,68 +42,62 @@
     id="meetingPortalRoot"
     data-signature-endpoint="/meetings/signature"
     data-session-endpoint="/meetings/session"
-    data-sdk-ready="{{ '1' if zoom_sdk_ready else '0' }}"
+    data-provider="{{ meeting_provider }}"
+    data-meeting-domain="{{ meeting_embed_domain }}"
 >
     <div class="section-title">
         <div>
             <h2>Masuk Meeting</h2>
-            <p>Isi nomor meeting dan passcode, pilih profil join yang paling sesuai, lalu masuk lewat browser tanpa pindah sistem.</p>
+            <p>Masukkan nama room atau paste link room, pilih profil join, lalu buka meeting langsung di browser. Untuk tim 6-10 orang, pakai <strong>Audio First</strong> atau <strong>Smart Saver</strong> supaya lebih ringan.</p>
         </div>
         <div class="status-row">
-            <span class="status-pill" id="meetingPortalState">Siap dipakai</span>
+            <span class="status-pill success" id="meetingPortalState">Portal siap dipakai</span>
             <span class="status-pill" id="meetingRecentState">Belum ada room cepat</span>
         </div>
     </div>
-
-    {% if not zoom_sdk_ready %}
-    <div class="flash warning">
-        Meeting belum aktif di server. Isi env <code>ZOOM_MEETING_SDK_KEY</code> atau <code>CLIENT_ID</code>, lalu <code>ZOOM_MEETING_SDK_SECRET</code> atau <code>CLIENT_SECRET</code>, kemudian reload aplikasi.
-    </div>
-    {% endif %}
 
     <div class="meeting-portal-layout">
         <form class="meeting-join-form" id="meetingJoinForm" autocomplete="off">
             <div class="meeting-field-grid">
                 <label>
-                    Meeting Number
-                    <input type="text" name="meetingNumber" inputmode="numeric" placeholder="Contoh: 123 456 7890" required>
-                    <small class="helper-text">Nomor meeting Zoom, cukup angka. Paste invite juga boleh.</small>
-                </label>
-                <label>
-                    Passcode
-                    <input type="text" name="passcode" placeholder="Passcode meeting">
-                    <small class="helper-text">Kosongkan jika room memang tidak memakai passcode.</small>
+                    Nama Room / Link Meeting
+                    <input type="text" name="roomName" placeholder="Contoh: daily-gudang-mega atau paste link room" required>
+                    <small class="helper-text">Bisa isi nama room sendiri atau paste link meeting. Sistem akan rapikan jadi slug yang aman.</small>
                 </label>
                 <label>
                     Judul Meeting
-                    <input type="text" name="topic" placeholder="Contoh: Daily Gudang Mega">
-                    <small class="helper-text">Opsional, hanya untuk memudahkan daftar room cepat.</small>
+                    <input type="text" name="topic" placeholder="Contoh: Daily Operasional Pagi">
+                    <small class="helper-text">Opsional, dipakai untuk label room cepat dan tampilan stage.</small>
                 </label>
                 <label>
                     Nama Tampilan
                     <input type="text" name="displayName" value="{{ default_display_name }}" required>
-                    <small class="helper-text">Nama ini yang akan terlihat di dalam meeting.</small>
+                    <small class="helper-text">Nama ini yang akan muncul di room meeting.</small>
                 </label>
                 <label>
                     Email
                     <input type="email" name="email" value="{{ default_email }}" placeholder="Opsional">
-                    <small class="helper-text">Isi jika host meminta email peserta untuk pencatatan.</small>
+                    <small class="helper-text">Opsional untuk identitas peserta di room browser.</small>
                 </label>
                 <label>
                     Bahasa Meeting
                     <select name="language">
                         {% for value, label in meeting_language_options %}
-                        <option value="{{ value }}" {% if value == zoom_default_language %}selected{% endif %}>{{ label }}</option>
+                        <option value="{{ value }}" {% if value == "id-ID" %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                 </label>
+                <div class="meeting-form-note">
+                    <span class="status-pill success">Preset Aman</span>
+                    <p>Untuk meeting 6-10 orang, kamera sebaiknya tidak dinyalakan semua dari awal. Biarkan host atau presenter yang aktifkan video lebih dulu.</p>
+                </div>
             </div>
 
             <div class="meeting-profile-stack">
                 <div class="section-title compact">
                     <div>
                         <h3>Profil Join</h3>
-                        <p>Pilih mode paling ringan atau paling visual sesuai kondisi jaringan dan device.</p>
+                        <p>Pilih mode paling sesuai dengan kondisi jaringan, device, dan kebutuhan rapat.</p>
                     </div>
                 </div>
                 <div class="meeting-profile-grid">
@@ -129,7 +116,8 @@
             </div>
 
             <div class="meeting-form-actions">
-                <button type="submit" class="ghost-button primary" {% if not zoom_sdk_ready %}disabled{% endif %}>Gabung di Browser</button>
+                <button type="submit" class="ghost-button primary">Gabung di Browser</button>
+                <button type="button" class="ghost-button" id="meetingInstantRoomButton">Buat Room Instan</button>
                 <button type="button" class="ghost-button" id="meetingSaveRoomButton">Simpan Room Cepat</button>
                 <button type="reset" class="ghost-button subtle" id="meetingResetButton">Reset</button>
             </div>
@@ -140,7 +128,7 @@
                 <div class="section-title compact">
                     <div>
                         <h3>Room Cepat</h3>
-                        <p>Simpan room yang sering dipakai supaya tim tinggal klik saat briefing atau follow up.</p>
+                        <p>Simpan room yang sering dipakai supaya briefing dan live follow up tinggal klik.</p>
                     </div>
                 </div>
                 <div class="meeting-room-list" id="meetingRoomList">
@@ -151,15 +139,15 @@
             <section class="meeting-side-card">
                 <div class="section-title compact">
                     <div>
-                        <h3>Preset Hemat</h3>
-                        <p>Dirancang supaya lebih aman untuk device operasional harian.</p>
+                        <h3>Strategi Stabil</h3>
+                        <p>Versi ini sengaja diatur ringan supaya tidak cepat lag saat dipakai tim kecil-menengah.</p>
                     </div>
                 </div>
                 <ul class="meeting-benefit-list">
-                    <li>Preview kamera dimatikan dulu pada mode hemat agar browser lebih ringan.</li>
-                    <li>User tetap bisa aktifkan kamera manual setelah masuk meeting saat dibutuhkan.</li>
-                    <li>Form sudah menyimpan room cepat di browser tanpa query URL yang panjang.</li>
-                    <li>Halaman meeting dibuka terpisah agar tidak bentrok dengan panel ERP.</li>
+                    <li>Tidak butuh secret key server, jadi lebih simpel untuk deploy dan maintenance.</li>
+                    <li>Mode Audio First dan Smart Saver menahan kamera di awal agar CPU dan bandwidth lebih hemat.</li>
+                    <li>Stage meeting dibuka terpisah dari panel ERP supaya ruang meeting lebih lega.</li>
+                    <li>Room cepat disimpan di browser masing-masing user agar join meeting berikutnya lebih cepat.</li>
                 </ul>
             </section>
         </aside>

@@ -174,6 +174,11 @@ class Config:
             ]
         }
     ]
+    MEETING_PROVIDER = (os.getenv("MEETING_PROVIDER") or "jitsi").strip().lower()
+    JITSI_MEETING_DOMAIN = (os.getenv("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip()
+    JITSI_ROOM_PREFIX = (os.getenv("JITSI_ROOM_PREFIX") or "erp-bjas").strip()
+    JITSI_ROOM_MAX_PARTICIPANTS = int(os.getenv("JITSI_ROOM_MAX_PARTICIPANTS", "10"))
+    MEETING_DEFAULT_LANGUAGE = (os.getenv("MEETING_DEFAULT_LANGUAGE") or "id-ID").strip()
     ZOOM_MEETING_SDK_KEY = _first_env_value(
         "ZOOM_MEETING_SDK_KEY",
         "CLIENT_ID",

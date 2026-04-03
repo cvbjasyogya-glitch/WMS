@@ -6,6 +6,58 @@
 {% block page_subtitle %}Isi satu item di panel atas, klik tambah ke daftar kerja, lalu proses semua inbound sekaligus tanpa dropdown panjang atau form yang berantakan.{% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
+    <div class="wms-step-grid">
+        <article class="wms-step-card">
+            <span>Step 01</span>
+            <strong>Tentukan Gudang Tujuan</strong>
+            <p>Pilih gudang penerima lebih dulu supaya stok, batch, dan histori inbound tercatat ke lokasi yang benar.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 02</span>
+            <strong>Susun Item Batch</strong>
+            <p>Ambil barang dari picker, isi qty, biaya modal, expiry, lalu tambahkan ke daftar kerja satu per satu.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 03</span>
+            <strong>Review lalu Simpan</strong>
+            <p>Semua item di batch akan diproses bersama, jadi cek ulang isi batch sebelum tombol simpan ditekan.</p>
+        </article>
+    </div>
+
+    <div class="wms-kpi-grid">
+        <article class="wms-kpi-card">
+            <span>Workflow</span>
+            <strong>{% if can("direct_stock_ops") %}Direct{% else %}Approval{% endif %}</strong>
+            <small>Mode inbound aktif untuk akun ini.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Gudang Aktif</span>
+            <strong id="inboundSummaryWarehouse">{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
+            <small>Tujuan semua item pada batch inbound.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Item Batch</span>
+            <strong id="inboundSummaryCount">0</strong>
+            <small>Baris inbound yang siap diproses.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Qty Masuk</span>
+            <strong id="inboundSummaryQty">0</strong>
+            <small>Total qty pada batch aktif.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Modal Batch</span>
+            <strong id="inboundSummaryCost">Rp 0</strong>
+            <small>Akumulasi biaya modal yang sedang disusun.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Status</span>
+            <strong id="inboundSummaryState">Draft</strong>
+            <small id="inboundSummaryHelp">Belum ada item inbound di batch kerja.</small>
+        </article>
+    </div>
+
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
@@ -109,7 +161,7 @@
 
         <small class="helper-text ops-mobile-hint">Daftar di bawah adalah batch inbound yang akan diproses bersama saat tombol simpan ditekan.</small>
 
-        <div class="table-box ops-queue-box">
+        <div class="table-box ops-queue-box" data-scrollable-table="1">
             <table class="ops-queue-table inbound-queue-table">
                 <thead>
                     <tr>
@@ -135,6 +187,7 @@
 </div>
 
 {% include "partials/item_picker_modal.html" %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -153,6 +206,12 @@ const inboundDraftCost = document.getElementById("inboundDraftCost");
 const inboundDraftExpiry = document.getElementById("inboundDraftExpiry");
 const inboundDraftDate = document.getElementById("inboundDraftDate");
 const inboundDraftNote = document.getElementById("inboundDraftNote");
+const inboundSummaryWarehouse = document.getElementById("inboundSummaryWarehouse");
+const inboundSummaryCount = document.getElementById("inboundSummaryCount");
+const inboundSummaryQty = document.getElementById("inboundSummaryQty");
+const inboundSummaryCost = document.getElementById("inboundSummaryCost");
+const inboundSummaryState = document.getElementById("inboundSummaryState");
+const inboundSummaryHelp = document.getElementById("inboundSummaryHelp");
 
 const inboundDraft = {
     product_id: 0,
@@ -176,6 +235,31 @@ function getLocalToday() {
 
 function formatCurrency(value) {
     return new Intl.NumberFormat("id-ID").format(Number(value || 0));
+}
+
+function renderInboundWorkspaceSummary() {
+    const count = inboundItems.length;
+    const totalQty = inboundItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const totalCost = inboundItems.reduce((sum, item) => sum + (Number(item.qty || 0) * Number(item.cost || 0)), 0);
+    const warehouseLabel = inboundWarehouse?.options[inboundWarehouse.selectedIndex]?.text || "-";
+
+    if (inboundSummaryWarehouse) inboundSummaryWarehouse.textContent = warehouseLabel;
+    if (inboundSummaryCount) inboundSummaryCount.textContent = String(count);
+    if (inboundSummaryQty) inboundSummaryQty.textContent = String(totalQty);
+    if (inboundSummaryCost) inboundSummaryCost.textContent = `Rp ${formatCurrency(totalCost)}`;
+
+    if (!inboundSummaryState || !inboundSummaryHelp) {
+        return;
+    }
+
+    if (!count) {
+        inboundSummaryState.textContent = "Draft";
+        inboundSummaryHelp.textContent = "Belum ada item inbound di batch kerja.";
+        return;
+    }
+
+    inboundSummaryState.textContent = "Siap";
+    inboundSummaryHelp.textContent = `${count} item dengan total ${totalQty} qty siap diproses ke gudang tujuan.`;
 }
 
 function renderInboundDraftStock(qty) {
@@ -277,6 +361,7 @@ function renderInboundQueue() {
                 </td>
             </tr>
         `;
+        renderInboundWorkspaceSummary();
         return;
     }
 
@@ -298,6 +383,7 @@ function renderInboundQueue() {
             </td>
         </tr>
     `).join("");
+    renderInboundWorkspaceSummary();
 }
 
 function addInboundItem() {
@@ -394,10 +480,12 @@ inboundWarehouse?.addEventListener("change", async () => {
     await refreshInboundDraftStock();
     await refreshInboundQueueStocks();
     inboundPicker.refresh();
+    renderInboundWorkspaceSummary();
 });
 
 resetInboundDraft();
 renderInboundQueue();
+renderInboundWorkspaceSummary();
 </script>
 {% endblock %}
 

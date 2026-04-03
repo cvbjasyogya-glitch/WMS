@@ -6,6 +6,58 @@
 {% block page_subtitle %}Kirim permintaan barang langsung ke owner lewat batch composer yang konsisten dengan inbound, outbound, dan transfer, lalu pantau statusnya di satu antrian khusus.{% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
+<div class="wms-step-grid">
+    <article class="wms-step-card">
+        <span>Step 01</span>
+        <strong>Pilih Gudang Peminta</strong>
+        <p>Gudang peminta menjadi konteks utama untuk stok yang ditampilkan dan notifikasi request ke owner.</p>
+    </article>
+    <article class="wms-step-card">
+        <span>Step 02</span>
+        <strong>Rakit Batch Request Owner</strong>
+        <p>Pilih barang, isi qty dan catatan, lalu gabungkan semuanya ke satu batch agar owner menerima konteks yang jelas.</p>
+    </article>
+    <article class="wms-step-card">
+        <span>Step 03</span>
+        <strong>Kirim Request Prioritas</strong>
+        <p>Batch ini akan masuk ke jalur notifikasi khusus owner, terpisah dari request antar gudang biasa.</p>
+    </article>
+</div>
+
+<div class="wms-kpi-grid">
+    <article class="wms-kpi-card">
+        <span>Tujuan</span>
+        <strong>Owner</strong>
+        <small>Semua item pada batch dikirim ke antrian khusus owner.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Gudang Aktif</span>
+        <strong id="ownerRequestSummaryWarehouse">{% for w in warehouses %}{% if w.id == warehouse_id %}{{ w.name }}{% endif %}{% endfor %}</strong>
+        <small>Gudang asal kebutuhan barang.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Item Batch</span>
+        <strong id="ownerRequestSummaryCount">0</strong>
+        <small>Baris request owner di draft.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Qty Request</span>
+        <strong id="ownerRequestSummaryQty">0</strong>
+        <small>Total qty pada batch aktif.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Stock Alert</span>
+        <strong id="ownerRequestSummaryRisk">0</strong>
+        <small>Baris dengan stok tipis atau kosong.</small>
+    </article>
+    <article class="wms-kpi-card">
+        <span>Status</span>
+        <strong id="ownerRequestSummaryState">Draft</strong>
+        <small id="ownerRequestSummaryHelp">Belum ada item request owner di batch kerja.</small>
+    </article>
+</div>
+
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
@@ -88,7 +140,7 @@
 
         <small class="helper-text ops-mobile-hint">Daftar di bawah adalah batch request khusus ke owner yang akan dikirim bersama saat tombol submit ditekan.</small>
 
-        <div class="table-box ops-queue-box">
+        <div class="table-box ops-queue-box" data-scrollable-table="1">
             <table class="ops-queue-table outbound-queue-table">
                 <thead>
                     <tr>
@@ -110,7 +162,7 @@
     </form>
 </div>
 
-<div class="table-box">
+<div class="table-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Antrian Request Owner</h2>
@@ -181,6 +233,7 @@
 </div>
 
 {% include "partials/item_picker_modal.html" %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -197,6 +250,12 @@ const ownerRequestDraftStockState = document.getElementById("ownerRequestDraftSt
 const ownerRequestDraftQty = document.getElementById("ownerRequestDraftQty");
 const ownerRequestDraftNote = document.getElementById("ownerRequestDraftNote");
 const ownerRequestDraftFeedback = document.getElementById("ownerRequestDraftFeedback");
+const ownerRequestSummaryWarehouse = document.getElementById("ownerRequestSummaryWarehouse");
+const ownerRequestSummaryCount = document.getElementById("ownerRequestSummaryCount");
+const ownerRequestSummaryQty = document.getElementById("ownerRequestSummaryQty");
+const ownerRequestSummaryRisk = document.getElementById("ownerRequestSummaryRisk");
+const ownerRequestSummaryState = document.getElementById("ownerRequestSummaryState");
+const ownerRequestSummaryHelp = document.getElementById("ownerRequestSummaryHelp");
 
 const ownerRequestDraft = {
     product_id: 0,
@@ -210,6 +269,33 @@ const ownerRequestDraft = {
 };
 
 const ownerRequestItems = [];
+
+function renderOwnerRequestWorkspaceSummary() {
+    const count = ownerRequestItems.length;
+    const totalQty = ownerRequestItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const riskCount = ownerRequestItems.filter((item) => Number(item.stock || 0) <= 0 || Number(item.stock || 0) < 5).length;
+    const warehouseLabel = ownerRequestWarehouse?.options[ownerRequestWarehouse.selectedIndex]?.text || "-";
+
+    if (ownerRequestSummaryWarehouse) ownerRequestSummaryWarehouse.textContent = warehouseLabel;
+    if (ownerRequestSummaryCount) ownerRequestSummaryCount.textContent = String(count);
+    if (ownerRequestSummaryQty) ownerRequestSummaryQty.textContent = String(totalQty);
+    if (ownerRequestSummaryRisk) ownerRequestSummaryRisk.textContent = String(riskCount);
+
+    if (!ownerRequestSummaryState || !ownerRequestSummaryHelp) {
+        return;
+    }
+
+    if (!count) {
+        ownerRequestSummaryState.textContent = "Draft";
+        ownerRequestSummaryHelp.textContent = "Belum ada item request owner di batch kerja.";
+        return;
+    }
+
+    ownerRequestSummaryState.textContent = riskCount ? "Perlu Cek" : "Siap";
+    ownerRequestSummaryHelp.textContent = riskCount
+        ? `${riskCount} baris berasal dari stok tipis atau kosong, cocok untuk prioritas owner.`
+        : `${count} item dengan total ${totalQty} qty siap dikirim ke owner.`;
+}
 
 function renderOwnerRequestDraftStock(qty) {
     const safeQty = Number(qty || 0);
@@ -331,6 +417,7 @@ function renderOwnerRequestQueue() {
                 </td>
             </tr>
         `;
+        renderOwnerRequestWorkspaceSummary();
         return;
     }
 
@@ -349,6 +436,7 @@ function renderOwnerRequestQueue() {
             </td>
         </tr>
     `).join("");
+    renderOwnerRequestWorkspaceSummary();
 }
 
 function addOwnerRequestItem() {
@@ -433,10 +521,12 @@ ownerRequestWarehouse?.addEventListener("change", async () => {
     await refreshOwnerRequestDraftStock();
     await refreshOwnerRequestQueueStocks();
     ownerRequestPicker.refresh();
+    renderOwnerRequestWorkspaceSummary();
 });
 
 resetOwnerRequestDraft();
 renderOwnerRequestQueue();
+renderOwnerRequestWorkspaceSummary();
 </script>
 {% endblock %}
 

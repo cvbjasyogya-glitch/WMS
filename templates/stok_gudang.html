@@ -1,9 +1,9 @@
 ﻿{% extends "base.html" %}
 
-{% block title %}Stok Gudang | ERP-CV.BJAS{% endblock %}
+{% block title %}Stok & Produk | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Warehouse Inventory Surface{% endblock %}
-{% block page_title %}Stok Gudang{% endblock %}
-{% block page_subtitle %}Workspace inti untuk memantau kuantitas, valuasi inventori, aging batch, dan penyesuaian stok dengan tampilan yang lebih nyaman dipakai dari desktop maupun mobile.{% endblock %}
+{% block page_title %}Stok & Produk{% endblock %}
+{% block page_subtitle %}Workspace terpadu untuk memantau kuantitas{% if can_view_inventory_value %}, nilai jual stok{% endif %}, aging batch, dan pengelolaan master produk tanpa pindah halaman.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions">
@@ -17,6 +17,7 @@
 {% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
 <div class="summary stock-summary-grid">
     <div class="card-mini">
         <p>Total Variant</p>
@@ -28,11 +29,13 @@
         <h3 data-stock-summary="total_qty">{{ summary.total_qty }}</h3>
         <small class="helper-text">Akumulasi stok siap operasional.</small>
     </div>
+    {% if can_view_inventory_value %}
     <div class="card-mini">
-        <p>Nilai Inventori</p>
+        <p>Nilai Jual Stok</p>
         <h3 data-stock-summary="inventory_value">Rp {{ "{:,.0f}".format(summary.inventory_value) }}</h3>
         <small class="helper-text">Menggunakan harga nett lalu fallback ke discount/retail.</small>
     </div>
+    {% endif %}
     <div class="card-mini {% if summary.zero_count or summary.low_count %}warning{% endif %}">
         <p>Perlu Atensi</p>
         <h3 data-stock-summary="attention_count">{{ summary.zero_count + summary.low_count }}</h3>
@@ -59,48 +62,98 @@
     </div>
 </div>
 
-<form method="GET" class="top-bar stock-filter-bar">
-    <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau variant">
-    <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
-        {% for w in warehouses %}
-        <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
-        {% endfor %}
-    </select>
-    {% if is_scoped_user %}
-    <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
+<div class="wms-command-grid">
+    <a href="/inbound" class="wms-command-card">
+        <span>Action</span>
+        <strong>Tambah Stok</strong>
+        <p>Buka inbound composer untuk menambah stok baru ke gudang aktif tanpa keluar dari workflow WMS.</p>
+    </a>
+    <a href="/outbound" class="wms-command-card">
+        <span>Action</span>
+        <strong>Kurangi Stok</strong>
+        <p>Masuk ke outbound saat item harus segera keluar, dengan validasi qty agar stok tidak minus.</p>
+    </a>
+    <a href="/transfers" class="wms-command-card">
+        <span>Action</span>
+        <strong>Pindah Antar Gudang</strong>
+        <p>Gunakan transfer untuk rebalance stok antar gudang saat satu lokasi mulai tipis atau kosong.</p>
+    </a>
+    <a href="/so" class="wms-command-card">
+        <span>Control</span>
+        <strong>Stock Opname</strong>
+        <p>Masuk ke modul hitung fisik untuk memastikan stok sistem tetap sesuai dengan kondisi lapangan.</p>
+    </a>
+    {% if can('manage_product_master') %}
+    <a href="#productStudioPanel" class="wms-command-card">
+        <span>Master</span>
+        <strong>Studio Produk</strong>
+        <p>Tambah produk, import master, dan rapikan data SKU dari workspace yang sama.</p>
+    </a>
     {% endif %}
-    <input type="date" name="start_date" value="{{ start_date }}">
-    <input type="date" name="end_date" value="{{ end_date }}">
-    <select name="stock_state">
-        <option value="all" {% if stock_state == 'all' %}selected{% endif %}>Semua Status</option>
-        <option value="ready" {% if stock_state == 'ready' %}selected{% endif %}>Stok Aman</option>
-        <option value="low" {% if stock_state == 'low' %}selected{% endif %}>Stok Menipis</option>
-        <option value="zero" {% if stock_state == 'zero' %}selected{% endif %}>Stok Habis</option>
-    </select>
-    <select name="sort">
-        <option value="sku_asc" {% if sort == 'sku_asc' %}selected{% endif %}>SKU A-Z</option>
-        <option value="sku_desc" {% if sort == 'sku_desc' %}selected{% endif %}>SKU Z-A</option>
-        <option value="qty_asc" {% if sort == 'qty_asc' %}selected{% endif %}>Stok Sedikit</option>
-        <option value="qty_desc" {% if sort == 'qty_desc' %}selected{% endif %}>Stok Banyak</option>
-        <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Nama A-Z</option>
-        <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Nama Z-A</option>
-        <option value="variant_asc" {% if sort == 'variant_asc' %}selected{% endif %}>Variant A-Z</option>
-        <option value="variant_desc" {% if sort == 'variant_desc' %}selected{% endif %}>Variant Z-A</option>
-        <option value="age_desc" {% if sort == 'age_desc' %}selected{% endif %}>Aging Terlama</option>
-        <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
-    </select>
-    <button type="submit">Filter</button>
-    {% if can_bulk_adjust_ui %}
-    <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
-    {% endif %}
-</form>
+</div>
 
-{% if is_scoped_user %}
-<small class="helper-text">Filter gudang dikunci ke gudang yang terhubung dengan akun Anda.</small>
-{% endif %}
-{% if not can('manage_product_master') %}
-<small class="helper-text">Field SKU, nama, variant, dan harga ditampilkan sebagai read only untuk role ini.</small>
-{% endif %}
+<div class="workspace-switch" aria-label="Pilih panel kerja stok dan produk">
+    <a href="/stock?warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}" class="{% if active_workspace != 'products' %}active{% endif %}">Inventori</a>
+    <a href="/stock?workspace=products&warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&product_search={{ product_studio.search }}" class="{% if active_workspace == 'products' %}active{% endif %}">Studio Produk</a>
+</div>
+
+<div class="wms-split-band">
+    <div class="wms-filter-band">
+        <form method="GET" class="top-bar stock-filter-bar">
+            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau variant">
+            <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
+                {% for w in warehouses %}
+                <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                {% endfor %}
+            </select>
+            {% if is_scoped_user %}
+            <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
+            {% endif %}
+            <input type="date" name="start_date" value="{{ start_date }}">
+            <input type="date" name="end_date" value="{{ end_date }}">
+            <select name="stock_state">
+                <option value="all" {% if stock_state == 'all' %}selected{% endif %}>Semua Status</option>
+                <option value="ready" {% if stock_state == 'ready' %}selected{% endif %}>Stok Aman</option>
+                <option value="low" {% if stock_state == 'low' %}selected{% endif %}>Stok Menipis</option>
+                <option value="zero" {% if stock_state == 'zero' %}selected{% endif %}>Stok Habis</option>
+            </select>
+            <select name="sort">
+                <option value="sku_asc" {% if sort == 'sku_asc' %}selected{% endif %}>SKU A-Z</option>
+                <option value="sku_desc" {% if sort == 'sku_desc' %}selected{% endif %}>SKU Z-A</option>
+                <option value="qty_asc" {% if sort == 'qty_asc' %}selected{% endif %}>Stok Sedikit</option>
+                <option value="qty_desc" {% if sort == 'qty_desc' %}selected{% endif %}>Stok Banyak</option>
+                <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Nama A-Z</option>
+                <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Nama Z-A</option>
+                <option value="variant_asc" {% if sort == 'variant_asc' %}selected{% endif %}>Variant A-Z</option>
+                <option value="variant_desc" {% if sort == 'variant_desc' %}selected{% endif %}>Variant Z-A</option>
+                <option value="age_desc" {% if sort == 'age_desc' %}selected{% endif %}>Aging Terlama</option>
+                <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
+            </select>
+            <button type="submit">Filter</button>
+            {% if can_bulk_adjust_ui %}
+            <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
+            {% endif %}
+        </form>
+
+        {% if is_scoped_user %}
+        <small class="helper-text">Filter gudang dikunci ke gudang yang terhubung dengan akun Anda.</small>
+        {% endif %}
+        {% if not can('manage_product_master') %}
+        <small class="helper-text">Field SKU, nama, variant, dan harga ditampilkan sebagai read only untuk role ini.</small>
+        {% endif %}
+    </div>
+
+    <aside class="wms-panel-note">
+        <strong>Fokus Operasional Hari Ini</strong>
+        <p>Pakai filter status untuk prioritas cepat, lalu arahkan item merah atau kuning ke replenishment, transfer, atau stock opname.</p>
+        <div class="wms-inline-status">
+            <span class="status-pill">Aman {{ summary.ready_count }}</span>
+            <span class="status-pill">Tipis {{ summary.low_count }}</span>
+            <span class="status-pill">Kosong {{ summary.zero_count }}</span>
+        </div>
+        <small>Grup produk dengan nama sama akan digabung agar operator tidak tenggelam oleh varian yang berulang.</small>
+    </aside>
+</div>
 
 <div class="table-box stock-detail-box" data-scrollable-table="1">
     <div class="section-title">
@@ -126,31 +179,31 @@
                 <th>
                     <a href="{{ sort_links.sku }}" class="sort-link {% if sort_state.field == 'sku' %}active{% endif %}">
                         <span>SKU</span>
-                        {% if sort_state.field == 'sku' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'sku' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.name }}" class="sort-link {% if sort_state.field == 'name' %}active{% endif %}">
                         <span>Produk</span>
-                        {% if sort_state.field == 'name' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'name' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.variant }}" class="sort-link {% if sort_state.field == 'variant' %}active{% endif %}">
                         <span>Variant</span>
-                        {% if sort_state.field == 'variant' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'variant' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.qty }}" class="sort-link {% if sort_state.field == 'qty' %}active{% endif %}">
                         <span>Qty</span>
-                        {% if sort_state.field == 'qty' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'qty' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.status }}" class="sort-link {% if sort_state.field == 'status' %}active{% endif %}">
                         <span>Status</span>
-                        {% if sort_state.field == 'status' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'status' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 {% if can_adjust_stock_ui %}
@@ -159,31 +212,31 @@
                 <th>
                     <a href="{{ sort_links.price_retail }}" class="sort-link {% if sort_state.field == 'price_retail' %}active{% endif %}">
                         <span>Retail</span>
-                        {% if sort_state.field == 'price_retail' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'price_retail' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.price_discount }}" class="sort-link {% if sort_state.field == 'price_discount' %}active{% endif %}">
                         <span>Discount</span>
-                        {% if sort_state.field == 'price_discount' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'price_discount' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.price_nett }}" class="sort-link {% if sort_state.field == 'price_nett' %}active{% endif %}">
                         <span>Nett</span>
-                        {% if sort_state.field == 'price_nett' %}<span class="sort-indicator">{{ 'â–²' if sort_state.direction == 'asc' else 'â–¼' }}</span>{% endif %}
+                        {% if sort_state.field == 'price_nett' %}<span class="sort-indicator">{{ '^' if sort_state.direction == 'asc' else 'v' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.age }}" class="sort-link {% if sort_state.field == 'age' %}active{% endif %}">
                         <span>Aging</span>
-                        {% if sort_state.field == 'age' %}<span class="sort-indicator">{{ 'â–¼' if sort_state.direction == 'desc' else 'â–²' }}</span>{% endif %}
+                        {% if sort_state.field == 'age' %}<span class="sort-indicator">{{ 'v' if sort_state.direction == 'desc' else '^' }}</span>{% endif %}
                     </a>
                 </th>
                 <th>
                     <a href="{{ sort_links.created_at }}" class="sort-link {% if sort_state.field == 'created_at' %}active{% endif %}">
                         <span>Tanggal Masuk</span>
-                        {% if sort_state.field == 'created_at' %}<span class="sort-indicator">{{ 'â–¼' if sort_state.direction == 'desc' else 'â–²' }}</span>{% endif %}
+                        {% if sort_state.field == 'created_at' %}<span class="sort-indicator">{{ 'v' if sort_state.direction == 'desc' else '^' }}</span>{% endif %}
                     </a>
                 </th>
             </tr>
@@ -195,6 +248,11 @@
                 class="stock-product-group-row {% if group.status_tone == 'red' %}zero{% elif group.status_tone == 'orange' %}warning{% endif %}"
                 data-stock-group-summary-row
                 data-group-product="{{ group.product_id }}"
+                data-product-id="{{ group.product_id }}"
+                data-product-sku="{{ group.sku|e }}"
+                data-product-name="{{ group.name|e }}"
+                data-product-category="{{ group.category_name|e }}"
+                data-stock-editable-row="{% if can('manage_product_master') %}1{% else %}0{% endif %}"
             >
                 {% if can_bulk_adjust_ui %}
                 <td class="stock-group-check-cell">
@@ -266,6 +324,16 @@
                                         data-stock-row
                                         data-qty="{{ s.qty }}"
                                         data-best-price="{{ best_price }}"
+                                        data-product-id="{{ s.product_id }}"
+                                        data-variant-id="{{ s.variant_id }}"
+                                        data-product-sku="{{ s.sku|e }}"
+                                        data-product-name="{{ s.name|e }}"
+                                        data-product-category="{{ (s.category_name or '')|e }}"
+                                        data-product-variant="{{ s.variant|e }}"
+                                        data-price-retail="{{ s.price_retail }}"
+                                        data-price-discount="{{ s.price_discount }}"
+                                        data-price-nett="{{ s.price_nett }}"
+                                        data-stock-editable-row="{% if can('manage_product_master') %}1{% else %}0{% endif %}"
                                     >
                                         {% if can_bulk_adjust_ui %}
                                         <td class="stock-col stock-col-select">
@@ -360,6 +428,16 @@
                 data-stock-row
                 data-qty="{{ s.qty }}"
                 data-best-price="{{ best_price }}"
+                data-product-id="{{ s.product_id }}"
+                data-variant-id="{{ s.variant_id }}"
+                data-product-sku="{{ s.sku|e }}"
+                data-product-name="{{ s.name|e }}"
+                data-product-category="{{ (s.category_name or '')|e }}"
+                data-product-variant="{{ s.variant|e }}"
+                data-price-retail="{{ s.price_retail }}"
+                data-price-discount="{{ s.price_discount }}"
+                data-price-nett="{{ s.price_nett }}"
+                data-stock-editable-row="{% if can('manage_product_master') %}1{% else %}0{% endif %}"
             >
                 {% if can_bulk_adjust_ui %}
                 <td>
@@ -456,19 +534,101 @@
     <div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div>
     {% endif %}
 </div>
+
+{% include "partials/product_studio_panel.html" %}
+
+{% if can('manage_product_master') %}
+<div class="stock-context-menu" id="stockContextMenu" hidden>
+    <button type="button" data-stock-context-action="edit">Edit Detail Produk</button>
+    <button type="button" data-stock-context-action="studio">Buka Studio Produk</button>
+</div>
+
+<div class="picker-modal" id="stockEditModal" hidden>
+    <div class="picker-modal-backdrop" data-stock-edit-backdrop></div>
+    <div class="picker-modal-panel stock-edit-modal-panel" role="dialog" aria-modal="true" aria-labelledby="stockEditModalTitle">
+        <div class="section-title">
+            <div>
+                <h2 id="stockEditModalTitle">Edit Detail Produk</h2>
+                <p>Editor cepat ini dibuka dari klik kanan pada item stok atau daftar master produk.</p>
+            </div>
+        </div>
+
+        <form id="stockEditDetailForm" class="stock-edit-detail-form">
+            <input type="hidden" name="product_id" id="stockEditProductId">
+            <input type="hidden" name="variant_id" id="stockEditVariantId">
+
+            <div class="form-grid">
+                <div>
+                    <label>SKU</label>
+                    <input type="text" name="sku" id="stockEditSku" required>
+                </div>
+                <div>
+                    <label>Nama Produk</label>
+                    <input type="text" name="name" id="stockEditName" required>
+                </div>
+                <div>
+                    <label>Kategori</label>
+                    <input type="text" name="category_name" id="stockEditCategory" required>
+                </div>
+                <div id="stockEditVariantWrap">
+                    <label>Variant</label>
+                    <input type="text" name="variant" id="stockEditVariant">
+                </div>
+                <div id="stockEditRetailWrap">
+                    <label>Harga Retail</label>
+                    <input type="number" step="0.01" min="0" name="price_retail" id="stockEditPriceRetail">
+                </div>
+                <div id="stockEditDiscountWrap">
+                    <label>Harga Discount</label>
+                    <input type="number" step="0.01" min="0" name="price_discount" id="stockEditPriceDiscount">
+                </div>
+                <div id="stockEditNettWrap">
+                    <label>Harga Nett</label>
+                    <input type="number" step="0.01" min="0" name="price_nett" id="stockEditPriceNett">
+                </div>
+            </div>
+
+            <div class="split-actions stock-edit-modal-actions">
+                <button type="submit" id="stockEditSaveButton">Simpan Perubahan</button>
+                <button type="button" class="ghost-button" data-stock-edit-close>Tutup</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script id="stockPageConfigData" type="application/json">
+{{ {
+    "filter": stock_state,
+    "warehouseId": warehouse_id,
+    "activeWorkspace": active_workspace,
+    "emptyColspan": 10 + (1 if can_bulk_adjust_ui else 0) + (1 if can_adjust_stock_ui else 0),
+    "summary": {
+        "totalVariants": summary.total_variants,
+        "totalQty": summary.total_qty,
+        "inventoryValue": summary.inventory_value|round(2),
+        "zeroCount": summary.zero_count,
+        "lowCount": summary.low_count,
+        "readyCount": summary.ready_count
+    }
+}|tojson }}
+</script>
 <script>
+const stockPageConfig = typeof window.wmsReadJsonScript === "function"
+    ? window.wmsReadJsonScript("stockPageConfigData")
+    : {};
 const stockPageState = {
-    filter: "{{ stock_state }}",
+    filter: stockPageConfig.filter || "all",
     summary: {
-        totalVariants: {{ summary.total_variants }},
-        totalQty: {{ summary.total_qty }},
-        inventoryValue: {{ summary.inventory_value|round(2) }},
-        zeroCount: {{ summary.zero_count }},
-        lowCount: {{ summary.low_count }},
-        readyCount: {{ summary.ready_count }}
+        totalVariants: Number(stockPageConfig.summary?.totalVariants || 0),
+        totalQty: Number(stockPageConfig.summary?.totalQty || 0),
+        inventoryValue: Number(stockPageConfig.summary?.inventoryValue || 0),
+        zeroCount: Number(stockPageConfig.summary?.zeroCount || 0),
+        lowCount: Number(stockPageConfig.summary?.lowCount || 0),
+        readyCount: Number(stockPageConfig.summary?.readyCount || 0)
     }
 };
 const STOCK_LOW_THRESHOLD = 5;
@@ -793,7 +953,8 @@ function ensureStockEmptyState() {
 
     const emptyRow = document.createElement("tr");
     emptyRow.className = "stock-table-empty-row";
-    emptyRow.innerHTML = '<td colspan="{{ 10 + (1 if can_bulk_adjust_ui else 0) + (1 if can_adjust_stock_ui else 0) }}"><div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div></td>';
+    const emptyColspan = Number(stockPageConfig.emptyColspan || 10);
+    emptyRow.innerHTML = `<td colspan="${emptyColspan}"><div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div></td>`;
     tbody.appendChild(emptyRow);
 }
 
@@ -945,7 +1106,7 @@ function bulkAdjust() {
     const payload = Array.from(selected).map((checkbox) => ({
         product_id: checkbox.dataset.product,
         variant_id: checkbox.dataset.variant,
-        warehouse_id: "{{ warehouse_id }}",
+        warehouse_id: String(stockPageConfig.warehouseId || ""),
         qty: parseInt(qty, 10)
     }));
 
@@ -982,6 +1143,717 @@ document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummar
     renderGroupSummary(groupSummaryRow);
 });
 updateMasterCheckboxState();
+
+const DEFAULT_VARIANT_ROWS = [
+    { variant: "39", qty: "1" },
+    { variant: "40", qty: "1" },
+    { variant: "41", qty: "0" },
+    { variant: "42", qty: "0" }
+];
+
+function notifyProductStudioMessage(message) {
+    if (!message) {
+        return;
+    }
+    if (typeof window.showToast === "function") {
+        window.showToast(message);
+        return;
+    }
+    alert(message);
+}
+
+function renderProductStudioStatus(targetId, message, category = "success") {
+    const target = document.getElementById(targetId);
+    if (!target) {
+        return;
+    }
+    target.innerHTML = "";
+    if (!message) {
+        return;
+    }
+
+    const box = document.createElement("div");
+    box.className = `flash ${category}`;
+    box.textContent = message;
+    target.appendChild(box);
+}
+
+function bindProductCheckAllControl() {
+    const checkAll = document.getElementById("productCheckAll");
+    if (!checkAll || checkAll.dataset.bound === "1") {
+        return;
+    }
+
+    checkAll.dataset.bound = "1";
+    checkAll.addEventListener("change", function() {
+        document.querySelectorAll(".product-row-check").forEach((checkbox) => {
+            checkbox.checked = this.checked;
+        });
+    });
+}
+
+async function refreshProductsView() {
+    const response = await fetch(window.location.pathname + window.location.search, {
+        headers: {
+            "X-Requested-With": "XMLHttpRequest"
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error("Panel produk gagal dimuat ulang.");
+    }
+
+    const html = await response.text();
+    const parser = new DOMParser();
+    const nextDocument = parser.parseFromString(html, "text/html");
+    const nextMeta = nextDocument.getElementById("productsMetaGrid");
+    const nextList = nextDocument.getElementById("productsListBox");
+    const nextTotal = nextDocument.querySelector("[data-product-summary-total]");
+    const nextPage = nextDocument.querySelector("[data-product-summary-page]");
+    const currentMeta = document.getElementById("productsMetaGrid");
+    const currentList = document.getElementById("productsListBox");
+    const currentTotal = document.querySelector("[data-product-summary-total]");
+    const currentPage = document.querySelector("[data-product-summary-page]");
+
+    if (nextMeta && currentMeta) {
+        currentMeta.outerHTML = nextMeta.outerHTML;
+    }
+
+    if (nextList && currentList) {
+        currentList.outerHTML = nextList.outerHTML;
+    }
+
+    if (nextTotal && currentTotal) {
+        currentTotal.textContent = nextTotal.textContent;
+    }
+
+    if (nextPage && currentPage) {
+        currentPage.textContent = nextPage.textContent;
+    }
+
+    bindProductCheckAllControl();
+}
+
+function resetManualProductForm() {
+    const manualProductForm = document.getElementById("manualProductForm");
+    const variantRowsBody = document.getElementById("variantRowsBody");
+    const variantRowsJson = document.getElementById("variantRowsJson");
+    if (!manualProductForm || !variantRowsBody || !variantRowsJson) {
+        return;
+    }
+
+    manualProductForm.reset();
+    variantRowsJson.value = "";
+    variantRowsBody.innerHTML = "";
+    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
+    renderProductStudioStatus("manualProductStatus", "");
+}
+
+function toggleForm() {
+    const formBox = document.getElementById("formBox");
+    if (!formBox) {
+        return;
+    }
+    const nextState = formBox.style.display === "none" || formBox.style.display === "";
+    formBox.style.display = nextState ? "block" : "none";
+    if (nextState) {
+        formBox.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+}
+
+function createVariantRowMarkup(initial = {}) {
+    const variant = initial.variant || "";
+    const priceRetail = initial.price_retail || "";
+    const priceDiscount = initial.price_discount || "";
+    const priceNett = initial.price_nett || "";
+    const qty = initial.qty ?? "";
+    const variantCode = initial.variant_code || "";
+    const color = initial.color || "";
+    const gtin = initial.gtin || "";
+
+    return `
+        <td class="variant-size-cell">
+            <div class="variant-size-shell">
+                <div class="variant-size-stack">
+                    <div class="variant-size-block">
+                        <div class="variant-size-label">Size</div>
+                        <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+                    </div>
+                    <div class="variant-size-block">
+                        <div class="variant-size-label">Warna</div>
+                        <input type="text" class="variant-color-input" data-field="color" placeholder="Hitam" value="${color}">
+                    </div>
+                </div>
+            </div>
+        </td>
+        <td class="variant-price-cell">
+            <div class="variant-price-card">
+                <div class="variant-field-stack">
+                    <div>
+                        <span class="variant-mini-label">Retail</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}">
+                        </label>
+                    </div>
+                    <div>
+                        <span class="variant-mini-label">Diskon</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}">
+                        </label>
+                    </div>
+                    <div>
+                        <span class="variant-mini-label">Nett</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}">
+                        </label>
+                    </div>
+                </div>
+                <div class="variant-price-summary" data-role="price-summary">Isi harga retail, diskon, atau nett sesuai kebutuhan.</div>
+            </div>
+        </td>
+        <td class="variant-stock-cell">
+            <div class="variant-stock-card">
+                <div>
+                    <span class="variant-mini-label">Qty Awal</span>
+                    <input type="number" data-field="qty" min="0" step="1" placeholder="1" value="${qty}">
+                </div>
+                <div class="variant-stock-hint">Boleh 0 jika stok fisik belum masuk.</div>
+            </div>
+        </td>
+        <td class="variant-meta-cell">
+            <div class="variant-meta-stack">
+                <span class="variant-mini-label">Opsional</span>
+                <input type="text" data-field="variant_code" placeholder="Kode variasi" value="${variantCode}">
+            </div>
+        </td>
+        <td class="variant-meta-cell">
+            <div class="variant-meta-stack">
+                <span class="variant-mini-label">Barcode</span>
+                <input type="text" data-field="gtin" placeholder="GTIN / barcode" value="${gtin}">
+            </div>
+        </td>
+        <td class="variant-action-cell">
+            <button type="button" class="ghost-button variant-remove-button" onclick="removeVariantRow(this)">Hapus</button>
+        </td>
+    `;
+}
+
+function addVariantRow(initial = {}) {
+    const variantRowsBody = document.getElementById("variantRowsBody");
+    if (!variantRowsBody) {
+        return;
+    }
+    const row = document.createElement("tr");
+    row.innerHTML = createVariantRowMarkup(initial);
+    variantRowsBody.appendChild(row);
+    bindVariantRow(row);
+}
+
+function formatCompactCurrency(value) {
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return "Rp0";
+    }
+    return "Rp" + new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(amount);
+}
+
+function updateVariantPriceSummary(row) {
+    const retail = Number(row.querySelector('[data-field="price_retail"]')?.value || 0);
+    const discount = Number(row.querySelector('[data-field="price_discount"]')?.value || 0);
+    const nett = Number(row.querySelector('[data-field="price_nett"]')?.value || 0);
+    const summary = row.querySelector('[data-role="price-summary"]');
+
+    if (!summary) {
+        return;
+    }
+
+    if (retail > 0 && discount > 0 && discount <= retail) {
+        const percentage = Math.round(((retail - discount) / retail) * 100);
+        summary.textContent = `Harga diskon ${formatCompactCurrency(discount)} (${percentage}% diskon)`;
+        return;
+    }
+
+    if (nett > 0) {
+        summary.textContent = `Harga nett ${formatCompactCurrency(nett)} siap disimpan.`;
+        return;
+    }
+
+    if (retail > 0) {
+        summary.textContent = `Retail ${formatCompactCurrency(retail)} siap dipakai.`;
+        return;
+    }
+
+    summary.textContent = "Isi harga retail, diskon, atau nett sesuai kebutuhan.";
+}
+
+function bindVariantRow(row) {
+    row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"]').forEach((input) => {
+        input.addEventListener("input", () => updateVariantPriceSummary(row));
+    });
+    updateVariantPriceSummary(row);
+}
+
+function removeVariantRow(button) {
+    const row = button.closest("tr");
+    const variantRowsBody = document.getElementById("variantRowsBody");
+    if (!row || !variantRowsBody) {
+        return;
+    }
+    row.remove();
+
+    if (!variantRowsBody.children.length) {
+        addVariantRow();
+    }
+}
+
+function getVariantPayload() {
+    const variantRowsBody = document.getElementById("variantRowsBody");
+    if (!variantRowsBody) {
+        return [];
+    }
+
+    return Array.from(variantRowsBody.querySelectorAll("tr")).map((row) => {
+        const getValue = (field) => row.querySelector(`[data-field="${field}"]`);
+
+        return {
+            variant: (getValue("variant")?.value || "").trim(),
+            color: (getValue("color")?.value || "").trim(),
+            price_retail: (getValue("price_retail")?.value || "").trim(),
+            price_discount: (getValue("price_discount")?.value || "").trim(),
+            price_nett: (getValue("price_nett")?.value || "").trim(),
+            qty: (getValue("qty")?.value || "").trim(),
+            variant_code: (getValue("variant_code")?.value || "").trim(),
+            gtin: (getValue("gtin")?.value || "").trim()
+        };
+    }).filter((row) => Object.values(row).some((value) => String(value || "").trim() !== ""));
+}
+
+function prepareManualSubmit() {
+    const variantRowsJson = document.getElementById("variantRowsJson");
+    const payload = getVariantPayload();
+    if (!payload.length) {
+        renderProductStudioStatus("manualProductStatus", "Isi minimal satu baris variasi terlebih dahulu.", "error");
+        return null;
+    }
+
+    if (payload.length > 1 && payload.some((row) => !row.variant && !row.color)) {
+        renderProductStudioStatus("manualProductStatus", "Isi size, warna, atau salah satunya pada setiap baris yang dipakai.", "error");
+        return null;
+    }
+
+    const hasNegativeQty = payload.some((row) => row.qty !== "" && Number(row.qty) < 0);
+    if (hasNegativeQty) {
+        renderProductStudioStatus("manualProductStatus", "Qty tidak boleh minus.", "error");
+        return null;
+    }
+
+    const hasNegativePrice = payload.some((row) => {
+        return ["price_retail", "price_discount", "price_nett"].some((field) => row[field] !== "" && Number(row[field]) < 0);
+    });
+    if (hasNegativePrice) {
+        renderProductStudioStatus("manualProductStatus", "Harga tidak boleh minus.", "error");
+        return null;
+    }
+
+    if (variantRowsJson) {
+        variantRowsJson.value = JSON.stringify(payload);
+    }
+
+    renderProductStudioStatus("manualProductStatus", "");
+    return payload;
+}
+
+async function handleManualSubmit(event) {
+    event.preventDefault();
+
+    const manualProductForm = document.getElementById("manualProductForm");
+    const btn = document.getElementById("btnSubmit");
+    if (!manualProductForm) {
+        return false;
+    }
+
+    const payload = prepareManualSubmit();
+    if (!payload) {
+        return false;
+    }
+
+    const originalLabel = btn ? btn.innerText : "Simpan Produk";
+    if (btn) {
+        btn.innerText = "Menyimpan...";
+        btn.disabled = true;
+    }
+
+    try {
+        const formData = new FormData(manualProductForm);
+        const response = await fetch(manualProductForm.action, {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json"
+            },
+            body: formData
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.status !== "success") {
+            renderProductStudioStatus("manualProductStatus", data.message || "Produk gagal disimpan.", "error");
+            return false;
+        }
+
+        renderProductStudioStatus("manualProductStatus", data.message || "Produk berhasil ditambahkan.", "success");
+        notifyProductStudioMessage(data.message || "Produk berhasil ditambahkan.");
+        resetManualProductForm();
+        await refreshProductsView();
+        toggleForm();
+        return false;
+    } catch (error) {
+        renderProductStudioStatus("manualProductStatus", "Terjadi error saat menyimpan produk.", "error");
+        return false;
+    } finally {
+        if (btn) {
+            btn.innerText = originalLabel;
+            btn.disabled = false;
+        }
+    }
+}
+
+function setImportBusy(isBusy) {
+    const fileInput = document.getElementById("fileInput");
+    const buttons = document.querySelectorAll(".products-import-bar button");
+    if (fileInput) {
+        fileInput.disabled = isBusy;
+    }
+    buttons.forEach((button) => {
+        button.disabled = isBusy;
+    });
+}
+
+function bulkDelete() {
+    const ids = Array.from(document.querySelectorAll(".product-row-check:checked")).map((checkbox) => checkbox.value);
+    if (!ids.length) {
+        alert("Pilih produk yang ingin dihapus terlebih dahulu.");
+        return;
+    }
+
+    if (!confirm("Yakin ingin menghapus produk yang dipilih?")) {
+        return;
+    }
+
+    fetch("/products/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
+    })
+    .then((res) => res.json())
+    .then(async (data) => {
+        if (data.status === "success") {
+            notifyProductStudioMessage(data.message || "Produk terpilih berhasil dihapus.");
+            await refreshProductsView();
+            return;
+        }
+        alert(data.message || "Gagal menghapus produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function buildPreviewTable(rows) {
+    if (!rows.length) {
+        return "<div class='empty-state' style='margin-top:16px;'>Tidak ada data yang bisa dipreview.</div>";
+    }
+
+    const headers = Object.keys(rows[0]);
+    const head = headers.map((header) => "<th>" + header + "</th>").join("");
+    const body = rows.map((row) => {
+        return "<tr>" + headers.map((header) => "<td>" + (row[header] ?? "") + "</td>").join("") + "</tr>";
+    }).join("");
+
+    return "<div class='table-box' style='margin-top:16px; margin-bottom:0;'><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+}
+
+async function previewImport() {
+    const fileInput = document.getElementById("fileInput");
+    const previewBox = document.getElementById("previewBox");
+    const file = fileInput?.files?.[0];
+
+    if (!file || !previewBox) {
+        alert("Pilih file import terlebih dahulu.");
+        return;
+    }
+
+    previewBox.innerHTML = "<div class='status-pill'>Membaca file...</div>";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/products/import/preview", {
+            method: "POST",
+            body: formData
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.status === "error" || data.error) {
+            previewBox.innerHTML = "<div class='flash error'>" + (data.message || data.error || "Gagal membuat preview.") + "</div>";
+            return;
+        }
+
+        previewBox.innerHTML = buildPreviewTable(data.rows || []);
+    } catch (error) {
+        previewBox.innerHTML = "<div class='flash error'>Terjadi error saat membaca file.</div>";
+    }
+}
+
+async function pollImport(jobId) {
+    const fileInput = document.getElementById("fileInput");
+    const wrapper = document.getElementById("progressWrapper");
+    const bar = document.getElementById("progressBar");
+    const text = document.getElementById("progressText");
+    if (!wrapper || !bar || !text) {
+        return;
+    }
+    wrapper.style.display = "block";
+
+    const timer = setInterval(async () => {
+        try {
+            const res = await fetch("/products/import/progress/" + jobId);
+            const data = await res.json();
+
+            if (!res.ok || data.error) {
+                clearInterval(timer);
+                text.innerText = "Import gagal dipantau.";
+                return;
+            }
+
+            bar.style.width = (data.percent || 0) + "%";
+            text.innerText = "Memproses " + data.current + " dari " + data.total + " baris";
+
+            if (data.status === "done") {
+                clearInterval(timer);
+                text.innerText = "Import selesai. Daftar produk sedang diperbarui.";
+                renderProductStudioStatus("importStatus", "Import berhasil selesai tanpa reload halaman.", "success");
+                notifyProductStudioMessage("Import produk selesai.");
+                await refreshProductsView();
+                setImportBusy(false);
+                if (fileInput) {
+                    fileInput.value = "";
+                }
+                setTimeout(() => {
+                    wrapper.style.display = "none";
+                    bar.style.width = "0%";
+                    text.innerText = "";
+                }, 1200);
+            }
+        } catch (error) {
+            clearInterval(timer);
+            text.innerText = "Monitoring import terputus.";
+            renderProductStudioStatus("importStatus", "Monitoring import terputus.", "error");
+            setImportBusy(false);
+        }
+    }, 800);
+}
+
+async function submitImport() {
+    const fileInput = document.getElementById("fileInput");
+    const file = fileInput?.files?.[0];
+
+    if (!file) {
+        renderProductStudioStatus("importStatus", "Pilih file import terlebih dahulu.", "error");
+        return;
+    }
+
+    renderProductStudioStatus("importStatus", "");
+    setImportBusy(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/products/import", {
+            method: "POST",
+            body: formData
+        });
+
+        if (!res.ok) {
+            const data = await res.json().catch(async () => ({ message: await res.text() }));
+            renderProductStudioStatus("importStatus", data.message || "Import gagal dijalankan.", "error");
+            setImportBusy(false);
+            return;
+        }
+
+        const data = await res.json();
+        if (!data.job_id) {
+            renderProductStudioStatus("importStatus", "Job import tidak berhasil dibuat.", "error");
+            setImportBusy(false);
+            return;
+        }
+
+        pollImport(data.job_id);
+    } catch (error) {
+        renderProductStudioStatus("importStatus", "Terjadi error saat mengirim file import.", "error");
+        setImportBusy(false);
+    }
+}
+
+bindProductCheckAllControl();
+
+const variantRowsBody = document.getElementById("variantRowsBody");
+if (variantRowsBody && !variantRowsBody.children.length) {
+    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
+}
+
+{% if can('manage_product_master') %}
+const stockContextMenu = document.getElementById("stockContextMenu");
+const stockEditModal = document.getElementById("stockEditModal");
+const stockEditDetailForm = document.getElementById("stockEditDetailForm");
+let activeContextSource = null;
+
+function closeStockContextMenu() {
+    if (stockContextMenu) {
+        stockContextMenu.hidden = true;
+    }
+}
+
+function openStockContextMenu(event, source) {
+    if (!stockContextMenu || !source) {
+        return;
+    }
+
+    activeContextSource = source;
+    stockContextMenu.hidden = false;
+    const { innerWidth, innerHeight } = window;
+    const menuRect = stockContextMenu.getBoundingClientRect();
+    const top = Math.min(event.clientY, innerHeight - menuRect.height - 12);
+    const left = Math.min(event.clientX, innerWidth - menuRect.width - 12);
+    stockContextMenu.style.top = `${Math.max(12, top)}px`;
+    stockContextMenu.style.left = `${Math.max(12, left)}px`;
+}
+
+function toggleStockEditVariantFields(hasVariant) {
+    ["stockEditVariantWrap", "stockEditRetailWrap", "stockEditDiscountWrap", "stockEditNettWrap"].forEach((id) => {
+        const node = document.getElementById(id);
+        if (node) {
+            node.hidden = !hasVariant;
+        }
+    });
+}
+
+function openStockEditModal(source) {
+    if (!stockEditModal || !stockEditDetailForm || !source) {
+        return;
+    }
+
+    document.getElementById("stockEditProductId").value = source.dataset.productId || "";
+    document.getElementById("stockEditVariantId").value = source.dataset.variantId || "";
+    document.getElementById("stockEditSku").value = source.dataset.productSku || "";
+    document.getElementById("stockEditName").value = source.dataset.productName || "";
+    document.getElementById("stockEditCategory").value = source.dataset.productCategory || "";
+    document.getElementById("stockEditVariant").value = source.dataset.productVariant || "";
+    document.getElementById("stockEditPriceRetail").value = source.dataset.priceRetail || "";
+    document.getElementById("stockEditPriceDiscount").value = source.dataset.priceDiscount || "";
+    document.getElementById("stockEditPriceNett").value = source.dataset.priceNett || "";
+
+    toggleStockEditVariantFields(Boolean(source.dataset.variantId));
+    stockEditModal.hidden = false;
+    document.body.classList.add("stock-edit-modal-open");
+}
+
+function closeStockEditModal() {
+    if (stockEditModal) {
+        stockEditModal.hidden = true;
+    }
+    document.body.classList.remove("stock-edit-modal-open");
+}
+
+document.addEventListener("contextmenu", (event) => {
+    const source = event.target.closest('[data-stock-editable-row="1"], [data-product-studio-row="1"]');
+    if (!source) {
+        closeStockContextMenu();
+        return;
+    }
+    event.preventDefault();
+    openStockContextMenu(event, source);
+});
+
+document.addEventListener("click", (event) => {
+    if (stockContextMenu && !stockContextMenu.hidden && !stockContextMenu.contains(event.target)) {
+        closeStockContextMenu();
+    }
+});
+
+window.addEventListener("scroll", closeStockContextMenu, true);
+window.addEventListener("resize", closeStockContextMenu);
+
+stockContextMenu?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-stock-context-action]");
+    if (!button) {
+        return;
+    }
+
+    const action = button.dataset.stockContextAction;
+    closeStockContextMenu();
+
+    if (action === "studio") {
+        document.getElementById("productStudioPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+    }
+
+    if (action === "edit") {
+        openStockEditModal(activeContextSource);
+    }
+});
+
+document.querySelectorAll("[data-stock-edit-close], [data-stock-edit-backdrop]").forEach((node) => {
+    node.addEventListener("click", closeStockEditModal);
+});
+
+stockEditDetailForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const saveButton = document.getElementById("stockEditSaveButton");
+    const originalLabel = saveButton ? saveButton.innerText : "Simpan Perubahan";
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.innerText = "Menyimpan...";
+    }
+
+    try {
+        const formData = new FormData(stockEditDetailForm);
+        const response = await fetch("/stock/update-detail", {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json"
+            },
+            body: formData
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data.status !== "success") {
+            notifyStockMessage(data.message || "Detail produk gagal diperbarui.", "error");
+            return;
+        }
+
+        notifyStockMessage(data.message || "Detail produk berhasil diperbarui.");
+        closeStockEditModal();
+        window.location.reload();
+    } catch (error) {
+        notifyStockMessage("Terjadi error saat menyimpan detail produk.", "error");
+    } finally {
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.innerText = originalLabel;
+        }
+    }
+});
+{% endif %}
+
+if (stockPageConfig.activeWorkspace === "products") {
+    window.requestAnimationFrame(() => {
+        document.getElementById("productStudioPanel")?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+}
 </script>
 {% endblock %}
-

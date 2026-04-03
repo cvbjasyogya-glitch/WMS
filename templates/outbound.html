@@ -6,6 +6,58 @@
 {% block page_subtitle %}Pilih satu item, isi qty keluar, lalu tambahkan ke daftar kerja agar proses outbound banyak barang terasa cepat dan tetap aman terhadap stok.{% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
+    <div class="wms-step-grid">
+        <article class="wms-step-card">
+            <span>Step 01</span>
+            <strong>Pilih Gudang Sumber</strong>
+            <p>Semua validasi qty akan membaca stok dari gudang sumber yang sedang aktif pada panel ini.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 02</span>
+            <strong>Tambah Item Keluar</strong>
+            <p>Pilih barang, isi qty keluar, lalu tambahkan ke batch agar operator bisa review item satu per satu.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 03</span>
+            <strong>Kunci Batch</strong>
+            <p>Sistem akan memeriksa ulang stok saat simpan agar outbound tidak melampaui stok yang tersedia.</p>
+        </article>
+    </div>
+
+    <div class="wms-kpi-grid">
+        <article class="wms-kpi-card">
+            <span>Workflow</span>
+            <strong>{% if can("direct_stock_ops") %}Direct{% else %}Approval{% endif %}</strong>
+            <small>Mode outbound aktif untuk akun ini.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Gudang Sumber</span>
+            <strong id="outboundSummaryWarehouse">{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
+            <small>Sumber stok untuk semua item pada batch.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Item Batch</span>
+            <strong id="outboundSummaryCount">0</strong>
+            <small>Baris outbound yang siap diproses.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Qty Keluar</span>
+            <strong id="outboundSummaryQty">0</strong>
+            <small>Total qty yang sedang dikeluarkan.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Risk Check</span>
+            <strong id="outboundSummaryRisk">0</strong>
+            <small>Baris yang perlu dicek ulang terhadap stok.</small>
+        </article>
+        <article class="wms-kpi-card">
+            <span>Status</span>
+            <strong id="outboundSummaryState">Draft</strong>
+            <small id="outboundSummaryHelp">Belum ada item outbound di batch kerja.</small>
+        </article>
+    </div>
+
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
@@ -94,7 +146,7 @@
 
         <small class="helper-text ops-mobile-hint">Semua item pada daftar bawah akan divalidasi lagi terhadap stok gudang sebelum outbound disimpan.</small>
 
-        <div class="table-box ops-queue-box">
+        <div class="table-box ops-queue-box" data-scrollable-table="1">
             <table class="ops-queue-table outbound-queue-table">
                 <thead>
                     <tr>
@@ -117,6 +169,7 @@
 </div>
 
 {% include "partials/item_picker_modal.html" %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -133,6 +186,12 @@ const outboundDraftStockState = document.getElementById("outboundDraftStockState
 const outboundDraftQty = document.getElementById("outboundDraftQty");
 const outboundDraftNote = document.getElementById("outboundDraftNote");
 const outboundDraftFeedback = document.getElementById("outboundDraftFeedback");
+const outboundSummaryWarehouse = document.getElementById("outboundSummaryWarehouse");
+const outboundSummaryCount = document.getElementById("outboundSummaryCount");
+const outboundSummaryQty = document.getElementById("outboundSummaryQty");
+const outboundSummaryRisk = document.getElementById("outboundSummaryRisk");
+const outboundSummaryState = document.getElementById("outboundSummaryState");
+const outboundSummaryHelp = document.getElementById("outboundSummaryHelp");
 
 const outboundDraft = {
     product_id: 0,
@@ -146,6 +205,33 @@ const outboundDraft = {
 };
 
 const outboundItems = [];
+
+function renderOutboundWorkspaceSummary() {
+    const count = outboundItems.length;
+    const totalQty = outboundItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const riskCount = outboundItems.filter((item) => Number(item.qty || 0) > Number(item.stock || 0)).length;
+    const warehouseLabel = outboundWarehouse?.options[outboundWarehouse.selectedIndex]?.text || "-";
+
+    if (outboundSummaryWarehouse) outboundSummaryWarehouse.textContent = warehouseLabel;
+    if (outboundSummaryCount) outboundSummaryCount.textContent = String(count);
+    if (outboundSummaryQty) outboundSummaryQty.textContent = String(totalQty);
+    if (outboundSummaryRisk) outboundSummaryRisk.textContent = String(riskCount);
+
+    if (!outboundSummaryState || !outboundSummaryHelp) {
+        return;
+    }
+
+    if (!count) {
+        outboundSummaryState.textContent = "Draft";
+        outboundSummaryHelp.textContent = "Belum ada item outbound di batch kerja.";
+        return;
+    }
+
+    outboundSummaryState.textContent = riskCount ? "Review" : "Siap";
+    outboundSummaryHelp.textContent = riskCount
+        ? `${riskCount} baris perlu dicek ulang karena qty melewati stok terbaru.`
+        : `${count} item dengan total ${totalQty} qty siap diproses keluar.`;
+}
 
 function renderOutboundDraftStock(qty) {
     const safeQty = Number(qty || 0);
@@ -274,6 +360,7 @@ function renderOutboundQueue() {
                 </td>
             </tr>
         `;
+        renderOutboundWorkspaceSummary();
         return;
     }
 
@@ -295,6 +382,7 @@ function renderOutboundQueue() {
             </td>
         </tr>
     `).join("");
+    renderOutboundWorkspaceSummary();
 }
 
 function addOutboundItem() {
@@ -386,10 +474,12 @@ outboundWarehouse?.addEventListener("change", async () => {
     await refreshOutboundDraftStock();
     await refreshOutboundQueueStocks();
     outboundPicker.refresh();
+    renderOutboundWorkspaceSummary();
 });
 
 resetOutboundDraft();
 renderOutboundQueue();
+renderOutboundWorkspaceSummary();
 </script>
 {% endblock %}
 

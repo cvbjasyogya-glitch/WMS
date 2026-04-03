@@ -3,7 +3,7 @@
 {% block title %}Dashboard | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Live Warehouse Overview{% endblock %}
 {% block page_title %}Dashboard Operasional{% endblock %}
-{% block page_subtitle %}Pantau stok aktif, nilai inventory, potensi aging, dan request antar gudang dari satu ruang kerja yang selalu hidup.{% endblock %}
+{% block page_subtitle %}Pantau stok aktif{% if can_view_inventory_value %}, nilai inventory{% endif %}, potensi aging, dan request antar gudang dari satu ruang kerja yang selalu hidup.{% endblock %}
 
 {% block page_actions %}
 <select id="warehouseSelect" class="pill-select" {% if is_scoped_user %}disabled{% endif %}>
@@ -14,6 +14,7 @@
 {% endblock %}
 
 {% block content %}
+<div class="wms-page-stack">
 <div class="cards dashboard-cards">
     <div class="card">
         <p>Total Produk</p>
@@ -23,10 +24,12 @@
         <p>Total Stok</p>
         <h2 id="p2">{{ data.total_stock }}</h2>
     </div>
+    {% if can_view_inventory_value %}
     <div class="card warning">
-        <p>Nilai Inventory</p>
+        <p>Nilai Jual Stok</p>
         <h2 id="p3">Rp {{ "{:,.0f}".format(data.inventory_value or 0).replace(",", ".") }}</h2>
     </div>
+    {% endif %}
     <div class="card danger">
         <p>Stok Habis</p>
         <h2 id="p4">{{ data.stock_out }}</h2>
@@ -60,6 +63,39 @@
     </div>
 </div>
 
+<div class="wms-command-grid">
+    <a href="/stock" class="wms-command-card">
+        <span>Monitor</span>
+        <strong>Stok &amp; Produk</strong>
+        <p>Masuk ke workspace terpadu untuk cek qty aktif, nilai jual stok, aging batch, dan edit master produk dari satu panel.</p>
+    </a>
+    <a href="/inbound" class="wms-command-card">
+        <span>Eksekusi</span>
+        <strong>Inbound Cepat</strong>
+        <p>Tambah barang masuk ke batch kerja tanpa form panjang, cocok untuk operasional harian yang padat.</p>
+    </a>
+    <a href="/outbound" class="wms-command-card">
+        <span>Eksekusi</span>
+        <strong>Outbound Aman</strong>
+        <p>Kurangi stok dengan validasi qty terhadap stok gudang aktif sebelum transaksi diproses.</p>
+    </a>
+    <a href="/transfers" class="wms-command-card">
+        <span>Koordinasi</span>
+        <strong>Transfer Antar Gudang</strong>
+        <p>Susun perpindahan stok lintas gudang dengan pola batch yang sama seperti inbound dan outbound.</p>
+    </a>
+    <a href="/audit" class="wms-command-card">
+        <span>Kontrol</span>
+        <strong>Audit Operasional</strong>
+        <p>Lacak jejak transaksi, aktivitas user, dan histori perubahan stok dari satu tempat yang rapi.</p>
+    </a>
+    <a href="/so" class="wms-command-card">
+        <span>Kontrol</span>
+        <strong>Stock Opname</strong>
+        <p>Bandingkan sistem dan stok fisik dengan alur koreksi yang tetap cepat dipakai di lapangan.</p>
+    </a>
+</div>
+
 {% if is_scoped_user %}
 <small class="helper-text page-helper-inline">Gudang dashboard dikunci mengikuti gudang akun Anda.</small>
 {% endif %}
@@ -78,7 +114,7 @@
     {% endif %}
 </div>
 
-<div class="table-box dashboard-activity-box">
+<div class="table-box dashboard-activity-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Aktivitas Terbaru</h2>
@@ -114,6 +150,7 @@
     <div class="empty-state">Belum ada aktivitas tercatat untuk gudang ini.</div>
     {% endif %}
 </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -143,7 +180,7 @@ async function loadRealtime() {
 
         document.getElementById("p1").innerText = data.total_product || 0;
         document.getElementById("p2").innerText = data.total_stock || 0;
-        document.getElementById("p3").innerText = formatCurrency(data.inventory_value || 0);
+        document.getElementById("p3")?.innerText = formatCurrency(data.inventory_value || 0);
         document.getElementById("p4").innerText = data.stock_out || 0;
         document.getElementById("p5").innerText = data.expiring_alert || 0;
         document.getElementById("p6").innerText = data.pending_requests || 0;
@@ -183,4 +220,3 @@ startDashboardPolling();
 loadRealtime();
 </script>
 {% endblock %}
-

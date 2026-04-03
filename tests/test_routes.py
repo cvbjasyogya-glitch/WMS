@@ -309,6 +309,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(login_response.status_code, 302)
 
         for path in [
+            "/workspace/",
             "/",
             "/announcements/",
             "/meetings/",
@@ -319,7 +320,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/crm/",
             "/chat/",
             "/info-produk/",
-            "/products/",
+            "/stock/?workspace=products",
             "/stock/",
             "/inbound/",
             "/outbound/",
@@ -337,7 +338,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('mobile-nav', html)
                 self.assertIn('@admin', html)
                 self.assertIn('data-theme-toggle', html)
+                self.assertNotIn('/static/js/manual_table_sort.js', html)
                 self.assertIn('>WMS<', html)
+                self.assertIn('>Pusat Modul<', html)
                 self.assertIn('>Pengumuman<', html)
                 self.assertIn('>Meeting Live<', html)
                 self.assertIn('>Absen<', html)
@@ -353,6 +356,38 @@ class WmsRoutesTestCase(unittest.TestCase):
         admin_page = self.client.get("/admin/", follow_redirects=False)
         self.assertEqual(admin_page.status_code, 302)
 
+    def test_workspace_gateway_marks_sidebar_and_mobile_home_active(self):
+        self.login()
+
+        response = self.client.get("/workspace/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-sidebar-group="workspace-home"', html)
+        self.assertIn('href="/workspace/" class="active">Pusat Modul</a>', html)
+        self.assertIn('<a href="/workspace/" class="active">Home</a>', html)
+
+    def test_schedule_page_opens_coordination_sidebar_group(self):
+        self.login()
+
+        response = self.client.get("/schedule/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-sidebar-group="coordination" open', html)
+        self.assertIn('href="/schedule/" class="active"', html)
+
+    def test_request_owner_page_opens_wms_and_request_submenu(self):
+        self.login()
+
+        response = self.client.get("/request/owner")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-sidebar-group="wms" open', html)
+        self.assertIn('data-sidebar-subgroup="request" open', html)
+        self.assertIn('href="/request/owner" class="active"', html)
+
     def test_hr_role_hides_wms_sidebar_group(self):
         self.login_hr_user("hr_nav_only", "pass1234")
 
@@ -361,6 +396,38 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('>HRIS<', html)
         self.assertNotIn('>WMS<', html)
+
+    def test_inventory_value_is_hidden_for_admin_but_visible_for_owner(self):
+        self.login()
+
+        dashboard_response = self.client.get("/")
+        self.assertEqual(dashboard_response.status_code, 200)
+        dashboard_html = dashboard_response.get_data(as_text=True)
+        self.assertNotIn("Nilai Inventory", dashboard_html)
+
+        stock_response = self.client.get("/stock/")
+        self.assertEqual(stock_response.status_code, 200)
+        stock_html = stock_response.get_data(as_text=True)
+        self.assertNotIn("Nilai Inventori", stock_html)
+        self.assertNotIn('data-stock-summary="inventory_value"', stock_html)
+
+        realtime_response = self.client.get("/api/realtime")
+        self.assertEqual(realtime_response.status_code, 200)
+        self.assertEqual(realtime_response.get_json()["inventory_value"], 0)
+
+        self.create_user("owner_inventory", "pass1234", "owner")
+        self.login("owner_inventory", "pass1234")
+
+        owner_dashboard = self.client.get("/")
+        self.assertEqual(owner_dashboard.status_code, 200)
+        owner_dashboard_html = owner_dashboard.get_data(as_text=True)
+        self.assertIn("Nilai Jual Stok", owner_dashboard_html)
+
+        owner_stock = self.client.get("/stock/")
+        self.assertEqual(owner_stock.status_code, 200)
+        owner_stock_html = owner_stock.get_data(as_text=True)
+        self.assertIn("Nilai Jual Stok", owner_stock_html)
+        self.assertIn('data-stock-summary="inventory_value"', owner_stock_html)
 
     def test_staff_can_open_quick_product_lookup_and_search_live_results(self):
         self.login()
@@ -404,54 +471,47 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/meetings/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Meeting Live Zoom", html)
+        self.assertIn("Meeting Live Browser", html)
         self.assertIn('data-signature-endpoint="/meetings/signature"', html)
-        self.assertIn("Smart Saver", html)
+        self.assertIn("Audio First", html)
 
-    def test_meeting_signature_endpoint_returns_sdk_signature_when_configured(self):
-        self.app.config.update(
-            ZOOM_MEETING_SDK_KEY="sdk-key-demo",
-            ZOOM_MEETING_SDK_SECRET="sdk-secret-demo",
-            ZOOM_MEETING_SDK_VERSION="5.1.4",
-        )
+    def test_meeting_signature_endpoint_returns_browser_room_config_without_secret(self):
         self.login()
 
         response = self.client.post(
             "/meetings/signature",
             json={
-                "meetingNumber": "123 456 7890",
-                "passcode": "pass123",
+                "roomName": "Daily Gudang Mega",
                 "displayName": "Rio",
                 "email": "rio@example.com",
                 "language": "id-ID",
-                "profile": "smart-saver",
+                "profile": "audio-first",
                 "topic": "Daily Gudang",
             },
         )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["status"], "success")
-        self.assertEqual(payload["sdkKey"], "sdk-key-demo")
-        self.assertEqual(payload["meetingNumber"], "1234567890")
-        self.assertEqual(payload["profile"], "smart-saver")
-        self.assertEqual(len(payload["signature"].split(".")), 3)
+        self.assertEqual(payload["provider"], "jitsi")
+        self.assertEqual(payload["roomName"], "daily-gudang-mega")
+        self.assertEqual(payload["profile"], "audio-first")
+        self.assertEqual(payload["domain"], "meet.jit.si")
+        self.assertTrue(payload["startAudioOnly"])
+        self.assertTrue(payload["startWithVideoMuted"])
 
-    def test_meeting_signature_endpoint_returns_503_when_sdk_not_configured(self):
-        self.app.config.update(
-            ZOOM_MEETING_SDK_KEY="",
-            ZOOM_MEETING_SDK_SECRET="",
-        )
+    def test_meeting_signature_endpoint_accepts_pasted_room_link(self):
         self.login()
         response = self.client.post(
             "/meetings/signature",
             json={
-                "meetingNumber": "1234567890",
+                "roomName": "https://meet.jit.si/ERP-Review-Harian",
                 "displayName": "Rio",
             },
         )
-        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["roomName"], "erp-review-harian")
 
     def test_config_accepts_zoom_client_id_and_client_secret_fallbacks(self):
         import config as config_module
@@ -473,18 +533,14 @@ class WmsRoutesTestCase(unittest.TestCase):
             finally:
                 importlib.reload(config_module)
 
-    def test_meeting_session_page_renders_zoom_assets_when_configured(self):
-        self.app.config.update(
-            ZOOM_MEETING_SDK_KEY="sdk-key-demo",
-            ZOOM_MEETING_SDK_SECRET="sdk-secret-demo",
-            ZOOM_MEETING_SDK_VERSION="5.1.4",
-        )
+    def test_meeting_session_page_renders_browser_room_assets(self):
         self.login()
         response = self.client.get("/meetings/session?state=demo-state")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Meeting Stage", html)
-        self.assertIn("source.zoom.us/5.1.4/zoom-meeting-5.1.4.min.js", html)
+        self.assertIn("meet.jit.si/external_api.js", html)
+        self.assertIn('data-provider="jitsi"', html)
 
     def test_health_and_ready_endpoints_are_public_and_hardened(self):
         health_response = self.client.get("/health")
@@ -512,6 +568,24 @@ class WmsRoutesTestCase(unittest.TestCase):
         login_page = self.client.get("/login")
         self.assertEqual(login_page.status_code, 200)
         self.assertIn("no-store", login_page.headers.get("Cache-Control", ""))
+
+    def test_login_page_renders_split_clean_shell_with_crowd_hero(self):
+        response = self.client.get("/login")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-login-shell="split-clean"', html)
+        self.assertIn('data-login-hero', html)
+        self.assertIn('/static/brand/login-hero-crowd.jpeg', html)
+        self.assertIn('Masuk ke Sistem', html)
+        self.assertIn('name="username"', html)
+        self.assertIn('name="password"', html)
+        self.assertIn('data-login-theme-toggle', html)
+        self.assertNotIn('login-hero-badge', html)
+        self.assertNotIn('Operasional Harian yang Lebih Rapi', html)
+        self.assertNotIn('Kontrol Stok Lebih Tajam', html)
+        self.assertNotIn('Siap untuk Operasional Harian', html)
+        self.assertNotIn('Visibilitas yang Konsisten', html)
 
     def test_https_login_sets_secure_cookie_and_hsts(self):
         self.create_user("secure_user", "pass1234", "super_admin")
@@ -609,6 +683,29 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+
+    def test_login_defaults_to_workspace_gateway_when_no_next_is_present(self):
+        response = self.login()
+
+        self.assertEqual(response.status_code, 302)
+        redirect_target = urlsplit(response.headers["Location"])
+        self.assertEqual(redirect_target.path, "/workspace/")
+
+        gateway_response = self.client.get("/workspace/", follow_redirects=False)
+        self.assertEqual(gateway_response.status_code, 200)
+        html = gateway_response.get_data(as_text=True)
+        self.assertIn("Pilih Area Kerja", html)
+        self.assertIn("Pusat Modul", html)
+        self.assertIn("Koordinasi Harian", html)
+
+    def test_authenticated_get_login_redirects_to_workspace_gateway(self):
+        self.login()
+
+        response = self.client.get("/login", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        redirect_target = urlsplit(response.headers["Location"])
+        self.assertEqual(redirect_target.path, "/workspace/")
 
     def test_login_redirects_back_to_requested_page_with_query_string(self):
         self.create_user("next_user", "pass1234", "super_admin")
@@ -1689,8 +1786,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("data-chat-widget-launcher", dashboard_html)
         self.assertIn("Live Chat", dashboard_html)
         self.assertIn('id="chatIncomingBanner"', dashboard_html)
-        self.assertIn('callPollUrl: "/chat/call/poll"', dashboard_html)
-        self.assertIn('callRingtoneUrl: "/static/audio/chat-call-ringtone.mp3"', dashboard_html)
+        self.assertIn('id="wmsChatRealtimeConfigData"', dashboard_html)
+        self.assertIn('"callPollUrl": "/chat/call/poll"', dashboard_html)
+        self.assertIn('"callRingtoneUrl": "/static/audio/chat-call-ringtone.mp3"', dashboard_html)
         self.assertNotIn('id="chatSidebarUnread"', dashboard_html)
 
         bootstrap_response = self.client.get("/chat/widget/bootstrap")
@@ -5924,6 +6022,163 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Demam dan perlu istirahat", html)
         self.assertIn("Sakit", html)
 
+    def test_leave_portal_shows_monthly_history_log(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVE-HISTORY",
+            full_name="Portal Leave History",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_leave_history", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+
+        current_month = date_cls.today().replace(day=1)
+        if current_month.month == 12:
+            next_month = date_cls(current_month.year + 1, 1, 1)
+        else:
+            next_month = date_cls(current_month.year, current_month.month + 1, 1)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    note,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+                """,
+                (
+                    employee_id,
+                    1,
+                    "annual",
+                    current_month.replace(day=5).isoformat(),
+                    current_month.replace(day=6).isoformat(),
+                    2,
+                    "approved",
+                    "Libur bulan berjalan",
+                    "Catatan bulan berjalan",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    note,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+                """,
+                (
+                    employee_id,
+                    1,
+                    "sick",
+                    next_month.replace(day=3).isoformat(),
+                    next_month.replace(day=3).isoformat(),
+                    1,
+                    "pending",
+                    "Libur bulan depan",
+                    "Catatan bulan depan",
+                ),
+            )
+            db.commit()
+
+        self.login("portal_leave_history", "pass1234")
+        response = self.client.get("/libur/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Log Pengajuan", html)
+        self.assertIn('type="month" name="month"', html)
+        self.assertIn(f'value="{current_month.strftime("%Y-%m")}"', html)
+        self.assertIn("Libur bulan berjalan", html)
+        self.assertNotIn("Libur bulan depan", html)
+
+    def test_leave_approval_notifies_requester_in_notification_center(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVE-NOTIFY",
+            full_name="Portal Leave Notify",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_leave_notify", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_leave_notify", "pass1234")
+
+        self.client.post(
+            "/libur/submit",
+            data={
+                "leave_type": "annual",
+                "start_date": "2026-09-12",
+                "end_date": "2026-09-13",
+                "reason": "Keperluan keluarga",
+                "note": "Mohon approve",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            leave_request = db.execute(
+                """
+                SELECT id
+                FROM leave_requests
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.logout()
+        self.login_hr_user("hr_leave_notify", "pass1234")
+        update_response = self.client.post(
+            f"/hris/leave/update/{leave_request['id']}",
+            data={
+                "employee_id": str(employee_id),
+                "leave_type": "annual",
+                "start_date": "2026-09-12",
+                "end_date": "2026-09-13",
+                "status": "approved",
+                "reason": "Keperluan keluarga",
+                "note": "Disetujui",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            requester_id = self.get_user_id("portal_leave_notify")
+            web_notification = db.execute(
+                """
+                SELECT category, title, message, link_url
+                FROM web_notifications
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (requester_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(web_notification)
+        self.assertEqual(web_notification["category"], "leave")
+        self.assertEqual(web_notification["link_url"], "/libur/")
+        self.assertIn("disetujui", web_notification["title"].lower())
+        self.assertIn("2026-09-12 s/d 2026-09-13", web_notification["message"])
+
     def test_hr_dashboard_reminders_are_visible_and_manageable_only_for_hr(self):
         self.login_hr_user("hr_dashboard_note", "pass1234")
 
@@ -6774,16 +7029,16 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 302)
 
-        page_one = self.client.get("/products/")
+        page_one = self.client.get("/stock/?workspace=products")
         page_one_html = page_one.get_data(as_text=True)
         self.assertEqual(page_one.status_code, 200)
-        self.assertEqual(page_one_html.count('class="row-check"'), 10)
+        self.assertEqual(page_one_html.count('class="product-row-check"'), 10)
         self.assertIn("Page 1 / 2", page_one_html)
 
-        page_two = self.client.get("/products/?page=2")
+        page_two = self.client.get("/stock/?workspace=products&product_page=2")
         page_two_html = page_two.get_data(as_text=True)
         self.assertEqual(page_two.status_code, 200)
-        self.assertEqual(page_two_html.count('class="row-check"'), 2)
+        self.assertEqual(page_two_html.count('class="product-row-check"'), 2)
         self.assertIn("Page 2 / 2", page_two_html)
 
     def test_product_picker_uses_20_item_pagination(self):
@@ -6815,12 +7070,19 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_stock_page_uses_10_item_pagination(self):
         self.login()
         for index in range(12):
-            response, _, _ = self.create_product(
+            response, product_id, _ = self.create_product(
                 sku=f"STKPAG-{index:02d}-{uuid4().hex[:4].upper()}",
                 qty=1,
                 variants=f"SV{index}",
             )
             self.assertEqual(response.status_code, 302)
+            with self.app.app_context():
+                db = get_db()
+                db.execute(
+                    "UPDATE products SET name=? WHERE id=?",
+                    (f"Stock Pagination {index:02d}", product_id),
+                )
+                db.commit()
 
         page_one = self.client.get("/stock/?q=STKPAG-")
         page_one_html = page_one.get_data(as_text=True)
@@ -6833,6 +7095,59 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_two.status_code, 200)
         self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 2)
         self.assertIn("Page 2 / 2", page_two_html)
+
+    def test_stock_page_paginates_by_product_name_but_keeps_all_group_variants_visible(self):
+        self.login()
+        response, product_id, _ = self.create_product(
+            sku=f"STKGRP-MULTI-{uuid4().hex[:4].upper()}",
+            qty=1,
+            variants=",".join(f"VAR-{index:02d}" for index in range(12)),
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id=?",
+                ("A PAGINATION GROUP", product_id),
+            )
+            db.commit()
+
+        for index in range(10):
+            response, product_id, _ = self.create_product(
+                sku=f"STKGRP-SINGLE-{index:02d}-{uuid4().hex[:4].upper()}",
+                qty=1,
+                variants=f"SINGLE-{index:02d}",
+            )
+            self.assertEqual(response.status_code, 302)
+            with self.app.app_context():
+                db = get_db()
+                db.execute(
+                    "UPDATE products SET name=? WHERE id=?",
+                    (f"B Pagination Single {index:02d}", product_id),
+                )
+                db.commit()
+
+        page_one = self.client.get("/stock/?q=STKGRP-")
+        self.assertEqual(page_one.status_code, 200)
+        page_one_html = page_one.get_data(as_text=True)
+
+        self.assertIn("12 varian", page_one_html)
+        self.assertIn("VAR-00", page_one_html)
+        self.assertIn("VAR-11", page_one_html)
+        self.assertIn("Page 1 / 2", page_one_html)
+        self.assertEqual(page_one_html.count('class="stock-adjust-button"'), 21)
+
+        page_two = self.client.get("/stock/?q=STKGRP-&page=2")
+        self.assertEqual(page_two.status_code, 200)
+        page_two_html = page_two.get_data(as_text=True)
+
+        self.assertNotIn("12 varian", page_two_html)
+        self.assertNotIn("VAR-00", page_two_html)
+        self.assertNotIn("VAR-11", page_two_html)
+        self.assertIn("B Pagination Single 09", page_two_html)
+        self.assertIn("Page 2 / 2", page_two_html)
+        self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 1)
 
     def test_stock_page_groups_same_product_variants_into_dropdown(self):
         self.login()
@@ -8091,11 +8406,29 @@ class WmsRoutesTestCase(unittest.TestCase):
         response, _, _ = self.create_product(variants="WH2", warehouse_id="2")
         self.assertEqual(response.status_code, 302)
 
-        page = self.client.get("/products/?warehouse=2")
+        page = self.client.get("/stock/?workspace=products&warehouse=2")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
 
         self.assertIn('<option value="2" selected>', html)
+
+    def test_products_route_redirects_to_stock_workspace_products(self):
+        self.create_user("redirect_superboss", "pass1234", "super_admin")
+        self.login("redirect_superboss", "pass1234")
+
+        response = self.client.get(
+            "/products/?warehouse=2&search=AERO&page=3",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        redirect_target = urlsplit(response.headers["Location"])
+        self.assertEqual(redirect_target.path, "/stock/")
+        query = parse_qs(redirect_target.query)
+        self.assertEqual(query.get("workspace"), ["products"])
+        self.assertEqual(query.get("warehouse"), ["2"])
+        self.assertEqual(query.get("product_search"), ["AERO"])
+        self.assertEqual(query.get("product_page"), ["3"])
 
     def test_set_warehouse_respects_global_and_scoped_roles(self):
         self.create_user("warehouse_super", "pass1234", "super_admin")
@@ -8247,7 +8580,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
             for path, marker in [
                 ("/schedule/", 'name="warehouse" disabled'),
-                ("/products/", 'name="warehouse" disabled'),
+                ("/stock/?workspace=products", 'name="warehouse" disabled'),
                 ("/request/", 'name="from_warehouse" required disabled'),
                 ("/request/owner", 'name="warehouse_id" required disabled'),
                 ("/inbound/", 'name="warehouse_id" required disabled'),
@@ -8544,7 +8877,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.create_user("staff_master_lock", "pass1234", "staff", warehouse_id=1)
         self.login("staff_master_lock", "pass1234")
 
-        products_page = self.client.get("/products/")
+        products_page = self.client.get("/stock/?workspace=products")
         self.assertEqual(products_page.status_code, 200)
         products_html = products_page.get_data(as_text=True)
         self.assertNotIn("Tambah Produk", products_html)
@@ -8601,6 +8934,84 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(bulk_delete_response.status_code, 403)
         self.assertEqual(bulk_delete_response.get_json()["status"], "error")
+
+        update_detail_response = self.client.post(
+            "/stock/update-detail",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "sku": "STAFF-DETAIL",
+                "name": "Produk Staff Detail",
+                "category_name": "Testing",
+                "variant": "LOCK",
+                "price_retail": "100000",
+                "price_discount": "90000",
+                "price_nett": "85000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_detail_response.status_code, 403)
+        self.assertEqual(update_detail_response.get_json()["status"], "error")
+
+    def test_manage_product_master_can_update_detail_from_stock_context(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CTX-EDIT-001",
+            variants="CTX-42",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        update_response = self.client.post(
+            "/stock/update-detail",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "sku": "CTX-EDIT-UPDATED",
+                "name": "Produk Context Update",
+                "category_name": "Sepatu Premium",
+                "variant": "CTX-43",
+                "price_retail": "250000",
+                "price_discount": "220000",
+                "price_nett": "199000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertEqual(payload["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            updated_row = db.execute(
+                """
+                SELECT
+                    p.sku,
+                    p.name,
+                    c.name AS category_name,
+                    v.variant,
+                    v.price_retail,
+                    v.price_discount,
+                    v.price_nett
+                FROM products p
+                LEFT JOIN categories c ON c.id = p.category_id
+                LEFT JOIN product_variants v ON v.product_id = p.id
+                WHERE p.id=? AND v.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(updated_row["sku"], "CTX-EDIT-UPDATED")
+        self.assertEqual(updated_row["name"], "Produk Context Update")
+        self.assertEqual(updated_row["category_name"], "Sepatu Premium")
+        self.assertEqual(updated_row["variant"], "CTX-43")
+        self.assertEqual(updated_row["price_retail"], 250000)
+        self.assertEqual(updated_row["price_discount"], 220000)
+        self.assertEqual(updated_row["price_nett"], 199000)
 
     def test_request_check_new_ignores_restored_pending_requests(self):
         self.login()

@@ -6,64 +6,63 @@
     <meta name="theme-color" content="#07111f">
     <title>Meeting Live | ERP-CV.BJAS</title>
     <link rel="icon" type="image/png" href="/static/brand/mataram-logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/dashboard.css">
-    {% if zoom_sdk_ready %}
-    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/react.min.js"></script>
-    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/react-dom.min.js"></script>
-    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/redux.min.js"></script>
-    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/lib/vendor/redux-thunk.min.js"></script>
-    <script src="https://source.zoom.us/{{ zoom_sdk_version }}/zoom-meeting-{{ zoom_sdk_version }}.min.js"></script>
-    {% endif %}
+    <script src="https://{{ meeting_embed_domain }}/external_api.js"></script>
 </head>
 <body class="meeting-stage-page">
     <div
         id="meetingSessionRoot"
         class="meeting-session-root"
-        data-sdk-ready="{{ '1' if zoom_sdk_ready else '0' }}"
-        data-sdk-version="{{ zoom_sdk_version }}"
-        data-web-endpoint="{{ zoom_web_endpoint }}"
+        data-provider="{{ meeting_provider }}"
+        data-meeting-domain="{{ meeting_embed_domain }}"
         data-leave-url="{{ default_leave_url }}"
+        data-participant-limit="{{ meeting_participant_limit }}"
     >
         <section class="meeting-session-shell">
             <div class="meeting-session-topbar">
                 <a href="/meetings/" class="ghost-button">Kembali ke Portal Meeting</a>
-                <span class="status-pill">Zoom SDK {{ zoom_sdk_version }}</span>
+                <span class="status-pill">Browser Room {{ meeting_embed_domain }}</span>
             </div>
 
             <div class="meeting-session-hero">
                 <div>
                     <p class="page-eyebrow">Meeting Stage</p>
                     <h1>Menyiapkan ruang meeting</h1>
-                    <p class="page-subtitle">Halaman ini membuka Zoom client view secara penuh. Simpan tab ini tetap aktif sampai proses join selesai.</p>
+                    <p class="page-subtitle">Halaman ini membuka room meeting langsung di browser. Biarkan tab ini tetap aktif sampai room benar-benar tersambung.</p>
                 </div>
                 <div class="status-row">
                     <span class="status-pill" id="meetingStageProfilePill">Profil: -</span>
                     <span class="status-pill" id="meetingStageNetworkPill">Status: Menunggu data</span>
+                    <span class="status-pill" id="meetingStageParticipantPill">Peserta: 0</span>
                 </div>
             </div>
 
             <div class="meeting-stage-box" id="meetingStageBox">
                 <div class="meeting-stage-loader" id="meetingStageLoader">
                     <div class="meeting-stage-loader-dot"></div>
-                    <strong id="meetingStageTitle">Menyiapkan Zoom Meeting...</strong>
-                    <p id="meetingStageDescription">Mengambil data room dari portal dan menyalakan client view.</p>
+                    <strong id="meetingStageTitle">Menyiapkan Browser Room...</strong>
+                    <p id="meetingStageDescription">Mengambil konfigurasi room dari portal dan menyalakan stage meeting ringan.</p>
                 </div>
 
                 <div class="meeting-stage-hints" id="meetingStageHints">
                     <div class="meeting-stage-hint-card">
-                        <span class="status-pill">Hemat Daya</span>
-                        <p>Kamera tidak perlu langsung diaktifkan. Masuk meeting dulu, lalu nyalakan video hanya saat perlu.</p>
+                        <span class="status-pill">Audio Dulu</span>
+                        <p>Untuk grup 6-10 orang, masuk dengan audio dulu lalu aktifkan kamera hanya saat perlu supaya meeting tetap stabil.</p>
                     </div>
                     <div class="meeting-stage-hint-card">
-                        <span class="status-pill">Hemat Kuota</span>
-                        <p>Mode Smart Saver dan Audio First menonaktifkan preview kamera di awal agar traffic lebih ringan.</p>
+                        <span class="status-pill">Jaringan Campuran</span>
+                        <p>Preset ini dibuat supaya HP dan laptop kantor tetap bisa ikut room tanpa terasa terlalu berat.</p>
                     </div>
                     <div class="meeting-stage-hint-card">
-                        <span class="status-pill">Stabil</span>
-                        <p>Gunakan headset atau Wi-Fi stabil saat rapat ramai supaya mikrofon dan audio lebih konsisten.</p>
+                        <span class="status-pill">Presentasi</span>
+                        <p>Kalau perlu share screen, cukup host atau presenter yang aktifkan video dan screen share lebih dulu.</p>
                     </div>
                 </div>
 
+                <div class="meeting-stage-host" id="meetingStageHost" hidden></div>
                 <div class="flash error meeting-stage-error" id="meetingStageError" hidden></div>
             </div>
         </section>
