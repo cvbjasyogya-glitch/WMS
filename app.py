@@ -518,7 +518,16 @@ def create_app():
         x_proto=max(0, int(app.config.get("PROXY_FIX_X_PROTO", 1))),
         x_host=max(0, int(app.config.get("PROXY_FIX_X_HOST", 0))),
     )
-    init_db(app.config["DATABASE"])
+    init_db(
+        app.config["DATABASE"],
+        sqlite_options={
+            "journal_mode": app.config.get("SQLITE_JOURNAL_MODE", "WAL"),
+            "synchronous": app.config.get("SQLITE_SYNCHRONOUS", "FULL"),
+            "busy_timeout_ms": app.config.get("SQLITE_BUSY_TIMEOUT_MS", 30000),
+            "temp_store": app.config.get("SQLITE_TEMP_STORE", "MEMORY"),
+            "foreign_keys": app.config.get("SQLITE_FOREIGN_KEYS", True),
+        },
+    )
 
     app.teardown_appcontext(close_db)
 

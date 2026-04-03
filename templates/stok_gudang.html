@@ -605,6 +605,7 @@
     "filter": stock_state,
     "warehouseId": warehouse_id,
     "activeWorkspace": active_workspace,
+    "canManageProductMaster": can('manage_product_master'),
     "emptyColspan": 10 + (1 if can_bulk_adjust_ui else 0) + (1 if can_adjust_stock_ui else 0),
     "summary": {
         "totalVariants": summary.total_variants,
@@ -1704,151 +1705,151 @@ if (variantRowsBody && !variantRowsBody.children.length) {
     DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
 }
 
-{% if can('manage_product_master') %}
-const stockContextMenu = document.getElementById("stockContextMenu");
-const stockEditModal = document.getElementById("stockEditModal");
-const stockEditDetailForm = document.getElementById("stockEditDetailForm");
-let activeContextSource = null;
+if (stockPageConfig.canManageProductMaster) {
+    const stockContextMenu = document.getElementById("stockContextMenu");
+    const stockEditModal = document.getElementById("stockEditModal");
+    const stockEditDetailForm = document.getElementById("stockEditDetailForm");
+    let activeContextSource = null;
 
-function closeStockContextMenu() {
-    if (stockContextMenu) {
-        stockContextMenu.hidden = true;
-    }
-}
-
-function openStockContextMenu(event, source) {
-    if (!stockContextMenu || !source) {
-        return;
-    }
-
-    activeContextSource = source;
-    stockContextMenu.hidden = false;
-    const { innerWidth, innerHeight } = window;
-    const menuRect = stockContextMenu.getBoundingClientRect();
-    const top = Math.min(event.clientY, innerHeight - menuRect.height - 12);
-    const left = Math.min(event.clientX, innerWidth - menuRect.width - 12);
-    stockContextMenu.style.top = `${Math.max(12, top)}px`;
-    stockContextMenu.style.left = `${Math.max(12, left)}px`;
-}
-
-function toggleStockEditVariantFields(hasVariant) {
-    ["stockEditVariantWrap", "stockEditRetailWrap", "stockEditDiscountWrap", "stockEditNettWrap"].forEach((id) => {
-        const node = document.getElementById(id);
-        if (node) {
-            node.hidden = !hasVariant;
+    function closeStockContextMenu() {
+        if (stockContextMenu) {
+            stockContextMenu.hidden = true;
         }
-    });
-}
-
-function openStockEditModal(source) {
-    if (!stockEditModal || !stockEditDetailForm || !source) {
-        return;
     }
 
-    document.getElementById("stockEditProductId").value = source.dataset.productId || "";
-    document.getElementById("stockEditVariantId").value = source.dataset.variantId || "";
-    document.getElementById("stockEditSku").value = source.dataset.productSku || "";
-    document.getElementById("stockEditName").value = source.dataset.productName || "";
-    document.getElementById("stockEditCategory").value = source.dataset.productCategory || "";
-    document.getElementById("stockEditVariant").value = source.dataset.productVariant || "";
-    document.getElementById("stockEditPriceRetail").value = source.dataset.priceRetail || "";
-    document.getElementById("stockEditPriceDiscount").value = source.dataset.priceDiscount || "";
-    document.getElementById("stockEditPriceNett").value = source.dataset.priceNett || "";
-
-    toggleStockEditVariantFields(Boolean(source.dataset.variantId));
-    stockEditModal.hidden = false;
-    document.body.classList.add("stock-edit-modal-open");
-}
-
-function closeStockEditModal() {
-    if (stockEditModal) {
-        stockEditModal.hidden = true;
-    }
-    document.body.classList.remove("stock-edit-modal-open");
-}
-
-document.addEventListener("contextmenu", (event) => {
-    const source = event.target.closest('[data-stock-editable-row="1"], [data-product-studio-row="1"]');
-    if (!source) {
-        closeStockContextMenu();
-        return;
-    }
-    event.preventDefault();
-    openStockContextMenu(event, source);
-});
-
-document.addEventListener("click", (event) => {
-    if (stockContextMenu && !stockContextMenu.hidden && !stockContextMenu.contains(event.target)) {
-        closeStockContextMenu();
-    }
-});
-
-window.addEventListener("scroll", closeStockContextMenu, true);
-window.addEventListener("resize", closeStockContextMenu);
-
-stockContextMenu?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-stock-context-action]");
-    if (!button) {
-        return;
-    }
-
-    const action = button.dataset.stockContextAction;
-    closeStockContextMenu();
-
-    if (action === "studio") {
-        document.getElementById("productStudioPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-    }
-
-    if (action === "edit") {
-        openStockEditModal(activeContextSource);
-    }
-});
-
-document.querySelectorAll("[data-stock-edit-close], [data-stock-edit-backdrop]").forEach((node) => {
-    node.addEventListener("click", closeStockEditModal);
-});
-
-stockEditDetailForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const saveButton = document.getElementById("stockEditSaveButton");
-    const originalLabel = saveButton ? saveButton.innerText : "Simpan Perubahan";
-    if (saveButton) {
-        saveButton.disabled = true;
-        saveButton.innerText = "Menyimpan...";
-    }
-
-    try {
-        const formData = new FormData(stockEditDetailForm);
-        const response = await fetch("/stock/update-detail", {
-            method: "POST",
-            headers: {
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json"
-            },
-            body: formData
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok || data.status !== "success") {
-            notifyStockMessage(data.message || "Detail produk gagal diperbarui.", "error");
+    function openStockContextMenu(event, source) {
+        if (!stockContextMenu || !source) {
             return;
         }
 
-        notifyStockMessage(data.message || "Detail produk berhasil diperbarui.");
-        closeStockEditModal();
-        window.location.reload();
-    } catch (error) {
-        notifyStockMessage("Terjadi error saat menyimpan detail produk.", "error");
-    } finally {
-        if (saveButton) {
-            saveButton.disabled = false;
-            saveButton.innerText = originalLabel;
-        }
+        activeContextSource = source;
+        stockContextMenu.hidden = false;
+        const { innerWidth, innerHeight } = window;
+        const menuRect = stockContextMenu.getBoundingClientRect();
+        const top = Math.min(event.clientY, innerHeight - menuRect.height - 12);
+        const left = Math.min(event.clientX, innerWidth - menuRect.width - 12);
+        stockContextMenu.style.top = `${Math.max(12, top)}px`;
+        stockContextMenu.style.left = `${Math.max(12, left)}px`;
     }
-});
-{% endif %}
+
+    function toggleStockEditVariantFields(hasVariant) {
+        ["stockEditVariantWrap", "stockEditRetailWrap", "stockEditDiscountWrap", "stockEditNettWrap"].forEach((id) => {
+            const node = document.getElementById(id);
+            if (node) {
+                node.hidden = !hasVariant;
+            }
+        });
+    }
+
+    function openStockEditModal(source) {
+        if (!stockEditModal || !stockEditDetailForm || !source) {
+            return;
+        }
+
+        document.getElementById("stockEditProductId").value = source.dataset.productId || "";
+        document.getElementById("stockEditVariantId").value = source.dataset.variantId || "";
+        document.getElementById("stockEditSku").value = source.dataset.productSku || "";
+        document.getElementById("stockEditName").value = source.dataset.productName || "";
+        document.getElementById("stockEditCategory").value = source.dataset.productCategory || "";
+        document.getElementById("stockEditVariant").value = source.dataset.productVariant || "";
+        document.getElementById("stockEditPriceRetail").value = source.dataset.priceRetail || "";
+        document.getElementById("stockEditPriceDiscount").value = source.dataset.priceDiscount || "";
+        document.getElementById("stockEditPriceNett").value = source.dataset.priceNett || "";
+
+        toggleStockEditVariantFields(Boolean(source.dataset.variantId));
+        stockEditModal.hidden = false;
+        document.body.classList.add("stock-edit-modal-open");
+    }
+
+    function closeStockEditModal() {
+        if (stockEditModal) {
+            stockEditModal.hidden = true;
+        }
+        document.body.classList.remove("stock-edit-modal-open");
+    }
+
+    document.addEventListener("contextmenu", (event) => {
+        const source = event.target.closest('[data-stock-editable-row="1"], [data-product-studio-row="1"]');
+        if (!source) {
+            closeStockContextMenu();
+            return;
+        }
+        event.preventDefault();
+        openStockContextMenu(event, source);
+    });
+
+    document.addEventListener("click", (event) => {
+        if (stockContextMenu && !stockContextMenu.hidden && !stockContextMenu.contains(event.target)) {
+            closeStockContextMenu();
+        }
+    });
+
+    window.addEventListener("scroll", closeStockContextMenu, true);
+    window.addEventListener("resize", closeStockContextMenu);
+
+    stockContextMenu?.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-stock-context-action]");
+        if (!button) {
+            return;
+        }
+
+        const action = button.dataset.stockContextAction;
+        closeStockContextMenu();
+
+        if (action === "studio") {
+            document.getElementById("productStudioPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
+
+        if (action === "edit") {
+            openStockEditModal(activeContextSource);
+        }
+    });
+
+    document.querySelectorAll("[data-stock-edit-close], [data-stock-edit-backdrop]").forEach((node) => {
+        node.addEventListener("click", closeStockEditModal);
+    });
+
+    stockEditDetailForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const saveButton = document.getElementById("stockEditSaveButton");
+        const originalLabel = saveButton ? saveButton.innerText : "Simpan Perubahan";
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.innerText = "Menyimpan...";
+        }
+
+        try {
+            const formData = new FormData(stockEditDetailForm);
+            const response = await fetch("/stock/update-detail", {
+                method: "POST",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json"
+                },
+                body: formData
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok || data.status !== "success") {
+                notifyStockMessage(data.message || "Detail produk gagal diperbarui.", "error");
+                return;
+            }
+
+            notifyStockMessage(data.message || "Detail produk berhasil diperbarui.");
+            closeStockEditModal();
+            window.location.reload();
+        } catch (error) {
+            notifyStockMessage("Terjadi error saat menyimpan detail produk.", "error");
+        } finally {
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.innerText = originalLabel;
+            }
+        }
+    });
+}
 
 if (stockPageConfig.activeWorkspace === "products") {
     window.requestAnimationFrame(() => {

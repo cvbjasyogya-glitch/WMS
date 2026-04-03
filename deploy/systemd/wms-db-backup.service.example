@@ -1,0 +1,11 @@
+[Unit]
+Description=WMS SQLite backup job
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/root/WMS
+ExecStart=/usr/bin/python3 /root/WMS/scripts/backup_sqlite_db.py --database /root/WMS/database.db --output-dir /root/WMS/db_backups --retain-days 14
+

@@ -17,20 +17,53 @@ def _database_error_with_repair_hint(path, exc):
     )
 
 
-def get_connection(db_path=None):
+def _normalize_sqlite_options(sqlite_options=None):
+    options = sqlite_options or {}
+    journal_mode = str(options.get("journal_mode") or "WAL").strip().upper()
+    synchronous = str(options.get("synchronous") or "FULL").strip().upper()
+    temp_store = str(options.get("temp_store") or "MEMORY").strip().upper()
+    try:
+        busy_timeout_ms = int(options.get("busy_timeout_ms", 30000))
+    except (TypeError, ValueError):
+        busy_timeout_ms = 30000
+    foreign_keys = bool(options.get("foreign_keys", True))
+
+    if journal_mode not in {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}:
+        journal_mode = "WAL"
+    if synchronous not in {"OFF", "NORMAL", "FULL", "EXTRA"}:
+        synchronous = "FULL"
+    if temp_store not in {"DEFAULT", "FILE", "MEMORY"}:
+        temp_store = "MEMORY"
+    busy_timeout_ms = max(1000, min(busy_timeout_ms, 300000))
+
+    return {
+        "journal_mode": journal_mode,
+        "synchronous": synchronous,
+        "temp_store": temp_store,
+        "busy_timeout_ms": busy_timeout_ms,
+        "foreign_keys": foreign_keys,
+    }
+
+
+def get_connection(db_path=None, sqlite_options=None):
     path = db_path or DB_PATH
     folder = os.path.dirname(path)
     if folder:
         os.makedirs(folder, exist_ok=True)
 
+    sqlite_runtime = _normalize_sqlite_options(sqlite_options)
     conn = None
     try:
         conn = sqlite3.connect(path)
         conn.row_factory = sqlite3.Row
 
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute(
+            f"PRAGMA foreign_keys = {'ON' if sqlite_runtime['foreign_keys'] else 'OFF'}"
+        )
+        conn.execute(f"PRAGMA journal_mode = {sqlite_runtime['journal_mode']}")
+        conn.execute(f"PRAGMA synchronous = {sqlite_runtime['synchronous']}")
+        conn.execute(f"PRAGMA temp_store = {sqlite_runtime['temp_store']}")
+        conn.execute(f"PRAGMA busy_timeout = {sqlite_runtime['busy_timeout_ms']}")
     except sqlite3.DatabaseError as exc:
         if conn is not None:
             try:
@@ -314,8 +347,8 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "chat_messages", "call_mode", "TEXT")
 
 
-def init_db(db_path=None):
-    conn = get_connection(db_path)
+def init_db(db_path=None, sqlite_options=None):
+    conn = get_connection(db_path, sqlite_options=sqlite_options)
     c = conn.cursor()
 
     # ==========================

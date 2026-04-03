@@ -507,6 +507,17 @@ def _normalize_datetime_input(value):
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _normalize_time_of_day_input(value):
+    safe_value = (value or "").strip()
+    if not safe_value:
+        return None
+    try:
+        parsed = datetime.strptime(safe_value, "%H:%M")
+    except ValueError:
+        return None
+    return parsed.strftime("%H:%M")
+
+
 def _build_leave_handling(status):
     if status == "pending":
         return None, None
@@ -3299,6 +3310,16 @@ def _build_biometric_recap_rows(db, biometric_logs):
         attendance_display = _build_attendance_status_display(attendance.get("status"), logs_sorted)
         break_display = _build_break_status_display(logs_sorted)
         break_summary = _summarize_break_activity(logs_sorted)
+        attendance_check_in_value = (
+            attendance.get("check_in")
+            or (check_in_log["punch_time"][11:16] if check_in_log else "")
+        )
+        attendance_check_out_value = (
+            attendance.get("check_out")
+            or (check_out_log["punch_time"][11:16] if check_out_log else "")
+        )
+        can_edit_check_in_time = bool(check_in_log)
+        can_edit_check_out_time = bool(check_out_log)
 
         recap_rows.append(
             {
@@ -3331,6 +3352,12 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "status_override_active": bool(attendance.get("status_override")),
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",
+                "attendance_check_in_value": attendance_check_in_value,
+                "attendance_check_out_value": attendance_check_out_value,
+                "can_edit_check_in_time": can_edit_check_in_time,
+                "can_edit_check_out_time": can_edit_check_out_time,
+                "can_edit_attendance_time": can_adjust_biometric_attendance_status()
+                and (can_edit_check_in_time or can_edit_check_out_time),
                 "geo_check_in": (check_in_log["punch_time"][11:16] if check_in_log else "-"),
                 "geo_check_out": (check_out_log["punch_time"][11:16] if check_out_log else "-"),
                 "location_text": " | ".join(locations) if locations else "-",
@@ -6112,6 +6139,162 @@ def update_biometric_attendance_status():
         flash("Status absen geotag berhasil diubah manual.", "success")
     else:
         flash("Status absen geotag dikembalikan ke hitungan otomatis.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/attendance-time", methods=["POST"])
+def update_biometric_attendance_time():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_adjust_biometric_attendance_status():
+        flash("Hanya HR dan Super Admin yang bisa mengubah waktu absen geotag.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    employee_id = _to_int(request.form.get("employee_id"))
+    attendance_date = (request.form.get("attendance_date") or "").strip()
+    requested_check_in = (request.form.get("check_in_time") or "").strip()
+    requested_check_out = (request.form.get("check_out_time") or "").strip()
+
+    if not employee_id or not attendance_date:
+        flash("Data karyawan atau tanggal absensi tidak valid.", "error")
+        return redirect(return_to)
+
+    try:
+        date_cls.fromisoformat(attendance_date)
+    except ValueError:
+        flash("Format tanggal absensi tidak valid.", "error")
+        return redirect(return_to)
+
+    normalized_check_in = _normalize_time_of_day_input(requested_check_in)
+    normalized_check_out = _normalize_time_of_day_input(requested_check_out)
+    if requested_check_in and not normalized_check_in:
+        flash("Format jam masuk tidak valid.", "error")
+        return redirect(return_to)
+    if requested_check_out and not normalized_check_out:
+        flash("Format jam pulang tidak valid.", "error")
+        return redirect(return_to)
+    if not normalized_check_in and not normalized_check_out:
+        flash("Isi minimal salah satu jam (masuk/pulang) untuk diperbarui.", "error")
+        return redirect(return_to)
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Karyawan tidak valid untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    day_logs = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT id, warehouse_id, punch_time, punch_type
+            FROM biometric_logs
+            WHERE employee_id=?
+              AND substr(punch_time, 1, 10)=?
+              AND sync_status IN (?,?)
+            ORDER BY punch_time ASC, id ASC
+            """,
+            (employee_id, attendance_date, "synced", "manual"),
+        ).fetchall()
+    ]
+    check_in_log = next((log for log in day_logs if log["punch_type"] == "check_in"), None)
+    check_out_log = next((log for log in reversed(day_logs) if log["punch_type"] == "check_out"), None)
+
+    if normalized_check_in and check_in_log is None:
+        flash("Belum ada log check in pada tanggal ini untuk dikoreksi.", "error")
+        return redirect(return_to)
+    if normalized_check_out and check_out_log is None:
+        flash("Belum ada log check out pada tanggal ini untuk dikoreksi.", "error")
+        return redirect(return_to)
+
+    target_check_in = (
+        f"{attendance_date} {normalized_check_in}:00"
+        if normalized_check_in
+        else (check_in_log["punch_time"] if check_in_log else None)
+    )
+    target_check_out = (
+        f"{attendance_date} {normalized_check_out}:00"
+        if normalized_check_out
+        else (check_out_log["punch_time"] if check_out_log else None)
+    )
+
+    if target_check_in and target_check_out and target_check_out <= target_check_in:
+        flash("Jam pulang harus lebih akhir dari jam masuk.", "error")
+        return redirect(return_to)
+
+    if normalized_check_in and check_in_log and target_check_in != check_in_log["punch_time"]:
+        duplicate_check_in = db.execute(
+            """
+            SELECT id
+            FROM biometric_logs
+            WHERE employee_id=? AND punch_time=? AND punch_type='check_in' AND id<>?
+            """,
+            (employee_id, target_check_in, check_in_log["id"]),
+        ).fetchone()
+        if duplicate_check_in:
+            flash("Jam masuk itu sudah dipakai log check in lain.", "error")
+            return redirect(return_to)
+
+    if normalized_check_out and check_out_log and target_check_out != check_out_log["punch_time"]:
+        duplicate_check_out = db.execute(
+            """
+            SELECT id
+            FROM biometric_logs
+            WHERE employee_id=? AND punch_time=? AND punch_type='check_out' AND id<>?
+            """,
+            (employee_id, target_check_out, check_out_log["id"]),
+        ).fetchone()
+        if duplicate_check_out:
+            flash("Jam pulang itu sudah dipakai log check out lain.", "error")
+            return redirect(return_to)
+
+    updates = []
+    handled_by, handled_at = _build_biometric_handling("manual")
+    update_timestamp = _current_timestamp()
+
+    if normalized_check_in and check_in_log and target_check_in != check_in_log["punch_time"]:
+        db.execute(
+            """
+            UPDATE biometric_logs
+            SET punch_time=?,
+                sync_status=?,
+                handled_by=?,
+                handled_at=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (target_check_in, "manual", handled_by, handled_at, update_timestamp, check_in_log["id"]),
+        )
+        updates.append("jam masuk")
+
+    if normalized_check_out and check_out_log and target_check_out != check_out_log["punch_time"]:
+        db.execute(
+            """
+            UPDATE biometric_logs
+            SET punch_time=?,
+                sync_status=?,
+                handled_by=?,
+                handled_at=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (target_check_out, "manual", handled_by, handled_at, update_timestamp, check_out_log["id"]),
+        )
+        updates.append("jam pulang")
+
+    if not updates:
+        flash("Tidak ada perubahan waktu absen yang disimpan.", "info")
+        return redirect(return_to)
+
+    warehouse_id = (
+        (check_in_log.get("warehouse_id") if check_in_log else None)
+        or (check_out_log.get("warehouse_id") if check_out_log else None)
+        or employee.get("warehouse_id")
+    )
+    _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance_date)
+    db.commit()
+
+    flash(f"Perubahan {' dan '.join(updates)} berhasil disimpan.", "success")
     return redirect(return_to)
 
 

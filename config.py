@@ -228,6 +228,15 @@ class Config:
         "DATABASE_PATH",
         os.path.join(BASE_DIR, "database.db")
     )
+    SQLITE_JOURNAL_MODE = (os.getenv("SQLITE_JOURNAL_MODE") or "WAL").strip().upper()
+    SQLITE_SYNCHRONOUS = (
+        (os.getenv("SQLITE_SYNCHRONOUS") or ("FULL" if IS_PRODUCTION else "NORMAL"))
+        .strip()
+        .upper()
+    )
+    SQLITE_BUSY_TIMEOUT_MS = _int_env("SQLITE_BUSY_TIMEOUT_MS", 30000)
+    SQLITE_TEMP_STORE = (os.getenv("SQLITE_TEMP_STORE") or "MEMORY").strip().upper()
+    SQLITE_FOREIGN_KEYS = _env_flag("SQLITE_FOREIGN_KEYS", True)
 
     # ==========================
     # PAGINATION
