@@ -222,6 +222,12 @@ body .brand-block {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
+body .brand-block-logo-only {
+    display: grid;
+    place-items: center;
+    padding: 18px 16px;
+}
+
 body .brand-lockup {
     display: flex;
     align-items: center;
@@ -245,6 +251,18 @@ body .brand-mark img {
     height: 100%;
     object-fit: contain;
     padding: 14px;
+}
+
+body .brand-mark-full-logo {
+    width: min(100%, 220px);
+    height: auto;
+    aspect-ratio: 1 / 1;
+    flex-basis: auto;
+    border-radius: 28px;
+}
+
+body .brand-mark-full-logo img {
+    padding: 18px;
 }
 
 body .brand-meta {

@@ -79,6 +79,11 @@ ROLE_PERMISSIONS = {
         "request_transfer",
         "scoped_warehouse",
     },
+    "staff_intern": {
+        "access_attendance_portal",
+        "access_daily_report_portal",
+        "scoped_warehouse",
+    },
 }
 
 

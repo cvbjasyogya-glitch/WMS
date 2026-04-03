@@ -8,6 +8,7 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 Notes:
 - The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
 - Keep only one active Nginx server block for `erp.cvbjasyogya.cloud`. If `nginx -t` warns about a conflicting `server_name`, disable the older duplicate site before reloading Nginx.
+- `wms.service` now binds Gunicorn to `/run/wms/gunicorn.sock` instead of TCP port `8000`, so it avoids `Address already in use` conflicts during restart and keeps the app private behind Nginx.
 
 Recommended VPS commands:
 
@@ -34,8 +35,9 @@ ls -l /etc/nginx/sites-enabled
 Quick checks:
 
 ```bash
-curl -I http://127.0.0.1:8000/login
+curl --unix-socket /run/wms/gunicorn.sock http://localhost/login -I
 curl -I https://erp.cvbjasyogya.cloud/login
+sudo ss -lx | grep gunicorn.sock
 sudo journalctl -u wms.service -n 50 --no-pager
 sudo tail -n 50 /var/log/nginx/error.log
 ```
