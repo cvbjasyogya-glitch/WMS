@@ -12516,6 +12516,11 @@ body .attendance-history-card {
     scroll-margin-top: calc(112px + env(safe-area-inset-top));
 }
 
+body .attendance-history-disclosure .panel-content {
+    display: grid;
+    gap: 16px;
+}
+
 body .attendance-log-list {
     display: grid;
     gap: 16px;
@@ -12535,11 +12540,12 @@ body .attendance-log-card-disclosure {
 }
 
 body .attendance-log-toggle {
+    position: relative;
     cursor: pointer;
     list-style: none;
     display: grid;
-    gap: 14px;
-    padding: 18px;
+    gap: 10px;
+    padding: 18px 54px 18px 18px;
 }
 
 body .attendance-log-toggle::-webkit-details-marker {
@@ -12548,10 +12554,11 @@ body .attendance-log-toggle::-webkit-details-marker {
 
 body .attendance-log-card-disclosure > .attendance-log-toggle::after {
     content: "";
-    justify-self: end;
+    position: absolute;
+    top: 24px;
+    right: 20px;
     width: 12px;
     height: 12px;
-    margin-top: -4px;
     border-right: 2px solid rgba(255, 255, 255, 0.58);
     border-bottom: 2px solid rgba(255, 255, 255, 0.58);
     transform: rotate(45deg);
@@ -12590,6 +12597,14 @@ body .attendance-log-note,
 body .attendance-log-event p,
 body .attendance-log-event-note {
     color: var(--text-muted);
+}
+
+body .attendance-log-toggle-meta {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    line-height: 1.5;
 }
 
 body .attendance-log-badges {
@@ -12783,6 +12798,89 @@ body .biometric-attendance-status-form {
     margin: 0;
 }
 
+body .biometric-recap-table {
+    min-width: 1940px;
+    table-layout: auto;
+}
+
+body .biometric-recap-table th,
+body .biometric-recap-table td {
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+body .biometric-recap-table th {
+    white-space: nowrap;
+}
+
+body .biometric-recap-table td {
+    white-space: normal;
+}
+
+body .biometric-recap-date-cell,
+body .biometric-recap-code-cell,
+body .biometric-recap-geo-cell,
+body .biometric-recap-log-cell {
+    white-space: nowrap;
+}
+
+body .biometric-recap-name-cell,
+body .biometric-recap-warehouse-cell,
+body .biometric-recap-shift-cell,
+body .biometric-recap-location-cell,
+body .biometric-recap-photo-cell,
+body .biometric-recap-final-status-cell {
+    overflow-wrap: break-word;
+}
+
+body .biometric-recap-name-cell {
+    min-width: 154px;
+}
+
+body .biometric-recap-warehouse-cell {
+    min-width: 148px;
+}
+
+body .biometric-recap-shift-cell {
+    min-width: 228px;
+}
+
+body .biometric-recap-status-cell {
+    min-width: 170px;
+}
+
+body .biometric-recap-break-cell {
+    min-width: 150px;
+}
+
+body .biometric-recap-break-duration-cell {
+    min-width: 168px;
+}
+
+body .biometric-recap-overtime-cell {
+    min-width: 164px;
+}
+
+body .biometric-recap-attendance-cell {
+    min-width: 236px;
+}
+
+body .biometric-recap-location-cell {
+    min-width: 156px;
+}
+
+body .biometric-recap-coordinate-cell {
+    min-width: 184px;
+}
+
+body .biometric-recap-photo-cell {
+    min-width: 120px;
+}
+
+body .biometric-recap-final-status-cell {
+    min-width: 142px;
+}
+
 body .biometric-attendance-status-select {
     min-width: 132px;
     min-height: 38px;
@@ -12797,6 +12895,14 @@ body .biometric-attendance-status-select {
     text-transform: uppercase;
     font-family: var(--mono);
     cursor: pointer;
+}
+
+body .biometric-recap-shift-cell .biometric-attendance-status-select {
+    min-width: 220px;
+}
+
+body .biometric-recap-status-cell .biometric-attendance-status-select {
+    min-width: 146px;
 }
 
 body .biometric-attendance-status-select:focus {
@@ -12832,6 +12938,16 @@ body .biometric-break-duration.is-alert {
 body .biometric-break-reminder-alert {
     color: #ffb185;
     font-weight: 700;
+}
+
+@media (max-width: 900px) {
+    body .biometric-recap-table {
+        min-width: 1680px;
+    }
+
+    body .biometric-recap-shift-cell .biometric-attendance-status-select {
+        min-width: 200px;
+    }
 }
 
 body .biometric-overtime-stack {
@@ -12952,11 +13068,16 @@ body .biometric-overtime-duration {
     }
 
     body .attendance-log-toggle {
-        padding: 14px;
+        padding: 14px 46px 14px 14px;
     }
 
     body .attendance-log-body {
         padding: 0 14px 14px;
+    }
+
+    body .attendance-log-card-disclosure > .attendance-log-toggle::after {
+        top: 20px;
+        right: 16px;
     }
 
     body .attendance-log-detail summary,

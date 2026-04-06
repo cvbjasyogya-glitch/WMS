@@ -237,6 +237,8 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         ? as warehouse_id,
         p.sku,
         p.name,
+        COALESCE(NULLIF(TRIM(p.unit_label), ''), 'pcs') as unit_label,
+        COALESCE(NULLIF(TRIM(p.variant_mode), ''), 'variant') as variant_mode,
         COALESCE(c.name, '') as category_name,
         v.variant,
         COALESCE(v.price_retail, 0) as price_retail,
@@ -305,6 +307,8 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         v.id,
         p.sku,
         p.name,
+        p.unit_label,
+        p.variant_mode,
         v.variant,
         v.price_retail,
         v.price_discount,
@@ -376,6 +380,8 @@ def _build_stock_group(rows):
     created_dates = []
     oldest_age_days = 0
     product_ids = []
+    unit_labels = []
+    variant_modes = []
 
     for row in rows:
         qty = int(row.get("qty") or 0)
@@ -393,6 +399,8 @@ def _build_stock_group(rows):
         variant_name = (row.get("variant") or "-").strip() or "-"
         variants.append(variant_name)
         skus.append((row.get("sku") or "-").strip() or "-")
+        unit_labels.append((row.get("unit_label") or "pcs").strip() or "pcs")
+        variant_modes.append((row.get("variant_mode") or "variant").strip() or "variant")
 
         created_at = row.get("created_at")
         if created_at:
@@ -411,6 +419,15 @@ def _build_stock_group(rows):
     sku_preview = ", ".join(sku_preview_items)
     if len(unique_skus) > len(sku_preview_items):
         sku_preview = f"{sku_preview}, +{len(unique_skus) - len(sku_preview_items)} lainnya"
+
+    unique_unit_labels = list(dict.fromkeys(unit_labels))
+    unit_label = unique_unit_labels[0] if unique_unit_labels else "pcs"
+    unit_summary = unit_label if len(unique_unit_labels) == 1 else ", ".join(unique_unit_labels[:2])
+    if len(unique_unit_labels) > 2:
+        unit_summary = f"{unit_summary}, +{len(unique_unit_labels) - 2} lagi"
+
+    unique_variant_modes = list(dict.fromkeys(variant_modes))
+    variant_mode = unique_variant_modes[0] if len(unique_variant_modes) == 1 else "variant"
 
     if zero_count == variant_count:
         status_label = "Semua kosong"
@@ -436,6 +453,9 @@ def _build_stock_group(rows):
         "product_id": rows[0]["product_id"],
         "sku": rows[0]["sku"],
         "name": rows[0]["name"],
+        "unit_label": unit_label,
+        "unit_summary": unit_summary,
+        "variant_mode": variant_mode,
         "category_name": rows[0].get("category_name") or "",
         "rows": rows,
         "is_grouped": variant_count > 1,
@@ -686,6 +706,7 @@ def export_stock():
         [
             "SKU",
             "Nama Produk",
+            "Satuan",
             "Variant",
             "Qty",
             "Harga Retail",
@@ -702,6 +723,7 @@ def export_stock():
             [
                 row["sku"],
                 row["name"],
+                row.get("unit_label") or "pcs",
                 row["variant"],
                 row["qty"],
                 row["price_retail"],
@@ -977,6 +999,7 @@ def update_detail():
         sku = (request.form.get("sku") or "").strip()
         name = (request.form.get("name") or "").strip()
         category_name = (request.form.get("category_name") or "").strip()
+        unit_label = " ".join((request.form.get("unit_label") or "").strip().split()) or "pcs"
         variant = (request.form.get("variant") or "").strip()
         price_retail = float(request.form.get("price_retail") or 0)
         price_discount = float(request.form.get("price_discount") or 0)
@@ -984,8 +1007,8 @@ def update_detail():
     except (TypeError, ValueError):
         return _stock_json_error("Input detail produk tidak valid")
 
-    if not product_id or not sku or not name or not category_name:
-        return _stock_json_error("SKU, nama produk, dan kategori wajib diisi")
+    if not product_id or not sku or not name or not category_name or not unit_label:
+        return _stock_json_error("SKU, nama produk, kategori, dan satuan wajib diisi")
 
     if min(price_retail, price_discount, price_nett) < 0:
         return _stock_json_error("Harga tidak boleh minus")
@@ -1002,8 +1025,8 @@ def update_detail():
 
         db.execute("BEGIN")
         db.execute(
-            "UPDATE products SET sku=?, name=?, category_id=? WHERE id=?",
-            (sku, name, category_id, product_id),
+            "UPDATE products SET sku=?, name=?, category_id=?, unit_label=? WHERE id=?",
+            (sku, name, category_id, unit_label, product_id),
         )
 
         if variant_id:

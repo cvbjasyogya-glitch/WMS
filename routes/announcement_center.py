@@ -92,7 +92,8 @@ def _fetch_schedule_change_events(db):
 def announcement_center_page():
     db = get_db()
     announcements = _fetch_active_announcements(db)
-    schedule_changes = _fetch_schedule_change_events(db)
+    all_schedule_changes = _fetch_schedule_change_events(db)
+    schedule_changes = all_schedule_changes[:5]
     user_notification_settings = db.execute(
         """
         SELECT email, phone, notify_email, notify_whatsapp
@@ -112,12 +113,12 @@ def announcement_center_page():
 
     today_value = date_cls.today().isoformat()
     schedule_changes_today = sum(
-        1 for row in schedule_changes if (row.get("created_at") or "").startswith(today_value)
+        1 for row in all_schedule_changes if (row.get("created_at") or "").startswith(today_value)
     )
 
     summary = {
         "announcements": len(announcements),
-        "schedule_changes": len(schedule_changes),
+        "schedule_changes": len(all_schedule_changes),
         "schedule_changes_today": schedule_changes_today,
     }
 

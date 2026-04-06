@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 
 from database import get_db
 from routes.schedule import (
+    LIVE_SCHEDULE_SLOTS,
     _build_board_rows as _build_schedule_board_rows,
     _build_day_notes as _build_schedule_day_notes,
     _build_entry_map as _build_schedule_entry_map,
@@ -115,6 +116,26 @@ DASHBOARD_LEAVE_ALERT_LIMIT = 8
 DASHBOARD_REMINDER_LIMIT = 10
 BIOMETRIC_MANUAL_STATUS_ROLES = {"hr", "super_admin"}
 BIOMETRIC_ADJUSTABLE_ATTENDANCE_STATUSES = {"present", "late"}
+LIVE_SCHEDULE_SLOT_LABELS = dict(LIVE_SCHEDULE_SLOTS)
+BIOMETRIC_SHIFT_SCHEDULES = {
+    "mataram": {
+        "pagi": {"label": "Shift Pagi", "start": "08:00", "end": "16:00"},
+        "siang": {"label": "Shift Siang", "start": "13:00", "end": "21:00"},
+    },
+    "mega": {
+        "pagi": {"label": "Shift Pagi", "start": "09:00", "end": "17:00"},
+        "siang": {"label": "Shift Siang", "start": "13:00", "end": "21:00"},
+    },
+}
+BIOMETRIC_SPECIAL_SHIFT_RULES = (
+    {
+        "shift_code": "bu_ika",
+        "label": "Shift Khusus Bu Ika",
+        "start": "11:30",
+        "end": "21:00",
+        "aliases": ("bu ika", "ibu ika", "ika"),
+    },
+)
 
 GEO_ATTENDANCE_NOTE = "Synced from geotag"
 DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
@@ -1043,6 +1064,140 @@ def _extract_shift_start_minutes(shift_label):
 def _extract_shift_end_minutes(shift_label):
     _, end_text = _extract_shift_time_range(shift_label)
     return _parse_time_of_day_minutes(end_text)
+
+
+def _normalize_shift_identity_text(value):
+    cleaned = "".join(
+        char.lower() if str(char).isalnum() else " "
+        for char in str(value or "").strip()
+    )
+    return " ".join(cleaned.split())
+
+
+def _matches_shift_identity_alias(candidate, alias):
+    normalized_candidate = _normalize_shift_identity_text(candidate)
+    normalized_alias = _normalize_shift_identity_text(alias)
+    if not normalized_candidate or not normalized_alias:
+        return False
+    return (
+        normalized_candidate == normalized_alias
+        or normalized_candidate.startswith(f"{normalized_alias} ")
+    )
+
+
+def _build_biometric_shift_label(schedule_item):
+    if not schedule_item:
+        return "-"
+    return f"{schedule_item['label']} | {schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}"
+
+
+def _build_biometric_special_shift_option(rule):
+    return {
+        "value": rule["shift_code"],
+        "label": _build_biometric_shift_label(rule),
+        "time_label": f"{rule['start'].replace(':', '.')} - {rule['end'].replace(':', '.')}",
+        "start": rule["start"],
+        "end": rule["end"],
+    }
+
+
+def _normalize_biometric_shift_code(value):
+    shift_code = (value or "").strip().lower()
+    allowed_shift_codes = {
+        str(code or "").strip().lower()
+        for schedule_map in BIOMETRIC_SHIFT_SCHEDULES.values()
+        for code in schedule_map.keys()
+    } | {
+        str(rule.get("shift_code") or "").strip().lower()
+        for rule in BIOMETRIC_SPECIAL_SHIFT_RULES
+        if str(rule.get("shift_code") or "").strip()
+    }
+    return shift_code if shift_code in allowed_shift_codes else None
+
+
+def _resolve_biometric_special_shift_rule(source):
+    safe_source = (
+        dict(source)
+        if source is not None and not isinstance(source, dict)
+        else (source or {})
+    )
+    candidate_values = (
+        safe_source.get("full_name"),
+        safe_source.get("employee_code"),
+        safe_source.get("username"),
+    )
+    for rule in BIOMETRIC_SPECIAL_SHIFT_RULES:
+        aliases = rule.get("aliases") or ()
+        for candidate in candidate_values:
+            if any(_matches_shift_identity_alias(candidate, alias) for alias in aliases):
+                return rule
+    return None
+
+
+def _resolve_biometric_shift_warehouse_key(source):
+    safe_source = (
+        dict(source)
+        if source is not None and not isinstance(source, dict)
+        else (source or {})
+    )
+    warehouse_name = str(safe_source.get("warehouse_name") or "").strip().lower()
+    if "mega" in warehouse_name:
+        return "mega"
+    return "mataram"
+
+
+def _resolve_biometric_shift_profile_key_from_label(shift_label, fallback_key="mataram"):
+    safe_label = str(shift_label or "").strip().lower()
+    if not safe_label:
+        return fallback_key
+
+    for profile_key, schedule_map in BIOMETRIC_SHIFT_SCHEDULES.items():
+        for schedule_item in schedule_map.values():
+            label = _build_biometric_shift_label(schedule_item).strip().lower()
+            time_label = f"{schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}".strip().lower()
+            if safe_label == label or time_label in safe_label:
+                return profile_key
+
+    return fallback_key
+
+
+def _build_biometric_shift_options(source, current_shift_label=None):
+    special_rule = _resolve_biometric_special_shift_rule(source)
+    if special_rule:
+        return [_build_biometric_special_shift_option(special_rule)]
+
+    fallback_key = _resolve_biometric_shift_warehouse_key(source)
+    profile_key = _resolve_biometric_shift_profile_key_from_label(
+        current_shift_label,
+        fallback_key=fallback_key,
+    )
+    schedule_map = BIOMETRIC_SHIFT_SCHEDULES.get(
+        profile_key,
+        BIOMETRIC_SHIFT_SCHEDULES["mataram"],
+    )
+    return [
+        {
+            "value": shift_code,
+            "label": _build_biometric_shift_label(schedule_item),
+            "time_label": f"{schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}",
+            "start": schedule_item["start"],
+            "end": schedule_item["end"],
+        }
+        for shift_code, schedule_item in schedule_map.items()
+    ]
+
+
+def _resolve_biometric_shift_code_from_label(shift_label, source=None):
+    safe_label = str(shift_label or "").strip().lower()
+    if not safe_label:
+        return None
+
+    for option in _build_biometric_shift_options(source, shift_label):
+        option_label = str(option.get("label") or "").strip().lower()
+        time_label = str(option.get("time_label") or "").strip().lower()
+        if safe_label == option_label or (time_label and time_label in safe_label):
+            return option["value"]
+    return None
 
 
 def _derive_biometric_attendance_status_with_shift(check_in_time, shift_label=None):
@@ -2763,12 +2918,27 @@ def _fetch_daily_live_reports(db, selected_warehouse):
     query += " ORDER BY r.report_date DESC, r.created_at DESC, r.id DESC"
 
     rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    live_schedule_lookup = _build_live_report_schedule_lookup(db, rows)
     for row in rows:
         row["report_type_label"] = DAILY_LIVE_REPORT_TYPE_LABELS.get(row["report_type"], row["report_type"])
         row["status_label"] = DAILY_LIVE_REPORT_STATUS_LABELS.get(row["status"], row["status"])
         row["display_name"] = row["employee_name"] or row["username"] or "User"
         row["attachment_url"] = _get_daily_live_report_attachment_url(row.get("attachment_path"))
         row["attachment_size_label"] = _format_upload_size(row.get("attachment_size"))
+        if row.get("report_type") == "live":
+            row.update(
+                _build_live_report_schedule_match_meta(
+                    row,
+                    live_schedule_lookup.get(
+                        (
+                            row.get("employee_id"),
+                            row.get("warehouse_id"),
+                            row.get("report_date"),
+                        ),
+                        [],
+                    ),
+                )
+            )
     return rows, {
         "search": search,
         "report_type": report_type,
@@ -2795,6 +2965,149 @@ def _split_daily_live_report_rows(rows):
     return {
         "daily": [row for row in rows if row["report_type"] == "daily"],
         "live": [row for row in rows if row["report_type"] == "live"],
+    }
+
+
+def _format_live_report_time_label(raw_value):
+    safe_value = (raw_value or "").strip()
+    if not safe_value:
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(safe_value.replace("T", " "))
+    except ValueError:
+        return "-"
+    return parsed.strftime("%H:%M")
+
+
+def _parse_live_schedule_slot_window(slot_key):
+    safe_key = (slot_key or "").strip()
+    if not safe_key:
+        return None, None
+    if "-" in safe_key:
+        start_text, end_text = [part.strip() for part in safe_key.split("-", 1)]
+        return _parse_time_of_day_minutes(start_text), _parse_time_of_day_minutes(end_text)
+
+    start_minutes = _parse_time_of_day_minutes(safe_key)
+    if start_minutes is None:
+        return None, None
+    return start_minutes, start_minutes + 59
+
+
+def _format_live_schedule_slot_display(slot_key, channel_label=None):
+    slot_label = LIVE_SCHEDULE_SLOT_LABELS.get(slot_key, slot_key)
+    safe_channel = (channel_label or "").strip()
+    if safe_channel:
+        return f"{slot_label} ({safe_channel})"
+    return slot_label
+
+
+def _build_live_report_schedule_lookup(db, rows):
+    live_keys = {
+        (row.get("employee_id"), row.get("warehouse_id"), row.get("report_date"))
+        for row in rows
+        if row.get("report_type") == "live"
+        and row.get("employee_id")
+        and row.get("warehouse_id")
+        and row.get("report_date")
+    }
+    if not live_keys:
+        return {}
+
+    employee_ids = sorted({key[0] for key in live_keys})
+    warehouse_ids = sorted({key[1] for key in live_keys})
+    report_dates = sorted({key[2] for key in live_keys})
+    employee_placeholders = ",".join(["?"] * len(employee_ids))
+    warehouse_placeholders = ",".join(["?"] * len(warehouse_ids))
+    date_placeholders = ",".join(["?"] * len(report_dates))
+
+    schedule_rows = [
+        dict(row)
+        for row in db.execute(
+            f"""
+            SELECT warehouse_id, schedule_date, slot_key, employee_id, channel_label, note
+            FROM schedule_live_entries
+            WHERE employee_id IN ({employee_placeholders})
+              AND warehouse_id IN ({warehouse_placeholders})
+              AND schedule_date IN ({date_placeholders})
+            ORDER BY schedule_date ASC, slot_key ASC, id ASC
+            """,
+            [*employee_ids, *warehouse_ids, *report_dates],
+        ).fetchall()
+    ]
+
+    lookup = defaultdict(list)
+    for row in schedule_rows:
+        lookup[(row["employee_id"], row["warehouse_id"], row["schedule_date"])].append(row)
+    return lookup
+
+
+def _build_live_report_schedule_match_meta(report, scheduled_rows):
+    submitted_time_label = _format_live_report_time_label(report.get("created_at"))
+    submitted_minutes = _parse_time_of_day_minutes(submitted_time_label)
+    scheduled_rows = list(scheduled_rows or [])
+    scheduled_labels = [
+        _format_live_schedule_slot_display(row.get("slot_key"), row.get("channel_label"))
+        for row in scheduled_rows
+    ]
+
+    base_meta = {
+        "live_submitted_time_label": submitted_time_label,
+        "live_schedule_slots_label": " | ".join(scheduled_labels) if scheduled_labels else "-",
+        "live_schedule_match_label": "Belum Dicek",
+        "live_schedule_match_badge": "",
+        "live_schedule_match_detail": "Belum ada evaluasi kecocokan jadwal live.",
+    }
+
+    if not report.get("employee_id"):
+        return {
+            **base_meta,
+            "live_schedule_match_label": "Belum Tertaut",
+            "live_schedule_match_badge": "orange",
+            "live_schedule_match_detail": "Report live ini belum terhubung ke data staff, jadi jadwal live tidak bisa diverifikasi.",
+        }
+
+    if submitted_minutes is None:
+        return {
+            **base_meta,
+            "live_schedule_match_label": "Jam Tidak Valid",
+            "live_schedule_match_badge": "red",
+            "live_schedule_match_detail": "Jam kirim report live tidak valid untuk dicek ke jadwal.",
+        }
+
+    if not scheduled_rows:
+        return {
+            **base_meta,
+            "live_schedule_match_label": "Belum Dijadwal",
+            "live_schedule_match_badge": "red",
+            "live_schedule_match_detail": f"Dikirim {submitted_time_label}. Tidak ada jadwal live untuk staff ini pada tanggal report.",
+        }
+
+    matched_row = None
+    for row in scheduled_rows:
+        slot_start_minutes, slot_end_minutes = _parse_live_schedule_slot_window(row.get("slot_key"))
+        if slot_start_minutes is None or slot_end_minutes is None:
+            continue
+        if slot_start_minutes <= submitted_minutes <= slot_end_minutes:
+            matched_row = row
+            break
+
+    if matched_row:
+        matched_label = _format_live_schedule_slot_display(
+            matched_row.get("slot_key"),
+            matched_row.get("channel_label"),
+        )
+        return {
+            **base_meta,
+            "live_schedule_match_label": "Sesuai Jadwal",
+            "live_schedule_match_badge": "green",
+            "live_schedule_match_detail": f"Dikirim {submitted_time_label}. Cocok dengan slot {matched_label}.",
+        }
+
+    return {
+        **base_meta,
+        "live_schedule_match_label": "Tidak Sesuai",
+        "live_schedule_match_badge": "orange",
+        "live_schedule_match_detail": f"Dikirim {submitted_time_label}. Jadwal live staff: {' | '.join(scheduled_labels)}.",
     }
 
 
@@ -3677,7 +3990,12 @@ def _build_biometric_recap_rows(db, biometric_logs):
 
     attendance_map = {}
     attendance_columns = _get_table_columns(db, "attendance_records")
+    biometric_columns = _get_table_columns(db, "biometric_logs")
     required_columns = {"employee_id", "attendance_date"}
+    can_edit_shift_storage = {"shift_code", "shift_label"}.issubset(attendance_columns) and {
+        "shift_code",
+        "shift_label",
+    }.issubset(biometric_columns)
     if required_columns.issubset(attendance_columns):
         placeholders = ",".join(["?"] * len(employee_ids))
         attendance_select = [
@@ -3747,6 +4065,37 @@ def _build_biometric_recap_rows(db, biometric_logs):
         attendance_display = _build_attendance_status_display(attendance.get("status"), logs_sorted)
         break_display = _build_break_status_display(logs_sorted)
         break_summary = _summarize_break_activity(logs_sorted)
+        syncable_logs = [
+            log for log in logs_sorted if (log.get("sync_status") or "").strip().lower() in {"synced", "manual"}
+        ]
+        current_shift_label = (
+            attendance.get("shift_label")
+            or (check_out_log.get("shift_label") if check_out_log else None)
+            or (check_in_log.get("shift_label") if check_in_log else None)
+        )
+        current_shift_code = _normalize_biometric_shift_code(
+            attendance.get("shift_code")
+            or (check_out_log.get("shift_code") if check_out_log else None)
+            or (check_in_log.get("shift_code") if check_in_log else None)
+        ) or _resolve_biometric_shift_code_from_label(current_shift_label, latest_log)
+        shift_options = _build_biometric_shift_options(latest_log, current_shift_label)
+        shift_options = [
+            {
+                **option,
+                "selected": option["value"] == current_shift_code,
+            }
+            for option in shift_options
+        ]
+        if not current_shift_label and current_shift_code:
+            current_shift_label = next(
+                (
+                    option["label"]
+                    for option in shift_options
+                    if option["value"] == current_shift_code
+                ),
+                None,
+            )
+        shift_display_label = current_shift_label or "-"
         attendance_check_in_value = (
             attendance.get("check_in")
             or (check_in_log["punch_time"][11:16] if check_in_log else "")
@@ -3757,9 +4106,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
         )
         overtime_summary = _summarize_overtime_activity(
             attendance_check_out_value,
-            attendance.get("shift_label")
-            or (check_out_log.get("shift_label") if check_out_log else None)
-            or (check_in_log.get("shift_label") if check_in_log else None),
+            current_shift_label,
         )
         can_edit_check_in_time = bool(check_in_log)
         can_edit_check_out_time = bool(check_out_log)
@@ -3771,6 +4118,14 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "employee_code": latest_log["employee_code"],
                 "full_name": latest_log["full_name"],
                 "warehouse_name": latest_log["warehouse_name"],
+                "shift_code": current_shift_code,
+                "shift_label": current_shift_label,
+                "shift_display_label": shift_display_label,
+                "shift_options": shift_options,
+                "can_edit_shift": can_adjust_biometric_attendance_status()
+                and can_edit_shift_storage
+                and bool(syncable_logs)
+                and bool(shift_options),
                 "attendance_status": (attendance.get("status") or "-"),
                 "attendance_status_value": (attendance.get("status") or "present"),
                 "attendance_status_label": attendance_display["label"],
@@ -6559,6 +6914,7 @@ def update_biometric_attendance_status():
         return redirect(return_to)
 
     attendance = _get_attendance_by_employee_date(db, employee_id, attendance_date)
+    attendance = dict(attendance) if attendance is not None else None
     if attendance is None:
         flash("Data attendance geotag tidak ditemukan.", "error")
         return redirect(return_to)
@@ -6751,6 +7107,162 @@ def update_biometric_attendance_time():
     db.commit()
 
     flash(f"Perubahan {' dan '.join(updates)} berhasil disimpan.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/attendance-shift", methods=["POST"])
+def update_biometric_attendance_shift():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_adjust_biometric_attendance_status():
+        flash("Hanya HR dan Super Admin yang bisa memperbaiki shift geotag.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    attendance_columns = _get_table_columns(db, "attendance_records")
+    biometric_columns = _get_table_columns(db, "biometric_logs")
+    if not {"shift_code", "shift_label"}.issubset(attendance_columns) or not {
+        "shift_code",
+        "shift_label",
+    }.issubset(biometric_columns):
+        flash("Penyimpanan shift geotag belum tersedia pada database ini.", "error")
+        return redirect(return_to)
+
+    employee_id = _to_int(request.form.get("employee_id"))
+    attendance_date = (request.form.get("attendance_date") or "").strip()
+    requested_shift_code = _normalize_biometric_shift_code(request.form.get("shift_code"))
+
+    if not employee_id or not attendance_date:
+        flash("Data karyawan atau tanggal absensi tidak valid.", "error")
+        return redirect(return_to)
+
+    try:
+        date_cls.fromisoformat(attendance_date)
+    except ValueError:
+        flash("Format tanggal absensi tidak valid.", "error")
+        return redirect(return_to)
+
+    if not requested_shift_code:
+        flash("Pilih shift yang valid untuk disimpan.", "error")
+        return redirect(return_to)
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Karyawan tidak valid untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    warehouse = db.execute(
+        "SELECT name FROM warehouses WHERE id=?",
+        (employee.get("warehouse_id"),),
+    ).fetchone()
+    if warehouse:
+        employee["warehouse_name"] = warehouse["name"]
+
+    day_logs = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT id, warehouse_id, punch_time, punch_type, sync_status, shift_code, shift_label
+            FROM biometric_logs
+            WHERE employee_id=?
+              AND substr(punch_time, 1, 10)=?
+              AND sync_status IN (?,?)
+            ORDER BY punch_time ASC, id ASC
+            """,
+            (employee_id, attendance_date, "synced", "manual"),
+        ).fetchall()
+    ]
+    if not day_logs:
+        flash("Belum ada log geotag tersinkron pada tanggal ini untuk dikoreksi shift-nya.", "error")
+        return redirect(return_to)
+
+    attendance = _get_attendance_by_employee_date(db, employee_id, attendance_date)
+    attendance = dict(attendance) if attendance is not None else None
+    current_shift_label = (
+        (attendance["shift_label"] if attendance and attendance.get("shift_label") else None)
+        or next(
+            (
+                (log.get("shift_label") or "").strip()
+                for log in day_logs
+                if (log.get("shift_label") or "").strip()
+            ),
+            None,
+        )
+    )
+    shift_options = _build_biometric_shift_options(employee, current_shift_label)
+    selected_shift = next(
+        (option for option in shift_options if option["value"] == requested_shift_code),
+        None,
+    )
+    if selected_shift is None:
+        flash("Shift yang dipilih tidak tersedia untuk staff ini.", "error")
+        return redirect(return_to)
+
+    requested_shift_label = selected_shift["label"]
+    current_shift_code = _normalize_biometric_shift_code(
+        (attendance["shift_code"] if attendance and attendance.get("shift_code") else None)
+        or next(
+            (
+                (log.get("shift_code") or "").strip()
+                for log in day_logs
+                if (log.get("shift_code") or "").strip()
+            ),
+            None,
+        )
+    ) or _resolve_biometric_shift_code_from_label(current_shift_label, employee)
+
+    shift_changed = bool(
+        requested_shift_code != current_shift_code
+        or requested_shift_label != current_shift_label
+        or any(
+            (
+                _normalize_biometric_shift_code(log.get("shift_code")) != requested_shift_code
+                or (log.get("shift_label") or "").strip() != requested_shift_label
+            )
+            for log in day_logs
+        )
+    )
+    if not shift_changed:
+        flash("Shift geotag sudah sesuai, tidak ada perubahan yang disimpan.", "info")
+        return redirect(return_to)
+
+    handled_by, handled_at = _build_biometric_handling("manual")
+    update_timestamp = _current_timestamp()
+    for log in day_logs:
+        db.execute(
+            """
+            UPDATE biometric_logs
+            SET shift_code=?,
+                shift_label=?,
+                sync_status=?,
+                handled_by=?,
+                handled_at=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                requested_shift_code,
+                requested_shift_label,
+                "manual",
+                handled_by,
+                handled_at,
+                update_timestamp,
+                log["id"],
+            ),
+        )
+
+    warehouse_id = next(
+        (
+            log.get("warehouse_id")
+            for log in day_logs
+            if log.get("warehouse_id")
+        ),
+        employee.get("warehouse_id"),
+    )
+    _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance_date)
+    db.commit()
+
+    flash(f"Shift geotag {employee['full_name']} berhasil diperbarui ke {requested_shift_label}.", "success")
     return redirect(return_to)
 
 

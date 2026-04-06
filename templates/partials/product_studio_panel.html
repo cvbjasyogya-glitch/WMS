@@ -44,7 +44,7 @@
         <input type="text" name="product_search" value="{{ product_studio.search }}" placeholder="Cari SKU, nama, atau kategori produk">
         <button type="submit">Terapkan Filter Produk</button>
         {% if can('manage_product_master') %}
-        <button type="button" class="ghost-button" onclick="toggleForm()">Tambah Produk</button>
+        <button type="button" class="ghost-button" onclick="requestManualProductForm()">Tambah Produk</button>
         <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
         {% endif %}
     </form>
@@ -97,6 +97,7 @@
 
         <form id="manualProductForm" method="POST" action="/products/add" onsubmit="return handleManualSubmit(event)">
             <input type="hidden" name="variant_rows_json" id="variantRowsJson">
+            <input type="hidden" name="variant_mode" id="manualProductVariantMode" value="variant">
 
             <div class="form-grid">
                 <div>
@@ -112,6 +113,11 @@
                     <input type="text" name="category_name" placeholder="Sepatu, Jersey, Aksesoris" required>
                 </div>
                 <div>
+                    <label>Satuan</label>
+                    <input type="text" name="unit_label" id="manualProductUnitLabel" placeholder="pcs, pasang, box" value="pcs" list="manualProductUnitOptions" required>
+                    <small class="helper-text">Satuan ini ikut dipakai di stok gudang.</small>
+                </div>
+                <div>
                     <label>Gudang Awal</label>
                     <select name="warehouse_id" {% if is_scoped_user %}disabled{% endif %}>
                         {% for w in warehouses %}
@@ -125,12 +131,29 @@
                 </div>
             </div>
 
+            <datalist id="manualProductUnitOptions">
+                <option value="pcs"></option>
+                <option value="pasang"></option>
+                <option value="box"></option>
+                <option value="pack"></option>
+                <option value="set"></option>
+                <option value="lusin"></option>
+            </datalist>
+
+            <div class="product-mode-strip stack-gap-md">
+                <div class="product-mode-summary">
+                    <span class="status-pill" id="manualProductModeBadge">Dengan Varian</span>
+                    <small id="manualProductModeHint">Produk ini disusun per size, warna, atau kombinasi variasi lainnya.</small>
+                </div>
+                <button type="button" class="ghost-button" onclick="openManualProductModeModal()">Pilih Mode Produk</button>
+            </div>
+
             <div class="section-title stack-gap-md">
                 <div>
-                    <h3>Variasi Manual</h3>
-                    <p>Setiap baris mewakili satu size, warna, atau kombinasi variasi produk.</p>
+                    <h3 id="manualVariantSectionTitle">Variasi Manual</h3>
+                    <p id="manualVariantSectionHint">Setiap baris mewakili satu size, warna, atau kombinasi variasi produk.</p>
                 </div>
-                <button type="button" class="ghost-button" onclick="addVariantRow()">Tambah Baris</button>
+                <button type="button" class="ghost-button" id="manualVariantAddRowButton" onclick="addVariantRow()">Tambah Baris</button>
             </div>
 
             <div class="table-box variant-builder" data-scrollable-table="1">
@@ -150,7 +173,7 @@
             </div>
 
             <small class="helper-text">
-                Jika hanya ada satu produk tanpa variasi, cukup isi satu baris dan biarkan kolom size kosong.
+                Jika memilih mode non-variant, sistem akan menyimpan satu baris default tanpa size atau warna.
             </small>
 
             <div class="split-actions stack-gap-md">
@@ -158,6 +181,33 @@
                 <button type="button" class="ghost-button" onclick="toggleForm()">Tutup Form</button>
             </div>
         </form>
+    </div>
+    {% endif %}
+
+    {% if can('manage_product_master') %}
+    <div class="picker-modal" id="manualProductModeModal" hidden>
+        <div class="picker-modal-backdrop" data-manual-product-mode-close></div>
+        <div class="picker-modal-panel manual-product-mode-modal" role="dialog" aria-modal="true" aria-labelledby="manualProductModeModalTitle">
+            <div class="section-title">
+                <div>
+                    <h2 id="manualProductModeModalTitle">Pilih Mode Produk</h2>
+                    <p>Tentukan dulu apakah produk ini memakai varian terpisah atau cukup satu item non-variant.</p>
+                </div>
+            </div>
+            <div class="manual-product-mode-grid">
+                <button type="button" class="manual-product-mode-card" data-manual-product-mode-option="variant">
+                    <strong>Dengan Varian</strong>
+                    <small>Gunakan jika produk punya size, warna, atau kombinasi variasi yang perlu stok dan harga terpisah.</small>
+                </button>
+                <button type="button" class="manual-product-mode-card" data-manual-product-mode-option="non_variant">
+                    <strong>Non-Variant</strong>
+                    <small>Gunakan jika produk hanya satu item dan cukup memakai satu stok default.</small>
+                </button>
+            </div>
+            <div class="split-actions">
+                <button type="button" class="ghost-button" data-manual-product-mode-close>Tutup</button>
+            </div>
+        </div>
     </div>
     {% endif %}
 
@@ -194,12 +244,19 @@
                     data-product-sku="{{ p.sku|e }}"
                     data-product-name="{{ p.name|e }}"
                     data-product-category="{{ (p.category or '')|e }}"
+                    data-product-unit-label="{{ (p.unit_label or 'pcs')|e }}"
+                    data-product-variant-mode="{{ (p.variant_mode or 'variant')|e }}"
                 >
                     {% if can('manage_product_master') %}
                     <td><input type="checkbox" class="product-row-check" value="{{ p.id }}"></td>
                     {% endif %}
                     <td class="mono">{{ p.sku }}</td>
-                    <td>{{ p.name }}</td>
+                    <td>
+                        <div class="stock-name-stack">
+                            <div>{{ p.name }}</div>
+                            <small class="helper-text">Satuan: {{ p.unit_label or 'pcs' }}{% if (p.variant_mode or 'variant') == 'non_variant' %} - Non-variant{% endif %}</small>
+                        </div>
+                    </td>
                     <td>{{ p.category or '-' }}</td>
                     <td>
                         {% if p.qty == 0 %}

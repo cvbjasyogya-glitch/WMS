@@ -1698,6 +1698,50 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Dian Schedule", html)
         self.assertIn("Tukar shift karena briefing", html)
 
+    def test_announcement_center_limits_schedule_changes_to_five_cards(self):
+        self.login()
+        today = date_cls.today().isoformat()
+
+        with self.app.app_context():
+            db = get_db()
+            for index in range(6):
+                db.execute(
+                    """
+                    INSERT INTO schedule_change_events(
+                        warehouse_id,
+                        audience,
+                        event_kind,
+                        title,
+                        message,
+                        start_date,
+                        end_date,
+                        created_by,
+                        created_at
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        1,
+                        "all",
+                        "entry_update",
+                        f"Live {index:02d}:00 - Staff {index}",
+                        f"Perubahan jadwal ke-{index}",
+                        today,
+                        today,
+                        1,
+                        f"{today}T{18 - index:02d}:00:00",
+                    ),
+                )
+            db.commit()
+
+        response = self.client.get("/announcements/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertEqual(html.count("announcement-event-card-schedule"), 5)
+        self.assertIn("Live 00:00 - Staff 0", html)
+        self.assertIn("Live 04:00 - Staff 4", html)
+        self.assertNotIn("Live 05:00 - Staff 5", html)
+
     def test_staff_can_open_global_hris_dashboard_with_split_warehouse_preview(self):
         own_employee_id = self.create_employee_record(
             employee_code="EMP-STAFF-DB",
@@ -3130,11 +3174,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("HRIS Integration Hub", html)
         self.assertIn("Report", html)
-        self.assertIn("HR Analytics Report", html)
-        self.assertIn("Workforce Snapshot", html)
-        self.assertIn("Service Health", html)
-        self.assertIn("Daily Report Log", html)
-        self.assertIn("Live Report Log", html)
+        self.assertNotIn("HR Analytics Report", html)
+        self.assertNotIn("Workforce Snapshot", html)
+        self.assertNotIn("Service Health", html)
+        self.assertIn("Daily & Live Report Log", html)
+        self.assertIn("Log Report Harian", html)
+        self.assertIn("Log Live Report", html)
 
     def test_hris_biometric_route_renders_operational_view(self):
         self.login_hr_user()
@@ -3212,6 +3257,256 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("requestSubmit", html)
         self.assertIn("Present", html)
         self.assertIn("Late", html)
+
+    def test_hris_biometric_recap_shows_shift_and_inline_shift_editor_for_hr(self):
+        self.login_hr_user("hr_bio_shift_view", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-SHIFT-001",
+            full_name="Biometric Shift View",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m,
+                    shift_code, shift_label, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-03T08:05",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Depan Kantor",
+                    -8.58314,
+                    116.116798,
+                    6.0,
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Masuk normal",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status,
+                    shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-03",
+                    "08:05",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-03&date_to=2026-09-03")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("/hris/biometric/attendance-shift", html)
+        self.assertIn('aria-label="Ubah shift Biometric Shift View"', html)
+        self.assertIn("Shift Pagi | 08.00 - 16.00", html)
+        self.assertIn("Shift Siang | 13.00 - 21.00", html)
+
+    def test_hr_can_update_biometric_shift_and_resync_attendance_status(self):
+        self.login_hr_user("hr_bio_shift_fix", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-SHIFT-002",
+            full_name="Biometric Shift Fix",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m,
+                    shift_code, shift_label, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-03T08:45",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Depan Kantor",
+                    -8.58314,
+                    116.116798,
+                    6.0,
+                    "siang",
+                    "Shift Siang | 13.00 - 21.00",
+                    "Masuk geotag",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status,
+                    shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-03",
+                    "08:45",
+                    "present",
+                    "siang",
+                    "Shift Siang | 13.00 - 21.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        update_response = self.client.post(
+            "/hris/biometric/attendance-shift",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-03",
+                "shift_code": "pagi",
+                "return_to": "/hris/biometric?date_from=2026-09-03&date_to=2026-09-03",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT shift_code, shift_label, sync_status
+                FROM biometric_logs
+                WHERE employee_id=? AND substr(punch_time, 1, 10)=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+
+        self.assertEqual(biometric["shift_code"], "pagi")
+        self.assertEqual(biometric["shift_label"], "Shift Pagi | 08.00 - 16.00")
+        self.assertEqual(biometric["sync_status"], "manual")
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertEqual(attendance["shift_label"], "Shift Pagi | 08.00 - 16.00")
+        self.assertEqual(attendance["status"], "late")
+
+    def test_non_hr_cannot_update_biometric_shift(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-SHIFT-003",
+            full_name="Biometric Shift Denied",
+            warehouse_id=1,
+        )
+        self.create_user("staff_bio_shift_fix", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("staff_bio_shift_fix", "pass1234")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m,
+                    shift_code, shift_label, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-03T08:05",
+                    "check_in",
+                    "synced",
+                    "Gudang Mataram - Depan Kantor",
+                    -8.58314,
+                    116.116798,
+                    6.0,
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Masuk geotag",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status,
+                    shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-03",
+                    "08:05",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        denied_response = self.client.post(
+            "/hris/biometric/attendance-shift",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-03",
+                "shift_code": "siang",
+                "return_to": "/hris/biometric?date_from=2026-09-03&date_to=2026-09-03",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(denied_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=? AND substr(punch_time, 1, 10)=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+
+        self.assertEqual(biometric["shift_code"], "pagi")
+        self.assertEqual(biometric["shift_label"], "Shift Pagi | 08.00 - 16.00")
 
     def test_hris_biometric_route_handles_legacy_attendance_schema_without_status_override(self):
         self.login_hr_user("hr_bio_legacy_schema", "pass1234")
@@ -7103,6 +7398,96 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Belum ada report harian pada filter yang dipilih.", hris_html)
         self.assertIn("Live promo toko Mega", hris_html)
         self.assertIn("bukti-live.pdf", hris_html)
+
+    def test_hris_report_marks_live_report_time_against_scheduled_live_slot(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LIVE-MATCH",
+            full_name="Live Match Staff",
+            warehouse_id=1,
+            position="Marketplace Host",
+        )
+        self.create_user("live_match_staff", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+
+        with self.app.app_context():
+            db = get_db()
+            staff_user = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("live_match_staff",),
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "2026-09-06",
+                    "13:00",
+                    employee_id,
+                    "Shopee Mega + IG",
+                    "Host promo siang",
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO daily_live_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    report_type,
+                    report_date,
+                    title,
+                    summary,
+                    blocker_note,
+                    follow_up_note,
+                    status,
+                    hr_note,
+                    handled_by,
+                    handled_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    staff_user["id"],
+                    employee_id,
+                    1,
+                    "live",
+                    "2026-09-06",
+                    "Live cocok jadwal",
+                    "Live siang berjalan sesuai rundown promo.",
+                    None,
+                    None,
+                    "submitted",
+                    None,
+                    None,
+                    None,
+                    "2026-09-06 13:15:00",
+                    "2026-09-06 13:15:00",
+                ),
+            )
+            db.commit()
+
+        self.login_hr_user("hr_live_report_match", "pass1234")
+        response = self.client.get("/hris/report?daily_type=live&daily_date_from=2026-09-06&daily_date_to=2026-09-06")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Live cocok jadwal", html)
+        self.assertIn("Jam Live Terkirim", html)
+        self.assertIn("Kecocokan Jadwal Live", html)
+        self.assertIn("Sesuai Jadwal", html)
+        self.assertIn("13:15", html)
+        self.assertIn("13:00 (Shopee Mega + IG)", html)
 
     def test_only_hr_or_super_admin_can_update_daily_report_status(self):
         self.create_user("staff_report_owner", "pass1234", "staff", warehouse_id=1)

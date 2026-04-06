@@ -100,6 +100,8 @@ def _ensure_column(cursor, table_name, column_name, definition):
 
 def migrate_schema(cursor):
     # Keep existing databases compatible with the newer routes/services.
+    _ensure_column(cursor, "products", "unit_label", "TEXT DEFAULT 'pcs'")
+    _ensure_column(cursor, "products", "variant_mode", "TEXT DEFAULT 'variant'")
     _ensure_column(cursor, "product_variants", "price_retail", "REAL DEFAULT 0")
     _ensure_column(cursor, "product_variants", "price_discount", "REAL DEFAULT 0")
     _ensure_column(cursor, "product_variants", "price_nett", "REAL DEFAULT 0")
@@ -370,6 +372,8 @@ def init_db(db_path=None, sqlite_options=None):
         sku TEXT UNIQUE,
         name TEXT,
         category_id INTEGER,
+        unit_label TEXT DEFAULT 'pcs',
+        variant_mode TEXT DEFAULT 'variant',
         FOREIGN KEY(category_id) REFERENCES categories(id)
     )
     """)

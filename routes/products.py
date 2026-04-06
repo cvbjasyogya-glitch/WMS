@@ -97,6 +97,16 @@ def _to_bool(value):
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_unit_label(value):
+    cleaned = " ".join(str(value or "").strip().split())
+    return cleaned or "pcs"
+
+
+def _normalize_variant_mode(value):
+    mode = str(value or "").strip().lower()
+    return "non_variant" if mode == "non_variant" else "variant"
+
+
 def _normalize_variant_name(value):
     value = (value or "").strip()
     if value.lower() in {"", "-", "default", "n/a", "na", "none"}:
@@ -156,8 +166,19 @@ def _merge_variant_rows(rows):
     return [merged[key] for key in order]
 
 
-def _build_variant_rows(form):
+def _infer_variant_mode(variant_rows, requested_mode=None):
+    safe_mode = _normalize_variant_mode(requested_mode)
+    if requested_mode:
+        return safe_mode
+
+    if len(variant_rows) == 1 and variant_rows[0]["variant"] == "default":
+        return "non_variant"
+    return "variant"
+
+
+def _build_variant_rows(form, variant_mode="variant"):
     raw_payload = (form.get("variant_rows_json") or "").strip()
+    safe_variant_mode = _normalize_variant_mode(variant_mode)
 
     if raw_payload:
         try:
@@ -208,7 +229,18 @@ def _build_variant_rows(form):
                 "no_gtin": no_gtin,
             })
 
-        return _merge_variant_rows(rows)
+        merged_rows = _merge_variant_rows(rows)
+        if safe_variant_mode == "non_variant":
+            if len(merged_rows) > 1:
+                raise ValueError("Produk non-variant hanya boleh memiliki satu baris stok.")
+            if not merged_rows:
+                return []
+            return [{
+                **merged_rows[0],
+                "variant": "default",
+                "color": "",
+            }]
+        return merged_rows
 
     variants = form.get("variants", "")
     qty = _to_int(form.get("qty"), 0)
@@ -216,6 +248,8 @@ def _build_variant_rows(form):
     price_discount = _to_float(form.get("price_discount"))
     price_nett = _to_float(form.get("price_nett"))
     variant_list = [v.strip() for v in variants.split(",") if v.strip()] or ["default"]
+    if safe_variant_mode == "non_variant":
+        variant_list = ["default"]
 
     return _merge_variant_rows([
         {
@@ -296,6 +330,8 @@ def build_product_studio_context(
             p.id,
             p.sku,
             p.name,
+            COALESCE(NULLIF(TRIM(p.unit_label), ''), 'pcs') AS unit_label,
+            COALESCE(NULLIF(TRIM(p.variant_mode), ''), 'variant') AS variant_mode,
             COALESCE(c.name, '-') as category,
             COALESCE((
                 SELECT SUM(qty)
@@ -869,8 +905,11 @@ def add_product():
         sku = request.form["sku"].strip()
         name = request.form["name"].strip()
         category_name = request.form["category_name"].strip()
+        unit_label = _normalize_unit_label(request.form.get("unit_label"))
+        requested_variant_mode = _normalize_variant_mode(request.form.get("variant_mode"))
         warehouse_id = int(request.form["warehouse_id"])
-        variant_rows = _build_variant_rows(request.form)
+        variant_rows = _build_variant_rows(request.form, requested_variant_mode)
+        variant_mode = _infer_variant_mode(variant_rows, requested_variant_mode)
 
     except Exception:
         return _products_error_response("Input tidak valid", 400)
@@ -901,7 +940,10 @@ def add_product():
             cur = db.execute("INSERT INTO categories(name) VALUES (?)", (category_name,))
             category_id = cur.lastrowid
 
-        cur = db.execute("INSERT INTO products (sku,name,category_id) VALUES (?,?,?)", (sku, name, category_id))
+        cur = db.execute(
+            "INSERT INTO products (sku,name,category_id,unit_label,variant_mode) VALUES (?,?,?,?,?)",
+            (sku, name, category_id, unit_label, variant_mode),
+        )
         product_id = cur.lastrowid
 
         for row in variant_rows:
@@ -931,6 +973,8 @@ def add_product():
             "Produk berhasil ditambahkan",
             product_id=product_id,
             sku=sku,
+            unit_label=unit_label,
+            variant_mode=variant_mode,
         )
 
     except Exception as e:

@@ -3064,111 +3064,6 @@
 {% endif %}
 <small class="helper-text">Feed aktif hanya menampilkan report yang masih perlu dibaca atau ditindaklanjuti. Report yang sudah selesai tetap tersimpan dan bisa dibuka lagi lewat filter arsip atau rentang tanggal.</small>
 
-<details class="table-box panel-disclosure report-metric-disclosure">
-    <summary class="panel-summary">
-        <div class="section-title">
-            <div>
-                <h2>HR Analytics Report</h2>
-                <p>Ringkasan lintas modul HRIS untuk membaca kesehatan people operation, beban support, dan delivery execution secara cepat.</p>
-            </div>
-        </div>
-        <div class="panel-summary-meta">
-            <span class="badge">{{ report_workforce_rows|length }} metric</span>
-            <span class="panel-summary-state">Buka Detail</span>
-        </div>
-    </summary>
-    <div class="panel-content">
-        <table>
-            <thead>
-                <tr>
-                    <th>Metric</th>
-                    <th>Value</th>
-                    <th>Detail</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in report_workforce_rows %}
-                <tr>
-                    <td>{{ row.label }}</td>
-                    <td class="mono">{{ row.value }}</td>
-                    <td>{{ row.detail }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</details>
-
-<details class="table-box panel-disclosure report-metric-disclosure">
-    <summary class="panel-summary">
-        <div class="section-title">
-            <div>
-                <h2>Workforce Snapshot</h2>
-                <p>Pipeline people lifecycle yang sedang bergerak dan butuh perhatian operasional.</p>
-            </div>
-        </div>
-        <div class="panel-summary-meta">
-            <span class="badge">{{ report_pipeline_rows|length }} module</span>
-            <span class="panel-summary-state">Buka Detail</span>
-        </div>
-    </summary>
-    <div class="panel-content">
-        <table>
-            <thead>
-                <tr>
-                    <th>Module</th>
-                    <th>Value</th>
-                    <th>Detail</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in report_pipeline_rows %}
-                <tr>
-                    <td>{{ row.module }}</td>
-                    <td class="mono">{{ row.value }}</td>
-                    <td>{{ row.detail }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</details>
-
-<details class="table-box panel-disclosure report-metric-disclosure">
-    <summary class="panel-summary">
-        <div class="section-title">
-            <div>
-                <h2>Service Health</h2>
-                <p>Indikator support, approval HR, payroll, geotag review, dan kualitas performa terkini.</p>
-            </div>
-        </div>
-        <div class="panel-summary-meta">
-            <span class="badge">{{ report_service_rows|length }} module</span>
-            <span class="panel-summary-state">Buka Detail</span>
-        </div>
-    </summary>
-    <div class="panel-content">
-        <table>
-            <thead>
-                <tr>
-                    <th>Module</th>
-                    <th>Value</th>
-                    <th>Detail</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in report_service_rows %}
-                <tr>
-                    <td>{{ row.module }}</td>
-                    <td class="mono">{{ row.value }}</td>
-                    <td>{{ row.detail }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</details>
-
 <div class="summary">
     <div class="card-mini">
         <p>Total Report</p>
@@ -3237,6 +3132,23 @@
                     </div>
                 </div>
                 <div class="form-grid">
+                    {% if report.report_type == 'live' %}
+                    <div>
+                        <label>Jam Live Terkirim</label>
+                        <div class="empty-state report-review-text">{{ report.live_submitted_time_label }}</div>
+                    </div>
+                    <div>
+                        <label>Kecocokan Jadwal Live</label>
+                        <div class="empty-state report-review-text">
+                            <span class="badge {% if report.live_schedule_match_badge %}{{ report.live_schedule_match_badge }}{% endif %}">{{ report.live_schedule_match_label }}</span>
+                            <div><small class="helper-text">{{ report.live_schedule_match_detail }}</small></div>
+                        </div>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Jadwal Live Staff</label>
+                        <div class="empty-state report-review-text">{{ report.live_schedule_slots_label }}</div>
+                    </div>
+                    {% endif %}
                     <div style="grid-column: 1 / -1;">
                         <label>Ringkasan Kerja</label>
                         <div class="empty-state report-review-text">{{ report.summary }}</div>
@@ -3322,7 +3234,7 @@
     ) }}
 </div>
 {% elif selected_module.slug == "biometric" %}
-<div class="table-box">
+<div class="table-box biometric-recap-table-box" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Rekap Absensi Geotag</h2>
@@ -3560,13 +3472,14 @@
     </div>
 
     {% if biometric_recap_rows %}
-    <table>
+    <table class="biometric-recap-table">
         <thead>
             <tr>
                 <th>Tanggal</th>
                 <th>Code</th>
                 <th>Nama</th>
                 <th>Gudang</th>
+                <th>Shift</th>
                 <th>Status Absen</th>
                 <th>Status Istirahat</th>
                 <th>Durasi Istirahat</th>
@@ -3584,11 +3497,35 @@
         <tbody>
             {% for row in biometric_recap_rows %}
             <tr>
-                <td>{{ row.attendance_date }}</td>
-                <td class="mono">{{ row.employee_code }}</td>
-                <td>{{ row.full_name }}</td>
-                <td>{{ row.warehouse_name or '-' }}</td>
-                <td>
+                <td class="biometric-recap-date-cell">{{ row.attendance_date }}</td>
+                <td class="mono biometric-recap-code-cell">{{ row.employee_code }}</td>
+                <td class="biometric-recap-name-cell">{{ row.full_name }}</td>
+                <td class="biometric-recap-warehouse-cell">{{ row.warehouse_name or '-' }}</td>
+                <td class="biometric-recap-shift-cell">
+                    {% if row.can_edit_shift %}
+                    <form method="POST" action="/hris/biometric/attendance-shift" class="biometric-attendance-status-form">
+                        <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                        <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
+                        <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                        <select
+                            name="shift_code"
+                            class="biometric-attendance-status-select"
+                            aria-label="Ubah shift {{ row.full_name }}"
+                            onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }"
+                        >
+                            {% if not row.shift_code %}
+                            <option value="" selected disabled>Pilih shift</option>
+                            {% endif %}
+                            {% for option in row.shift_options %}
+                            <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                    {% else %}
+                    {{ row.shift_display_label }}
+                    {% endif %}
+                </td>
+                <td class="biometric-recap-status-cell">
                     {% if can_adjust_biometric_status %}
                     <form method="POST" action="/hris/biometric/attendance-status" class="biometric-attendance-status-form">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
@@ -3614,8 +3551,8 @@
                     <div><small class="helper-text">{{ row.attendance_status_label }}</small></div>
                     {% endif %}
                 </td>
-                <td><span class="badge{% if row.break_status_badge %} {{ row.break_status_badge }}{% endif %}">{{ row.break_status_label }}</span></td>
-                <td>
+                <td class="biometric-recap-break-cell"><span class="badge{% if row.break_status_badge %} {{ row.break_status_badge }}{% endif %}">{{ row.break_status_label }}</span></td>
+                <td class="biometric-recap-break-duration-cell">
                     <div class="biometric-break-duration-stack">
                         <strong
                             class="biometric-break-duration{% if row.break_timer_active %} is-live{% endif %}{% if row.break_timer_over_limit %} is-alert{% endif %}"
@@ -3636,7 +3573,7 @@
                         {% endif %}
                     </div>
                 </td>
-                <td>
+                <td class="biometric-recap-overtime-cell">
                     {% if row.overtime_qualifies %}
                     <div class="biometric-overtime-stack">
                         <strong class="biometric-overtime-duration">{{ row.overtime_duration_label }}</strong>
@@ -3646,7 +3583,7 @@
                     -
                     {% endif %}
                 </td>
-                <td>
+                <td class="biometric-recap-attendance-cell">
                     {% if can_adjust_biometric_status and row.can_edit_attendance_time %}
                     <form method="POST" action="/hris/biometric/attendance-time" class="biometric-attendance-status-form">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
@@ -3677,19 +3614,19 @@
                     {{ row.attendance_check_in }} - {{ row.attendance_check_out }}
                     {% endif %}
                 </td>
-                <td>{{ row.geo_check_in }}</td>
-                <td>{{ row.geo_check_out }}</td>
-                <td>{{ row.location_text }}</td>
-                <td class="mono">{{ row.latest_coordinate }}{% if row.latest_accuracy != '-' %} | {{ row.latest_accuracy }}{% endif %}</td>
-                <td>
+                <td class="biometric-recap-geo-cell">{{ row.geo_check_in }}</td>
+                <td class="biometric-recap-geo-cell">{{ row.geo_check_out }}</td>
+                <td class="biometric-recap-location-cell">{{ row.location_text }}</td>
+                <td class="mono biometric-recap-coordinate-cell">{{ row.latest_coordinate }}{% if row.latest_accuracy != '-' %} | {{ row.latest_accuracy }}{% endif %}</td>
+                <td class="biometric-recap-photo-cell">
                     {% if row.latest_photo_url %}
                     <a href="{{ row.latest_photo_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-inline-link">Lihat Foto</a>
                     {% else %}
                     -
                     {% endif %}
                 </td>
-                <td>{{ row.log_count }}</td>
-                <td><span class="badge {{ row.recap_status_badge }}">{{ row.recap_status_label }}</span></td>
+                <td class="biometric-recap-log-cell">{{ row.log_count }}</td>
+                <td class="biometric-recap-final-status-cell"><span class="badge {{ row.recap_status_badge }}">{{ row.recap_status_label }}</span></td>
             </tr>
             {% endfor %}
         </tbody>

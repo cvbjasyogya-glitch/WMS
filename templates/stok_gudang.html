@@ -18,7 +18,7 @@
 
 {% block content %}
 <div class="wms-page-stack">
-<div class="summary stock-summary-grid">
+<div class="summary stock-summary-grid" id="stockSummaryGrid">
     <div class="card-mini">
         <p>Total Varian</p>
         <h3 data-stock-summary="total_variants">{{ summary.total_variants }}</h3>
@@ -43,7 +43,7 @@
     </div>
 </div>
 
-<div class="meta-grid stock-meta-grid">
+<div class="meta-grid stock-meta-grid" id="stockMetaGrid">
     <div class="meta-card">
         <span>Gudang Aktif</span>
         <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
@@ -155,7 +155,7 @@
     </aside>
 </div>
 
-<div class="table-box stock-detail-box" data-scrollable-table="1">
+<div class="table-box stock-detail-box" id="stockDetailBox" data-scrollable-table="1">
     <div class="section-title">
         <div>
             <h2>Inventori Detail</h2>
@@ -252,6 +252,8 @@
                 data-product-sku="{{ group.sku|e }}"
                 data-product-name="{{ group.name|e }}"
                 data-product-category="{{ group.category_name|e }}"
+                data-product-unit-label="{{ group.unit_label|e }}"
+                data-product-variant-mode="{{ group.variant_mode|e }}"
                 data-stock-editable-row="{% if can('manage_product_master') %}1{% else %}0{% endif %}"
             >
                 {% if can_bulk_adjust_ui %}
@@ -271,11 +273,14 @@
                 </td>
                 <td class="stock-group-name-cell">
                     {% if group.editable_master %}
-                    <input class="edit-field" data-field="name" data-product="{{ group.product_id }}" value="{{ group.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    <div class="stock-name-stack">
+                        <input class="edit-field" data-field="name" data-product="{{ group.product_id }}" value="{{ group.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                        <small class="helper-text">Satuan: {{ group.unit_summary }}{% if group.variant_mode == 'non_variant' %} - Non-variant{% endif %}</small>
+                    </div>
                     {% else %}
                     <div class="stock-group-summary-meta">
                         <strong>{{ group.name }}</strong>
-                        <small>{{ group.product_count }} record produk digabung</small>
+                        <small>{{ group.product_count }} record produk digabung - Satuan: {{ group.unit_summary }}</small>
                     </div>
                     {% endif %}
                 </td>
@@ -329,6 +334,8 @@
                                         data-product-sku="{{ s.sku|e }}"
                                         data-product-name="{{ s.name|e }}"
                                         data-product-category="{{ (s.category_name or '')|e }}"
+                                        data-product-unit-label="{{ (s.unit_label or 'pcs')|e }}"
+                                        data-product-variant-mode="{{ (s.variant_mode or 'variant')|e }}"
                                         data-product-variant="{{ s.variant|e }}"
                                         data-price-retail="{{ s.price_retail }}"
                                         data-price-discount="{{ s.price_discount }}"
@@ -348,7 +355,9 @@
                                             {% endif %}
                                         </td>
                                         <td class="stock-col stock-col-variant">
-                                            {% if can('manage_product_master') %}
+                                            {% if (s.variant_mode or 'variant') == 'non_variant' %}
+                                            <div class="stock-readonly-field">Non-variant</div>
+                                            {% elif can('manage_product_master') %}
                                             <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             {% else %}
                                             <div class="stock-readonly-field">{{ s.variant }}</div>
@@ -356,11 +365,11 @@
                                         </td>
                                         <td class="stock-col stock-col-qty qty-text">
                                             {% if s.qty == 0 %}
-                                            <span class="badge red" data-stock-qty-badge>{{ s.qty }}</span>
+                                            <span class="badge red" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                                             {% elif s.qty < 5 %}
-                                            <span class="badge orange" data-stock-qty-badge>{{ s.qty }}</span>
+                                            <span class="badge orange" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                                             {% else %}
-                                            <span class="badge green" data-stock-qty-badge>{{ s.qty }}</span>
+                                            <span class="badge green" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                                             {% endif %}
                                         </td>
                                         <td class="stock-col stock-col-status">
@@ -433,6 +442,8 @@
                 data-product-sku="{{ s.sku|e }}"
                 data-product-name="{{ s.name|e }}"
                 data-product-category="{{ (s.category_name or '')|e }}"
+                data-product-unit-label="{{ (s.unit_label or 'pcs')|e }}"
+                data-product-variant-mode="{{ (s.variant_mode or 'variant')|e }}"
                 data-product-variant="{{ s.variant|e }}"
                 data-price-retail="{{ s.price_retail }}"
                 data-price-discount="{{ s.price_discount }}"
@@ -453,13 +464,21 @@
                 </td>
                 <td>
                     {% if can('manage_product_master') %}
-                    <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                    <div class="stock-name-stack">
+                        <input class="edit-field" data-field="name" data-product="{{ s.product_id }}" value="{{ s.name }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                        <small class="helper-text">Satuan: {{ s.unit_label or 'pcs' }}{% if (s.variant_mode or 'variant') == 'non_variant' %} - Non-variant{% endif %}</small>
+                    </div>
                     {% else %}
-                    <div class="stock-readonly-field">{{ s.name }}</div>
+                    <div class="stock-name-stack">
+                        <div class="stock-readonly-field">{{ s.name }}</div>
+                        <small class="helper-text">Satuan: {{ s.unit_label or 'pcs' }}{% if (s.variant_mode or 'variant') == 'non_variant' %} - Non-variant{% endif %}</small>
+                    </div>
                     {% endif %}
                 </td>
                 <td>
-                    {% if can('manage_product_master') %}
+                    {% if (s.variant_mode or 'variant') == 'non_variant' %}
+                    <div class="stock-readonly-field">Non-variant</div>
+                    {% elif can('manage_product_master') %}
                     <input class="edit-field" data-field="variant" data-variant="{{ s.variant_id }}" value="{{ s.variant }}" {% if not can('manage_product_master') %}disabled{% endif %}>
                     {% else %}
                     <div class="stock-readonly-field">{{ s.variant }}</div>
@@ -467,11 +486,11 @@
                 </td>
                 <td class="qty-text">
                     {% if s.qty == 0 %}
-                    <span class="badge red" data-stock-qty-badge>{{ s.qty }}</span>
+                    <span class="badge red" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                     {% elif s.qty < 5 %}
-                    <span class="badge orange" data-stock-qty-badge>{{ s.qty }}</span>
+                    <span class="badge orange" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                     {% else %}
-                    <span class="badge green" data-stock-qty-badge>{{ s.qty }}</span>
+                    <span class="badge green" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                     {% endif %}
                 </td>
                 <td>
@@ -569,6 +588,10 @@
                 <div>
                     <label>Kategori</label>
                     <input type="text" name="category_name" id="stockEditCategory" required>
+                </div>
+                <div>
+                    <label>Satuan</label>
+                    <input type="text" name="unit_label" id="stockEditUnitLabel" required>
                 </div>
                 <div id="stockEditVariantWrap">
                     <label>Variant</label>
@@ -684,7 +707,14 @@ function getGroupVariantRows(groupSummaryRow) {
 
 function buildGroupVariantPreview(rows) {
     const variants = rows
-        .map((row) => row.querySelector('[data-field="variant"]')?.value.trim() || "-")
+        .map((row) => {
+            if ((row.dataset.productVariantMode || "variant") === "non_variant") {
+                return "Non-variant";
+            }
+            const variantField = row.querySelector('[data-field="variant"]');
+            const fallbackVariant = row.dataset.productVariant || "";
+            return (variantField?.value || fallbackVariant || "-").trim() || "-";
+        })
         .filter(Boolean);
 
     if (!variants.length) {
@@ -910,13 +940,14 @@ function updateRowVisual(row, nextQty) {
     const qtyBadge = row.querySelector("[data-stock-qty-badge]");
     const statusBadge = row.querySelector("[data-stock-status-badge]");
     const level = getStockLevel(nextQty);
+    const unitLabel = (row.dataset.productUnitLabel || "pcs").trim() || "pcs";
 
     row.dataset.qty = String(nextQty);
     row.classList.remove("zero", "warning");
     qtyBadge.classList.remove("red", "orange", "green");
     statusBadge.classList.remove("red", "orange", "green");
 
-    qtyBadge.textContent = String(nextQty);
+    qtyBadge.textContent = `${nextQty} ${unitLabel}`;
 
     if (level === "zero") {
         row.classList.add("zero");
@@ -980,15 +1011,23 @@ function applyAdjustedQtyToRow(row, nextQty) {
     ensureStockEmptyState();
 }
 
-document.getElementById("checkAll")?.addEventListener("change", function() {
-    document.querySelectorAll(".row-check").forEach((cb) => {
-        cb.checked = this.checked;
+function bindStockCheckAllControl() {
+    const masterCheckbox = document.getElementById("checkAll");
+    if (!masterCheckbox || masterCheckbox.dataset.bound === "1") {
+        return;
+    }
+
+    masterCheckbox.dataset.bound = "1";
+    masterCheckbox.addEventListener("change", function() {
+        document.querySelectorAll(".row-check").forEach((checkbox) => {
+            checkbox.checked = this.checked;
+        });
+        document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+            updateGroupSelectionState(groupSummaryRow);
+        });
+        updateMasterCheckboxState();
     });
-    document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
-        updateGroupSelectionState(groupSummaryRow);
-    });
-    updateMasterCheckboxState();
-});
+}
 
 document.addEventListener("change", function(event) {
     if (event.target.matches(".row-check")) {
@@ -1010,42 +1049,50 @@ document.addEventListener("change", function(event) {
     }
 });
 
-document.querySelectorAll(".edit-field").forEach((input) => {
-    input.addEventListener("change", function() {
-        const field = this.dataset.field;
-        const value = this.value.trim();
-        const groupSummaryRow = getGroupSummaryRow(this);
-
-        if (!value) {
-            alert("Field tidak boleh kosong.");
+function bindStockInlineEditors(scope = document) {
+    scope.querySelectorAll(".edit-field").forEach((input) => {
+        if (input.dataset.bound === "1") {
             return;
         }
 
-        const formData = new FormData();
-        formData.append("product_id", this.dataset.product || "");
-        formData.append("variant_id", this.dataset.variant || "");
-        formData.append("field", field);
-        formData.append("value", value);
+        input.dataset.bound = "1";
+        input.addEventListener("change", function() {
+            const field = this.dataset.field;
+            const value = this.value.trim();
+            const groupSummaryRow = getGroupSummaryRow(this);
 
-        fetch("/stock/update-field", {
-            method: "POST",
-            headers: { "X-Requested-With": "XMLHttpRequest" },
-            body: formData
-        })
-        .then((res) => res.json())
-        .then((data) => {
-            if (data.status !== "success") {
-                alert(data.message || "Update gagal disimpan.");
+            if (!value) {
+                alert("Field tidak boleh kosong.");
                 return;
             }
 
-            if (field === "variant") {
-                renderGroupSummary(groupSummaryRow);
-            }
-        })
-        .catch(() => alert("Terjadi error saat update data."));
+            const formData = new FormData();
+            formData.append("product_id", this.dataset.product || "");
+            formData.append("variant_id", this.dataset.variant || "");
+            formData.append("field", field);
+            formData.append("value", value);
+
+            fetch("/stock/update-field", {
+                method: "POST",
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+                body: formData
+            })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data.status !== "success") {
+                    alert(data.message || "Update gagal disimpan.");
+                    return;
+                }
+
+                if (field === "variant") {
+                    this.closest("[data-stock-row]")?.setAttribute("data-product-variant", value);
+                    renderGroupSummary(groupSummaryRow);
+                }
+            })
+            .catch(() => alert("Terjadi error saat update data."));
+        });
     });
-});
+}
 
 function adjustStock(button) {
     const row = button.closest("tr");
@@ -1143,6 +1190,8 @@ function bulkAdjust() {
 document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
     renderGroupSummary(groupSummaryRow);
 });
+bindStockCheckAllControl();
+bindStockInlineEditors();
 updateMasterCheckboxState();
 
 const DEFAULT_VARIANT_ROWS = [
@@ -1151,6 +1200,21 @@ const DEFAULT_VARIANT_ROWS = [
     { variant: "41", qty: "0" },
     { variant: "42", qty: "0" }
 ];
+const NON_VARIANT_DEFAULT_ROW = { qty: "1" };
+const MANUAL_PRODUCT_MODE_COPY = {
+    variant: {
+        badge: "Dengan Varian",
+        hint: "Produk ini disusun per size, warna, atau kombinasi variasi lainnya.",
+        title: "Variasi Manual",
+        sectionHint: "Setiap baris mewakili satu size, warna, atau kombinasi variasi produk."
+    },
+    non_variant: {
+        badge: "Non-Variant",
+        hint: "Produk ini cukup memakai satu stok default tanpa size atau warna terpisah.",
+        title: "Item Default",
+        sectionHint: "Sistem akan menyimpan satu item default dan stok awalnya langsung mengikuti satuan yang dipilih."
+    }
+};
 
 function notifyProductStudioMessage(message) {
     if (!message) {
@@ -1193,6 +1257,18 @@ function bindProductCheckAllControl() {
     });
 }
 
+function parseStockPageConfigFromDocument(doc) {
+    const script = doc?.getElementById("stockPageConfigData");
+    if (!script) {
+        return null;
+    }
+    try {
+        return JSON.parse(script.textContent || "{}");
+    } catch (error) {
+        return null;
+    }
+}
+
 async function refreshProductsView() {
     const response = await fetch(window.location.pathname + window.location.search, {
         headers: {
@@ -1207,14 +1283,33 @@ async function refreshProductsView() {
     const html = await response.text();
     const parser = new DOMParser();
     const nextDocument = parser.parseFromString(html, "text/html");
+    const nextConfig = parseStockPageConfigFromDocument(nextDocument);
+    const nextStockSummary = nextDocument.getElementById("stockSummaryGrid");
+    const nextStockMeta = nextDocument.getElementById("stockMetaGrid");
+    const nextStockDetail = nextDocument.getElementById("stockDetailBox");
     const nextMeta = nextDocument.getElementById("productsMetaGrid");
     const nextList = nextDocument.getElementById("productsListBox");
     const nextTotal = nextDocument.querySelector("[data-product-summary-total]");
     const nextPage = nextDocument.querySelector("[data-product-summary-page]");
+    const currentStockSummary = document.getElementById("stockSummaryGrid");
+    const currentStockMeta = document.getElementById("stockMetaGrid");
+    const currentStockDetail = document.getElementById("stockDetailBox");
     const currentMeta = document.getElementById("productsMetaGrid");
     const currentList = document.getElementById("productsListBox");
     const currentTotal = document.querySelector("[data-product-summary-total]");
     const currentPage = document.querySelector("[data-product-summary-page]");
+
+    if (nextStockSummary && currentStockSummary) {
+        currentStockSummary.outerHTML = nextStockSummary.outerHTML;
+    }
+
+    if (nextStockMeta && currentStockMeta) {
+        currentStockMeta.outerHTML = nextStockMeta.outerHTML;
+    }
+
+    if (nextStockDetail && currentStockDetail) {
+        currentStockDetail.outerHTML = nextStockDetail.outerHTML;
+    }
 
     if (nextMeta && currentMeta) {
         currentMeta.outerHTML = nextMeta.outerHTML;
@@ -1232,61 +1327,301 @@ async function refreshProductsView() {
         currentPage.textContent = nextPage.textContent;
     }
 
+    if (nextConfig) {
+        stockPageState.filter = nextConfig.filter || stockPageState.filter;
+        stockPageState.summary = {
+            totalVariants: Number(nextConfig.summary?.totalVariants || 0),
+            totalQty: Number(nextConfig.summary?.totalQty || 0),
+            inventoryValue: Number(nextConfig.summary?.inventoryValue || 0),
+            zeroCount: Number(nextConfig.summary?.zeroCount || 0),
+            lowCount: Number(nextConfig.summary?.lowCount || 0),
+            readyCount: Number(nextConfig.summary?.readyCount || 0)
+        };
+    }
+
+    document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+        renderGroupSummary(groupSummaryRow);
+    });
+    bindStockCheckAllControl();
+    bindStockInlineEditors();
+    updateMasterCheckboxState();
+    ensureStockEmptyState();
     bindProductCheckAllControl();
+}
+
+function escapeManualProductHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function getManualProductMode() {
+    const input = document.getElementById("manualProductVariantMode");
+    return input?.value === "non_variant" ? "non_variant" : "variant";
+}
+
+function getManualProductUnitLabel() {
+    const unitInput = document.getElementById("manualProductUnitLabel");
+    return (unitInput?.value || "").trim() || "pcs";
+}
+
+function isManualProductFormVisible() {
+    const formBox = document.getElementById("formBox");
+    return Boolean(formBox) && formBox.style.display !== "none";
+}
+
+function getDefaultVariantRows(mode = "variant") {
+    if (mode === "non_variant") {
+        return [{ ...NON_VARIANT_DEFAULT_ROW }];
+    }
+    return DEFAULT_VARIANT_ROWS.map((row) => ({ ...row }));
+}
+
+function normalizeVariantDraft(row = {}) {
+    return {
+        variant: row.variant === "default" ? "" : (row.variant || ""),
+        color: row.color || "",
+        price_retail: row.price_retail || "",
+        price_discount: row.price_discount || "",
+        price_nett: row.price_nett || "",
+        qty: row.qty ?? "",
+        variant_code: row.variant_code || "",
+        gtin: row.gtin || ""
+    };
+}
+
+function normalizeNonVariantDraft(row = {}) {
+    return {
+        variant: "default",
+        color: "",
+        price_retail: row.price_retail || "",
+        price_discount: row.price_discount || "",
+        price_nett: row.price_nett || "",
+        qty: row.qty ?? "1",
+        variant_code: row.variant_code || "",
+        gtin: row.gtin || ""
+    };
+}
+
+function rebuildVariantRows(rows) {
+    const variantRowsBody = document.getElementById("variantRowsBody");
+    if (!variantRowsBody) {
+        return;
+    }
+
+    variantRowsBody.innerHTML = "";
+    rows.forEach((row) => addVariantRow(row));
+}
+
+function setManualProductFormVisibility(isVisible) {
+    const formBox = document.getElementById("formBox");
+    if (!formBox) {
+        return;
+    }
+
+    formBox.style.display = isVisible ? "block" : "none";
+    if (isVisible) {
+        formBox.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+}
+
+function toggleForm(forceState) {
+    const nextState = typeof forceState === "boolean"
+        ? forceState
+        : !isManualProductFormVisible();
+    setManualProductFormVisibility(nextState);
+    if (!nextState) {
+        closeManualProductModeModal();
+    }
+}
+
+function syncManualProductUnitLabels() {
+    const unitLabel = getManualProductUnitLabel();
+    const qtyLabel = unitLabel === "pcs" ? "Qty Awal" : `Qty Awal (${unitLabel})`;
+    const qtyHint = unitLabel === "pcs"
+        ? "Boleh 0 jika stok fisik belum masuk."
+        : `Boleh 0 jika stok fisik belum masuk. Disimpan dalam satuan ${unitLabel}.`;
+
+    document.querySelectorAll('[data-role="variant-stock-label"]').forEach((node) => {
+        node.textContent = qtyLabel;
+    });
+    document.querySelectorAll('[data-role="variant-stock-hint"]').forEach((node) => {
+        node.textContent = qtyHint;
+    });
+}
+
+function syncManualProductModeUi() {
+    const mode = getManualProductMode();
+    const copy = MANUAL_PRODUCT_MODE_COPY[mode];
+    const modeBadge = document.getElementById("manualProductModeBadge");
+    const modeHint = document.getElementById("manualProductModeHint");
+    const sectionTitle = document.getElementById("manualVariantSectionTitle");
+    const sectionHint = document.getElementById("manualVariantSectionHint");
+    const addRowButton = document.getElementById("manualVariantAddRowButton");
+
+    if (modeBadge) {
+        modeBadge.textContent = copy.badge;
+    }
+    if (modeHint) {
+        modeHint.textContent = copy.hint;
+    }
+    if (sectionTitle) {
+        sectionTitle.textContent = copy.title;
+    }
+    if (sectionHint) {
+        sectionHint.textContent = copy.sectionHint;
+    }
+    if (addRowButton) {
+        addRowButton.hidden = mode === "non_variant";
+    }
+
+    document.querySelectorAll("[data-manual-product-mode-option]").forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.manualProductModeOption === mode);
+    });
+    document.querySelectorAll(".variant-remove-button").forEach((button) => {
+        button.hidden = mode === "non_variant";
+    });
+
+    syncManualProductUnitLabels();
+}
+
+function setManualProductMode(mode, options = {}) {
+    const safeMode = mode === "non_variant" ? "non_variant" : "variant";
+    const hiddenInput = document.getElementById("manualProductVariantMode");
+    const currentRows = options.preserveExisting === false ? [] : getVariantPayload();
+
+    if (!hiddenInput) {
+        return false;
+    }
+
+    if (
+        safeMode === "non_variant"
+        && currentRows.length > 1
+        && !options.skipConfirm
+        && !window.confirm("Mode non-variant hanya menyimpan satu baris. Lanjutkan dan pakai baris pertama saja?")
+    ) {
+        return false;
+    }
+
+    hiddenInput.value = safeMode;
+    let nextRows = Array.isArray(options.rows) && options.rows.length
+        ? options.rows
+        : [];
+
+    if (!nextRows.length) {
+        if (safeMode === "non_variant") {
+            nextRows = [normalizeNonVariantDraft(currentRows[0] || NON_VARIANT_DEFAULT_ROW)];
+        } else if (currentRows.length) {
+            nextRows = currentRows.map((row) => normalizeVariantDraft(row));
+        } else {
+            nextRows = getDefaultVariantRows("variant");
+        }
+    }
+
+    if (safeMode === "non_variant") {
+        nextRows = [normalizeNonVariantDraft(nextRows[0] || NON_VARIANT_DEFAULT_ROW)];
+    }
+
+    rebuildVariantRows(nextRows);
+    syncManualProductModeUi();
+
+    if (options.openForm) {
+        setManualProductFormVisibility(true);
+    }
+
+    return true;
+}
+
+function openManualProductModeModal() {
+    const modal = document.getElementById("manualProductModeModal");
+    if (!modal) {
+        toggleForm(true);
+        return;
+    }
+
+    modal.hidden = false;
+    document.body.classList.add("stock-edit-modal-open");
+}
+
+function closeManualProductModeModal() {
+    const modal = document.getElementById("manualProductModeModal");
+    if (!modal) {
+        return;
+    }
+
+    modal.hidden = true;
+    if (!document.getElementById("stockEditModal") || document.getElementById("stockEditModal").hidden) {
+        document.body.classList.remove("stock-edit-modal-open");
+    }
+}
+
+function requestManualProductForm() {
+    openManualProductModeModal();
 }
 
 function resetManualProductForm() {
     const manualProductForm = document.getElementById("manualProductForm");
-    const variantRowsBody = document.getElementById("variantRowsBody");
     const variantRowsJson = document.getElementById("variantRowsJson");
-    if (!manualProductForm || !variantRowsBody || !variantRowsJson) {
+    if (!manualProductForm || !variantRowsJson) {
         return;
     }
 
     manualProductForm.reset();
     variantRowsJson.value = "";
-    variantRowsBody.innerHTML = "";
-    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
+    setManualProductMode("variant", {
+        rows: getDefaultVariantRows("variant"),
+        preserveExisting: false,
+        skipConfirm: true
+    });
     renderProductStudioStatus("manualProductStatus", "");
 }
 
-function toggleForm() {
-    const formBox = document.getElementById("formBox");
-    if (!formBox) {
-        return;
-    }
-    const nextState = formBox.style.display === "none" || formBox.style.display === "";
-    formBox.style.display = nextState ? "block" : "none";
-    if (nextState) {
-        formBox.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-}
-
 function createVariantRowMarkup(initial = {}) {
-    const variant = initial.variant || "";
-    const priceRetail = initial.price_retail || "";
-    const priceDiscount = initial.price_discount || "";
-    const priceNett = initial.price_nett || "";
-    const qty = initial.qty ?? "";
-    const variantCode = initial.variant_code || "";
-    const color = initial.color || "";
-    const gtin = initial.gtin || "";
+    const mode = getManualProductMode();
+    const variant = escapeManualProductHtml(initial.variant || "");
+    const priceRetail = escapeManualProductHtml(initial.price_retail || "");
+    const priceDiscount = escapeManualProductHtml(initial.price_discount || "");
+    const priceNett = escapeManualProductHtml(initial.price_nett || "");
+    const qty = escapeManualProductHtml(initial.qty ?? "");
+    const variantCode = escapeManualProductHtml(initial.variant_code || "");
+    const color = escapeManualProductHtml(initial.color || "");
+    const gtin = escapeManualProductHtml(initial.gtin || "");
 
-    return `
-        <td class="variant-size-cell">
-            <div class="variant-size-shell">
-                <div class="variant-size-stack">
-                    <div class="variant-size-block">
-                        <div class="variant-size-label">Size</div>
-                        <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+    const variantCell = mode === "non_variant"
+        ? `
+            <td class="variant-size-cell">
+                <div class="variant-size-shell variant-size-shell-static">
+                    <div class="variant-static-card">
+                        <span class="variant-static-badge">Non-variant</span>
+                        <small>Satu item default tanpa size atau warna.</small>
                     </div>
-                    <div class="variant-size-block">
-                        <div class="variant-size-label">Warna</div>
-                        <input type="text" class="variant-color-input" data-field="color" placeholder="Hitam" value="${color}">
+                    <input type="hidden" data-field="variant" value="default">
+                    <input type="hidden" data-field="color" value="">
+                </div>
+            </td>
+        `
+        : `
+            <td class="variant-size-cell">
+                <div class="variant-size-shell">
+                    <div class="variant-size-stack">
+                        <div class="variant-size-block">
+                            <div class="variant-size-label">Size</div>
+                            <input type="text" class="variant-size-input" data-field="variant" placeholder="39" value="${variant}">
+                        </div>
+                        <div class="variant-size-block">
+                            <div class="variant-size-label">Warna</div>
+                            <input type="text" class="variant-color-input" data-field="color" placeholder="Hitam" value="${color}">
+                        </div>
                     </div>
                 </div>
-            </div>
-        </td>
+            </td>
+        `;
+
+    return `
+        ${variantCell}
         <td class="variant-price-cell">
             <div class="variant-price-card">
                 <div class="variant-field-stack">
@@ -1318,10 +1653,10 @@ function createVariantRowMarkup(initial = {}) {
         <td class="variant-stock-cell">
             <div class="variant-stock-card">
                 <div>
-                    <span class="variant-mini-label">Qty Awal</span>
+                    <span class="variant-mini-label" data-role="variant-stock-label">Qty Awal</span>
                     <input type="number" data-field="qty" min="0" step="1" placeholder="1" value="${qty}">
                 </div>
-                <div class="variant-stock-hint">Boleh 0 jika stok fisik belum masuk.</div>
+                <div class="variant-stock-hint" data-role="variant-stock-hint">Boleh 0 jika stok fisik belum masuk.</div>
             </div>
         </td>
         <td class="variant-meta-cell">
@@ -1347,10 +1682,18 @@ function addVariantRow(initial = {}) {
     if (!variantRowsBody) {
         return;
     }
+
+    if (getManualProductMode() === "non_variant" && variantRowsBody.children.length) {
+        notifyProductStudioMessage("Mode non-variant hanya memakai satu baris stok.");
+        variantRowsBody.firstElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+    }
+
     const row = document.createElement("tr");
     row.innerHTML = createVariantRowMarkup(initial);
     variantRowsBody.appendChild(row);
     bindVariantRow(row);
+    syncManualProductModeUi();
 }
 
 function formatCompactCurrency(value) {
@@ -1395,6 +1738,7 @@ function bindVariantRow(row) {
         input.addEventListener("input", () => updateVariantPriceSummary(row));
     });
     updateVariantPriceSummary(row);
+    syncManualProductUnitLabels();
 }
 
 function removeVariantRow(button) {
@@ -1406,7 +1750,7 @@ function removeVariantRow(button) {
     row.remove();
 
     if (!variantRowsBody.children.length) {
-        addVariantRow();
+        addVariantRow(getDefaultVariantRows(getManualProductMode())[0]);
     }
 }
 
@@ -1434,13 +1778,29 @@ function getVariantPayload() {
 
 function prepareManualSubmit() {
     const variantRowsJson = document.getElementById("variantRowsJson");
-    const payload = getVariantPayload();
+    const mode = getManualProductMode();
+    const payload = getVariantPayload().map((row) => {
+        if (mode === "non_variant") {
+            return {
+                ...row,
+                variant: "default",
+                color: ""
+            };
+        }
+        return row;
+    });
+
     if (!payload.length) {
         renderProductStudioStatus("manualProductStatus", "Isi minimal satu baris variasi terlebih dahulu.", "error");
         return null;
     }
 
-    if (payload.length > 1 && payload.some((row) => !row.variant && !row.color)) {
+    if (mode === "non_variant" && payload.length !== 1) {
+        renderProductStudioStatus("manualProductStatus", "Produk non-variant hanya boleh memakai satu baris stok.", "error");
+        return null;
+    }
+
+    if (mode === "variant" && payload.some((row) => !row.variant && !row.color)) {
         renderProductStudioStatus("manualProductStatus", "Isi size, warna, atau salah satunya pada setiap baris yang dipakai.", "error");
         return null;
     }
@@ -1508,7 +1868,7 @@ async function handleManualSubmit(event) {
         notifyProductStudioMessage(data.message || "Produk berhasil ditambahkan.");
         resetManualProductForm();
         await refreshProductsView();
-        toggleForm();
+        toggleForm(false);
         return false;
     } catch (error) {
         renderProductStudioStatus("manualProductStatus", "Terjadi error saat menyimpan produk.", "error");
@@ -1699,10 +2059,37 @@ async function submitImport() {
 }
 
 bindProductCheckAllControl();
+document.getElementById("manualProductUnitLabel")?.addEventListener("input", syncManualProductUnitLabels);
+document.getElementById("manualProductUnitLabel")?.addEventListener("change", syncManualProductUnitLabels);
+document.querySelectorAll("[data-manual-product-mode-close]").forEach((node) => {
+    node.addEventListener("click", closeManualProductModeModal);
+});
+document.querySelectorAll("[data-manual-product-mode-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+        const applied = setManualProductMode(button.dataset.manualProductModeOption, {
+            preserveExisting: true,
+            openForm: true
+        });
+        if (applied) {
+            closeManualProductModeModal();
+        }
+    });
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !document.getElementById("manualProductModeModal")?.hidden) {
+        closeManualProductModeModal();
+    }
+});
 
 const variantRowsBody = document.getElementById("variantRowsBody");
-if (variantRowsBody && !variantRowsBody.children.length) {
-    DEFAULT_VARIANT_ROWS.forEach((row) => addVariantRow(row));
+if (variantRowsBody) {
+    setManualProductMode(getManualProductMode(), {
+        rows: getDefaultVariantRows(getManualProductMode()),
+        preserveExisting: false,
+        skipConfirm: true
+    });
+} else {
+    syncManualProductUnitLabels();
 }
 
 if (stockPageConfig.canManageProductMaster) {
@@ -1732,11 +2119,19 @@ if (stockPageConfig.canManageProductMaster) {
         stockContextMenu.style.left = `${Math.max(12, left)}px`;
     }
 
-    function toggleStockEditVariantFields(hasVariant) {
-        ["stockEditVariantWrap", "stockEditRetailWrap", "stockEditDiscountWrap", "stockEditNettWrap"].forEach((id) => {
+    function toggleStockEditVariantFields(source) {
+        const hasVariantRecord = Boolean(source?.dataset.variantId);
+        const isNonVariant = (source?.dataset.productVariantMode || "variant") === "non_variant";
+        const variantWrap = document.getElementById("stockEditVariantWrap");
+
+        if (variantWrap) {
+            variantWrap.hidden = !hasVariantRecord || isNonVariant;
+        }
+
+        ["stockEditRetailWrap", "stockEditDiscountWrap", "stockEditNettWrap"].forEach((id) => {
             const node = document.getElementById(id);
             if (node) {
-                node.hidden = !hasVariant;
+                node.hidden = !hasVariantRecord;
             }
         });
     }
@@ -1751,12 +2146,13 @@ if (stockPageConfig.canManageProductMaster) {
         document.getElementById("stockEditSku").value = source.dataset.productSku || "";
         document.getElementById("stockEditName").value = source.dataset.productName || "";
         document.getElementById("stockEditCategory").value = source.dataset.productCategory || "";
+        document.getElementById("stockEditUnitLabel").value = source.dataset.productUnitLabel || "pcs";
         document.getElementById("stockEditVariant").value = source.dataset.productVariant || "";
         document.getElementById("stockEditPriceRetail").value = source.dataset.priceRetail || "";
         document.getElementById("stockEditPriceDiscount").value = source.dataset.priceDiscount || "";
         document.getElementById("stockEditPriceNett").value = source.dataset.priceNett || "";
 
-        toggleStockEditVariantFields(Boolean(source.dataset.variantId));
+        toggleStockEditVariantFields(source);
         stockEditModal.hidden = false;
         document.body.classList.add("stock-edit-modal-open");
     }
@@ -1765,7 +2161,9 @@ if (stockPageConfig.canManageProductMaster) {
         if (stockEditModal) {
             stockEditModal.hidden = true;
         }
-        document.body.classList.remove("stock-edit-modal-open");
+        if (document.getElementById("manualProductModeModal")?.hidden !== false) {
+            document.body.classList.remove("stock-edit-modal-open");
+        }
     }
 
     document.addEventListener("contextmenu", (event) => {
@@ -1839,7 +2237,7 @@ if (stockPageConfig.canManageProductMaster) {
 
             notifyStockMessage(data.message || "Detail produk berhasil diperbarui.");
             closeStockEditModal();
-            window.location.reload();
+            await refreshProductsView();
         } catch (error) {
             notifyStockMessage("Terjadi error saat menyimpan detail produk.", "error");
         } finally {
