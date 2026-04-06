@@ -590,6 +590,11 @@ def create_app():
     app.config.setdefault("DAILY_LIVE_REPORT_UPLOAD_URL_PREFIX", "/static/uploads/daily_reports")
     app.config.setdefault("DAILY_LIVE_REPORT_ATTACHMENT_MAX_BYTES", 10 * 1024 * 1024)
     app.config.setdefault(
+        "POS_RECEIPT_PDF_FOLDER",
+        os.path.join(app.root_path, "static", "uploads", "pos_receipts"),
+    )
+    app.config.setdefault("POS_RECEIPT_PDF_URL_PREFIX", "/static/uploads/pos_receipts")
+    app.config.setdefault(
         "DOCUMENT_RECORD_UPLOAD_FOLDER",
         os.path.join(app.root_path, "static", "uploads", "documents"),
     )

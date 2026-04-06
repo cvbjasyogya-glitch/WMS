@@ -80,6 +80,96 @@ def _to_float(value):
         return 0
 
 
+def _normalize_picker_query(raw_query):
+    return " ".join(str(raw_query or "").strip().split())
+
+
+def _build_picker_search_conditions(query):
+    if not query:
+        return "", []
+
+    clauses = []
+    params = []
+    for term in query.split():
+        token = f"%{term}%"
+        clauses.append(
+            """
+            (
+                p.sku LIKE ?
+                OR p.name LIKE ?
+                OR COALESCE(c.name, '') LIKE ?
+                OR COALESCE(v.variant, '') LIKE ?
+                OR COALESCE(v.variant_code, '') LIKE ?
+                OR COALESCE(v.color, '') LIKE ?
+                OR COALESCE(v.gtin, '') LIKE ?
+            )
+            """
+        )
+        params.extend([token] * 7)
+
+    return " AND ".join(clauses), params
+
+
+def _build_picker_order_by(query, mode):
+    if query:
+        exact_token = query.lower()
+        prefix_token = f"{query}%"
+        contains_token = f"%{query}%"
+        return (
+            """
+            CASE
+                WHEN lower(p.sku) = ? THEN 0
+                WHEN lower(COALESCE(v.gtin, '')) = ? THEN 1
+                WHEN lower(COALESCE(v.variant_code, '')) = ? THEN 2
+                WHEN lower(p.name) = ? THEN 3
+                WHEN lower(COALESCE(v.variant, '')) = ? THEN 4
+                WHEN lower(COALESCE(v.color, '')) = ? THEN 5
+                WHEN lower(COALESCE(c.name, '')) = ? THEN 6
+                WHEN lower(p.sku) LIKE lower(?) THEN 7
+                WHEN lower(COALESCE(v.gtin, '')) LIKE lower(?) THEN 8
+                WHEN lower(COALESCE(v.variant_code, '')) LIKE lower(?) THEN 9
+                WHEN lower(p.name) LIKE lower(?) THEN 10
+                WHEN lower(COALESCE(v.variant, '')) LIKE lower(?) THEN 11
+                WHEN lower(COALESCE(v.color, '')) LIKE lower(?) THEN 12
+                WHEN lower(COALESCE(c.name, '')) LIKE lower(?) THEN 13
+                WHEN lower(
+                    p.sku || ' ' || p.name || ' ' || COALESCE(c.name, '') || ' ' ||
+                    COALESCE(v.variant, '') || ' ' || COALESCE(v.variant_code, '') || ' ' ||
+                    COALESCE(v.color, '') || ' ' || COALESCE(v.gtin, '')
+                ) LIKE lower(?) THEN 14
+                ELSE 15
+            END,
+            CASE WHEN COALESCE(s.qty, 0) > 0 THEN 0 ELSE 1 END,
+            COALESCE(s.qty, 0) DESC,
+            p.name COLLATE NOCASE ASC,
+            CASE WHEN lower(v.variant) = 'default' THEN 0 ELSE 1 END,
+            v.variant COLLATE NOCASE ASC
+            """,
+            [exact_token] * 7 + [prefix_token] * 7 + [contains_token],
+        )
+
+    if mode == "outbound":
+        return (
+            """
+            CASE WHEN COALESCE(s.qty, 0) > 0 THEN 0 ELSE 1 END,
+            COALESCE(s.qty, 0) DESC,
+            p.name COLLATE NOCASE ASC,
+            CASE WHEN lower(v.variant) = 'default' THEN 0 ELSE 1 END,
+            v.variant COLLATE NOCASE ASC
+            """,
+            [],
+        )
+
+    return (
+        """
+        p.name COLLATE NOCASE ASC,
+        CASE WHEN lower(v.variant) = 'default' THEN 0 ELSE 1 END,
+        v.variant COLLATE NOCASE ASC
+        """,
+        [],
+    )
+
+
 def _to_int(value, default=0):
     try:
         if value in (None, ""):
@@ -710,7 +800,7 @@ def product_picker():
     page = max(_to_int(request.args.get("page"), 1), 1)
     page_size = max(1, min(_to_int(request.args.get("page_size"), 20), 60))
     offset = (page - 1) * page_size
-    search = (request.args.get("q") or "").strip()
+    search = _normalize_picker_query(request.args.get("q"))
     category = (request.args.get("category") or "").strip()
     mode = (request.args.get("mode") or "").strip().lower()
 
@@ -719,20 +809,10 @@ def product_picker():
     count_params = []
 
     if search:
-        search_param = f"%{search}%"
-        conditions.append("""
-            (
-                p.sku LIKE ?
-                OR p.name LIKE ?
-                OR COALESCE(c.name, '') LIKE ?
-                OR COALESCE(v.variant, '') LIKE ?
-                OR COALESCE(v.variant_code, '') LIKE ?
-                OR COALESCE(v.color, '') LIKE ?
-                OR COALESCE(v.gtin, '') LIKE ?
-            )
-        """)
-        params.extend([search_param] * 7)
-        count_params.extend([search_param] * 7)
+        search_clause, search_params = _build_picker_search_conditions(search)
+        conditions.append(search_clause)
+        params.extend(search_params)
+        count_params.extend(search_params)
 
     if category:
         conditions.append("COALESCE(c.name, '') = ?")
@@ -740,20 +820,7 @@ def product_picker():
         count_params.append(category)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    order_by = """
-        p.name ASC,
-        CASE WHEN LOWER(v.variant)='default' THEN 0 ELSE 1 END,
-        v.variant ASC
-    """
-    if mode == "outbound":
-        order_by = """
-            CASE WHEN COALESCE(s.qty, 0) > 0 THEN 0 ELSE 1 END,
-            COALESCE(s.qty, 0) DESC,
-            p.name ASC,
-            CASE WHEN LOWER(v.variant)='default' THEN 0 ELSE 1 END,
-            v.variant ASC
-        """
+    order_by, order_params = _build_picker_order_by(search, mode)
 
     rows = db.execute(f"""
         SELECT
@@ -780,7 +847,7 @@ def product_picker():
         {where_clause}
         ORDER BY {order_by}
         LIMIT ? OFFSET ?
-    """, (*params, page_size, offset)).fetchall()
+    """, (*params, *order_params, page_size, offset)).fetchall()
 
     total = db.execute(f"""
         SELECT COUNT(*) AS total

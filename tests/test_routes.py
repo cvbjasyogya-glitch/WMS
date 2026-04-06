@@ -12,6 +12,7 @@ import zipfile
 
 import init_db as init_db_module
 import services.notification_service as notification_service
+import services.whatsapp_service as whatsapp_service
 from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
@@ -28,6 +29,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.daily_report_upload_root = os.path.join(temp_root, f"daily_reports_{uuid4().hex}")
         self.document_upload_root = os.path.join(temp_root, f"document_uploads_{uuid4().hex}")
         self.document_signature_root = os.path.join(temp_root, f"document_signatures_{uuid4().hex}")
+        self.receipt_pdf_root = os.path.join(temp_root, f"receipt_pdfs_{uuid4().hex}")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -48,6 +50,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             DOCUMENT_RECORD_SIGNATURE_FOLDER=self.document_signature_root,
             DOCUMENT_RECORD_SIGNATURE_URL_PREFIX="/static/test-document-signatures",
             DOCUMENT_RECORD_SIGNATURE_MAX_BYTES=2 * 1024 * 1024,
+            POS_RECEIPT_PDF_FOLDER=self.receipt_pdf_root,
+            POS_RECEIPT_PDF_URL_PREFIX="/static/test-pos-receipts",
+            PUBLIC_BASE_URL="https://erp.test",
             SECRET_KEY="test-secret-key",
             LOGIN_THROTTLE_LIMIT=3,
             LOGIN_THROTTLE_WINDOW_SECONDS=300,
@@ -69,6 +74,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             shutil.rmtree(self.document_upload_root)
         if os.path.isdir(self.document_signature_root):
             shutil.rmtree(self.document_signature_root)
+        if os.path.isdir(self.receipt_pdf_root):
+            shutil.rmtree(self.receipt_pdf_root)
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -753,6 +760,98 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Simpan sebagai PDF", print_html)
         self.assertIn("window.print()", print_html)
 
+    def test_pos_checkout_generates_public_receipt_pdf_and_logs_failed_whatsapp_without_blocking_sale(self):
+        self.create_user("staff_sales_kirimi", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_kirimi")
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-KIRIMI-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": False,
+                "provider": "kirimi",
+                "receiver": "628120008888",
+                "error": "kirimi_http_500",
+            },
+        ) as mocked_send:
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Kirimi",
+                    "customer_phone": "08120008888",
+                    "payment_method": "cash",
+                    "paid_amount": 151000,
+                    "note": "Checkout kirimi",
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertTrue(payload["receipt_pdf_public_url"].startswith("https://erp.test/static/test-pos-receipts/"))
+        self.assertEqual(payload["receipt_whatsapp_status"], "failed")
+        mocked_send.assert_called_once()
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                """
+                SELECT
+                    id,
+                    receipt_pdf_path,
+                    receipt_pdf_url,
+                    receipt_whatsapp_status,
+                    receipt_whatsapp_error
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+            notification = db.execute(
+                """
+                SELECT channel, recipient, subject, status, message
+                FROM notifications
+                WHERE subject=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (f"Nota POS {payload['receipt_no']}",),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        self.assertTrue(sale["receipt_pdf_path"])
+        self.assertTrue(sale["receipt_pdf_url"].startswith("https://erp.test/static/test-pos-receipts/"))
+        self.assertEqual(sale["receipt_whatsapp_status"], "failed")
+        self.assertIn("kirimi_http_500", sale["receipt_whatsapp_error"])
+        self.assertTrue(os.path.exists(os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"])))
+        with open(os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"]), "rb") as file_handle:
+            self.assertTrue(file_handle.read(8).startswith(b"%PDF-1."))
+        self.assertIsNotNone(notification)
+        self.assertEqual(notification["channel"], "wa_document")
+        self.assertEqual(notification["recipient"], "628120008888")
+        self.assertEqual(notification["status"], "failed")
+        self.assertIn("kirimi_http_500", notification["message"])
+
     def test_pos_void_item_restores_stock_and_recalculates_sale_totals(self):
         self.create_user("staff_sales_void", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_void")
@@ -955,6 +1054,73 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("sales_old_report", report_html)
         self.assertIn("Rp 150.000", report_html)
         self.assertIn("Rp 240.000", report_html)
+
+    def test_role_based_whatsapp_notification_maps_event_to_owner_and_hr(self):
+        self.create_user(
+            "owner_wa_event",
+            "pass1234",
+            "owner",
+            phone="081234567890",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "hr_wa_event",
+            "pass1234",
+            "hr",
+            phone="081299900011",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "staff_wa_event",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            phone="081277711122",
+            notify_whatsapp=1,
+        )
+
+        with self.app.app_context():
+            with patch(
+                "services.whatsapp_service.send_whatsapp_text",
+                return_value={
+                    "ok": True,
+                    "provider": "kirimi",
+                    "receiver": "6281234567890",
+                    "error": "",
+                },
+            ) as mocked_send:
+                result = whatsapp_service.send_role_based_notification(
+                    "attendance.activity",
+                    {
+                        "warehouse_id": 1,
+                        "employee_name": "Portal Attendance Notify",
+                        "warehouse_name": "Gudang Mataram",
+                        "punch_label": "Check In",
+                        "time_label": "07:58",
+                        "location_label": "Gudang Mataram - Gerbang Timur",
+                    },
+                )
+                db = get_db()
+                rows = db.execute(
+                    """
+                    SELECT role, recipient, status
+                    FROM notifications
+                    WHERE channel='wa_role_event'
+                    ORDER BY role ASC
+                    """
+                ).fetchall()
+
+        self.assertEqual(len(result["deliveries"]), 2)
+        self.assertEqual(mocked_send.call_count, 2)
+        sent_recipients = {call.args[0] for call in mocked_send.call_args_list}
+        self.assertEqual(sent_recipients, {"6281234567890", "6281299900011"})
+        self.assertEqual(
+            {(row["role"], row["recipient"], row["status"]) for row in rows},
+            {
+                ("hr", "6281299900011", "sent"),
+                ("owner", "6281234567890", "sent"),
+            },
+        )
 
     def test_schedule_page_opens_coordination_sidebar_group(self):
         self.login()
@@ -5976,6 +6142,42 @@ class WmsRoutesTestCase(unittest.TestCase):
                 for item in owner_payload["items"]
             )
         )
+
+    def test_attendance_portal_submission_triggers_role_based_whatsapp_notification(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-WA",
+            full_name="Portal Attendance WA",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_staff_wa", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_staff_wa", "pass1234")
+        today = date_cls.today().isoformat()
+
+        with patch("routes.attendance_portal.send_role_based_notification") as mocked_role_notify:
+            submit_response = self.client.post(
+                "/absen/submit",
+                data={
+                    "shift_code": "pagi",
+                    "location_label": "Gudang Mataram - Pintu Barat",
+                    "latitude": "-8.583140",
+                    "longitude": "116.116798",
+                    "accuracy_m": "7.5",
+                    "punch_time": f"{today}T07:58",
+                    "punch_type": "check_in",
+                    "note": "Masuk shift pagi",
+                    "photo_data_url": self.build_camera_photo_data_url(),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "attendance.activity")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["employee_name"], "Portal Attendance WA")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/absen/")
+
     def test_attendance_portal_requires_detail_when_location_scope_is_other(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-OTHER",
@@ -7620,6 +7822,34 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Live promo toko Mega", hris_html)
         self.assertIn("bukti-live.pdf", hris_html)
 
+    def test_daily_report_submit_triggers_role_based_whatsapp_notification(self):
+        today = date_cls.today().isoformat()
+        self.create_user("ops_daily_wa", "pass1234", "staff", warehouse_id=1)
+        self.login("ops_daily_wa", "pass1234")
+
+        with patch("routes.daily_report_portal.send_role_based_notification") as mocked_role_notify:
+            submit_response = self.client.post(
+                "/laporan-harian/submit",
+                data={
+                    "report_type": "live",
+                    "report_date": today,
+                    "title": "Live test whatsapp",
+                    "summary": "Traffic aman.",
+                    "blocker_note": "",
+                    "follow_up_note": "",
+                    "attachment": (BytesIO(b"%PDF-1.4 bukti live report"), "bukti-live.pdf"),
+                },
+                content_type="multipart/form-data",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "report.live_submitted")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["title"], "Live test whatsapp")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/hris/report")
+
     def test_hris_report_marks_live_report_time_against_scheduled_live_slot(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-LIVE-MATCH",
@@ -8424,6 +8654,79 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload_two["page"], 2)
         self.assertGreaterEqual(len(payload_two["items"]), 1)
 
+    def test_product_picker_smart_search_prioritizes_exact_sku_match(self):
+        self.login()
+        exact_sku = f"SMART-EXACT-{uuid4().hex[:4].upper()}"
+        loose_sku = f"X-{exact_sku}"
+
+        response_exact, exact_product_id, exact_variants = self.create_product(
+            sku=exact_sku,
+            qty=9,
+            variants="MATCH",
+        )
+        response_loose, loose_product_id, loose_variants = self.create_product(
+            sku=loose_sku,
+            qty=3,
+            variants="MATCH",
+        )
+        self.assertEqual(response_exact.status_code, 302)
+        self.assertEqual(response_loose.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=?, category_id=(SELECT id FROM categories WHERE name='Testing' LIMIT 1) WHERE id=?",
+                ("Produk Smart Exact", exact_product_id),
+            )
+            db.execute(
+                "UPDATE products SET name=?, category_id=(SELECT id FROM categories WHERE name='Testing' LIMIT 1) WHERE id=?",
+                ("Produk Prefix Smart", loose_product_id),
+            )
+            db.execute(
+                "UPDATE product_variants SET variant_code=?, gtin=?, color=? WHERE id=?",
+                ("SMART-CODE-EXACT", "899910001111", "Hitam", exact_variants[0]["id"]),
+            )
+            db.execute(
+                "UPDATE product_variants SET variant_code=?, gtin=?, color=? WHERE id=?",
+                ("SMART-CODE-LOOSE", "899910001112", "Putih", loose_variants[0]["id"]),
+            )
+            db.commit()
+
+        response = self.client.get(f"/products/picker?warehouse_id=1&q={exact_sku}")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertGreaterEqual(payload["total_items"], 2)
+        self.assertEqual(payload["items"][0]["sku"], exact_sku)
+
+    def test_product_picker_smart_search_supports_multi_term_query(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku=f"SMART-MULTI-{uuid4().hex[:4].upper()}",
+            qty=11,
+            variants="NAVY RED",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id=?",
+                ("Speed Runner Pro", product_id),
+            )
+            db.execute(
+                "UPDATE product_variants SET color=?, variant_code=?, gtin=? WHERE id=?",
+                ("Navy Red", "SPD-NR-01", "899920001111", variants_rows[0]["id"]),
+            )
+            db.commit()
+
+        response = self.client.get("/products/picker?warehouse_id=1&q=runner navy testing")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+
+        self.assertGreaterEqual(payload["total_items"], 1)
+        self.assertEqual(payload["items"][0]["product_id"], product_id)
+        self.assertEqual(payload["items"][0]["variant_label"], "NAVY RED")
+
     def test_stock_page_uses_10_item_pagination(self):
         self.login()
         for index in range(12):
@@ -8666,6 +8969,71 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(stock_rows), 2)
         self.assertEqual(stock_rows[0]["qty"], 8)
         self.assertEqual(stock_rows[1]["qty"], 7)
+
+    def test_inbound_request_triggers_role_based_whatsapp_notification(self):
+        self.create_user("admin_inbound_wa", "pass1234", "admin", warehouse_id=1)
+        self.login("admin_inbound_wa", "pass1234")
+        response, product_id, variants_rows = self.create_product(qty=0, variants="41")
+        self.assertEqual(response.status_code, 302)
+
+        with patch("routes.inbound.send_role_based_notification") as mocked_role_notify:
+            inbound_response = self.client.post(
+                "/inbound/",
+                data={
+                    "warehouse_id": "1",
+                    "items_json": json.dumps(
+                        [
+                            {
+                                "product_id": product_id,
+                                "variant_id": variants_rows[0]["id"],
+                                "qty": 2,
+                                "note": "Request inbound WA",
+                                "cost": 220000,
+                            }
+                        ]
+                    ),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(inbound_response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "inventory.inbound_approval_requested")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["item_count"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/approvals")
+
+    def test_outbound_request_triggers_role_based_whatsapp_notification(self):
+        self.create_user("admin_outbound_wa", "pass1234", "admin", warehouse_id=1)
+        self.login("admin_outbound_wa", "pass1234")
+        response, product_id, variants_rows = self.create_product(qty=6, variants="41")
+        self.assertEqual(response.status_code, 302)
+
+        with patch("routes.outbound.send_role_based_notification") as mocked_role_notify:
+            outbound_response = self.client.post(
+                "/outbound/",
+                data={
+                    "warehouse_id": "1",
+                    "items_json": json.dumps(
+                        [
+                            {
+                                "product_id": product_id,
+                                "variant_id": variants_rows[0]["id"],
+                                "qty": 2,
+                                "note": "Request outbound WA",
+                            }
+                        ]
+                    ),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(outbound_response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "inventory.outbound_approval_requested")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["item_count"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/approvals")
 
     def test_inventory_activity_notifications_reach_monitoring_roles(self):
         self.create_user("owner_inventory_monitor", "pass1234", "owner")

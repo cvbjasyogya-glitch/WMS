@@ -17,6 +17,7 @@ from routes.hris import (
 )
 from services.rbac import normalize_role
 from services.notification_service import notify_operational_event
+from services.whatsapp_service import send_role_based_notification
 
 
 attendance_portal_bp = Blueprint("attendance_portal", __name__, url_prefix="/absen")
@@ -739,10 +740,11 @@ def submit():
     )
     db.commit()
 
+    employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
+    warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()
+    punch_label = _get_attendance_punch_label(punch_type)
+
     try:
-        employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
-        warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()
-        punch_label = _get_attendance_punch_label(punch_type)
         attendance_message = (
             f"{employee_label} merekam {punch_label} di {warehouse_label}"
             f" pada {punch_time[11:16]} dari titik {location_label}."
@@ -763,6 +765,22 @@ def submit():
         )
     except Exception as exc:
         print("ATTENDANCE NOTIFICATION ERROR:", exc)
+
+    try:
+        send_role_based_notification(
+            "attendance.activity",
+            {
+                "warehouse_id": linked_employee["warehouse_id"],
+                "employee_name": employee_label,
+                "warehouse_name": warehouse_label,
+                "punch_label": punch_label,
+                "time_label": punch_time[11:16],
+                "location_label": location_label,
+                "link_url": "/absen/",
+            },
+        )
+    except Exception as exc:
+        print("ATTENDANCE WHATSAPP ROLE NOTIFICATION ERROR:", exc)
 
     flash(f"{_get_attendance_punch_label(punch_type)} berhasil direkam.", "success")
     return redirect("/absen/")

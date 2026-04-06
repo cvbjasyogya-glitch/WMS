@@ -829,10 +829,24 @@ body .pos-ipos-refactor .pos-ipos-search {
     gap: 10px;
 }
 
+body .pos-ipos-refactor .pos-ipos-pickerbrowsertools {
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+}
+
+body .pos-ipos-refactor .pos-ipos-pickerbrowsertools .pos-ipos-search {
+    width: min(980px, 100%);
+    margin-inline: auto;
+}
+
 body .pos-ipos-refactor .pos-ipos-categorystrip {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    width: min(1120px, 100%);
+    justify-content: center;
+    margin-inline: auto;
 }
 
 body .pos-ipos-refactor .pos-ipos-categorystrip button {
@@ -954,6 +968,12 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
     body .pos-ipos-refactor .pos-ipos-shortcuts,
     body .pos-ipos-refactor .pos-ipos-search {
         grid-template-columns: 1fr;
+    }
+
+    body .pos-ipos-refactor .pos-ipos-pickerbrowsertools,
+    body .pos-ipos-refactor .pos-ipos-pickerbrowsertools .pos-ipos-categorystrip {
+        justify-items: stretch;
+        justify-content: flex-start;
     }
 
     body .pos-ipos-refactor .pos-ipos-summary-input {

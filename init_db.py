@@ -124,6 +124,11 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "pos_sales", "status", "TEXT DEFAULT 'posted'")
     _ensure_column(cursor, "pos_sales", "voided_at", "TIMESTAMP")
     _ensure_column(cursor, "pos_sales", "voided_by", "INTEGER")
+    _ensure_column(cursor, "pos_sales", "receipt_pdf_path", "TEXT")
+    _ensure_column(cursor, "pos_sales", "receipt_pdf_url", "TEXT")
+    _ensure_column(cursor, "pos_sales", "receipt_whatsapp_status", "TEXT DEFAULT 'pending'")
+    _ensure_column(cursor, "pos_sales", "receipt_whatsapp_error", "TEXT")
+    _ensure_column(cursor, "pos_sales", "receipt_whatsapp_sent_at", "TIMESTAMP")
 
     _ensure_column(cursor, "requests", "reason", "TEXT")
     _ensure_column(cursor, "requests", "approved_at", "TIMESTAMP")
@@ -1112,6 +1117,11 @@ def init_db(db_path=None, sqlite_options=None):
         status TEXT DEFAULT 'posted',
         voided_at TIMESTAMP,
         voided_by INTEGER,
+        receipt_pdf_path TEXT,
+        receipt_pdf_url TEXT,
+        receipt_whatsapp_status TEXT DEFAULT 'pending',
+        receipt_whatsapp_error TEXT,
+        receipt_whatsapp_sent_at TIMESTAMP,
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

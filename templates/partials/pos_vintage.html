@@ -306,16 +306,18 @@
                     </div>
                 </div>
 
-                <form class="pos-catalog-search pos-ipos-search" id="posCatalogSearchForm">
-                    <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, atau kategori">
-                    <button type="submit" class="pos-vintage-button is-primary">Cari</button>
-                </form>
+                <div class="pos-ipos-pickerbrowsertools">
+                    <form class="pos-catalog-search pos-ipos-search" id="posCatalogSearchForm">
+                        <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, kategori, atau gabungan kata">
+                        <button type="submit" class="pos-vintage-button is-primary">Cari</button>
+                    </form>
 
-                <div class="pos-category-strip pos-ipos-categorystrip" id="posCategoryStrip">
-                    <button type="button" class="is-active" data-pos-category="all">Semua</button>
-                    {% for category in catalog_categories %}
-                    <button type="button" data-pos-category="{{ category }}">{{ category }}</button>
-                    {% endfor %}
+                    <div class="pos-category-strip pos-ipos-categorystrip" id="posCategoryStrip">
+                        <button type="button" class="is-active" data-pos-category="all">Semua</button>
+                        {% for category in catalog_categories %}
+                        <button type="button" data-pos-category="{{ category }}">{{ category }}</button>
+                        {% endfor %}
+                    </div>
                 </div>
 
                 <div class="table-box pos-vintage-pickertablebox pos-ipos-pickertablebox" data-scrollable-table="1">

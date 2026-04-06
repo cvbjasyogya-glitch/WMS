@@ -6,6 +6,7 @@ from database import get_db
 from services.notification_service import notify_operational_event, notify_roles
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import remove_stock
+from services.whatsapp_service import send_role_based_notification
 
 outbound_bp = Blueprint(
     "outbound",
@@ -253,6 +254,20 @@ def outbound():
                     )
                 except Exception as exc:
                     print("NOTIFY ERROR:", exc)
+
+                try:
+                    send_role_based_notification(
+                        "inventory.outbound_approval_requested",
+                        {
+                            "warehouse_id": warehouse_id,
+                            "warehouse_name": (warehouse["name"] or f"Gudang {warehouse_id}").strip(),
+                            "requester_name": session.get("username") or "Staff",
+                            "item_count": len(items),
+                            "link_url": "/approvals",
+                        },
+                    )
+                except Exception as exc:
+                    print("OUTBOUND WHATSAPP ROLE NOTIFICATION ERROR:", exc)
 
                 flash(
                     f"{len(items)} permintaan outbound telah dikirim ke leader untuk approval",

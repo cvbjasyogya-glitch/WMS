@@ -177,6 +177,7 @@ class Config:
         .strip()
         .lower()
     )
+    PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     ENFORCE_SAME_ORIGIN_POSTS = _env_flag("ENFORCE_SAME_ORIGIN_POSTS", True)
     ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS = _env_flag(
         "ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS",
@@ -187,6 +188,11 @@ class Config:
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(12 * 1024 * 1024)))
     CHAT_ATTACHMENT_MAX_BYTES = int(os.getenv("CHAT_ATTACHMENT_MAX_BYTES", str(10 * 1024 * 1024)))
     CHAT_SOUND_VOLUME_DEFAULT = float(os.getenv("CHAT_SOUND_VOLUME_DEFAULT", "0.85"))
+    KIRIMI_BASE_URL = _first_env_value("KIRIMI_BASE_URL", default="https://api.kirimi.id")
+    KIRIMI_USER_CODE = _first_env_value("KIRIMI_USER_CODE")
+    KIRIMI_DEVICE_ID = _first_env_value("KIRIMI_DEVICE_ID")
+    KIRIMI_SECRET = _first_env_value("KIRIMI_SECRET")
+    KIRIMI_TIMEOUT_SECONDS = _int_env("KIRIMI_TIMEOUT_SECONDS", 15)
     CHAT_WEBRTC_ICE_SERVERS = [
         {
             "urls": [

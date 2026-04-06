@@ -8,6 +8,7 @@ from flask import current_app, has_request_context, request, session
 
 from database import get_db
 from services.announcement_center import role_matches_audience, user_matches_scope
+from services.whatsapp_service import send_whatsapp_text
 
 try:
     import requests as http_requests
@@ -945,44 +946,8 @@ def send_email(recipient, subject, body):
 
 
 def send_whatsapp(target, message):
-    target = _normalize_recipient(target)
-    api_key = os.getenv("FONNTE_API_KEY")
-
-    if not target:
-        return None
-
-    if not api_key or http_requests is None:
-        print("WA: not configured or requests missing")
-        return None
-
-    try:
-        url = "https://api.fonnte.com/send"
-        headers = {"Authorization": api_key}
-        data = {"target": target, "message": message}
-        response = http_requests.post(url, headers=headers, data=data, timeout=5)
-
-        if not getattr(response, "ok", False):
-            print("WA SEND ERROR: HTTP", getattr(response, "status_code", "unknown"))
-            return False
-
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = None
-
-        if isinstance(payload, dict):
-            status = payload.get("status")
-            success = payload.get("success")
-            normalized_status = str(status).strip().lower() if status is not None else ""
-            if status is False or success is False:
-                return False
-            if normalized_status in {"false", "0", "error", "failed"}:
-                return False
-
-        return True
-    except Exception as e:
-        print("WA SEND ERROR:", e)
-        return False
+    result = send_whatsapp_text(target, message)
+    return result.get("ok")
 
 
 def notify_roles(

@@ -11,6 +11,7 @@ from routes.hris import (
     _store_daily_live_report_attachment,
     _format_upload_size,
 )
+from services.whatsapp_service import send_role_based_notification
 
 
 daily_report_portal_bp = Blueprint("daily_report_portal", __name__, url_prefix="/laporan-harian")
@@ -150,6 +151,30 @@ def submit():
         ),
     )
     db.commit()
+
+    try:
+        employee_label = (
+            (linked_employee["full_name"] if linked_employee and linked_employee.get("full_name") else None)
+            or session.get("username")
+            or "Staff"
+        )
+        warehouse_label = (
+            (linked_employee["warehouse_name"] if linked_employee and linked_employee.get("warehouse_name") else None)
+            or "Gudang"
+        )
+        send_role_based_notification(
+            "report.live_submitted" if report_type == "live" else "report.daily_submitted",
+            {
+                "warehouse_id": (linked_employee["warehouse_id"] if linked_employee else session.get("warehouse_id")) or 1,
+                "employee_name": employee_label,
+                "warehouse_name": warehouse_label,
+                "title": title,
+                "time_label": _current_timestamp()[11:16],
+                "link_url": "/hris/report",
+            },
+        )
+    except Exception as exc:
+        print("DAILY REPORT WHATSAPP ROLE NOTIFICATION ERROR:", exc)
 
     flash("Report berhasil dikirim. HR atau Super Admin akan memproses statusnya dari HRIS.", "success")
     return redirect("/laporan-harian/")

@@ -5,8 +5,10 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 
 from database import get_db
 from services.notification_service import notify_operational_event
+from services.receipt_pdf_service import generate_pos_receipt_pdf
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import add_stock, remove_stock
+from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_document
 
 
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
@@ -34,6 +36,118 @@ def _to_decimal(value, default="0"):
 
 def _currency(value):
     return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _record_pos_receipt_delivery_state(
+    db,
+    sale_id,
+    *,
+    pdf_relative_path=None,
+    pdf_public_url=None,
+    receipt_whatsapp_status=None,
+    receipt_whatsapp_error=None,
+    mark_sent=False,
+):
+    fields = []
+    params = []
+
+    if pdf_relative_path is not None:
+        fields.append("receipt_pdf_path=?")
+        params.append(pdf_relative_path)
+    if pdf_public_url is not None:
+        fields.append("receipt_pdf_url=?")
+        params.append(pdf_public_url)
+    if receipt_whatsapp_status is not None:
+        fields.append("receipt_whatsapp_status=?")
+        params.append(receipt_whatsapp_status)
+    if receipt_whatsapp_error is not None:
+        fields.append("receipt_whatsapp_error=?")
+        params.append(receipt_whatsapp_error)
+    if mark_sent:
+        fields.append("receipt_whatsapp_sent_at=CURRENT_TIMESTAMP")
+
+    if not fields:
+        return
+
+    fields.append("updated_at=CURRENT_TIMESTAMP")
+    params.append(sale_id)
+    db.execute(
+        f"UPDATE pos_sales SET {', '.join(fields)} WHERE id=?",
+        params,
+    )
+
+
+def _generate_backend_pos_receipt_pdf(db, receipt_no):
+    sale = _fetch_pos_sale_detail_by_receipt(db, receipt_no)
+    if sale is None:
+        raise ValueError("Data nota POS tidak ditemukan untuk generate PDF backend.")
+
+    pdf_meta = generate_pos_receipt_pdf(sale)
+    _record_pos_receipt_delivery_state(
+        db,
+        sale["id"],
+        pdf_relative_path=pdf_meta["relative_path"],
+        pdf_public_url=pdf_meta["public_url"],
+    )
+    db.commit()
+    sale["receipt_pdf_path"] = pdf_meta["relative_path"]
+    sale["receipt_pdf_public_url"] = pdf_meta["public_url"]
+    return sale, pdf_meta
+
+
+def _send_pos_receipt_to_customer(db, sale):
+    sale = sale or {}
+    sale_id = _to_int(sale.get("id"), 0)
+    target_phone = (sale.get("customer_phone") or "").strip()
+    receipt_url = (sale.get("receipt_pdf_public_url") or sale.get("receipt_pdf_url") or "").strip()
+    receipt_no = (sale.get("receipt_no") or "-").strip()
+    customer_name = (sale.get("customer_name") or "Pelanggan").strip()
+    total_amount_label = sale.get("total_amount_label") or _format_pos_currency_label(sale.get("total_amount") or 0)
+    subject = f"Nota POS {receipt_no}"
+    message = (
+        f"Nota transaksi {receipt_no} untuk {customer_name}. "
+        f"Total {total_amount_label}. Dokumen PDF terlampir dari ERP Core Mataram Sports."
+    )
+
+    if sale_id <= 0:
+        return {"ok": None, "error": "missing_sale_id"}
+
+    if not target_phone:
+        result = {"ok": None, "error": "customer_phone_missing", "provider": "kirimi"}
+        _record_pos_receipt_delivery_state(
+            db,
+            sale_id,
+            receipt_whatsapp_status="skipped",
+            receipt_whatsapp_error="customer_phone_missing",
+        )
+        record_whatsapp_delivery(None, None, "", subject, message, result, channel="wa_document")
+        db.commit()
+        return result
+
+    if not receipt_url:
+        result = {"ok": None, "error": "receipt_public_url_missing", "provider": "kirimi"}
+        _record_pos_receipt_delivery_state(
+            db,
+            sale_id,
+            receipt_whatsapp_status="failed",
+            receipt_whatsapp_error="receipt_public_url_missing",
+        )
+        record_whatsapp_delivery(None, None, target_phone, subject, message, result, channel="wa_document")
+        db.commit()
+        return result
+
+    delivery = send_whatsapp_document(target_phone, message, receipt_url)
+    status_value = "sent" if delivery.get("ok") else ("skipped" if delivery.get("ok") is None else "failed")
+    _record_pos_receipt_delivery_state(
+        db,
+        sale_id,
+        receipt_whatsapp_status=status_value,
+        receipt_whatsapp_error=(delivery.get("error") or "")[:500] or None,
+        mark_sent=bool(delivery.get("ok")),
+    )
+    record_whatsapp_delivery(None, None, target_phone, subject, message, delivery, channel="wa_document")
+    db.commit()
+    return delivery
 
 
 def _normalize_sale_date(raw_value):
@@ -1088,6 +1202,11 @@ def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashie
             ps.paid_amount,
             ps.change_amount,
             ps.status,
+            ps.receipt_pdf_path,
+            ps.receipt_pdf_url,
+            ps.receipt_whatsapp_status,
+            ps.receipt_whatsapp_error,
+            ps.receipt_whatsapp_sent_at,
             ps.note,
             ps.created_at,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
@@ -1177,6 +1296,10 @@ def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashie
                 "has_voidable_items": any(item.get("can_void") for item in items),
                 "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
                 "receipt_pdf_url": f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
+                "receipt_pdf_public_url": row.get("receipt_pdf_url") or "",
+                "receipt_whatsapp_status": str(row.get("receipt_whatsapp_status") or "pending").strip().lower(),
+                "receipt_whatsapp_error": row.get("receipt_whatsapp_error") or "",
+                "receipt_whatsapp_sent_at": row.get("receipt_whatsapp_sent_at"),
                 **sale_status,
             }
         )
@@ -1212,6 +1335,11 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.paid_amount,
             ps.change_amount,
             ps.status,
+            ps.receipt_pdf_path,
+            ps.receipt_pdf_url,
+            ps.receipt_whatsapp_status,
+            ps.receipt_whatsapp_error,
+            ps.receipt_whatsapp_sent_at,
             ps.note,
             ps.created_at,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
@@ -1271,6 +1399,10 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         "created_datetime_label": f"{sale['sale_date']} {created_time_label}" if created_time_label != "-" else sale["sale_date"],
         "customer_phone_label": sale["customer_phone"] if sale.get("customer_phone") and sale["customer_phone"] != "-" else "Tanpa nomor",
         "cashier_identity_label": f"{sale['cashier_name']} - {sale['cashier_position']}",
+        "receipt_pdf_public_url": sale.get("receipt_pdf_url") or "",
+        "receipt_whatsapp_status": str(sale.get("receipt_whatsapp_status") or "pending").strip().lower(),
+        "receipt_whatsapp_error": sale.get("receipt_whatsapp_error") or "",
+        "receipt_whatsapp_sent_at": sale.get("receipt_whatsapp_sent_at"),
         **_build_pos_sale_status_payload(sale.get("status")),
     }
 
@@ -2081,6 +2213,21 @@ def pos_checkout():
         db.rollback()
         return _json_error("Checkout kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
 
+    sale_detail = None
+    receipt_pdf_meta = None
+    receipt_delivery = None
+
+    try:
+        sale_detail, receipt_pdf_meta = _generate_backend_pos_receipt_pdf(db, receipt_no)
+    except Exception as exc:
+        print("POS RECEIPT PDF ERROR:", exc)
+
+    try:
+        if sale_detail is not None:
+            receipt_delivery = _send_pos_receipt_to_customer(db, sale_detail)
+    except Exception as exc:
+        print("POS RECEIPT WHATSAPP ERROR:", exc)
+
     try:
         notify_operational_event(
             f"Transaksi POS {receipt_no}",
@@ -2115,5 +2262,11 @@ def pos_checkout():
             "paid_amount": _currency(paid_amount),
             "change_amount": _currency(change_amount),
             "receipt_print_url": f"/kasir/receipt/{receipt_no}/print?autoprint=1",
+            "receipt_pdf_public_url": (receipt_pdf_meta or {}).get("public_url") or "",
+            "receipt_whatsapp_status": (
+                "sent"
+                if (receipt_delivery or {}).get("ok")
+                else ("skipped" if receipt_delivery and receipt_delivery.get("ok") is None else "failed")
+            ) if receipt_delivery is not None else "pending",
         }
     )

@@ -837,7 +837,10 @@ async function loadPosCatalog(page = 1) {
         posCatalog.page = Number(data.page || 1);
 
         renderPosCatalog();
-        posCatalogSummary.textContent = `${posCatalog.totalItems} produk / varian siap dijual di ${posWarehouseName || `WH ${posWarehouseId}`}.`;
+        const pickerWarehouseLabel = posWarehouseName || `WH ${posWarehouseId}`;
+        posCatalogSummary.textContent = posCatalog.query
+            ? `Smart search "${posCatalog.query}" menemukan ${posCatalog.totalItems} produk / varian di ${pickerWarehouseLabel}.`
+            : `${posCatalog.totalItems} produk / varian siap dijual di ${pickerWarehouseLabel}.`;
         posCatalogPage.textContent = `Page ${posCatalog.page} / ${posCatalog.totalPages}`;
         posCatalogPrev.disabled = posCatalog.page <= 1;
         posCatalogNext.disabled = posCatalog.page >= posCatalog.totalPages;
