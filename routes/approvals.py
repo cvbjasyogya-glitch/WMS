@@ -3,6 +3,7 @@ from database import get_db
 from services.stock_service import add_stock, remove_stock, adjust_stock
 from services.notification_service import notify_operational_event, notify_roles, notify_user
 from services.rbac import has_permission
+from services.whatsapp_service import send_role_based_notification
 
 approvals_bp = Blueprint("approvals", __name__, url_prefix="/approvals")
 
@@ -47,6 +48,52 @@ def _approval_item_context(db, approval_row):
             approval_row.get("variant_id"),
         ),
     ).fetchone()
+
+
+def _emit_approval_role_notification(approval_row, *, event_type, reason=""):
+    if not approval_row:
+        return
+
+    approval_row = dict(approval_row)
+    db = get_db()
+    approval_item = _approval_item_context(db, approval_row)
+    if approval_item:
+        approval_item = dict(approval_item)
+    approval_type = str(approval_row.get("type") or "APPROVAL").strip().upper()
+    warehouse_label = (
+        (approval_item["warehouse_name"] if approval_item and approval_item.get("warehouse_name") else None)
+        or f"Gudang {approval_row.get('warehouse_id')}"
+    )
+    variant_label = ""
+    if approval_item:
+        variant_name = str(approval_item.get("variant_name") or "default").strip()
+        variant_label = "Default" if variant_name.lower() == "default" else variant_name
+
+    send_role_based_notification(
+        event_type,
+        {
+            "warehouse_id": approval_row.get("warehouse_id"),
+            "warehouse_name": warehouse_label,
+            "approval_type": approval_type,
+            "approver_name": session.get("username") or str(session.get("user_id") or "").strip() or "Approver",
+            "requester_name": str(approval_row.get("requester_name") or approval_row.get("requester") or "Staff").strip(),
+            "sku": (approval_item["sku"] if approval_item else ""),
+            "product_name": (approval_item["product_name"] if approval_item else ""),
+            "variant_label": variant_label,
+            "qty": approval_row.get("qty"),
+            "qty_label": str(approval_row.get("qty") or ""),
+            "reason": reason,
+            "link_url": _approval_result_link(approval_row),
+        },
+    )
+
+
+def _approval_actor_label():
+    return (
+        str(session.get("username") or "").strip()
+        or str(session.get("user_id") or "").strip()
+        or "Approver"
+    )
 
 
 @approvals_bp.route("/")
@@ -102,7 +149,15 @@ def approve(id):
         return redirect('/approvals')
 
     db = get_db()
-    a = db.execute("SELECT * FROM approvals WHERE id=?", (id,)).fetchone()
+    a = db.execute(
+        """
+        SELECT a.*, u.username AS requester_name
+        FROM approvals a
+        LEFT JOIN users u ON u.id = a.requested_by
+        WHERE a.id=?
+        """,
+        (id,),
+    ).fetchone()
 
     if not a:
         flash("Approval tidak ditemukan", "error")
@@ -161,12 +216,25 @@ def approve(id):
             except Exception as exc:
                 print("APPROVAL EXECUTION NOTIFICATION ERROR:", exc)
 
+            try:
+                _emit_approval_role_notification(
+                    a,
+                    event_type="inventory.approval_approved",
+                )
+            except Exception as exc:
+                print("APPROVAL WHATSAPP ROLE NOTIFICATION ERROR:", exc)
+
             flash('Approval disetujui dan aksi dijalankan', 'success')
             # notify requester
             try:
                 if a.get('requested_by'):
+                    actor_label = _approval_actor_label()
+                    approval_type = str(a.get('type') or "APPROVAL").strip().upper()
                     subj = f"Permintaan {a.get('type')} #{a.get('id')} disetujui"
-                    msg = f"Permintaan Anda (ID #{a.get('id')}) telah disetujui dan diproses oleh {session.get('user_id')}"
+                    msg = (
+                        f"Permintaan {approval_type} Anda (ID #{a.get('id')}) telah disetujui "
+                        f"dan diproses oleh {actor_label}."
+                    )
                     notify_user(
                         a.get('requested_by'),
                         subj,
@@ -181,12 +249,25 @@ def approve(id):
         else:
             db.execute("UPDATE approvals SET status='rejected', approved_by=?, approved_at=datetime('now') WHERE id=?", (session.get('user_id'), id))
             db.commit()
+            try:
+                _emit_approval_role_notification(
+                    a,
+                    event_type="inventory.approval_rejected",
+                    reason="gagal diproses",
+                )
+            except Exception as exc:
+                print("APPROVAL WHATSAPP ROLE REJECTION ERROR:", exc)
             flash('Gagal memproses aksi', 'error')
             # notify requester about rejection
             try:
                 if a.get('requested_by'):
+                    actor_label = _approval_actor_label()
+                    approval_type = str(a.get('type') or "APPROVAL").strip().upper()
                     subj = f"Permintaan {a.get('type')} #{a.get('id')} gagal diproses"
-                    msg = f"Permintaan Anda (ID #{a.get('id')}) ditolak atau gagal diproses oleh {session.get('user_id')}"
+                    msg = (
+                        f"Permintaan {approval_type} Anda (ID #{a.get('id')}) ditolak "
+                        f"atau gagal diproses oleh {actor_label}."
+                    )
                     notify_user(
                         a.get('requested_by'),
                         subj,
@@ -204,6 +285,14 @@ def approve(id):
         try:
             db.execute("UPDATE approvals SET status='rejected', approved_by=?, approved_at=datetime('now') WHERE id=?", (session.get('user_id'), id))
             db.commit()
+            try:
+                _emit_approval_role_notification(
+                    a,
+                    event_type="inventory.approval_rejected",
+                    reason="error sistem",
+                )
+            except Exception as exc:
+                print("APPROVAL WHATSAPP ROLE REJECTION ERROR:", exc)
         except:
             pass
         print('APPROVAL ERROR:', e)
@@ -224,17 +313,32 @@ def reject(id):
     a = db.execute("SELECT * FROM approvals WHERE id=?", (id,)).fetchone()
     if a:
         a = dict(a)
+        requester = db.execute("SELECT username FROM users WHERE id=?", (a.get("requested_by"),)).fetchone()
+        a["requester_name"] = requester["username"] if requester else ""
     if role == 'leader' and session.get('warehouse_id') and a and a['warehouse_id'] != session.get('warehouse_id'):
         flash('Tidak punya akses untuk approval ini', 'error')
         return redirect('/approvals')
 
     db.execute("UPDATE approvals SET status='rejected', approved_by=?, approved_at=datetime('now'), note=COALESCE(note, '') || ' | REJECT: ' || ? WHERE id=?", (session.get('user_id'), reason, id))
     db.commit()
+    try:
+        _emit_approval_role_notification(
+            a,
+            event_type="inventory.approval_rejected",
+            reason=reason,
+        )
+    except Exception as exc:
+        print("APPROVAL WHATSAPP ROLE REJECTION ERROR:", exc)
     # notify requester about rejection
     try:
         if a and a.get('requested_by'):
+            actor_label = _approval_actor_label()
+            approval_type = str(a.get('type') or "APPROVAL").strip().upper()
             subj = f"Permintaan {a.get('type')} #{a.get('id')} ditolak"
-            msg = f"Permintaan Anda (ID #{a.get('id')}) telah ditolak oleh {session.get('user_id')}. Alasan: {reason}"
+            msg = (
+                f"Permintaan {approval_type} Anda (ID #{a.get('id')}) telah ditolak oleh "
+                f"{actor_label}. Alasan: {reason}"
+            )
             notify_user(
                 a.get('requested_by'),
                 subj,

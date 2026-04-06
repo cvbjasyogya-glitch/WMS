@@ -750,13 +750,15 @@ class WmsRoutesTestCase(unittest.TestCase):
         print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print?autoprint=1")
         self.assertEqual(print_response.status_code, 200)
         print_html = print_response.get_data(as_text=True)
-        self.assertIn("Nota Penjualan POS", print_html)
+        self.assertIn("Nota Pembelian", print_html)
+        self.assertIn("CV BERKAH JAYA ABADI SPORTS", print_html)
         self.assertIn(receipt_no, print_html)
         self.assertIn("Customer Nota", print_html)
         self.assertIn("POS-NOTA-001", print_html)
         self.assertIn("Subtotal", print_html)
-        self.assertIn("Potongan", print_html)
+        self.assertIn("Diskon", print_html)
         self.assertIn("Pajak", print_html)
+        self.assertIn("Customer Service:", print_html)
         self.assertIn("Simpan sebagai PDF", print_html)
         self.assertIn("window.print()", print_html)
 
@@ -9035,6 +9037,32 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(mocked_role_notify.call_args.args[1]["item_count"], 1)
         self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/approvals")
 
+    def test_adjust_request_triggers_role_based_whatsapp_notification(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="ADJWA")
+        variant_id = variants_rows[0]["id"]
+
+        with patch("routes.stock.send_role_based_notification") as mocked_role_notify:
+            adjust_response = self.client.post(
+                "/stock/adjust",
+                data={
+                    "product_id": str(product_id),
+                    "variant_id": str(variant_id),
+                    "warehouse_id": "1",
+                    "qty": "-1",
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(adjust_response.status_code, 200)
+        self.assertEqual(adjust_response.get_json()["status"], "pending")
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "inventory.adjust_approval_requested")
+        self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["item_count"], 1)
+        self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/approvals")
+
     def test_inventory_activity_notifications_reach_monitoring_roles(self):
         self.create_user("owner_inventory_monitor", "pass1234", "owner")
         self.create_user("leader_inventory_notify", "pass1234", "leader", warehouse_id=1)
@@ -10222,11 +10250,14 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.logout()
         self.login("leader_test", "pass1234")
-        approve_response = self.client.post(
-            f"/approvals/approve/{approval['id']}",
-            follow_redirects=False,
-        )
+        with patch("routes.approvals.send_role_based_notification") as mocked_role_notify:
+            approve_response = self.client.post(
+                f"/approvals/approve/{approval['id']}",
+                follow_redirects=False,
+            )
         self.assertEqual(approve_response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "inventory.approval_approved")
 
         with self.app.app_context():
             db = get_db()
@@ -10241,6 +10272,155 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(approval_after["status"], "approved")
         self.assertEqual(stock_after["qty"], 3)
+
+    def test_approved_approval_notifies_requester(self):
+        self.create_user("leader_notify_requester", "pass1234", "leader", warehouse_id=1)
+        self.create_user(
+            "requester_approval_wa",
+            "pass1234",
+            "admin",
+            warehouse_id=1,
+            phone="081234567890",
+            notify_whatsapp=1,
+        )
+
+        self.login("requester_approval_wa", "pass1234")
+        _, product_id, variants_rows = self.create_product(variants="REQAPP")
+        variant_id = variants_rows[0]["id"]
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-1",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                "SELECT id, requested_by FROM approvals WHERE product_id=? ORDER BY id DESC LIMIT 1",
+                (product_id,),
+            ).fetchone()
+
+        self.logout()
+        self.login("leader_notify_requester", "pass1234")
+        with patch("routes.approvals.notify_user") as mocked_notify_user:
+            approve_response = self.client.post(
+                f"/approvals/approve/{approval['id']}",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(approve_response.status_code, 302)
+        mocked_notify_user.assert_called_once()
+        self.assertEqual(mocked_notify_user.call_args.args[0], approval["requested_by"])
+        self.assertIn("disetujui", mocked_notify_user.call_args.args[1].lower())
+        self.assertIn("disetujui", mocked_notify_user.call_args.args[2].lower())
+
+
+    def test_reject_approval_triggers_role_based_whatsapp_notification(self):
+        self.create_user("leader_reject_test", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="REJWA")
+        variant_id = variants_rows[0]["id"]
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-2",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+        self.assertEqual(adjust_response.get_json()["status"], "pending")
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                "SELECT id, status FROM approvals WHERE product_id=? ORDER BY id DESC LIMIT 1",
+                (product_id,),
+            ).fetchone()
+
+        self.logout()
+        self.login("leader_reject_test", "pass1234")
+        with patch("routes.approvals.send_role_based_notification") as mocked_role_notify:
+            reject_response = self.client.post(
+                f"/approvals/reject/{approval['id']}",
+                data={"reason": "stok tidak sesuai"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(reject_response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "inventory.approval_rejected")
+        self.assertIn("stok tidak sesuai", mocked_role_notify.call_args.args[1]["reason"])
+
+    def test_rejected_approval_notifies_requester(self):
+        self.create_user("leader_reject_requester", "pass1234", "leader", warehouse_id=1)
+        self.create_user(
+            "requester_reject_wa",
+            "pass1234",
+            "admin",
+            warehouse_id=1,
+            phone="081277766655",
+            notify_whatsapp=1,
+        )
+
+        self.login("requester_reject_wa", "pass1234")
+        _, product_id, variants_rows = self.create_product(variants="REJUSR")
+        variant_id = variants_rows[0]["id"]
+
+        adjust_response = self.client.post(
+            "/stock/adjust",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "warehouse_id": "1",
+                "qty": "-2",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(adjust_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                "SELECT id, requested_by FROM approvals WHERE product_id=? ORDER BY id DESC LIMIT 1",
+                (product_id,),
+            ).fetchone()
+
+        self.logout()
+        self.login("leader_reject_requester", "pass1234")
+        with patch("routes.approvals.notify_user") as mocked_notify_user:
+            reject_response = self.client.post(
+                f"/approvals/reject/{approval['id']}",
+                data={"reason": "stok tidak sesuai"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(reject_response.status_code, 302)
+        mocked_notify_user.assert_called_once()
+        self.assertEqual(mocked_notify_user.call_args.args[0], approval["requested_by"])
+        self.assertIn("ditolak", mocked_notify_user.call_args.args[1].lower())
+        self.assertIn("stok tidak sesuai", mocked_notify_user.call_args.args[2].lower())
+
+    def test_role_event_mapping_includes_super_admin_for_attendance_and_approval_events(self):
+        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["attendance.activity"])
+        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.inbound_approval_requested"])
+        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.outbound_approval_requested"])
+        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.adjust_approval_requested"])
+        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.approval_approved"])
+        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.approval_rejected"])
 
     def test_leader_bulk_adjust_rejects_zero_qty(self):
         self.create_user("leader_zero", "pass1234", "leader", warehouse_id=1)

@@ -14,9 +14,12 @@ except ImportError:
 
 
 ROLE_EVENT_RECIPIENTS = {
-    "attendance.activity": ("owner", "hr"),
-    "inventory.inbound_approval_requested": ("owner",),
-    "inventory.outbound_approval_requested": ("owner",),
+    "attendance.activity": ("owner", "hr", "super_admin"),
+    "inventory.inbound_approval_requested": ("owner", "super_admin"),
+    "inventory.outbound_approval_requested": ("owner", "super_admin"),
+    "inventory.adjust_approval_requested": ("owner", "super_admin"),
+    "inventory.approval_approved": ("owner", "super_admin"),
+    "inventory.approval_rejected": ("owner", "super_admin"),
     "report.daily_submitted": ("hr",),
     "report.live_submitted": ("hr",),
 }
@@ -357,6 +360,14 @@ def _build_event_subject_message(event_type, payload):
     time_label = str(payload.get("time_label") or payload.get("submitted_time") or "").strip()
     title = str(payload.get("title") or "").strip()
     item_count = int(payload.get("item_count") or 0)
+    approval_type = str(payload.get("approval_type") or "APPROVAL").strip().upper()
+    approver_name = str(payload.get("approver_name") or "Approver").strip()
+    requester_name = str(payload.get("requester_name") or employee_name or "Staff").strip()
+    sku = str(payload.get("sku") or "").strip()
+    product_name = str(payload.get("product_name") or "").strip()
+    variant_label = str(payload.get("variant_label") or "").strip()
+    qty_label = str(payload.get("qty_label") or payload.get("qty") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
 
     if event_type == "attendance.activity":
         punch_label = str(payload.get("punch_label") or "Absensi").strip()
@@ -398,6 +409,37 @@ def _build_event_subject_message(event_type, payload):
         message = explicit_message or (
             f"Ada {item_count} item outbound yang menunggu approval di {warehouse_name}"
             f"{f'. Pengaju: {employee_name}.' if employee_name else '.'}"
+        )
+        return subject, message
+
+    if event_type == "inventory.adjust_approval_requested":
+        subject = explicit_subject or f"Approval Adjust: {warehouse_name}"
+        message = explicit_message or (
+            f"Ada {item_count} item adjustment yang menunggu approval di {warehouse_name}"
+            f"{f'. Pengaju: {employee_name}.' if employee_name else '.'}"
+        )
+        return subject, message
+
+    if event_type == "inventory.approval_approved":
+        item_label = " / ".join(part for part in [sku, product_name, variant_label] if part)
+        subject = explicit_subject or f"Approval {approval_type} Disetujui"
+        message = explicit_message or (
+            f"{approval_type} di {warehouse_name} disetujui oleh {approver_name}."
+            f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
+            f"{f' Item: {item_label}.' if item_label else ''}"
+            f"{f' Qty: {qty_label}.' if qty_label else ''}"
+        )
+        return subject, message
+
+    if event_type == "inventory.approval_rejected":
+        item_label = " / ".join(part for part in [sku, product_name, variant_label] if part)
+        subject = explicit_subject or f"Approval {approval_type} Ditolak"
+        message = explicit_message or (
+            f"{approval_type} di {warehouse_name} ditolak oleh {approver_name}."
+            f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
+            f"{f' Item: {item_label}.' if item_label else ''}"
+            f"{f' Qty: {qty_label}.' if qty_label else ''}"
+            f"{f' Alasan: {reason}.' if reason else ''}"
         )
         return subject, message
 

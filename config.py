@@ -178,6 +178,8 @@ class Config:
         .lower()
     )
     PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    STORE_NAME = (os.getenv("STORE_NAME") or "CV BERKAH JAYA ABADI SPORTS").strip()
+    STORE_PHONE = (os.getenv("STORE_PHONE") or "").strip()
     ENFORCE_SAME_ORIGIN_POSTS = _env_flag("ENFORCE_SAME_ORIGIN_POSTS", True)
     ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS = _env_flag(
         "ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS",

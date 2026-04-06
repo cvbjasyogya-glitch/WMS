@@ -1,7 +1,7 @@
 from datetime import date as date_cls, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session
 
 from database import get_db
 from services.notification_service import notify_operational_event
@@ -1846,6 +1846,8 @@ def pos_receipt_print(receipt_no):
     return render_template(
         "pos_receipt_print.html",
         sale=sale,
+        store_name=str(current_app.config.get("STORE_NAME") or "CV BERKAH JAYA ABADI SPORTS").strip(),
+        store_phone=str(current_app.config.get("STORE_PHONE") or "").strip(),
         auto_print=request.args.get("autoprint") == "1",
     )
 

@@ -9,6 +9,7 @@ from database import get_db
 
 from services.stock_service import adjust_stock
 from services.notification_service import notify_operational_event, notify_roles
+from services.whatsapp_service import send_role_based_notification
 from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role, normalize_role
 from routes.products import build_product_studio_context
@@ -904,6 +905,24 @@ def adjust():
                 )
             except Exception as e:
                 print("NOTIFY ERROR:", e)
+
+            try:
+                warehouse_row = db.execute(
+                    "SELECT name FROM warehouses WHERE id=?",
+                    (warehouse_id,),
+                ).fetchone()
+                send_role_based_notification(
+                    "inventory.adjust_approval_requested",
+                    {
+                        "warehouse_id": warehouse_id,
+                        "warehouse_name": ((warehouse_row["name"] if warehouse_row else "") or f"Gudang {warehouse_id}").strip(),
+                        "requester_name": session.get("username") or "Staff",
+                        "item_count": 1,
+                        "link_url": "/approvals",
+                    },
+                )
+            except Exception as exc:
+                print("ADJUST WHATSAPP ROLE NOTIFICATION ERROR:", exc)
 
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
                 return jsonify({"status": "pending", "message": "Permintaan dikirim ke leader untuk approval"})

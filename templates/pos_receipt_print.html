@@ -7,13 +7,14 @@
 <style>
     :root {
         color-scheme: light;
-        --receipt-bg: #eef3f8;
+        --receipt-bg: #e9f0f7;
         --receipt-paper: #ffffff;
-        --receipt-border: #d7e1eb;
-        --receipt-text: #172638;
-        --receipt-muted: #63758a;
-        --receipt-accent: #1d79c7;
-        --receipt-soft: #f4f8fc;
+        --receipt-ink: #14273a;
+        --receipt-muted: #64748b;
+        --receipt-border: #d7e2ec;
+        --receipt-line: #b8c9da;
+        --receipt-accent: #153e75;
+        --receipt-accent-soft: #eef4fb;
     }
 
     * {
@@ -23,13 +24,15 @@
     body {
         margin: 0;
         padding: 24px;
-        background: var(--receipt-bg);
-        color: var(--receipt-text);
-        font: 14px/1.5 "Segoe UI", Tahoma, sans-serif;
+        background:
+            radial-gradient(circle at top left, rgba(29, 121, 199, 0.08), transparent 28%),
+            linear-gradient(180deg, #edf3f9 0%, #e6edf5 100%);
+        color: var(--receipt-ink);
+        font: 14px/1.55 "Segoe UI", Tahoma, sans-serif;
     }
 
     .receipt-shell {
-        max-width: 860px;
+        max-width: 840px;
         margin: 0 auto;
         display: grid;
         gap: 16px;
@@ -42,20 +45,13 @@
         gap: 10px;
     }
 
-    .receipt-actions-inline {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-        gap: 10px;
-    }
-
     .receipt-button {
         min-height: 42px;
         padding: 0 16px;
-        border-radius: 12px;
+        border-radius: 999px;
         border: 1px solid var(--receipt-border);
         background: #ffffff;
-        color: var(--receipt-text);
+        color: var(--receipt-ink);
         text-decoration: none;
         font: inherit;
         font-weight: 700;
@@ -63,183 +59,276 @@
     }
 
     .receipt-button.is-primary {
-        border-color: #b8d2ea;
-        background: linear-gradient(180deg, #fdfefe 0%, #eaf4fd 100%);
+        border-color: #c5d7eb;
+        background: linear-gradient(180deg, #ffffff 0%, #eef6ff 100%);
         color: var(--receipt-accent);
     }
 
     .receipt-paper {
         background: var(--receipt-paper);
         border: 1px solid var(--receipt-border);
-        border-radius: 24px;
-        padding: 28px;
-        box-shadow: 0 18px 50px rgba(23, 38, 56, 0.08);
+        border-radius: 28px;
+        padding: 30px;
+        box-shadow: 0 22px 54px rgba(20, 39, 58, 0.08);
     }
 
-    .receipt-head,
-    .receipt-meta,
-    .receipt-summary,
-    .receipt-signoff {
+    .receipt-top {
         display: grid;
-        gap: 14px;
+        gap: 10px;
+        text-align: center;
     }
 
-    .receipt-head {
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: start;
-        padding-bottom: 18px;
-        border-bottom: 1px dashed var(--receipt-border);
+    .receipt-brand {
+        display: grid;
+        gap: 4px;
+    }
+
+    .receipt-brand strong {
+        font-size: 1.95rem;
+        line-height: 1.05;
+        letter-spacing: 0.01em;
     }
 
     .receipt-brand span,
-    .receipt-meta-card span,
-    .receipt-summary-card span,
-    .receipt-note-label {
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--receipt-muted);
-    }
-
-    .receipt-brand h1 {
-        margin: 8px 0 6px;
-        font-size: 28px;
-        line-height: 1.05;
-    }
-
-    .receipt-brand p,
+    .receipt-brand small,
+    .receipt-footer-note,
+    .receipt-item-meta,
     .receipt-note {
-        margin: 0;
         color: var(--receipt-muted);
+    }
+
+    .receipt-status-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
     }
 
     .receipt-chip {
         display: inline-flex;
         align-items: center;
-        min-height: 36px;
+        justify-content: center;
+        min-height: 34px;
         padding: 0 14px;
         border-radius: 999px;
-        border: 1px solid #bed8ef;
-        background: #eef6fd;
+        border: 1px solid #cddcec;
+        background: var(--receipt-accent-soft);
         color: var(--receipt-accent);
         font-weight: 800;
-    }
-
-    .receipt-meta,
-    .receipt-summary {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-
-    .receipt-meta-card,
-    .receipt-summary-card,
-    .receipt-note-box,
-    .receipt-signoff-card {
-        padding: 14px 16px;
-        border-radius: 16px;
-        border: 1px solid var(--receipt-border);
-        background: var(--receipt-soft);
-    }
-
-    .receipt-meta-card strong,
-    .receipt-summary-card strong,
-    .receipt-signoff-card strong {
-        display: block;
-        margin-top: 6px;
-        font-size: 15px;
-    }
-
-    .receipt-summary-card small {
-        display: block;
-        margin-top: 4px;
-        color: var(--receipt-muted);
-    }
-
-    .receipt-table-wrap {
-        margin: 18px 0;
-        overflow: hidden;
-        border: 1px solid var(--receipt-border);
-        border-radius: 18px;
-    }
-
-    .receipt-table {
-        width: 100%;
-        border-collapse: collapse;
-        background: #ffffff;
-    }
-
-    .receipt-table th,
-    .receipt-table td {
-        padding: 12px 14px;
-        border-bottom: 1px solid #e4ebf3;
-        vertical-align: top;
-        text-align: left;
-    }
-
-    .receipt-table th {
-        background: #edf4fb;
-        color: #4d6277;
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.08em;
+        font-size: 0.84rem;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
     }
 
-    .receipt-table tbody tr:last-child td {
+    .receipt-divider {
+        margin: 18px 0;
+        border-top: 1px dashed var(--receipt-line);
+    }
+
+    .receipt-info {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px 18px;
+        margin-bottom: 16px;
+    }
+
+    .receipt-info-row {
+        display: grid;
+        grid-template-columns: 116px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+    }
+
+    .receipt-info-row span {
+        color: var(--receipt-muted);
+        font-weight: 700;
+    }
+
+    .receipt-info-row strong {
+        font-size: 1rem;
+        font-weight: 800;
+        word-break: break-word;
+    }
+
+    .receipt-items {
+        margin-top: 10px;
+        border: 1px solid var(--receipt-border);
+        border-radius: 20px;
+        overflow: hidden;
+    }
+
+    .receipt-items-head,
+    .receipt-item-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 86px 160px;
+        gap: 12px;
+        align-items: start;
+    }
+
+    .receipt-items-head {
+        padding: 12px 16px;
+        background: #f5f8fc;
+        border-bottom: 1px solid var(--receipt-border);
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--receipt-muted);
+    }
+
+    .receipt-items-body {
+        padding: 8px 16px 10px;
+    }
+
+    .receipt-item-row {
+        padding: 14px 0;
+        border-bottom: 1px dashed #dbe5ef;
+    }
+
+    .receipt-item-row:last-child {
         border-bottom: 0;
     }
 
-    .receipt-table td:last-child,
-    .receipt-table th:last-child,
-    .receipt-table td:nth-last-child(2),
-    .receipt-table th:nth-last-child(2) {
+    .receipt-item-name {
+        font-size: 1rem;
+        font-weight: 800;
+        line-height: 1.35;
+    }
+
+    .receipt-item-meta {
+        margin-top: 4px;
+        font-size: 0.9rem;
+    }
+
+    .receipt-item-qty,
+    .receipt-item-subtotal {
+        font-weight: 800;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .receipt-item-subtotal {
+        display: grid;
+        justify-items: end;
+        gap: 4px;
+    }
+
+    .receipt-item-void {
+        font-size: 0.82rem;
+        color: #b45309;
+    }
+
+    .receipt-total-box {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+        padding: 18px 20px;
+        border-radius: 22px;
+        border: 1px solid var(--receipt-border);
+        background: linear-gradient(180deg, #ffffff 0%, #f7fafd 100%);
+    }
+
+    .receipt-total-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        font-size: 0.97rem;
+    }
+
+    .receipt-total-row span:first-child {
+        color: var(--receipt-muted);
+        font-weight: 700;
+    }
+
+    .receipt-total-row strong {
+        font-size: 1rem;
         text-align: right;
     }
 
-    .receipt-table small {
-        display: block;
-        color: var(--receipt-muted);
+    .receipt-total-row.is-total {
+        padding-top: 10px;
+        border-top: 1px dashed var(--receipt-line);
+    }
+
+    .receipt-total-row.is-total span:first-child,
+    .receipt-total-row.is-total strong {
+        color: var(--receipt-accent);
+        font-size: 1.1rem;
+        font-weight: 900;
     }
 
     .receipt-note-box {
         margin-top: 18px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--receipt-border);
+        background: #fafcff;
     }
 
-    .receipt-signoff {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+    .receipt-note-box strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--receipt-muted);
+    }
+
+    .receipt-footer {
         margin-top: 18px;
+        display: grid;
+        gap: 8px;
+        text-align: center;
     }
 
-    @media (max-width: 900px) {
+    .receipt-footer strong {
+        font-size: 1rem;
+    }
+
+    .receipt-footer-note {
+        margin: 0;
+    }
+
+    @media (max-width: 760px) {
         body {
             padding: 14px;
         }
 
         .receipt-paper {
             padding: 18px;
-            border-radius: 18px;
+            border-radius: 20px;
         }
 
-        .receipt-head,
-        .receipt-meta,
-        .receipt-summary,
-        .receipt-signoff {
+        .receipt-info,
+        .receipt-items-head,
+        .receipt-item-row {
             grid-template-columns: 1fr;
         }
 
-        .receipt-table-wrap {
-            overflow: auto;
+        .receipt-info-row {
+            grid-template-columns: 98px minmax(0, 1fr);
         }
 
-        .receipt-table {
-            min-width: 620px;
+        .receipt-item-qty,
+        .receipt-item-subtotal {
+            text-align: left;
+            justify-items: start;
+        }
+
+        .receipt-items-head {
+            display: none;
+        }
+
+        .receipt-item-row {
+            gap: 6px;
         }
     }
 
     @media print {
         @page {
             size: A5 portrait;
-            margin: 10mm;
+            margin: 9mm;
         }
 
         body {
@@ -252,17 +341,10 @@
         }
 
         .receipt-paper {
+            padding: 0;
             border: 0;
             border-radius: 0;
             box-shadow: none;
-            padding: 0;
-        }
-
-        .receipt-meta-card,
-        .receipt-summary-card,
-        .receipt-note-box,
-        .receipt-signoff-card {
-            break-inside: avoid;
         }
     }
 </style>
@@ -275,125 +357,120 @@
     </div>
 
     <article class="receipt-paper">
-        <header class="receipt-head">
+        <header class="receipt-top">
             <div class="receipt-brand">
-                <span>ERP-CV.BJAS</span>
-                <h1>Nota Penjualan POS</h1>
-                <p>{{ sale.warehouse_name }} - {{ sale.sale_date }} - {{ sale.created_time_label }}</p>
+                <strong>{{ store_name }}</strong>
+                <span>Nota Pembelian</span>
+                <small>{{ sale.warehouse_name }} | {{ sale.sale_date }} | {{ sale.created_time_label }}</small>
             </div>
-            <div class="receipt-actions-inline">
+            <div class="receipt-status-row">
                 <span class="receipt-chip">{{ sale.receipt_no }}</span>
                 <span class="receipt-chip">{{ sale.status_label }}</span>
             </div>
         </header>
 
-        <section class="receipt-meta">
-            <div class="receipt-meta-card">
-                <span>Customer</span>
+        <div class="receipt-divider"></div>
+
+        <section class="receipt-info">
+            <div class="receipt-info-row">
+                <span>No Nota</span>
+                <strong>{{ sale.receipt_no }}</strong>
+            </div>
+            <div class="receipt-info-row">
+                <span>Tanggal</span>
+                <strong>{{ sale.sale_date }} {{ sale.created_time_label }}</strong>
+            </div>
+            <div class="receipt-info-row">
+                <span>Pelanggan</span>
                 <strong>{{ sale.customer_name }}</strong>
             </div>
-            <div class="receipt-meta-card">
-                <span>Kontak</span>
+            <div class="receipt-info-row">
+                <span>WhatsApp</span>
                 <strong>{{ sale.customer_phone_label }}</strong>
             </div>
-            <div class="receipt-meta-card">
-                <span>Kasir / Sales</span>
-                <strong>{{ sale.cashier_name }}</strong>
-            </div>
-            <div class="receipt-meta-card">
-                <span>Pembayaran</span>
+            <div class="receipt-info-row">
+                <span>Bayar Via</span>
                 <strong>{{ sale.payment_method_label }}</strong>
+            </div>
+            <div class="receipt-info-row">
+                <span>Kasir / Sales</span>
+                <strong>{{ sale.cashier_identity_label }}</strong>
             </div>
         </section>
 
-        <div class="receipt-table-wrap">
-            <table class="receipt-table">
-                <thead>
-                    <tr>
-                        <th>SKU</th>
-                        <th>Produk</th>
-                        <th>Qty Aktif</th>
-                        <th>Harga</th>
-                        <th>Total Aktif</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in sale["items"] %}
-                    <tr>
-                        <td>{{ item.sku }}</td>
-                        <td>
-                            <strong>{{ item.product_name }}</strong>
-                            <small>{{ item.variant_name }}</small>
-                            {% if item.void_qty %}
-                            <small>Terjual {{ item.qty }} | Void {{ item.void_qty }}</small>
-                            {% endif %}
-                        </td>
-                        <td>{{ item.active_qty }}</td>
-                        <td>{{ item.unit_price_label }}</td>
-                        <td>
-                            <strong>{{ item.active_line_total_label }}</strong>
-                            {% if item.void_qty %}
-                            <small>Void {{ item.void_amount_label }}</small>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <div class="receipt-divider"></div>
 
-        <section class="receipt-summary">
-            <div class="receipt-summary-card">
-                <span>Total Item</span>
-                <strong>{{ sale.total_items }}</strong>
+        <section class="receipt-items" aria-label="Daftar barang nota">
+            <div class="receipt-items-head">
+                <div>Nama Barang / Varian</div>
+                <div style="text-align:right;">Qty</div>
+                <div style="text-align:right;">Subtotal</div>
             </div>
-            <div class="receipt-summary-card">
+            <div class="receipt-items-body">
+                {% for item in sale["items"] %}
+                <div class="receipt-item-row">
+                    <div>
+                        <div class="receipt-item-name">{{ item.product_name }}</div>
+                        <div class="receipt-item-meta">{{ item.variant_name }} / {{ item.sku }}</div>
+                        {% if item.void_qty %}
+                        <div class="receipt-item-void">Terjual {{ item.qty }} | Void {{ item.void_qty }}{% if item.void_note %} | {{ item.void_note }}{% endif %}</div>
+                        {% endif %}
+                    </div>
+                    <div class="receipt-item-qty">{{ item.active_qty }}</div>
+                    <div class="receipt-item-subtotal">
+                        <strong>{{ item.active_line_total_label }}</strong>
+                        {% if item.void_qty %}
+                        <span class="receipt-item-void">Void {{ item.void_amount_label }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="receipt-total-box">
+            <div class="receipt-total-row">
                 <span>Subtotal</span>
                 <strong>{{ sale.subtotal_amount_label }}</strong>
             </div>
-            <div class="receipt-summary-card">
-                <span>Potongan</span>
+            <div class="receipt-total-row">
+                <span>Diskon</span>
                 <strong>{{ sale.discount_amount_label }}</strong>
-                <small>{{ sale.discount_rule_label }}</small>
             </div>
-            <div class="receipt-summary-card">
+            <div class="receipt-total-row">
                 <span>Pajak</span>
                 <strong>{{ sale.tax_amount_label }}</strong>
-                <small>{{ sale.tax_rule_label }}</small>
             </div>
-            <div class="receipt-summary-card">
-                <span>Grand Total</span>
+            <div class="receipt-total-row is-total">
+                <span>Total</span>
                 <strong>{{ sale.total_amount_label }}</strong>
             </div>
-            <div class="receipt-summary-card">
+            <div class="receipt-total-row">
                 <span>Bayar</span>
                 <strong>{{ sale.paid_amount_label }}</strong>
             </div>
-            <div class="receipt-summary-card">
+            <div class="receipt-total-row">
                 <span>Kembalian</span>
                 <strong>{{ sale.change_amount_label }}</strong>
             </div>
         </section>
 
         <section class="receipt-note-box">
-            <div class="receipt-note-label">Catatan Transaksi</div>
-            <p class="receipt-note">{{ sale.note or "Tidak ada catatan tambahan." }}</p>
+            <strong>Catatan</strong>
+            <p class="receipt-note">{{ sale.note or "Terima kasih sudah berbelanja. Simpan nota ini sebagai bukti pembelian." }}</p>
         </section>
 
-        <section class="receipt-signoff">
-            <div class="receipt-signoff-card">
-                <span>Gudang</span>
-                <strong>{{ sale.warehouse_name }}</strong>
-            </div>
-            <div class="receipt-signoff-card">
-                <span>Staff</span>
-                <strong>{{ sale.cashier_identity_label }}</strong>
-            </div>
-            <div class="receipt-signoff-card">
-                <span>Dicetak</span>
-                <strong>{{ sale.created_datetime_label }}</strong>
-            </div>
-        </section>
+        <div class="receipt-divider"></div>
+
+        <footer class="receipt-footer">
+            <strong>Terima kasih sudah berbelanja.</strong>
+            <p class="receipt-footer-note">Simpan nota ini sebagai bukti pembelian.</p>
+            <p class="receipt-footer-note">Customer Service:</p>
+            {% if store_phone %}
+            <p class="receipt-footer-note">{{ store_phone }}</p>
+            {% endif %}
+            <p class="receipt-footer-note">{{ store_name }}</p>
+        </footer>
     </article>
 </div>
 
