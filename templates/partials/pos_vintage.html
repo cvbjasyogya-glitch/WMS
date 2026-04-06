@@ -220,12 +220,32 @@
                             <span>Sub Total</span>
                             <strong id="posSubtotalValue">Rp 0</strong>
                         </div>
-                        <div>
-                            <span>Potongan</span>
-                            <strong id="posDiscountValue">Rp 0</strong>
+                        <div class="pos-ipos-summary-input pos-ipos-adjustment-input">
+                            <span>Potongan Custom</span>
+                            <div class="pos-ipos-adjustment-controls">
+                                <select id="posDiscountType" aria-label="Tipe potongan harga">
+                                    <option value="amount">Rp</option>
+                                    <option value="percent">%</option>
+                                </select>
+                                <input type="number" id="posDiscountInput" min="0" step="0.01" placeholder="0" inputmode="decimal">
+                            </div>
                         </div>
                         <div>
-                            <span>Pajak</span>
+                            <span>Nilai Potongan</span>
+                            <strong id="posDiscountValue">Rp 0</strong>
+                        </div>
+                        <div class="pos-ipos-summary-input pos-ipos-adjustment-input">
+                            <span>Pajak Custom</span>
+                            <div class="pos-ipos-adjustment-controls">
+                                <select id="posTaxType" aria-label="Tipe pajak">
+                                    <option value="amount">Rp</option>
+                                    <option value="percent">%</option>
+                                </select>
+                                <input type="number" id="posTaxInput" min="0" step="0.01" placeholder="0" inputmode="decimal">
+                            </div>
+                        </div>
+                        <div>
+                            <span>Nilai Pajak</span>
                             <strong id="posTaxValue">Rp 0</strong>
                         </div>
                         <label class="pos-ipos-summary-input" for="posPaidAmount">
@@ -398,6 +418,7 @@
                             <td>
                                 <strong>{{ sale.receipt_no }}</strong>
                                 <div class="helper-text">{{ sale.warehouse_name }}</div>
+                                <div class="helper-text">{{ sale.status_label }}</div>
                             </td>
                             <td>
                                 <strong>{{ sale.created_time_label }}</strong>
@@ -413,7 +434,25 @@
                             </td>
                             <td class="pos-sales-log-items">
                                 {% for item in sale.item_preview_lines %}
-                                <div class="helper-text">{{ item.summary_label }}</div>
+                                <div class="pos-sales-log-itemline" data-item-status="{{ item.status }}">
+                                    <div>
+                                        <div class="helper-text">{{ item.summary_label }}</div>
+                                        <div class="helper-text">{{ item.detail_label }}</div>
+                                        {% if item.void_qty %}
+                                        <div class="helper-text">Void {{ item.void_qty }} | Nilai void {{ item.void_amount_label }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% if item.can_void %}
+                                    <button
+                                        type="button"
+                                        class="pos-vintage-mini danger"
+                                        data-pos-void-item-id="{{ item.id }}"
+                                        data-pos-voidable-qty="{{ item.voidable_qty }}"
+                                    >
+                                        Void Barang
+                                    </button>
+                                    {% endif %}
+                                </div>
                                 {% endfor %}
                                 {% if sale.item_preview_more %}
                                 <div class="helper-text">+{{ sale.item_preview_more }} item lain</div>
@@ -425,10 +464,12 @@
                             </td>
                             <td>
                                 <strong>{{ sale.total_amount_label }}</strong>
-                                <div class="helper-text">Bayar {{ sale.paid_amount_label }}</div>
+                                <div class="helper-text">Subtotal {{ sale.subtotal_amount_label }}</div>
+                                <div class="helper-text">Disc {{ sale.discount_amount_label }} | Pajak {{ sale.tax_amount_label }}</div>
                             </td>
                             <td>{{ sale.note or "-" }}</td>
                             <td class="pos-sales-log-actions">
+                                <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
                                 <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="pos-vintage-mini">Cetak PDF</a>
                             </td>
                         </tr>

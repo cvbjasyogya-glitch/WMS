@@ -42,6 +42,13 @@
         gap: 10px;
     }
 
+    .receipt-actions-inline {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
     .receipt-button {
         min-height: 42px;
         padding: 0 16px;
@@ -140,6 +147,12 @@
         display: block;
         margin-top: 6px;
         font-size: 15px;
+    }
+
+    .receipt-summary-card small {
+        display: block;
+        margin-top: 4px;
+        color: var(--receipt-muted);
     }
 
     .receipt-table-wrap {
@@ -266,9 +279,12 @@
             <div class="receipt-brand">
                 <span>ERP-CV.BJAS</span>
                 <h1>Nota Penjualan POS</h1>
-                <p>{{ sale.warehouse_name }} · {{ sale.sale_date }} · {{ sale.created_time_label }}</p>
+                <p>{{ sale.warehouse_name }} - {{ sale.sale_date }} - {{ sale.created_time_label }}</p>
             </div>
-            <span class="receipt-chip">{{ sale.receipt_no }}</span>
+            <div class="receipt-actions-inline">
+                <span class="receipt-chip">{{ sale.receipt_no }}</span>
+                <span class="receipt-chip">{{ sale.status_label }}</span>
+            </div>
         </header>
 
         <section class="receipt-meta">
@@ -296,9 +312,9 @@
                     <tr>
                         <th>SKU</th>
                         <th>Produk</th>
-                        <th>Qty</th>
+                        <th>Qty Aktif</th>
                         <th>Harga</th>
-                        <th>Total</th>
+                        <th>Total Aktif</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -308,10 +324,18 @@
                         <td>
                             <strong>{{ item.product_name }}</strong>
                             <small>{{ item.variant_name }}</small>
+                            {% if item.void_qty %}
+                            <small>Terjual {{ item.qty }} | Void {{ item.void_qty }}</small>
+                            {% endif %}
                         </td>
-                        <td>{{ item.qty }}</td>
+                        <td>{{ item.active_qty }}</td>
                         <td>{{ item.unit_price_label }}</td>
-                        <td><strong>{{ item.line_total_label }}</strong></td>
+                        <td>
+                            <strong>{{ item.active_line_total_label }}</strong>
+                            {% if item.void_qty %}
+                            <small>Void {{ item.void_amount_label }}</small>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -322,6 +346,20 @@
             <div class="receipt-summary-card">
                 <span>Total Item</span>
                 <strong>{{ sale.total_items }}</strong>
+            </div>
+            <div class="receipt-summary-card">
+                <span>Subtotal</span>
+                <strong>{{ sale.subtotal_amount_label }}</strong>
+            </div>
+            <div class="receipt-summary-card">
+                <span>Potongan</span>
+                <strong>{{ sale.discount_amount_label }}</strong>
+                <small>{{ sale.discount_rule_label }}</small>
+            </div>
+            <div class="receipt-summary-card">
+                <span>Pajak</span>
+                <strong>{{ sale.tax_amount_label }}</strong>
+                <small>{{ sale.tax_rule_label }}</small>
             </div>
             <div class="receipt-summary-card">
                 <span>Grand Total</span>

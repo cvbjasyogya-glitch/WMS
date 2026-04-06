@@ -567,7 +567,16 @@ class WmsRoutesTestCase(unittest.TestCase):
 
             pos_sale = db.execute(
                 """
-                SELECT total_items, total_amount, paid_amount, change_amount, payment_method, cashier_user_id
+                SELECT
+                    total_items,
+                    subtotal_amount,
+                    discount_amount,
+                    tax_amount,
+                    total_amount,
+                    paid_amount,
+                    change_amount,
+                    payment_method,
+                    cashier_user_id
                 FROM pos_sales
                 WHERE receipt_no=?
                 """,
@@ -583,11 +592,95 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(purchase_item["unit_price"]), 125000.0)
         self.assertAlmostEqual(float(purchase_item["line_total"]), 250000.0)
         self.assertEqual(pos_sale["total_items"], 2)
+        self.assertAlmostEqual(float(pos_sale["subtotal_amount"]), 250000.0)
+        self.assertAlmostEqual(float(pos_sale["discount_amount"]), 0.0)
+        self.assertAlmostEqual(float(pos_sale["tax_amount"]), 0.0)
         self.assertAlmostEqual(float(pos_sale["total_amount"]), 250000.0)
         self.assertAlmostEqual(float(pos_sale["paid_amount"]), 260000.0)
         self.assertAlmostEqual(float(pos_sale["change_amount"]), 10000.0)
         self.assertEqual(pos_sale["payment_method"], "cash")
         self.assertEqual(pos_sale["cashier_user_id"], selected_cashier_user_id)
+
+    def test_pos_checkout_supports_custom_discount_and_tax_rules(self):
+        self.create_user("staff_sales_discount", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_discount")
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-DISC-001",
+            qty=6,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Discount",
+                "customer_phone": "628120009999",
+                "payment_method": "cash",
+                "discount_type": "percent",
+                "discount_value": 10,
+                "tax_type": "percent",
+                "tax_value": 11,
+                "paid_amount": 200000,
+                "note": "Checkout dengan discount dan tax",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 100000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertAlmostEqual(payload["subtotal_amount"], 200000.0)
+        self.assertAlmostEqual(payload["discount_amount"], 20000.0)
+        self.assertAlmostEqual(payload["tax_amount"], 19800.0)
+        self.assertAlmostEqual(payload["total_amount"], 199800.0)
+        self.assertAlmostEqual(payload["change_amount"], 200.0)
+
+        with self.app.app_context():
+            db = get_db()
+            pos_sale = db.execute(
+                """
+                SELECT
+                    discount_type,
+                    discount_value,
+                    discount_amount,
+                    tax_type,
+                    tax_value,
+                    tax_amount,
+                    subtotal_amount,
+                    total_amount
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+            purchase = db.execute(
+                "SELECT total_amount FROM crm_purchase_records WHERE invoice_no=?",
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertEqual(pos_sale["discount_type"], "percent")
+        self.assertAlmostEqual(float(pos_sale["discount_value"]), 10.0)
+        self.assertAlmostEqual(float(pos_sale["discount_amount"]), 20000.0)
+        self.assertEqual(pos_sale["tax_type"], "percent")
+        self.assertAlmostEqual(float(pos_sale["tax_value"]), 11.0)
+        self.assertAlmostEqual(float(pos_sale["tax_amount"]), 19800.0)
+        self.assertAlmostEqual(float(pos_sale["subtotal_amount"]), 200000.0)
+        self.assertAlmostEqual(float(pos_sale["total_amount"]), 199800.0)
+        self.assertAlmostEqual(float(purchase["total_amount"]), 199800.0)
 
     def test_pos_sales_log_and_receipt_print_show_complete_sale_details(self):
         self.create_user("staff_sales_receipt", "pass1234", "staff", warehouse_id=1)
@@ -644,6 +737,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("staff_sales_receipt", log_html)
         self.assertIn("Print nota kasir", log_html)
         self.assertIn("POS-NOTA-001", log_html)
+        self.assertIn("POSTED", log_html)
+        self.assertIn("Void Barang", log_html)
 
         print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print?autoprint=1")
         self.assertEqual(print_response.status_code, 200)
@@ -652,8 +747,134 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn(receipt_no, print_html)
         self.assertIn("Customer Nota", print_html)
         self.assertIn("POS-NOTA-001", print_html)
+        self.assertIn("Subtotal", print_html)
+        self.assertIn("Potongan", print_html)
+        self.assertIn("Pajak", print_html)
         self.assertIn("Simpan sebagai PDF", print_html)
         self.assertIn("window.print()", print_html)
+
+    def test_pos_void_item_restores_stock_and_recalculates_sale_totals(self):
+        self.create_user("staff_sales_void", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_void")
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-VOID-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Void",
+                "customer_phone": "628120005555",
+                "payment_method": "cash",
+                "discount_type": "amount",
+                "discount_value": 10000,
+                "tax_type": "percent",
+                "tax_value": 10,
+                "paid_amount": 260000,
+                "note": "Uji void item",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 120000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            purchase = db.execute(
+                "SELECT id FROM crm_purchase_records WHERE invoice_no=?",
+                (receipt_no,),
+            ).fetchone()
+            sale_item = db.execute(
+                """
+                SELECT id
+                FROM crm_purchase_items
+                WHERE purchase_id=?
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (purchase["id"],),
+            ).fetchone()
+
+        void_response = self.client.post(
+            f"/kasir/sales-item/{sale_item['id']}/void",
+            json={
+                "void_qty": 1,
+                "note": "Customer batal 1 pcs",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(void_response.status_code, 200)
+        void_payload = void_response.get_json()
+        self.assertEqual(void_payload["status"], "success")
+        self.assertEqual(void_payload["status_label"], "PARTIAL VOID")
+        self.assertEqual(void_payload["total_items"], 1)
+        self.assertAlmostEqual(void_payload["subtotal_amount"], 120000.0)
+        self.assertAlmostEqual(void_payload["discount_amount"], 10000.0)
+        self.assertAlmostEqual(void_payload["tax_amount"], 11000.0)
+        self.assertAlmostEqual(void_payload["total_amount"], 121000.0)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            purchase_item = db.execute(
+                """
+                SELECT qty, void_qty, void_amount, void_note
+                FROM crm_purchase_items
+                WHERE id=?
+                """,
+                (sale_item["id"],),
+            ).fetchone()
+            pos_sale = db.execute(
+                """
+                SELECT total_items, subtotal_amount, discount_amount, tax_amount, total_amount, change_amount, status
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (receipt_no,),
+            ).fetchone()
+            purchase_record = db.execute(
+                "SELECT items_count, total_amount FROM crm_purchase_records WHERE invoice_no=?",
+                (receipt_no,),
+            ).fetchone()
+
+        self.assertEqual(stock_after["qty"], 4)
+        self.assertEqual(purchase_item["qty"], 2)
+        self.assertEqual(purchase_item["void_qty"], 1)
+        self.assertAlmostEqual(float(purchase_item["void_amount"]), 120000.0)
+        self.assertEqual(purchase_item["void_note"], "Customer batal 1 pcs")
+        self.assertEqual(pos_sale["total_items"], 1)
+        self.assertAlmostEqual(float(pos_sale["subtotal_amount"]), 120000.0)
+        self.assertAlmostEqual(float(pos_sale["discount_amount"]), 10000.0)
+        self.assertAlmostEqual(float(pos_sale["tax_amount"]), 11000.0)
+        self.assertAlmostEqual(float(pos_sale["total_amount"]), 121000.0)
+        self.assertAlmostEqual(float(pos_sale["change_amount"]), 139000.0)
+        self.assertEqual(pos_sale["status"], "partial_void")
+        self.assertEqual(purchase_record["items_count"], 1)
+        self.assertAlmostEqual(float(purchase_record["total_amount"]), 121000.0)
 
     def test_pos_staff_sales_report_aggregates_weekly_and_monthly_sales_from_pos(self):
         self.create_user("sales_week_report", "pass1234", "staff", warehouse_id=1)

@@ -362,7 +362,11 @@ const posPaidAmount = document.getElementById("posPaidAmount");
 const posChangeAmount = document.getElementById("posChangeAmount");
 const posChangeAmountMirror = document.getElementById("posChangeAmountMirror");
 const posSubtotalValue = document.getElementById("posSubtotalValue");
+const posDiscountType = document.getElementById("posDiscountType");
+const posDiscountInput = document.getElementById("posDiscountInput");
 const posDiscountValue = document.getElementById("posDiscountValue");
+const posTaxType = document.getElementById("posTaxType");
+const posTaxInput = document.getElementById("posTaxInput");
 const posTaxValue = document.getElementById("posTaxValue");
 const posCheckoutButton = document.getElementById("posCheckoutButton");
 const posSelectedCard = document.getElementById("posSelectedCard");
@@ -401,8 +405,67 @@ function formatPosCurrency(value) {
     return `Rp ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(value || 0))}`;
 }
 
+function roundPosMoney(value) {
+    return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function normalizePosAdjustmentType(value) {
+    return String(value || "").toLowerCase() === "percent" ? "percent" : "amount";
+}
+
+function getPosSubtotal() {
+    return roundPosMoney(posCart.reduce((total, item) => total + (Number(item.qty) * Number(item.unit_price)), 0));
+}
+
+function getPosAdjustmentAmount(baseAmount, adjustmentType, rawValue, { clampToBase = false } = {}) {
+    const safeBase = Math.max(roundPosMoney(baseAmount), 0);
+    const safeValue = Math.max(roundPosMoney(rawValue), 0);
+    if (safeBase <= 0 || safeValue <= 0) {
+        return 0;
+    }
+
+    let adjustmentAmount = 0;
+    if (normalizePosAdjustmentType(adjustmentType) === "percent") {
+        const percentValue = clampToBase ? Math.min(safeValue, 100) : safeValue;
+        adjustmentAmount = roundPosMoney((safeBase * percentValue) / 100);
+    } else {
+        adjustmentAmount = safeValue;
+    }
+
+    if (clampToBase) {
+        adjustmentAmount = Math.min(adjustmentAmount, safeBase);
+    }
+
+    return roundPosMoney(adjustmentAmount);
+}
+
+function getPosTotals() {
+    const subtotal = getPosSubtotal();
+    const discountType = normalizePosAdjustmentType(posDiscountType?.value);
+    const discountValue = Number(posDiscountInput?.value || 0);
+    const discountAmount = getPosAdjustmentAmount(subtotal, discountType, discountValue, { clampToBase: true });
+    const taxableBase = Math.max(roundPosMoney(subtotal - discountAmount), 0);
+    const taxType = normalizePosAdjustmentType(posTaxType?.value);
+    const taxValue = Number(posTaxInput?.value || 0);
+    const taxAmount = getPosAdjustmentAmount(taxableBase, taxType, taxValue);
+    const grandTotal = roundPosMoney(taxableBase + taxAmount);
+    const totalItems = posCart.reduce((total, item) => total + Number(item.qty || 0), 0);
+
+    return {
+        totalItems,
+        subtotal,
+        discountType,
+        discountValue: Math.max(roundPosMoney(discountValue), 0),
+        discountAmount,
+        taxType,
+        taxValue: Math.max(roundPosMoney(taxValue), 0),
+        taxAmount,
+        grandTotal,
+    };
+}
+
 function getPosGrandTotal() {
-    return posCart.reduce((total, item) => total + (Number(item.qty) * Number(item.unit_price)), 0);
+    return getPosTotals().grandTotal;
 }
 
 function updatePosClock() {
@@ -537,7 +600,7 @@ function resetPosDraft() {
 }
 
 function updatePosChangePreview() {
-    const grandTotal = getPosGrandTotal();
+    const grandTotal = getPosTotals().grandTotal;
     const paidAmount = Number(posPaidAmount.value || 0);
     const changeAmount = Math.max(paidAmount - grandTotal, 0);
     posChangeAmount.textContent = formatPosCurrency(changeAmount);
@@ -603,23 +666,22 @@ function renderPosCart() {
         }).join("");
     }
 
-    const totalItems = posCart.reduce((total, item) => total + Number(item.qty || 0), 0);
-    const grandTotal = getPosGrandTotal();
-    posTotalItems.textContent = String(totalItems);
-    posCartBadge.textContent = `${totalItems} item`;
-    posGrandTotal.textContent = formatPosCurrency(grandTotal);
+    const totals = getPosTotals();
+    posTotalItems.textContent = String(totals.totalItems);
+    posCartBadge.textContent = `${totals.totalItems} item`;
+    posGrandTotal.textContent = formatPosCurrency(totals.grandTotal);
     if (posSubtotalValue) {
-        posSubtotalValue.textContent = formatPosCurrency(grandTotal);
+        posSubtotalValue.textContent = formatPosCurrency(totals.subtotal);
     }
     if (posDiscountValue) {
-        posDiscountValue.textContent = formatPosCurrency(0);
+        posDiscountValue.textContent = formatPosCurrency(totals.discountAmount);
     }
     if (posTaxValue) {
-        posTaxValue.textContent = formatPosCurrency(0);
+        posTaxValue.textContent = formatPosCurrency(totals.taxAmount);
     }
 
-    if (!Number(posPaidAmount.value || 0) && grandTotal > 0) {
-        posPaidAmount.value = String(grandTotal);
+    if (!Number(posPaidAmount.value || 0) && totals.grandTotal > 0) {
+        posPaidAmount.value = String(totals.grandTotal);
     }
 
     updatePosChangePreview();
@@ -793,6 +855,7 @@ function checkoutPosTransaction() {
         return;
     }
 
+    const totals = getPosTotals();
     const payload = {
         warehouse_id: posWarehouseId,
         sale_date: posSaleDate,
@@ -801,6 +864,10 @@ function checkoutPosTransaction() {
         customer_name: posCustomerName.value,
         customer_phone: posCustomerPhone.value,
         payment_method: posPaymentMethod.value,
+        discount_type: totals.discountType,
+        discount_value: totals.discountValue,
+        tax_type: totals.taxType,
+        tax_value: totals.taxValue,
         paid_amount: Number(posPaidAmount.value || 0),
         note: posNote.value,
         items: posCart.map((item) => ({
@@ -842,6 +909,59 @@ function checkoutPosTransaction() {
         posCheckoutButton.disabled = false;
         posCheckoutButton.textContent = "Bayar [END]";
     });
+}
+
+async function submitPosVoidRequest(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+        return;
+    }
+
+    const itemId = Number(button.dataset.posVoidItemId || 0);
+    const maxQty = Number(button.dataset.posVoidableQty || 0);
+    if (!itemId || maxQty <= 0) {
+        return;
+    }
+
+    const requestedQty = window.prompt(`Void berapa qty? Maksimal ${maxQty}.`, String(maxQty));
+    if (requestedQty === null) {
+        return;
+    }
+
+    const voidQty = Number(requestedQty);
+    if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
+        window.alert(`Qty void tidak valid. Maksimal ${maxQty}.`);
+        return;
+    }
+
+    const voidNote = window.prompt("Catatan void opsional", "") ?? "";
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Memproses...";
+
+    try {
+        const response = await fetch(`/kasir/sales-item/${itemId}/void`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+                void_qty: voidQty,
+                note: voidNote,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || "Void item gagal diproses.");
+        }
+        window.alert(data.message || "Void item berhasil diproses.");
+        window.location.reload();
+    } catch (error) {
+        window.alert(error.message || "Void item gagal diproses.");
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
 }
 
 function updateQtyFromCart(index, nextQty) {
@@ -1049,6 +1169,12 @@ document.addEventListener("click", (event) => {
         }
         menu.removeAttribute("open");
     });
+
+    const voidButton = event.target.closest("[data-pos-void-item-id]");
+    if (voidButton) {
+        event.preventDefault();
+        submitPosVoidRequest(voidButton);
+    }
 });
 
 document.getElementById("posAddItemButton").addEventListener("click", addPosDraftToCart);
@@ -1056,6 +1182,10 @@ posPaidAmount.addEventListener("input", updatePosChangePreview);
 posPaidAmount.addEventListener("focus", () => setPosKeypadTarget("paid"));
 posDraftQty.addEventListener("focus", () => setPosKeypadTarget("qty"));
 posCheckoutButton.addEventListener("click", checkoutPosTransaction);
+posDiscountInput?.addEventListener("input", renderPosCart);
+posDiscountType?.addEventListener("change", renderPosCart);
+posTaxInput?.addEventListener("input", renderPosCart);
+posTaxType?.addEventListener("change", renderPosCart);
 
 posPaidQuickActions?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pos-paid-shortcut]");

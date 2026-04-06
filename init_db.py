@@ -109,6 +109,21 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "product_variants", "color", "TEXT")
     _ensure_column(cursor, "product_variants", "gtin", "TEXT")
     _ensure_column(cursor, "product_variants", "no_gtin", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "crm_purchase_items", "void_qty", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "crm_purchase_items", "void_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "crm_purchase_items", "voided_at", "TIMESTAMP")
+    _ensure_column(cursor, "crm_purchase_items", "voided_by", "INTEGER")
+    _ensure_column(cursor, "crm_purchase_items", "void_note", "TEXT")
+    _ensure_column(cursor, "pos_sales", "subtotal_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "discount_type", "TEXT DEFAULT 'amount'")
+    _ensure_column(cursor, "pos_sales", "discount_value", "REAL DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "discount_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "tax_type", "TEXT DEFAULT 'amount'")
+    _ensure_column(cursor, "pos_sales", "tax_value", "REAL DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "tax_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "status", "TEXT DEFAULT 'posted'")
+    _ensure_column(cursor, "pos_sales", "voided_at", "TIMESTAMP")
+    _ensure_column(cursor, "pos_sales", "voided_by", "INTEGER")
 
     _ensure_column(cursor, "requests", "reason", "TEXT")
     _ensure_column(cursor, "requests", "approved_at", "TIMESTAMP")
@@ -1039,6 +1054,11 @@ def init_db(db_path=None, sqlite_options=None):
         unit_price REAL DEFAULT 0,
         line_total REAL DEFAULT 0,
         note TEXT,
+        void_qty INTEGER DEFAULT 0,
+        void_amount REAL DEFAULT 0,
+        voided_at TIMESTAMP,
+        voided_by INTEGER,
+        void_note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(purchase_id) REFERENCES crm_purchase_records(id) ON DELETE CASCADE,
         FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
@@ -1079,16 +1099,27 @@ def init_db(db_path=None, sqlite_options=None):
         receipt_no TEXT NOT NULL UNIQUE,
         payment_method TEXT DEFAULT 'cash',
         total_items INTEGER DEFAULT 0,
+        subtotal_amount REAL DEFAULT 0,
+        discount_type TEXT DEFAULT 'amount',
+        discount_value REAL DEFAULT 0,
+        discount_amount REAL DEFAULT 0,
+        tax_type TEXT DEFAULT 'amount',
+        tax_value REAL DEFAULT 0,
+        tax_amount REAL DEFAULT 0,
         total_amount REAL DEFAULT 0,
         paid_amount REAL DEFAULT 0,
         change_amount REAL DEFAULT 0,
+        status TEXT DEFAULT 'posted',
+        voided_at TIMESTAMP,
+        voided_by INTEGER,
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(purchase_id) REFERENCES crm_purchase_records(id) ON DELETE CASCADE,
         FOREIGN KEY(customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
-        FOREIGN KEY(cashier_user_id) REFERENCES users(id)
+        FOREIGN KEY(cashier_user_id) REFERENCES users(id),
+        FOREIGN KEY(voided_by) REFERENCES users(id)
     )
     """)
 

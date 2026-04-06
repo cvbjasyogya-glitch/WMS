@@ -104,6 +104,7 @@
                     <td>
                         <strong>{{ sale.receipt_no }}</strong>
                         <div class="helper-text">{{ sale.warehouse_name }}</div>
+                        <div class="helper-text">{{ sale.status_label }}</div>
                     </td>
                     <td>
                         <strong>{{ sale.sale_date }}</strong>
@@ -118,24 +119,47 @@
                         <div class="helper-text">{{ sale.cashier_position }}</div>
                     </td>
                     <td class="pos-sales-log-items">
-                        {% for item in sale.item_preview_lines %}
-                        <div class="helper-text">{{ item.summary_label }}</div>
+                        {% for item in sale["items"] %}
+                        <div class="pos-sales-log-itemline" data-item-status="{{ item.status }}">
+                            <div>
+                                <strong>{{ item.summary_label }}</strong>
+                                <div class="helper-text">{{ item.detail_label }}</div>
+                                {% if item.void_qty %}
+                                <div class="helper-text">Void {{ item.void_qty }} | Nilai void {{ item.void_amount_label }}</div>
+                                {% endif %}
+                            </div>
+                            {% if item.can_void %}
+                            <button
+                                type="button"
+                                class="ghost-button danger"
+                                data-pos-void-item-id="{{ item.id }}"
+                                data-pos-voidable-qty="{{ item.voidable_qty }}"
+                            >
+                                Void Barang
+                            </button>
+                            {% endif %}
+                        </div>
                         {% endfor %}
-                        {% if sale.item_preview_more %}
-                        <div class="helper-text">+{{ sale.item_preview_more }} item lain</div>
+                        {% if not sale["items"] %}
+                        <div class="helper-text">Tidak ada item tersimpan.</div>
                         {% endif %}
                     </td>
                     <td>
                         <strong>{{ sale.payment_method_label }}</strong>
                         <div class="helper-text">{{ sale.total_items }} item</div>
                     </td>
-                    <td><strong>{{ sale.total_amount_label }}</strong></td>
+                    <td>
+                        <strong>{{ sale.total_amount_label }}</strong>
+                        <div class="helper-text">Subtotal {{ sale.subtotal_amount_label }}</div>
+                        <div class="helper-text">Disc {{ sale.discount_amount_label }} | Pajak {{ sale.tax_amount_label }}</div>
+                    </td>
                     <td>
                         <strong>{{ sale.paid_amount_label }}</strong>
                         <div class="helper-text">Kembali {{ sale.change_amount_label }}</div>
                     </td>
                     <td>{{ sale.note or "-" }}</td>
                     <td class="pos-sales-log-actions">
+                        <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
                         <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button">Preview Nota</a>
                         <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
                     </td>
@@ -148,4 +172,70 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function submitPosVoidFromLog(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+        return;
+    }
+
+    const itemId = Number(button.dataset.posVoidItemId || 0);
+    const maxQty = Number(button.dataset.posVoidableQty || 0);
+    if (!itemId || maxQty <= 0) {
+        return;
+    }
+
+    const requestedQty = window.prompt(`Void berapa qty? Maksimal ${maxQty}.`, String(maxQty));
+    if (requestedQty === null) {
+        return;
+    }
+
+    const voidQty = Number(requestedQty);
+    if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
+        window.alert(`Qty void tidak valid. Maksimal ${maxQty}.`);
+        return;
+    }
+
+    const voidNote = window.prompt("Catatan void opsional", "") ?? "";
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "Memproses...";
+
+    try {
+        const response = await fetch(`/kasir/sales-item/${itemId}/void`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+                void_qty: voidQty,
+                note: voidNote,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || "Void item gagal diproses.");
+        }
+        window.alert(data.message || "Void item berhasil diproses.");
+        window.location.reload();
+    } catch (error) {
+        window.alert(error.message || "Void item gagal diproses.");
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
+document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pos-void-item-id]");
+    if (!button) {
+        return;
+    }
+    event.preventDefault();
+    submitPosVoidFromLog(button);
+});
+</script>
 {% endblock %}

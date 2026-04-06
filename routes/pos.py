@@ -6,7 +6,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from database import get_db
 from services.notification_service import notify_operational_event
 from services.rbac import has_permission, is_scoped_role
-from services.stock_service import remove_stock
+from services.stock_service import add_stock, remove_stock
 
 
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
@@ -49,6 +49,63 @@ def _normalize_sale_date(raw_value):
 def _normalize_payment_method(raw_value):
     method = (raw_value or "").strip().lower()
     return method if method in PAYMENT_METHODS else "cash"
+
+
+def _normalize_adjustment_type(raw_value):
+    safe_value = str(raw_value or "").strip().lower()
+    return safe_value if safe_value in {"amount", "percent"} else "amount"
+
+
+def _calculate_adjustment_amount(base_amount, adjustment_type, raw_value, *, clamp_to_base=False):
+    base_decimal = _to_decimal(base_amount, "0")
+    value_decimal = _to_decimal(raw_value, "0")
+    safe_type = _normalize_adjustment_type(adjustment_type)
+
+    if value_decimal <= 0 or base_decimal <= 0:
+        return Decimal("0.00")
+
+    if safe_type == "percent":
+        if clamp_to_base:
+            value_decimal = min(value_decimal, Decimal("100.00"))
+        amount = (base_decimal * value_decimal / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        amount = value_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    if clamp_to_base:
+        amount = min(amount, base_decimal)
+
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _build_pos_sale_financials(items, discount_type="amount", discount_value=0, tax_type="amount", tax_value=0):
+    subtotal_amount = sum((item["line_total"] for item in items), Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    discount_amount = _calculate_adjustment_amount(
+        subtotal_amount,
+        discount_type,
+        discount_value,
+        clamp_to_base=True,
+    )
+    taxable_base = max(subtotal_amount - discount_amount, Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    tax_amount = _calculate_adjustment_amount(
+        taxable_base,
+        tax_type,
+        tax_value,
+        clamp_to_base=False,
+    )
+    total_amount = (taxable_base + tax_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total_items = sum(int(item.get("qty") or 0) for item in items)
+
+    return {
+        "total_items": total_items,
+        "subtotal_amount": subtotal_amount,
+        "discount_type": _normalize_adjustment_type(discount_type),
+        "discount_value": _to_decimal(discount_value, "0"),
+        "discount_amount": discount_amount,
+        "tax_type": _normalize_adjustment_type(tax_type),
+        "tax_value": _to_decimal(tax_value, "0"),
+        "tax_amount": tax_amount,
+        "total_amount": total_amount,
+    }
 
 
 def _normalize_sale_month(raw_value):
@@ -259,7 +316,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COUNT(*) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=?
+        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided'
         """,
         (warehouse_id, sale_date),
     ).fetchone()["total"]
@@ -268,7 +325,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COALESCE(SUM(total_amount), 0) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=?
+        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided'
         """,
         (warehouse_id, sale_date),
     ).fetchone()["total"]
@@ -277,7 +334,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COALESCE(SUM(total_items), 0) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=?
+        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided'
         """,
         (warehouse_id, sale_date),
     ).fetchone()["total"]
@@ -286,7 +343,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COUNT(*) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=? AND cashier_user_id=?
+        WHERE warehouse_id=? AND sale_date=? AND cashier_user_id=? AND COALESCE(status, 'posted') <> 'voided'
         """,
         (warehouse_id, sale_date, session.get("user_id")),
     ).fetchone()["total"]
@@ -580,6 +637,19 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
 
 def _format_pos_currency_label(value):
     return f"Rp {int(round(float(value or 0))):,}".replace(",", ".")
+
+
+def _format_pos_adjustment_rule_label(adjustment_type, adjustment_value):
+    safe_type = _normalize_adjustment_type(adjustment_type)
+    safe_value = _to_decimal(adjustment_value, "0")
+    if safe_value <= 0:
+        return "-"
+    if safe_type == "percent":
+        normalized_value = safe_value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if normalized_value == normalized_value.to_integral():
+            return f"{int(normalized_value)}%"
+        return f"{normalized_value.normalize()}%"
+    return _format_pos_currency_label(safe_value)
 
 
 def _format_pos_period_label(date_from, date_to):
@@ -893,6 +963,576 @@ def _validate_and_build_items(db, warehouse_id, raw_items):
     return prepared
 
 
+def _build_pos_sale_status_payload(raw_status):
+    safe_status = str(raw_status or "posted").strip().lower()
+    if safe_status == "voided":
+        return {
+            "status": "voided",
+            "status_label": "VOIDED",
+            "status_tone": "red",
+        }
+    if safe_status == "partial_void":
+        return {
+            "status": "partial_void",
+            "status_label": "PARTIAL VOID",
+            "status_tone": "orange",
+        }
+    return {
+        "status": "posted",
+        "status_label": "POSTED",
+        "status_tone": "green",
+    }
+
+
+def _fetch_pos_sale_item_map(db, purchase_ids):
+    normalized_ids = [int(purchase_id) for purchase_id in purchase_ids if _to_int(purchase_id, 0) > 0]
+    if not normalized_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in normalized_ids)
+    rows = db.execute(
+        f"""
+        SELECT
+            cpi.id AS item_id,
+            cpi.purchase_id,
+            cpi.product_id,
+            cpi.variant_id,
+            COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
+            COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
+            COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
+            COALESCE(cpi.qty, 0) AS qty,
+            COALESCE(cpi.unit_price, 0) AS unit_price,
+            COALESCE(cpi.line_total, 0) AS line_total,
+            COALESCE(cpi.void_qty, 0) AS void_qty,
+            COALESCE(cpi.void_amount, 0) AS void_amount,
+            COALESCE(cpi.void_note, '') AS void_note
+        FROM crm_purchase_items cpi
+        LEFT JOIN products p ON p.id = cpi.product_id
+        LEFT JOIN product_variants pv ON pv.id = cpi.variant_id
+        WHERE cpi.purchase_id IN ({placeholders})
+        ORDER BY cpi.purchase_id ASC, cpi.id ASC
+        """,
+        normalized_ids,
+    ).fetchall()
+
+    item_map = {}
+    for row in rows:
+        purchase_id = int(row["purchase_id"])
+        sold_qty = int(row["qty"] or 0)
+        void_qty = max(0, int(row["void_qty"] or 0))
+        active_qty = max(sold_qty - void_qty, 0)
+        unit_price = _currency(row["unit_price"] or 0)
+        line_total = _currency(row["line_total"] or 0)
+        void_amount = _currency(row["void_amount"] or 0)
+        active_line_total = max(line_total - void_amount, 0)
+
+        if active_qty <= 0:
+            item_status = _build_pos_sale_status_payload("voided")
+        elif void_qty > 0:
+            item_status = _build_pos_sale_status_payload("partial_void")
+        else:
+            item_status = _build_pos_sale_status_payload("posted")
+
+        item_map.setdefault(purchase_id, []).append(
+            {
+                "id": int(row["item_id"]),
+                "product_id": int(row["product_id"] or 0),
+                "variant_id": int(row["variant_id"] or 0),
+                "sku": row["sku"],
+                "product_name": row["product_name"],
+                "variant_name": row["variant_name"],
+                "qty": sold_qty,
+                "void_qty": void_qty,
+                "active_qty": active_qty,
+                "unit_price": unit_price,
+                "line_total": line_total,
+                "void_amount": void_amount,
+                "active_line_total": active_line_total,
+                "void_note": row["void_note"],
+                "unit_price_label": _format_pos_currency_label(unit_price),
+                "line_total_label": _format_pos_currency_label(line_total),
+                "void_amount_label": _format_pos_currency_label(void_amount),
+                "active_line_total_label": _format_pos_currency_label(active_line_total),
+                "can_void": has_permission(session.get("role"), "manage_pos") and active_qty > 0,
+                "voidable_qty": active_qty,
+                "summary_label": f"{row['sku']} - {row['product_name']} - {row['variant_name']} x{active_qty}",
+                "detail_label": f"{row['variant_name']} | Aktif {active_qty} dari {sold_qty}",
+                **item_status,
+            }
+        )
+    return item_map
+
+
+def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashier_user_id=None, search_query="", limit=60):
+    safe_limit = max(1, min(_to_int(limit, 60), 200))
+    params = [date_from, date_to]
+    query = """
+        SELECT
+            ps.id,
+            ps.purchase_id,
+            ps.customer_id,
+            ps.cashier_user_id,
+            ps.warehouse_id,
+            ps.sale_date,
+            ps.receipt_no,
+            ps.payment_method,
+            ps.total_items,
+            ps.subtotal_amount,
+            ps.discount_type,
+            ps.discount_value,
+            ps.discount_amount,
+            ps.tax_type,
+            ps.tax_value,
+            ps.tax_amount,
+            ps.total_amount,
+            ps.paid_amount,
+            ps.change_amount,
+            ps.status,
+            ps.note,
+            ps.created_at,
+            COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
+            COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
+            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS cashier_username,
+            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
+        FROM pos_sales ps
+        JOIN crm_customers c ON c.id = ps.customer_id
+        LEFT JOIN users u ON u.id = ps.cashier_user_id
+        LEFT JOIN employees e ON e.id = u.employee_id
+        LEFT JOIN warehouses w ON w.id = ps.warehouse_id
+        WHERE ps.sale_date BETWEEN ? AND ?
+    """
+
+    if selected_warehouse:
+        query += " AND ps.warehouse_id=?"
+        params.append(int(selected_warehouse))
+
+    if cashier_user_id:
+        query += " AND ps.cashier_user_id=?"
+        params.append(int(cashier_user_id))
+
+    safe_search_query = str(search_query or "").strip()
+    if safe_search_query:
+        search_pattern = f"%{safe_search_query}%"
+        query += """
+            AND (
+                ps.receipt_no LIKE ?
+                OR COALESCE(c.customer_name, '') LIKE ?
+                OR COALESCE(c.phone, '') LIKE ?
+                OR COALESCE(e.full_name, u.username, '') LIKE ?
+                OR COALESCE(ps.note, '') LIKE ?
+            )
+        """
+        params.extend([search_pattern] * 5)
+
+    query += """
+        ORDER BY ps.sale_date DESC, ps.id DESC
+        LIMIT ?
+    """
+    params.append(safe_limit)
+
+    header_rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    item_map = _fetch_pos_sale_item_map(db, [row["purchase_id"] for row in header_rows])
+    normalized_rows = []
+
+    for row in header_rows:
+        items = item_map.get(int(row["purchase_id"]), [])
+        total_amount = _currency(row.get("total_amount") or 0)
+        paid_amount = _currency(row.get("paid_amount") or 0)
+        change_amount = _currency(row.get("change_amount") or 0)
+        subtotal_amount = _currency(row.get("subtotal_amount") or 0)
+        discount_amount = _currency(row.get("discount_amount") or 0)
+        tax_amount = _currency(row.get("tax_amount") or 0)
+        created_time_label = _format_pos_time_label(row.get("created_at"))
+        item_preview_lines = items[:3]
+        sale_status = _build_pos_sale_status_payload(row.get("status"))
+
+        normalized_rows.append(
+            {
+                **row,
+                "total_items": int(row.get("total_items") or 0),
+                "total_amount": total_amount,
+                "paid_amount": paid_amount,
+                "change_amount": change_amount,
+                "subtotal_amount": subtotal_amount,
+                "discount_amount": discount_amount,
+                "tax_amount": tax_amount,
+                "total_amount_label": _format_pos_currency_label(total_amount),
+                "paid_amount_label": _format_pos_currency_label(paid_amount),
+                "change_amount_label": _format_pos_currency_label(change_amount),
+                "subtotal_amount_label": _format_pos_currency_label(subtotal_amount),
+                "discount_amount_label": _format_pos_currency_label(discount_amount),
+                "tax_amount_label": _format_pos_currency_label(tax_amount),
+                "discount_rule_label": _format_pos_adjustment_rule_label(row.get("discount_type"), row.get("discount_value")),
+                "tax_rule_label": _format_pos_adjustment_rule_label(row.get("tax_type"), row.get("tax_value")),
+                "payment_method_label": str(row.get("payment_method") or "cash").upper(),
+                "created_time_label": created_time_label,
+                "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
+                "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
+                "cashier_identity_label": f"{row['cashier_name']} - {row['cashier_position']}",
+                "items": items,
+                "item_preview_lines": item_preview_lines,
+                "item_preview_more": max(len(items) - len(item_preview_lines), 0),
+                "has_voidable_items": any(item.get("can_void") for item in items),
+                "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
+                "receipt_pdf_url": f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
+                **sale_status,
+            }
+        )
+
+    return normalized_rows
+
+
+def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
+    safe_receipt = str(receipt_no or "").strip()
+    if not safe_receipt:
+        return None
+
+    params = [safe_receipt]
+    query = """
+        SELECT
+            ps.id,
+            ps.purchase_id,
+            ps.customer_id,
+            ps.cashier_user_id,
+            ps.warehouse_id,
+            ps.sale_date,
+            ps.receipt_no,
+            ps.payment_method,
+            ps.total_items,
+            ps.subtotal_amount,
+            ps.discount_type,
+            ps.discount_value,
+            ps.discount_amount,
+            ps.tax_type,
+            ps.tax_value,
+            ps.tax_amount,
+            ps.total_amount,
+            ps.paid_amount,
+            ps.change_amount,
+            ps.status,
+            ps.note,
+            ps.created_at,
+            COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
+            COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
+            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS cashier_username,
+            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
+        FROM pos_sales ps
+        JOIN crm_customers c ON c.id = ps.customer_id
+        LEFT JOIN users u ON u.id = ps.cashier_user_id
+        LEFT JOIN employees e ON e.id = u.employee_id
+        LEFT JOIN warehouses w ON w.id = ps.warehouse_id
+        WHERE ps.receipt_no=?
+    """
+
+    if is_scoped_role(session.get("role")):
+        query += " AND ps.warehouse_id=?"
+        params.append(session.get("warehouse_id"))
+
+    query += " LIMIT 1"
+
+    row = db.execute(query, params).fetchone()
+    if not row:
+        return None
+
+    sale = dict(row)
+    items = _fetch_pos_sale_item_map(db, [sale["purchase_id"]]).get(int(sale["purchase_id"]), [])
+    total_amount = _currency(sale.get("total_amount") or 0)
+    paid_amount = _currency(sale.get("paid_amount") or 0)
+    change_amount = _currency(sale.get("change_amount") or 0)
+    subtotal_amount = _currency(sale.get("subtotal_amount") or 0)
+    discount_amount = _currency(sale.get("discount_amount") or 0)
+    tax_amount = _currency(sale.get("tax_amount") or 0)
+    created_time_label = _format_pos_time_label(sale.get("created_at"))
+
+    return {
+        **sale,
+        "items": items,
+        "total_items": int(sale.get("total_items") or 0),
+        "total_amount": total_amount,
+        "paid_amount": paid_amount,
+        "change_amount": change_amount,
+        "subtotal_amount": subtotal_amount,
+        "discount_amount": discount_amount,
+        "tax_amount": tax_amount,
+        "total_amount_label": _format_pos_currency_label(total_amount),
+        "paid_amount_label": _format_pos_currency_label(paid_amount),
+        "change_amount_label": _format_pos_currency_label(change_amount),
+        "subtotal_amount_label": _format_pos_currency_label(subtotal_amount),
+        "discount_amount_label": _format_pos_currency_label(discount_amount),
+        "tax_amount_label": _format_pos_currency_label(tax_amount),
+        "discount_rule_label": _format_pos_adjustment_rule_label(sale.get("discount_type"), sale.get("discount_value")),
+        "tax_rule_label": _format_pos_adjustment_rule_label(sale.get("tax_type"), sale.get("tax_value")),
+        "payment_method_label": str(sale.get("payment_method") or "cash").upper(),
+        "created_time_label": created_time_label,
+        "created_datetime_label": f"{sale['sale_date']} {created_time_label}" if created_time_label != "-" else sale["sale_date"],
+        "customer_phone_label": sale["customer_phone"] if sale.get("customer_phone") and sale["customer_phone"] != "-" else "Tanpa nomor",
+        "cashier_identity_label": f"{sale['cashier_name']} - {sale['cashier_position']}",
+        **_build_pos_sale_status_payload(sale.get("status")),
+    }
+
+
+def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None):
+    params = [date_from, date_to]
+    query = """
+        SELECT
+            ps.cashier_user_id,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS staff_name,
+            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS username,
+            COALESCE(NULLIF(TRIM(e.position), ''), 'Staff') AS position,
+            COALESCE(NULLIF(TRIM(home_w.name), ''), '-') AS home_warehouse_name,
+            COUNT(ps.id) AS total_transactions,
+            COALESCE(SUM(ps.total_items), 0) AS total_items,
+            COALESCE(SUM(ps.total_amount), 0) AS total_revenue,
+            COALESCE(AVG(ps.total_amount), 0) AS average_ticket,
+            COUNT(DISTINCT ps.customer_id) AS total_customers,
+            COUNT(DISTINCT ps.warehouse_id) AS total_warehouses,
+            GROUP_CONCAT(DISTINCT sale_w.name) AS warehouse_names,
+            MIN(ps.sale_date) AS first_sale_date,
+            MAX(ps.sale_date) AS last_sale_date
+        FROM pos_sales ps
+        LEFT JOIN users u ON u.id = ps.cashier_user_id
+        LEFT JOIN employees e ON e.id = u.employee_id
+        LEFT JOIN warehouses home_w ON home_w.id = COALESCE(e.warehouse_id, u.warehouse_id)
+        LEFT JOIN warehouses sale_w ON sale_w.id = ps.warehouse_id
+        WHERE ps.sale_date BETWEEN ? AND ?
+          AND COALESCE(ps.status, 'posted') <> 'voided'
+    """
+    if selected_warehouse:
+        query += " AND ps.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    query += """
+        GROUP BY
+            ps.cashier_user_id,
+            staff_name,
+            username,
+            position,
+            home_warehouse_name
+        ORDER BY total_revenue DESC, total_transactions DESC, staff_name COLLATE NOCASE ASC
+    """
+
+    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    normalized_rows = []
+    for index, row in enumerate(rows, start=1):
+        total_revenue = _currency(row.get("total_revenue") or 0)
+        average_ticket = _currency(row.get("average_ticket") or 0)
+        warehouse_scope_label = (row.get("warehouse_names") or "").strip() or row.get("home_warehouse_name") or "-"
+        normalized_rows.append(
+            {
+                **row,
+                "rank": index,
+                "total_transactions": int(row.get("total_transactions") or 0),
+                "total_items": int(row.get("total_items") or 0),
+                "total_customers": int(row.get("total_customers") or 0),
+                "total_warehouses": int(row.get("total_warehouses") or 0),
+                "total_revenue": total_revenue,
+                "average_ticket": average_ticket,
+                "total_revenue_label": _format_pos_currency_label(total_revenue),
+                "average_ticket_label": _format_pos_currency_label(average_ticket),
+                "warehouse_scope_label": warehouse_scope_label,
+                "activity_label": _format_pos_period_label(row.get("first_sale_date"), row.get("last_sale_date")),
+            }
+        )
+    return normalized_rows
+
+
+def _fetch_pos_voidable_sale_item(db, item_id):
+    params = [int(item_id)]
+    query = """
+        SELECT
+            cpi.id AS item_id,
+            cpi.purchase_id,
+            cpi.product_id,
+            cpi.variant_id,
+            COALESCE(cpi.qty, 0) AS qty,
+            COALESCE(cpi.unit_price, 0) AS unit_price,
+            COALESCE(cpi.line_total, 0) AS line_total,
+            COALESCE(cpi.void_qty, 0) AS void_qty,
+            COALESCE(cpi.void_amount, 0) AS void_amount,
+            ps.id AS sale_id,
+            ps.warehouse_id,
+            ps.receipt_no,
+            ps.sale_date,
+            ps.paid_amount,
+            ps.discount_type,
+            ps.discount_value,
+            ps.tax_type,
+            ps.tax_value,
+            COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
+            COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
+            COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name
+        FROM crm_purchase_items cpi
+        JOIN pos_sales ps ON ps.purchase_id = cpi.purchase_id
+        LEFT JOIN products p ON p.id = cpi.product_id
+        LEFT JOIN product_variants pv ON pv.id = cpi.variant_id
+        WHERE cpi.id=?
+    """
+
+    if is_scoped_role(session.get("role")):
+        query += " AND ps.warehouse_id=?"
+        params.append(session.get("warehouse_id"))
+
+    query += " LIMIT 1"
+    row = db.execute(query, params).fetchone()
+    return dict(row) if row else None
+
+
+def _resolve_pos_stock_restore_cost(db, product_id, variant_id, warehouse_id):
+    row = db.execute(
+        """
+        SELECT cost
+        FROM stock_batches
+        WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(cost, 0) > 0
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchone()
+    return _currency(row["cost"] if row else 0)
+
+
+def _apply_pos_sale_rollup_updates(db, sale_row, acting_user_id):
+    purchase_items = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT
+                id,
+                qty,
+                unit_price,
+                line_total,
+                COALESCE(void_qty, 0) AS void_qty,
+                COALESCE(void_amount, 0) AS void_amount
+            FROM crm_purchase_items
+            WHERE purchase_id=?
+            ORDER BY id ASC
+            """,
+            (sale_row["purchase_id"],),
+        ).fetchall()
+    ]
+
+    active_items = []
+    any_void = False
+    for item in purchase_items:
+        sold_qty = int(item.get("qty") or 0)
+        void_qty = max(0, int(item.get("void_qty") or 0))
+        active_qty = max(sold_qty - void_qty, 0)
+        active_line_total = (
+            _to_decimal(item.get("line_total"), "0")
+            - _to_decimal(item.get("void_amount"), "0")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        if void_qty > 0:
+            any_void = True
+
+        if active_qty <= 0 or active_line_total <= 0:
+            continue
+
+        active_items.append(
+            {
+                "qty": active_qty,
+                "line_total": active_line_total,
+            }
+        )
+
+    financials = _build_pos_sale_financials(
+        active_items,
+        discount_type=sale_row.get("discount_type"),
+        discount_value=sale_row.get("discount_value"),
+        tax_type=sale_row.get("tax_type"),
+        tax_value=sale_row.get("tax_value"),
+    )
+
+    paid_amount = _to_decimal(sale_row.get("paid_amount"), "0")
+    change_amount = max(paid_amount - financials["total_amount"], Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if financials["total_items"] <= 0:
+        next_status = "voided"
+    elif any_void:
+        next_status = "partial_void"
+    else:
+        next_status = "posted"
+
+    db.execute(
+        """
+        UPDATE pos_sales
+        SET
+            total_items=?,
+            subtotal_amount=?,
+            discount_type=?,
+            discount_value=?,
+            discount_amount=?,
+            tax_type=?,
+            tax_value=?,
+            tax_amount=?,
+            total_amount=?,
+            change_amount=?,
+            status=?,
+            voided_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE voided_at END,
+            voided_by=CASE WHEN ? THEN ? ELSE voided_by END,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            financials["total_items"],
+            _currency(financials["subtotal_amount"]),
+            financials["discount_type"],
+            _currency(financials["discount_value"]),
+            _currency(financials["discount_amount"]),
+            financials["tax_type"],
+            _currency(financials["tax_value"]),
+            _currency(financials["tax_amount"]),
+            _currency(financials["total_amount"]),
+            _currency(change_amount),
+            next_status,
+            1 if any_void else 0,
+            1 if any_void else 0,
+            acting_user_id,
+            sale_row.get("sale_id") or sale_row.get("id"),
+        ),
+    )
+
+    db.execute(
+        """
+        UPDATE crm_purchase_records
+        SET
+            items_count=?,
+            total_amount=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            financials["total_items"],
+            _currency(financials["total_amount"]),
+            sale_row["purchase_id"],
+        ),
+    )
+
+    db.execute(
+        """
+        UPDATE crm_member_records
+        SET
+            amount=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE purchase_id=? AND record_type='purchase'
+        """,
+        (
+            _currency(financials["total_amount"]),
+            sale_row["purchase_id"],
+        ),
+    )
+
+    return {
+        **financials,
+        "paid_amount": paid_amount,
+        "change_amount": change_amount,
+        **_build_pos_sale_status_payload(next_status),
+    }
+
+
 @pos_bp.route("/")
 def pos_page():
     denied = _require_pos_access()
@@ -1078,6 +1718,124 @@ def pos_receipt_print(receipt_no):
     )
 
 
+@pos_bp.post("/sales-item/<int:item_id>/void")
+def pos_void_sale_item(item_id):
+    denied = _require_pos_access(json_mode=True)
+    if denied:
+        return denied
+
+    if not has_permission(session.get("role"), "manage_pos"):
+        return _json_error("Role ini belum punya izin melakukan void item POS.", 403)
+
+    db = get_db()
+    payload = request.get_json(silent=True) or {}
+    sale_item = _fetch_pos_voidable_sale_item(db, item_id)
+    if sale_item is None:
+        return _json_error("Item penjualan tidak ditemukan atau tidak bisa diakses.", 404)
+
+    sold_qty = int(sale_item.get("qty") or 0)
+    already_void_qty = max(0, int(sale_item.get("void_qty") or 0))
+    active_qty = max(sold_qty - already_void_qty, 0)
+    if active_qty <= 0:
+        return _json_error("Item ini sudah di-void sepenuhnya.", 400)
+
+    requested_void_qty = _to_int(payload.get("void_qty"), active_qty)
+    if requested_void_qty <= 0:
+        return _json_error("Qty void harus lebih dari 0.", 400)
+    if requested_void_qty > active_qty:
+        return _json_error(f"Qty void melebihi sisa item aktif. Maksimal {active_qty}.", 400)
+
+    acting_user_id = _to_int(session.get("user_id"), 0)
+    void_note = (payload.get("note") or "").strip() or None
+    unit_price = _to_decimal(sale_item.get("unit_price"), "0")
+    void_amount_delta = (unit_price * Decimal(requested_void_qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    restore_cost = _resolve_pos_stock_restore_cost(
+        db,
+        sale_item["product_id"],
+        sale_item["variant_id"],
+        sale_item["warehouse_id"],
+    )
+
+    try:
+        db.execute("BEGIN")
+        restored = add_stock(
+            sale_item["product_id"],
+            sale_item["variant_id"],
+            sale_item["warehouse_id"],
+            requested_void_qty,
+            note=f"VOID POS {sale_item['receipt_no']} - {sale_item['sku']} / {sale_item['variant_name']}",
+            cost=restore_cost,
+        )
+        if not restored:
+            raise ValueError("Stok gagal dikembalikan saat proses void item.")
+
+        db.execute(
+            """
+            UPDATE crm_purchase_items
+            SET
+                void_qty=COALESCE(void_qty, 0) + ?,
+                void_amount=COALESCE(void_amount, 0) + ?,
+                voided_at=CURRENT_TIMESTAMP,
+                voided_by=?,
+                void_note=?
+            WHERE id=?
+            """,
+            (
+                requested_void_qty,
+                _currency(void_amount_delta),
+                acting_user_id or None,
+                void_note,
+                item_id,
+            ),
+        )
+
+        sale_totals = _apply_pos_sale_rollup_updates(db, sale_item, acting_user_id or None)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _json_error(str(exc), 400)
+    except Exception:
+        db.rollback()
+        return _json_error("Void item gagal diproses. Coba ulangi beberapa detik lagi.", 500)
+
+    try:
+        notify_operational_event(
+            f"Void POS {sale_item['receipt_no']}",
+            (
+                f"{sale_item['sku']} | Void {requested_void_qty} pcs | "
+                f"Omzet sekarang {_format_pos_currency_label(sale_totals['total_amount'])}"
+            ),
+            warehouse_id=sale_item["warehouse_id"],
+            category="inventory",
+            link_url=f"/kasir/log?warehouse={sale_item['warehouse_id']}&date_from={sale_item['sale_date']}&date_to={sale_item['sale_date']}",
+            source_type="pos_void",
+            source_id=item_id,
+            push_title="Void item POS diproses",
+            push_body=f"{sale_item['receipt_no']} | {sale_item['sku']} | Qty {requested_void_qty}",
+        )
+    except Exception as exc:
+        print("POS VOID NOTIFICATION ERROR:", exc)
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"Item {sale_item['sku']} berhasil di-void sebanyak {requested_void_qty}.",
+            "receipt_no": sale_item["receipt_no"],
+            "sale_date": sale_item["sale_date"],
+            "void_qty": requested_void_qty,
+            "active_qty": max(active_qty - requested_void_qty, 0),
+            "total_items": sale_totals["total_items"],
+            "subtotal_amount": _currency(sale_totals["subtotal_amount"]),
+            "discount_amount": _currency(sale_totals["discount_amount"]),
+            "tax_amount": _currency(sale_totals["tax_amount"]),
+            "total_amount": _currency(sale_totals["total_amount"]),
+            "change_amount": _currency(sale_totals["change_amount"]),
+            "status_label": sale_totals["status_label"],
+            "sale_status": sale_totals["status"],
+        }
+    )
+
+
 @pos_bp.post("/checkout")
 def pos_checkout():
     denied = _require_pos_access(json_mode=True)
@@ -1093,6 +1851,10 @@ def pos_checkout():
     warehouse_id = _resolve_pos_warehouse(db, payload.get("warehouse_id"))
     sale_date = _normalize_sale_date(payload.get("sale_date"))
     payment_method = _normalize_payment_method(payload.get("payment_method"))
+    discount_type = _normalize_adjustment_type(payload.get("discount_type"))
+    discount_value = _to_decimal(payload.get("discount_value"), "0")
+    tax_type = _normalize_adjustment_type(payload.get("tax_type"))
+    tax_value = _to_decimal(payload.get("tax_value"), "0")
     note = (payload.get("note") or "").strip() or None
     customer_id = _to_int(payload.get("customer_id"), 0)
     customer_name = (payload.get("customer_name") or "").strip()
@@ -1107,14 +1869,19 @@ def pos_checkout():
     except ValueError as exc:
         return _json_error(str(exc), 400)
 
-    total_items = sum(int(item["qty"]) for item in items)
-    total_amount = sum(item["line_total"] for item in items)
+    financials = _build_pos_sale_financials(
+        items,
+        discount_type=discount_type,
+        discount_value=discount_value,
+        tax_type=tax_type,
+        tax_value=tax_value,
+    )
 
-    paid_amount = _to_decimal(payload.get("paid_amount"), str(total_amount))
-    if paid_amount < total_amount:
+    paid_amount = _to_decimal(payload.get("paid_amount"), str(financials["total_amount"]))
+    if paid_amount < financials["total_amount"]:
         return _json_error("Nominal bayar kurang dari total transaksi.", 400)
 
-    change_amount = (paid_amount - total_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    change_amount = (paid_amount - financials["total_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     member_id = None
     receipt_no = (payload.get("receipt_no") or "").strip()
@@ -1175,8 +1942,8 @@ def pos_checkout():
                 sale_date,
                 receipt_no,
                 "pos",
-                total_items,
-                _currency(total_amount),
+                financials["total_items"],
+                _currency(financials["total_amount"]),
                 note,
                 session.get("user_id"),
             ),
@@ -1234,7 +2001,7 @@ def pos_checkout():
                     sale_date,
                     "purchase",
                     receipt_no,
-                    _currency(total_amount),
+                    _currency(financials["total_amount"]),
                     0,
                     "Auto-generated dari POS checkout",
                     session.get("user_id"),
@@ -1252,12 +2019,20 @@ def pos_checkout():
                 receipt_no,
                 payment_method,
                 total_items,
+                subtotal_amount,
+                discount_type,
+                discount_value,
+                discount_amount,
+                tax_type,
+                tax_value,
+                tax_amount,
                 total_amount,
                 paid_amount,
                 change_amount,
+                status,
                 note
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 purchase_id,
@@ -1267,10 +2042,18 @@ def pos_checkout():
                 sale_date,
                 receipt_no,
                 payment_method,
-                total_items,
-                _currency(total_amount),
+                financials["total_items"],
+                _currency(financials["subtotal_amount"]),
+                financials["discount_type"],
+                _currency(financials["discount_value"]),
+                _currency(financials["discount_amount"]),
+                financials["tax_type"],
+                _currency(financials["tax_value"]),
+                _currency(financials["tax_amount"]),
+                _currency(financials["total_amount"]),
                 _currency(paid_amount),
                 _currency(change_amount),
+                "posted",
                 note,
             ),
         )
@@ -1302,8 +2085,8 @@ def pos_checkout():
         notify_operational_event(
             f"Transaksi POS {receipt_no}",
             (
-                f"{customer['customer_name']} | {total_items} item | "
-                f"Total Rp {int(_currency(total_amount)):,}".replace(",", ".")
+                f"{customer['customer_name']} | {financials['total_items']} item | "
+                f"Total Rp {int(_currency(financials['total_amount'])):,}".replace(",", ".")
             ),
             warehouse_id=warehouse_id,
             category="inventory",
@@ -1311,7 +2094,7 @@ def pos_checkout():
             source_type="pos_sale",
             source_id=sale_id,
             push_title="Checkout POS berhasil",
-            push_body=f"{receipt_no} | {total_items} item",
+            push_body=f"{receipt_no} | {financials['total_items']} item",
         )
     except Exception as exc:
         print("POS NOTIFICATION ERROR:", exc)
@@ -1324,8 +2107,11 @@ def pos_checkout():
             "receipt_no": receipt_no,
             "purchase_id": purchase_id,
             "customer_name": customer["customer_name"],
-            "total_items": total_items,
-            "total_amount": _currency(total_amount),
+            "total_items": financials["total_items"],
+            "subtotal_amount": _currency(financials["subtotal_amount"]),
+            "discount_amount": _currency(financials["discount_amount"]),
+            "tax_amount": _currency(financials["tax_amount"]),
+            "total_amount": _currency(financials["total_amount"]),
             "paid_amount": _currency(paid_amount),
             "change_amount": _currency(change_amount),
             "receipt_print_url": f"/kasir/receipt/{receipt_no}/print?autoprint=1",
