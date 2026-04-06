@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}Info Produk Cepat | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Fast Response Catalog{% endblock %}
+{% block eyebrow %}Katalog Respons Cepat{% endblock %}
 {% block page_title %}Info Produk Cepat{% endblock %}
-{% block page_subtitle %}Portal pencarian kilat untuk bantu staff menjawab customer lebih cepat. Cari SKU, nama, variant, kategori, kode variasi, atau GTIN lalu lihat harga dan stok per gudang dalam satu layar.{% endblock %}
+{% block page_subtitle %}Portal pencarian kilat untuk bantu staff menjawab customer lebih cepat. Cari SKU, nama, varian, kategori, kode variasi, atau GTIN lalu lihat harga dan stok per gudang dalam satu layar.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions lookup-page-actions">
@@ -32,7 +32,7 @@
     </div>
     <div class="card-mini success">
         <p>Mode Staff</p>
-        <h3>Read Only</h3>
+        <h3>Lihat Saja</h3>
         <small class="helper-text">Fokus ke informasi produk lengkap tanpa menu edit master data.</small>
     </div>
 </div>
@@ -71,7 +71,7 @@
             <span class="status-pill">SKU</span>
             <span class="status-pill">GTIN</span>
             <span class="status-pill">Nama</span>
-            <span class="status-pill">Variant</span>
+            <span class="status-pill">Varian</span>
             <span class="status-pill">Kategori</span>
         </div>
     </form>
@@ -91,7 +91,7 @@
 
     <div class="product-lookup-results" id="productLookupResults">
         <div class="empty-state product-lookup-empty">
-            Ketik SKU, nama produk, kategori, variant, GTIN, atau kode variasi untuk mulai cari.
+            Ketik SKU, nama produk, kategori, varian, GTIN, atau kode variasi untuk mulai cari.
         </div>
     </div>
 </section>
@@ -198,7 +198,7 @@ async function performLookupSearch() {
             lookupAbortController = null;
         }
         updateLookupMeta("", 0, lookupWarehouseSelect?.selectedOptions?.[0]?.textContent || "-");
-        renderLookupEmpty("Ketik SKU, nama produk, kategori, variant, GTIN, atau kode variasi untuk mulai cari.");
+        renderLookupEmpty("Ketik SKU, nama produk, kategori, varian, GTIN, atau kode variasi untuk mulai cari.");
         return;
     }
 

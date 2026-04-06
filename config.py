@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import secrets
 from datetime import timedelta
@@ -49,6 +50,20 @@ def _first_env_value(*names, default=""):
         if normalized:
             return normalized
     return str(default).strip()
+
+
+def _load_optional_json(path):
+    candidate = str(path or "").strip()
+    if not candidate or not os.path.exists(candidate):
+        return {}
+
+    try:
+        with open(candidate, "r", encoding="utf-8") as file_handle:
+            payload = json.load(file_handle)
+    except Exception:
+        return {}
+
+    return payload if isinstance(payload, dict) else {}
 
 
 def _load_or_create_secret_key():
@@ -120,6 +135,12 @@ def _load_or_create_webpush_keys():
 
 WEBPUSH_PUBLIC_KEY_DEFAULT, WEBPUSH_PRIVATE_KEY_DEFAULT = _load_or_create_webpush_keys()
 SECRET_KEY_DEFAULT = _load_or_create_secret_key()
+MEETING_LOCAL_CONFIG = _load_optional_json(
+    os.getenv(
+        "MEETING_LOCAL_CONFIG_PATH",
+        os.path.join(BASE_DIR, "instance", "meeting_jaas.json"),
+    )
+)
 
 
 class Config:
@@ -175,9 +196,41 @@ class Config:
         }
     ]
     MEETING_PROVIDER = (os.getenv("MEETING_PROVIDER") or "jitsi").strip().lower()
-    JITSI_MEETING_DOMAIN = (os.getenv("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip()
+    JITSI_MEETING_DOMAIN = _first_env_value(
+        "JITSI_MEETING_DOMAIN",
+        default=str(
+            MEETING_LOCAL_CONFIG.get("domain")
+            or ("8x8.vc" if MEETING_LOCAL_CONFIG.get("app_id") else "meet.jit.si")
+        ),
+    )
     JITSI_ROOM_PREFIX = (os.getenv("JITSI_ROOM_PREFIX") or "erp-bjas").strip()
     JITSI_ROOM_MAX_PARTICIPANTS = int(os.getenv("JITSI_ROOM_MAX_PARTICIPANTS", "10"))
+    JITSI_JAAS_APP_ID = _first_env_value(
+        "JITSI_JAAS_APP_ID",
+        default=str(MEETING_LOCAL_CONFIG.get("app_id") or ""),
+    )
+    JITSI_JAAS_KEY_ID = _first_env_value(
+        "JITSI_JAAS_KEY_ID",
+        default=str(MEETING_LOCAL_CONFIG.get("key_id") or ""),
+    )
+    JITSI_JAAS_PRIVATE_KEY_PATH = _first_env_value(
+        "JITSI_JAAS_PRIVATE_KEY_PATH",
+        default=str(MEETING_LOCAL_CONFIG.get("private_key_path") or ""),
+    )
+    JITSI_JAAS_PUBLIC_KEY_PATH = _first_env_value(
+        "JITSI_JAAS_PUBLIC_KEY_PATH",
+        default=str(MEETING_LOCAL_CONFIG.get("public_key_path") or ""),
+    )
+    JITSI_JAAS_KID = _first_env_value(
+        "JITSI_JAAS_KID",
+        default=str(MEETING_LOCAL_CONFIG.get("kid") or ""),
+    )
+    JITSI_JAAS_TOKEN_TTL_SECONDS = int(
+        os.getenv(
+            "JITSI_JAAS_TOKEN_TTL_SECONDS",
+            str(MEETING_LOCAL_CONFIG.get("token_ttl_seconds") or 2 * 60 * 60),
+        )
+    )
     MEETING_DEFAULT_LANGUAGE = (os.getenv("MEETING_DEFAULT_LANGUAGE") or "id-ID").strip()
     ZOOM_MEETING_SDK_KEY = _first_env_value(
         "ZOOM_MEETING_SDK_KEY",
@@ -201,6 +254,16 @@ class Config:
     WEBPUSH_PUBLIC_KEY = WEBPUSH_PUBLIC_KEY_DEFAULT
     WEBPUSH_PRIVATE_KEY = WEBPUSH_PRIVATE_KEY_DEFAULT
     WEBPUSH_SUBJECT = os.getenv("WEBPUSH_SUBJECT", "mailto:admin@example.com")
+    ANDROID_APP_PACKAGE = _first_env_value(
+        "ANDROID_APP_PACKAGE",
+        default="cloud.cvbjasyogya.erp",
+    ).lower()
+    ANDROID_SHA256_CERT_FINGERPRINTS = _csv_env("ANDROID_SHA256_CERT_FINGERPRINTS", "")
+    ANDROID_TWA_START_URL = _first_env_value(
+        "ANDROID_TWA_START_URL",
+        default="https://erp.cvbjasyogya.cloud/workspace/?source=android-app",
+    )
+    IOS_APP_IDS = _csv_env("IOS_APP_IDS", "")
     PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
     PASSWORD_RESET_TTL_MINUTES = int(os.getenv("PASSWORD_RESET_TTL_MINUTES", "15"))
     LOGIN_THROTTLE_LIMIT = int(os.getenv("LOGIN_THROTTLE_LIMIT", "5"))

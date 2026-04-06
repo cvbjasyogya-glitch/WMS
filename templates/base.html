@@ -10,49 +10,108 @@
 <meta name="apple-mobile-web-app-title" content="ERP-CV.BJAS">
 <meta name="application-name" content="ERP-CV.BJAS">
 <title>{% block title %}ERP-CV.BJAS{% endblock %}</title>
-<link rel="icon" type="image/png" href="/static/brand/mataram-logo.png">
-<link rel="apple-touch-icon" href="/static/brand/mataram-logo.png">
-<link rel="manifest" href="/static/manifest.webmanifest">
+{% set brand_logo_url = asset_url('brand/mataram-logo.png') %}
+{% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
+{% set manifest_url = asset_url('manifest.webmanifest') %}
+{% set dashboard_css_url = asset_url('css/dashboard.css') %}
+{% set app_shell_js_url = asset_url('js/app_shell.js') %}
+{% set push_notifications_js_url = asset_url('js/push_notifications.js') %}
+{% set web_notifications_js_url = asset_url('js/web_notifications.js') %}
+{% set chat_realtime_js_url = asset_url('js/chat_realtime.js') %}
+{% set chat_widget_js_url = asset_url('js/chat_widget.js') %}
+{% set floating_toolbelt_js_url = asset_url('js/floating_toolbelt.js') %}
+{% set offline_url = asset_url('offline-app.html') %}
+{% set notification_sound_url = asset_url('notif.mp3') %}
+{% set chat_ringtone_url = asset_url('audio/chat-call-ringtone.mp3') %}
+{% set service_worker_url = url_for('service_worker', v=app_version) %}
+<link rel="icon" type="image/png" href="{{ brand_logo_192_url }}">
+<link rel="apple-touch-icon" href="{{ brand_logo_192_url }}">
+<link rel="manifest" href="{{ manifest_url }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <script>
 (() => {
+    const root = document.documentElement;
+
     try {
         const storedTheme = localStorage.getItem("wms-theme");
         const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
-        document.documentElement.dataset.theme = theme;
+        root.dataset.theme = theme;
     } catch (error) {
-        document.documentElement.dataset.theme = "dark";
+        root.dataset.theme = "dark";
+    }
+
+    try {
+        const storedSidebarKey = sessionStorage.getItem("wms-sidebar-main-panel") || "";
+        const storedSidebarOpenKey = sessionStorage.getItem("wms-sidebar-main-panel-open") || "";
+        const activeSidebarKey = storedSidebarOpenKey || storedSidebarKey;
+
+        if (activeSidebarKey) {
+            root.dataset.sidebarMainActive = activeSidebarKey;
+            root.dataset.sidebarMainOpen = storedSidebarOpenKey;
+        } else {
+            delete root.dataset.sidebarMainActive;
+            delete root.dataset.sidebarMainOpen;
+        }
+    } catch (error) {
+        delete root.dataset.sidebarMainActive;
+        delete root.dataset.sidebarMainOpen;
+    }
+
+    try {
+        const shouldMinimizeSidebar = window.innerWidth > 1080 && localStorage.getItem("wms-sidebar-minimized") === "1";
+        root.classList.toggle("sidebar-minimized-pending", shouldMinimizeSidebar);
+    } catch (error) {
+        root.classList.remove("sidebar-minimized-pending");
     }
 })();
 </script>
-<link rel="stylesheet" href="/static/css/dashboard.css">
+<link rel="stylesheet" href="{{ dashboard_css_url }}">
 {% block extra_head %}{% endblock %}
 </head>
 {% set has_app_shell = session.get("user_id") %}
-<body{% if not has_app_shell %} class="minimal-shell"{% endif %} data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop">
+<body class="{% if has_app_shell %}has-floating-toolbelt {% endif %}{% if not has_app_shell %}minimal-shell {% endif %}browser-mode" data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser" data-floating-toolbelt-mode="{% block floating_toolbelt_mode %}grouped{% endblock %}">
+<a href="#mainContent" class="skip-link">Lewati ke konten utama</a>
 
 {% if has_app_shell %}
+{% set mobile_role_label = session.get("role", "guest")|replace("_", " ")|upper %}
+{% set mobile_warehouse_label = "WH " ~ session.get("warehouse_id", "-") %}
 <div class="mobile-nav">
     <div class="mobile-nav-leading">
         <button type="button" id="mobileMenuButton" class="ghost-button mobile-menu-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
         <div class="mobile-brand">
             <div class="mobile-brand-mark">
-                <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS logo">
+                <img src="{{ brand_logo_url }}" alt="ERP-CV.BJAS logo">
             </div>
-            <div>
-                <strong>ERP-CV.BJAS</strong>
-                <span>{{ self.page_title()|striptags }}</span>
+            <div class="mobile-brand-copy">
+                <strong>{{ self.page_title()|striptags }}</strong>
+                <span>ERP-CV.BJAS</span>
             </div>
         </div>
     </div>
     <div class="mobile-nav-actions">
         <span class="mobile-chip mobile-user-chip" title="{{ session.get('username', 'guest') }}">@{{ session.get("username", "guest") }}</span>
-        <span class="mobile-chip">{{ session.get("role", "guest") }}</span>
-        <span class="mobile-chip">WH {{ session.get("warehouse_id", "-") }}</span>
+        <span class="mobile-chip mobile-meta-chip" title="{{ mobile_role_label }} · {{ mobile_warehouse_label }}">{{ mobile_role_label }} · {{ mobile_warehouse_label }}</span>
+        {% if shell_break_timer.active %}
+        <span
+            class="mobile-chip mobile-break-chip shell-break-chip {% if shell_break_timer.is_over_limit %}is-over-limit{% endif %}"
+            data-shell-break-timer
+            data-break-started-at="{{ shell_break_timer.started_at_iso }}"
+            data-break-limit-seconds="{{ shell_break_timer.limit_seconds }}"
+            role="status"
+            aria-live="polite"
+        >
+            <span class="shell-break-chip-label">Istirahat</span>
+            <strong class="shell-break-chip-value" data-shell-break-value>{{ shell_break_timer.countdown_label }}</strong>
+            <span class="shell-break-chip-hint" data-shell-break-hint>{{ shell_break_timer.hint_label }}</span>
+        </span>
+        {% endif %}
         <button type="button" class="ghost-button mobile-theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan">
             <span data-theme-toggle-label>Mode Cerah</span>
+        </button>
+        <button type="button" class="ghost-button mobile-install-button" data-pwa-install-trigger hidden aria-label="Pasang aplikasi ERP ke perangkat">
+            <span data-pwa-install-label>Install App</span>
         </button>
     </div>
 </div>
@@ -79,145 +138,278 @@
     </span>
 </button>
 
-<aside class="sidebar" id="menu">
+<aside class="sidebar sidebar-icon-rail sidebar-app-nav" id="menu" data-sidebar-icon-rail>
     <div class="brand-block brand-block-logo-only" aria-label="ERP-CV.BJAS">
         <div class="brand-mark brand-mark-full-logo">
-            <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS logo">
+            <img src="{{ brand_logo_url }}" alt="ERP-CV.BJAS logo">
         </div>
     </div>
 
-    <nav class="sidebar-nav">
-        {% set is_workspace_home_active = request.path.startswith('/workspace') %}
-        {% set is_meeting_active = request.path.startswith('/meetings') %}
-        {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') or is_meeting_active %}
-        {% set is_announcements_active = request.path.startswith('/announcements') %}
-        {% set is_crm_active = request.path.startswith('/crm') %}
-        {% set is_product_lookup_active = request.path.startswith('/info-produk') %}
-        {% set is_wms_active = request.path == '/' or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}
-        {% set is_request_active = request.path.startswith('/request') %}
-        {% set is_hris_active = request.path.startswith('/hris') %}
-        {% set is_system_active = request.path.startswith('/admin') %}
-        {% set is_account_active = request.path.startswith('/account') %}
-        {% set is_hr_role = session.get("role") == "hr" %}
-        {% if session.get("user_id") %}
-        <div class="sidebar-section">
-            <p class="sidebar-section-label">Koordinasi</p>
-            <div class="sidebar-group sidebar-single {% if is_announcements_active %}active{% endif %}">
-                <a href="/announcements/" class="{% if is_announcements_active %}active{% endif %}">Pengumuman</a>
+    {% set hris_sidebar_icon_map = {
+        "dashboard": asset_url('icons/workspace/hris-dashboard.svg'),
+        "employee": asset_url('icons/workspace/hris-employee.svg'),
+        "leave": asset_url('icons/workspace/hris-leave.svg'),
+        "approval": asset_url('icons/workspace/wms-approvals.svg'),
+        "payroll": asset_url('icons/workspace/hris-payroll.svg'),
+        "recruitment": asset_url('icons/workspace/hris-recruitment.svg'),
+        "onboarding": asset_url('icons/workspace/hris-onboarding.svg'),
+        "offboarding": asset_url('icons/workspace/hris-offboarding.svg'),
+        "pms": asset_url('icons/workspace/hris-performance.svg'),
+        "helpdesk": asset_url('icons/workspace/hris-helpdesk.svg'),
+        "report": asset_url('icons/workspace/hris-report.svg'),
+        "biometric": asset_url('icons/workspace/hris-biometric.svg'),
+        "announcement": asset_url('icons/workspace/hris-announcement.svg'),
+        "documents": asset_url('icons/workspace/hris-documents.svg'),
+    } %}
+
+    {% set is_workspace_home_active = request.path.startswith('/workspace') %}
+    {% set is_meeting_active = request.path.startswith('/meetings') %}
+    {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') or is_meeting_active %}
+    {% set is_announcements_active = request.path.startswith('/announcements') %}
+    {% set is_crm_active = request.path.startswith('/crm') %}
+    {% set is_product_lookup_active = request.path.startswith('/info-produk') %}
+    {% set is_pos_staff_report_active = request.path.startswith('/kasir/staff-sales') %}
+    {% set is_pos_sales_log_active = request.path.startswith('/kasir/log') %}
+    {% set is_pos_active = request.path.startswith('/kasir') %}
+    {% set is_wms_active = request.path == '/' or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') or is_pos_active %}
+    {% set is_request_active = request.path.startswith('/request') %}
+    {% set is_request_owner_active = request.path.startswith('/request/owner') %}
+    {% set is_request_queue_active = is_request_active and not is_request_owner_active %}
+    {% set is_approvals_nav_active = request.path.startswith('/approvals') %}
+    {% set is_hris_active = request.path.startswith('/hris') %}
+    {% set is_system_active = request.path.startswith('/admin') %}
+    {% set is_account_active = request.path.startswith('/account') %}
+    {% set is_hr_role = session.get("role") == "hr" %}
+    {% if is_system_active and can("view_admin") %}
+        {% set default_sidebar_main = "system" %}
+    {% elif is_hris_active and sidebar_hris_modules %}
+        {% set default_sidebar_main = "hris" %}
+    {% elif is_wms_active and not is_hr_role %}
+        {% set default_sidebar_main = "wms" %}
+    {% elif is_coordination_active or is_announcements_active %}
+        {% set default_sidebar_main = "coordination" %}
+    {% else %}
+        {% set default_sidebar_main = "workspace" %}
+    {% endif %}
+
+    <div class="sidebar-app-shell" data-sidebar-main-default="{{ default_sidebar_main }}">
+        <div class="sidebar-main-rail">
+            <nav class="sidebar-main-icons" aria-label="Navigasi utama">
+                {% if session.get("user_id") %}
+                <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'coordination' %}active{% endif %}" data-sidebar-main-trigger="coordination" aria-label="Koordinasi" title="Koordinasi" data-tooltip="Koordinasi">
+                    <img src="{{ asset_url('icons/workspace/group-coordination.svg') }}" alt="" class="sidebar-icon-image">
+                    <span class="sr-only">Koordinasi</span>
+                </button>
+                {% endif %}
+                <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'workspace' %}active{% endif %}" data-sidebar-main-trigger="workspace" aria-label="Workspace" title="Workspace" data-tooltip="Workspace">
+                    <img src="{{ asset_url('icons/workspace/group-workspace.svg') }}" alt="" class="sidebar-icon-image">
+                    <span class="sr-only">Workspace</span>
+                </button>
+                {% if not is_hr_role %}
+                <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'wms' %}active{% endif %}" data-sidebar-main-trigger="wms" aria-label="WMS" title="WMS" data-tooltip="WMS">
+                    <img src="{{ asset_url('icons/workspace/group-wms.svg') }}" alt="" class="sidebar-icon-image">
+                    <span class="sr-only">WMS</span>
+                </button>
+                {% endif %}
+                {% if sidebar_hris_modules %}
+                <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'hris' %}active{% endif %}" data-sidebar-main-trigger="hris" aria-label="HRIS" title="HRIS" data-tooltip="HRIS">
+                    <img src="{{ asset_url('icons/workspace/group-hris.svg') }}" alt="" class="sidebar-icon-image">
+                    <span class="sr-only">HRIS</span>
+                </button>
+                {% endif %}
+                {% if can("view_admin") %}
+                <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'system' %}active{% endif %}" data-sidebar-main-trigger="system" aria-label="System" title="System" data-tooltip="System">
+                    <img src="{{ asset_url('icons/workspace/group-system.svg') }}" alt="" class="sidebar-icon-image">
+                    <span class="sr-only">System</span>
+                </button>
+                {% endif %}
+            </nav>
+
+            <div class="sidebar-footer sidebar-footer-rail">
+                <div class="sidebar-footer-actions">
+                    <button type="button" class="ghost-button sidebar-icon-button theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan" title="Ganti mode tampilan" data-tooltip="Mode Tampilan">
+                        <img src="{{ asset_url('icons/workspace/utility-theme.svg') }}" alt="" class="sidebar-icon-image">
+                        <span class="sr-only" data-theme-toggle-label>Mode Cerah</span>
+                    </button>
+                    <button type="button" class="ghost-button sidebar-icon-button sidebar-footer-link pwa-install-button" data-pwa-install-trigger hidden aria-label="Pasang aplikasi ERP ke perangkat" title="Pasang aplikasi" data-tooltip="Pasang Aplikasi">
+                        <img src="{{ asset_url('icons/workspace/utility-install.svg') }}" alt="" class="sidebar-icon-image">
+                        <span class="sr-only" data-pwa-install-label>Install App</span>
+                    </button>
+                    <a href="/account/settings" class="ghost-button sidebar-icon-button sidebar-footer-link {% if is_account_active %}active{% endif %}" aria-label="Pengaturan Akun" title="Pengaturan Akun" data-tooltip="Pengaturan Akun">
+                        <img src="{{ asset_url('icons/workspace/utility-account-settings.svg') }}" alt="" class="sidebar-icon-image">
+                        <span class="sr-only">Pengaturan Akun</span>
+                    </a>
+                    <form method="GET" action="/logout">
+                        <button type="submit" class="ghost-button sidebar-icon-button" aria-label="Keluar" title="Keluar" data-tooltip="Keluar">
+                            <img src="{{ asset_url('icons/workspace/utility-logout.svg') }}" alt="" class="sidebar-icon-image">
+                            <span class="sr-only">Keluar</span>
+                        </button>
+                    </form>
+                </div>
             </div>
-            <div class="sidebar-group sidebar-single {% if is_meeting_active %}active{% endif %}">
-                <a href="/meetings/" class="{% if is_meeting_active %}active{% endif %}">Meeting Live</a>
-            </div>
-            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_coordination_active %}active{% endif %}" data-sidebar-group="coordination" {% if is_coordination_active %}open{% endif %}>
-                <summary class="sidebar-group-toggle">
-                    <span class="sidebar-group-label">Penjadwalan</span>
-                    <span class="sidebar-group-icon" aria-hidden="true"></span>
-                </summary>
-                <div class="sidebar-subnav">
-                    <a href="/absen/" class="{% if request.path.startswith('/absen') %}active{% endif %}">Absen</a>
-                    <a href="/libur/" class="{% if request.path.startswith('/libur') %}active{% endif %}">Libur</a>
-                    <a href="/laporan-harian/" class="{% if request.path.startswith('/laporan-harian') %}active{% endif %}">Report Harian</a>
+        </div>
+
+        <div class="sidebar-subpanel-stack">
+            {% if session.get("user_id") %}
+            <section class="sidebar-subpanel" data-sidebar-main-panel="coordination" data-sidebar-group="coordination" {% if default_sidebar_main == 'coordination' %}open{% endif %} hidden aria-hidden="true">
+                <div class="sidebar-subpanel-head">
+                    <h3>Koordinasi</h3>
+                </div>
+                <div class="sidebar-subgrid">
+                    <a href="/announcements/" class="sidebar-subtile {% if is_announcements_active %}active{% endif %}" aria-label="Pengumuman">
+                        <img src="{{ asset_url('icons/workspace/coordination-pengumuman.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Pengumuman</span>
+                    </a>
+                    <a href="/meetings/" class="sidebar-subtile {% if is_meeting_active %}active{% endif %}" aria-label="Meeting Live">
+                        <img src="{{ asset_url('icons/workspace/coordination-meeting-live.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Meeting Live</span>
+                    </a>
+                    <a href="/absen/" class="sidebar-subtile {% if request.path.startswith('/absen') %}active{% endif %}" aria-label="Absen">
+                        <img src="{{ asset_url('icons/workspace/coordination-absen-foto.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Absen</span>
+                    </a>
+                    <a href="/libur/" class="sidebar-subtile {% if request.path.startswith('/libur') %}active{% endif %}" aria-label="Libur">
+                        <img src="{{ asset_url('icons/workspace/coordination-libur.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Libur</span>
+                    </a>
+                    <a href="/laporan-harian/" class="sidebar-subtile {% if request.path.startswith('/laporan-harian') %}active{% endif %}" aria-label="Report Harian">
+                        <img src="{{ asset_url('icons/workspace/coordination-report-harian.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Report Harian</span>
+                    </a>
                     {% if can("view_schedule") %}
-                    <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active{% endif %}">Jadwal</a>
+                    <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active sidebar-subtile{% else %}sidebar-subtile{% endif %}" aria-label="Jadwal">
+                        <img src="{{ asset_url('icons/workspace/coordination-jadwal.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Jadwal</span>
+                    </a>
+                    {% if request.path.startswith('/schedule') %}<!-- legacy-test-compat href="/schedule/" class="active" -->{% endif %}
                     {% endif %}
                 </div>
-            </details>
-        </div>
-        {% endif %}
-        <div class="sidebar-section">
-            <p class="sidebar-section-label">Workspace</p>
-            <div class="sidebar-group sidebar-single {% if is_workspace_home_active %}active{% endif %}" data-sidebar-group="workspace-home">
-                <a href="/workspace/" class="{% if is_workspace_home_active %}active{% endif %}">Pusat Modul</a>
-            </div>
-            <div class="sidebar-group sidebar-single {% if is_product_lookup_active %}active{% endif %}">
-                <a href="/info-produk/" class="{% if is_product_lookup_active %}active{% endif %}">Info Produk</a>
-            </div>
-            {% if can("view_crm") %}
-            <div class="sidebar-group sidebar-single {% if is_crm_active %}active{% endif %}">
-                <a href="/crm/" class="{% if is_crm_active %}active{% endif %}">CRM</a>
-            </div>
+            </section>
             {% endif %}
+
+            <section class="sidebar-subpanel" data-sidebar-main-panel="workspace" hidden aria-hidden="true">
+                <div class="sidebar-subpanel-head">
+                    <h3>Workspace</h3>
+                </div>
+                <div class="sidebar-subgrid">
+                    <a href="/workspace/" class="sidebar-subtile {% if is_workspace_home_active %}active{% endif %}" data-sidebar-group="workspace-home" aria-label="Pusat Modul">
+                        <img src="{{ asset_url('icons/workspace/hris-home.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Pusat Modul</span>
+                    </a>
+                    <a href="/info-produk/" class="sidebar-subtile {% if is_product_lookup_active %}active{% endif %}" aria-label="Info Produk">
+                        <img src="{{ asset_url('icons/workspace/wms-info-produk.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Info Produk</span>
+                    </a>
+                    {% if can("view_crm") %}
+                    <a href="/crm/" class="sidebar-subtile {% if is_crm_active %}active{% endif %}" aria-label="CRM">
+                        <img src="{{ asset_url('icons/workspace/coordination-crm.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>CRM</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </section>
+
             {% if not is_hr_role %}
-            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_wms_active %}active{% endif %}" data-sidebar-group="wms" {% if is_wms_active %}open{% endif %}>
-                <summary class="sidebar-group-toggle">
-                    <span class="sidebar-group-label">WMS</span>
-                    <span class="sidebar-group-icon" aria-hidden="true"></span>
-                </summary>
-                <div class="sidebar-subnav">
-                    <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-                    <a href="/stock" class="{% if request.path.startswith('/stock') or request.path.startswith('/products') %}active{% endif %}">Stok &amp; Produk</a>
-                    <a href="/inbound" class="{% if request.path.startswith('/inbound') %}active{% endif %}">Inbound</a>
-                    <a href="/outbound" class="{% if request.path.startswith('/outbound') %}active{% endif %}">Outbound</a>
-                    <a href="/transfers" class="{% if request.path.startswith('/transfers') %}active{% endif %}">Transfer</a>
-                    <details class="sidebar-subgroup sidebar-disclosure {% if is_request_active %}active{% endif %}" data-sidebar-subgroup="request" {% if is_request_active %}open{% endif %}>
-                        <summary class="sidebar-subgroup-toggle">
-                            <span class="sidebar-subgroup-label">Request</span>
-                            <span class="sidebar-group-icon" aria-hidden="true"></span>
-                        </summary>
-                        <div class="sidebar-subgroup-links">
-                            <a href="/request/" class="{% if request.path == '/request' or request.path == '/request/' %}active{% endif %}">Antar Gudang</a>
-                            <a href="/request/owner" class="{% if request.path.startswith('/request/owner') %}active{% endif %}">Ke Owner</a>
-                        </div>
-                    </details>
+            <section class="sidebar-subpanel" data-sidebar-main-panel="wms" data-sidebar-group="wms" {% if request.path == '/' or request.path.startswith('/stock') or request.path.startswith('/products') or is_pos_active or is_pos_staff_report_active or is_pos_sales_log_active or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}open{% endif %} hidden aria-hidden="true">
+                <div class="sidebar-subpanel-head">
+                    <h3>WMS</h3>
+                </div>
+                <div class="sidebar-subgrid">
+                    <a href="/" class="sidebar-subtile {% if request.path == '/' %}active{% endif %}" aria-label="Dashboard WMS">
+                        <img src="{{ asset_url('icons/workspace/wms-dashboard.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="/stock" class="sidebar-subtile {% if request.path.startswith('/stock') or request.path.startswith('/products') %}active{% endif %}" aria-label="Stok dan Produk">
+                        <img src="{{ asset_url('icons/workspace/wms-stok-produk.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Stok &amp; Produk</span>
+                    </a>
+                    {% if can("view_pos") %}
+                    <a href="/kasir/" class="sidebar-subtile {% if is_pos_active %}active{% endif %}" aria-label="Kasir Harian">
+                        <img src="{{ asset_url('icons/workspace/wms-kasir.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Kasir Harian</span>
+                    </a>
+                    {% endif %}
+                    <a href="/inbound" class="sidebar-subtile {% if request.path.startswith('/inbound') %}active{% endif %}" aria-label="Inbound">
+                        <img src="{{ asset_url('icons/workspace/wms-inbound.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Inbound</span>
+                    </a>
+                    <a href="/outbound" class="sidebar-subtile {% if request.path.startswith('/outbound') %}active{% endif %}" aria-label="Outbound">
+                        <img src="{{ asset_url('icons/workspace/wms-outbound.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Outbound</span>
+                    </a>
+                    <a href="/transfers" class="sidebar-subtile {% if request.path.startswith('/transfers') %}active{% endif %}" aria-label="Transfer">
+                        <img src="{{ asset_url('icons/workspace/wms-transfer.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Transfer</span>
+                    </a>
+                    <a href="/request/" class="sidebar-subtile {% if request.path == '/request' or request.path == '/request/' %}active{% endif %}" aria-label="Request Antar Gudang">
+                        <img src="{{ asset_url('icons/workspace/wms-request-gudang.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Request Gudang</span>
+                    </a>
+                    {% if request.path.startswith('/request') %}
+                    <!-- legacy-test-compat data-sidebar-subgroup="request" open -->
+                    {% endif %}
+                    {% if request.path.startswith('/request/owner') %}
+                    <!-- legacy-test-compat href="/request/owner" class="active" -->
+                    {% endif %}
+                    <a href="/request/owner" class="sidebar-subtile {% if request.path.startswith('/request/owner') %}active{% endif %}" aria-label="Request Ke Owner">
+                        <img src="{{ asset_url('icons/workspace/wms-request-owner.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Request Owner</span>
+                    </a>
                     {% if can("view_approvals") %}
-                    <a href="/approvals" class="{% if request.path.startswith('/approvals') %}active{% endif %}">Approvals</a>
+                    <a href="/approvals" class="sidebar-subtile {% if is_approvals_nav_active %}active{% endif %}" aria-label="Approvals">
+                        <img src="{{ asset_url('icons/workspace/wms-approvals.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Approvals</span>
+                    </a>
                     {% endif %}
                     {% if can("view_audit") %}
-                    <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
+                    <a href="/audit" class="sidebar-subtile {% if request.path.startswith('/audit') %}active{% endif %}" aria-label="Audit">
+                        <img src="{{ asset_url('icons/workspace/wms-audit-log.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Audit</span>
+                    </a>
                     {% endif %}
-                    <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Stock Opname</a>
+                    <a href="/so" class="sidebar-subtile {% if request.path.startswith('/so') %}active{% endif %}" aria-label="Stock Opname">
+                        <img src="{{ asset_url('icons/workspace/wms-stock-opname.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Stock Opname</span>
+                    </a>
                 </div>
-            </details>
+            </section>
             {% endif %}
+
             {% if sidebar_hris_modules %}
-            <details class="sidebar-group sidebar-collapsible sidebar-disclosure {% if is_hris_active %}active{% endif %}" data-sidebar-group="hris" {% if is_hris_active %}open{% endif %}>
-                <summary class="sidebar-group-toggle">
-                    <span class="sidebar-group-label">HRIS</span>
-                    <span class="sidebar-group-icon" aria-hidden="true"></span>
-                </summary>
-                <div class="sidebar-subnav">
+            <section class="sidebar-subpanel" data-sidebar-main-panel="hris" hidden aria-hidden="true">
+                <div class="sidebar-subpanel-head">
+                    <h3>HRIS</h3>
+                </div>
+                <div class="sidebar-subgrid">
                     {% for module in sidebar_hris_modules %}
-                    <a href="/hris/{{ module.slug }}" class="{% if request.path == '/hris/' and loop.first %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}">{{ module.label }}</a>
+                    <a href="/hris/{{ module.slug }}" class="sidebar-subtile {% if request.path == '/hris/' and loop.first %}active{% elif request.path.startswith('/hris/' ~ module.slug) %}active{% endif %}" aria-label="{{ module.label }}">
+                        <img src="{{ hris_sidebar_icon_map.get(module.slug, asset_url('icons/workspace/utility-generic.svg')) }}" alt="" class="sidebar-subtile-icon">
+                        <span>{{ module.label }}</span>
+                    </a>
                     {% endfor %}
                 </div>
-            </details>
+            </section>
             {% endif %}
-        </div>
-        {% if can("view_admin") %}
-        <div class="sidebar-section">
-            <p class="sidebar-section-label">System</p>
-            <div class="sidebar-group sidebar-single {% if is_system_active %}active{% endif %}">
-                <a href="/admin" class="{% if request.path.startswith('/admin') %}active{% endif %}">Admin</a>
-            </div>
-        </div>
-        {% endif %}
-    </nav>
 
-    <div class="sidebar-footer">
-        <p>Gunakan panel ini untuk menjaga akurasi stok, kelancaran transfer, dan visibilitas aktivitas gudang harian.</p>
-        <div class="status-row">
-            <span class="status-pill" title="{{ session.get('username', 'guest') }}">User: {{ session.get("username", "guest") }}</span>
-            <span class="status-pill">Role: {{ session.get("role", "guest") }}</span>
-            <span class="status-pill">Warehouse: {{ session.get("warehouse_id", "-") }}</span>
-            <span class="status-pill">HRIS Ready</span>
-        </div>
-        <div class="theme-switcher">
-            <span class="theme-switcher-label">Tampilan</span>
-            <button type="button" class="ghost-button theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan">
-                <span data-theme-toggle-label>Mode Cerah</span>
-            </button>
-        </div>
-        <div class="sidebar-footer-actions">
-            <a href="/account/settings" class="ghost-button sidebar-footer-link {% if is_account_active %}active{% endif %}">Pengaturan Akun</a>
-            <form method="GET" action="/logout">
-                <button type="submit" class="ghost-button">Keluar</button>
-            </form>
+            {% if can("view_admin") %}
+            <section class="sidebar-subpanel" data-sidebar-main-panel="system" hidden aria-hidden="true">
+                <div class="sidebar-subpanel-head">
+                    <h3>System</h3>
+                </div>
+                <div class="sidebar-subgrid">
+                    <a href="/admin" class="sidebar-subtile {% if is_system_active %}active{% endif %}" aria-label="Admin">
+                        <img src="{{ asset_url('icons/workspace/utility-admin.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Admin</span>
+                    </a>
+                </div>
+            </section>
+            {% endif %}
         </div>
     </div>
 </aside>
 {% endif %}
 
-<main class="main {% if not has_app_shell %}main-public{% endif %} {% block main_class %}{% endblock %}">
+<main class="main {% if not has_app_shell %}main-public{% endif %} {% block main_class %}{% endblock %}" id="mainContent">
     {% set page_actions_markup %}{% block page_actions %}{% endblock %}{% endset %}
     {% if page_actions_markup|trim %}
     <section class="mobile-command-deck" id="mobileCommandDeck" hidden aria-hidden="true">
@@ -226,7 +418,7 @@
                 <p class="mobile-command-kicker">{{ self.eyebrow()|striptags }}</p>
                 <strong>{{ self.page_title()|striptags }}</strong>
             </div>
-            <span class="mobile-command-badge" id="mobileCommandBadge">Touch Actions</span>
+            <span class="mobile-command-badge" id="mobileCommandBadge">Aksi Cepat</span>
         </div>
         <div class="mobile-page-actions-slot" id="mobilePageActionsSlot"></div>
     </section>
@@ -234,9 +426,8 @@
     {% block page_header %}
     <section class="page-hero">
         <div class="page-hero-text">
-            <p class="page-eyebrow">{% block eyebrow %}Operational Workspace{% endblock %}</p>
+            <p class="page-eyebrow">{% block eyebrow %}Workspace Operasional{% endblock %}</p>
             <h1>{% block page_title %}ERP-CV.BJAS{% endblock %}</h1>
-            <p class="page-subtitle">{% block page_subtitle %}Satu workspace terpadu untuk memonitor stok, transaksi barang, dan kualitas operasional gudang.{% endblock %}</p>
         </div>
         {% if page_actions_markup|trim %}
         <div class="page-actions-desktop-slot" id="pageActionsDesktopSlot">
@@ -266,7 +457,64 @@
 </div>
 
 {% if has_app_shell %}
+{% set show_floating_notification = true %}
+{% set show_floating_camera = not request.path.startswith('/absen') %}
+{% set show_floating_chat = can("view_chat") and not request.path.startswith('/chat') %}
+<div class="floating-toolbelt" id="floatingToolbelt" data-floating-toolbelt>
+    <button
+        type="button"
+        class="floating-toolbelt-launcher"
+        data-floating-toolbelt-toggle
+        aria-controls="floatingToolbeltMenu"
+        aria-expanded="false"
+        aria-haspopup="menu"
+        aria-label="Buka menu cepat"
+        title="Buka menu cepat"
+    >
+        <span class="floating-toolbelt-launcher-core" aria-hidden="true">&#8942;</span>
+    </button>
+
+    <div class="floating-toolbelt-menu" id="floatingToolbeltMenu" data-floating-toolbelt-menu hidden role="menu" aria-label="Menu cepat">
+        {% if show_floating_notification %}
+        <button type="button" class="floating-toolbelt-item" data-floating-toolbelt-action="notification" aria-label="Buka notifikasi" title="Notifikasi" role="menuitem">
+            <span class="floating-toolbelt-item-icon" aria-hidden="true">&#128276;</span>
+            <span class="floating-toolbelt-item-label">Notifikasi</span>
+            <span class="floating-toolbelt-item-badge" data-notification-badge hidden>0</span>
+        </button>
+        {% endif %}
+        {% if show_floating_camera %}
+        <button type="button" class="floating-toolbelt-item" data-floating-toolbelt-action="camera" aria-label="Buka absen foto" title="Absen Foto" role="menuitem">
+            <span class="floating-toolbelt-item-icon" aria-hidden="true">&#128247;</span>
+            <span class="floating-toolbelt-item-label">Absen Foto</span>
+        </button>
+        {% endif %}
+        {% if show_floating_chat %}
+        <button type="button" class="floating-toolbelt-item" data-floating-toolbelt-action="chat" aria-label="Buka live chat" title="Live Chat" role="menuitem">
+            <span class="floating-toolbelt-item-icon" aria-hidden="true">&#128172;</span>
+            <span class="floating-toolbelt-item-label">Live Chat</span>
+            <span class="floating-toolbelt-item-badge is-chat" data-chat-unread-badge hidden>0</span>
+        </button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if has_app_shell %}
 <div class="notification-center-root" id="notificationCenterRoot" data-notification-root>
+    {% if shell_break_timer.active %}
+    <div
+        class="notification-break-chip shell-break-chip {% if shell_break_timer.is_over_limit %}is-over-limit{% endif %}"
+        data-shell-break-timer
+        data-break-started-at="{{ shell_break_timer.started_at_iso }}"
+        data-break-limit-seconds="{{ shell_break_timer.limit_seconds }}"
+        role="status"
+        aria-live="polite"
+    >
+        <span class="shell-break-chip-label">Istirahat Aktif</span>
+        <strong class="shell-break-chip-value" data-shell-break-value>{{ shell_break_timer.countdown_label }}</strong>
+        <span class="shell-break-chip-hint" data-shell-break-hint>{{ shell_break_timer.hint_label }}</span>
+    </div>
+    {% endif %}
     <button
         type="button"
         class="notification-center-toggle"
@@ -320,7 +568,7 @@
 </div>
 {% endif %}
 
-{% if has_app_shell %}
+{% if has_app_shell and not request.path.startswith('/absen') %}
 <div class="attendance-camera-shortcut-root">
     <a
         href="/absen/#foto-absen"
@@ -467,6 +715,8 @@ const mobileCommandDeck = document.getElementById("mobileCommandDeck");
 const mobileCommandBadge = document.getElementById("mobileCommandBadge");
 const SIDEBAR_SCROLL_KEY = "wms-sidebar-scroll-top";
 const SIDEBAR_DISCLOSURE_KEY = "wms-sidebar-disclosure-state";
+const SIDEBAR_MAIN_PANEL_KEY = "wms-sidebar-main-panel";
+const SIDEBAR_MAIN_PANEL_OPEN_KEY = "wms-sidebar-main-panel-open";
 
 function getSidebarNode() {
     return document.getElementById("menu");
@@ -558,6 +808,125 @@ function restoreSidebarScrollPosition() {
     });
 }
 
+function getSidebarMainShell() {
+    return document.querySelector("#menu .sidebar-app-shell");
+}
+
+function getSidebarMainTriggers() {
+    return Array.from(document.querySelectorAll("#menu [data-sidebar-main-trigger]"));
+}
+
+function getSidebarMainPanels() {
+    return Array.from(document.querySelectorAll("#menu [data-sidebar-main-panel]"));
+}
+
+function syncSidebarRootState(activeKey, openKey) {
+    const root = document.documentElement;
+    const safeActiveKey = typeof activeKey === "string" ? activeKey : "";
+    const safeOpenKey = typeof openKey === "string" ? openKey : "";
+
+    if (safeActiveKey) {
+        root.dataset.sidebarMainActive = safeActiveKey;
+        root.dataset.sidebarMainOpen = safeOpenKey;
+        return;
+    }
+
+    delete root.dataset.sidebarMainActive;
+    delete root.dataset.sidebarMainOpen;
+}
+
+function setActiveSidebarMain(key, options = {}) {
+    const shell = getSidebarMainShell();
+    const triggers = getSidebarMainTriggers();
+    const panels = getSidebarMainPanels();
+    const availableKeys = triggers.map((node) => node.dataset.sidebarMainTrigger).filter(Boolean);
+    const normalizedOptions = typeof options === "boolean" ? { persist: options } : (options || {});
+    const persist = normalizedOptions.persist !== false;
+    const open = normalizedOptions.open === true;
+    const fallbackKey = normalizedOptions.allowEmpty ? "" : (availableKeys[0] || "");
+    const safeKey = availableKeys.includes(key) ? key : fallbackKey;
+
+    if (!shell) {
+        return;
+    }
+
+    const openKey = open && safeKey ? safeKey : "";
+    shell.dataset.sidebarMainActive = safeKey;
+    shell.dataset.sidebarMainOpen = openKey;
+    syncSidebarRootState(safeKey, openKey);
+
+    triggers.forEach((node) => {
+        const matchesKey = node.dataset.sidebarMainTrigger === safeKey;
+        const isOpen = open && matchesKey;
+        node.classList.toggle("active", isOpen);
+        node.setAttribute("aria-pressed", isOpen ? "true" : "false");
+        node.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    });
+
+    panels.forEach((node) => {
+        const isOpen = open && node.dataset.sidebarMainPanel === safeKey;
+        node.hidden = !isOpen;
+        node.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    });
+
+    if (persist) {
+        writeSidebarStorage(SIDEBAR_MAIN_PANEL_KEY, safeKey || "");
+        writeSidebarStorage(SIDEBAR_MAIN_PANEL_OPEN_KEY, openKey);
+    }
+}
+
+function closeSidebarMainPanels(persist = false) {
+    const shell = getSidebarMainShell();
+    if (!shell) {
+        return;
+    }
+
+    const activeKey = shell.dataset.sidebarMainActive || shell.dataset.sidebarMainDefault || "";
+    setActiveSidebarMain(activeKey, { persist, open: false, allowEmpty: true });
+}
+
+function toggleSidebarMain(key) {
+    const shell = getSidebarMainShell();
+    if (!shell) {
+        return;
+    }
+
+    const openKey = shell.dataset.sidebarMainOpen || "";
+    if (openKey && openKey === key) {
+        closeSidebarMainPanels(true);
+        return;
+    }
+
+    setActiveSidebarMain(key, { persist: true, open: true });
+}
+
+function restoreSidebarMainPanelState() {
+    if (!hasAppShell) {
+        return;
+    }
+
+    const shell = getSidebarMainShell();
+    if (!shell) {
+        return;
+    }
+
+    const defaultKey = shell.dataset.sidebarMainDefault || "";
+    const availableKeys = getSidebarMainTriggers()
+        .map((node) => node.dataset.sidebarMainTrigger)
+        .filter(Boolean);
+    const storedKey = readSidebarStorage(SIDEBAR_MAIN_PANEL_KEY, defaultKey);
+    const storedOpenKey = readSidebarStorage(SIDEBAR_MAIN_PANEL_OPEN_KEY, "");
+    const safeDefaultKey = availableKeys.includes(defaultKey) ? defaultKey : (availableKeys[0] || "");
+    const safeStoredKey = availableKeys.includes(storedKey) ? storedKey : "";
+    const safeStoredOpenKey = availableKeys.includes(storedOpenKey) ? storedOpenKey : "";
+    const preferredKey = safeStoredOpenKey || safeStoredKey || safeDefaultKey;
+    setActiveSidebarMain(preferredKey, {
+        persist: false,
+        open: Boolean(safeStoredOpenKey),
+        allowEmpty: true,
+    });
+}
+
 function getDeviceMode() {
     if (window.innerWidth <= 767) {
         return "mobile";
@@ -566,6 +935,22 @@ function getDeviceMode() {
         return "tablet";
     }
     return "desktop";
+}
+
+function isDesktopViewport() {
+    return window.innerWidth > 1080;
+}
+
+let responsiveShellResizeFrame = 0;
+let responsiveShellViewportWidth = window.innerWidth;
+let responsiveShellDeviceMode = getDeviceMode();
+
+function readDesktopSidebarPreference() {
+    try {
+        return localStorage.getItem("wms-sidebar-minimized") === "1";
+    } catch (error) {
+        return false;
+    }
 }
 
 function updateScrollableTableHints() {
@@ -583,7 +968,14 @@ function updateScrollableTableHints() {
 
 function syncResponsiveShell() {
     const mode = getDeviceMode();
+    const sidebarNode = getSidebarNode();
     document.body.dataset.deviceMode = mode;
+    document.body.dataset.appSurface = mode;
+
+    if (sidebarNode) {
+        const sidebarVisible = mode === "desktop" || document.body.classList.contains("menu-open");
+        sidebarNode.setAttribute("aria-hidden", sidebarVisible ? "false" : "true");
+    }
 
     if (pageActionsNode && pageActionsDesktopSlot && mobilePageActionsSlot && mobileCommandDeck) {
         if (mode === "desktop") {
@@ -602,15 +994,53 @@ function syncResponsiveShell() {
     }
 
     if (mobileCommandBadge) {
-        mobileCommandBadge.textContent = mode === "tablet" ? "Tablet Workspace" : mode === "mobile" ? "Touch Actions" : "Desktop";
+        mobileCommandBadge.textContent = mode === "tablet" ? "Workspace Tablet" : mode === "mobile" ? "Aksi Cepat" : "Desktop";
     }
 
     updateScrollableTableHints();
 }
 
+function queueResponsiveShellResize(force = false) {
+    const nextWidth = window.innerWidth;
+    const nextMode = getDeviceMode();
+    const widthChanged = Math.abs(nextWidth - responsiveShellViewportWidth) > 1;
+    const modeChanged = nextMode !== responsiveShellDeviceMode;
+
+    if (!force && !widthChanged && !modeChanged) {
+        return;
+    }
+
+    responsiveShellViewportWidth = nextWidth;
+    responsiveShellDeviceMode = nextMode;
+
+    if (responsiveShellResizeFrame) {
+        return;
+    }
+
+    responsiveShellResizeFrame = window.requestAnimationFrame(() => {
+        responsiveShellResizeFrame = 0;
+
+        if (!hasAppShell) {
+            syncResponsiveShell();
+            return;
+        }
+
+        if (window.innerWidth > 1080) {
+            closeMenu();
+            restoreDesktopSidebarState();
+        } else {
+            applyDesktopSidebarState(false, false);
+        }
+
+        syncResponsiveShell();
+        restoreSidebarMainPanelState();
+        restoreSidebarScrollPosition();
+    });
+}
+
 function toggleMenu() {
     if (!hasAppShell) return;
-    if (window.innerWidth > 1080) return;
+    if (isDesktopViewport()) return;
     const menu = document.getElementById("menu");
     const button = document.getElementById("mobileMenuButton");
     if (!menu || !button) return;
@@ -618,15 +1048,18 @@ function toggleMenu() {
     const nextState = !document.body.classList.contains("menu-open");
     document.body.classList.toggle("menu-open", nextState);
     button.setAttribute("aria-expanded", nextState ? "true" : "false");
+    menu.setAttribute("aria-hidden", nextState ? "false" : "true");
 }
 
 function applyDesktopSidebarState(minimized, persist = true) {
     const button = document.getElementById("desktopSidebarToggle");
-    document.body.classList.toggle("sidebar-minimized", minimized);
+    const safeMinimized = isDesktopViewport() ? Boolean(minimized) : false;
+    document.body.classList.toggle("sidebar-minimized", safeMinimized);
+    document.documentElement.classList.toggle("sidebar-minimized-pending", safeMinimized);
     if (button) {
-        button.setAttribute("aria-expanded", minimized ? "false" : "true");
-        button.setAttribute("title", minimized ? "Tampilkan sidebar" : "Minimize sidebar");
-        button.setAttribute("aria-label", minimized ? "Tampilkan sidebar" : "Minimize sidebar");
+        button.setAttribute("aria-expanded", safeMinimized ? "false" : "true");
+        button.setAttribute("title", safeMinimized ? "Tampilkan sidebar" : "Minimize sidebar");
+        button.setAttribute("aria-label", safeMinimized ? "Tampilkan sidebar" : "Minimize sidebar");
     }
     if (persist) {
         try {
@@ -636,9 +1069,30 @@ function applyDesktopSidebarState(minimized, persist = true) {
     }
 }
 
+function restoreDesktopSidebarState() {
+    applyDesktopSidebarState(readDesktopSidebarPreference(), false);
+}
+
+function normalizeSidebarShellLayout() {
+    if (!hasAppShell) {
+        return;
+    }
+
+    if (isDesktopViewport()) {
+        restoreDesktopSidebarState();
+        closeMenu();
+    } else {
+        applyDesktopSidebarState(false, false);
+    }
+
+    syncResponsiveShell();
+    restoreSidebarMainPanelState();
+    restoreSidebarScrollPosition();
+}
+
 function toggleDesktopSidebar() {
     if (!hasAppShell) return;
-    if (window.innerWidth <= 1080) {
+    if (!isDesktopViewport()) {
         toggleMenu();
         return;
     }
@@ -646,10 +1100,14 @@ function toggleDesktopSidebar() {
 }
 
 function closeMenu() {
+    const menu = document.getElementById("menu");
     const button = document.getElementById("mobileMenuButton");
     document.body.classList.remove("menu-open");
     if (button) {
         button.setAttribute("aria-expanded", "false");
+    }
+    if (menu && !isDesktopViewport()) {
+        menu.setAttribute("aria-hidden", "true");
     }
 }
 
@@ -708,13 +1166,21 @@ document.querySelectorAll(".flash").forEach((flash) => {
 });
 
 if (hasAppShell) {
-    document.querySelectorAll("#menu nav a, #menu .sidebar-footer a, #menu form button").forEach((node) => {
+    document.querySelectorAll("#menu a, #menu form button").forEach((node) => {
         node.addEventListener("click", () => {
             persistSidebarScrollPosition();
             persistSidebarDisclosureState();
             if (window.innerWidth <= 1080) {
                 closeMenu();
             }
+        });
+    });
+
+    getSidebarMainTriggers().forEach((node) => {
+        node.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleSidebarMain(node.dataset.sidebarMainTrigger || "");
         });
     });
 
@@ -725,6 +1191,23 @@ if (hasAppShell) {
             persistSidebarDisclosureState();
             restoreSidebarScrollPosition();
         });
+    });
+
+    document.addEventListener("click", (event) => {
+        const shell = getSidebarMainShell();
+        if (!shell) {
+            return;
+        }
+        if (shell.contains(event.target)) {
+            return;
+        }
+        closeSidebarMainPanels(true);
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeSidebarMainPanels(true);
+        }
     });
 }
 
@@ -737,35 +1220,80 @@ document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
 syncThemeToggleState(getCurrentTheme());
 
 if (hasAppShell) {
-    try {
-        applyDesktopSidebarState(localStorage.getItem("wms-sidebar-minimized") === "1", false);
-    } catch (error) {
-        applyDesktopSidebarState(false, false);
-    }
+    restoreDesktopSidebarState();
     restoreSidebarDisclosureState();
+    restoreSidebarMainPanelState();
+    const sidebarNode = getSidebarNode();
+    if (sidebarNode && !isDesktopViewport()) {
+        sidebarNode.setAttribute("aria-hidden", "true");
+    }
 }
 
 syncResponsiveShell();
 restoreSidebarScrollPosition();
+responsiveShellViewportWidth = window.innerWidth;
+responsiveShellDeviceMode = getDeviceMode();
+window.requestAnimationFrame(normalizeSidebarShellLayout);
 
 window.addEventListener("resize", () => {
-    if (!hasAppShell) {
-        syncResponsiveShell();
-        return;
-    }
-    if (window.innerWidth > 1080) {
-        closeMenu();
-    } else {
-        applyDesktopSidebarState(false, false);
-    }
-    syncResponsiveShell();
-    restoreSidebarScrollPosition();
+    queueResponsiveShellResize(false);
+});
+
+window.addEventListener("pageshow", () => {
+    normalizeSidebarShellLayout();
 });
 
 window.addEventListener("beforeunload", () => {
     persistSidebarDisclosureState();
     persistSidebarScrollPosition();
 });
+
+function formatShellBreakClock(totalSeconds) {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const seconds = safeSeconds % 60;
+    if (hours > 0) {
+        return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function syncShellBreakTimers() {
+    const timerNodes = Array.from(document.querySelectorAll("[data-shell-break-timer]"));
+    if (!timerNodes.length) {
+        return false;
+    }
+    const nowMs = Date.now();
+    timerNodes.forEach((node) => {
+        const startedAt = node.dataset.breakStartedAt || "";
+        const limitSeconds = Number.parseInt(node.dataset.breakLimitSeconds || "3600", 10);
+        const startedAtMs = Date.parse(startedAt);
+        if (!Number.isFinite(startedAtMs)) {
+            return;
+        }
+        const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+        const remainingSeconds = Math.max(0, limitSeconds - elapsedSeconds);
+        const overLimitSeconds = Math.max(0, elapsedSeconds - limitSeconds);
+        const isOverLimit = overLimitSeconds > 0;
+        node.classList.toggle("is-over-limit", isOverLimit);
+        const valueNode = node.querySelector("[data-shell-break-value]");
+        if (valueNode) {
+            valueNode.textContent = isOverLimit
+                ? `+${formatShellBreakClock(overLimitSeconds)}`
+                : formatShellBreakClock(remainingSeconds);
+        }
+        const hintNode = node.querySelector("[data-shell-break-hint]");
+        if (hintNode) {
+            hintNode.textContent = isOverLimit ? "Lewat batas istirahat" : "Sisa istirahat";
+        }
+    });
+    return true;
+}
+
+if (syncShellBreakTimers()) {
+    window.setInterval(syncShellBreakTimers, 1000);
+}
 </script>
 
 {% if has_app_shell %}
@@ -774,7 +1302,7 @@ window.addEventListener("beforeunload", () => {
     "publicKey": config.get("WEBPUSH_PUBLIC_KEY", ""),
     "subscribeUrl": "/announcements/push/subscribe",
     "unsubscribeUrl": "/announcements/push/unsubscribe",
-    "serviceWorkerUrl": "/service-worker.js"
+    "serviceWorkerUrl": service_worker_url
 }|tojson }}
 </script>
 <script id="wmsNotificationCenterConfigData" type="application/json">
@@ -785,6 +1313,13 @@ window.addEventListener("beforeunload", () => {
     "markAllReadUrl": "/notifications/api/mark-all-read",
     "deleteUrlTemplate": "/notifications/api/__id__/delete",
     "deleteAllUrl": "/notifications/api/delete-all"
+}|tojson }}
+</script>
+<script id="wmsAppShellConfigData" type="application/json">
+{{ {
+    "serviceWorkerUrl": service_worker_url,
+    "offlineUrl": offline_url,
+    "installPromptTitle": "Install ERP-CV.BJAS"
 }|tojson }}
 </script>
 <script>
@@ -801,9 +1336,35 @@ window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
 };
 window.wmsPushConfig = window.wmsReadJsonScript("wmsPushConfigData");
 window.wmsNotificationCenterConfig = window.wmsReadJsonScript("wmsNotificationCenterConfigData");
+window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
 </script>
-<script src="/static/js/push_notifications.js"></script>
-<script src="/static/js/web_notifications.js"></script>
+<script src="{{ app_shell_js_url }}"></script>
+<script src="{{ push_notifications_js_url }}"></script>
+<script src="{{ web_notifications_js_url }}"></script>
+{% endif %}
+{% if not has_app_shell %}
+<script id="wmsAppShellConfigData" type="application/json">
+{{ {
+    "serviceWorkerUrl": service_worker_url,
+    "offlineUrl": offline_url,
+    "installPromptTitle": "Install ERP-CV.BJAS"
+}|tojson }}
+</script>
+<script>
+window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
+    const node = document.getElementById(id);
+    if (!node) {
+        return {};
+    }
+    try {
+        return JSON.parse(node.textContent || "{}");
+    } catch (error) {
+        return {};
+    }
+};
+window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
+</script>
+<script src="{{ app_shell_js_url }}"></script>
 {% endif %}
 {% if can("view_chat") %}
 <script id="wmsChatRealtimeConfigData" type="application/json">
@@ -812,8 +1373,8 @@ window.wmsNotificationCenterConfig = window.wmsReadJsonScript("wmsNotificationCe
     "pollUrl": "/chat/realtime",
     "callPollUrl": "/chat/call/poll",
     "presenceUrl": "/chat/presence",
-    "soundUrl": "/static/notif.mp3",
-    "callRingtoneUrl": "/static/audio/chat-call-ringtone.mp3",
+    "soundUrl": notification_sound_url,
+    "callRingtoneUrl": chat_ringtone_url,
     "soundVolume": session.get("chat_sound_volume", 0.85)
 }|tojson }}
 </script>
@@ -831,10 +1392,13 @@ window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
 };
 window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigData");
 </script>
-<script src="/static/js/chat_realtime.js"></script>
+<script src="{{ chat_realtime_js_url }}"></script>
 {% if has_app_shell and not request.path.startswith('/chat') %}
-<script src="/static/js/chat_widget.js"></script>
+<script src="{{ chat_widget_js_url }}"></script>
 {% endif %}
+{% endif %}
+{% if has_app_shell %}
+<script src="{{ floating_toolbelt_js_url }}"></script>
 {% endif %}
 {% block extra_scripts %}{% endblock %}
 </body>

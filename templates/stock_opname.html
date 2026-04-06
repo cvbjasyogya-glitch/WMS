@@ -1,13 +1,13 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Stock Opname | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Physical Count Control{% endblock %}
+{% block eyebrow %}Kontrol Hitung Fisik{% endblock %}
 {% block page_title %}Stock Opname{% endblock %}
 {% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas dan tetap stabil untuk data restore lama.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions">
-    <a href="/so/export?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportSoLink">Export CSV</a>
+    <a href="/so/export?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportSoLink">Ekspor CSV</a>
     <a href="/so/export_report?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportReportLink">Laporan SO</a>
     <button type="button" id="saveSoHeroBtn" onclick="submitSO()">Simpan Hasil SO</button>
 </div>
@@ -66,7 +66,7 @@
         <strong id="soGudangName">{{ gudang_name }}</strong>
     </div>
     <div class="meta-card">
-        <span>Page</span>
+        <span>Halaman</span>
         <strong id="soMetaPage">{{ page }} / {{ total_pages }}</strong>
     </div>
     <div class="meta-card">
@@ -86,9 +86,9 @@
         <option value="{{ w.id }}" {% if w.id == gudang_id %}selected{% endif %}>Gudang: {{ w.name }}</option>
         {% endfor %}
     </select>
-    <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau variant" value="{{ search or '' }}">
+    <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau varian" value="{{ search or '' }}">
     <button type="submit">Cari</button>
-    <button type="button" class="ghost-button" id="saveSoTopBtn" onclick="submitSO()">Simpan SO</button>
+    <button type="button" class="ghost-button" id="saveSoTopBtn" onclick="submitSO()">Simpan Opname</button>
 </form>
 
 <small class="helper-text">Display dan gudang otomatis dipisah supaya stock opname tidak tertimpa ke gudang yang sama. Qty sistem di halaman ini mengambil sumber data `stock` yang sama dengan halaman `Stok Gudang` untuk warehouse yang sedang dipilih.</small>
@@ -107,7 +107,7 @@
             <tr>
                 <th>SKU</th>
                 <th>Nama</th>
-                <th>Variant</th>
+                <th>Varian</th>
                 <th>Display Sistem</th>
                 <th>Display Fisik</th>
                 <th>Selisih</th>
@@ -138,12 +138,12 @@
     </table>
 
     <div class="pagination">
-        <button type="button" class="ghost-button" onclick="changePage(-1)" id="prevBtn">Prev</button>
-        <span id="pageInfo" class="status-pill">Page {{ page }} / {{ total_pages }}</span>
-        <button type="button" class="ghost-button" onclick="changePage(1)" id="nextBtn">Next</button>
+        <button type="button" class="ghost-button" onclick="changePage(-1)" id="prevBtn">Sebelumnya</button>
+        <span id="pageInfo" class="status-pill">Halaman {{ page }} / {{ total_pages }}</span>
+        <button type="button" class="ghost-button" onclick="changePage(1)" id="nextBtn">Berikutnya</button>
     </div>
     {% else %}
-    <div class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</div>
+    <div class="empty-state">Tidak ada item yang cocok untuk stok opname saat ini.</div>
     {% endif %}
 </div>
 

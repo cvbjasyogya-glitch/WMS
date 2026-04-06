@@ -1,9 +1,75 @@
+const APP_VERSION = "__APP_VERSION__";
+const APP_SHELL_CACHE = `wms-app-shell-${APP_VERSION}`;
+const STATIC_RUNTIME_CACHE = `wms-static-runtime-${APP_VERSION}`;
+const OFFLINE_FALLBACK_URL = "/static/offline-app.html";
+const APP_SHELL_ASSETS = __APP_SHELL_ASSETS__;
+
+function isCacheableStaticRequest(requestUrl) {
+    return requestUrl.origin === self.location.origin && (
+        requestUrl.pathname.startsWith("/static/")
+        || requestUrl.pathname === "/service-worker.js"
+    );
+}
+
 self.addEventListener("install", (event) => {
-    event.waitUntil(self.skipWaiting());
+    event.waitUntil(
+        caches.open(APP_SHELL_CACHE)
+            .then((cache) => cache.addAll(APP_SHELL_ASSETS))
+            .then(() => self.skipWaiting())
+    );
 });
 
 self.addEventListener("activate", (event) => {
-    event.waitUntil(self.clients.claim());
+    event.waitUntil(
+        caches.keys().then((keys) => Promise.all(
+            keys
+                .filter((key) => ![APP_SHELL_CACHE, STATIC_RUNTIME_CACHE].includes(key))
+                .map((key) => caches.delete(key))
+        )).then(() => self.clients.claim())
+    );
+});
+
+self.addEventListener("fetch", (event) => {
+    if (event.request.method !== "GET") {
+        return;
+    }
+
+    const requestUrl = new URL(event.request.url);
+
+    if (event.request.mode === "navigate") {
+        event.respondWith(
+            fetch(event.request)
+                .then((response) => response)
+                .catch(async () => {
+                    const cachedResponse = await caches.match(event.request, { ignoreSearch: true });
+                    if (cachedResponse) {
+                        return cachedResponse;
+                    }
+                    return caches.match(OFFLINE_FALLBACK_URL, { ignoreSearch: true });
+                })
+        );
+        return;
+    }
+
+    if (!isCacheableStaticRequest(requestUrl)) {
+        return;
+    }
+
+    event.respondWith(
+        caches.match(event.request).then((cachedResponse) => {
+            const networkFetch = fetch(event.request)
+                .then((response) => {
+                    if (response && response.ok) {
+                        const responseClone = response.clone();
+                        caches.open(STATIC_RUNTIME_CACHE).then((cache) => cache.put(event.request, responseClone));
+                    }
+                    return response;
+                })
+                .catch(() => cachedResponse || new Response("", { status: 503, statusText: "Offline" }));
+
+            return cachedResponse || networkFetch;
+        })
+    );
 });
 
 self.addEventListener("push", (event) => {
@@ -47,10 +113,8 @@ self.addEventListener("notificationclick", (event) => {
     event.waitUntil(
         self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
             for (const client of clientList) {
-                if ("focus" in client) {
-                    if (client.url.indexOf(targetUrl) === 0) {
-                        return client.focus();
-                    }
+                if ("focus" in client && client.url.indexOf(targetUrl) === 0) {
+                    return client.focus();
                 }
             }
 

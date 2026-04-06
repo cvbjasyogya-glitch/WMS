@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Pengaturan Akun | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Account Preferences{% endblock %}
+{% block eyebrow %}Preferensi Akun{% endblock %}
 {% block page_title %}Pengaturan Akun{% endblock %}
 {% block page_subtitle %}Atur kontak akun dan volume notifikasi chat personal tanpa harus lewat panel admin.{% endblock %}
 
@@ -46,19 +46,19 @@
 
     <div class="ops-config-grid stack-gap-md">
         <label class="ops-config-card">
-            <span class="variant-mini-label">Email Notif</span>
+            <span class="variant-mini-label">Notif Email</span>
             <strong>Aktifkan Notifikasi Email</strong>
             <small class="helper-text">Dipakai untuk reset password dan notifikasi sistem bila email tersedia.</small>
             <input type="checkbox" name="notify_email" {% if account_user.notify_email %}checked{% endif %}>
         </label>
         <label class="ops-config-card">
-            <span class="variant-mini-label">WA Notif</span>
+            <span class="variant-mini-label">Notif WA</span>
             <strong>Aktifkan Notifikasi WhatsApp</strong>
             <small class="helper-text">Dipakai jika nomor sudah diisi dan gateway WA aktif di sistem.</small>
             <input type="checkbox" name="notify_whatsapp" {% if account_user.notify_whatsapp %}checked{% endif %}>
         </label>
         <div class="ops-config-card">
-            <span class="variant-mini-label">Chat Sound</span>
+            <span class="variant-mini-label">Suara Chat</span>
             <strong>Volume Notifikasi Chat</strong>
             <small class="helper-text">Atur 0-100%. Nilai 0 akan membisukan suara, tapi toast chat tetap muncul.</small>
             <div class="account-volume-row">

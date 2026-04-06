@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ERP-CV.BJAS</string>
+    <string name="launch_url">https://erp.cvbjasyogya.cloud/workspace/?source=android-app</string>
+    <string name="web_origin">https://erp.cvbjasyogya.cloud</string>
+    <string name="shortcut_attendance_short">Absen</string>
+    <string name="shortcut_attendance_long">Absen Foto &amp; Geotag</string>
+    <string name="shortcut_attendance_url">https://erp.cvbjasyogya.cloud/absen/?source=android-shortcut</string>
+    <string name="shortcut_stock_short">Stok</string>
+    <string name="shortcut_stock_long">Stok &amp; Produk</string>
+    <string name="shortcut_stock_url">https://erp.cvbjasyogya.cloud/stock/?source=android-shortcut</string>
+    <string name="shortcut_cashier_short">Kasir</string>
+    <string name="shortcut_cashier_long">Kasir Harian</string>
+    <string name="shortcut_cashier_url">https://erp.cvbjasyogya.cloud/kasir/?source=android-shortcut</string>
+    <string name="shortcut_notifications_short">Notif</string>
+    <string name="shortcut_notifications_long">Notifikasi</string>
+    <string name="shortcut_notifications_url">https://erp.cvbjasyogya.cloud/notifications/?source=android-shortcut</string>
+</resources>

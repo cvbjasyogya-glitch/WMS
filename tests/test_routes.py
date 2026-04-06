@@ -322,6 +322,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/info-produk/",
             "/stock/?workspace=products",
             "/stock/",
+            "/kasir/",
+            "/kasir/staff-sales",
+            "/kasir/log",
             "/inbound/",
             "/outbound/",
             "/transfers/",
@@ -336,18 +339,27 @@ class WmsRoutesTestCase(unittest.TestCase):
                 html = response.get_data(as_text=True)
                 self.assertIn('name="viewport"', html)
                 self.assertIn('mobile-nav', html)
+                self.assertIn('data-app-mode="browser"', html)
                 self.assertIn('@admin', html)
                 self.assertIn('data-theme-toggle', html)
+                self.assertIn('data-pwa-install-trigger', html)
+                self.assertIn('/static/js/app_shell.js', html)
                 self.assertNotIn('/static/js/manual_table_sort.js', html)
-                self.assertIn('>WMS<', html)
-                self.assertIn('>Pusat Modul<', html)
-                self.assertIn('>Pengumuman<', html)
-                self.assertIn('>Meeting Live<', html)
-                self.assertIn('>Absen<', html)
-                self.assertIn('>Libur<', html)
-                self.assertIn('>Report Harian<', html)
-                self.assertIn('data-attendance-shortcut', html)
-                self.assertIn('href="/absen/#foto-absen"', html)
+                self.assertIn('data-sidebar-icon-rail', html)
+                self.assertIn('aria-label="Pusat Modul"', html)
+                self.assertIn('aria-label="Pengumuman"', html)
+                self.assertIn('aria-label="Meeting Live"', html)
+                self.assertIn('aria-label="Absen"', html)
+                self.assertIn('aria-label="Libur"', html)
+                self.assertIn('aria-label="Report Harian"', html)
+                self.assertIn('/static/icons/workspace/coordination-pengumuman.svg', html)
+                self.assertIn('/static/icons/workspace/wms-dashboard.svg', html)
+                self.assertIn('/static/icons/workspace/utility-account-settings.svg', html)
+                if path == "/absen/":
+                    self.assertNotIn('data-attendance-shortcut', html)
+                else:
+                    self.assertIn('data-attendance-shortcut', html)
+                    self.assertIn('href="/absen/#foto-absen"', html)
                 if path == "/chat/":
                     self.assertIn("Chat Operasional Live", html)
                 else:
@@ -364,7 +376,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('data-sidebar-group="workspace-home"', html)
-        self.assertIn('href="/workspace/" class="active">Pusat Modul</a>', html)
+        self.assertIn('data-sidebar-main-trigger="workspace"', html)
+        self.assertIn('data-sidebar-main-panel="workspace"', html)
+        self.assertIn('href="/workspace/" class="sidebar-subtile active"', html)
+        self.assertIn('aria-label="Pusat Modul"', html)
         self.assertIn('<a href="/workspace/" class="active">Home</a>', html)
 
     def test_workspace_gateway_uses_svg_launcher_icons_instead_of_text_initials(self):
@@ -379,10 +394,346 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('/static/icons/workspace/coordination-pengumuman.svg', html)
         self.assertIn('/static/icons/workspace/coordination-meeting-live.svg', html)
         self.assertIn('/static/icons/workspace/wms-dashboard.svg', html)
+        self.assertIn('/static/icons/workspace/wms-kasir.svg', html)
+        self.assertIn('/static/icons/workspace/hris-report.svg', html)
+        self.assertNotIn('aria-label="Rekap Penjualan Staff"', html)
+        self.assertNotIn('aria-label="Log Penjualan POS"', html)
         self.assertIn('/static/icons/workspace/hris-home.svg', html)
         self.assertIn('/static/icons/workspace/utility-account-settings.svg', html)
         self.assertNotIn('<span class="workspace-app-icon">PG</span>', html)
         self.assertNotIn('<span class="workspace-app-icon">MT</span>', html)
+
+    def test_workspace_shell_keeps_request_gudang_visible_for_approval_roles(self):
+        self.create_user("launcher_request_super", "pass1234", "super_admin", warehouse_id=1)
+        self.login("launcher_request_super", "pass1234")
+
+        response = self.client.get("/workspace/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('href="/request/" class="sidebar-subtile', html)
+        self.assertIn('aria-label="Request Antar Gudang"', html)
+        self.assertIn('aria-label="Approvals"', html)
+        self.assertIn('href="/request"', html)
+
+    def test_pos_page_can_be_opened_by_admin_and_denied_for_hr(self):
+        self.create_user("staff_sales_option", "pass1234", "staff", warehouse_id=1)
+        self.login()
+
+        admin_response = self.client.get("/kasir/")
+        self.assertEqual(admin_response.status_code, 200)
+        admin_html = admin_response.get_data(as_text=True)
+        self.assertIn("Checkout Kasir", admin_html)
+        self.assertIn('aria-label="Kasir Harian"', admin_html)
+        self.assertIn('/static/icons/workspace/wms-kasir.svg', admin_html)
+        self.assertIn("data-has-app-shell=\"1\"", admin_html)
+        self.assertIn('id="posCashierUserId"', admin_html)
+        self.assertIn("staff_sales_option", admin_html)
+        self.assertIn("Log Penjualan Hari Ini", admin_html)
+        self.assertIn("Menu POS", admin_html)
+        self.assertIn("/kasir/log?warehouse=1", admin_html)
+        self.assertIn("/kasir/staff-sales?warehouse=1", admin_html)
+        self.assertIn("/kasir/log", admin_html)
+
+        self.logout()
+        self.login_hr_user("hr_pos_denied", "pass1234")
+        hr_response = self.client.get("/kasir/", follow_redirects=False)
+        self.assertEqual(hr_response.status_code, 302)
+        self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
+
+    def test_pos_sales_log_page_can_be_opened_by_admin_and_denied_for_hr(self):
+        self.login()
+
+        admin_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03")
+        self.assertEqual(admin_response.status_code, 200)
+        admin_html = admin_response.get_data(as_text=True)
+        self.assertIn("Log Penjualan POS", admin_html)
+        self.assertIn("Log Penjualan", admin_html)
+        self.assertIn("Tampilkan Log", admin_html)
+        self.assertIn('aria-label="Kasir Harian"', admin_html)
+
+        self.logout()
+        self.login_hr_user("hr_pos_log_denied", "pass1234")
+        hr_response = self.client.get("/kasir/log", follow_redirects=False)
+        self.assertEqual(hr_response.status_code, 302)
+        self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
+
+    def test_pos_staff_sales_report_can_be_opened_by_admin_and_denied_for_hr(self):
+        self.login()
+
+        admin_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-16&month=2026-04")
+        self.assertEqual(admin_response.status_code, 200)
+        admin_html = admin_response.get_data(as_text=True)
+        self.assertIn("Rekap Penjualan Staff", admin_html)
+        self.assertIn("Rekap Penjualan Staff Mingguan", admin_html)
+        self.assertIn("Rekap Penjualan Staff Bulanan", admin_html)
+        self.assertIn('data-pos-sales-period="weekly"', admin_html)
+        self.assertIn('data-pos-sales-period="monthly"', admin_html)
+
+        self.logout()
+        self.login_hr_user("hr_sales_report_denied", "pass1234")
+        hr_response = self.client.get("/kasir/staff-sales", follow_redirects=False)
+        self.assertEqual(hr_response.status_code, 302)
+        self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
+
+    def test_staff_intern_cannot_access_pos_page(self):
+        self.create_user("intern_pos_denied", "pass1234", "staff_intern", warehouse_id=1)
+        self.login("intern_pos_denied", "pass1234")
+
+        response = self.client.get("/kasir/", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/workspace/", response.headers.get("Location", ""))
+
+    def test_pos_checkout_syncs_to_stock_and_crm_purchase_records(self):
+        self.create_user("staff_sales_checkout", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_checkout")
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-ITEM-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Kasir Test",
+                "customer_phone": "628120001111",
+                "payment_method": "cash",
+                "paid_amount": 260000,
+                "note": "Transaksi uji kasir",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 125000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["total_items"], 2)
+        self.assertEqual(payload["total_amount"], 250000.0)
+        self.assertIn("receipt_no", payload)
+        self.assertIn("receipt_print_url", payload)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+            customer = db.execute(
+                """
+                SELECT id
+                FROM crm_customers
+                WHERE warehouse_id=1 AND customer_name=?
+                """,
+                ("Customer Kasir Test",),
+            ).fetchone()
+
+            purchase = db.execute(
+                """
+                SELECT id, channel, items_count, total_amount
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+
+            purchase_item = db.execute(
+                """
+                SELECT qty, unit_price, line_total
+                FROM crm_purchase_items
+                WHERE purchase_id=?
+                """,
+                (purchase["id"],),
+            ).fetchone()
+
+            pos_sale = db.execute(
+                """
+                SELECT total_items, total_amount, paid_amount, change_amount, payment_method, cashier_user_id
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertEqual(stock_after["qty"], 3)
+        self.assertIsNotNone(customer)
+        self.assertEqual(purchase["channel"], "pos")
+        self.assertEqual(purchase["items_count"], 2)
+        self.assertAlmostEqual(float(purchase["total_amount"]), 250000.0)
+        self.assertEqual(purchase_item["qty"], 2)
+        self.assertAlmostEqual(float(purchase_item["unit_price"]), 125000.0)
+        self.assertAlmostEqual(float(purchase_item["line_total"]), 250000.0)
+        self.assertEqual(pos_sale["total_items"], 2)
+        self.assertAlmostEqual(float(pos_sale["total_amount"]), 250000.0)
+        self.assertAlmostEqual(float(pos_sale["paid_amount"]), 260000.0)
+        self.assertAlmostEqual(float(pos_sale["change_amount"]), 10000.0)
+        self.assertEqual(pos_sale["payment_method"], "cash")
+        self.assertEqual(pos_sale["cashier_user_id"], selected_cashier_user_id)
+
+    def test_pos_sales_log_and_receipt_print_show_complete_sale_details(self):
+        self.create_user("staff_sales_receipt", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_receipt")
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-NOTA-001",
+            qty=8,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Nota",
+                "customer_phone": "628120003333",
+                "payment_method": "transfer",
+                "paid_amount": 305000,
+                "note": "Print nota kasir",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 150000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+        receipt_no = checkout_payload["receipt_no"]
+
+        pos_response = self.client.get("/kasir/?warehouse=1&sale_date=2026-04-03")
+        self.assertEqual(pos_response.status_code, 200)
+        pos_html = pos_response.get_data(as_text=True)
+        self.assertIn("Log Penjualan Hari Ini", pos_html)
+        self.assertIn(receipt_no, pos_html)
+        self.assertIn("Customer Nota", pos_html)
+        self.assertIn("Cetak PDF", pos_html)
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03&search=Customer+Nota")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn(receipt_no, log_html)
+        self.assertIn("Customer Nota", log_html)
+        self.assertIn("staff_sales_receipt", log_html)
+        self.assertIn("Print nota kasir", log_html)
+        self.assertIn("POS-NOTA-001", log_html)
+
+        print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print?autoprint=1")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+        self.assertIn("Nota Penjualan POS", print_html)
+        self.assertIn(receipt_no, print_html)
+        self.assertIn("Customer Nota", print_html)
+        self.assertIn("POS-NOTA-001", print_html)
+        self.assertIn("Simpan sebagai PDF", print_html)
+        self.assertIn("window.print()", print_html)
+
+    def test_pos_staff_sales_report_aggregates_weekly_and_monthly_sales_from_pos(self):
+        self.create_user("sales_week_report", "pass1234", "staff", warehouse_id=1)
+        self.create_user("sales_month_report", "pass1234", "staff", warehouse_id=1)
+        self.create_user("sales_old_report", "pass1234", "staff", warehouse_id=1)
+        week_cashier_user_id = self.get_user_id("sales_week_report")
+        month_cashier_user_id = self.get_user_id("sales_month_report")
+        old_cashier_user_id = self.get_user_id("sales_old_report")
+
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-REPORT-001",
+            qty=20,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        sale_payloads = [
+            {
+                "sale_date": "2026-04-14",
+                "cashier_user_id": week_cashier_user_id,
+                "customer_name": "Customer Week Report",
+                "customer_phone": "628120001114",
+                "paid_amount": 151000,
+                "unit_price": 150000,
+            },
+            {
+                "sale_date": "2026-04-02",
+                "cashier_user_id": month_cashier_user_id,
+                "customer_name": "Customer Month Report",
+                "customer_phone": "628120001102",
+                "paid_amount": 91000,
+                "unit_price": 90000,
+            },
+            {
+                "sale_date": "2026-03-28",
+                "cashier_user_id": old_cashier_user_id,
+                "customer_name": "Customer Old Report",
+                "customer_phone": "628120001328",
+                "paid_amount": 71000,
+                "unit_price": 70000,
+            },
+        ]
+
+        for payload in sale_payloads:
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": payload["sale_date"],
+                    "cashier_user_id": payload["cashier_user_id"],
+                    "customer_name": payload["customer_name"],
+                    "customer_phone": payload["customer_phone"],
+                    "payment_method": "cash",
+                    "paid_amount": payload["paid_amount"],
+                    "note": "Transaksi laporan staff",
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": payload["unit_price"],
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+            self.assertEqual(checkout.status_code, 200)
+            self.assertEqual(checkout.get_json()["status"], "success")
+
+        report_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-16&month=2026-04")
+        self.assertEqual(report_response.status_code, 200)
+        report_html = report_response.get_data(as_text=True)
+        self.assertIn("sales_week_report", report_html)
+        self.assertIn("sales_month_report", report_html)
+        self.assertNotIn("sales_old_report", report_html)
+        self.assertIn("Rp 150.000", report_html)
+        self.assertIn("Rp 240.000", report_html)
 
     def test_schedule_page_opens_coordination_sidebar_group(self):
         self.login()
@@ -512,7 +863,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["provider"], "jitsi")
         self.assertEqual(payload["roomName"], "daily-gudang-mega")
         self.assertEqual(payload["profile"], "audio-first")
-        self.assertEqual(payload["domain"], "meet.jit.si")
+        expected_domain = self.app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si"
+        if self.app.config.get("JITSI_JAAS_APP_ID"):
+            self.assertEqual(payload["embedRoomName"], f"{self.app.config['JITSI_JAAS_APP_ID']}/daily-gudang-mega")
+            self.assertTrue(payload["roomUrl"].startswith(f"https://{expected_domain}/"))
+            self.assertEqual(payload["backendLabel"], "8x8 JaaS")
+            self.assertTrue(payload["usesJaas"])
+            if self.app.config.get("JITSI_JAAS_KID") and self.app.config.get("JITSI_JAAS_PRIVATE_KEY_PATH"):
+                self.assertTrue(payload["jwt"])
+            else:
+                self.assertEqual(payload["jwt"], "")
+        else:
+            self.assertEqual(payload["embedRoomName"], "daily-gudang-mega")
+            self.assertEqual(payload["backendLabel"], "Browser Room")
+            self.assertFalse(payload["usesJaas"])
+        self.assertEqual(payload["domain"], expected_domain)
         self.assertTrue(payload["startAudioOnly"])
         self.assertTrue(payload["startWithVideoMuted"])
 
@@ -556,7 +921,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Meeting Stage", html)
-        self.assertIn("meet.jit.si/external_api.js", html)
+        expected_domain = self.app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si"
+        self.assertIn(f"{expected_domain}/external_api.js", html)
         self.assertIn('data-provider="jitsi"', html)
 
     def test_health_and_ready_endpoints_are_public_and_hardened(self):
@@ -762,9 +1128,74 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/service-worker.js")
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
+        self.assertIn('addEventListener("fetch"', body)
         self.assertIn('addEventListener("push"', body)
+        self.assertIn("OFFLINE_FALLBACK_URL", body)
         self.assertIn("requireInteraction", body)
+        self.assertIn("wms-app-shell-", body)
+        self.assertIn("/static/css/dashboard.css?v=", body)
+        self.assertIn("/static/icons/workspace/group-workspace.svg?v=", body)
+        self.assertNotIn("__APP_VERSION__", body)
+        self.assertNotIn("__APP_SHELL_ASSETS__", body)
         self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
+
+    def test_assetlinks_route_returns_android_app_binding_when_configured(self):
+        self.app.config["ANDROID_APP_PACKAGE"] = "cloud.cvbjasyogya.erp"
+        self.app.config["ANDROID_SHA256_CERT_FINGERPRINTS"] = [
+            "AA:BB:CC:DD:EE:FF"
+        ]
+
+        response = self.client.get("/.well-known/assetlinks.json")
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.get_data(as_text=True))
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["target"]["package_name"], "cloud.cvbjasyogya.erp")
+        self.assertEqual(payload[0]["target"]["sha256_cert_fingerprints"], ["AA:BB:CC:DD:EE:FF"])
+        self.assertEqual(response.headers.get("Cache-Control"), "no-cache")
+
+    def test_apple_app_site_association_route_returns_ios_bindings_when_configured(self):
+        self.app.config["IOS_APP_IDS"] = [
+            "TEAM123.cloud.cvbjasyogya.erpios"
+        ]
+
+        response = self.client.get("/.well-known/apple-app-site-association")
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.get_data(as_text=True))
+        self.assertIn("applinks", payload)
+        self.assertEqual(payload["applinks"]["apps"], [])
+        self.assertEqual(len(payload["applinks"]["details"]), 1)
+        self.assertEqual(
+            payload["applinks"]["details"][0]["appID"],
+            "TEAM123.cloud.cvbjasyogya.erpios",
+        )
+        self.assertEqual(payload["applinks"]["details"][0]["paths"], ["*"])
+        self.assertEqual(response.headers.get("Cache-Control"), "no-cache")
+
+    def test_manifest_is_available_for_pwa_install(self):
+        response = self.client.get("/static/manifest.webmanifest")
+        try:
+            self.assertEqual(response.status_code, 200)
+            payload = json.loads(response.get_data(as_text=True))
+            self.assertEqual(payload["id"], "/workspace/")
+            self.assertEqual(payload["start_url"], "/workspace/?source=pwa")
+            self.assertIn("standalone", payload["display_override"])
+            self.assertTrue(any(item["name"] == "Kasir Harian" for item in payload["shortcuts"]))
+        finally:
+            response.close()
+
+    def test_login_page_keeps_browser_mode_shell_defaults(self):
+        response = self.client.get("/login")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('minimal-shell', html)
+        self.assertIn('browser-mode', html)
+        self.assertIn('data-app-mode="browser"', html)
+        self.assertIn('/static/js/app_shell.js', html)
+        self.assertIn('/static/manifest.webmanifest', html)
+        self.assertIn('/static/js/app_shell.js?v=', html)
+        self.assertIn('/static/manifest.webmanifest?v=', html)
 
     def test_secret_key_persists_to_file_when_env_is_missing(self):
         import config as config_module
@@ -1805,7 +2236,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="chatIncomingBanner"', dashboard_html)
         self.assertIn('id="wmsChatRealtimeConfigData"', dashboard_html)
         self.assertIn('"callPollUrl": "/chat/call/poll"', dashboard_html)
-        self.assertIn('"callRingtoneUrl": "/static/audio/chat-call-ringtone.mp3"', dashboard_html)
+        self.assertIn('"callRingtoneUrl": "/static/audio/chat-call-ringtone.mp3', dashboard_html)
         self.assertNotIn('id="chatSidebarUnread"', dashboard_html)
 
         bootstrap_response = self.client.get("/chat/widget/bootstrap")
@@ -2562,6 +2993,64 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Leave Tracker", html)
         self.assertIn("Tambah Leave", html)
 
+    def test_hris_approval_route_renders_operational_view(self):
+        self.login_hr_user()
+        response = self.client.get("/hris/approval")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Approval", html)
+        self.assertIn("Antrian Approval HR", html)
+        self.assertIn("Riwayat Keputusan Terbaru", html)
+
+    def test_hris_approval_route_lists_pending_leave_requests(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-APR-001",
+            full_name="Alya Approval",
+            warehouse_id=1,
+            position="Staff Gudang",
+        )
+        self.login_hr_user()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "annual",
+                    "2026-09-14",
+                    "2026-09-15",
+                    2,
+                    "pending",
+                    "Keperluan keluarga",
+                    "Perlu approval HR segera",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/approval")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Alya Approval", html)
+        self.assertIn("Keperluan keluarga", html)
+        self.assertIn("Setujui", html)
+        self.assertIn("Tolak", html)
+
     def test_hris_payroll_route_renders_operational_view(self):
         self.login_hr_user()
         response = self.client.get("/hris/payroll")
@@ -2622,25 +3111,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Ticket Helpdesk", html)
         self.assertIn("Tambah Ticket", html)
 
-    def test_hris_asset_route_renders_operational_view(self):
+    def test_hris_asset_route_redirects_to_approval_module(self):
         self.login_hr_user()
-        response = self.client.get("/hris/asset")
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn("HRIS Integration Hub", html)
-        self.assertIn("Asset", html)
-        self.assertIn("Asset Register", html)
-        self.assertIn("Tambah Asset", html)
+        response = self.client.get("/hris/asset", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/hris/approval", response.headers["Location"])
 
-    def test_hris_project_route_renders_operational_view(self):
+    def test_hris_project_route_redirects_to_approval_module(self):
         self.login_hr_user()
-        response = self.client.get("/hris/project")
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn("HRIS Integration Hub", html)
-        self.assertIn("Project", html)
-        self.assertIn("Project Register", html)
-        self.assertIn("Tambah Project", html)
+        response = self.client.get("/hris/project", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/hris/approval", response.headers["Location"])
 
     def test_hris_report_route_renders_operational_view(self):
         self.login_hr_user()
@@ -2651,6 +3132,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Report", html)
         self.assertIn("HR Analytics Report", html)
         self.assertIn("Workforce Snapshot", html)
+        self.assertIn("Service Health", html)
+        self.assertIn("Daily Report Log", html)
+        self.assertIn("Live Report Log", html)
 
     def test_hris_biometric_route_renders_operational_view(self):
         self.login_hr_user()
@@ -2820,6 +3304,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance_redirect.status_code, 302)
         self.assertIn("/hris/biometric", attendance_redirect.headers["Location"])
 
+    def test_super_admin_can_access_hris_approval_module(self):
+        self.create_user("super_hr_approval", "pass1234", "super_admin")
+        self.login("super_hr_approval", "pass1234")
+
+        response = self.client.get("/hris/approval")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("HRIS Integration Hub", html)
+        self.assertIn("Antrian Approval HR", html)
+        self.assertNotIn("Asset Register", html)
+        self.assertNotIn("Project Register", html)
+
     def test_biometric_route_defaults_to_today_only(self):
         today = date_cls.today().isoformat()
         yesterday = (date_cls.today() - timedelta(days=1)).isoformat()
@@ -2924,6 +3420,268 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Biometric Old Record", html)
         self.assertIn(f'name="date_from" value="{today}"', html)
         self.assertIn(f'name="date_to" value="{today}"', html)
+
+    def test_biometric_recap_shows_only_overtime_that_reaches_one_hour(self):
+        self.login_hr_user("hr_bio_overtime", "pass1234")
+        date_value = "2026-09-05"
+        exact_employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-OK",
+            full_name="Biometric Overtime Exact",
+            warehouse_id=1,
+        )
+        short_employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-SHORT",
+            full_name="Biometric Overtime Short",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            for employee_id, location_label, check_in_time, check_out_time in [
+                (
+                    exact_employee_id,
+                    "Gudang Mataram - Lembur Satu Jam",
+                    "08:00",
+                    "17:00",
+                ),
+                (
+                    short_employee_id,
+                    "Gudang Mataram - Lembur Pendek",
+                    "08:05",
+                    "16:45",
+                ),
+            ]:
+                db.execute(
+                    """
+                    INSERT INTO biometric_logs(
+                        employee_id, warehouse_id, device_name, punch_time, punch_type,
+                        sync_status, location_label, latitude, longitude, accuracy_m, note
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        1,
+                        "Attendance Photo Portal",
+                        f"{date_value}T{check_in_time}",
+                        "check_in",
+                        "synced",
+                        location_label,
+                        -8.58314,
+                        116.116798,
+                        6.0,
+                        "Masuk kerja",
+                    ),
+                )
+                db.execute(
+                    """
+                    INSERT INTO biometric_logs(
+                        employee_id, warehouse_id, device_name, punch_time, punch_type,
+                        sync_status, location_label, latitude, longitude, accuracy_m, note
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        1,
+                        "Attendance Photo Portal",
+                        f"{date_value}T{check_out_time}",
+                        "check_out",
+                        "synced",
+                        location_label,
+                        -8.58314,
+                        116.116798,
+                        6.0,
+                        "Pulang kerja",
+                    ),
+                )
+                db.execute(
+                    """
+                    INSERT INTO attendance_records(
+                        employee_id, warehouse_id, attendance_date, check_in, check_out,
+                        status, shift_code, shift_label, note, updated_at
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        1,
+                        date_value,
+                        check_in_time,
+                        check_out_time,
+                        "present",
+                        "pagi",
+                        "Shift Pagi | 08.00 - 16.00",
+                        "Synced from geotag",
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+            db.commit()
+
+        response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Biometric Overtime Exact", html)
+        self.assertIn("Biometric Overtime Short", html)
+        self.assertIn("1j 00m", html)
+        self.assertNotIn("45 mnt", html)
+
+    def test_biometric_page_shows_staff_overtime_balance_recap_and_usage_history(self):
+        self.login_hr_user("hr_overtime_recap", "pass1234")
+        hr_user_id = self.get_user_id("hr_overtime_recap")
+        date_value = "2026-09-06"
+        first_employee_id = self.create_employee_record(
+            employee_code="EMP-OT-BAL-1",
+            full_name="Saldo Lembur Satu",
+            warehouse_id=1,
+        )
+        second_employee_id = self.create_employee_record(
+            employee_code="EMP-OT-BAL-2",
+            full_name="Saldo Lembur Dua",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            for employee_id, check_out_time in [
+                (first_employee_id, "18:00"),
+                (second_employee_id, "17:00"),
+            ]:
+                db.execute(
+                    """
+                    INSERT INTO attendance_records(
+                        employee_id, warehouse_id, attendance_date, check_in, check_out,
+                        status, shift_code, shift_label, note, updated_at
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        1,
+                        date_value,
+                        "08:00",
+                        check_out_time,
+                        "present",
+                        "pagi",
+                        "Shift Pagi | 08.00 - 16.00",
+                        "Synced from geotag",
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+
+            db.execute(
+                """
+                INSERT INTO overtime_usage_records(
+                    employee_id, warehouse_id, usage_date, minutes_used, note, handled_by, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    first_employee_id,
+                    1,
+                    date_value,
+                    30,
+                    "Dipakai pulang lebih awal",
+                    hr_user_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Rekap Saldo Lembur Staff", html)
+        self.assertIn("Histori Pemakaian Lembur", html)
+        self.assertIn("Saldo Lembur Satu", html)
+        self.assertIn("Saldo Lembur Dua", html)
+        self.assertIn("1j 30m", html)
+        self.assertIn("Dipakai pulang lebih awal", html)
+
+    def test_hr_can_use_overtime_balance_and_reject_request_above_available_minutes(self):
+        self.login_hr_user("hr_overtime_use", "pass1234")
+        date_value = "2026-09-07"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-USE",
+            full_name="Staff Pakai Lembur",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, check_out,
+                    status, shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    date_value,
+                    "08:00",
+                    "17:00",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        success_response = self.client.post(
+            "/hris/biometric/overtime/use",
+            data={
+                "employee_id": str(employee_id),
+                "usage_date": date_value,
+                "minutes_used": "30",
+                "note": "Dipakai izin setengah jam",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(success_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_rows = db.execute(
+                """
+                SELECT minutes_used, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id ASC
+                """,
+                (employee_id,),
+            ).fetchall()
+        self.assertEqual(len(usage_rows), 1)
+        self.assertEqual(usage_rows[0]["minutes_used"], 30)
+        self.assertEqual(usage_rows[0]["note"], "Dipakai izin setengah jam")
+
+        failed_response = self.client.post(
+            "/hris/biometric/overtime/use",
+            data={
+                "employee_id": str(employee_id),
+                "usage_date": date_value,
+                "minutes_used": "45",
+                "note": "Melebihi saldo",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(failed_response.status_code, 200)
+        failed_html = failed_response.get_data(as_text=True)
+        self.assertIn("Saldo lembur staff ini tidak cukup", failed_html)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_count = db.execute(
+                "SELECT COUNT(*) FROM overtime_usage_records WHERE employee_id=?",
+                (employee_id,),
+            ).fetchone()[0]
+        self.assertEqual(usage_count, 1)
 
     def test_hr_can_override_biometric_late_status_and_preserve_it_after_resync(self):
         self.login_hr_user("hr_bio_override", "pass1234")
@@ -3187,9 +3945,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/absen/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Absen Foto & Geotag", html)
+        self.assertIn("Absen Foto", html)
         self.assertIn("Mode Hari Ini", html)
-        self.assertIn('href="#foto-absen"', html)
+        self.assertNotIn('href="#foto-absen"', html)
         self.assertNotIn("Riwayat Absen Sebelumnya", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
 
@@ -3248,7 +4006,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Ukuran foto absen terlalu besar", html)
-        self.assertIn("Absen Foto & Geotag", html)
+        self.assertIn("Foto Absen", html)
 
         with self.app.app_context():
             db = get_db()
@@ -3313,7 +4071,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Form Libur / Cuti / Sakit", html)
-        self.assertIn("Status pengajuan tidak diatur dari sini", html)
+        self.assertIn("HR / Super Admin", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
 
     def test_hris_announcement_route_renders_operational_view(self):
@@ -4316,40 +5074,20 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(ticket_count, 0)
 
-    def test_admin_can_manage_asset_records_in_hris(self):
+    def test_legacy_asset_management_routes_are_disabled_in_favor_of_approval(self):
         self.login_hr_user()
-
-        self.client.post(
-            "/hris/employee/add",
-            data={
-                "employee_code": "EMP-AST-001",
-                "full_name": "Rafi Asset",
-                "warehouse_id": "2",
-                "department": "Warehouse Operation",
-                "position": "Picker",
-                "employment_status": "active",
-            },
-            follow_redirects=False,
+        employee_id = self.create_employee_record(
+            employee_code="EMP-AST-001",
+            full_name="Rafi Asset",
+            warehouse_id=2,
+            department="Warehouse Operation",
+            position="Picker",
         )
-
-        with self.app.app_context():
-            db = get_db()
-            employee = db.execute(
-                """
-                SELECT id, warehouse_id
-                FROM employees
-                WHERE employee_code=?
-                """,
-                ("EMP-AST-001",),
-            ).fetchone()
-
-        self.assertIsNotNone(employee)
-        self.assertEqual(employee["warehouse_id"], 2)
 
         create_response = self.client.post(
             "/hris/asset/add",
             data={
-                "employee_id": str(employee["id"]),
+                "employee_id": str(employee_id),
                 "asset_name": "Handheld Scanner",
                 "asset_code": "AST-001",
                 "serial_number": "SN-7788",
@@ -4363,73 +5101,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(create_response.status_code, 302)
-
-        with self.app.app_context():
-            db = get_db()
-            asset = db.execute(
-                """
-                SELECT id, employee_id, warehouse_id, asset_name, asset_code, serial_number,
-                       category, asset_status, condition_status, assigned_date, return_date,
-                       note, handled_by
-                FROM asset_records
-                WHERE employee_id=?
-                """,
-                (employee["id"],),
-            ).fetchone()
-
-        self.assertIsNotNone(asset)
-        self.assertEqual(asset["warehouse_id"], 2)
-        self.assertEqual(asset["asset_name"], "Handheld Scanner")
-        self.assertEqual(asset["asset_code"], "AST-001")
-        self.assertEqual(asset["serial_number"], "SN-7788")
-        self.assertEqual(asset["category"], "Device")
-        self.assertEqual(asset["asset_status"], "allocated")
-        self.assertEqual(asset["condition_status"], "good")
-        self.assertEqual(asset["assigned_date"], "2026-07-01")
-        self.assertEqual(asset["note"], "Dipakai area picking")
-        self.assertIsNotNone(asset["handled_by"])
-
-        update_response = self.client.post(
-            f"/hris/asset/update/{asset['id']}",
-            data={
-                "employee_id": str(employee["id"]),
-                "asset_name": "Handheld Scanner",
-                "asset_code": "AST-001",
-                "serial_number": "SN-7788-REV",
-                "category": "Device",
-                "asset_status": "returned",
-                "condition_status": "fair",
-                "assigned_date": "2026-07-01",
-                "return_date": "2026-07-20",
-                "note": "Dikembalikan setelah shift event",
-            },
-            follow_redirects=False,
-        )
-        self.assertEqual(update_response.status_code, 302)
-
-        with self.app.app_context():
-            db = get_db()
-            asset_after = db.execute(
-                """
-                SELECT serial_number, asset_status, condition_status, return_date, note, handled_by
-                FROM asset_records
-                WHERE id=?
-                """,
-                (asset["id"],),
-            ).fetchone()
-
-        self.assertEqual(asset_after["serial_number"], "SN-7788-REV")
-        self.assertEqual(asset_after["asset_status"], "returned")
-        self.assertEqual(asset_after["condition_status"], "fair")
-        self.assertEqual(asset_after["return_date"], "2026-07-20")
-        self.assertEqual(asset_after["note"], "Dikembalikan setelah shift event")
-        self.assertIsNotNone(asset_after["handled_by"])
-
-        delete_response = self.client.post(
-            f"/hris/asset/delete/{asset['id']}",
-            follow_redirects=False,
-        )
-        self.assertEqual(delete_response.status_code, 302)
+        self.assertIn("/hris/asset", create_response.headers["Location"])
 
         with self.app.app_context():
             db = get_db()
@@ -4439,40 +5111,24 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(asset_count, 0)
 
-    def test_admin_can_manage_project_records_in_hris(self):
+        legacy_redirect = self.client.get("/hris/asset", follow_redirects=False)
+        self.assertEqual(legacy_redirect.status_code, 302)
+        self.assertIn("/hris/approval", legacy_redirect.headers["Location"])
+
+    def test_legacy_project_management_routes_are_disabled_in_favor_of_approval(self):
         self.login_hr_user()
-
-        self.client.post(
-            "/hris/employee/add",
-            data={
-                "employee_code": "EMP-PRJ-001",
-                "full_name": "Tio Project",
-                "warehouse_id": "2",
-                "department": "Warehouse Operation",
-                "position": "Leader",
-                "employment_status": "active",
-            },
-            follow_redirects=False,
+        employee_id = self.create_employee_record(
+            employee_code="EMP-PRJ-001",
+            full_name="Tio Project",
+            warehouse_id=2,
+            department="Warehouse Operation",
+            position="Leader",
         )
-
-        with self.app.app_context():
-            db = get_db()
-            employee = db.execute(
-                """
-                SELECT id, warehouse_id
-                FROM employees
-                WHERE employee_code=?
-                """,
-                ("EMP-PRJ-001",),
-            ).fetchone()
-
-        self.assertIsNotNone(employee)
-        self.assertEqual(employee["warehouse_id"], 2)
 
         create_response = self.client.post(
             "/hris/project/add",
             data={
-                "employee_id": str(employee["id"]),
+                "employee_id": str(employee_id),
                 "project_name": "Rollout SOP Stock Audit",
                 "project_code": "PRJ-001",
                 "priority": "critical",
@@ -4486,75 +5142,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(create_response.status_code, 302)
-
-        with self.app.app_context():
-            db = get_db()
-            project = db.execute(
-                """
-                SELECT id, employee_id, warehouse_id, project_name, project_code, priority,
-                       status, start_date, due_date, progress_percent, owner_name, note, handled_by
-                FROM project_records
-                WHERE employee_id=?
-                """,
-                (employee["id"],),
-            ).fetchone()
-
-        self.assertIsNotNone(project)
-        self.assertEqual(project["warehouse_id"], 2)
-        self.assertEqual(project["project_name"], "Rollout SOP Stock Audit")
-        self.assertEqual(project["project_code"], "PRJ-001")
-        self.assertEqual(project["priority"], "critical")
-        self.assertEqual(project["status"], "active")
-        self.assertEqual(project["start_date"], "2026-08-01")
-        self.assertEqual(project["due_date"], "2026-08-20")
-        self.assertEqual(project["progress_percent"], 35)
-        self.assertEqual(project["owner_name"], "Leader Project")
-        self.assertEqual(project["note"], "Butuh koordinasi lintas shift")
-        self.assertIsNotNone(project["handled_by"])
-
-        update_response = self.client.post(
-            f"/hris/project/update/{project['id']}",
-            data={
-                "employee_id": str(employee["id"]),
-                "project_name": "Rollout SOP Stock Audit Final",
-                "project_code": "PRJ-001",
-                "priority": "high",
-                "status": "completed",
-                "start_date": "2026-08-01",
-                "due_date": "2026-08-18",
-                "progress_percent": "100",
-                "owner_name": "Manager Warehouse",
-                "note": "Implementasi selesai penuh",
-            },
-            follow_redirects=False,
-        )
-        self.assertEqual(update_response.status_code, 302)
-
-        with self.app.app_context():
-            db = get_db()
-            project_after = db.execute(
-                """
-                SELECT project_name, priority, status, due_date, progress_percent, owner_name, note, handled_by
-                FROM project_records
-                WHERE id=?
-                """,
-                (project["id"],),
-            ).fetchone()
-
-        self.assertEqual(project_after["project_name"], "Rollout SOP Stock Audit Final")
-        self.assertEqual(project_after["priority"], "high")
-        self.assertEqual(project_after["status"], "completed")
-        self.assertEqual(project_after["due_date"], "2026-08-18")
-        self.assertEqual(project_after["progress_percent"], 100)
-        self.assertEqual(project_after["owner_name"], "Manager Warehouse")
-        self.assertEqual(project_after["note"], "Implementasi selesai penuh")
-        self.assertIsNotNone(project_after["handled_by"])
-
-        delete_response = self.client.post(
-            f"/hris/project/delete/{project['id']}",
-            follow_redirects=False,
-        )
-        self.assertEqual(delete_response.status_code, 302)
+        self.assertIn("/hris/project", create_response.headers["Location"])
 
         with self.app.app_context():
             db = get_db()
@@ -4563,6 +5151,10 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(project_count, 0)
+
+        legacy_redirect = self.client.get("/hris/project", follow_redirects=False)
+        self.assertEqual(legacy_redirect.status_code, 302)
+        self.assertIn("/hris/approval", legacy_redirect.headers["Location"])
 
     def test_admin_can_manage_biometric_records_in_hris_and_sync_attendance(self):
         self.login_hr_user()
@@ -5833,6 +6425,57 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("data-break-timer", recap_html)
         self.assertIn("Timer aktif", recap_html)
 
+    def test_workspace_shell_shows_break_countdown_when_break_is_open(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-SHELL-BREAK",
+            full_name="Portal Shell Break",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_shell_break", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_shell_break", "pass1234")
+        current_stamp = datetime.now().replace(second=0, microsecond=0)
+        check_in_stamp = (current_stamp - timedelta(minutes=18)).isoformat(timespec="minutes")
+        break_start_stamp = (current_stamp - timedelta(minutes=12)).isoformat(timespec="minutes")
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": check_in_stamp,
+                "note": "Mulai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": break_start_stamp,
+                "note": "Mulai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        response = self.client.get("/workspace/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("data-shell-break-timer", html)
+        self.assertIn('data-break-limit-seconds="3600"', html)
+        self.assertIn("Istirahat Aktif", html)
+        self.assertIn("Sisa istirahat", html)
+
     def test_biometric_recap_shows_selesai_for_finished_break(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-FINISH-BREAK",
@@ -6112,7 +6755,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/hris/?warehouse=1&schedule_start=2026-09-10")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Notif Pengajuan Libur", html)
+        self.assertIn("Notifikasi Pengajuan Libur", html)
         self.assertIn("Portal Leave Alert", html)
         self.assertIn("Demam dan perlu istirahat", html)
         self.assertIn("Sakit", html)
@@ -6391,6 +7034,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNone(denied_super_note)
 
     def test_daily_report_portal_is_available_to_all_users_and_submits_to_hris_report(self):
+        today = date_cls.today().isoformat()
         self.create_user("ops_daily", "pass1234", "staff", warehouse_id=1)
         self.login("ops_daily", "pass1234")
 
@@ -6404,7 +7048,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/laporan-harian/submit",
             data={
                 "report_type": "live",
-                "report_date": "2026-09-05",
+                "report_date": today,
                 "title": "Live promo toko Mega",
                 "summary": "Promo berjalan normal dan traffic naik saat sesi kedua.",
                 "blocker_note": "Banner depan sempat terlambat dipasang.",
@@ -6431,6 +7075,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(report)
         self.assertEqual(report["report_type"], "live")
+        self.assertEqual(report["report_date"], today)
         self.assertEqual(report["status"], "submitted")
         self.assertEqual(report["warehouse_id"], 1)
         self.assertEqual(report["attachment_name"], "bukti-live.pdf")
@@ -6450,7 +7095,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         hris_report_response = self.client.get("/hris/report")
         self.assertEqual(hris_report_response.status_code, 200)
         hris_html = hris_report_response.get_data(as_text=True)
-        self.assertIn("Daily & Live Report Feed", hris_html)
+        self.assertIn("Daily & Live Report Log", hris_html)
+        self.assertIn("Log Report Harian", hris_html)
+        self.assertIn("Log Live Report", hris_html)
+        self.assertIn(f'name="daily_date_from" value="{today}"', hris_html)
+        self.assertIn(f'name="daily_date_to" value="{today}"', hris_html)
+        self.assertIn("Belum ada report harian pada filter yang dipilih.", hris_html)
         self.assertIn("Live promo toko Mega", hris_html)
         self.assertIn("bukti-live.pdf", hris_html)
 
@@ -6543,6 +7193,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNone(report)
 
     def test_daily_report_feed_defaults_to_active_and_supports_archive_date_filter(self):
+        today = date_cls.today().isoformat()
+        yesterday = (date_cls.today() - timedelta(days=1)).isoformat()
+        two_days_ago = (date_cls.today() - timedelta(days=2)).isoformat()
         self.create_user("report_ops_filter", "pass1234", "staff", warehouse_id=1)
 
         with self.app.app_context():
@@ -6578,7 +7231,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                         None,
                         1,
                         "daily",
-                        "2026-09-08",
+                        today,
                         "Report aktif pagi",
                         "Masih menunggu review HR.",
                         None,
@@ -6594,7 +7247,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                         None,
                         1,
                         "live",
-                        "2026-09-07",
+                        yesterday,
                         "Report arsip reviewed",
                         "Sudah selesai ditinjau.",
                         None,
@@ -6610,7 +7263,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                         None,
                         1,
                         "daily",
-                        "2026-08-29",
+                        two_days_ago,
                         "Report arsip lama",
                         "Sudah closed minggu lalu.",
                         None,
@@ -6634,9 +7287,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Report arsip reviewed", active_html)
         self.assertNotIn("Report arsip lama", active_html)
         self.assertIn("Feed Aktif", active_html)
+        self.assertIn(f'name="daily_date_from" value="{today}"', active_html)
+        self.assertIn(f'name="daily_date_to" value="{today}"', active_html)
+        self.assertIn("Belum ada live report pada filter yang dipilih.", active_html)
 
         archive_response = self.client.get(
-            "/hris/report?daily_status=archived&daily_date_from=2026-09-01&daily_date_to=2026-09-07"
+            f"/hris/report?daily_status=archived&daily_date_from={yesterday}&daily_date_to={yesterday}"
         )
         self.assertEqual(archive_response.status_code, 200)
         archive_html = archive_response.get_data(as_text=True)
@@ -8721,11 +9377,12 @@ class WmsRoutesTestCase(unittest.TestCase):
                 biometric_response = self.client.get("/absen/")
                 self.assertEqual(biometric_response.status_code, 200)
                 biometric_html = biometric_response.get_data(as_text=True)
-                self.assertIn("Form Absen Mandiri", biometric_html)
+                self.assertIn("Foto Absen", biometric_html)
                 self.assertIn("Riwayat Absen Sebelumnya", biometric_html)
 
                 for blocked_path in [
                     "/hris/leave",
+                    "/hris/approval",
                     "/hris/biometric",
                     "/hris/employee",
                     "/hris/attendance",
@@ -8770,7 +9427,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
                 biometric_response = self.client.get("/absen/")
                 self.assertEqual(biometric_response.status_code, 200)
-                self.assertIn("Form Absen Mandiri", biometric_response.get_data(as_text=True))
+                self.assertIn("Foto Absen", biometric_response.get_data(as_text=True))
 
                 staff_hris_module = self.client.get("/hris/employee", follow_redirects=False)
                 self.assertEqual(staff_hris_module.status_code, 302)

@@ -1,0 +1,444 @@
+<section
+    class="pos-vintage-shell pos-terminal-clean pos-ipos-refactor"
+    id="posCheckoutRoot"
+    data-warehouse-id="{{ selected_warehouse }}"
+    data-sale-date="{{ sale_date }}"
+    data-warehouse-name="{{ selected_warehouse_name }}"
+    aria-label="Kasir Harian"
+>
+    <h2 class="sr-only">Kasir Harian</h2>
+    <span class="sr-only">Checkout Kasir</span>
+
+    <div class="pos-vintage-window pos-ipos-window">
+        <header class="pos-ipos-topbar">
+            <div class="pos-ipos-brand">
+                <div class="pos-ipos-brand-mark">IP</div>
+                <div class="pos-ipos-brand-copy">
+                    <strong>Kasir Penjualan</strong>
+                </div>
+            </div>
+            <div class="pos-ipos-topstats" aria-label="Ringkasan kasir harian">
+                <div class="pos-ipos-topstat">
+                    <span>Tx Hari Ini</span>
+                    <strong>{{ summary.total_tx }}</strong>
+                </div>
+                <div class="pos-ipos-topstat">
+                    <span>Total Item</span>
+                    <strong>{{ summary.total_items }}</strong>
+                </div>
+                <div class="pos-ipos-topstat">
+                    <span>Omzet</span>
+                    <strong>Rp {{ "{:,.0f}".format(summary.total_revenue).replace(",", ".") }}</strong>
+                </div>
+            </div>
+            <div class="pos-ipos-topactions">
+                <details class="pos-ipos-header-menu" data-pos-header-menu>
+                    <summary class="pos-ipos-menu-trigger" aria-haspopup="menu" aria-label="Buka menu POS">
+                        Menu POS
+                    </summary>
+                    <div class="pos-ipos-menu-panel" role="menu" aria-label="Menu POS cepat">
+                        <a
+                            href="/kasir/log?warehouse={{ selected_warehouse }}&date_from={{ sale_date }}&date_to={{ sale_date }}"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Log Penjualan</strong>
+                            <small>Lihat log transaksi POS untuk tanggal {{ sale_date }}.</small>
+                        </a>
+                        <a
+                            href="/kasir/staff-sales?warehouse={{ selected_warehouse }}&week_date={{ sale_date }}&month={{ sale_date[:7] }}"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Rekap Penjualan Staff</strong>
+                            <small>Buka ringkasan mingguan dan bulanan dari penjualan POS.</small>
+                        </a>
+                    </div>
+                </details>
+                <button
+                    type="button"
+                    class="pos-ipos-close"
+                    aria-label="Tutup halaman kasir"
+                    onclick="window.location.href='/workspace/'"
+                >
+                    Tutup
+                </button>
+            </div>
+        </header>
+
+        <div class="pos-ipos-toolbar">
+            <div class="pos-ipos-toolbar-pill"><span>Tanggal</span><strong>{{ sale_date }}</strong></div>
+            <div class="pos-ipos-toolbar-pill"><span>Waktu</span><strong id="posClockDisplay">--:--:--</strong></div>
+            <div class="pos-ipos-toolbar-pill"><span>Kasir</span><strong id="posCashierDisplay">{{ selected_pos_staff_label }}</strong></div>
+            <div class="pos-ipos-toolbar-pill"><span>Gudang</span><strong>{{ selected_warehouse_name }}</strong></div>
+            <div class="pos-ipos-toolbar-pill"><span>Warehouse ID</span><strong>WH {{ selected_warehouse }}</strong></div>
+        </div>
+
+        <div class="pos-ipos-layout">
+            <div class="pos-ipos-main">
+                <section class="pos-ipos-panel pos-ipos-transaction-panel">
+                    <div class="pos-ipos-panel-head">
+                        <div>
+                            <strong>Data Transaksi</strong>
+                        </div>
+                    </div>
+
+                    <div class="pos-ipos-transaction-grid">
+                        <div class="pos-ipos-field">
+                            <label for="posTransactionDisplay">No Transaksi</label>
+                            <input type="text" id="posTransactionDisplay" value="AUTO" readonly>
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label>Tanggal Kasir</label>
+                            <input type="text" value="{{ sale_date }}" readonly>
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label>Gudang Aktif</label>
+                            <input type="text" value="{{ selected_warehouse_name }}" readonly>
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posCustomerId">Pelanggan CRM</label>
+                            <select id="posCustomerId">
+                                <option value="">UMUM / walk-in</option>
+                                {% for customer in customer_options %}
+                                <option value="{{ customer.id }}" data-phone="{{ customer.phone or '' }}">{{ customer.customer_name }}{% if customer.phone %} | {{ customer.phone }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posCustomerName">Nama Customer</label>
+                            <input type="text" id="posCustomerName" placeholder="Nama customer" value="Walk-in Customer">
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posCustomerPhone">No HP Customer</label>
+                            <input type="text" id="posCustomerPhone" placeholder="No HP customer">
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posCashierUserId">Kasir / Sales</label>
+                            <select id="posCashierUserId">
+                                {% for staff in pos_staff_options %}
+                                <option
+                                    value="{{ staff.id }}"
+                                    data-display-name="{{ staff.display_name }}"
+                                    {% if staff.id == selected_pos_staff_id %}selected{% endif %}
+                                >
+                                    {{ staff.label }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="pos-ipos-panel pos-ipos-draft-panel" id="posSelectedCard">
+                    <div class="pos-ipos-panel-head">
+                        <div>
+                            <strong>Item Aktif</strong>
+                        </div>
+                        <div class="pos-ipos-draft-head-actions">
+                            <button type="button" class="pos-vintage-mini" id="posCatalogOpenButton">Daftar Item [F2]</button>
+                        </div>
+                    </div>
+
+                    <div class="pos-ipos-draft-grid">
+                        <div class="pos-ipos-draft-copy">
+                            <span class="pos-ipos-kicker">Produk Pilihan</span>
+                            <strong id="posDraftDisplay">Belum ada barang dipilih</strong>
+                            <small id="posDraftMeta">Buka daftar item untuk memilih varian dan harga jual.</small>
+                        </div>
+                        <div class="pos-ipos-field pos-ipos-field-compact">
+                            <label for="posDraftQty">Jumlah</label>
+                            <input type="number" id="posDraftQty" min="1" step="1" placeholder="1">
+                        </div>
+                        <div class="pos-ipos-field pos-ipos-field-compact">
+                            <label for="posDraftPrice">Harga</label>
+                            <input type="number" id="posDraftPrice" min="0" step="0.01" placeholder="0">
+                        </div>
+                        <div class="pos-ipos-field pos-ipos-field-stock">
+                            <label>Stok</label>
+                            <div class="pos-ipos-stockbox">
+                                <strong id="posDraftStockValue">0</strong>
+                                <small id="posDraftStockState" class="stock-empty">Pilih item dulu.</small>
+                            </div>
+                        </div>
+                        <div class="pos-ipos-draft-actions">
+                            <button type="button" class="pos-vintage-button is-primary" id="posAddItemButton">Tambah Item</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="pos-ipos-panel pos-ipos-cart-panel">
+                    <div class="pos-ipos-panel-head">
+                        <div>
+                            <strong>Keranjang Aktif</strong>
+                        </div>
+                        <div class="pos-ipos-cart-head-actions">
+                            <span class="pos-ipos-counter" id="posCartBadge">0 item</span>
+                            <button type="button" class="pos-vintage-mini" id="posCatalogOpenButtonSecondary">Cari Item</button>
+                        </div>
+                    </div>
+
+                    <div class="table-box pos-vintage-cartbox pos-ipos-cartbox" data-scrollable-table="1">
+                        <table class="ops-queue-table pos-vintage-carttable pos-ipos-carttable">
+                            <thead>
+                                <tr>
+                                    <th>No</th>
+                                    <th>Kode Item</th>
+                                    <th>Keterangan</th>
+                                    <th>Jumlah</th>
+                                    <th>Satuan</th>
+                                    <th>Harga</th>
+                                    <th>Total</th>
+                                    <th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="posCartBody">
+                                <tr>
+                                    <td colspan="8"><div class="ops-queue-empty">Keranjang masih kosong.</div></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <aside class="pos-ipos-side">
+                <section class="pos-ipos-panel pos-ipos-payment-panel">
+                    <div class="pos-ipos-totalbox">
+                        <span class="pos-ipos-kicker">Total Belanja</span>
+                        <strong id="posGrandTotal">Rp 0</strong>
+                        <div class="pos-ipos-totalmeta">
+                            <span>Total Item</span>
+                            <strong id="posTotalItems">0</strong>
+                        </div>
+                    </div>
+
+                    <div class="pos-ipos-summaryrows">
+                        <div>
+                            <span>Sub Total</span>
+                            <strong id="posSubtotalValue">Rp 0</strong>
+                        </div>
+                        <div>
+                            <span>Potongan</span>
+                            <strong id="posDiscountValue">Rp 0</strong>
+                        </div>
+                        <div>
+                            <span>Pajak</span>
+                            <strong id="posTaxValue">Rp 0</strong>
+                        </div>
+                        <label class="pos-ipos-summary-input" for="posPaidAmount">
+                            <span>Bayar</span>
+                            <input type="number" id="posPaidAmount" min="0" step="0.01" placeholder="0">
+                        </label>
+                        <div class="is-accent">
+                            <span>Kembalian</span>
+                            <strong id="posChangeAmount">Rp 0</strong>
+                        </div>
+                        <div>
+                            <span>Preview</span>
+                            <strong id="posChangeAmountMirror">Rp 0</strong>
+                        </div>
+                    </div>
+
+                    <div class="pos-ipos-methods">
+                        <span class="pos-ipos-kicker">Metode Bayar</span>
+                        <input type="hidden" id="posPaymentMethod" value="{{ payment_methods[0] if payment_methods else 'cash' }}">
+                        <div class="pos-payment-method-grid pos-ipos-methodgrid" id="posPaymentMethodGrid">
+                            {% for method in payment_methods %}
+                            <button
+                                type="button"
+                                class="pos-payment-method{% if loop.first %} is-active{% endif %}"
+                                data-pos-payment-method="{{ method }}"
+                            >
+                                {{ method|upper }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="pos-ipos-shortcuts" id="posPaidQuickActions">
+                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="exact">Uang Pas</button>
+                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="10000">+10rb</button>
+                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="20000">+20rb</button>
+                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="50000">+50rb</button>
+                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="round">Bulatkan</button>
+                        <button type="button" class="pos-vintage-mini danger" data-pos-paid-shortcut="clear">Reset</button>
+                    </div>
+
+                    <button type="button" id="posCheckoutButton" class="pos-vintage-button is-success pos-ipos-checkout">Bayar [END]</button>
+                    <input type="hidden" id="posNote" value="">
+                </section>
+            </aside>
+        </div>
+
+        <div class="pos-vintage-picker pos-ipos-picker" id="posCatalogPicker" hidden>
+            <div class="pos-vintage-picker-window pos-ipos-picker-window">
+                <div class="pos-ipos-pickerhead">
+                    <div>
+                        <strong>Daftar Item</strong>
+                        <small id="posCatalogSummary">Memuat katalog produk...</small>
+                    </div>
+                    <div class="pos-ipos-pickeractions">
+                        <span class="pos-ipos-pagebadge" id="posCatalogPage">Page 1 / 1</span>
+                        <button type="button" class="pos-vintage-mini" id="posCatalogCloseButton">Tutup</button>
+                    </div>
+                </div>
+
+                <form class="pos-catalog-search pos-ipos-search" id="posCatalogSearchForm">
+                    <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, atau kategori">
+                    <button type="submit" class="pos-vintage-button is-primary">Cari</button>
+                </form>
+
+                <div class="pos-category-strip pos-ipos-categorystrip" id="posCategoryStrip">
+                    <button type="button" class="is-active" data-pos-category="all">Semua</button>
+                    {% for category in catalog_categories %}
+                    <button type="button" data-pos-category="{{ category }}">{{ category }}</button>
+                    {% endfor %}
+                </div>
+
+                <div class="table-box pos-vintage-pickertablebox pos-ipos-pickertablebox" data-scrollable-table="1">
+                    <table class="pos-vintage-pickertable pos-ipos-pickertable">
+                        <thead>
+                            <tr>
+                                <th>Kode</th>
+                                <th>Nama Item</th>
+                                <th>Varian</th>
+                                <th>Stok</th>
+                                <th>Harga</th>
+                                <th>Pilih</th>
+                            </tr>
+                        </thead>
+                        <tbody id="posCatalogGrid">
+                            <tr>
+                                <td colspan="6"><div class="empty-state">Memuat katalog produk...</div></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pos-catalog-pagination pos-ipos-pickerpagination">
+                    <button type="button" class="pos-vintage-mini" id="posCatalogPrev">Sebelumnya</button>
+                    <button type="button" class="pos-vintage-mini" id="posCatalogNext">Berikutnya</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="pos-terminal-hiddentools" hidden aria-hidden="true">
+            <div class="pos-keypad-targets" id="posKeypadTargets">
+                <button type="button" class="is-active" data-pos-keypad-target="qty">Qty</button>
+                <button type="button" data-pos-keypad-target="paid">Bayar</button>
+            </div>
+            <div class="pos-keypad-grid" id="posKeypadGrid">
+                <button type="button" data-pos-key="1">1</button>
+                <button type="button" data-pos-key="2">2</button>
+                <button type="button" data-pos-key="3">3</button>
+                <button type="button" data-pos-key="4">4</button>
+                <button type="button" data-pos-key="5">5</button>
+                <button type="button" data-pos-key="6">6</button>
+                <button type="button" data-pos-key="7">7</button>
+                <button type="button" data-pos-key="8">8</button>
+                <button type="button" data-pos-key="9">9</button>
+                <button type="button" data-pos-key="000">000</button>
+                <button type="button" data-pos-key="0">0</button>
+                <button type="button" data-pos-key="backspace">Hapus</button>
+            </div>
+        </div>
+
+        <section class="pos-ipos-panel pos-ipos-log-shell" data-pos-sales-log-preview="1">
+            <div class="pos-ipos-panel-head">
+                <div>
+                    <strong>Log Penjualan Hari Ini</strong>
+                </div>
+                <div class="pos-ipos-log-head-actions">
+                    <span class="pos-ipos-counter">{{ sales_log_summary.transaction_total }} transaksi</span>
+                    <a href="/kasir/log?warehouse={{ selected_warehouse }}&date_from={{ sale_date }}&date_to={{ sale_date }}" class="pos-vintage-mini">Lihat Semua Log</a>
+                </div>
+            </div>
+
+            <div class="pos-ipos-log-meta">
+                <div class="pos-ipos-log-card">
+                    <span>Omzet</span>
+                    <strong>{{ sales_log_summary.total_revenue_label }}</strong>
+                </div>
+                <div class="pos-ipos-log-card">
+                    <span>Total Item</span>
+                    <strong>{{ sales_log_summary.total_items }}</strong>
+                </div>
+                <div class="pos-ipos-log-card">
+                    <span>Customer</span>
+                    <strong>{{ sales_log_summary.customer_total }}</strong>
+                </div>
+                <div class="pos-ipos-log-card">
+                    <span>Rata-rata</span>
+                    <strong>{{ sales_log_summary.average_ticket_label }}</strong>
+                </div>
+            </div>
+
+            <div class="table-box pos-ipos-log-tablebox" data-scrollable-table="1">
+                {% if sales_log_rows %}
+                <table class="pos-ipos-logtable">
+                    <thead>
+                        <tr>
+                            <th>Receipt</th>
+                            <th>Waktu</th>
+                            <th>Customer</th>
+                            <th>Staff</th>
+                            <th>Item</th>
+                            <th>Metode</th>
+                            <th>Total</th>
+                            <th>Catatan</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sale in sales_log_rows %}
+                        <tr>
+                            <td>
+                                <strong>{{ sale.receipt_no }}</strong>
+                                <div class="helper-text">{{ sale.warehouse_name }}</div>
+                            </td>
+                            <td>
+                                <strong>{{ sale.created_time_label }}</strong>
+                                <div class="helper-text">{{ sale.sale_date }}</div>
+                            </td>
+                            <td>
+                                <strong>{{ sale.customer_name }}</strong>
+                                <div class="helper-text">{{ sale.customer_phone_label }}</div>
+                            </td>
+                            <td>
+                                <strong>{{ sale.cashier_name }}</strong>
+                                <div class="helper-text">{{ sale.cashier_position }}</div>
+                            </td>
+                            <td class="pos-sales-log-items">
+                                {% for item in sale.item_preview_lines %}
+                                <div class="helper-text">{{ item.summary_label }}</div>
+                                {% endfor %}
+                                {% if sale.item_preview_more %}
+                                <div class="helper-text">+{{ sale.item_preview_more }} item lain</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <strong>{{ sale.payment_method_label }}</strong>
+                                <div class="helper-text">{{ sale.total_items }} item</div>
+                            </td>
+                            <td>
+                                <strong>{{ sale.total_amount_label }}</strong>
+                                <div class="helper-text">Bayar {{ sale.paid_amount_label }}</div>
+                            </td>
+                            <td>{{ sale.note or "-" }}</td>
+                            <td class="pos-sales-log-actions">
+                                <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="pos-vintage-mini">Cetak PDF</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="empty-state">Belum ada penjualan yang tercatat untuk tanggal ini.</div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+</section>

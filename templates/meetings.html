@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}Meeting Live | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Coordination Meeting{% endblock %}
+{% block eyebrow %}Meeting Browser{% endblock %}
 {% block page_title %}Meeting Live Browser{% endblock %}
-{% block page_subtitle %}Portal meeting ringan tanpa secret key server. Dibuat supaya tim 6-10 orang bisa rapat cepat langsung dari browser dengan mode audio-first, room cepat, dan stage meeting yang lebih stabil untuk operasional harian.{% endblock %}
+{% block page_subtitle %}Portal meeting ringan langsung dari browser untuk briefing, koordinasi, dan rapat cepat tim kecil-menengah dengan backend yang sudah terhubung ke provider meeting aktif.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions meeting-page-actions">
@@ -18,7 +18,13 @@
     <div class="card-mini success">
         <p>Status Meeting</p>
         <h3>Siap Dipakai</h3>
-        <small class="helper-text">Room browser aktif tanpa butuh secret key server atau signature backend.</small>
+        <small class="helper-text">
+            {% if meeting_uses_jaas %}
+            Room browser aktif dengan token server-side untuk koneksi 8x8 JaaS.
+            {% else %}
+            Room browser aktif tanpa butuh secret key server tambahan.
+            {% endif %}
+        </small>
     </div>
     <div class="card-mini">
         <p>Mode Default</p>
@@ -144,7 +150,13 @@
                     </div>
                 </div>
                 <ul class="meeting-benefit-list">
-                    <li>Tidak butuh secret key server, jadi lebih simpel untuk deploy dan maintenance.</li>
+                    <li>
+                        {% if meeting_uses_jaas %}
+                        Token akses meeting dibuat dari server agar room 8x8 JaaS tetap aman dan konsisten.
+                        {% else %}
+                        Tidak butuh secret key server tambahan, jadi lebih simpel untuk deploy dan maintenance.
+                        {% endif %}
+                    </li>
                     <li>Mode Audio First dan Smart Saver menahan kamera di awal agar CPU dan bandwidth lebih hemat.</li>
                     <li>Stage meeting dibuka terpisah dari panel ERP supaya ruang meeting lebih lega.</li>
                     <li>Room cepat disimpan di browser masing-masing user agar join meeting berikutnya lebih cepat.</li>

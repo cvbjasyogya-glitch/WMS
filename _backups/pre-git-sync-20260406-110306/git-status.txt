@@ -1,0 +1,120 @@
+﻿ M .env.production.example
+ M app.py
+ M config.py
+ M init_db.py
+ M routes/dashboard.py
+ M routes/hris.py
+ M routes/meetings.py
+ M routes/products.py
+ M services/hris_catalog.py
+ M services/rbac.py
+ M services/workspace_icons.py
+ M static/css/dashboard.css
+ M static/js/meeting_portal.js
+ M static/js/meeting_session.js
+ M static/js/push_service_worker.js
+ M static/manifest.webmanifest
+ M templates/account_settings.html
+ M templates/admin.html
+ M templates/admin_warehouses.html
+ M templates/announcement_center.html
+ M templates/approvals.html
+ M templates/attendance_portal.html
+ M templates/audit.html
+ M templates/base.html
+ M templates/crm.html
+ M templates/daily_report_portal.html
+ M templates/forgot.html
+ M templates/hris.html
+ M templates/inbound.html
+ M templates/index.html
+ M templates/leave_portal.html
+ M templates/login.html
+ M templates/meeting_session.html
+ M templates/meetings.html
+ M templates/notifications.html
+ M templates/outbound.html
+ M templates/partials/admin_local_nav.html
+ M templates/product_lookup.html
+ M templates/request.html
+ M templates/request_owner.html
+ M templates/reset.html
+ M templates/schedule.html
+ M templates/stock_opname.html
+ M templates/stok_gudang.html
+ M templates/transfer.html
+ M templates/workspace_gateway.html
+ M tests/test_routes.py
+?? .idea/
+?? _backups/
+?? deploy/android/
+?? deploy/ios/
+?? mobile/
+?? routes/pos.py
+?? static/brand/mataram-logo-192.png
+?? static/brand/mataram-logo-512.png
+?? static/icons/workspace/group-coordination.svg
+?? static/icons/workspace/group-hris.svg
+?? static/icons/workspace/group-system.svg
+?? static/icons/workspace/group-wms.svg
+?? static/icons/workspace/group-workspace.svg
+?? static/icons/workspace/utility-install.svg
+?? static/icons/workspace/utility-logout.svg
+?? static/icons/workspace/utility-theme.svg
+?? static/icons/workspace/wms-kasir.svg
+?? static/js/app_shell.js
+?? static/js/floating_toolbelt.js
+?? static/offline-app.html
+?? static/uploads/chat/096a6a43307e49c4b069770a59bc59ff.txt
+?? static/uploads/chat/113bd2c7b18f400697a1cb314576e3ce.txt
+?? static/uploads/chat/1f028cb2fd1d40979e3b37c0adb62d74.txt
+?? static/uploads/chat/24cec36ff6594eefb6e412c70f550c59.txt
+?? static/uploads/chat/2b47794ca7a94ccd9fba96a27ca8b968.txt
+?? static/uploads/chat/2ef1490cdafa4cd3a05429b9d05501f3.txt
+?? static/uploads/chat/524989fc5bbe427ca7b16c56e09e05b4.txt
+?? static/uploads/chat/56bdd99f7d454d3a813fc95c2f726298.txt
+?? static/uploads/chat/63efe6d673714c06b4da1e0f01cf3c53.txt
+?? static/uploads/chat/776dc78c0fa64e65ad41b354d84400d2.txt
+?? static/uploads/chat/7ddf6637693a472292f1994bf46bcc6f.txt
+?? static/uploads/chat/8337e0b69b844590af5b5b2eb0767f99.txt
+?? static/uploads/chat/8b4de13a3c2441ff9a60741059a3313a.txt
+?? static/uploads/chat/949318263ce146818f59e6ee340bde6c.txt
+?? static/uploads/chat/976815d66d4b408b99342e551b13fe49.txt
+?? static/uploads/chat/a0d727de9f3446d1862786ab60d0f1a7.txt
+?? static/uploads/chat/abc14ad983754811b6ad820e06ea2c55.txt
+?? static/uploads/chat/f04077f51e994d8dac74b45b4d782b9d.txt
+?? static/uploads/chat/f158a6351e224bffb608d120a705a666.txt
+?? static/uploads/chat/f48ecbc7020d424cb706acb706b7e7b1.txt
+?? static/uploads/chat/sticker-02814e2abcd24321825cdfc105e2a286.webp
+?? static/uploads/chat/sticker-0439d14125b741749233e5e761cdcd2c.webp
+?? static/uploads/chat/sticker-09ce1745e65e441e9d7baa18c3615a51.webp
+?? static/uploads/chat/sticker-418bf2c56fbc4d128f54ec16b7652a29.webp
+?? static/uploads/chat/sticker-50cbaaf6178b418b89351253e113b82d.webp
+?? static/uploads/chat/sticker-54f271edad73403bab464d4855478522.webp
+?? static/uploads/chat/sticker-63f2aaad7c124dff942071babd3ff9dd.webp
+?? static/uploads/chat/sticker-69dfde1872d74e25a142a84730b16cef.webp
+?? static/uploads/chat/sticker-6c629bf273a94fc4b3f5ee3b8744ac24.webp
+?? static/uploads/chat/sticker-74c075e406eb48b78f82f9e9b199d6c0.webp
+?? static/uploads/chat/sticker-7cc11efe5d5540078f6e48654d028e56.webp
+?? static/uploads/chat/sticker-80772ca1cd5948dea7d6bf3276ebd200.webp
+?? static/uploads/chat/sticker-86e8265406d14a24a9a8fa0749bf14bb.webp
+?? static/uploads/chat/sticker-c351ef269d544cca824126934be39131.webp
+?? static/uploads/chat/sticker-c5c8ed1a60e24b49ab441b62dd03b79b.webp
+?? static/uploads/chat/sticker-c8deedda02a54b8896543ea7db8b47d5.webp
+?? static/uploads/chat/sticker-d760c87d2db84cb59784745956d797a5.webp
+?? static/uploads/chat/sticker-d7d20e9f126a461b8878b9f2fa58c939.webp
+?? static/uploads/chat/sticker-ed1cb5f3c5634ce59b0992beefe35098.webp
+?? static/uploads/chat/sticker-f2da39e7d5c440d18b5ee7138c3879f9.webp
+?? static/uploads/geotag/geotag_20260405_161416_aca7b924.jpg
+?? static/uploads/geotag/geotag_20260405_161424_5af29758.jpg
+?? static/uploads/geotag/geotag_20260406_092309_a727d91e.jpg
+?? static/uploads/geotag/geotag_20260406_104659_3527bda9.jpg
+?? templates/partials/pos_vintage.html
+?? templates/pos.html
+?? templates/pos_receipt_print.html
+?? templates/pos_sales_log.html
+?? templates/pos_staff_sales_report.html
+?? tmp_ipos_ref/
+?? tmp_verify/probe_jaas.key
+?? tmp_verify/probe_jaas.key.pub
+?? tmp_verify/unittest-check.log

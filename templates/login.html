@@ -10,9 +10,17 @@
 <meta name="apple-mobile-web-app-title" content="ERP-CV.BJAS">
 <meta name="application-name" content="ERP-CV.BJAS">
 <title>Login | ERP-CV.BJAS</title>
-<link rel="icon" type="image/png" href="/static/brand/mataram-logo.png">
-<link rel="apple-touch-icon" href="/static/brand/mataram-logo.png">
-<link rel="manifest" href="/static/manifest.webmanifest">
+{% set brand_logo_url = asset_url('brand/mataram-logo.png') %}
+{% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
+{% set login_hero_url = asset_url('brand/login-hero-crowd.jpeg') %}
+{% set manifest_url = asset_url('manifest.webmanifest') %}
+{% set dashboard_css_url = asset_url('css/dashboard.css') %}
+{% set app_shell_js_url = asset_url('js/app_shell.js') %}
+{% set offline_url = asset_url('offline-app.html') %}
+{% set service_worker_url = url_for('service_worker', v=app_version) %}
+<link rel="icon" type="image/png" href="{{ brand_logo_192_url }}">
+<link rel="apple-touch-icon" href="{{ brand_logo_192_url }}">
+<link rel="manifest" href="{{ manifest_url }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -27,14 +35,15 @@
     }
 })();
 </script>
-<link rel="stylesheet" href="/static/css/dashboard.css">
+<link rel="stylesheet" href="{{ dashboard_css_url }}">
 </head>
-<body class="login-page">
+<body class="login-page minimal-shell browser-mode" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser">
+<a href="#loginContent" class="skip-link">Lewati ke form login</a>
 
-<main class="login-shell" data-login-shell="split-clean">
+<main class="login-shell" data-login-shell="split-clean" id="loginContent">
     <section class="login-hero-panel" data-login-hero>
         <div class="login-hero-media" aria-hidden="true">
-            <img src="/static/brand/login-hero-crowd.jpeg" alt="">
+            <img src="{{ login_hero_url }}" alt="">
         </div>
         <div class="login-hero-scrim" aria-hidden="true"></div>
     </section>
@@ -44,11 +53,14 @@
             <button type="button" class="ghost-button login-theme-toggle" data-login-theme-toggle>
                 <span data-login-theme-toggle-label>Mode Cerah</span>
             </button>
+            <button type="button" class="ghost-button login-install-toggle" data-pwa-install-trigger hidden>
+                <span data-pwa-install-label>Install App</span>
+            </button>
         </div>
 
         <div class="login-panel-brand">
             <div class="login-panel-brand-mark">
-                <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS logo">
+                <img src="{{ brand_logo_url }}" alt="ERP-CV.BJAS logo">
             </div>
             <div class="login-panel-brand-copy">
                 <span>ERP-CV.BJAS</span>
@@ -75,12 +87,12 @@
             <input type="hidden" name="next" value="{{ next_url }}">
             <div>
                 <label>Username</label>
-                <input type="text" name="username" placeholder="Masukkan username" required autofocus autocomplete="username">
+                <input type="text" name="username" placeholder="Masukkan username..." required autofocus autocomplete="username" spellcheck="false">
             </div>
             <div class="password-box">
                 <label>Password</label>
-                <input type="password" id="password" name="password" placeholder="Masukkan password" required autocomplete="current-password">
-                <button type="button" class="toggle" onclick="togglePassword()" id="toggleText">Lihat</button>
+                <input type="password" id="password" name="password" placeholder="Masukkan password..." required autocomplete="current-password">
+                <button type="button" class="toggle" onclick="togglePassword()" id="toggleText" aria-label="Tampilkan password">Lihat</button>
             </div>
             <button type="submit">Login</button>
         </form>
@@ -151,6 +163,28 @@ document.querySelectorAll("[data-login-theme-toggle]").forEach((button) => {
 
 applyLoginTheme(getLoginTheme(), false);
 </script>
+<script id="wmsAppShellConfigData" type="application/json">
+{{ {
+    "serviceWorkerUrl": service_worker_url,
+    "offlineUrl": offline_url,
+    "installPromptTitle": "Install ERP-CV.BJAS"
+}|tojson }}
+</script>
+<script>
+window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
+    const node = document.getElementById(id);
+    if (!node) {
+        return {};
+    }
+    try {
+        return JSON.parse(node.textContent || "{}");
+    } catch (error) {
+        return {};
+    }
+};
+window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
+</script>
+<script src="{{ app_shell_js_url }}"></script>
 
 </body>
 </html>

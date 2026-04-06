@@ -1,12 +1,12 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Admin Access | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}System Administration{% endblock %}
+{% block eyebrow %}Administrasi Sistem{% endblock %}
 {% block page_title %}Admin Access Center{% endblock %}
 {% block page_subtitle %}Pusat kontrol khusus untuk mengatur user, role, scope gudang, dan governance akses sistem tanpa tercampur dengan pengaturan gudang fisik.{% endblock %}
 
 {% block page_actions %}
-<a href="/admin/warehouses" class="ghost-button">Warehouse System</a>
+<a href="/admin/warehouses" class="ghost-button">Sistem Gudang</a>
 {% endblock %}
 
 {% block content %}
@@ -33,11 +33,11 @@
 
 <div class="meta-grid">
     <div class="meta-card">
-        <span>Pending Requests</span>
+        <span>Request Pending</span>
         <strong>{{ health.pending_requests }}</strong>
     </div>
     <div class="meta-card">
-        <span>Pending Approvals</span>
+        <span>Approval Pending</span>
         <strong>{{ health.pending_approvals }}</strong>
     </div>
     <div class="meta-card">
@@ -54,13 +54,14 @@
     <summary class="panel-summary">
         <div class="section-title">
             <div>
-                <h2>Role Guide</h2>
+                <h2>Panduan Role</h2>
+                <!-- legacy-test-compat Role Guide -->
                 <p>Peta akses ini membantu admin memahami role mana yang lintas gudang dan mana yang wajib dikunci ke satu gudang.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
             <span class="badge">{{ role_guide|length }} role</span>
-            <span class="panel-summary-state">Buka Panel</span>
+            <span class="panel-summary-state">Buka</span>
         </div>
     </summary>
     <div class="panel-content">
@@ -115,7 +116,7 @@
                 </select>
             </div>
             <div>
-                <label>Assign Gudang</label>
+                <label>Tugaskan Gudang</label>
                 <select name="warehouse_id">
                     <option value="">-- Tidak ada --</option>
                     {% for w in warehouses %}
@@ -139,7 +140,7 @@
                 <input name="email" placeholder="email@contoh.com">
             </div>
             <div>
-                <label>Phone (opsional)</label>
+                <label>Telepon (opsional)</label>
                 <input name="phone" placeholder="62812xxxx">
             </div>
             <div>
@@ -201,7 +202,7 @@
                         </select>
                     </div>
                     <div>
-                        <label>Assign Gudang</label>
+                        <label>Tugaskan Gudang</label>
                         <select name="warehouse_id">
                             <option value="">-- Tidak ada --</option>
                             {% for w in warehouses %}

@@ -1,3 +1,4 @@
+import json
 import os
 from uuid import uuid4
 from urllib.parse import urlsplit
@@ -33,6 +34,7 @@ from routes.approvals import approvals_bp
 from routes.hris import hris_bp
 from routes.schedule import schedule_bp
 from routes.crm import crm_bp
+from routes.pos import pos_bp
 from routes.product_lookup import product_lookup_bp
 from routes.chat import chat_bp
 from routes.attendance_portal import attendance_portal_bp
@@ -70,9 +72,100 @@ def _normalized_restore_usernames(raw_value):
     ]
 
 
+def _parse_local_iso_datetime(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return None
+    try:
+        return datetime.fromisoformat(safe_value)
+    except ValueError:
+        return None
+
+
+def _format_shell_timer_clock(total_seconds):
+    safe_seconds = int(max(0, total_seconds or 0))
+    hours, remainder = divmod(safe_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def _build_shell_break_timer_state():
+    employee_id = session.get("employee_id")
+    if not employee_id:
+        return {"active": False}
+
+    try:
+        safe_employee_id = int(employee_id)
+    except (TypeError, ValueError):
+        return {"active": False}
+
+    today = datetime.now().date().isoformat()
+    db = get_db()
+
+    try:
+        logs = db.execute(
+            """
+            SELECT punch_time, punch_type
+            FROM biometric_logs
+            WHERE employee_id=? AND substr(COALESCE(punch_time, ''), 1, 10)=?
+            ORDER BY punch_time ASC, id ASC
+            """,
+            (safe_employee_id, today),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {"active": False}
+
+    open_break_started_at = None
+    open_break_started_raw = ""
+
+    for log in logs:
+        punch_type = str(log["punch_type"] or "").strip().lower()
+        punch_time = str(log["punch_time"] or "").strip()
+        punch_dt = _parse_local_iso_datetime(punch_time)
+
+        if punch_type == "break_start":
+            open_break_started_at = punch_dt
+            open_break_started_raw = punch_time if punch_dt else ""
+        elif punch_type in {"break_finish", "check_out"}:
+            open_break_started_at = None
+            open_break_started_raw = ""
+
+    if not open_break_started_at or not open_break_started_raw:
+        return {"active": False}
+
+    limit_seconds = 3600
+    elapsed_seconds = max(0, int((datetime.now() - open_break_started_at).total_seconds()))
+    remaining_seconds = max(0, limit_seconds - elapsed_seconds)
+    over_limit_seconds = max(0, elapsed_seconds - limit_seconds)
+    is_over_limit = over_limit_seconds > 0
+
+    return {
+        "active": True,
+        "started_at_iso": open_break_started_raw,
+        "limit_seconds": limit_seconds,
+        "elapsed_seconds": elapsed_seconds,
+        "remaining_seconds": remaining_seconds,
+        "over_limit_seconds": over_limit_seconds,
+        "countdown_label": (
+            f"+{_format_shell_timer_clock(over_limit_seconds)}"
+            if is_over_limit
+            else _format_shell_timer_clock(remaining_seconds)
+        ),
+        "hint_label": "Lewat batas istirahat" if is_over_limit else "Sisa istirahat",
+        "is_over_limit": is_over_limit,
+    }
+
+
 def _build_security_headers():
     meeting_domain = (current_app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip()
     meeting_origin = f"https://{meeting_domain}" if meeting_domain else "https://meet.jit.si"
+    meeting_wildcard_origin = ""
+    meeting_wildcard_socket = ""
+    if meeting_domain.endswith("8x8.vc"):
+        meeting_wildcard_origin = " https://*.8x8.vc"
+        meeting_wildcard_socket = " wss://*.8x8.vc"
     return {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "SAMEORIGIN",
@@ -83,14 +176,14 @@ def _build_security_headers():
         "Origin-Agent-Cluster": "?1",
         "X-Permitted-Cross-Domain-Policies": "none",
         "Content-Security-Policy": (
-            f"default-src 'self' data: blob: https://source.zoom.us {meeting_origin}; "
-            f"img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us {meeting_origin}; "
-            f"media-src 'self' data: blob: https://*.zoom.us {meeting_origin}; "
-            f"style-src 'self' 'unsafe-inline' https://source.zoom.us https://fonts.googleapis.com {meeting_origin}; "
-            f"script-src 'self' 'unsafe-inline' https://source.zoom.us {meeting_origin}; "
-            f"font-src 'self' data: https://source.zoom.us https://fonts.gstatic.com {meeting_origin}; "
-            f"connect-src 'self' blob: https://source.zoom.us https://*.zoom.us wss://*.zoom.us {meeting_origin} wss://*.jit.si; "
-            f"frame-src 'self' https://*.zoom.us {meeting_origin}; "
+            f"default-src 'self' data: blob: https://source.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
+            f"img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
+            f"media-src 'self' data: blob: https://*.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
+            f"style-src 'self' 'unsafe-inline' https://source.zoom.us https://fonts.googleapis.com {meeting_origin}{meeting_wildcard_origin}; "
+            f"script-src 'self' 'unsafe-inline' https://source.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
+            f"font-src 'self' data: https://source.zoom.us https://fonts.gstatic.com {meeting_origin}{meeting_wildcard_origin}; "
+            f"connect-src 'self' blob: https://source.zoom.us https://*.zoom.us wss://*.zoom.us {meeting_origin}{meeting_wildcard_origin} wss://*.jit.si{meeting_wildcard_socket}; "
+            f"frame-src 'self' https://*.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
             "worker-src 'self' blob:; "
             "frame-ancestors 'self'; "
             "base-uri 'self'; "
@@ -335,7 +428,7 @@ def repair_restored_data(app):
                 """
                 SELECT id, warehouse_id
                 FROM users
-                WHERE role IN ('leader', 'admin', 'staff')
+                WHERE role IN ('leader', 'admin', 'staff', 'staff_intern')
                 """
             ).fetchall()
 
@@ -649,18 +742,175 @@ def create_app():
             }
         )
 
+    def build_asset_url(filename):
+        relative_filename = str(filename or "").strip().lstrip("/\\")
+        normalized_filename = relative_filename.replace("\\", "/")
+        version_token = str(app.config.get("APP_VERSION") or "").strip()
+        static_root = os.path.abspath(app.static_folder or "")
+
+        if normalized_filename and static_root:
+            asset_path = os.path.abspath(os.path.join(static_root, relative_filename))
+            try:
+                common_root = os.path.commonpath([static_root, asset_path])
+            except ValueError:
+                common_root = ""
+
+            if common_root == static_root and os.path.isfile(asset_path):
+                try:
+                    version_token = str(os.stat(asset_path).st_mtime_ns)
+                except OSError:
+                    version_token = str(app.config.get("APP_VERSION") or "").strip()
+
+        if version_token:
+            return url_for("static", filename=normalized_filename, v=version_token)
+
+        return url_for("static", filename=normalized_filename)
+
+    def build_service_worker_asset_urls():
+        asset_filenames = [
+            "manifest.webmanifest",
+            "css/dashboard.css",
+            "brand/mataram-logo.png",
+            "brand/mataram-logo-192.png",
+            "brand/mataram-logo-512.png",
+            "js/app_shell.js",
+            "js/push_notifications.js",
+            "js/web_notifications.js",
+            "js/chat_realtime.js",
+            "js/chat_widget.js",
+            "js/floating_toolbelt.js",
+            "offline-app.html",
+            "notif.mp3",
+            "audio/chat-call-ringtone.mp3",
+            "icons/workspace/group-coordination.svg",
+            "icons/workspace/group-workspace.svg",
+            "icons/workspace/group-wms.svg",
+            "icons/workspace/group-hris.svg",
+            "icons/workspace/group-system.svg",
+            "icons/workspace/utility-theme.svg",
+            "icons/workspace/utility-install.svg",
+            "icons/workspace/utility-account-settings.svg",
+            "icons/workspace/utility-logout.svg",
+            "icons/workspace/utility-admin.svg",
+            "icons/workspace/utility-generic.svg",
+            "icons/workspace/coordination-pengumuman.svg",
+            "icons/workspace/coordination-meeting-live.svg",
+            "icons/workspace/coordination-absen-foto.svg",
+            "icons/workspace/coordination-libur.svg",
+            "icons/workspace/coordination-report-harian.svg",
+            "icons/workspace/coordination-jadwal.svg",
+            "icons/workspace/coordination-crm.svg",
+            "icons/workspace/hris-home.svg",
+            "icons/workspace/hris-dashboard.svg",
+            "icons/workspace/hris-employee.svg",
+            "icons/workspace/hris-leave.svg",
+            "icons/workspace/hris-payroll.svg",
+            "icons/workspace/hris-recruitment.svg",
+            "icons/workspace/hris-onboarding.svg",
+            "icons/workspace/hris-offboarding.svg",
+            "icons/workspace/hris-performance.svg",
+            "icons/workspace/hris-helpdesk.svg",
+            "icons/workspace/hris-report.svg",
+            "icons/workspace/hris-biometric.svg",
+            "icons/workspace/hris-announcement.svg",
+            "icons/workspace/hris-documents.svg",
+            "icons/workspace/wms-dashboard.svg",
+            "icons/workspace/wms-stok-produk.svg",
+            "icons/workspace/wms-info-produk.svg",
+            "icons/workspace/wms-kasir.svg",
+            "icons/workspace/wms-inbound.svg",
+            "icons/workspace/wms-outbound.svg",
+            "icons/workspace/wms-transfer.svg",
+            "icons/workspace/wms-request-gudang.svg",
+            "icons/workspace/wms-request-owner.svg",
+            "icons/workspace/wms-approvals.svg",
+            "icons/workspace/wms-audit-log.svg",
+            "icons/workspace/wms-stock-opname.svg",
+        ]
+        unique_asset_filenames = list(dict.fromkeys(asset_filenames))
+        return [build_asset_url(filename) for filename in unique_asset_filenames]
+
     @app.get("/service-worker.js")
     def service_worker():
         service_worker_path = os.path.join(app.static_folder, "js", "push_service_worker.js")
         with open(service_worker_path, "r", encoding="utf-8") as file_handle:
-            response = app.response_class(file_handle.read(), mimetype="application/javascript")
+            script_body = file_handle.read()
+
+        script_body = script_body.replace(
+            '"__APP_VERSION__"',
+            json.dumps(str(app.config.get("APP_VERSION") or "dev")),
+        )
+        script_body = script_body.replace(
+            "__APP_SHELL_ASSETS__",
+            json.dumps(build_service_worker_asset_urls()),
+        )
+
+        response = app.response_class(script_body, mimetype="application/javascript")
         response.headers["Cache-Control"] = "no-cache"
         response.headers["Service-Worker-Allowed"] = "/"
+        return response
+
+    @app.get("/.well-known/assetlinks.json")
+    def asset_links():
+        package_name = str(app.config.get("ANDROID_APP_PACKAGE") or "").strip()
+        fingerprints = [
+            item.strip()
+            for item in app.config.get("ANDROID_SHA256_CERT_FINGERPRINTS", [])
+            if str(item).strip()
+        ]
+
+        payload = []
+        if package_name and fingerprints:
+            payload.append(
+                {
+                    "relation": ["delegate_permission/common.handle_all_urls"],
+                    "target": {
+                        "namespace": "android_app",
+                        "package_name": package_name,
+                        "sha256_cert_fingerprints": fingerprints,
+                    },
+                }
+            )
+
+        response = app.response_class(
+            json.dumps(payload, indent=2),
+            mimetype="application/json",
+        )
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.get("/.well-known/apple-app-site-association")
+    def apple_app_site_association():
+        app_ids = [
+            item.strip()
+            for item in app.config.get("IOS_APP_IDS", [])
+            if str(item).strip()
+        ]
+
+        payload = {
+            "applinks": {
+                "apps": [],
+                "details": [
+                    {
+                        "appID": app_id,
+                        "paths": ["*"],
+                    }
+                    for app_id in app_ids
+                ],
+            }
+        }
+
+        response = app.response_class(
+            json.dumps(payload, indent=2),
+            mimetype="application/json",
+        )
+        response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.context_processor
     def inject_permissions():
         role = session.get("role")
+        shell_break_timer = _build_shell_break_timer_state() if session.get("user_id") else {"active": False}
         return {
             "can": lambda permission: has_permission(role, permission),
             "is_scoped_user": is_scoped_role(role),
@@ -670,6 +920,9 @@ def create_app():
             "hris_modules": get_hris_modules(role),
             "sidebar_hris_modules": get_hris_navigation_modules(role),
             "show_hris_navigation": role_can_see_hris_navigation(role),
+            "asset_url": build_asset_url,
+            "app_version": app.config.get("APP_VERSION"),
+            "shell_break_timer": shell_break_timer,
         }
 
     # ==========================
@@ -687,7 +940,13 @@ def create_app():
         if request.endpoint.startswith("auth."):
             return
 
-        if request.endpoint in {"health", "ready", "service_worker"}:
+        if request.endpoint in {
+            "health",
+            "ready",
+            "service_worker",
+            "asset_links",
+            "apple_app_site_association",
+        }:
             return
 
         user_id = session.get("user_id")
@@ -834,6 +1093,7 @@ def create_app():
     app.register_blueprint(hris_bp)
     app.register_blueprint(schedule_bp)
     app.register_blueprint(crm_bp)
+    app.register_blueprint(pos_bp)
     app.register_blueprint(product_lookup_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(attendance_portal_bp)

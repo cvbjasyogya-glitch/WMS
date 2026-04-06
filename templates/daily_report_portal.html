@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 
 {% block title %}Report Harian | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Operational Daily Report{% endblock %}
+{% block eyebrow %}Portal Report Harian{% endblock %}
 {% block page_title %}Form Report Harian & Live{% endblock %}
 {% block page_subtitle %}Portal ini bisa dipakai semua user login untuk kirim update kerja harian atau laporan live. Status review tidak diatur dari sini dan hanya diproses oleh HR atau Super Admin di HRIS.{% endblock %}
 
 {% block content %}
 <div class="summary">
     <div class="card-mini">
-        <p>User Login</p>
+        <p>Akun Login</p>
         <h3>@{{ session.get("username", "guest") }}</h3>
     </div>
     <div class="card-mini">
-        <p>Warehouse</p>
+        <p>Gudang</p>
         <h3>{{ session.get("warehouse_id", "-") }}</h3>
     </div>
     <div class="card-mini">
@@ -55,7 +55,7 @@
 <div class="form-box">
     <div class="section-title">
         <div>
-            <h2>Kirim Report</h2>
+            <h2>Kirim Laporan</h2>
             <p>Pilih tipe laporan, isi judul singkat, lalu jelaskan progres, kendala, dan tindak lanjut. Begitu disimpan, data akan langsung muncul di HRIS modul Report untuk tim HR.</p>
         </div>
     </div>
@@ -63,14 +63,14 @@
     <form method="POST" action="/laporan-harian/submit" enctype="multipart/form-data" data-daily-live-report-form>
         <div class="form-grid">
             <div>
-                <label>Tipe Report</label>
+                <label>Tipe Laporan</label>
                 <select name="report_type" data-report-type-select>
-                    <option value="daily">Report Harian</option>
-                    <option value="live">Report Live</option>
+                    <option value="daily">Laporan Harian</option>
+                    <option value="live">Laporan Live</option>
                 </select>
             </div>
             <div>
-                <label>Tanggal Report</label>
+                <label>Tanggal Laporan</label>
                 <input type="date" name="report_date" value="{{ today_value }}" required>
             </div>
             <div style="grid-column: 1 / -1;">
@@ -96,7 +96,7 @@
             </div>
         </div>
         <div class="split-actions attendance-submit-row">
-            <button type="submit">Kirim Report</button>
+            <button type="submit">Kirim Laporan</button>
         </div>
     </form>
 </div>
@@ -104,8 +104,8 @@
 <div class="table-box stack-scroll-shell">
     <div class="section-title">
         <div>
-            <h2>Riwayat Report Saya</h2>
-            <p>Riwayat ini hanya untuk memastikan report yang kamu kirim sudah masuk. Status review tetap diproses dari HRIS oleh HR atau Super Admin.</p>
+            <h2>Riwayat Laporan Saya</h2>
+            <p>Riwayat ini hanya untuk memastikan laporan yang kamu kirim sudah masuk. Status review tetap diproses dari HRIS oleh HR atau Super Admin.</p>
         </div>
     </div>
     {% if recent_reports %}
@@ -115,7 +115,7 @@
             <div class="section-title">
                 <div>
                     <h3>{{ report.title }}</h3>
-                    <p>{{ report.report_date }} • {{ "Report Harian" if report.report_type == "daily" else "Report Live" }} • {{ report.warehouse_name or "-" }}</p>
+                    <p>{{ report.report_date }} | {{ "Laporan Harian" if report.report_type == "daily" else "Laporan Live" }} | {{ report.warehouse_name or "-" }}</p>
                 </div>
                 <div class="report-status-stack">
                     <span class="badge">{{ report.status|replace("_", " ") }}</span>
@@ -156,7 +156,7 @@
         {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">Belum ada report yang dikirim dari akun ini.</div>
+    <div class="empty-state">Belum ada laporan yang dikirim dari akun ini.</div>
     {% endif %}
 </div>
 <script>

@@ -1,25 +1,29 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 
 {% block title %}Reset Password | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Reset Password{% endblock %}
 {% block page_title %}Reset Password{% endblock %}
 {% block page_subtitle %}Masukkan username, kode yang dikirim, dan password baru.{% endblock %}
 
+{% block page_actions %}
+<a href="/login" class="ghost-button">Kembali ke Login</a>
+{% endblock %}
+
 {% block content %}
-<div class="form-box">
+<div class="form-box auth-flow-box">
     <form method="POST">
         <div class="form-grid">
             <div>
                 <label>Username</label>
-                <input name="username" placeholder="username" required>
+                <input type="text" name="username" placeholder="Masukkan username..." required autocomplete="username" spellcheck="false">
             </div>
             <div>
                 <label>Kode Reset</label>
-                <input name="code" placeholder="6 digit kode" required>
+                <input type="text" name="code" placeholder="Masukkan 6 digit kode..." required autocomplete="one-time-code" inputmode="numeric" spellcheck="false">
             </div>
             <div>
                 <label>Password Baru</label>
-                <input type="password" name="password" placeholder="Password baru" required>
+                <input type="password" name="password" placeholder="Masukkan password baru..." required autocomplete="new-password">
             </div>
         </div>
         <div class="split-actions stack-gap-md">
@@ -28,4 +32,3 @@
     </form>
 </div>
 {% endblock %}
-

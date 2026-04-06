@@ -672,9 +672,10 @@ def product_picker():
     db = get_db()
     warehouse_id = _resolve_picker_warehouse(db, request.args.get("warehouse_id"))
     page = max(_to_int(request.args.get("page"), 1), 1)
-    page_size = 20
+    page_size = max(1, min(_to_int(request.args.get("page_size"), 20), 60))
     offset = (page - 1) * page_size
     search = (request.args.get("q") or "").strip()
+    category = (request.args.get("category") or "").strip()
     mode = (request.args.get("mode") or "").strip().lower()
 
     conditions = []
@@ -696,6 +697,11 @@ def product_picker():
         """)
         params.extend([search_param] * 7)
         count_params.extend([search_param] * 7)
+
+    if category:
+        conditions.append("COALESCE(c.name, '') = ?")
+        params.append(category)
+        count_params.append(category)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -724,6 +730,9 @@ def product_picker():
             COALESCE(v.variant_code, '') AS variant_code,
             COALESCE(v.color, '') AS color,
             COALESCE(v.gtin, '') AS gtin,
+            COALESCE(v.price_retail, 0) AS price_retail,
+            COALESCE(v.price_discount, 0) AS price_discount,
+            COALESCE(v.price_nett, 0) AS price_nett,
             COALESCE(s.qty, 0) AS qty
         FROM products p
         JOIN product_variants v ON v.product_id = p.id

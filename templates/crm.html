@@ -1,14 +1,14 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}CRM | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Customer Relationship Management{% endblock %}
+{% block eyebrow %}Pusat CRM{% endblock %}
 {% block page_title %}CRM Customer Hub{% endblock %}
 {% block page_subtitle %}Kelola contact customer, histori pembelian barang, dan data member secara terstruktur supaya tim bisa membaca pola belanja untuk analisis marketing maupun follow up toko.{% endblock %}
 
 {% block content %}
 <div class="summary">
     <div class="card-mini">
-        <p>Total Customer</p>
+        <p>Total Pelanggan</p>
         <h3>{{ summary.customers }}</h3>
     </div>
     <div class="card-mini">
@@ -31,23 +31,23 @@
         <strong>{{ summary.contact_ready }}</strong>
     </div>
     <div class="meta-card">
-        <span>Record Member</span>
+        <span>Riwayat Member</span>
         <strong>{{ summary.member_records }}</strong>
     </div>
     <div class="meta-card">
-        <span>Latest Purchase</span>
+        <span>Pembelian Terakhir</span>
         <strong>{{ summary.latest_purchase }}</strong>
     </div>
     <div class="meta-card">
         <span>Akses CRM</span>
-        <strong>{{ "Manage" if can_manage_crm else "View Only" }}</strong>
+        <strong>{{ "Kelola" if can_manage_crm else "Lihat Saja" }}</strong>
     </div>
 </div>
 
 <div class="box crm-local-nav-box">
     <div class="split-actions crm-local-nav">
-        <a href="/crm/?tab=contacts" class="ghost-button {% if selected_tab == 'contacts' %}active{% endif %}">Contact</a>
-        <a href="/crm/?tab=purchases" class="ghost-button {% if selected_tab == 'purchases' %}active{% endif %}">Purchase</a>
+        <a href="/crm/?tab=contacts" class="ghost-button {% if selected_tab == 'contacts' %}active{% endif %}">Kontak</a>
+        <a href="/crm/?tab=purchases" class="ghost-button {% if selected_tab == 'purchases' %}active{% endif %}">Pembelian</a>
         <a href="/crm/?tab=members" class="ghost-button {% if selected_tab == 'members' %}active{% endif %}">Member</a>
     </div>
     <small class="helper-text">
@@ -95,7 +95,7 @@
     <div class="form-box">
         <div class="section-title">
             <div>
-                <h2>Tambah Contact Customer</h2>
+            <h2>Tambah Kontak Pelanggan</h2>
                 <p>Data ini jadi fondasi CRM untuk follow up repeat order, analisis barang favorit, dan segmentasi marketing toko.</p>
             </div>
         </div>
@@ -117,7 +117,7 @@
                     <input name="customer_name" placeholder="Contoh: Toko Rian Sport" required>
                 </div>
                 <div>
-                    <label>Contact Person</label>
+                    <label>Kontak Utama</label>
                     <input name="contact_person" placeholder="Contoh: Rian">
                 </div>
                 <div>
@@ -154,7 +154,7 @@
                 </div>
             </div>
             <div class="split-actions stack-gap-md">
-                <button type="submit">Simpan Contact</button>
+                <button type="submit">Simpan Kontak</button>
             </div>
         </form>
     </div>
@@ -163,7 +163,7 @@
     <div class="table-box">
         <div class="section-title">
             <div>
-                <h2>Customer Contact Matrix</h2>
+                <h2>Matriks Kontak Pelanggan</h2>
                 <p>Kolom produk dibangun dari histori pembelian CRM, jadi tim bisa cepat melihat minat SKU per customer.</p>
             </div>
         </div>
@@ -175,7 +175,7 @@
                     <th>Kontak</th>
                     <th>Tipe</th>
                     <th>Gudang</th>
-                    <th>Purchase</th>
+                    <th>Belanja</th>
                     <th>Member</th>
                     <th>Produk Pernah Dibeli</th>
                     {% if can_manage_crm %}<th>Aksi</th>{% endif %}
@@ -224,7 +224,7 @@
             </tbody>
         </table>
         {% else %}
-        <div class="empty-state">Belum ada contact customer pada scope CRM ini.</div>
+        <div class="empty-state">Belum ada kontak pelanggan pada scope CRM ini.</div>
         {% endif %}
     </div>
 {% elif selected_tab == "purchases" %}
@@ -232,7 +232,7 @@
     <div class="form-box ops-batch-box">
         <div class="section-title">
             <div>
-                <h2>Tambah Purchase Record</h2>
+                <h2>Tambah Riwayat Pembelian</h2>
                 <p>Catat barang yang dibeli customer per transaksi supaya histori pembelian bisa langsung dipakai untuk analisis marketing.</p>
             </div>
         </div>
@@ -358,7 +358,7 @@
             </div>
 
             <div class="split-actions" style="margin-top:16px;">
-                <button id="crmPurchaseSubmitButton" type="submit">Simpan Purchase Record</button>
+                <button id="crmPurchaseSubmitButton" type="submit">Simpan Riwayat Pembelian</button>
             </div>
         </form>
     </div>
@@ -367,7 +367,7 @@
     <div class="table-box">
         <div class="section-title">
             <div>
-                <h2>Purchase History</h2>
+                <h2>Riwayat Pembelian</h2>
                 <p>Setiap transaksi menyimpan detail item, channel, dan relasi ke customer/member agar analisis marketing tidak hilang di level SKU.</p>
             </div>
         </div>
@@ -422,7 +422,7 @@
             </tbody>
         </table>
         {% else %}
-        <div class="empty-state">Belum ada purchase record pada scope CRM ini.</div>
+        <div class="empty-state">Belum ada riwayat pembelian pada scope CRM ini.</div>
         {% endif %}
     </div>
 {% else %}
@@ -475,7 +475,7 @@
                         <input type="date" name="expiry_date">
                     </div>
                     <div>
-                        <label>Points</label>
+                        <label>Poin</label>
                         <input type="number" name="points" value="0">
                     </div>
                     <div>
@@ -532,7 +532,7 @@
                         <input type="number" name="amount" min="0" step="0.01" value="0">
                     </div>
                     <div>
-                        <label>Points Delta</label>
+                        <label>Delta Poin</label>
                         <input type="number" name="points_delta" value="0">
                     </div>
                     <div style="grid-column: 1 / -1;">
@@ -551,8 +551,8 @@
     <div class="table-box">
         <div class="section-title">
             <div>
-                <h2>Register Member</h2>
-                <p>Member dihubungkan ke contact customer, lalu total spend dan jumlah record-nya ditarik sebagai snapshot CRM loyalty.</p>
+                <h2>Daftar Member</h2>
+                <p>Member dihubungkan ke kontak pelanggan, lalu total belanja dan jumlah record-nya ditarik sebagai snapshot loyalty CRM.</p>
             </div>
         </div>
         {% if memberships %}
@@ -562,7 +562,7 @@
                     <th>Member</th>
                     <th>Customer</th>
                     <th>Status</th>
-                    <th>Points</th>
+                    <th>Poin</th>
                     <th>Join / Expiry</th>
                     <th>Record</th>
                     <th>Total Spend</th>
@@ -607,8 +607,8 @@
     <div class="table-box">
         <div class="section-title">
             <div>
-                <h2>Member Record History</h2>
-                <p>Purchase dari tab CRM akan otomatis masuk ke sini jika transaksi dihubungkan ke member. Record manual tetap bisa dipakai untuk activity loyalty lain.</p>
+                <h2>Riwayat Record Member</h2>
+                <p>Pembelian dari tab CRM akan otomatis masuk ke sini jika transaksi dihubungkan ke member. Record manual tetap bisa dipakai untuk aktivitas loyalty lain.</p>
             </div>
         </div>
         {% if member_records %}
@@ -618,9 +618,9 @@
                     <th>Tanggal</th>
                     <th>Member</th>
                     <th>Tipe</th>
-                    <th>Reference</th>
-                    <th>Amount</th>
-                    <th>Points</th>
+                    <th>Referensi</th>
+                    <th>Nominal</th>
+                    <th>Poin</th>
                     <th>Catatan</th>
                     {% if can_manage_crm %}<th>Aksi</th>{% endif %}
                 </tr>
@@ -641,7 +641,7 @@
                     {% if can_manage_crm %}
                     <td>
                         {% if record.purchase_id %}
-                        <span class="badge">Auto Purchase</span>
+                        <span class="badge">Otomatis dari Pembelian</span>
                         {% else %}
                         <form method="POST" action="/crm/member-records/delete/{{ record.id }}">
                             <button type="submit" class="danger-button" onclick="return confirm('Hapus record member ini?')">Hapus</button>

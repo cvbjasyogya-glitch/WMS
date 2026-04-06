@@ -1,85 +1,62 @@
 {% extends "base.html" %}
 
 {% block title %}Absen Foto | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Attendance Portal{% endblock %}
+{% block eyebrow %}Portal Absensi{% endblock %}
 {% block page_title %}Absen Foto & Geotag{% endblock %}
-{% block page_subtitle %}Halaman khusus absen mandiri dengan kamera, geotag, dan pilihan shift kerja. Check in, break, dan check out dijalankan dalam satu alur harian, jadi user tidak perlu pindah modul atau membaca log tambahan.{% endblock %}
-{% block page_actions %}
-<a href="#foto-absen" class="ghost-button attendance-shortcut-link" aria-label="Langsung ke foto absen">
-    <span class="attendance-shortcut-icon" aria-hidden="true">&#128247;</span>
-    <span>Foto Absen</span>
-</a>
-{% endblock %}
+{% block page_subtitle %}Ambil foto, cek lokasi, lalu simpan absensi tanpa pindah halaman lain.{% endblock %}
+{% block main_class %}attendance-portal-main{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block page_header %}{% endblock %}
 
 {% block content %}
-<div class="summary">
-    <div class="card-mini">
-        <p>User Login</p>
-        <h3>@{{ session.get("username", "guest") }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Role</p>
-        <h3>{{ session.get("role", "guest")|replace("_", " ")|title }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Tanggal Hari Ini</p>
-        <h3>{{ today_date }}</h3>
-    </div>
-    <div class="card-mini {% if attendance_today %}success{% endif %}">
-        <p>Status Hari Ini</p>
-        <h3>{{ attendance_today.status|upper if attendance_today else "BELUM ABSEN" }}</h3>
-    </div>
-    <div class="card-mini {% if portal_punch_mode == 'complete' %}success{% endif %}">
-        <p>Mode Hari Ini</p>
-        <h3>{{ portal_punch_label }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Shift Hari Ini</p>
-        <h3>{{ portal_selected_shift_label }}</h3>
-    </div>
-</div>
+{% set today_status = attendance_today.status if attendance_today else "absent" %}
+{% set today_status_badge = "green" if today_status == "present" else "orange" if today_status in ["late", "leave", "half_day"] else "red" %}
 
-{% if linked_employee %}
 <div class="attendance-portal-shell">
-    <section class="form-box attendance-identity-card">
-        <div class="section-title">
+    <section class="form-box attendance-overview-card">
+        <div class="attendance-overview-head">
             <div>
-                <h2>Profil Absen</h2>
-                <p>Portal ini selalu terkunci ke data karyawan yang tertaut ke akun login, jadi tidak bisa dipakai untuk absensi orang lain.</p>
+                <p class="attendance-overview-kicker">Absen Hari Ini</p>
+                <h2>{{ linked_employee.full_name if linked_employee else '@' ~ session.get("username", "guest") }}</h2>
+                <p>
+                    {% if linked_employee %}
+                        {{ linked_employee.position or "Staff" }} · {{ linked_employee.warehouse_name or "-" }} · {{ linked_employee.employee_code }}
+                    {% else %}
+                        Akun login aktif · {{ session.get("role", "guest")|replace("_", " ")|title }}
+                    {% endif %}
+                </p>
+            </div>
+            <div class="attendance-overview-badges">
+                <span class="badge {{ today_status_badge }}">Status {{ attendance_today.status|upper if attendance_today else "BELUM ABSEN" }}</span>
+                <span class="badge {% if portal_punch_mode == 'complete' %}green{% endif %}">Mode {{ portal_punch_label }}</span>
             </div>
         </div>
-        <div class="attendance-identity-grid">
+        <div class="attendance-overview-grid">
             <div class="meta-card">
-                <span>Karyawan</span>
-                <strong>{{ linked_employee.full_name }}</strong>
+                <span>Tanggal Hari Ini</span>
+                <strong>{{ today_date }}</strong>
             </div>
             <div class="meta-card">
-                <span>Employee Code</span>
-                <strong>{{ linked_employee.employee_code }}</strong>
-            </div>
-            <div class="meta-card">
-                <span>Gudang</span>
-                <strong>{{ linked_employee.warehouse_name or "-" }}</strong>
-            </div>
-            <div class="meta-card">
-                <span>Posisi</span>
-                <strong>{{ linked_employee.position or "-" }}</strong>
-            </div>
-            <div class="meta-card">
-                <span>Ringkasan Masuk / Keluar</span>
-                <strong>{{ attendance_today.check_in if attendance_today and attendance_today.check_in else "-" }} / {{ attendance_today.check_out if attendance_today and attendance_today.check_out else "-" }}</strong>
+                <span>Mode Hari Ini</span>
+                <strong>{{ portal_punch_label }}</strong>
             </div>
             <div class="meta-card">
                 <span>Shift Aktif</span>
                 <strong>{{ attendance_today.shift_label if attendance_today and attendance_today.shift_label else portal_selected_shift_label }}</strong>
             </div>
             <div class="meta-card">
-                <span>Catatan Attendance</span>
-                <strong>{{ attendance_today.note if attendance_today and attendance_today.note else "Belum ada catatan" }}</strong>
+                <span>Masuk / Pulang</span>
+                <strong>{{ attendance_today.check_in if attendance_today and attendance_today.check_in else "-" }} / {{ attendance_today.check_out if attendance_today and attendance_today.check_out else "-" }}</strong>
             </div>
         </div>
+        {% if linked_employee %}
+        <small class="helper-text">Portal ini terkunci ke akun karyawan aktif. Ambil foto, cek lokasi, lalu simpan absensi dari satu layar yang sama.</small>
+        {% else %}
+        <small class="helper-text">Akun ini belum ditautkan ke data karyawan, jadi halaman absen sudah bisa dibuka tetapi belum bisa dipakai untuk check in atau check out.</small>
+        {% endif %}
     </section>
 
+    {% if linked_employee %}
     <section
         id="foto-absen"
         class="form-box attendance-capture-card"
@@ -92,8 +69,8 @@
     >
         <div class="section-title">
             <div>
-                <h2>Form Absen Mandiri</h2>
-                <p>Ambil foto wajah, pilih tipe absen yang sesuai, isi titik lokasi, lalu simpan. Foto hasil akhir akan diberi stamp geotag otomatis berisi waktu, shift, lokasi, dan verifikasi absensi.</p>
+                <h2>Foto Absen</h2>
+                <p>Alur cepat: aktifkan kamera, ambil foto, cek lokasi, lalu simpan.</p>
             </div>
         </div>
 
@@ -112,12 +89,25 @@
                         <button type="button" class="ghost-button" data-camera-fallback hidden {% if portal_punch_mode == "complete" %}disabled{% endif %}>Kamera Perangkat</button>
                         <input type="file" accept="image/*" capture="user" data-camera-file-input hidden>
                     </div>
-                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen. Frame akan menyesuaikan portrait atau horizontal mengikuti orientasi layar. Jika preview live gagal muncul di browser tertentu, tombol Kamera Perangkat akan dipakai sebagai fallback aman.</small>
+                    <small class="helper-text" data-camera-status>Kamera belum aktif. Klik tombol di atas untuk mulai ambil foto absen.</small>
                 </div>
 
                 <div class="attendance-form-panel">
                     <input type="hidden" name="photo_data_url" data-photo-input>
                     <input type="hidden" name="punch_time" data-punch-time-input>
+                    <input type="hidden" name="latitude" data-latitude-input>
+                    <input type="hidden" name="longitude" data-longitude-input>
+                    <input type="hidden" name="accuracy_m" data-accuracy-input>
+                    <div class="attendance-form-quick-grid">
+                        <div class="meta-card">
+                            <span>Karyawan</span>
+                            <strong>{{ linked_employee.full_name }}</strong>
+                        </div>
+                        <div class="meta-card">
+                            <span>Gudang</span>
+                            <strong>{{ linked_employee.warehouse_name or "-" }}</strong>
+                        </div>
+                    </div>
                     <div class="form-grid">
                         {% if portal_allow_shift_profile_choice %}
                         <div>
@@ -180,25 +170,13 @@
                                 <option value="{{ option.value }}" {% if option.value == portal_default_location_scope %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
                             </select>
-                            <small class="helper-text">Lokasi akan ikut diambil otomatis saat kamu klik Ambil Foto. Pilih titik kerja yang paling sesuai dulu.</small>
+                            <small class="helper-text">Pilih titik kerja yang paling sesuai sebelum foto diambil.</small>
                         </div>
                         <div class="span-full" data-location-other-wrap hidden>
                             <label>Jelaskan Lokasi Lainnya</label>
                             <input name="location_other_detail" data-location-other-input placeholder="Contoh: Booth event Lombok Epicentrum, Area parkir belakang, atau lokasi kerja khusus lainnya" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                         </div>
-                        <div>
-                            <label>Latitude</label>
-                            <input name="latitude" placeholder="-8.583140" data-latitude-input readonly required>
-                        </div>
-                        <div>
-                            <label>Longitude</label>
-                            <input name="longitude" placeholder="116.116798" data-longitude-input readonly required>
-                        </div>
-                        <div>
-                            <label>Akurasi (meter)</label>
-                            <input name="accuracy_m" placeholder="15.0" data-accuracy-input readonly>
-                        </div>
-                        <div>
+                        <div class="span-full">
                             <label>Status Lokasi</label>
                             <input type="text" value="Belum diambil" data-location-status readonly>
                         </div>
@@ -206,22 +184,25 @@
                             <button type="button" class="ghost-button" data-location-capture {% if portal_punch_mode == "complete" %}disabled{% endif %}>Refresh Lokasi</button>
                         </div>
                         <div class="span-full">
-                            <small class="helper-text" data-location-helper>Pastikan GPS aktif. Setelah foto diambil, portal akan otomatis membaca lokasi agar tidak perlu dua kali kerja.</small>
-                        </div>
-                        <div class="span-full">
-                            <label>Catatan</label>
-                            <textarea name="note" rows="3" placeholder="Opsional. Contoh: sedang tugas bukaan toko, kondisi sinyal GPS indoor, atau catatan check out." {% if portal_punch_mode == "complete" %}disabled{% endif %}></textarea>
+                            <small class="helper-text" data-location-helper>Pastikan GPS aktif. Setelah foto diambil, portal akan otomatis membaca koordinat.</small>
                         </div>
                     </div>
+                    <details class="attendance-optional-panel">
+                        <summary>Catatan Opsional</summary>
+                        <div class="attendance-optional-panel-body">
+                            <label>Catatan</label>
+                            <textarea name="note" rows="3" placeholder="Contoh: tugas event, GPS indoor, atau catatan check out." {% if portal_punch_mode == "complete" %}disabled{% endif %}></textarea>
+                        </div>
+                    </details>
                     <div class="split-actions attendance-submit-row">
                         <button type="submit" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                             {% if portal_punch_mode == "complete" %}Absensi Hari Ini Lengkap{% else %}Simpan Absen{% endif %}
                         </button>
                     </div>
                     {% if portal_punch_mode == "complete" %}
-                    <small class="helper-text">Check in dan check out hari ini sudah lengkap. Kalau tadi salah pilih tipe absen atau jamnya keliru, koreksi langsung dari riwayat absen di bawah.</small>
+                    <small class="helper-text">Check in dan check out hari ini sudah lengkap. Kalau ada salah tipe atau jam, koreksi dari riwayat absen di bawah.</small>
                     {% else %}
-                    <small class="helper-text">Foto akan dikompresi otomatis supaya tetap tajam, tidak kepotong, hemat space, dan hasil akhirnya langsung bertipe stamped geotag.</small>
+                    <small class="helper-text">Foto akan dikompresi otomatis supaya tetap ringan dan cepat dikirim dari browser mobile.</small>
                     {% endif %}
                 </div>
             </div>
@@ -240,107 +221,111 @@
         {% if attendance_history %}
         <div class="attendance-log-list">
             {% for item in attendance_history %}
-            <article class="attendance-log-card">
-                <div class="attendance-log-head">
-                    <div>
-                        <h3>{{ item.attendance_date }}</h3>
-                        <p>{{ item.shift_label }}</p>
+            <details class="attendance-log-card attendance-log-card-disclosure">
+                <summary class="attendance-log-toggle">
+                    <div class="attendance-log-head">
+                        <div>
+                            <h3>{{ item.attendance_date }}</h3>
+                            <p>{{ item.shift_label }}</p>
+                        </div>
+                        <div class="attendance-log-badges">
+                            <span class="badge {{ item.status_badge }}">{{ item.status_label }}</span>
+                            <span class="badge">{{ item.log_count }} Log</span>
+                        </div>
                     </div>
-                    <div class="attendance-log-badges">
-                        <span class="badge {{ item.status_badge }}">{{ item.status_label }}</span>
-                        <span class="badge">{{ item.log_count }} Log</span>
-                    </div>
-                </div>
 
-                <div class="attendance-log-summary">
-                    <div class="meta-card">
-                        <span>Masuk</span>
-                        <strong>{{ item.check_in }}</strong>
+                    <div class="attendance-log-summary">
+                        <div class="meta-card">
+                            <span>Masuk</span>
+                            <strong>{{ item.check_in }}</strong>
+                        </div>
+                        <div class="meta-card">
+                            <span>Pulang</span>
+                            <strong>{{ item.check_out }}</strong>
+                        </div>
+                        <div class="meta-card">
+                            <span>Update Terakhir</span>
+                            <strong>{{ item.updated_at_label }}</strong>
+                        </div>
                     </div>
-                    <div class="meta-card">
-                        <span>Pulang</span>
-                        <strong>{{ item.check_out }}</strong>
-                    </div>
-                    <div class="meta-card">
-                        <span>Update Terakhir</span>
-                        <strong>{{ item.updated_at_label }}</strong>
-                    </div>
-                </div>
+                </summary>
 
-                <p class="attendance-log-note">{{ item.note }}</p>
+                <div class="attendance-log-body">
+                    <p class="attendance-log-note">{{ item.note }}</p>
 
-                <details class="attendance-log-detail">
-                    <summary>Lihat Log Hari Itu</summary>
-                    <div class="attendance-log-events">
-                        {% if item.logs %}
-                            {% for log in item.logs %}
-                            <div class="attendance-log-event">
+                    <details class="attendance-log-detail">
+                        <summary>Lihat Log Hari Itu</summary>
+                        <div class="attendance-log-events">
+                            {% if item.logs %}
+                                {% for log in item.logs %}
+                                <div class="attendance-log-event">
+                                    <div>
+                                        <strong>{{ log.punch_label }}</strong>
+                                        <p>{{ log.location_label }}</p>
+                                    </div>
+                                    <div class="attendance-log-event-meta">
+                                        <span class="badge{% if log.sync_status == 'manual' %} orange{% elif log.sync_status == 'synced' %} green{% elif log.sync_status == 'failed' %} red{% endif %}">{{ log.sync_status|replace('_', ' ')|title }}</span>
+                                        <strong>{{ log.punch_time_label }}</strong>
+                                    </div>
+                                    {% if log.note %}
+                                    <p class="attendance-log-event-note">{{ log.note }}</p>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                            <div class="empty-state">Belum ada detail log geotag untuk hari ini.</div>
+                            {% endif %}
+                        </div>
+                    </details>
+
+                    {% if item.can_edit_check_out %}
+                    <details class="attendance-log-detail attendance-log-edit">
+                        <summary>Perbaiki Log Terakhir</summary>
+                        <form method="POST" action="/absen/log/{{ item.check_out_log_id }}/edit" class="attendance-log-edit-form">
+                            <div class="form-grid">
                                 <div>
-                                    <strong>{{ log.punch_label }}</strong>
-                                    <p>{{ log.location_label }}</p>
+                                    <label>Tipe Absen Yang Benar</label>
+                                    <select name="punch_type" required>
+                                        {% for option in item.edit_punch_type_options %}
+                                        <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="helper-text">Pakai `Break Start` kalau tadi harusnya absen istirahat, bukan pulang.</small>
                                 </div>
-                                <div class="attendance-log-event-meta">
-                                    <span class="badge{% if log.sync_status == 'manual' %} orange{% elif log.sync_status == 'synced' %} green{% elif log.sync_status == 'failed' %} red{% endif %}">{{ log.sync_status|replace('_', ' ')|title }}</span>
-                                    <strong>{{ log.punch_time_label }}</strong>
+                                <div>
+                                    <label>Jam Log Baru</label>
+                                    <input type="datetime-local" name="punch_time" value="{{ item.edit_check_out_value }}" required>
+                                    <small class="helper-text">Tanggal tetap harus sama. Kamu bisa perbaiki tipe dan jam log terakhir di hari itu.</small>
                                 </div>
-                                {% if log.note %}
-                                <p class="attendance-log-event-note">{{ log.note }}</p>
-                                {% endif %}
+                                <div class="span-full">
+                                    <label>Catatan Koreksi</label>
+                                    <textarea name="note" rows="2" placeholder="Contoh: tadi salah klik pulang, harusnya mulai istirahat"></textarea>
+                                </div>
                             </div>
-                            {% endfor %}
-                        {% else %}
-                        <div class="empty-state">Belum ada detail log geotag untuk hari ini.</div>
-                        {% endif %}
-                    </div>
-                </details>
-
-                {% if item.can_edit_check_out %}
-                <details class="attendance-log-detail attendance-log-edit">
-                    <summary>Perbaiki Log Terakhir</summary>
-                    <form method="POST" action="/absen/log/{{ item.check_out_log_id }}/edit" class="attendance-log-edit-form">
-                        <div class="form-grid">
-                            <div>
-                                <label>Tipe Absen Yang Benar</label>
-                                <select name="punch_type" required>
-                                    {% for option in item.edit_punch_type_options %}
-                                    <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
-                                    {% endfor %}
-                                </select>
-                                <small class="helper-text">Pakai `Break Start` kalau tadi harusnya absen istirahat, bukan pulang.</small>
+                            <div class="split-actions attendance-history-actions">
+                                <button type="submit">Simpan Perbaikan Log</button>
                             </div>
-                            <div>
-                                <label>Jam Log Baru</label>
-                                <input type="datetime-local" name="punch_time" value="{{ item.edit_check_out_value }}" required>
-                                <small class="helper-text">Tanggal tetap harus sama. Kamu bisa perbaiki tipe dan jam log terakhir di hari itu.</small>
-                            </div>
-                            <div class="span-full">
-                                <label>Catatan Koreksi</label>
-                                <textarea name="note" rows="2" placeholder="Contoh: tadi salah klik pulang, harusnya mulai istirahat"></textarea>
-                            </div>
-                        </div>
-                        <div class="split-actions attendance-history-actions">
-                            <button type="submit">Simpan Perbaikan Log</button>
-                        </div>
-                    </form>
-                </details>
-                {% elif item.show_correction_hint %}
-                <small class="helper-text">Log ini hanya bisa dikoreksi oleh HR atau Super Admin.</small>
-                {% endif %}
-            </article>
+                        </form>
+                    </details>
+                    {% elif item.show_correction_hint %}
+                    <small class="helper-text">Log ini hanya bisa dikoreksi oleh HR atau Super Admin.</small>
+                    {% endif %}
+                </div>
+            </details>
             {% endfor %}
         </div>
         {% else %}
         <div class="empty-state">Belum ada riwayat absen yang bisa ditampilkan untuk akun ini.</div>
         {% endif %}
     </section>
-</div>
-{% else %}
-<div class="form-box">
-    <div class="empty-state">
-        Akun ini belum ditautkan ke data karyawan, jadi halaman absen sudah bisa dibuka tetapi belum bisa dipakai untuk check in atau check out. Hubungkan akun ke employee dari halaman Admin terlebih dulu.
+    {% else %}
+    <div class="form-box">
+        <div class="empty-state">
+            Akun ini belum ditautkan ke data karyawan, jadi halaman absen belum bisa dipakai untuk check in atau check out. Hubungkan akun ke employee dari halaman Admin terlebih dulu.
+        </div>
     </div>
+    {% endif %}
 </div>
-{% endif %}
 
 <script>
 (() => {
@@ -395,6 +380,7 @@
     let rawPhotoDataUrl = "";
     let submitInProgress = false;
     let locationRequestPromise = null;
+    let previewRefreshTimer = null;
 
     const LOCATION_SCOPE_LABELS = {
         mataram: "Gudang Mataram",
@@ -1126,6 +1112,10 @@
     };
 
     const resetPreviewState = () => {
+        if (previewRefreshTimer) {
+            window.clearTimeout(previewRefreshTimer);
+            previewRefreshTimer = null;
+        }
         rawPhotoDataUrl = "";
         photoInput.value = "";
         preview.removeAttribute("src");
@@ -1133,6 +1123,28 @@
         video.hidden = false;
         retakeButton.disabled = true;
         setCameraFrameOrientation(getViewportOrientation());
+    };
+
+    const showPreviewImage = (dataUrl) => {
+        if (!dataUrl) {
+            return;
+        }
+        preview.src = dataUrl;
+        preview.hidden = false;
+        video.hidden = true;
+    };
+
+    const scheduleStampedPreviewRefresh = (delay = 180) => {
+        if (!rawPhotoDataUrl || submitInProgress) {
+            return;
+        }
+        if (previewRefreshTimer) {
+            window.clearTimeout(previewRefreshTimer);
+        }
+        previewRefreshTimer = window.setTimeout(() => {
+            previewRefreshTimer = null;
+            refreshStampedPreview();
+        }, delay);
     };
 
     const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
@@ -1199,16 +1211,16 @@
                     video: {
                         facingMode: { ideal: "user" },
                         aspectRatio: { ideal: 4 / 3 },
-                        width: { ideal: 1280, max: 1920 },
-                        height: { ideal: 960, max: 1440 },
+                        width: { ideal: 960, max: 1280 },
+                        height: { ideal: 720, max: 960 },
                     },
                     audio: false,
                 },
                 {
                     video: {
                         facingMode: { ideal: "user" },
-                        width: { ideal: 960 },
-                        height: { ideal: 720 },
+                        width: { ideal: 800 },
+                        height: { ideal: 600 },
                     },
                     audio: false,
                 },
@@ -1230,16 +1242,16 @@
                 video: {
                     facingMode: { ideal: "user" },
                     aspectRatio: { ideal: 3 / 4 },
-                    width: { ideal: 1080, max: 1440 },
-                    height: { ideal: 1440, max: 1920 },
+                    width: { ideal: 720, max: 1080 },
+                    height: { ideal: 960, max: 1440 },
                 },
                 audio: false,
             },
             {
                 video: {
                     facingMode: { ideal: "user" },
-                    width: { ideal: 960 },
-                    height: { ideal: 1280 },
+                    width: { ideal: 640 },
+                    height: { ideal: 960 },
                 },
                 audio: false,
             },
@@ -1369,7 +1381,7 @@
                         ? "Koordinat berhasil diambil otomatis. Kamu bisa langsung simpan absen."
                         : "Koordinat dan akurasi sudah terisi. Kamu bisa langsung simpan absen.";
                     if (rawPhotoDataUrl) {
-                        refreshStampedPreview();
+                        scheduleStampedPreviewRefresh(autoTriggered ? 40 : 120);
                     }
                     resolve(true);
                 },
@@ -1405,7 +1417,7 @@
         setCameraFrameOrientation(inferMediaOrientation(sourceWidth, sourceHeight));
 
         const longestEdge = Math.max(sourceWidth, sourceHeight);
-        const maxEdge = 960;
+        const maxEdge = 880;
         const scale = Math.min(maxEdge / longestEdge, 1);
         const targetWidth = Math.max(Math.round(sourceWidth * scale), 1);
         const targetHeight = Math.max(Math.round(sourceHeight * scale), 1);
@@ -1431,8 +1443,8 @@
         );
 
         return exportAdaptiveCanvasJpeg(canvas, {
-            maxBytes: 560 * 1024,
-            initialQuality: 0.76,
+            maxBytes: 460 * 1024,
+            initialQuality: 0.74,
             minQuality: 0.48,
             qualityStep: 0.08,
             downscaleFactor: 0.9,
@@ -1448,9 +1460,6 @@
     if (!portalLocked) {
         window.setInterval(() => {
             syncPunchTime();
-            if (rawPhotoDataUrl && !submitInProgress) {
-                refreshStampedPreview();
-            }
         }, 30000);
     } else {
         setCameraState("Absensi hari ini sudah lengkap. Portal dikunci sampai hari berikutnya atau ada koreksi dari HR.", "success");
@@ -1461,41 +1470,41 @@
     shiftProfileSelect?.addEventListener("change", () => {
         syncShiftProfileUi();
         if (rawPhotoDataUrl) {
-            refreshStampedPreview();
+            scheduleStampedPreviewRefresh();
         }
     });
 
     shiftSelect?.addEventListener("change", () => {
         syncShiftTimeDisplay();
         if (rawPhotoDataUrl) {
-            refreshStampedPreview();
+            scheduleStampedPreviewRefresh();
         }
     });
 
     punchTypeSelect?.addEventListener("change", () => {
         syncPunchTime();
         if (rawPhotoDataUrl) {
-            refreshStampedPreview();
+            scheduleStampedPreviewRefresh();
         }
     });
 
     locationScopeSelect?.addEventListener("change", () => {
         syncLocationScopeUi();
         if (rawPhotoDataUrl) {
-            refreshStampedPreview();
+            scheduleStampedPreviewRefresh();
         }
     });
 
     locationOtherInput?.addEventListener("input", () => {
         syncLocationScopeUi();
         if (rawPhotoDataUrl) {
-            refreshStampedPreview();
+            scheduleStampedPreviewRefresh(220);
         }
     });
 
     locationLabelInput?.addEventListener("input", () => {
         if (rawPhotoDataUrl) {
-            refreshStampedPreview();
+            scheduleStampedPreviewRefresh(220);
         }
     });
 
@@ -1545,7 +1554,8 @@
         rawPhotoDataUrl = dataUrl;
         syncPunchTime();
         syncLocationScopeUi();
-        await refreshStampedPreview();
+        showPreviewImage(dataUrl);
+        photoInput.value = "";
         captureButton.disabled = true;
         retakeButton.disabled = false;
         setCameraState("Foto berhasil diambil. Portal sedang membaca lokasi otomatis.", "idle");
@@ -1617,7 +1627,8 @@
             rawPhotoDataUrl = await readFileAsDataUrl(selectedFile);
             syncPunchTime();
             syncLocationScopeUi();
-            await refreshStampedPreview();
+            showPreviewImage(rawPhotoDataUrl);
+            photoInput.value = "";
             captureButton.disabled = true;
             retakeButton.disabled = false;
             toggleFallbackCapture(true);

@@ -1,8 +1,20 @@
+import base64
+import json
+import time
+from functools import lru_cache
 from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
 from database import get_db
+
+try:
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+except ImportError:
+    hashes = None
+    serialization = None
+    padding = None
 
 
 meetings_bp = Blueprint("meetings", __name__, url_prefix="/meetings")
@@ -91,12 +103,43 @@ COMPACT_TOOLBAR_BUTTONS = [
 ]
 
 
+def _jaas_app_id():
+    return str(current_app.config.get("JITSI_JAAS_APP_ID") or "").strip()
+
+
+def _jaas_key_id():
+    explicit_kid = str(current_app.config.get("JITSI_JAAS_KID") or "").strip()
+    if explicit_kid:
+        return explicit_kid
+
+    app_id = _jaas_app_id()
+    key_id = str(current_app.config.get("JITSI_JAAS_KEY_ID") or "").strip()
+    if not app_id or not key_id:
+        return ""
+    if "/" in key_id:
+        return key_id
+    return f"{app_id}/{key_id}"
+
+
+def _jaas_private_key_path():
+    return str(current_app.config.get("JITSI_JAAS_PRIVATE_KEY_PATH") or "").strip()
+
+
+def _jaas_enabled():
+    return bool(_jaas_app_id())
+
+
+def _jaas_token_enabled():
+    return bool(_jaas_enabled() and _jaas_key_id() and _jaas_private_key_path())
+
+
 def _meeting_domain():
-    domain = str(current_app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip().lower()
+    default_domain = "8x8.vc" if _jaas_enabled() else "meet.jit.si"
+    domain = str(current_app.config.get("JITSI_MEETING_DOMAIN") or default_domain).strip().lower()
     if domain.startswith("http://") or domain.startswith("https://"):
         parsed = urlsplit(domain)
         domain = parsed.netloc or parsed.path
-    return domain or "meet.jit.si"
+    return domain or default_domain
 
 
 def _meeting_room_prefix():
@@ -171,7 +214,90 @@ def _get_current_user_email():
 
 
 def _build_meeting_url(room_name):
-    return f"https://{_meeting_domain()}/{room_name}"
+    return f"https://{_meeting_domain()}/{_build_embed_room_name(room_name)}"
+
+
+def _build_embed_room_name(room_name):
+    clean_room_name = _sanitize_room_name(room_name, fallback=_meeting_room_prefix())
+    if _jaas_enabled():
+        return f"{_jaas_app_id()}/{clean_room_name}"
+    return clean_room_name
+
+
+def _base64url_encode(raw_bytes):
+    return base64.urlsafe_b64encode(raw_bytes).rstrip(b"=").decode("ascii")
+
+
+@lru_cache(maxsize=4)
+def _load_signing_key(path):
+    if not path or serialization is None:
+        return None
+
+    with open(path, "rb") as file_handle:
+        return serialization.load_pem_private_key(file_handle.read(), password=None)
+
+
+def _build_jaas_jwt(room_name, display_name, email):
+    if not _jaas_token_enabled() or hashes is None or padding is None:
+        return ""
+
+    try:
+        private_key = _load_signing_key(_jaas_private_key_path())
+    except Exception:
+        return ""
+
+    if private_key is None:
+        return ""
+
+    issued_at = int(time.time())
+    expires_at = issued_at + max(300, int(current_app.config.get("JITSI_JAAS_TOKEN_TTL_SECONDS", 2 * 60 * 60)))
+    user_role = str(session.get("role") or "").strip().lower()
+    is_moderator = user_role in {"super_admin", "owner", "hr", "admin", "leader"}
+    app_id = _jaas_app_id()
+
+    header = {
+        "alg": "RS256",
+        "typ": "JWT",
+        "kid": _jaas_key_id(),
+    }
+    payload = {
+        "aud": "jitsi",
+        "iss": "chat",
+        "sub": app_id,
+        "room": "*",
+        "nbf": issued_at - 5,
+        "iat": issued_at,
+        "exp": expires_at,
+        "context": {
+            "features": {
+                "livestreaming": False,
+                "recording": False,
+                "transcription": False,
+                "outbound-call": False,
+                "sip-outbound-call": False,
+                "file-upload": False,
+                "list-visitors": False,
+                "flip": False,
+            },
+            "user": {
+                "id": str(session.get("user_id") or session.get("username") or display_name or "guest"),
+                "name": display_name,
+                "email": email or "",
+                "avatar": "",
+                "moderator": is_moderator,
+                "hidden-from-recorder": False,
+            },
+        },
+    }
+
+    signing_input = ".".join(
+        [
+            _base64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8")),
+            _base64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")),
+        ]
+    )
+    signature = private_key.sign(signing_input.encode("ascii"), padding.PKCS1v15(), hashes.SHA256())
+    return f"{signing_input}.{_base64url_encode(signature)}"
 
 
 def _build_meeting_payload(source):
@@ -182,27 +308,35 @@ def _build_meeting_payload(source):
         source.get("roomName") or source.get("meetingNumber"),
         fallback=topic or display_name or _meeting_room_prefix(),
     )
+    embed_room_name = _build_embed_room_name(room_name)
     language = str(
         source.get("language")
         or current_app.config.get("MEETING_DEFAULT_LANGUAGE")
         or current_app.config.get("ZOOM_MEETING_DEFAULT_LANGUAGE")
         or "id-ID"
     ).strip()
+    email = _sanitize_email(source.get("email"))
     participant_limit = max(6, min(int(current_app.config.get("JITSI_ROOM_MAX_PARTICIPANTS", 10)), 12))
+    jwt_token = _build_jaas_jwt(room_name, display_name, email)
+    backend_label = "8x8 JaaS" if _jaas_enabled() else "Browser Room"
 
     return {
         "status": "success",
         "provider": "jitsi",
         "domain": _meeting_domain(),
         "roomName": room_name,
+        "embedRoomName": embed_room_name,
         "roomUrl": _build_meeting_url(room_name),
         "displayName": display_name,
-        "email": _sanitize_email(source.get("email")),
+        "email": email,
         "language": language or "id-ID",
         "profile": profile["slug"],
         "profileLabel": profile["label"],
         "topic": topic or f"Meeting {room_name}",
         "leaveUrl": "/meetings/",
+        "backendLabel": backend_label,
+        "usesJaas": _jaas_enabled(),
+        "jwt": jwt_token,
         "cameraStrategy": profile["camera_strategy"],
         "startAudioOnly": bool(profile["start_audio_only"]),
         "startWithVideoMuted": bool(profile["start_with_video_muted"]),
@@ -215,11 +349,12 @@ def _build_meeting_payload(source):
 
 @meetings_bp.route("/")
 def portal():
+    meeting_backend_label = "8x8 JaaS" if _jaas_enabled() else "Browser Room"
     return render_template(
         "meetings.html",
         meeting_provider="jitsi",
         meeting_ready=True,
-        meeting_backend_label="Browser Room",
+        meeting_backend_label=meeting_backend_label,
         meeting_embed_domain=_meeting_domain(),
         meeting_join_profiles=MEETING_JOIN_PROFILES,
         meeting_language_options=MEETING_LANGUAGE_OPTIONS,
@@ -227,6 +362,7 @@ def portal():
         default_display_name=_sanitize_display_name(session.get("username") or "Guest"),
         default_email=_get_current_user_email(),
         meeting_participant_limit=max(6, min(int(current_app.config.get("JITSI_ROOM_MAX_PARTICIPANTS", 10)), 12)),
+        meeting_uses_jaas=_jaas_enabled(),
     )
 
 
@@ -250,4 +386,5 @@ def session_page():
         default_leave_url="/meetings/",
         meeting_join_profiles=MEETING_JOIN_PROFILES,
         meeting_participant_limit=max(6, min(int(current_app.config.get("JITSI_ROOM_MAX_PARTICIPANTS", 10)), 12)),
+        meeting_uses_jaas=_jaas_enabled(),
     )

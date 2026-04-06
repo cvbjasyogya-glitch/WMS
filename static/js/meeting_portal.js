@@ -107,6 +107,7 @@
             email: String(source.email || "").trim().slice(0, 120),
             language: String(source.language || "id-ID").trim(),
             profile: String(source.profile || "audio-first").trim(),
+            roomUrl: String(source.roomUrl || "").trim().slice(0, 240),
         };
     }
 
@@ -174,7 +175,7 @@
         const safeRoomName = escapeHtml(room.roomName || "-");
         const safeProfile = escapeHtml(room.profile || "audio-first");
         const safeStamp = escapeHtml((room.savedAt || "").replace("T", " ").slice(0, 16));
-        const safeLink = escapeHtml(`https://${meetingDomain}/${room.roomName}`);
+        const safeLink = escapeHtml(room.roomUrl || `https://${meetingDomain}/${room.roomName}`);
         return `
             <article class="meeting-room-card">
                 <div class="meeting-room-meta">

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Rekap Penjualan Staff | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Analytics{% endblock %}
+{% block page_title %}Rekap Penjualan Staff{% endblock %}
+{% block page_subtitle %}{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a href="/kasir/" class="btn-link">Buka Kasir</a>
+    <a href="/workspace/" class="ghost-button">Pusat Modul</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <div class="meta-grid">
+        <div class="meta-card">
+            <span>Scope Gudang</span>
+            <strong>{{ selected_warehouse_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Periode Minggu</span>
+            <strong>{{ weekly_summary.period_label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Periode Bulan</span>
+            <strong>{{ monthly_summary.period_label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Sumber Data</span>
+            <strong>Transaksi POS Tersimpan</strong>
+        </div>
+    </div>
+
+    <form method="GET" class="top-bar">
+        <select name="warehouse" {% if scoped_warehouse %}disabled{% endif %}>
+            <option value="" {% if not selected_warehouse %}selected{% endif %}>Semua Gudang</option>
+            {% for warehouse in warehouses %}
+            <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+            {% endfor %}
+        </select>
+        {% if scoped_warehouse %}
+        <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+        {% endif %}
+        <input type="date" name="week_date" value="{{ week_period.reference_date }}">
+        <input type="month" name="month" value="{{ month_period.month_value }}">
+        <button type="submit">Tampilkan Rekap</button>
+    </form>
+
+    <div class="summary">
+        <div class="card-mini {% if weekly_summary.total_revenue %}success{% endif %}">
+            <p>Omzet Mingguan</p>
+            <h3>{{ weekly_summary.total_revenue_label }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Transaksi Mingguan</p>
+            <h3>{{ weekly_summary.total_transactions }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Staff Aktif Mingguan</p>
+            <h3>{{ weekly_summary.staff_total }}</h3>
+        </div>
+        <div class="card-mini {% if weekly_summary.staff_total %}warning{% endif %}">
+            <p>Top Staff Mingguan</p>
+            <h3>{{ weekly_summary.top_staff_name }}</h3>
+        </div>
+    </div>
+
+    <div class="table-box" data-scrollable-table="1" data-pos-sales-period="weekly">
+        <div class="section-title">
+            <div>
+                <h2>Rekap Penjualan Staff Mingguan</h2>
+            </div>
+            <span class="status-pill">{{ weekly_summary.total_revenue_label }}</span>
+        </div>
+
+        {% if weekly_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Staff</th>
+                    <th>Posisi</th>
+                    <th>Scope</th>
+                    <th>Transaksi</th>
+                    <th>Item</th>
+                    <th>Customer</th>
+                    <th>Rata-rata</th>
+                    <th>Omzet</th>
+                    <th>Aktivitas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in weekly_rows %}
+                <tr>
+                    <td>{{ row.rank }}</td>
+                    <td>
+                        <strong>{{ row.staff_name }}</strong>
+                        <div class="helper-text">@{{ row.username }}</div>
+                    </td>
+                    <td>{{ row.position }}</td>
+                    <td>{{ row.warehouse_scope_label }}</td>
+                    <td>{{ row.total_transactions }}</td>
+                    <td>{{ row.total_items }}</td>
+                    <td>{{ row.total_customers }}</td>
+                    <td>{{ row.average_ticket_label }}</td>
+                    <td><strong>{{ row.total_revenue_label }}</strong></td>
+                    <td>{{ row.activity_label }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada transaksi POS staff pada periode mingguan ini.</div>
+        {% endif %}
+    </div>
+
+    <div class="summary">
+        <div class="card-mini {% if monthly_summary.total_revenue %}success{% endif %}">
+            <p>Omzet Bulanan</p>
+            <h3>{{ monthly_summary.total_revenue_label }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Transaksi Bulanan</p>
+            <h3>{{ monthly_summary.total_transactions }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Staff Aktif Bulanan</p>
+            <h3>{{ monthly_summary.staff_total }}</h3>
+        </div>
+        <div class="card-mini {% if monthly_summary.staff_total %}warning{% endif %}">
+            <p>Top Staff Bulanan</p>
+            <h3>{{ monthly_summary.top_staff_name }}</h3>
+        </div>
+    </div>
+
+    <div class="table-box" data-scrollable-table="1" data-pos-sales-period="monthly">
+        <div class="section-title">
+            <div>
+                <h2>Rekap Penjualan Staff Bulanan</h2>
+            </div>
+            <span class="status-pill">{{ monthly_summary.total_revenue_label }}</span>
+        </div>
+
+        {% if monthly_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Staff</th>
+                    <th>Posisi</th>
+                    <th>Scope</th>
+                    <th>Transaksi</th>
+                    <th>Item</th>
+                    <th>Customer</th>
+                    <th>Rata-rata</th>
+                    <th>Omzet</th>
+                    <th>Aktivitas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in monthly_rows %}
+                <tr>
+                    <td>{{ row.rank }}</td>
+                    <td>
+                        <strong>{{ row.staff_name }}</strong>
+                        <div class="helper-text">@{{ row.username }}</div>
+                    </td>
+                    <td>{{ row.position }}</td>
+                    <td>{{ row.warehouse_scope_label }}</td>
+                    <td>{{ row.total_transactions }}</td>
+                    <td>{{ row.total_items }}</td>
+                    <td>{{ row.total_customers }}</td>
+                    <td>{{ row.average_ticket_label }}</td>
+                    <td><strong>{{ row.total_revenue_label }}</strong></td>
+                    <td>{{ row.activity_label }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada transaksi POS staff pada periode bulanan ini.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

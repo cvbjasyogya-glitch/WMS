@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Log Penjualan POS | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Analytics{% endblock %}
+{% block page_title %}Log Penjualan POS{% endblock %}
+{% block page_subtitle %}{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a href="/kasir/" class="btn-link">Buka Kasir</a>
+    <a href="/kasir/staff-sales" class="ghost-button">Rekap Staff</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <div class="meta-grid">
+        <div class="meta-card">
+            <span>Scope Gudang</span>
+            <strong>{{ selected_warehouse_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Periode</span>
+            <strong>{{ sales_log_summary.period_label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Transaksi</span>
+            <strong>{{ sales_log_summary.transaction_total }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Omzet</span>
+            <strong>{{ sales_log_summary.total_revenue_label }}</strong>
+        </div>
+    </div>
+
+    <form method="GET" class="top-bar">
+        <select name="warehouse" {% if scoped_warehouse %}disabled{% endif %}>
+            <option value="" {% if not selected_warehouse %}selected{% endif %}>Semua Gudang</option>
+            {% for warehouse in warehouses %}
+            <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+            {% endfor %}
+        </select>
+        {% if scoped_warehouse %}
+        <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+        {% endif %}
+        <input type="date" name="date_from" value="{{ date_range.date_from }}">
+        <input type="date" name="date_to" value="{{ date_range.date_to }}">
+        <select name="cashier_user_id">
+            <option value="">Semua Staff</option>
+            {% for staff in cashier_filter_options %}
+            <option value="{{ staff.id }}" {% if selected_cashier_user_id == staff.id %}selected{% endif %}>{{ staff.label }}</option>
+            {% endfor %}
+        </select>
+        <input type="search" name="search" value="{{ search_query }}" placeholder="Cari receipt, customer, staff, atau catatan">
+        <button type="submit">Tampilkan Log</button>
+    </form>
+
+    <div class="summary">
+        <div class="card-mini">
+            <p>Total Transaksi</p>
+            <h3>{{ sales_log_summary.transaction_total }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Total Item</p>
+            <h3>{{ sales_log_summary.total_items }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Customer</p>
+            <h3>{{ sales_log_summary.customer_total }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Rata-rata Ticket</p>
+            <h3>{{ sales_log_summary.average_ticket_label }}</h3>
+        </div>
+    </div>
+
+    <div class="table-box" data-scrollable-table="1" data-pos-sales-log="1">
+        <div class="section-title">
+            <div>
+                <h2>Log Penjualan</h2>
+            </div>
+            <span class="status-pill">{{ sales_log_summary.total_revenue_label }}</span>
+        </div>
+
+        {% if sales_log_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Receipt</th>
+                    <th>Tanggal</th>
+                    <th>Customer</th>
+                    <th>Staff</th>
+                    <th>Item</th>
+                    <th>Metode</th>
+                    <th>Total</th>
+                    <th>Bayar</th>
+                    <th>Catatan</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sale in sales_log_rows %}
+                <tr>
+                    <td>
+                        <strong>{{ sale.receipt_no }}</strong>
+                        <div class="helper-text">{{ sale.warehouse_name }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.sale_date }}</strong>
+                        <div class="helper-text">{{ sale.created_time_label }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.customer_name }}</strong>
+                        <div class="helper-text">{{ sale.customer_phone_label }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.cashier_name }}</strong>
+                        <div class="helper-text">{{ sale.cashier_position }}</div>
+                    </td>
+                    <td class="pos-sales-log-items">
+                        {% for item in sale.item_preview_lines %}
+                        <div class="helper-text">{{ item.summary_label }}</div>
+                        {% endfor %}
+                        {% if sale.item_preview_more %}
+                        <div class="helper-text">+{{ sale.item_preview_more }} item lain</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <strong>{{ sale.payment_method_label }}</strong>
+                        <div class="helper-text">{{ sale.total_items }} item</div>
+                    </td>
+                    <td><strong>{{ sale.total_amount_label }}</strong></td>
+                    <td>
+                        <strong>{{ sale.paid_amount_label }}</strong>
+                        <div class="helper-text">Kembali {{ sale.change_amount_label }}</div>
+                    </td>
+                    <td>{{ sale.note or "-" }}</td>
+                    <td class="pos-sales-log-actions">
+                        <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button">Preview Nota</a>
+                        <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada transaksi POS pada filter log ini.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

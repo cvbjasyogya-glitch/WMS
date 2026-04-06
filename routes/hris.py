@@ -120,6 +120,7 @@ GEO_ATTENDANCE_NOTE = "Synced from geotag"
 DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
 DASHBOARD_SCHEDULE_PREVIEW_LIMIT = 8
 DASHBOARD_ANNOUNCEMENT_LIMIT = 6
+OVERTIME_USAGE_HISTORY_LIMIT = 12
 
 
 def _to_int(value, default=None):
@@ -201,6 +202,10 @@ def can_manage_attendance_records():
 
 def can_manage_leave_records():
     return can_manage_hris_records("leave")
+
+
+def can_manage_approval_records():
+    return can_manage_hris_records("approval")
 
 
 def can_manage_payroll_records():
@@ -1002,23 +1007,42 @@ def _derive_biometric_attendance_status(check_in_time):
     return "late" if check_in_minutes > threshold_minutes else "present"
 
 
-def _extract_shift_start_minutes(shift_label):
+def _parse_time_of_day_minutes(value):
+    safe_value = (value or "").strip()
+    if not safe_value:
+        return None
+
+    safe_value = safe_value.replace(".", ":")
+    try:
+        hour_part, minute_part = safe_value.split(":", 1)
+        return (int(hour_part) * 60) + int(minute_part[:2])
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_shift_time_range(shift_label):
     safe_label = (shift_label or "").strip()
     if not safe_label:
-        return None
+        return ("", "")
 
     if "|" in safe_label:
         safe_label = safe_label.split("|", 1)[1].strip()
 
     if "-" in safe_label:
-        safe_label = safe_label.split("-", 1)[0].strip()
+        start_text, end_text = safe_label.split("-", 1)
+        return start_text.strip(), end_text.strip()
 
-    safe_label = safe_label.replace(".", ":")
-    try:
-        hour_part, minute_part = safe_label.split(":", 1)
-        return (int(hour_part) * 60) + int(minute_part[:2])
-    except (ValueError, TypeError):
-        return None
+    return safe_label, ""
+
+
+def _extract_shift_start_minutes(shift_label):
+    start_text, _ = _extract_shift_time_range(shift_label)
+    return _parse_time_of_day_minutes(start_text)
+
+
+def _extract_shift_end_minutes(shift_label):
+    _, end_text = _extract_shift_time_range(shift_label)
+    return _parse_time_of_day_minutes(end_text)
 
 
 def _derive_biometric_attendance_status_with_shift(check_in_time, shift_label=None):
@@ -1080,6 +1104,43 @@ def _format_break_duration_label(total_seconds, has_break_activity=False):
     if hours:
         return f"{hours}j {minutes:02d}m"
     return f"{total_minutes} mnt"
+
+
+def _format_duration_minutes_label(total_minutes, zero_label="-"):
+    safe_minutes = int(max(0, total_minutes or 0))
+    if safe_minutes <= 0:
+        return zero_label
+    return _format_break_duration_label(safe_minutes * 60, has_break_activity=True)
+
+
+def _summarize_overtime_activity(check_out_time, shift_label, minimum_seconds=3600):
+    check_out_minutes = _parse_time_of_day_minutes(check_out_time)
+    shift_end_minutes = _extract_shift_end_minutes(shift_label)
+    if check_out_minutes is None or shift_end_minutes is None or check_out_minutes <= shift_end_minutes:
+        return {
+            "qualifies": False,
+            "total_seconds": 0,
+            "duration_label": "-",
+        }
+
+    overtime_seconds = (check_out_minutes - shift_end_minutes) * 60
+    qualifies = overtime_seconds >= int(max(0, minimum_seconds or 0))
+    return {
+        "qualifies": qualifies,
+        "total_seconds": overtime_seconds if qualifies else 0,
+        "duration_label": _format_break_duration_label(overtime_seconds, has_break_activity=True) if qualifies else "-",
+    }
+
+
+def _is_iso_date_within_range(iso_date, date_from=None, date_to=None):
+    safe_date = (iso_date or "").strip()
+    if not safe_date:
+        return False
+    if date_from and safe_date < date_from:
+        return False
+    if date_to and safe_date > date_to:
+        return False
+    return True
 
 
 def _summarize_break_activity(logs_sorted, current_time=None):
@@ -1789,6 +1850,280 @@ def _fetch_employee_options(db, module_slug=None):
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
+def _fetch_overtime_recap_employees(db, selected_warehouse=None):
+    scope_warehouse = get_hris_scope()
+    safe_warehouse = scope_warehouse or selected_warehouse
+    query = """
+        SELECT
+            e.id,
+            e.employee_code,
+            e.full_name,
+            e.employment_status,
+            e.warehouse_id,
+            w.name AS warehouse_name
+        FROM employees e
+        LEFT JOIN warehouses w ON e.warehouse_id = w.id
+        WHERE 1=1
+    """
+    params = []
+
+    if safe_warehouse:
+        query += " AND e.warehouse_id=?"
+        params.append(safe_warehouse)
+
+    query += " ORDER BY e.full_name COLLATE NOCASE ASC, e.id ASC"
+    return [dict(row) for row in db.execute(query, params).fetchall()]
+
+
+def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None, limit=None):
+    scope_warehouse = get_hris_scope()
+    safe_warehouse = scope_warehouse or selected_warehouse
+    query = """
+        SELECT
+            o.*,
+            e.employee_code,
+            e.full_name,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM overtime_usage_records o
+        JOIN employees e ON o.employee_id = e.id
+        LEFT JOIN warehouses w ON o.warehouse_id = w.id
+        LEFT JOIN users u ON o.handled_by = u.id
+        WHERE 1=1
+    """
+    params = []
+
+    if safe_warehouse:
+        query += " AND o.warehouse_id=?"
+        params.append(safe_warehouse)
+
+    if employee_id:
+        query += " AND o.employee_id=?"
+        params.append(employee_id)
+
+    query += " ORDER BY o.usage_date DESC, o.created_at DESC, o.id DESC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(int(max(1, limit)))
+
+    usage_rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    for row in usage_rows:
+        row["minutes_used"] = max(0, int(row.get("minutes_used") or 0))
+        row["duration_label"] = _format_duration_minutes_label(row["minutes_used"])
+        row["handled_by_name"] = row.get("handled_by_name") or "-"
+        row["note"] = row.get("note") or "-"
+    return usage_rows
+
+
+def _get_overtime_usage_by_id(db, usage_id):
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            o.*,
+            e.employee_code,
+            e.full_name,
+            w.name AS warehouse_name
+        FROM overtime_usage_records o
+        JOIN employees e ON o.employee_id = e.id
+        LEFT JOIN warehouses w ON o.warehouse_id = w.id
+        WHERE o.id=?
+    """
+    params = [usage_id]
+
+    if scope_warehouse:
+        query += " AND o.warehouse_id=?"
+        params.append(scope_warehouse)
+
+    return db.execute(query, params).fetchone()
+
+
+def _build_employee_overtime_balance(db, employee_id):
+    attendance_columns = _get_table_columns(db, "attendance_records")
+    if not {"employee_id", "attendance_date", "check_out"}.issubset(attendance_columns):
+        attendance_rows = []
+    else:
+        attendance_select = [
+            "attendance_date",
+            "check_out",
+            ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
+        ]
+        attendance_query = f"""
+            SELECT {", ".join(attendance_select)}
+            FROM attendance_records
+            WHERE employee_id=?
+              AND COALESCE(check_out, '') <> ''
+        """
+        if "shift_label" in attendance_columns:
+            attendance_query += " AND COALESCE(shift_label, '') <> ''"
+        else:
+            attendance_query += " AND 1=0"
+        attendance_query += " ORDER BY attendance_date ASC, id ASC"
+        attendance_rows = db.execute(attendance_query, (employee_id,)).fetchall()
+    usage_rows = _fetch_overtime_usage_records(db, employee_id=employee_id)
+
+    earned_seconds = 0
+    for row in attendance_rows:
+        overtime_summary = _summarize_overtime_activity(row["check_out"], row["shift_label"])
+        earned_seconds += overtime_summary["total_seconds"]
+
+    used_minutes = sum(max(0, int(row.get("minutes_used") or 0)) for row in usage_rows)
+    used_seconds = used_minutes * 60
+    available_seconds = max(0, earned_seconds - used_seconds)
+    return {
+        "earned_seconds": earned_seconds,
+        "used_seconds": used_seconds,
+        "used_minutes": used_minutes,
+        "available_seconds": available_seconds,
+        "available_minutes": available_seconds // 60,
+    }
+
+
+def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, period_date_to=None):
+    employees = _fetch_overtime_recap_employees(db, selected_warehouse)
+    employee_map = {
+        employee["id"]: {
+            **employee,
+            "earned_total_seconds": 0,
+            "earned_period_seconds": 0,
+            "used_total_seconds": 0,
+            "used_period_seconds": 0,
+            "last_overtime_date": "",
+            "last_usage_date": "",
+        }
+        for employee in employees
+    }
+
+    if employee_map:
+        attendance_columns = _get_table_columns(db, "attendance_records")
+        if {"employee_id", "attendance_date", "check_out"}.issubset(attendance_columns):
+            attendance_select = [
+                "employee_id",
+                "attendance_date",
+                "check_out",
+                ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
+            ]
+            attendance_query = f"""
+                SELECT {", ".join(attendance_select)}
+                FROM attendance_records
+                WHERE COALESCE(check_out, '') <> ''
+            """
+            attendance_params = []
+            if "shift_label" in attendance_columns:
+                attendance_query += " AND COALESCE(shift_label, '') <> ''"
+            else:
+                attendance_query += " AND 1=0"
+            if selected_warehouse and "warehouse_id" in attendance_columns:
+                attendance_query += " AND warehouse_id=?"
+                attendance_params.append(selected_warehouse)
+            attendance_query += " ORDER BY attendance_date ASC, id ASC"
+
+            for row in db.execute(attendance_query, attendance_params).fetchall():
+                recap_row = employee_map.get(row["employee_id"])
+                if recap_row is None:
+                    continue
+
+                overtime_summary = _summarize_overtime_activity(row["check_out"], row["shift_label"])
+                overtime_seconds = overtime_summary["total_seconds"]
+                if overtime_seconds <= 0:
+                    continue
+
+                recap_row["earned_total_seconds"] += overtime_seconds
+                if _is_iso_date_within_range(row["attendance_date"], period_date_from, period_date_to):
+                    recap_row["earned_period_seconds"] += overtime_seconds
+                if row["attendance_date"] > recap_row["last_overtime_date"]:
+                    recap_row["last_overtime_date"] = row["attendance_date"]
+
+    usage_rows = _fetch_overtime_usage_records(db, selected_warehouse=selected_warehouse)
+    for usage_row in usage_rows:
+        recap_row = employee_map.get(usage_row["employee_id"])
+        if recap_row is None:
+            continue
+
+        used_seconds = usage_row["minutes_used"] * 60
+        recap_row["used_total_seconds"] += used_seconds
+        if _is_iso_date_within_range(usage_row["usage_date"], period_date_from, period_date_to):
+            recap_row["used_period_seconds"] += used_seconds
+        if usage_row["usage_date"] > recap_row["last_usage_date"]:
+            recap_row["last_usage_date"] = usage_row["usage_date"]
+
+    recap_rows = []
+    for recap_row in employee_map.values():
+        raw_available_seconds = recap_row["earned_total_seconds"] - recap_row["used_total_seconds"]
+        available_seconds = max(0, raw_available_seconds)
+        available_minutes = available_seconds // 60
+        if recap_row["earned_total_seconds"] <= 0 and recap_row["used_total_seconds"] <= 0:
+            continue
+        recap_rows.append(
+            {
+                **recap_row,
+                "earned_total_label": _format_break_duration_label(
+                    recap_row["earned_total_seconds"],
+                    has_break_activity=recap_row["earned_total_seconds"] > 0,
+                ),
+                "earned_period_label": _format_break_duration_label(
+                    recap_row["earned_period_seconds"],
+                    has_break_activity=recap_row["earned_period_seconds"] > 0,
+                ),
+                "used_total_label": _format_break_duration_label(
+                    recap_row["used_total_seconds"],
+                    has_break_activity=recap_row["used_total_seconds"] > 0,
+                ),
+                "used_period_label": _format_break_duration_label(
+                    recap_row["used_period_seconds"],
+                    has_break_activity=recap_row["used_period_seconds"] > 0,
+                ),
+                "available_seconds": available_seconds,
+                "available_minutes": available_minutes,
+                "available_label": _format_duration_minutes_label(available_minutes, zero_label="0 mnt"),
+                "has_available_balance": available_seconds > 0,
+                "latest_activity_date": recap_row["last_usage_date"] or recap_row["last_overtime_date"] or "-",
+                "usage_hint_label": (
+                    f"Maks { _format_duration_minutes_label(available_minutes, zero_label='0 mnt') }"
+                    if available_seconds > 0
+                    else "Belum ada saldo"
+                ),
+            }
+        )
+
+    recap_rows.sort(
+        key=lambda row: (
+            -row["available_seconds"],
+            -row["earned_period_seconds"],
+            (row["full_name"] or "").lower(),
+            row["id"],
+        )
+    )
+
+    summary = {
+        "staff_total": len(recap_rows),
+        "staff_with_balance": sum(1 for row in recap_rows if row["has_available_balance"]),
+        "earned_period_seconds": sum(row["earned_period_seconds"] for row in recap_rows),
+        "used_period_seconds": sum(row["used_period_seconds"] for row in recap_rows),
+        "available_total_seconds": sum(row["available_seconds"] for row in recap_rows),
+        "earned_period_label": _format_break_duration_label(
+            sum(row["earned_period_seconds"] for row in recap_rows),
+            has_break_activity=sum(row["earned_period_seconds"] for row in recap_rows) > 0,
+        ),
+        "used_period_label": _format_break_duration_label(
+            sum(row["used_period_seconds"] for row in recap_rows),
+            has_break_activity=sum(row["used_period_seconds"] for row in recap_rows) > 0,
+        ),
+        "available_total_label": _format_break_duration_label(
+            sum(row["available_seconds"] for row in recap_rows),
+            has_break_activity=sum(row["available_seconds"] for row in recap_rows) > 0,
+        ),
+        "history_count": min(len(usage_rows), OVERTIME_USAGE_HISTORY_LIMIT),
+        "period_label": (
+            f"{period_date_from} s/d {period_date_to}"
+            if period_date_from and period_date_to
+            else period_date_from
+            or period_date_to
+            or "Semua Periode"
+        ),
+    }
+    return recap_rows, summary, usage_rows[:OVERTIME_USAGE_HISTORY_LIMIT]
+
+
 def _build_employee_summary(employees):
     return {
         "total": len(employees),
@@ -1823,6 +2158,40 @@ def _build_leave_summary(leave_requests):
         "cancelled": sum(1 for record in leave_requests if record["status"] == "cancelled"),
         "total_days": sum((record["total_days"] or 0) for record in leave_requests),
     }
+
+
+def _build_approval_summary(approval_requests):
+    summary = _build_leave_summary(approval_requests)
+    today_iso = date_cls.today().isoformat()
+    pending_requests = [record for record in approval_requests if record["status"] == "pending"]
+    summary["due_today"] = sum(1 for record in pending_requests if (record.get("start_date") or "") <= today_iso)
+    summary["recently_handled"] = sum(
+        1 for record in approval_requests if record["status"] in {"approved", "rejected", "cancelled"}
+    )
+    return summary
+
+
+def _split_approval_requests(approval_requests, recent_limit=20):
+    pending_requests = sorted(
+        (record for record in approval_requests if record["status"] == "pending"),
+        key=lambda record: (
+            record.get("start_date") or "9999-12-31",
+            (record.get("full_name") or "").lower(),
+            record.get("id") or 0,
+        ),
+    )
+    recent_requests = sorted(
+        (record for record in approval_requests if record["status"] != "pending"),
+        key=lambda record: (
+            record.get("handled_at")
+            or record.get("updated_at")
+            or record.get("created_at")
+            or "",
+            record.get("id") or 0,
+        ),
+        reverse=True,
+    )
+    return pending_requests, recent_requests[:recent_limit]
 
 
 def _build_payroll_summary(payroll_runs):
@@ -2317,6 +2686,15 @@ def _fetch_daily_live_reports(db, selected_warehouse):
     status = (request.args.get("daily_status") or "active").strip().lower()
     date_from = _parse_iso_date((request.args.get("daily_date_from") or "").strip())
     date_to = _parse_iso_date((request.args.get("daily_date_to") or "").strip())
+    today_value = date_cls.today()
+
+    if not date_from and not date_to:
+        date_from = today_value
+        date_to = today_value
+    elif date_from and not date_to:
+        date_to = date_from
+    elif date_to and not date_from:
+        date_from = date_to
 
     if date_from and date_to and date_from > date_to:
         date_from, date_to = date_to, date_from
@@ -2403,12 +2781,20 @@ def _fetch_daily_live_reports(db, selected_warehouse):
 def _build_daily_live_report_summary(rows):
     return {
         "total": len(rows),
+        "daily": sum(1 for row in rows if row["report_type"] == "daily"),
+        "live": sum(1 for row in rows if row["report_type"] == "live"),
         "submitted": sum(1 for row in rows if row["status"] == "submitted"),
         "reviewed": sum(1 for row in rows if row["status"] == "reviewed"),
         "follow_up": sum(1 for row in rows if row["status"] == "follow_up"),
         "closed": sum(1 for row in rows if row["status"] == "closed"),
         "archived": sum(1 for row in rows if row["status"] in DAILY_LIVE_REPORT_ARCHIVE_STATUSES),
-        "live": sum(1 for row in rows if row["report_type"] == "live"),
+    }
+
+
+def _split_daily_live_report_rows(rows):
+    return {
+        "daily": [row for row in rows if row["report_type"] == "daily"],
+        "live": [row for row in rows if row["report_type"] == "live"],
     }
 
 
@@ -2446,16 +2832,26 @@ def _build_report_snapshot(db):
     onboarding_live = count_from("onboarding_records", "status=?", ["in_progress"])
     offboarding_live = count_from("offboarding_records", "status IN (?,?)", ["planned", "in_progress"])
     helpdesk_open = count_from("helpdesk_tickets", "status IN (?,?)", ["open", "in_progress"])
-    asset_live = count_from("asset_records", "asset_status IN (?,?)", ["allocated", "maintenance"])
-    active_projects = count_from("project_records", "status IN (?,?)", ["planning", "active"])
+    pending_approvals = open_leave
     biometric_queue = count_from("biometric_logs", "sync_status=?", ["queued"])
     published_announcements = count_from("announcement_posts", "status=?", ["published"])
     active_documents = count_from("document_records", "status=?", ["active"])
     pending_daily_reports = count_from("daily_live_reports", "status IN (?,?)", ["submitted", "follow_up"])
+    pending_daily_report_logs = count_from(
+        "daily_live_reports",
+        "report_type=? AND status IN (?,?)",
+        ["daily", "submitted", "follow_up"],
+    )
+    pending_live_report_logs = count_from(
+        "daily_live_reports",
+        "report_type=? AND status IN (?,?)",
+        ["live", "submitted", "follow_up"],
+    )
     paid_payroll = count_from("payroll_runs", "status=?", ["paid"])
     avg_score = avg_from("performance_reviews", "final_score")
     daily_reports, daily_report_filters = _fetch_daily_live_reports(db, selected_warehouse)
     daily_report_summary = _build_daily_live_report_summary(daily_reports)
+    daily_report_groups = _split_daily_live_report_rows(daily_reports)
 
     warehouse_name = "Semua Gudang"
     if selected_warehouse:
@@ -2466,7 +2862,7 @@ def _build_report_snapshot(db):
     summary = {
         "total_employees": total_employees,
         "open_ops": open_leave + onboarding_live + offboarding_live + helpdesk_open + biometric_queue + pending_daily_reports,
-        "active_projects": active_projects,
+        "pending_approvals": pending_approvals,
         "avg_score": avg_score,
         "warehouse_name": warehouse_name,
         "snapshot_at": _current_timestamp(),
@@ -2486,12 +2882,12 @@ def _build_report_snapshot(db):
     ]
     service_rows = [
         {"module": "Helpdesk", "value": helpdesk_open, "detail": "Ticket support yang masih terbuka atau dikerjakan."},
-        {"module": "Asset", "value": asset_live, "detail": "Asset aktif yang terdistribusi atau maintenance."},
-        {"module": "Project", "value": active_projects, "detail": "Project yang sedang planning atau active."},
+        {"module": "Approval HR", "value": pending_approvals, "detail": "Leave request yang masih menunggu keputusan HR."},
         {"module": "Geotag Review", "value": biometric_queue, "detail": "Log geotag yang masih menunggu review atau verifikasi."},
         {"module": "Published Announcement", "value": published_announcements, "detail": "Pengumuman aktif yang sedang tayang."},
         {"module": "Active Documents", "value": active_documents, "detail": "Dokumen kerja yang sedang berlaku."},
-        {"module": "Daily & Live Reports", "value": pending_daily_reports, "detail": "Laporan operasional yang masih menunggu review atau follow up HR."},
+        {"module": "Daily Report Log", "value": pending_daily_report_logs, "detail": "Report harian yang masih menunggu review atau follow up HR."},
+        {"module": "Live Report Log", "value": pending_live_report_logs, "detail": "Live report yang masih menunggu review atau follow up HR."},
         {"module": "Payroll Paid", "value": paid_payroll, "detail": "Run payroll yang sudah dibayar."},
         {"module": "Avg Performance", "value": f'{avg_score:.2f}', "detail": "Rata-rata skor review performa."},
     ]
@@ -2506,6 +2902,7 @@ def _build_report_snapshot(db):
         service_rows,
         daily_reports,
         daily_report_summary,
+        daily_report_groups,
     )
 
 
@@ -3358,6 +3755,12 @@ def _build_biometric_recap_rows(db, biometric_logs):
             attendance.get("check_out")
             or (check_out_log["punch_time"][11:16] if check_out_log else "")
         )
+        overtime_summary = _summarize_overtime_activity(
+            attendance_check_out_value,
+            attendance.get("shift_label")
+            or (check_out_log.get("shift_label") if check_out_log else None)
+            or (check_in_log.get("shift_label") if check_in_log else None),
+        )
         can_edit_check_in_time = bool(check_in_log)
         can_edit_check_out_time = bool(check_out_log)
 
@@ -3389,6 +3792,9 @@ def _build_biometric_recap_rows(db, biometric_logs):
                     if break_summary["has_break_activity"]
                     else ""
                 ),
+                "overtime_qualifies": overtime_summary["qualifies"],
+                "overtime_duration_seconds": overtime_summary["total_seconds"],
+                "overtime_duration_label": overtime_summary["duration_label"],
                 "status_override_active": bool(attendance.get("status_override")),
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",
@@ -3528,6 +3934,8 @@ def hris_index(module_slug=None):
         flash("Role ini tidak punya akses ke halaman HRIS", "error")
         return _hris_access_denied_redirect()
 
+    role = session.get("role")
+
     if module_slug == "attendance":
         if not can_manage_hris_records("biometric"):
             portal_redirect = _portal_redirect_for_module("biometric")
@@ -3546,8 +3954,18 @@ def hris_index(module_slug=None):
             flash("Gunakan halaman self-service yang terpisah untuk modul ini.", "info")
             return portal_redirect
 
+    if module_slug in {"asset", "project"}:
+        replacement_module = get_hris_module("approval", role)
+        if replacement_module is not None:
+            flash("Modul Asset dan Project sudah diganti menjadi Approval HR.", "info")
+            return redirect(url_for("hris.hris_index", module_slug=replacement_module["slug"]))
+        fallback_module = get_hris_module("helpdesk", role) or get_hris_module("dashboard", role)
+        flash("Modul Asset dan Project sudah dihapus dari HRIS.", "info")
+        if fallback_module is not None:
+            return redirect(url_for("hris.hris_index", module_slug=fallback_module["slug"]))
+        return _hris_access_denied_redirect()
+
     db = get_db()
-    role = session.get("role")
     modules = get_hris_modules(role)
     if not modules:
         flash("Role ini tidak punya modul HRIS yang bisa dibuka", "error")
@@ -3574,6 +3992,11 @@ def hris_index(module_slug=None):
     leave_summary = None
     leave_filters = None
     leave_employees = []
+    approval_requests = []
+    approval_summary = None
+    approval_filters = None
+    approval_pending_requests = []
+    approval_recent_requests = []
     payroll_runs = []
     payroll_summary = None
     payroll_filters = None
@@ -3597,19 +4020,14 @@ def hris_index(module_slug=None):
     helpdesk_summary = None
     helpdesk_filters = None
     helpdesk_employees = []
-    asset_records = []
-    asset_summary = None
-    asset_filters = None
-    asset_employees = []
-    project_records = []
-    project_summary = None
-    project_filters = None
-    project_employees = []
     biometric_logs = []
     biometric_summary = None
     biometric_filters = None
     biometric_employees = []
     biometric_recap_rows = []
+    overtime_recap_rows = []
+    overtime_recap_summary = None
+    overtime_usage_history = []
     announcements = []
     announcement_summary = None
     announcement_filters = None
@@ -3632,6 +4050,7 @@ def hris_index(module_slug=None):
     report_service_rows = []
     daily_live_reports = []
     daily_live_report_summary = None
+    daily_live_report_groups = {"daily": [], "live": []}
     warehouses = db.execute(
         "SELECT * FROM warehouses ORDER BY name"
     ).fetchall()
@@ -3677,6 +4096,17 @@ def hris_index(module_slug=None):
             "date_to": date_to,
         }
         leave_employees = _fetch_employee_options(db, "leave")
+    elif selected_module["slug"] == "approval":
+        approval_requests, search, leave_type, _status, selected_warehouse, date_from, date_to = _fetch_leave_requests(db)
+        approval_summary = _build_approval_summary(approval_requests)
+        approval_filters = {
+            "search": search,
+            "leave_type": leave_type,
+            "warehouse_id": selected_warehouse,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+        approval_pending_requests, approval_recent_requests = _split_approval_requests(approval_requests)
     elif selected_module["slug"] == "payroll":
         payroll_runs, search, status, selected_warehouse, period_month, period_year = _fetch_payroll_runs(db)
         payroll_summary = _build_payroll_summary(payroll_runs)
@@ -3738,26 +4168,6 @@ def hris_index(module_slug=None):
             "warehouse_id": selected_warehouse,
         }
         helpdesk_employees = _fetch_employee_options(db, "helpdesk")
-    elif selected_module["slug"] == "asset":
-        asset_records, search, status, condition, selected_warehouse = _fetch_asset_records(db)
-        asset_summary = _build_asset_summary(asset_records)
-        asset_filters = {
-            "search": search,
-            "status": status,
-            "condition": condition,
-            "warehouse_id": selected_warehouse,
-        }
-        asset_employees = _fetch_employee_options(db)
-    elif selected_module["slug"] == "project":
-        project_records, search, priority, status, selected_warehouse = _fetch_project_records(db)
-        project_summary = _build_project_summary(project_records)
-        project_filters = {
-            "search": search,
-            "priority": priority,
-            "status": status,
-            "warehouse_id": selected_warehouse,
-        }
-        project_employees = _fetch_employee_options(db)
     elif selected_module["slug"] == "report":
         (
             report_summary,
@@ -3767,11 +4177,18 @@ def hris_index(module_slug=None):
             report_service_rows,
             daily_live_reports,
             daily_live_report_summary,
+            daily_live_report_groups,
         ) = _build_report_snapshot(db)
     elif selected_module["slug"] == "biometric":
         biometric_logs, search, punch_type, sync_status, selected_warehouse, date_from, date_to = _fetch_biometric_logs(db)
         biometric_summary = _build_biometric_summary(biometric_logs)
         biometric_recap_rows = _build_biometric_recap_rows(db, biometric_logs)
+        overtime_recap_rows, overtime_recap_summary, overtime_usage_history = _build_overtime_recap(
+            db,
+            selected_warehouse=selected_warehouse,
+            period_date_from=date_from,
+            period_date_to=date_to,
+        )
         biometric_filters = {
             "search": search,
             "punch_type": punch_type,
@@ -3817,6 +4234,11 @@ def hris_index(module_slug=None):
         leave_summary=leave_summary,
         leave_filters=leave_filters,
         leave_employees=leave_employees,
+        approval_requests=approval_requests,
+        approval_summary=approval_summary,
+        approval_filters=approval_filters,
+        approval_pending_requests=approval_pending_requests,
+        approval_recent_requests=approval_recent_requests,
         payroll_runs=payroll_runs,
         payroll_summary=payroll_summary,
         payroll_filters=payroll_filters,
@@ -3840,19 +4262,14 @@ def hris_index(module_slug=None):
         helpdesk_summary=helpdesk_summary,
         helpdesk_filters=helpdesk_filters,
         helpdesk_employees=helpdesk_employees,
-        asset_records=asset_records,
-        asset_summary=asset_summary,
-        asset_filters=asset_filters,
-        asset_employees=asset_employees,
-        project_records=project_records,
-        project_summary=project_summary,
-        project_filters=project_filters,
-        project_employees=project_employees,
         biometric_logs=biometric_logs,
         biometric_summary=biometric_summary,
         biometric_filters=biometric_filters,
         biometric_employees=biometric_employees,
         biometric_recap_rows=biometric_recap_rows,
+        overtime_recap_rows=overtime_recap_rows,
+        overtime_recap_summary=overtime_recap_summary,
+        overtime_usage_history=overtime_usage_history,
         announcements=announcements,
         announcement_summary=announcement_summary,
         announcement_filters=announcement_filters,
@@ -3875,18 +4292,18 @@ def hris_index(module_slug=None):
         report_service_rows=report_service_rows,
         daily_live_reports=daily_live_reports,
         daily_live_report_summary=daily_live_report_summary,
+        daily_live_report_groups=daily_live_report_groups,
         warehouses=warehouses,
         can_manage_employee=can_manage_employee_records(),
         can_manage_attendance=can_manage_attendance_records(),
         can_manage_leave=can_manage_leave_records(),
+        can_manage_approval=can_manage_approval_records(),
         can_manage_payroll=can_manage_payroll_records(),
         can_manage_recruitment=can_manage_recruitment_records(),
         can_manage_onboarding=can_manage_onboarding_records(),
         can_manage_offboarding=can_manage_offboarding_records(),
         can_manage_performance=can_manage_performance_records(),
         can_manage_helpdesk=can_manage_helpdesk_records(),
-        can_manage_asset=can_manage_asset_records(),
-        can_manage_project=can_manage_project_records(),
         can_manage_biometric=can_manage_biometric_records(),
         can_adjust_biometric_status=can_adjust_biometric_attendance_status(),
         can_manage_announcement=can_manage_announcement_records(),
@@ -3898,14 +4315,13 @@ def hris_index(module_slug=None):
         employee_scope_warehouse=scope_warehouse,
         attendance_scope_warehouse=scope_warehouse,
         leave_scope_warehouse=scope_warehouse,
+        approval_scope_warehouse=scope_warehouse,
         payroll_scope_warehouse=scope_warehouse,
         recruitment_scope_warehouse=scope_warehouse,
         onboarding_scope_warehouse=scope_warehouse,
         offboarding_scope_warehouse=scope_warehouse,
         performance_scope_warehouse=scope_warehouse,
         helpdesk_scope_warehouse=scope_warehouse,
-        asset_scope_warehouse=scope_warehouse,
-        project_scope_warehouse=scope_warehouse,
         biometric_scope_warehouse=scope_warehouse,
         announcement_scope_warehouse=scope_warehouse,
         document_scope_warehouse=scope_warehouse,
@@ -6335,6 +6751,100 @@ def update_biometric_attendance_time():
     db.commit()
 
     flash(f"Perubahan {' dan '.join(updates)} berhasil disimpan.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/overtime/use", methods=["POST"])
+def use_biometric_overtime():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_manage_biometric_records():
+        flash("Tidak punya akses untuk mengurangi saldo lembur staff.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    employee_id = _to_int(request.form.get("employee_id"))
+    usage_date = _parse_iso_date((request.form.get("usage_date") or "").strip())
+    minutes_used = _to_int(request.form.get("minutes_used"), default=None)
+    note = (request.form.get("note") or "").strip()
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Data staff untuk pemakaian lembur tidak ditemukan.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    if usage_date is None:
+        flash("Tanggal pemakaian lembur tidak valid.", "error")
+        return redirect(return_to)
+
+    if minutes_used is None or minutes_used <= 0:
+        flash("Durasi pemakaian lembur wajib diisi dalam menit dan lebih dari 0.", "error")
+        return redirect(return_to)
+
+    if not note:
+        flash("Catatan pemakaian lembur wajib diisi agar histori tetap jelas.", "error")
+        return redirect(return_to)
+
+    overtime_balance = _build_employee_overtime_balance(db, employee["id"])
+    if minutes_used > overtime_balance["available_minutes"]:
+        flash(
+            f"Saldo lembur staff ini tidak cukup. Sisa yang tersedia hanya { _format_duration_minutes_label(overtime_balance['available_minutes'], zero_label='0 mnt') }.",
+            "error",
+        )
+        return redirect(return_to)
+
+    db.execute(
+        """
+        INSERT INTO overtime_usage_records(
+            employee_id,
+            warehouse_id,
+            usage_date,
+            minutes_used,
+            note,
+            handled_by,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?)
+        """,
+        (
+            employee["id"],
+            employee["warehouse_id"],
+            usage_date.isoformat(),
+            minutes_used,
+            note,
+            session.get("user_id"),
+            _current_timestamp(),
+        ),
+    )
+    db.commit()
+
+    flash(
+        f"Pemakaian lembur untuk {employee['full_name']} berhasil dicatat sebesar { _format_duration_minutes_label(minutes_used) }.",
+        "success",
+    )
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/overtime/usage/delete/<int:usage_id>", methods=["POST"])
+def delete_biometric_overtime_usage(usage_id):
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_manage_biometric_records():
+        flash("Tidak punya akses untuk membatalkan pemakaian lembur.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    usage = _get_overtime_usage_by_id(db, usage_id)
+    if usage is None:
+        flash("Riwayat pemakaian lembur tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    db.execute("DELETE FROM overtime_usage_records WHERE id=?", (usage_id,))
+    db.commit()
+
+    flash(
+        f"Riwayat pemakaian lembur {usage['full_name']} pada {usage['usage_date']} berhasil dibatalkan.",
+        "success",
+    )
     return redirect(return_to)
 
 

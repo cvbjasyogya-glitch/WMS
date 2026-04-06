@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Inbound | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Inbound Flow{% endblock %}
+{% block eyebrow %}Alur Barang Masuk{% endblock %}
 {% block page_title %}Barang Masuk{% endblock %}
 {% block page_subtitle %}Isi satu item di panel atas, klik tambah ke daftar kerja, lalu proses semua inbound sekaligus tanpa dropdown panjang atau form yang berantakan.{% endblock %}
 
@@ -196,6 +196,7 @@
 const inboundWarehouse = document.getElementById("warehouse");
 const inboundItemsJson = document.getElementById("inboundItemsJson");
 const inboundSubmitButton = document.getElementById("inboundSubmitButton");
+const inboundQueueBox = document.querySelector(".ops-queue-box");
 const inboundQueueBody = document.getElementById("inboundQueueBody");
 const inboundDraftDisplay = document.getElementById("inboundDraftDisplay");
 const inboundDraftMeta = document.getElementById("inboundDraftMeta");
@@ -352,7 +353,21 @@ async function refreshInboundQueueStocks() {
     renderInboundQueue();
 }
 
-function renderInboundQueue() {
+function scrollInboundQueueToLatest() {
+    if (!inboundQueueBox) return;
+
+    const lastRow = inboundQueueBody?.lastElementChild;
+    if (!lastRow) return;
+
+    window.requestAnimationFrame(() => {
+        lastRow.scrollIntoView({
+            block: "nearest",
+            behavior: inboundItems.length > 1 ? "smooth" : "auto",
+        });
+    });
+}
+
+function renderInboundQueue({ scrollToLatest = false } = {}) {
     if (!inboundItems.length) {
         inboundQueueBody.innerHTML = `
             <tr>
@@ -379,11 +394,21 @@ function renderInboundQueue() {
             <td class="mono">${item.custom_date || "-"}</td>
             <td>${item.note || "-"}</td>
             <td>
-                <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
+                <button
+                    type="button"
+                    class="ghost-button ops-remove-button"
+                    data-remove-index="${index}"
+                    title="Hapus item ini dari batch inbound"
+                    aria-label="Hapus ${item.sku} - ${item.name} dari batch inbound"
+                >Hapus</button>
             </td>
         </tr>
     `).join("");
     renderInboundWorkspaceSummary();
+
+    if (scrollToLatest) {
+        scrollInboundQueueToLatest();
+    }
 }
 
 function addInboundItem() {
@@ -421,7 +446,7 @@ function addInboundItem() {
         note: inboundDraftNote.value.trim(),
     });
 
-    renderInboundQueue();
+    renderInboundQueue({ scrollToLatest: true });
     resetInboundDraft();
 }
 

@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Request | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Request Queue{% endblock %}
+{% block eyebrow %}Antrian Request{% endblock %}
 {% block page_title %}Request Antar Gudang{% endblock %}
 {% block page_subtitle %}Susun banyak item request lewat pola pilih item lalu tambah ke daftar kerja, sehingga permintaan antar gudang jauh lebih cepat saat SKU sudah banyak.{% endblock %}
 
@@ -42,18 +42,18 @@
         <small>Total qty yang akan diminta.</small>
     </article>
     <article class="wms-kpi-card">
-        <span>Risk Check</span>
+        <span>Cek Risiko</span>
         <strong id="requestSummaryRisk">0</strong>
         <small>Baris yang melebihi stok gudang asal.</small>
     </article>
     <article class="wms-kpi-card">
         <span>Scope Antrian</span>
-        <strong>{% if is_scoped_user %}Scoped{% else %}Lintas Gudang{% endif %}</strong>
+        <strong>{% if is_scoped_user %}Terkunci{% else %}Lintas Gudang{% endif %}</strong>
         <small>Visibilitas request mengikuti role dan gudang akun.</small>
     </article>
     <article class="wms-kpi-card">
         <span>Status</span>
-        <strong id="requestSummaryState">Draft</strong>
+        <strong id="requestSummaryState">Draf</strong>
         <small id="requestSummaryHelp">Belum ada item request di batch kerja.</small>
     </article>
 </div>
@@ -61,7 +61,7 @@
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
-            <h2>Request Batch Composer</h2>
+            <h2>Perakit Batch Request</h2>
             <p>Pilih gudang asal dan tujuan, tambahkan item satu per satu ke daftar, lalu kirim seluruh request dalam satu submit.</p>
         </div>
     </div>
@@ -178,7 +178,7 @@
             <tr>
                 <th>ID</th>
                 <th>Produk</th>
-                <th>Variant</th>
+                <th>Varian</th>
                 <th>Dari</th>
                 <th>Ke</th>
                 <th>Qty</th>
@@ -202,11 +202,11 @@
                     {% if r.status == "pending" and r.can_approve %}
                     <div class="table-action-stack">
                         <form method="POST" action="/request/approve/{{ r.id }}">
-                            <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Approve</button>
+                            <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Setujui</button>
                         </form>
                         <form method="POST" action="/request/reject/{{ r.id }}" class="table-action-row">
                             <input name="reason" placeholder="Alasan penolakan" class="approval-reason-input">
-                            <button type="submit" class="danger-button" onclick="return confirm('Tolak request ini?')">Reject</button>
+                            <button type="submit" class="danger-button" onclick="return confirm('Tolak request ini?')">Tolak</button>
                         </form>
                     </div>
                     {% else %}

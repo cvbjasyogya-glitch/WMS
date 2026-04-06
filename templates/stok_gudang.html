@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Stok & Produk | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Warehouse Inventory Surface{% endblock %}
+{% block eyebrow %}Inventori Gudang{% endblock %}
 {% block page_title %}Stok & Produk{% endblock %}
 {% block page_subtitle %}Workspace terpadu untuk memantau kuantitas{% if can_view_inventory_value %}, nilai jual stok{% endif %}, aging batch, dan pengelolaan master produk tanpa pindah halaman.{% endblock %}
 
@@ -11,7 +11,7 @@
         href="/stock/export?q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}"
         class="btn-link"
     >
-        Export Stock
+        Export Stok
     </a>
 </div>
 {% endblock %}
@@ -20,12 +20,12 @@
 <div class="wms-page-stack">
 <div class="summary stock-summary-grid">
     <div class="card-mini">
-        <p>Total Variant</p>
+        <p>Total Varian</p>
         <h3 data-stock-summary="total_variants">{{ summary.total_variants }}</h3>
         <small class="helper-text">Item yang lolos dari filter aktif.</small>
     </div>
     <div class="card-mini">
-        <p>Total Qty</p>
+        <p>Total Kuantitas</p>
         <h3 data-stock-summary="total_qty">{{ summary.total_qty }}</h3>
         <small class="helper-text">Akumulasi stok siap operasional.</small>
     </div>
@@ -49,37 +49,37 @@
         <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
     </div>
     <div class="meta-card">
-        <span>Stock Siap Jual</span>
+        <span>Stok Siap Jual</span>
         <strong data-stock-summary="ready_count">{{ summary.ready_count }}</strong>
     </div>
     <div class="meta-card">
-        <span>Stock Habis</span>
+        <span>Stok Habis</span>
         <strong data-stock-summary="zero_count">{{ summary.zero_count }}</strong>
     </div>
     <div class="meta-card">
-        <span>Near Expiry</span>
+        <span>Dekati Kedaluwarsa</span>
         <strong>{{ summary.expiring_count }}</strong>
     </div>
 </div>
 
 <div class="wms-command-grid">
     <a href="/inbound" class="wms-command-card">
-        <span>Action</span>
+        <span>Aksi</span>
         <strong>Tambah Stok</strong>
         <p>Buka inbound composer untuk menambah stok baru ke gudang aktif tanpa keluar dari workflow WMS.</p>
     </a>
     <a href="/outbound" class="wms-command-card">
-        <span>Action</span>
+        <span>Aksi</span>
         <strong>Kurangi Stok</strong>
         <p>Masuk ke outbound saat item harus segera keluar, dengan validasi qty agar stok tidak minus.</p>
     </a>
     <a href="/transfers" class="wms-command-card">
-        <span>Action</span>
+        <span>Aksi</span>
         <strong>Pindah Antar Gudang</strong>
         <p>Gunakan transfer untuk rebalance stok antar gudang saat satu lokasi mulai tipis atau kosong.</p>
     </a>
     <a href="/so" class="wms-command-card">
-        <span>Control</span>
+        <span>Kontrol</span>
         <strong>Stock Opname</strong>
         <p>Masuk ke modul hitung fisik untuk memastikan stok sistem tetap sesuai dengan kondisi lapangan.</p>
     </a>
@@ -100,7 +100,7 @@
 <div class="wms-split-band">
     <div class="wms-filter-band">
         <form method="GET" class="top-bar stock-filter-bar">
-            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau variant">
+            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau varian">
             <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
                 {% for w in warehouses %}
                 <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -124,8 +124,8 @@
                 <option value="qty_desc" {% if sort == 'qty_desc' %}selected{% endif %}>Stok Banyak</option>
                 <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Nama A-Z</option>
                 <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Nama Z-A</option>
-                <option value="variant_asc" {% if sort == 'variant_asc' %}selected{% endif %}>Variant A-Z</option>
-                <option value="variant_desc" {% if sort == 'variant_desc' %}selected{% endif %}>Variant Z-A</option>
+                <option value="variant_asc" {% if sort == 'variant_asc' %}selected{% endif %}>Varian A-Z</option>
+                <option value="variant_desc" {% if sort == 'variant_desc' %}selected{% endif %}>Varian Z-A</option>
                 <option value="age_desc" {% if sort == 'age_desc' %}selected{% endif %}>Aging Terlama</option>
                 <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
             </select>

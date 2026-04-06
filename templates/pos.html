@@ -1,0 +1,1154 @@
+{% extends "base.html" %}
+
+{% block title %}Kasir Harian | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Desktop{% endblock %}
+{% block page_title %}Kasir{% endblock %}
+{% block page_subtitle %}{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+
+{% block page_actions %}{% endblock %}
+{% block page_header %}{% endblock %}
+
+{% block content %}
+{% include "partials/pos_vintage.html" %}
+{#
+<section
+    class="form-box pos-shell pos-classic-shell"
+    id="posCheckoutRoot"
+    data-warehouse-id="{{ selected_warehouse }}"
+    data-sale-date="{{ sale_date }}"
+    data-warehouse-name="{{ selected_warehouse_name }}"
+>
+    <div class="section-title">
+        <div>
+            <h2>Checkout Kasir</h2>
+            <p>Tampilan dibuat seperti software kasir desktop: area transaksi utama besar, total belanja di kanan, dan daftar item dalam panel kerja yang ringkas.</p>
+        </div>
+        <div class="pos-classic-overview">
+            <span class="status-pill">Tx {{ summary.total_tx }}</span>
+            <span class="status-pill">Item {{ summary.total_items }}</span>
+            <span class="status-pill">Omzet Rp {{ "{:,.0f}".format(summary.total_revenue).replace(",", ".") }}</span>
+            <span class="status-pill">Kasir {{ summary.cashier_total }}</span>
+        </div>
+    </div>
+
+    <div class="pos-classic-window">
+        <div class="pos-classic-toolbar">
+            <div class="pos-classic-toolbar-copy">
+                <strong>Kasir / POS Terminal</strong>
+                <small>Model desktop kasir untuk transaksi cepat, rapih, dan fokus ke item.</small>
+            </div>
+            <div class="pos-classic-toolbar-meta">
+                <span>{{ sale_date }}</span>
+                <span>{{ selected_warehouse_name }}</span>
+                <span>{{ session.get("username", "-") }}</span>
+            </div>
+        </div>
+
+        <div class="pos-classic-layout">
+            <div class="pos-classic-main">
+                <div class="pos-classic-head-grid">
+                    <div class="pos-classic-meta-panel">
+                        <div class="pos-classic-meta-grid">
+                            <div>
+                                <label>No Transaksi</label>
+                                <input type="text" value="AUTO / generate saat checkout" readonly>
+                            </div>
+                            <div>
+                                <label>Tanggal</label>
+                                <input type="text" value="{{ sale_date }}" readonly>
+                            </div>
+                            <div>
+                                <label>Gudang</label>
+                                <input type="text" value="{{ selected_warehouse_name }}" readonly>
+                            </div>
+                            <div>
+                                <label>Kasir</label>
+                                <input type="text" value="{{ session.get('username', '-') }}" readonly>
+                            </div>
+                            <div class="pos-span-2">
+                                <label for="posCustomerId">Pelanggan CRM</label>
+                                <select id="posCustomerId">
+                                    <option value="">Walk-in / customer baru</option>
+                                    {% for customer in customer_options %}
+                                    <option value="{{ customer.id }}" data-phone="{{ customer.phone or '' }}">{{ customer.customer_name }}{% if customer.phone %} | {{ customer.phone }}{% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="posCustomerName">Nama Customer</label>
+                                <input type="text" id="posCustomerName" placeholder="Contoh: Toko Maju Jaya" value="Walk-in Customer">
+                            </div>
+                            <div>
+                                <label for="posCustomerPhone">No HP Customer</label>
+                                <input type="text" id="posCustomerPhone" placeholder="Contoh: 62812xxxx">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pos-classic-draft-panel" id="posSelectedCard">
+                        <div class="pos-classic-draft-head">
+                            <div>
+                                <span class="pos-classic-kicker">Item Aktif</span>
+                                <strong id="posDraftDisplay">Belum ada barang dipilih</strong>
+                                <small id="posDraftMeta">Pilih item dari panel daftar barang di kanan, lalu isi qty dan harga jual.</small>
+                            </div>
+                            <div class="ops-stock-card pos-classic-stock-card">
+                                <span>Stok</span>
+                                <strong id="posDraftStockValue" class="ops-stock-value">0</strong>
+                                <small id="posDraftStockState" class="ops-stock-state stock-empty">Pilih barang dulu untuk lihat stok.</small>
+                            </div>
+                        </div>
+
+                        <div class="pos-classic-draft-grid">
+                            <div>
+                                <label for="posDraftQty">Jumlah</label>
+                                <input type="number" id="posDraftQty" min="1" step="1" placeholder="0">
+                            </div>
+                            <div>
+                                <label for="posDraftPrice">Harga Jual</label>
+                                <input type="number" id="posDraftPrice" min="0" step="0.01" placeholder="0">
+                            </div>
+                            <div>
+                                <label>Metode Bayar</label>
+                                <input type="hidden" id="posPaymentMethod" value="{{ payment_methods[0] if payment_methods else 'cash' }}">
+                                <div class="pos-payment-method-grid pos-classic-payment-grid" id="posPaymentMethodGrid">
+                                    {% for method in payment_methods %}
+                                    <button
+                                        type="button"
+                                        class="pos-payment-method{% if loop.first %} is-active{% endif %}"
+                                        data-pos-payment-method="{{ method }}"
+                                    >
+                                        {{ method|upper }}
+                                    </button>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="pos-classic-add-cell">
+                                <button type="button" id="posAddItemButton" class="pos-large-button">Tambah Item</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pos-classic-total-panel">
+                        <span class="pos-classic-total-label">Total Belanja</span>
+                        <strong id="posGrandTotal">Rp 0</strong>
+                        <div class="pos-classic-total-meta">
+                            <span>Total Item</span>
+                            <strong id="posTotalItems">0</strong>
+                        </div>
+                        <div class="pos-classic-total-meta success">
+                            <span>Kembalian</span>
+                            <strong id="posChangeAmount">Rp 0</strong>
+                        </div>
+                        <div class="pos-payment-field">
+                            <label for="posPaidAmount">Nominal Dibayar</label>
+                            <input type="number" id="posPaidAmount" min="0" step="0.01" placeholder="0">
+                        </div>
+                        <div class="pos-quick-actions pos-classic-quick-actions" id="posPaidQuickActions">
+                            <button type="button" class="ghost-button" data-pos-paid-shortcut="exact">Uang Pas</button>
+                            <button type="button" class="ghost-button" data-pos-paid-shortcut="10000">+10rb</button>
+                            <button type="button" class="ghost-button" data-pos-paid-shortcut="20000">+20rb</button>
+                            <button type="button" class="ghost-button" data-pos-paid-shortcut="50000">+50rb</button>
+                            <button type="button" class="ghost-button" data-pos-paid-shortcut="round">Bulatkan</button>
+                            <button type="button" class="ghost-button danger" data-pos-paid-shortcut="clear">Clear</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-box pos-classic-cart-box" data-scrollable-table="1">
+                    <table class="ops-queue-table pos-classic-cart-table">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Kode Item</th>
+                                <th>Keterangan</th>
+                                <th>Jumlah</th>
+                                <th>Harga</th>
+                                <th>Total</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="posCartBody">
+                            <tr>
+                                <td colspan="7"><div class="ops-queue-empty">Keranjang masih kosong.</div></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pos-classic-footer">
+                    <div class="pos-keypad-box pos-classic-keypad-box">
+                        <div class="pos-panel-heading">
+                            <div>
+                                <strong>Keypad Cepat</strong>
+                                <small>Ubah target ke qty atau nominal bayar, lalu input angka secara cepat.</small>
+                            </div>
+                            <div class="pos-keypad-targets" id="posKeypadTargets">
+                                <button type="button" class="is-active" data-pos-keypad-target="qty">Qty</button>
+                                <button type="button" data-pos-keypad-target="paid">Bayar</button>
+                            </div>
+                        </div>
+                        <div class="pos-keypad-grid" id="posKeypadGrid">
+                            <button type="button" data-pos-key="1">1</button>
+                            <button type="button" data-pos-key="2">2</button>
+                            <button type="button" data-pos-key="3">3</button>
+                            <button type="button" data-pos-key="4">4</button>
+                            <button type="button" data-pos-key="5">5</button>
+                            <button type="button" data-pos-key="6">6</button>
+                            <button type="button" data-pos-key="7">7</button>
+                            <button type="button" data-pos-key="8">8</button>
+                            <button type="button" data-pos-key="9">9</button>
+                            <button type="button" data-pos-key="000">000</button>
+                            <button type="button" data-pos-key="0">0</button>
+                            <button type="button" data-pos-key="backspace">Hapus</button>
+                        </div>
+                    </div>
+
+                    <div class="pos-note-field pos-classic-note-box">
+                        <label for="posNote">Keterangan Transaksi</label>
+                        <textarea id="posNote" rows="4" placeholder="Opsional: catatan transaksi, nama staff, atau informasi tambahan"></textarea>
+                    </div>
+
+                    <div class="pos-classic-action-box">
+                        <div class="pos-classic-cart-badge">
+                            <span>Item di keranjang</span>
+                            <strong id="posCartBadge">0 item</strong>
+                        </div>
+                        <button type="button" id="posCheckoutButton" class="pos-checkout-button">Simpan Checkout</button>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="pos-classic-browser">
+                <div class="pos-classic-browser-window">
+                    <div class="pos-classic-browser-head">
+                        <div>
+                            <strong>Daftar Item</strong>
+                            <small id="posCatalogSummary">Memuat katalog produk...</small>
+                        </div>
+                        <span class="status-pill" id="posCatalogPage">Page 1 / 1</span>
+                    </div>
+
+                    <form class="pos-catalog-search pos-classic-search" id="posCatalogSearchForm">
+                        <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, atau kategori">
+                        <button type="submit">Cari</button>
+                    </form>
+
+                    <div class="pos-category-strip pos-classic-category-strip" id="posCategoryStrip">
+                        <button type="button" class="is-active" data-pos-category="all">Semua</button>
+                        {% for category in catalog_categories %}
+                        <button type="button" data-pos-category="{{ category }}">{{ category }}</button>
+                        {% endfor %}
+                    </div>
+
+                    <div class="table-box pos-classic-browser-table-box" data-scrollable-table="1">
+                        <table class="pos-classic-browser-table">
+                            <thead>
+                                <tr>
+                                    <th>Kode</th>
+                                    <th>Nama Item</th>
+                                    <th>Varian</th>
+                                    <th>Stok</th>
+                                    <th>Harga</th>
+                                    <th>Pilih</th>
+                                </tr>
+                            </thead>
+                            <tbody id="posCatalogGrid">
+                                <tr>
+                                    <td colspan="6"><div class="empty-state">Memuat katalog produk...</div></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pos-catalog-pagination pos-classic-browser-pagination">
+                        <button type="button" class="ghost-button" id="posCatalogPrev">Sebelumnya</button>
+                        <button type="button" class="ghost-button" id="posCatalogNext">Berikutnya</button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+</section>
+
+<section class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Transaksi Terakhir</h2>
+            <p>Daftar transaksi kasir pada tanggal yang dipilih.</p>
+        </div>
+    </div>
+    {% if recent_sales %}
+    <table>
+        <thead>
+            <tr>
+                <th>Receipt</th>
+                <th>Customer</th>
+                <th>Item</th>
+                <th>Total</th>
+                <th>Bayar</th>
+                <th>Kembalian</th>
+                <th>Cashier</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sale in recent_sales %}
+            <tr>
+                <td><strong>{{ sale.receipt_no }}</strong><div class="helper-text">{{ sale.payment_method|upper }}</div></td>
+                <td>{{ sale.customer_name }}</td>
+                <td>{{ sale.total_items }}</td>
+                <td>Rp {{ "{:,.0f}".format(sale.total_amount or 0).replace(",", ".") }}</td>
+                <td>Rp {{ "{:,.0f}".format(sale.paid_amount or 0).replace(",", ".") }}</td>
+                <td>Rp {{ "{:,.0f}".format(sale.change_amount or 0).replace(",", ".") }}</td>
+                <td>{{ sale.cashier_name or "-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada transaksi kasir pada tanggal ini.</div>
+    {% endif %}
+</section>
+#}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const posCheckoutRoot = document.getElementById("posCheckoutRoot");
+const posWarehouseId = Number(posCheckoutRoot?.dataset?.warehouseId || 0);
+const posWarehouseName = String(posCheckoutRoot?.dataset?.warehouseName || "");
+const posSaleDate = String(posCheckoutRoot?.dataset?.saleDate || "");
+const posCart = [];
+const posDraft = {
+    product_id: 0,
+    variant_id: 0,
+    sku: "",
+    name: "",
+    variant_label: "",
+    stock: 0,
+    unit_price: 0,
+    category: "",
+    gtin: "",
+};
+const posCatalog = {
+    page: 1,
+    totalPages: 1,
+    totalItems: 0,
+    query: "",
+    category: "all",
+    items: [],
+};
+
+const posCustomerId = document.getElementById("posCustomerId");
+const posCustomerName = document.getElementById("posCustomerName");
+const posCustomerPhone = document.getElementById("posCustomerPhone");
+const posCashierUserId = document.getElementById("posCashierUserId");
+const posCashierDisplay = document.getElementById("posCashierDisplay");
+const posPaymentMethod = document.getElementById("posPaymentMethod");
+const posPaymentMethodGrid = document.getElementById("posPaymentMethodGrid");
+const posNote = document.getElementById("posNote");
+const posDraftDisplay = document.getElementById("posDraftDisplay");
+const posDraftMeta = document.getElementById("posDraftMeta");
+const posDraftStockValue = document.getElementById("posDraftStockValue");
+const posDraftStockState = document.getElementById("posDraftStockState");
+const posDraftQty = document.getElementById("posDraftQty");
+const posDraftPrice = document.getElementById("posDraftPrice");
+const posCartBody = document.getElementById("posCartBody");
+const posCartBadge = document.getElementById("posCartBadge");
+const posTotalItems = document.getElementById("posTotalItems");
+const posGrandTotal = document.getElementById("posGrandTotal");
+const posPaidAmount = document.getElementById("posPaidAmount");
+const posChangeAmount = document.getElementById("posChangeAmount");
+const posChangeAmountMirror = document.getElementById("posChangeAmountMirror");
+const posSubtotalValue = document.getElementById("posSubtotalValue");
+const posDiscountValue = document.getElementById("posDiscountValue");
+const posTaxValue = document.getElementById("posTaxValue");
+const posCheckoutButton = document.getElementById("posCheckoutButton");
+const posSelectedCard = document.getElementById("posSelectedCard");
+const posCatalogSearchForm = document.getElementById("posCatalogSearchForm");
+const posCatalogSearch = document.getElementById("posCatalogSearch");
+const posCategoryStrip = document.getElementById("posCategoryStrip");
+const posCatalogGrid = document.getElementById("posCatalogGrid");
+const posCatalogSummary = document.getElementById("posCatalogSummary");
+const posCatalogPage = document.getElementById("posCatalogPage");
+const posCatalogPrev = document.getElementById("posCatalogPrev");
+const posCatalogNext = document.getElementById("posCatalogNext");
+const posCatalogPicker = document.getElementById("posCatalogPicker");
+const posCatalogOpenButton = document.getElementById("posCatalogOpenButton");
+const posCatalogOpenButtonSecondary = document.getElementById("posCatalogOpenButtonSecondary");
+const posCatalogCloseButton = document.getElementById("posCatalogCloseButton");
+const posPaidQuickActions = document.getElementById("posPaidQuickActions");
+const posKeypadTargets = document.getElementById("posKeypadTargets");
+const posKeypadGrid = document.getElementById("posKeypadGrid");
+const posClockDisplay = document.getElementById("posClockDisplay");
+const posHeaderMenus = Array.from(document.querySelectorAll("[data-pos-header-menu]"));
+
+let posSearchTimer = null;
+let posKeypadTarget = "qty";
+let posCartFocusedIndex = -1;
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function formatPosCurrency(value) {
+    return `Rp ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(value || 0))}`;
+}
+
+function getPosGrandTotal() {
+    return posCart.reduce((total, item) => total + (Number(item.qty) * Number(item.unit_price)), 0);
+}
+
+function updatePosClock() {
+    if (!posClockDisplay) return;
+    posClockDisplay.textContent = new Intl.DateTimeFormat("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    }).format(new Date());
+}
+
+function closePosHeaderMenus(exceptMenu = null) {
+    posHeaderMenus.forEach((menu) => {
+        if (menu === exceptMenu) {
+            return;
+        }
+        menu.removeAttribute("open");
+    });
+}
+
+function syncPosCashierDisplay() {
+    if (!posCashierDisplay || !posCashierUserId) return;
+    const selectedOption = posCashierUserId.options[posCashierUserId.selectedIndex];
+    posCashierDisplay.textContent = selectedOption?.dataset.displayName || selectedOption?.textContent || "-";
+}
+
+function isEditablePosTarget(target) {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+
+    if (target.isContentEditable) {
+        return true;
+    }
+
+    return Boolean(target.closest("input, textarea, select"));
+}
+
+function shouldBlockPosEnterKey(target) {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+
+    if (!target.closest("#posCheckoutRoot")) {
+        return false;
+    }
+
+    if (target.closest("#posCatalogSearchForm")) {
+        return false;
+    }
+
+    if (target.tagName === "TEXTAREA") {
+        return false;
+    }
+
+    return Boolean(target.closest("input"));
+}
+
+function scrollFocusedPosCartRowIntoView() {
+    if (posCartFocusedIndex < 0) return;
+
+    requestAnimationFrame(() => {
+        const row = posCartBody?.querySelector(`[data-pos-cart-row-index="${posCartFocusedIndex}"]`);
+        row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+}
+
+function setPosCartFocusedIndex(index) {
+    if (!posCart.length) {
+        posCartFocusedIndex = -1;
+        return;
+    }
+
+    const nextIndex = Math.min(Math.max(Number(index) || 0, 0), posCart.length - 1);
+    if (posCartFocusedIndex === nextIndex) return;
+    posCartFocusedIndex = nextIndex;
+    renderPosCart();
+    scrollFocusedPosCartRowIntoView();
+}
+
+function setPosDraftStockState(stockQty) {
+    posDraft.stock = Number(stockQty || 0);
+    posDraftStockValue.textContent = String(posDraft.stock);
+
+    if (posDraft.stock <= 0) {
+        posDraftStockState.textContent = "Stok kosong.";
+        posDraftStockState.className = "ops-stock-state stock-empty";
+        return;
+    }
+
+    if (posDraft.stock < 5) {
+        posDraftStockState.textContent = "Stok tipis, cek qty sebelum simpan.";
+        posDraftStockState.className = "ops-stock-state stock-low";
+        return;
+    }
+
+    posDraftStockState.textContent = "Stok aman.";
+    posDraftStockState.className = "ops-stock-state stock-ok";
+}
+
+function renderPosDraft() {
+    const hasSelection = Boolean(posDraft.product_id && posDraft.variant_id);
+    posSelectedCard.classList.toggle("has-selection", hasSelection);
+
+    if (!hasSelection) {
+        posDraftDisplay.textContent = "Belum ada barang dipilih";
+        posDraftMeta.textContent = "Buka daftar item, pilih varian, lalu atur jumlah dan harga jual.";
+        posDraftQty.value = "";
+        posDraftPrice.value = "";
+        setPosDraftStockState(0);
+        return;
+    }
+
+    posDraftDisplay.textContent = `${posDraft.sku} - ${posDraft.name}`;
+    posDraftMeta.textContent = `${posDraft.variant_label} | ${posDraft.category || "Tanpa kategori"} | GTIN ${posDraft.gtin || "-"}`;
+    posDraftQty.value = posDraftQty.value || "1";
+    posDraftPrice.value = posDraft.unit_price > 0 ? String(posDraft.unit_price) : "";
+    setPosDraftStockState(posDraft.stock);
+}
+
+function resetPosDraft() {
+    posDraft.product_id = 0;
+    posDraft.variant_id = 0;
+    posDraft.sku = "";
+    posDraft.name = "";
+    posDraft.variant_label = "";
+    posDraft.stock = 0;
+    posDraft.unit_price = 0;
+    posDraft.category = "";
+    posDraft.gtin = "";
+    renderPosDraft();
+}
+
+function updatePosChangePreview() {
+    const grandTotal = getPosGrandTotal();
+    const paidAmount = Number(posPaidAmount.value || 0);
+    const changeAmount = Math.max(paidAmount - grandTotal, 0);
+    posChangeAmount.textContent = formatPosCurrency(changeAmount);
+    if (posChangeAmountMirror) {
+        posChangeAmountMirror.textContent = formatPosCurrency(changeAmount);
+    }
+}
+
+function openPosCatalogPicker() {
+    if (!posCatalogPicker) return;
+    posCatalogPicker.hidden = false;
+    posCatalogPicker.classList.add("is-open");
+    posCatalogSearch?.focus();
+}
+
+function closePosCatalogPicker() {
+    if (!posCatalogPicker) return;
+    posCatalogPicker.classList.remove("is-open");
+    posCatalogPicker.hidden = true;
+    posCatalogOpenButton?.focus();
+}
+
+function setPosPaymentMethod(method) {
+    posPaymentMethod.value = method;
+    posPaymentMethodGrid.querySelectorAll("[data-pos-payment-method]").forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.posPaymentMethod === method);
+    });
+}
+
+function renderPosCart() {
+    if (!posCart.length) {
+        posCartFocusedIndex = -1;
+        posCartBody.innerHTML = `<tr><td colspan="8"><div class="ops-queue-empty">Keranjang masih kosong.</div></td></tr>`;
+    } else {
+        if (posCartFocusedIndex >= posCart.length) {
+            posCartFocusedIndex = posCart.length - 1;
+        }
+
+        posCartBody.innerHTML = posCart.map((item, index) => {
+            const lineTotal = Number(item.qty) * Number(item.unit_price);
+            const isActive = index === posCartFocusedIndex;
+            return `
+                <tr class="pos-vintage-cart-row ${isActive ? "is-active" : ""}" data-pos-cart-row-index="${index}" aria-selected="${isActive ? "true" : "false"}">
+                    <td>${index + 1}</td>
+                    <td class="mono">${escapeHtml(item.sku)}</td>
+                    <td>
+                        <strong>${escapeHtml(item.name)}</strong>
+                        <div class="helper-text">${escapeHtml(item.variant_label)}</div>
+                    </td>
+                    <td>
+                        <div class="pos-order-stepper">
+                            <button type="button" data-pos-decrement-index="${index}" aria-label="Kurangi qty">-</button>
+                            <input type="number" min="1" step="1" value="${item.qty}" data-pos-qty-index="${index}" class="pos-inline-qty">
+                            <button type="button" data-pos-increment-index="${index}" aria-label="Tambah qty">+</button>
+                        </div>
+                    </td>
+                    <td>PCS</td>
+                    <td>${formatPosCurrency(item.unit_price)}</td>
+                    <td><strong>${formatPosCurrency(lineTotal)}</strong></td>
+                    <td><button type="button" class="danger-button" data-pos-remove-index="${index}">Hapus</button></td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    const totalItems = posCart.reduce((total, item) => total + Number(item.qty || 0), 0);
+    const grandTotal = getPosGrandTotal();
+    posTotalItems.textContent = String(totalItems);
+    posCartBadge.textContent = `${totalItems} item`;
+    posGrandTotal.textContent = formatPosCurrency(grandTotal);
+    if (posSubtotalValue) {
+        posSubtotalValue.textContent = formatPosCurrency(grandTotal);
+    }
+    if (posDiscountValue) {
+        posDiscountValue.textContent = formatPosCurrency(0);
+    }
+    if (posTaxValue) {
+        posTaxValue.textContent = formatPosCurrency(0);
+    }
+
+    if (!Number(posPaidAmount.value || 0) && grandTotal > 0) {
+        posPaidAmount.value = String(grandTotal);
+    }
+
+    updatePosChangePreview();
+}
+
+function fillPosDraftFromItem(item) {
+    posDraft.product_id = Number(item.product_id || 0);
+    posDraft.variant_id = Number(item.variant_id || 0);
+    posDraft.sku = item.sku || "";
+    posDraft.name = item.name || "";
+    posDraft.variant_label = item.variant_label || "Default";
+    posDraft.stock = Number(item.qty || 0);
+    posDraft.unit_price = Number(item.price_nett || item.price_discount || item.price_retail || 0);
+    posDraft.category = item.category || "";
+    posDraft.gtin = item.gtin || "";
+    renderPosDraft();
+    renderPosCatalog();
+}
+
+function validatePosDraft() {
+    if (!posDraft.product_id || !posDraft.variant_id) {
+        alert("Pilih barang dulu.");
+        return false;
+    }
+
+    const qty = Number(posDraftQty.value || 0);
+    if (qty <= 0) {
+        alert("Qty wajib lebih dari 0.");
+        return false;
+    }
+
+    if (qty > posDraft.stock) {
+        alert(`Qty melebihi stok. Stok saat ini ${posDraft.stock}.`);
+        return false;
+    }
+
+    const unitPrice = Number(posDraftPrice.value || 0);
+    if (unitPrice <= 0) {
+        alert("Harga jual wajib diisi.");
+        return false;
+    }
+
+    return true;
+}
+
+function addPosDraftToCart() {
+    if (!validatePosDraft()) return;
+
+    const qty = Number(posDraftQty.value || 0);
+    const unitPrice = Number(posDraftPrice.value || 0);
+    const key = `${posDraft.product_id}-${posDraft.variant_id}`;
+    const existingIndex = posCart.findIndex((item) => item.key === key);
+    const existing = existingIndex >= 0 ? posCart[existingIndex] : null;
+
+    if (existing) {
+        const nextQty = Number(existing.qty) + qty;
+        if (nextQty > posDraft.stock) {
+            alert(`Qty total melebihi stok. Maksimal ${posDraft.stock}.`);
+            return;
+        }
+        existing.qty = nextQty;
+        existing.unit_price = unitPrice;
+    } else {
+        posCart.push({
+            key,
+            product_id: posDraft.product_id,
+            variant_id: posDraft.variant_id,
+            sku: posDraft.sku,
+            name: posDraft.name,
+            variant_label: posDraft.variant_label,
+            qty,
+            unit_price: unitPrice,
+            stock: posDraft.stock,
+        });
+    }
+
+    renderPosCart();
+    setPosCartFocusedIndex(existing ? existingIndex : posCart.length - 1);
+    resetPosDraft();
+}
+
+function quickAddCatalogItem(index) {
+    const item = posCatalog.items[index];
+    if (!item) return;
+
+    fillPosDraftFromItem(item);
+    posDraftQty.value = "1";
+    posDraftPrice.value = posDraft.unit_price > 0 ? String(posDraft.unit_price) : "";
+    addPosDraftToCart();
+    closePosCatalogPicker();
+}
+
+function renderPosCatalog() {
+    if (!posCatalog.items.length) {
+        posCatalogGrid.innerHTML = `<tr><td colspan="6"><div class="empty-state">Produk tidak ditemukan untuk filter ini.</div></td></tr>`;
+        return;
+    }
+
+    posCatalogGrid.innerHTML = posCatalog.items.map((item, index) => {
+        const price = Number(item.price_nett || item.price_discount || item.price_retail || 0);
+        const qty = Number(item.qty || 0);
+        const isActive = posDraft.product_id === Number(item.product_id || 0) && posDraft.variant_id === Number(item.variant_id || 0);
+        const stockBadgeClass = qty <= 0 ? "red" : qty < 5 ? "orange" : "green";
+        return `
+            <tr class="pos-classic-browser-row ${isActive ? "is-active" : ""}" data-pos-catalog-index="${index}">
+                <td class="mono">${escapeHtml(item.sku)}</td>
+                <td>
+                    <strong>${escapeHtml(item.name)}</strong>
+                    <div class="helper-text">${escapeHtml(item.category || "Tanpa kategori")} | GTIN ${escapeHtml(item.gtin || "-")}</div>
+                </td>
+                <td>${escapeHtml(item.variant_label || "Default")}</td>
+                <td><span class="badge ${stockBadgeClass}">${escapeHtml(qty)}</span></td>
+                <td>${formatPosCurrency(price)}</td>
+                <td>
+                    <button type="button" class="ghost-button" data-pos-quick-add-index="${index}">Pilih</button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+async function loadPosCatalog(page = 1) {
+    posCatalog.page = page;
+    posCatalogGrid.innerHTML = `<tr><td colspan="6"><div class="empty-state">Memuat katalog produk...</div></td></tr>`;
+    posCatalogSummary.textContent = "Memuat katalog produk...";
+    posCatalogPage.textContent = "Page ...";
+    posCatalogPrev.disabled = true;
+    posCatalogNext.disabled = true;
+
+    const params = new URLSearchParams({
+        page: String(page),
+        page_size: "24",
+        warehouse_id: String(posWarehouseId || ""),
+        mode: "outbound",
+        q: posCatalog.query,
+    });
+
+    if (posCatalog.category && posCatalog.category !== "all") {
+        params.set("category", posCatalog.category);
+    }
+
+    try {
+        const response = await fetch(`/products/picker?${params.toString()}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Gagal memuat katalog produk.");
+        }
+
+        posCatalog.items = Array.isArray(data.items) ? data.items : [];
+        posCatalog.totalPages = Number(data.total_pages || 1);
+        posCatalog.totalItems = Number(data.total_items || 0);
+        posCatalog.page = Number(data.page || 1);
+
+        renderPosCatalog();
+        posCatalogSummary.textContent = `${posCatalog.totalItems} produk / varian siap dijual di ${posWarehouseName || `WH ${posWarehouseId}`}.`;
+        posCatalogPage.textContent = `Page ${posCatalog.page} / ${posCatalog.totalPages}`;
+        posCatalogPrev.disabled = posCatalog.page <= 1;
+        posCatalogNext.disabled = posCatalog.page >= posCatalog.totalPages;
+    } catch (error) {
+        posCatalog.items = [];
+        posCatalogGrid.innerHTML = `<tr><td colspan="6"><div class="empty-state">${escapeHtml(error.message || "Gagal memuat katalog produk.")}</div></td></tr>`;
+        posCatalogSummary.textContent = error.message || "Gagal memuat katalog produk.";
+        posCatalogPage.textContent = "Page 1 / 1";
+    }
+}
+
+function checkoutPosTransaction() {
+    if (!posCart.length) {
+        alert("Keranjang masih kosong.");
+        return;
+    }
+
+    const payload = {
+        warehouse_id: posWarehouseId,
+        sale_date: posSaleDate,
+        cashier_user_id: Number(posCashierUserId?.value || 0),
+        customer_id: Number(posCustomerId.value || 0),
+        customer_name: posCustomerName.value,
+        customer_phone: posCustomerPhone.value,
+        payment_method: posPaymentMethod.value,
+        paid_amount: Number(posPaidAmount.value || 0),
+        note: posNote.value,
+        items: posCart.map((item) => ({
+            product_id: item.product_id,
+            variant_id: item.variant_id,
+            qty: Number(item.qty),
+            unit_price: Number(item.unit_price),
+        })),
+    };
+
+    posCheckoutButton.disabled = true;
+    posCheckoutButton.textContent = "Menyimpan...";
+
+    fetch("/kasir/checkout", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify(payload),
+    })
+    .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || "Checkout gagal.");
+        }
+        const shouldPrintReceipt = window.confirm(
+            `${data.message}\nReceipt: ${data.receipt_no}\n\nBuka template nota untuk cetak PDF sekarang?`
+        );
+        if (shouldPrintReceipt && data.receipt_print_url) {
+            window.open(data.receipt_print_url, "_blank", "noopener");
+        }
+        window.location.href = `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(posSaleDate)}`;
+    })
+    .catch((error) => {
+        alert(error.message || "Checkout gagal diproses.");
+    })
+    .finally(() => {
+        posCheckoutButton.disabled = false;
+        posCheckoutButton.textContent = "Bayar [END]";
+    });
+}
+
+function updateQtyFromCart(index, nextQty) {
+    if (Number.isNaN(index) || !posCart[index]) return;
+
+    let qty = Number(nextQty || 0);
+    if (qty < 1) qty = 1;
+    if (qty > Number(posCart[index].stock || 0)) {
+        qty = Number(posCart[index].stock || 1);
+    }
+
+    posCart[index].qty = qty;
+    renderPosCart();
+    setPosCartFocusedIndex(index);
+}
+
+function applyPaidShortcut(shortcut) {
+    const grandTotal = getPosGrandTotal();
+    const current = Number(posPaidAmount.value || 0);
+
+    if (shortcut === "clear") {
+        posPaidAmount.value = "";
+        updatePosChangePreview();
+        return;
+    }
+
+    if (shortcut === "exact") {
+        posPaidAmount.value = String(grandTotal);
+        updatePosChangePreview();
+        return;
+    }
+
+    if (shortcut === "round") {
+        const rounded = grandTotal <= 0 ? 0 : Math.ceil(grandTotal / 10000) * 10000;
+        posPaidAmount.value = String(rounded);
+        updatePosChangePreview();
+        return;
+    }
+
+    const increment = Number(shortcut || 0);
+    posPaidAmount.value = String(current + increment);
+    updatePosChangePreview();
+}
+
+function setPosKeypadTarget(target) {
+    posKeypadTarget = target;
+    posKeypadTargets.querySelectorAll("[data-pos-keypad-target]").forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.posKeypadTarget === target);
+    });
+}
+
+function applyPosKey(key) {
+    const input = posKeypadTarget === "paid" ? posPaidAmount : posDraftQty;
+    if (!input) return;
+
+    if (key === "backspace") {
+        input.value = String(input.value || "").slice(0, -1);
+    } else {
+        const baseValue = String(input.value || "");
+        input.value = `${baseValue}${key}`.replace(/^0+(?=\d)/, "");
+    }
+
+    if (posKeypadTarget === "paid") {
+        updatePosChangePreview();
+    }
+}
+
+function handlePosCartKeyboard(event) {
+    if (posCatalogPicker && !posCatalogPicker.hidden) return;
+    if (!posCart.length) return;
+    if (isEditablePosTarget(event.target) || isEditablePosTarget(document.activeElement)) return;
+
+    if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setPosCartFocusedIndex(posCartFocusedIndex < 0 ? 0 : Math.min(posCartFocusedIndex + 1, posCart.length - 1));
+        return;
+    }
+
+    if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setPosCartFocusedIndex(posCartFocusedIndex < 0 ? posCart.length - 1 : Math.max(posCartFocusedIndex - 1, 0));
+        return;
+    }
+
+    if (event.key === "Delete" && posCartFocusedIndex >= 0) {
+        event.preventDefault();
+        posCart.splice(posCartFocusedIndex, 1);
+        renderPosCart();
+        if (posCart.length) {
+            setPosCartFocusedIndex(Math.min(posCartFocusedIndex, posCart.length - 1));
+        }
+    }
+}
+
+posPaymentMethodGrid?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pos-payment-method]");
+    if (!button) return;
+    setPosPaymentMethod(button.dataset.posPaymentMethod || "cash");
+});
+
+posCategoryStrip?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pos-category]");
+    if (!button) return;
+
+    posCategoryStrip.querySelectorAll("[data-pos-category]").forEach((node) => {
+        node.classList.toggle("is-active", node === button);
+    });
+
+    posCatalog.category = button.dataset.posCategory || "all";
+    loadPosCatalog(1);
+});
+
+posCatalogSearchForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    posCatalog.query = String(posCatalogSearch.value || "").trim();
+    loadPosCatalog(1);
+});
+
+posCatalogSearch?.addEventListener("input", () => {
+    window.clearTimeout(posSearchTimer);
+    posSearchTimer = window.setTimeout(() => {
+        posCatalog.query = String(posCatalogSearch.value || "").trim();
+        loadPosCatalog(1);
+    }, 260);
+});
+
+posCatalogGrid?.addEventListener("click", (event) => {
+    const quickAdd = event.target.closest("[data-pos-quick-add-index]");
+    if (quickAdd) {
+        const index = Number(quickAdd.dataset.posQuickAddIndex);
+        quickAddCatalogItem(index);
+        return;
+    }
+
+    const card = event.target.closest("[data-pos-catalog-index]");
+    if (!card) return;
+    const index = Number(card.dataset.posCatalogIndex);
+    const item = posCatalog.items[index];
+    if (!item) return;
+    fillPosDraftFromItem(item);
+});
+
+posCatalogPrev?.addEventListener("click", () => {
+    if (posCatalog.page > 1) {
+        loadPosCatalog(posCatalog.page - 1);
+    }
+});
+
+posCatalogNext?.addEventListener("click", () => {
+    if (posCatalog.page < posCatalog.totalPages) {
+        loadPosCatalog(posCatalog.page + 1);
+    }
+});
+
+posCatalogOpenButton?.addEventListener("click", openPosCatalogPicker);
+posCatalogOpenButtonSecondary?.addEventListener("click", openPosCatalogPicker);
+posCatalogCloseButton?.addEventListener("click", closePosCatalogPicker);
+posCashierUserId?.addEventListener("change", syncPosCashierDisplay);
+posHeaderMenus.forEach((menu) => {
+    menu.addEventListener("toggle", () => {
+        if (menu.open) {
+            closePosHeaderMenus(menu);
+        }
+    });
+    menu.querySelectorAll("[data-pos-header-menu-link]").forEach((link) => {
+        link.addEventListener("click", () => {
+            menu.removeAttribute("open");
+        });
+    });
+});
+
+document.addEventListener("keydown", (event) => {
+    if ((event.key === "Enter" || event.key === "NumpadEnter") && shouldBlockPosEnterKey(event.target)) {
+        event.preventDefault();
+        if (event.target === posDraftQty) {
+            posDraftPrice?.focus();
+        }
+        return;
+    }
+    if (event.key === "Escape") {
+        closePosHeaderMenus();
+    }
+    if (event.key === "F2") {
+        event.preventDefault();
+        openPosCatalogPicker();
+    }
+    if (event.key === "Escape") {
+        closePosCatalogPicker();
+    }
+    if (event.key === "End" && !isEditablePosTarget(event.target) && (posCatalogPicker?.hidden ?? true)) {
+        event.preventDefault();
+        checkoutPosTransaction();
+    }
+
+    handlePosCartKeyboard(event);
+});
+
+document.addEventListener("click", (event) => {
+    posHeaderMenus.forEach((menu) => {
+        if (!menu.open) {
+            return;
+        }
+        if (menu.contains(event.target)) {
+            return;
+        }
+        menu.removeAttribute("open");
+    });
+});
+
+document.getElementById("posAddItemButton").addEventListener("click", addPosDraftToCart);
+posPaidAmount.addEventListener("input", updatePosChangePreview);
+posPaidAmount.addEventListener("focus", () => setPosKeypadTarget("paid"));
+posDraftQty.addEventListener("focus", () => setPosKeypadTarget("qty"));
+posCheckoutButton.addEventListener("click", checkoutPosTransaction);
+
+posPaidQuickActions?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pos-paid-shortcut]");
+    if (!button) return;
+    applyPaidShortcut(button.dataset.posPaidShortcut || "");
+});
+
+posKeypadTargets?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pos-keypad-target]");
+    if (!button) return;
+    setPosKeypadTarget(button.dataset.posKeypadTarget || "qty");
+});
+
+posKeypadGrid?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pos-key]");
+    if (!button) return;
+    applyPosKey(button.dataset.posKey || "");
+});
+
+posCustomerId.addEventListener("change", () => {
+    const option = posCustomerId.selectedOptions[0];
+    if (!option) return;
+    if (!posCustomerId.value) {
+        posCustomerName.value = "Walk-in Customer";
+        posCustomerPhone.value = "";
+        return;
+    }
+    posCustomerName.value = option.textContent.split("|")[0].trim();
+    posCustomerPhone.value = option.dataset.phone || "";
+});
+
+posCartBody.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-pos-remove-index]");
+    if (removeButton) {
+        const index = Number(removeButton.dataset.posRemoveIndex);
+        if (!Number.isNaN(index)) {
+            posCart.splice(index, 1);
+            renderPosCart();
+            if (posCart.length) {
+                setPosCartFocusedIndex(Math.min(index, posCart.length - 1));
+            }
+        }
+        return;
+    }
+
+    const decrementButton = event.target.closest("[data-pos-decrement-index]");
+    if (decrementButton) {
+        const index = Number(decrementButton.dataset.posDecrementIndex);
+        if (!Number.isNaN(index) && posCart[index]) {
+            updateQtyFromCart(index, Number(posCart[index].qty || 1) - 1);
+        }
+        return;
+    }
+
+    const incrementButton = event.target.closest("[data-pos-increment-index]");
+    if (incrementButton) {
+        const index = Number(incrementButton.dataset.posIncrementIndex);
+        if (!Number.isNaN(index) && posCart[index]) {
+            updateQtyFromCart(index, Number(posCart[index].qty || 0) + 1);
+        }
+        return;
+    }
+
+    const row = event.target.closest("[data-pos-cart-row-index]");
+    if (!row) return;
+    const index = Number(row.dataset.posCartRowIndex);
+    if (!Number.isNaN(index)) {
+        setPosCartFocusedIndex(index);
+    }
+});
+
+posCartBody.addEventListener("input", (event) => {
+    const qtyInput = event.target.closest("[data-pos-qty-index]");
+    if (!qtyInput) return;
+    const index = Number(qtyInput.dataset.posQtyIndex);
+    updateQtyFromCart(index, Number(qtyInput.value || 0));
+});
+
+posCartBody.addEventListener("focusin", (event) => {
+    const qtyInput = event.target.closest("[data-pos-qty-index]");
+    if (!qtyInput) return;
+    const index = Number(qtyInput.dataset.posQtyIndex);
+    if (!Number.isNaN(index)) {
+        posCartFocusedIndex = index;
+    }
+});
+
+setPosPaymentMethod(posPaymentMethod.value || "cash");
+syncPosCashierDisplay();
+updatePosClock();
+window.setInterval(updatePosClock, 1000);
+renderPosCart();
+resetPosDraft();
+loadPosCatalog(1);
+</script>
+{% endblock %}

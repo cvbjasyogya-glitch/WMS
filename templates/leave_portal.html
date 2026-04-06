@@ -1,14 +1,14 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Libur | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Self Service Leave{% endblock %}
+{% block eyebrow %}Portal Pengajuan Libur{% endblock %}
 {% block page_title %}Form Libur / Cuti / Sakit{% endblock %}
 {% block page_subtitle %}Halaman pengajuan libur mandiri untuk semua akun login. Status pengajuan tidak diatur dari sini dan hanya diproses oleh HR atau Super Admin.{% endblock %}
 
 {% block content %}
 <div class="summary">
     <div class="card-mini">
-        <p>User Login</p>
+        <p>Akun Login</p>
         <h3>@{{ session.get("username", "guest") }}</h3>
     </div>
     <div class="card-mini">
@@ -17,10 +17,10 @@
     </div>
     <div class="card-mini">
         <p>Pengajuan</p>
-        <h3>Pending Review</h3>
+        <h3>Menunggu Review</h3>
     </div>
     <div class="card-mini warning">
-        <p>Status Diproses Oleh</p>
+        <p>Diproses Oleh</p>
         <h3>HR / Super Admin</h3>
     </div>
 </div>
@@ -39,7 +39,7 @@
             <strong>{{ linked_employee.full_name }}</strong>
         </div>
         <div class="meta-card">
-            <span>Employee Code</span>
+            <span>Kode Karyawan</span>
             <strong>{{ linked_employee.employee_code }}</strong>
         </div>
         <div class="meta-card">
@@ -66,11 +66,11 @@
             <div>
                 <label>Tipe Libur</label>
                 <select name="leave_type">
-                    <option value="annual">Annual Leave</option>
+                    <option value="annual">Cuti Tahunan</option>
                     <option value="sick">Sakit</option>
                     <option value="permit">Izin</option>
-                    <option value="special">Special</option>
-                    <option value="unpaid">Unpaid</option>
+                    <option value="special">Cuti Khusus</option>
+                    <option value="unpaid">Cuti Tanpa Bayar</option>
                 </select>
             </div>
             <div>
@@ -95,7 +95,7 @@
             </div>
         </div>
         <div class="split-actions attendance-submit-row">
-            <button type="submit">Kirim Pengajuan Libur</button>
+            <button type="submit">Kirim Pengajuan</button>
         </div>
     </form>
 </div>
@@ -128,7 +128,7 @@
             <h3>{{ leave_history_summary.pending }}</h3>
         </div>
         <div class="card-mini">
-            <p>Approved</p>
+            <p>Disetujui</p>
             <h3>{{ leave_history_summary.approved }}</h3>
         </div>
         <div class="card-mini warning">

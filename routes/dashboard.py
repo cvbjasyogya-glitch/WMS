@@ -151,14 +151,30 @@ def _build_workspace_sections(role):
                 "emerald",
                 "wms-stok-produk",
             ),
-            _workspace_tile(
-                "Inbound",
-                "/inbound/",
-                "Tambah batch barang masuk dengan panel kerja yang cepat dan rapi.",
-                "Flow",
-                "teal",
-                "wms-inbound",
-            ),
+        ]
+
+        if has_permission(normalized_role, "view_pos"):
+            wms_items.append(
+                _workspace_tile(
+                    "Kasir Harian",
+                    "/kasir/",
+                    "Checkout cepat langsung terhubung ke stok gudang, histori customer CRM, dan menu akses log atau rekap penjualan.",
+                    "POS Hub",
+                    "violet",
+                    "wms-kasir",
+                )
+            )
+
+        wms_items.extend(
+            [
+                _workspace_tile(
+                    "Inbound",
+                    "/inbound/",
+                    "Tambah batch barang masuk dengan panel kerja yang cepat dan rapi.",
+                    "Flow",
+                    "teal",
+                    "wms-inbound",
+                ),
             _workspace_tile(
                 "Outbound",
                 "/outbound/",
@@ -199,7 +215,8 @@ def _build_workspace_sections(role):
                 "slate",
                 "wms-stock-opname",
             ),
-        ]
+            ]
+        )
 
         if has_permission(normalized_role, "view_approvals"):
             wms_items.append(

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nota {{ sale.receipt_no }} | ERP-CV.BJAS</title>
+<style>
+    :root {
+        color-scheme: light;
+        --receipt-bg: #eef3f8;
+        --receipt-paper: #ffffff;
+        --receipt-border: #d7e1eb;
+        --receipt-text: #172638;
+        --receipt-muted: #63758a;
+        --receipt-accent: #1d79c7;
+        --receipt-soft: #f4f8fc;
+    }
+
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        padding: 24px;
+        background: var(--receipt-bg);
+        color: var(--receipt-text);
+        font: 14px/1.5 "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .receipt-shell {
+        max-width: 860px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+    }
+
+    .receipt-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .receipt-button {
+        min-height: 42px;
+        padding: 0 16px;
+        border-radius: 12px;
+        border: 1px solid var(--receipt-border);
+        background: #ffffff;
+        color: var(--receipt-text);
+        text-decoration: none;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .receipt-button.is-primary {
+        border-color: #b8d2ea;
+        background: linear-gradient(180deg, #fdfefe 0%, #eaf4fd 100%);
+        color: var(--receipt-accent);
+    }
+
+    .receipt-paper {
+        background: var(--receipt-paper);
+        border: 1px solid var(--receipt-border);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 18px 50px rgba(23, 38, 56, 0.08);
+    }
+
+    .receipt-head,
+    .receipt-meta,
+    .receipt-summary,
+    .receipt-signoff {
+        display: grid;
+        gap: 14px;
+    }
+
+    .receipt-head {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        padding-bottom: 18px;
+        border-bottom: 1px dashed var(--receipt-border);
+    }
+
+    .receipt-brand span,
+    .receipt-meta-card span,
+    .receipt-summary-card span,
+    .receipt-note-label {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--receipt-muted);
+    }
+
+    .receipt-brand h1 {
+        margin: 8px 0 6px;
+        font-size: 28px;
+        line-height: 1.05;
+    }
+
+    .receipt-brand p,
+    .receipt-note {
+        margin: 0;
+        color: var(--receipt-muted);
+    }
+
+    .receipt-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid #bed8ef;
+        background: #eef6fd;
+        color: var(--receipt-accent);
+        font-weight: 800;
+    }
+
+    .receipt-meta,
+    .receipt-summary {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .receipt-meta-card,
+    .receipt-summary-card,
+    .receipt-note-box,
+    .receipt-signoff-card {
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--receipt-border);
+        background: var(--receipt-soft);
+    }
+
+    .receipt-meta-card strong,
+    .receipt-summary-card strong,
+    .receipt-signoff-card strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 15px;
+    }
+
+    .receipt-table-wrap {
+        margin: 18px 0;
+        overflow: hidden;
+        border: 1px solid var(--receipt-border);
+        border-radius: 18px;
+    }
+
+    .receipt-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+    }
+
+    .receipt-table th,
+    .receipt-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid #e4ebf3;
+        vertical-align: top;
+        text-align: left;
+    }
+
+    .receipt-table th {
+        background: #edf4fb;
+        color: #4d6277;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .receipt-table tbody tr:last-child td {
+        border-bottom: 0;
+    }
+
+    .receipt-table td:last-child,
+    .receipt-table th:last-child,
+    .receipt-table td:nth-last-child(2),
+    .receipt-table th:nth-last-child(2) {
+        text-align: right;
+    }
+
+    .receipt-table small {
+        display: block;
+        color: var(--receipt-muted);
+    }
+
+    .receipt-note-box {
+        margin-top: 18px;
+    }
+
+    .receipt-signoff {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 18px;
+    }
+
+    @media (max-width: 900px) {
+        body {
+            padding: 14px;
+        }
+
+        .receipt-paper {
+            padding: 18px;
+            border-radius: 18px;
+        }
+
+        .receipt-head,
+        .receipt-meta,
+        .receipt-summary,
+        .receipt-signoff {
+            grid-template-columns: 1fr;
+        }
+
+        .receipt-table-wrap {
+            overflow: auto;
+        }
+
+        .receipt-table {
+            min-width: 620px;
+        }
+    }
+
+    @media print {
+        @page {
+            size: A5 portrait;
+            margin: 10mm;
+        }
+
+        body {
+            padding: 0;
+            background: #ffffff;
+        }
+
+        .receipt-actions {
+            display: none;
+        }
+
+        .receipt-paper {
+            border: 0;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 0;
+        }
+
+        .receipt-meta-card,
+        .receipt-summary-card,
+        .receipt-note-box,
+        .receipt-signoff-card {
+            break-inside: avoid;
+        }
+    }
+</style>
+</head>
+<body>
+<div class="receipt-shell">
+    <div class="receipt-actions">
+        <a href="/kasir/log" class="receipt-button">Kembali ke Log</a>
+        <button type="button" class="receipt-button is-primary" onclick="window.print()">Simpan sebagai PDF</button>
+    </div>
+
+    <article class="receipt-paper">
+        <header class="receipt-head">
+            <div class="receipt-brand">
+                <span>ERP-CV.BJAS</span>
+                <h1>Nota Penjualan POS</h1>
+                <p>{{ sale.warehouse_name }} · {{ sale.sale_date }} · {{ sale.created_time_label }}</p>
+            </div>
+            <span class="receipt-chip">{{ sale.receipt_no }}</span>
+        </header>
+
+        <section class="receipt-meta">
+            <div class="receipt-meta-card">
+                <span>Customer</span>
+                <strong>{{ sale.customer_name }}</strong>
+            </div>
+            <div class="receipt-meta-card">
+                <span>Kontak</span>
+                <strong>{{ sale.customer_phone_label }}</strong>
+            </div>
+            <div class="receipt-meta-card">
+                <span>Kasir / Sales</span>
+                <strong>{{ sale.cashier_name }}</strong>
+            </div>
+            <div class="receipt-meta-card">
+                <span>Pembayaran</span>
+                <strong>{{ sale.payment_method_label }}</strong>
+            </div>
+        </section>
+
+        <div class="receipt-table-wrap">
+            <table class="receipt-table">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Produk</th>
+                        <th>Qty</th>
+                        <th>Harga</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in sale["items"] %}
+                    <tr>
+                        <td>{{ item.sku }}</td>
+                        <td>
+                            <strong>{{ item.product_name }}</strong>
+                            <small>{{ item.variant_name }}</small>
+                        </td>
+                        <td>{{ item.qty }}</td>
+                        <td>{{ item.unit_price_label }}</td>
+                        <td><strong>{{ item.line_total_label }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <section class="receipt-summary">
+            <div class="receipt-summary-card">
+                <span>Total Item</span>
+                <strong>{{ sale.total_items }}</strong>
+            </div>
+            <div class="receipt-summary-card">
+                <span>Grand Total</span>
+                <strong>{{ sale.total_amount_label }}</strong>
+            </div>
+            <div class="receipt-summary-card">
+                <span>Bayar</span>
+                <strong>{{ sale.paid_amount_label }}</strong>
+            </div>
+            <div class="receipt-summary-card">
+                <span>Kembalian</span>
+                <strong>{{ sale.change_amount_label }}</strong>
+            </div>
+        </section>
+
+        <section class="receipt-note-box">
+            <div class="receipt-note-label">Catatan Transaksi</div>
+            <p class="receipt-note">{{ sale.note or "Tidak ada catatan tambahan." }}</p>
+        </section>
+
+        <section class="receipt-signoff">
+            <div class="receipt-signoff-card">
+                <span>Gudang</span>
+                <strong>{{ sale.warehouse_name }}</strong>
+            </div>
+            <div class="receipt-signoff-card">
+                <span>Staff</span>
+                <strong>{{ sale.cashier_identity_label }}</strong>
+            </div>
+            <div class="receipt-signoff-card">
+                <span>Dicetak</span>
+                <strong>{{ sale.created_datetime_label }}</strong>
+            </div>
+        </section>
+    </article>
+</div>
+
+{% if auto_print %}
+<script>
+window.addEventListener("load", () => {
+    window.setTimeout(() => {
+        window.print();
+    }, 120);
+});
+</script>
+{% endif %}
+</body>
+</html>

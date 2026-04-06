@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Transfer | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Inter-Warehouse Flow{% endblock %}
+{% block eyebrow %}Alur Transfer Gudang{% endblock %}
 {% block page_title %}Transfer Antar Gudang{% endblock %}
 {% block page_subtitle %}Susun perpindahan stok dengan pola pilih item lalu tambah ke daftar batch, supaya transfer banyak barang terasa konsisten dengan inbound dan outbound.{% endblock %}
 
@@ -32,7 +32,7 @@
             <small>Mode transfer aktif untuk akun ini.</small>
         </article>
         <article class="wms-kpi-card">
-            <span>Lane</span>
+            <span>Jalur</span>
             <strong id="transferSummaryLane">-</strong>
             <small>Rute aktif dari gudang asal ke tujuan.</small>
         </article>
@@ -47,7 +47,7 @@
             <small>Total qty yang akan dipindahkan.</small>
         </article>
         <article class="wms-kpi-card">
-            <span>Risk Check</span>
+            <span>Pemeriksaan Risiko</span>
             <strong id="transferSummaryRisk">0</strong>
             <small>Baris yang melebihi stok gudang asal.</small>
         </article>

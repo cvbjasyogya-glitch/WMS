@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_attendance"
+        android:shortcutId="attendance"
+        android:shortcutLongLabel="@string/shortcut_attendance_long"
+        android:shortcutShortLabel="@string/shortcut_attendance_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="@string/shortcut_attendance_url"
+            android:targetClass="cloud.cvbjasyogya.erp.ErpLauncherActivity"
+            android:targetPackage="@string/shortcut_target_package" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_stock"
+        android:shortcutId="stock"
+        android:shortcutLongLabel="@string/shortcut_stock_long"
+        android:shortcutShortLabel="@string/shortcut_stock_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="@string/shortcut_stock_url"
+            android:targetClass="cloud.cvbjasyogya.erp.ErpLauncherActivity"
+            android:targetPackage="@string/shortcut_target_package" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_cashier"
+        android:shortcutId="cashier"
+        android:shortcutLongLabel="@string/shortcut_cashier_long"
+        android:shortcutShortLabel="@string/shortcut_cashier_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="@string/shortcut_cashier_url"
+            android:targetClass="cloud.cvbjasyogya.erp.ErpLauncherActivity"
+            android:targetPackage="@string/shortcut_target_package" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_notifications"
+        android:shortcutId="notifications"
+        android:shortcutLongLabel="@string/shortcut_notifications_long"
+        android:shortcutShortLabel="@string/shortcut_notifications_short">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="@string/shortcut_notifications_url"
+            android:targetClass="cloud.cvbjasyogya.erp.ErpLauncherActivity"
+            android:targetPackage="@string/shortcut_target_package" />
+    </shortcut>
+</shortcuts>

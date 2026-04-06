@@ -1,12 +1,12 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Warehouse Admin | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}System Administration{% endblock %}
+{% block eyebrow %}Administrasi Sistem{% endblock %}
 {% block page_title %}Warehouse System Control{% endblock %}
 {% block page_subtitle %}Halaman khusus untuk mengelola gudang aktif, melihat beban pemakaian tiap gudang, dan menjaga struktur warehouse tetap bersih untuk WMS maupun HRIS.{% endblock %}
 
 {% block page_actions %}
-<a href="/admin/" class="ghost-button">Access &amp; Role</a>
+<a href="/admin/" class="ghost-button">Akses &amp; Role</a>
 {% endblock %}
 
 {% block content %}
@@ -18,26 +18,26 @@
         <h3>{{ warehouse_summary.total }}</h3>
     </div>
     <div class="card-mini">
-        <p>Gudang Dengan Stock</p>
+        <p>Gudang Dengan Stok</p>
         <h3>{{ warehouse_summary.with_stock }}</h3>
     </div>
     <div class="card-mini">
-        <p>Assigned Users</p>
+        <p>User Terpasang</p>
         <h3>{{ warehouse_summary.assigned_users }}</h3>
     </div>
     <div class="card-mini">
-        <p>Employee Rows</p>
+        <p>Baris Karyawan</p>
         <h3>{{ warehouse_summary.employee_rows }}</h3>
     </div>
 </div>
 
 <div class="meta-grid">
     <div class="meta-card">
-        <span>Pending Requests</span>
+        <span>Request Pending</span>
         <strong>{{ health.pending_requests }}</strong>
     </div>
     <div class="meta-card">
-        <span>Pending Approvals</span>
+        <span>Approval Pending</span>
         <strong>{{ health.pending_approvals }}</strong>
     </div>
     <div class="meta-card">
@@ -98,10 +98,10 @@
             <tr>
                 <th>ID</th>
                 <th>Nama Gudang</th>
-                <th>Assigned Users</th>
-                <th>Scoped Users</th>
-                <th>Stock Rows</th>
-                <th>Employee Rows</th>
+                <th>User Terpasang</th>
+                <th>User Scoped</th>
+                <th>Baris Stok</th>
+                <th>Baris Karyawan</th>
                 <th>Aksi</th>
             </tr>
         </thead>

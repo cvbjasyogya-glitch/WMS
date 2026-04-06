@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}Request Owner | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Owner Request Queue{% endblock %}
+{% block eyebrow %}Antrian Request Owner{% endblock %}
 {% block page_title %}Request Barang ke Owner{% endblock %}
 {% block page_subtitle %}Kirim permintaan barang langsung ke owner lewat batch composer yang konsisten dengan inbound, outbound, dan transfer, lalu pantau statusnya di satu antrian khusus.{% endblock %}
 
@@ -47,13 +47,13 @@
         <small>Total qty pada batch aktif.</small>
     </article>
     <article class="wms-kpi-card">
-        <span>Stock Alert</span>
+        <span>Alarm Stok</span>
         <strong id="ownerRequestSummaryRisk">0</strong>
         <small>Baris dengan stok tipis atau kosong.</small>
     </article>
     <article class="wms-kpi-card">
         <span>Status</span>
-        <strong id="ownerRequestSummaryState">Draft</strong>
+        <strong id="ownerRequestSummaryState">Draf</strong>
         <small id="ownerRequestSummaryHelp">Belum ada item request owner di batch kerja.</small>
     </article>
 </div>
@@ -61,7 +61,7 @@
 <div class="form-box ops-batch-box">
     <div class="section-title">
         <div>
-            <h2>Request Owner Composer</h2>
+            <h2>Perakit Request Owner</h2>
             <p>Pilih gudang peminta, tambahkan item satu per satu ke daftar batch, lalu kirim sekaligus sebagai request khusus ke owner.</p>
         </div>
     </div>
@@ -84,7 +84,7 @@
             </div>
             <div class="ops-config-card">
                 <span class="variant-mini-label">Target Notifikasi</span>
-                <strong>Owner Only</strong>
+                <strong>Khusus Owner</strong>
                 <small class="helper-text">Request ini mengirim notifikasi khusus ke role owner, terpisah dari request antar gudang.</small>
             </div>
         </div>
@@ -176,7 +176,7 @@
             <tr>
                 <th>ID</th>
                 <th>Barang</th>
-                <th>Variant</th>
+                <th>Varian</th>
                 <th>Gudang</th>
                 <th>Qty</th>
                 <th>Catatan</th>

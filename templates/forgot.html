@@ -1,17 +1,21 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 
 {% block title %}Forgot Password | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Reset Password{% endblock %}
 {% block page_title %}Lupa Password{% endblock %}
 {% block page_subtitle %}Masukkan username, email, atau nomor telepon terdaftar untuk menerima kode reset.{% endblock %}
 
+{% block page_actions %}
+<a href="/login" class="ghost-button">Kembali ke Login</a>
+{% endblock %}
+
 {% block content %}
-<div class="form-box">
+<div class="form-box auth-flow-box">
     <form method="POST">
         <div class="form-grid">
             <div>
                 <label>Username / Email / Phone</label>
-                <input name="identifier" placeholder="username atau email atau nomor telepon" required>
+                <input type="text" name="identifier" placeholder="Username, email, atau nomor telepon..." required autocomplete="username">
             </div>
         </div>
         <div class="split-actions stack-gap-md">
@@ -20,4 +24,3 @@
     </form>
 </div>
 {% endblock %}
-

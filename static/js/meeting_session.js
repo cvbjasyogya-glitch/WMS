@@ -96,8 +96,8 @@
     }
 
     function buildJitsiOptions(meetingState) {
-        return {
-            roomName: meetingState.roomName,
+        const options = {
+            roomName: meetingState.embedRoomName || meetingState.roomName,
             width: "100%",
             height: "100%",
             parentNode: stageHost,
@@ -141,6 +141,12 @@
                 SHOW_WATERMARK_FOR_GUESTS: false,
             },
         };
+
+        if (meetingState.jwt) {
+            options.jwt = meetingState.jwt;
+        }
+
+        return options;
     }
 
     function initBrowserMeeting(meetingState) {
@@ -157,7 +163,7 @@
         setPillState(profilePill, `Profil: ${meetingState.profileLabel || meetingState.profile || "-"}`, "success");
         setPillState(networkPill, "Status: Menyiapkan room", "warning");
         updateParticipantPill();
-        setStageStatus("Menyiapkan Browser Room...", "Menghubungkan user ke stage meeting ringan tanpa secret key server.");
+        setStageStatus("Menyiapkan Browser Room...", "Menghubungkan user ke stage meeting ringan dan menyalakan ruang meeting yang sudah diproteksi server.");
 
         const api = new window.JitsiMeetExternalAPI(meetingState.domain || meetingDomain, buildJitsiOptions(meetingState));
 

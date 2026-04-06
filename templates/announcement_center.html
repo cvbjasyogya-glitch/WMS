@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}Pusat Pengumuman - ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Announcement Center{% endblock %}
+{% block eyebrow %}Pusat Pengumuman{% endblock %}
 {% block page_title %}Pusat Pengumuman{% endblock %}
-{% block page_subtitle %}Satu halaman khusus untuk membaca pengumuman umum dari HRIS dan perubahan jadwal terbaru, sekaligus menyalakan notifikasi perangkat agar chat, telpon masuk, dan info penting tetap masuk walau tab web tidak sedang dibuka.{% endblock %}
+{% block page_subtitle %}Buka satu inbox yang merangkum pengumuman HRIS, perubahan jadwal, dan status notifikasi perangkat supaya info penting tetap mudah dipantau.{% endblock %}
 
 {% block page_actions %}
 <a href="/schedule/" class="ghost-button">Buka Jadwal</a>
@@ -16,7 +16,7 @@
 {% block content %}
 <section class="cards">
     <article class="card-mini {% if summary.announcements %}success{% endif %}">
-        <p>Announcement Aktif</p>
+        <p>Pengumuman Aktif</p>
         <h3>{{ summary.announcements }}</h3>
     </article>
     <article class="card-mini {% if summary.schedule_changes_today %}warning{% endif %}">
@@ -24,7 +24,7 @@
         <h3>{{ summary.schedule_changes_today }}</h3>
     </article>
     <article class="card-mini {% if active_push_subscriptions %}success{% endif %}">
-        <p>Perangkat Terhubung</p>
+        <p>Perangkat Aktif</p>
         <h3>{{ active_push_subscriptions }}</h3>
     </article>
 </section>

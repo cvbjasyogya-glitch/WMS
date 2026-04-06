@@ -658,6 +658,23 @@ def init_db(db_path=None, sqlite_options=None):
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS overtime_usage_records(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        usage_date TEXT NOT NULL,
+        minutes_used INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        handled_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS recruitment_candidates(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         candidate_name TEXT NOT NULL,
@@ -1048,6 +1065,30 @@ def init_db(db_path=None, sqlite_options=None):
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS pos_sales(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_id INTEGER NOT NULL UNIQUE,
+        customer_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        cashier_user_id INTEGER,
+        sale_date TEXT NOT NULL,
+        receipt_no TEXT NOT NULL UNIQUE,
+        payment_method TEXT DEFAULT 'cash',
+        total_items INTEGER DEFAULT 0,
+        total_amount REAL DEFAULT 0,
+        paid_amount REAL DEFAULT 0,
+        change_amount REAL DEFAULT 0,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(purchase_id) REFERENCES crm_purchase_records(id) ON DELETE CASCADE,
+        FOREIGN KEY(customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(cashier_user_id) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS chat_threads(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         direct_key TEXT NOT NULL UNIQUE,
@@ -1286,6 +1327,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_main ON attendance_records(warehouse_id, attendance_date, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_leave_requests_main ON leave_requests(warehouse_id, start_date, end_date, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_payroll_runs_main ON payroll_runs(warehouse_id, period_year, period_month, status, employee_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_overtime_usage_main ON overtime_usage_records(warehouse_id, usage_date, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_main ON recruitment_candidates(warehouse_id, stage, status, candidate_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_onboarding_records_main ON onboarding_records(warehouse_id, stage, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_offboarding_records_main ON offboarding_records(warehouse_id, stage, status, employee_id)")
@@ -1303,6 +1345,8 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_records_main ON crm_purchase_records(warehouse_id, purchase_date, customer_id, member_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_items_main ON crm_purchase_items(purchase_id, product_id, variant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_member_records_main ON crm_member_records(warehouse_id, record_date, member_id, record_type)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_main ON pos_sales(warehouse_id, sale_date, cashier_user_id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_receipt ON pos_sales(receipt_no)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_main ON chat_threads(last_message_at, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_group ON chat_threads(thread_type, group_name, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_thread_members(user_id, thread_id, last_read_message_id)")

@@ -1,0 +1,41 @@
+name: ERPBJAS
+options:
+  minimumXcodeGenVersion: 2.38.0
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+targets:
+  ERPBJAS:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ERPBJAS/App
+      - path: ERPBJAS/UI
+    resources:
+      - path: ERPBJAS/Resources/LaunchScreen.storyboard
+      - path: ERPBJAS/Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_NAME: ERP-CV.BJAS
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.cvbjasyogya.erpios
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        IPHONEOS_DEPLOYMENT_TARGET: 16.0
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: ERPBJAS/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ERPBJAS/Resources/ERPBJAS.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SUPPORTS_MACCATALYST: NO
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  ERPBJAS:
+    build:
+      targets:
+        ERPBJAS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
