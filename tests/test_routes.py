@@ -9439,6 +9439,34 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn(f'data-product="{product_one_id}" value="AERO COMFORT 4"', html)
         self.assertIn(f'data-product="{product_two_id}" value="AERO COMFORT 4"', html)
 
+    def test_stock_page_renders_master_search_replace_modal_for_manage_role(self):
+        self.login()
+        response, product_id, _ = self.create_product(
+            sku="MASTER-SEARCH-01",
+            qty=2,
+            variants="navy-39,navy-40",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id=?",
+                ("MASTER SEARCH", product_id),
+            )
+            db.commit()
+
+        page = self.client.get("/stock/?q=MASTER-SEARCH-01", follow_redirects=False)
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+
+        self.assertIn("Search & Replace", html)
+        self.assertIn('id="stockSearchReplaceModal"', html)
+        self.assertIn("Ctrl+F", html)
+        self.assertIn("Ctrl+H", html)
+        self.assertIn('id="stockSearchReplacePreviewList"', html)
+        self.assertIn("Edit Master", html)
+
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
         self.login()

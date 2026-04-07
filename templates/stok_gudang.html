@@ -130,6 +130,9 @@
                 <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
             </select>
             <button type="submit">Filter</button>
+            {% if can('manage_product_master') %}
+            <button type="button" class="ghost-button" data-stock-search-replace-open>Search & Replace</button>
+            {% endif %}
             {% if can_bulk_adjust_ui %}
             <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
             {% endif %}
@@ -578,7 +581,7 @@
         <div class="section-title">
             <div>
                 <h2 id="stockEditModalTitle">Edit Detail Produk</h2>
-                <p>Editor cepat ini dibuka dari klik kanan pada item stok atau daftar master produk.</p>
+                <p id="stockEditModalCopy">Editor cepat ini dibuka dari klik kanan pada item stok atau daftar master produk.</p>
             </div>
         </div>
 
@@ -624,6 +627,66 @@
             <div class="split-actions stock-edit-modal-actions">
                 <button type="submit" id="stockEditSaveButton">Simpan Perubahan</button>
                 <button type="button" class="ghost-button" data-stock-edit-close>Tutup</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="picker-modal" id="stockSearchReplaceModal" hidden>
+    <div class="picker-modal-backdrop" data-stock-search-replace-close></div>
+    <div class="picker-modal-panel stock-edit-modal-panel stock-search-replace-panel" role="dialog" aria-modal="true" aria-labelledby="stockSearchReplaceModalTitle">
+        <div class="section-title">
+            <div>
+                <h2 id="stockSearchReplaceModalTitle">Search & Replace Master</h2>
+                <p>Tekan <strong>Ctrl+F</strong> atau <strong>Cmd+F</strong> untuk membuka pencarian, lalu <strong>Ctrl+H</strong> atau <strong>Cmd+H</strong> jika ingin langsung masuk ke mode replace. Replace hanya berjalan pada field stok yang terlihat dan memang didukung backend.</p>
+            </div>
+            <div class="status-row">
+                <span class="badge blue">Ctrl+F</span>
+                <span class="badge blue">Ctrl+H</span>
+            </div>
+        </div>
+
+        <form id="stockSearchReplaceForm" class="stock-edit-detail-form stock-search-replace-form">
+            <div class="form-grid">
+                <div>
+                    <label>Cari Teks</label>
+                    <input type="text" id="stockSearchReplaceFind" placeholder="Contoh: AERO atau black red" required>
+                </div>
+                <div>
+                    <label>Ganti Dengan</label>
+                    <input type="text" id="stockSearchReplaceReplace" placeholder="Isi pengganti baru">
+                </div>
+                <div>
+                    <label>Target Field</label>
+                    <select id="stockSearchReplaceScope">
+                        <option value="all">Nama Produk, SKU, dan Variant</option>
+                        <option value="name">Nama Produk</option>
+                        <option value="sku">SKU</option>
+                        <option value="variant">Variant yang sedang terlihat</option>
+                    </select>
+                </div>
+                <div class="stock-search-replace-option">
+                    <label class="stock-search-replace-checkbox">
+                        <input type="checkbox" id="stockSearchReplaceCaseSensitive">
+                        <span>Cocokkan huruf besar/kecil</span>
+                    </label>
+                    <small class="helper-text">Variant di dalam grup yang masih tertutup tidak ikut diganti sampai detailnya dibuka.</small>
+                </div>
+            </div>
+
+            <div class="stock-search-replace-preview" id="stockSearchReplacePreview">
+                Isi kata yang ingin dicari untuk melihat berapa field yang cocok dengan filter aktif saat ini.
+            </div>
+
+            <div class="stock-search-replace-preview-list" id="stockSearchReplacePreviewList" hidden></div>
+
+            <small class="helper-text">
+                Search & replace ini memakai flow update stok yang sama seperti edit manual. Jadi kalau role Anda masuk jalur approval, hasil replace tetap akan mengikuti mekanisme approval yang sudah ada.
+            </small>
+
+            <div class="split-actions stock-edit-modal-actions">
+                <button type="submit" id="stockSearchReplaceApplyButton">Ganti & Simpan</button>
+                <button type="button" class="ghost-button" data-stock-search-replace-close>Tutup</button>
             </div>
         </form>
     </div>
@@ -1104,47 +1167,85 @@ function bindStockInlineEditors(scope = document) {
 
         input.dataset.bound = "1";
         input.addEventListener("change", function() {
-            const field = this.dataset.field;
-            const value = getStockCurrencyRaw(this) || this.value.trim();
-            const groupSummaryRow = getGroupSummaryRow(this);
-
-            if (!value) {
-                alert("Field tidak boleh kosong.");
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append("product_id", this.dataset.product || "");
-            formData.append("variant_id", this.dataset.variant || "");
-            formData.append("field", field);
-            formData.append("value", value);
-
-            fetch("/stock/update-field", {
-                method: "POST",
-                headers: { "X-Requested-With": "XMLHttpRequest" },
-                body: formData
-            })
-            .then((res) => res.json())
-            .then(async (data) => {
-                if (data.status !== "success") {
-                    notifyStockMessage(data.message || "Update gagal disimpan.", "error");
-                    return;
-                }
-
-                notifyStockMessage(data.message || "Perubahan produk diproses.");
-                if (data.approval_status === "pending") {
-                    await refreshProductsView();
-                    return;
-                }
-
-                if (field === "variant") {
-                    this.closest("[data-stock-row]")?.setAttribute("data-product-variant", value);
-                    renderGroupSummary(groupSummaryRow);
-                }
-            })
-            .catch(() => notifyStockMessage("Terjadi error saat update data.", "error"));
+            void submitStockInlineField(this);
         });
     });
+}
+
+async function submitStockInlineField(input, options = {}) {
+    if (!input) {
+        return { ok: false, reason: "missing_input" };
+    }
+
+    const field = input.dataset.field;
+    const value = getStockCurrencyRaw(input) || String(input.value || "").trim();
+    const groupSummaryRow = getGroupSummaryRow(input);
+    const silent = options.silent === true;
+    const deferRefresh = options.deferRefresh === true;
+
+    if (!value) {
+        if (!silent) {
+            alert("Field tidak boleh kosong.");
+        }
+        return { ok: false, reason: "empty" };
+    }
+
+    const formData = new FormData();
+    formData.append("product_id", input.dataset.product || "");
+    formData.append("variant_id", input.dataset.variant || "");
+    formData.append("field", field);
+    formData.append("value", value);
+
+    try {
+        const response = await fetch("/stock/update-field", {
+            method: "POST",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+            body: formData
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data.status !== "success") {
+            if (!silent) {
+                notifyStockMessage(data.message || "Update gagal disimpan.", "error");
+            }
+            return { ok: false, data };
+        }
+
+        if (!silent) {
+            notifyStockMessage(data.message || "Perubahan produk diproses.");
+        }
+
+        if (data.approval_status === "pending") {
+            if (!deferRefresh) {
+                await refreshProductsView();
+            }
+            return {
+                ok: true,
+                data,
+                field,
+                value,
+                shouldRefresh: true
+            };
+        }
+
+        if (field === "variant") {
+            input.closest("[data-stock-row]")?.setAttribute("data-product-variant", value);
+            renderGroupSummary(groupSummaryRow);
+        }
+
+        return {
+            ok: true,
+            data,
+            field,
+            value,
+            shouldRefresh: false
+        };
+    } catch (error) {
+        if (!silent) {
+            notifyStockMessage("Terjadi error saat update data.", "error");
+        }
+        return { ok: false, error };
+    }
 }
 
 function adjustStock(button) {
@@ -1596,7 +1697,7 @@ function openManualProductModeModal() {
     }
 
     modal.hidden = false;
-    document.body.classList.add("stock-edit-modal-open");
+    syncStockModalBodyState();
 }
 
 function closeManualProductModeModal() {
@@ -1606,9 +1707,15 @@ function closeManualProductModeModal() {
     }
 
     modal.hidden = true;
-    if (!document.getElementById("stockEditModal") || document.getElementById("stockEditModal").hidden) {
-        document.body.classList.remove("stock-edit-modal-open");
-    }
+    syncStockModalBodyState();
+}
+
+function syncStockModalBodyState() {
+    const hasOpenModal = ["manualProductModeModal", "stockEditModal", "stockSearchReplaceModal"].some((id) => {
+        const node = document.getElementById(id);
+        return Boolean(node && node.hidden === false);
+    });
+    document.body.classList.toggle("stock-edit-modal-open", hasOpenModal);
 }
 
 function requestManualProductForm() {
@@ -2151,7 +2258,20 @@ if (stockPageConfig.canManageProductMaster) {
     const stockContextMenu = document.getElementById("stockContextMenu");
     const stockEditModal = document.getElementById("stockEditModal");
     const stockEditDetailForm = document.getElementById("stockEditDetailForm");
+    const stockSearchReplaceModal = document.getElementById("stockSearchReplaceModal");
+    const stockSearchReplaceForm = document.getElementById("stockSearchReplaceForm");
+    const stockSearchReplaceFind = document.getElementById("stockSearchReplaceFind");
+    const stockSearchReplaceReplace = document.getElementById("stockSearchReplaceReplace");
+    const stockSearchReplaceScope = document.getElementById("stockSearchReplaceScope");
+    const stockSearchReplaceCaseSensitive = document.getElementById("stockSearchReplaceCaseSensitive");
+    const stockSearchReplacePreview = document.getElementById("stockSearchReplacePreview");
+    const stockSearchReplacePreviewList = document.getElementById("stockSearchReplacePreviewList");
     let activeContextSource = null;
+    const STOCK_SEARCH_REPLACE_FIELD_LABELS = {
+        name: "Nama Produk",
+        sku: "SKU",
+        variant: "Variant"
+    };
 
     function closeStockContextMenu() {
         if (stockContextMenu) {
@@ -2195,6 +2315,9 @@ if (stockPageConfig.canManageProductMaster) {
         if (!stockEditModal || !stockEditDetailForm || !source) {
             return;
         }
+        const editTitle = document.getElementById("stockEditModalTitle");
+        const editCopy = document.getElementById("stockEditModalCopy");
+        const isMasterEdit = !source.dataset.variantId;
 
         document.getElementById("stockEditProductId").value = source.dataset.productId || "";
         document.getElementById("stockEditVariantId").value = source.dataset.variantId || "";
@@ -2207,19 +2330,238 @@ if (stockPageConfig.canManageProductMaster) {
         setStockCurrencyValue(document.getElementById("stockEditPriceDiscount"), source.dataset.priceDiscount || "");
         setStockCurrencyValue(document.getElementById("stockEditPriceNett"), source.dataset.priceNett || "");
 
+        if (editTitle) {
+            editTitle.textContent = isMasterEdit ? "Edit Master Produk" : "Edit Detail Produk";
+        }
+        if (editCopy) {
+            editCopy.textContent = isMasterEdit
+                ? "Anda sedang mengedit master produk. Perubahan SKU, nama, kategori, dan satuan akan mengikuti seluruh varian yang terhubung di bawah master ini."
+                : "Anda sedang mengedit detail produk atau variant tertentu dari daftar stok aktif.";
+        }
+
         toggleStockEditVariantFields(source);
         refreshStockCurrencyInputs(stockEditModal);
         stockEditModal.hidden = false;
-        document.body.classList.add("stock-edit-modal-open");
+        syncStockModalBodyState();
     }
 
     function closeStockEditModal() {
         if (stockEditModal) {
             stockEditModal.hidden = true;
         }
-        if (document.getElementById("manualProductModeModal")?.hidden !== false) {
-            document.body.classList.remove("stock-edit-modal-open");
+        syncStockModalBodyState();
+    }
+
+    function escapeStockSearchReplacePattern(value) {
+        return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function getStockSearchReplaceFieldNames() {
+        const scope = stockSearchReplaceScope?.value || "all";
+        if (scope === "name") {
+            return ["name"];
         }
+        if (scope === "sku") {
+            return ["sku"];
+        }
+        if (scope === "variant") {
+            return ["variant"];
+        }
+        return ["name", "sku", "variant"];
+    }
+
+    function isVisibleStockSearchReplaceInput(input) {
+        if (!input || input.disabled || input.closest("[hidden]")) {
+            return false;
+        }
+
+        const field = input.dataset.field || "";
+        const row = input.closest("[data-stock-row], [data-stock-group-summary-row]");
+        if (!row) {
+            return false;
+        }
+
+        if (field === "variant") {
+            const disclosure = input.closest("details.stock-variant-disclosure");
+            if (disclosure && !disclosure.open) {
+                return false;
+            }
+        }
+
+        return input.getClientRects().length > 0;
+    }
+
+    function getStockSearchReplaceRegex() {
+        const needle = (stockSearchReplaceFind?.value || "").trim();
+        if (!needle) {
+            return null;
+        }
+        return new RegExp(
+            escapeStockSearchReplacePattern(needle),
+            stockSearchReplaceCaseSensitive?.checked ? "g" : "gi"
+        );
+    }
+
+    function getStockSearchReplaceTargets() {
+        const fields = new Set(getStockSearchReplaceFieldNames());
+        const regex = getStockSearchReplaceRegex();
+        if (!regex) {
+            return [];
+        }
+
+        return Array.from(document.querySelectorAll(".edit-field"))
+            .filter((input) => fields.has(input.dataset.field || ""))
+            .filter((input) => isVisibleStockSearchReplaceInput(input))
+            .map((input) => {
+                const currentValue = String(input.value || "");
+                const matches = currentValue.match(regex);
+                if (!matches || !matches.length) {
+                    return null;
+                }
+                return {
+                    input,
+                    field: input.dataset.field || "",
+                    originalValue: currentValue,
+                    matchCount: matches.length,
+                };
+            })
+            .filter(Boolean);
+    }
+
+    function renderStockSearchReplacePreviewList(targets) {
+        if (!stockSearchReplacePreviewList) {
+            return;
+        }
+
+        stockSearchReplacePreviewList.innerHTML = "";
+        stockSearchReplacePreviewList.hidden = true;
+
+        if (!targets.length) {
+            return;
+        }
+
+        const replaceValue = stockSearchReplaceReplace?.value || "";
+        const regex = getStockSearchReplaceRegex();
+        if (!regex) {
+            return;
+        }
+
+        const previewTargets = targets.slice(0, 12);
+        previewTargets.forEach((target) => {
+            const row = document.createElement("div");
+            row.className = "stock-search-replace-preview-item";
+
+            const nextValue = target.originalValue.replace(regex, replaceValue);
+            const title = document.createElement("strong");
+            title.textContent = `${STOCK_SEARCH_REPLACE_FIELD_LABELS[target.field] || target.field} • ${target.matchCount} kecocokan`;
+
+            const before = document.createElement("div");
+            before.className = "stock-search-replace-preview-before";
+            before.textContent = target.originalValue;
+
+            const after = document.createElement("div");
+            after.className = "stock-search-replace-preview-after";
+            after.textContent = nextValue;
+
+            row.appendChild(title);
+            row.appendChild(before);
+            row.appendChild(after);
+            stockSearchReplacePreviewList.appendChild(row);
+        });
+
+        if (targets.length > previewTargets.length) {
+            const more = document.createElement("div");
+            more.className = "stock-search-replace-preview-more helper-text";
+            more.textContent = `+${targets.length - previewTargets.length} field lain juga akan ikut berubah saat apply.`;
+            stockSearchReplacePreviewList.appendChild(more);
+        }
+
+        stockSearchReplacePreviewList.hidden = false;
+    }
+
+    function renderStockSearchReplacePreview() {
+        if (!stockSearchReplacePreview) {
+            return;
+        }
+
+        const needle = (stockSearchReplaceFind?.value || "").trim();
+        if (!needle) {
+            stockSearchReplacePreview.textContent = "Isi kata yang ingin dicari untuk melihat berapa field yang cocok dengan filter aktif saat ini.";
+            if (stockSearchReplacePreviewList) {
+                stockSearchReplacePreviewList.hidden = true;
+                stockSearchReplacePreviewList.innerHTML = "";
+            }
+            return;
+        }
+
+        const targets = getStockSearchReplaceTargets();
+        const totalMatches = targets.reduce((sum, item) => sum + Number(item.matchCount || 0), 0);
+        if (!targets.length) {
+            stockSearchReplacePreview.textContent = "Belum ada field yang cocok di daftar stok yang sedang terlihat.";
+            if (stockSearchReplacePreviewList) {
+                stockSearchReplacePreviewList.hidden = true;
+                stockSearchReplacePreviewList.innerHTML = "";
+            }
+            return;
+        }
+        const breakdown = targets.reduce((accumulator, item) => {
+            accumulator[item.field] = (accumulator[item.field] || 0) + 1;
+            return accumulator;
+        }, {});
+        const summary = Object.entries(breakdown)
+            .map(([field, count]) => `${count} ${String(STOCK_SEARCH_REPLACE_FIELD_LABELS[field] || field).toLowerCase()}`)
+            .join(", ");
+        stockSearchReplacePreview.textContent = `${totalMatches} kecocokan ditemukan di ${targets.length} field. Rincian: ${summary}.`;
+        renderStockSearchReplacePreviewList(targets);
+    }
+
+    function getStockSearchReplaceSeed() {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) {
+            return "";
+        }
+        const start = typeof active.selectionStart === "number" ? active.selectionStart : 0;
+        const end = typeof active.selectionEnd === "number" ? active.selectionEnd : 0;
+        if (end > start) {
+            return String(active.value || "").slice(start, end);
+        }
+        return "";
+    }
+
+    function openStockSearchReplaceModal(options = {}) {
+        if (!stockSearchReplaceModal) {
+            return;
+        }
+
+        const resolvedOptions = typeof options === "string"
+            ? { seed: options }
+            : (options || {});
+        const seed = resolvedOptions.seed || "";
+        const focusReplace = resolvedOptions.focusReplace === true;
+
+        if (seed && stockSearchReplaceFind && !stockSearchReplaceFind.value.trim()) {
+            stockSearchReplaceFind.value = seed;
+        }
+        stockSearchReplaceModal.hidden = false;
+        syncStockModalBodyState();
+        renderStockSearchReplacePreview();
+        window.requestAnimationFrame(() => {
+            if (focusReplace && stockSearchReplaceReplace) {
+                stockSearchReplaceReplace.focus();
+                stockSearchReplaceReplace.select();
+                return;
+            }
+            stockSearchReplaceFind?.focus();
+            stockSearchReplaceFind?.select();
+        });
+    }
+
+    function closeStockSearchReplaceModal() {
+        if (!stockSearchReplaceModal) {
+            return;
+        }
+        stockSearchReplaceModal.hidden = true;
+        syncStockModalBodyState();
     }
 
     document.addEventListener("contextmenu", (event) => {
@@ -2278,6 +2620,21 @@ if (stockPageConfig.canManageProductMaster) {
         node.addEventListener("click", closeStockEditModal);
     });
 
+    document.querySelectorAll("[data-stock-search-replace-open]").forEach((node) => {
+        node.addEventListener("click", () => {
+            openStockSearchReplaceModal({ seed: getStockSearchReplaceSeed() });
+        });
+    });
+
+    document.querySelectorAll("[data-stock-search-replace-close]").forEach((node) => {
+        node.addEventListener("click", closeStockSearchReplaceModal);
+    });
+
+    [stockSearchReplaceFind, stockSearchReplaceReplace, stockSearchReplaceScope, stockSearchReplaceCaseSensitive].forEach((node) => {
+        node?.addEventListener("input", renderStockSearchReplacePreview);
+        node?.addEventListener("change", renderStockSearchReplacePreview);
+    });
+
     stockEditDetailForm?.addEventListener("submit", async (event) => {
         event.preventDefault();
 
@@ -2315,6 +2672,124 @@ if (stockPageConfig.canManageProductMaster) {
                 saveButton.disabled = false;
                 saveButton.innerText = originalLabel;
             }
+        }
+    });
+
+    stockSearchReplaceForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const searchText = (stockSearchReplaceFind?.value || "").trim();
+        if (!searchText) {
+            notifyStockMessage("Isi teks yang ingin dicari terlebih dahulu.", "error");
+            stockSearchReplaceFind?.focus();
+            return;
+        }
+
+        const targets = getStockSearchReplaceTargets();
+        if (!targets.length) {
+            notifyStockMessage("Tidak ada field yang cocok untuk diganti pada daftar stok yang sedang terlihat.", "error");
+            renderStockSearchReplacePreview();
+            return;
+        }
+
+        const replaceValue = stockSearchReplaceReplace?.value || "";
+        const regex = getStockSearchReplaceRegex();
+        if (!regex) {
+            notifyStockMessage("Format pencarian tidak valid.", "error");
+            return;
+        }
+
+        const applyButton = document.getElementById("stockSearchReplaceApplyButton");
+        const originalLabel = applyButton ? applyButton.innerText : "Ganti & Simpan";
+        let replacedCount = 0;
+        let failedCount = 0;
+        let pendingCount = 0;
+        let variantChanged = false;
+
+        if (applyButton) {
+            applyButton.disabled = true;
+            applyButton.innerText = "Memproses...";
+        }
+
+        try {
+            for (const target of targets) {
+                const nextValue = target.originalValue.replace(regex, replaceValue);
+                if (!nextValue || nextValue === target.originalValue) {
+                    continue;
+                }
+
+                target.input.value = nextValue;
+                const result = await submitStockInlineField(target.input, {
+                    silent: true,
+                    deferRefresh: true
+                });
+
+                if (!result.ok) {
+                    target.input.value = target.originalValue;
+                    failedCount += 1;
+                    continue;
+                }
+
+                replacedCount += 1;
+                pendingCount += result.shouldRefresh ? 1 : 0;
+                variantChanged = variantChanged || target.field === "variant";
+            }
+
+            if (!replacedCount) {
+                notifyStockMessage("Belum ada perubahan baru yang bisa disimpan dari hasil replace.", "error");
+                renderStockSearchReplacePreview();
+                return;
+            }
+
+            if (pendingCount > 0) {
+                notifyStockMessage(`${replacedCount} field diproses. Sebagian perubahan masuk ke jalur approval dan tampilan akan disegarkan.`);
+                closeStockSearchReplaceModal();
+                await refreshProductsView();
+                return;
+            }
+
+            if (variantChanged) {
+                document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+                    renderGroupSummary(groupSummaryRow);
+                });
+            }
+
+            notifyStockMessage(
+                failedCount > 0
+                    ? `${replacedCount} field berhasil diperbarui, ${failedCount} field gagal diproses.`
+                    : `${replacedCount} field berhasil diperbarui dari search & replace.`
+            );
+            renderStockSearchReplacePreview();
+        } catch (error) {
+            notifyStockMessage("Terjadi error saat menjalankan search & replace.", "error");
+        } finally {
+            if (applyButton) {
+                applyButton.disabled = false;
+                applyButton.innerText = originalLabel;
+            }
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        const pressedFindShortcut = (event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "f";
+        const pressedReplaceShortcut = (event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "h";
+        if (pressedFindShortcut) {
+            event.preventDefault();
+            openStockSearchReplaceModal({ seed: getStockSearchReplaceSeed() });
+            return;
+        }
+
+        if (pressedReplaceShortcut) {
+            event.preventDefault();
+            openStockSearchReplaceModal({
+                seed: getStockSearchReplaceSeed(),
+                focusReplace: true
+            });
+            return;
+        }
+
+        if (event.key === "Escape" && stockSearchReplaceModal && !stockSearchReplaceModal.hidden) {
+            closeStockSearchReplaceModal();
         }
     });
 }
