@@ -2,9 +2,16 @@ from urllib.parse import urlencode
 
 from flask import Blueprint, request, redirect, jsonify, flash, session
 from database import get_db
-from services.notification_service import notify_operational_event
+from services.event_notification_policy import get_event_notification_policy
+from services.notification_service import notify_operational_event, notify_roles
 from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role
+from services.product_master_approval_service import (
+    can_queue_product_master_approval,
+    find_pending_product_delete_approvals,
+    queue_product_delete_approvals,
+)
+from services.whatsapp_service import send_role_based_notification
 from services.stock_service import add_stock
 import csv
 import json
@@ -26,6 +33,61 @@ PRODUCT_STUDIO_REDIRECT_PATH = "/stock/"
 
 def _can_manage_product_master():
     return has_permission(session.get("role"), "manage_product_master")
+
+
+def _product_master_request_warehouse_id():
+    try:
+        return int(session.get("warehouse_id") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _queue_product_delete_requests(db, product_ids):
+    warehouse_id = _product_master_request_warehouse_id()
+    approval_ids = queue_product_delete_approvals(
+        db,
+        warehouse_id=warehouse_id,
+        requested_by=session.get("user_id"),
+        product_ids=product_ids,
+    )
+    if not approval_ids:
+        raise ValueError("Produk tidak ditemukan atau sudah tidak tersedia.")
+
+    try:
+        delete_policy = get_event_notification_policy("inventory.product_delete_approval_requested")
+        notify_roles(
+            delete_policy["roles"],
+            "Permintaan Hapus Master Produk",
+            f"Ada {len(approval_ids)} produk yang menunggu approval hapus master.",
+            warehouse_id=warehouse_id,
+            usernames=delete_policy["usernames"],
+            user_ids=delete_policy["user_ids"],
+            send_whatsapp_channel=False,
+            category="approval",
+            link_url="/approvals",
+            source_type="approval_queue",
+        )
+    except Exception as exc:
+        print("PRODUCT DELETE APPROVAL NOTIFY ERROR:", exc)
+
+    try:
+        warehouse_row = None
+        if warehouse_id:
+            warehouse_row = db.execute("SELECT name FROM warehouses WHERE id=?", (warehouse_id,)).fetchone()
+        send_role_based_notification(
+            "inventory.product_delete_approval_requested",
+            {
+                "warehouse_id": warehouse_id,
+                "warehouse_name": ((warehouse_row["name"] if warehouse_row else "") or f"Gudang {warehouse_id or '-'}").strip(),
+                "requester_name": session.get("username") or "Admin",
+                "item_count": len(approval_ids),
+                "link_url": "/approvals",
+            },
+        )
+    except Exception as exc:
+        print("PRODUCT DELETE APPROVAL WHATSAPP ERROR:", exc)
+
+    return approval_ids
 
 
 def _products_json_error(message, status_code=403, **payload):
@@ -924,6 +986,39 @@ def bulk_delete():
         return _products_json_error("Pilih minimal satu produk.", 400)
 
     try:
+        if can_queue_product_master_approval(session.get("role")):
+            pending_map = find_pending_product_delete_approvals(db, ids)
+            queue_ids = [product_id for product_id in ids if product_id not in pending_map]
+
+            if not queue_ids:
+                existing_ids = [pending_map[product_id]["id"] for product_id in ids if product_id in pending_map]
+                return jsonify({
+                    "status": "success",
+                    "approval_status": "pending",
+                    "approval_existing": True,
+                    "message": "Semua produk yang dipilih sudah menunggu approval hapus sebelumnya.",
+                    "approval_ids": existing_ids,
+                })
+
+            db.execute("BEGIN")
+            approval_ids = _queue_product_delete_requests(db, queue_ids)
+            db.commit()
+            existing_count = len(pending_map)
+            total_pending_ids = [pending_map[product_id]["id"] for product_id in ids if product_id in pending_map] + approval_ids
+            message = f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin."
+            if existing_count:
+                message = (
+                    f"{len(approval_ids)} permintaan hapus baru dikirim. "
+                    f"{existing_count} produk lain sudah punya approval pending."
+                )
+            return jsonify({
+                "status": "success",
+                "approval_status": "pending",
+                "approval_existing": existing_count > 0,
+                "message": message,
+                "approval_ids": total_pending_ids,
+            })
+
         db.execute("BEGIN")
         deleted_count = _delete_product_bundle(db, ids)
         db.commit()
@@ -1059,6 +1154,22 @@ def delete_product(id):
     db = get_db()
 
     try:
+        if can_queue_product_master_approval(session.get("role")):
+            pending_map = find_pending_product_delete_approvals(db, [id])
+            existing_pending = pending_map.get(id)
+            if existing_pending:
+                flash("Produk ini sudah memiliki approval hapus yang masih pending.", "success")
+                return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
+
+            db.execute("BEGIN")
+            approval_ids = _queue_product_delete_requests(db, [id])
+            db.commit()
+            flash(
+                f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin.",
+                "success",
+            )
+            return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
+
         db.execute("BEGIN")
         deleted_count = _delete_product_bundle(db, [id])
         db.commit()
@@ -1267,6 +1378,7 @@ def import_products():
     if imported_total_qty > 0:
         try:
             warehouse_id = next(iter(affected_warehouse_ids)) if len(affected_warehouse_ids) == 1 else None
+            inventory_policy = get_event_notification_policy("inventory.activity")
             notify_operational_event(
                 f"Import produk selesai: {imported_variant_count} varian",
                 (
@@ -1276,6 +1388,9 @@ def import_products():
                 warehouse_id=warehouse_id,
                 category="inventory",
                 link_url="/stock/?workspace=products",
+                recipient_roles=inventory_policy["roles"],
+                recipient_usernames=inventory_policy["usernames"],
+                recipient_user_ids=inventory_policy["user_ids"],
                 source_type="product_import_job",
                 source_id=job_id,
                 push_title="Import produk selesai",

@@ -5,6 +5,10 @@ from flask import current_app
 
 from database import get_db
 from services.announcement_center import user_matches_scope
+from services.event_notification_policy import (
+    get_event_notification_policy,
+    row_matches_notification_aliases,
+)
 from services.rbac import normalize_role
 
 try:
@@ -14,14 +18,28 @@ except ImportError:
 
 
 ROLE_EVENT_RECIPIENTS = {
-    "attendance.activity": ("owner", "hr", "super_admin"),
-    "inventory.inbound_approval_requested": ("owner", "super_admin"),
-    "inventory.outbound_approval_requested": ("owner", "super_admin"),
-    "inventory.adjust_approval_requested": ("owner", "super_admin"),
-    "inventory.approval_approved": ("owner", "super_admin"),
-    "inventory.approval_rejected": ("owner", "super_admin"),
-    "report.daily_submitted": ("hr",),
-    "report.live_submitted": ("hr",),
+    event_type: get_event_notification_policy(event_type)["roles"]
+    for event_type in (
+        "attendance.activity",
+        "report.daily_submitted",
+        "report.live_submitted",
+        "report.status_approved",
+        "report.status_rejected",
+        "leave.status_approved",
+        "leave.status_rejected",
+        "request.owner_requested",
+        "request.transfer_submitted",
+        "inventory.activity",
+        "inventory.inbound_approval_requested",
+        "inventory.outbound_approval_requested",
+        "inventory.adjust_approval_requested",
+        "inventory.product_edit_approval_requested",
+        "inventory.product_delete_approval_requested",
+        "inventory.approval_approved",
+        "inventory.approval_rejected",
+        "inventory.product_approval_approved",
+        "inventory.product_approval_rejected",
+    )
 }
 
 
@@ -290,62 +308,99 @@ def send_whatsapp_document(target, message, document_url):
     return _send_via_kirimi(receiver, message, media_url=safe_url)
 
 
-def _role_recipients_for_event(roles, warehouse_id=None):
+def _event_recipients_for_audience(roles, usernames=None, user_ids=None, warehouse_id=None, exclude_user_ids=None):
     normalized_roles = []
     for role in roles or []:
         normalized_role = normalize_role(role)
         if normalized_role and normalized_role not in normalized_roles:
             normalized_roles.append(normalized_role)
 
-    if not normalized_roles:
-        return []
+    normalized_user_ids = []
+    seen_requested_user_ids = set()
+    for value in user_ids or ():
+        try:
+            user_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if user_id <= 0 or user_id in seen_requested_user_ids:
+            continue
+        seen_requested_user_ids.add(user_id)
+        normalized_user_ids.append(user_id)
 
-    placeholders = ",".join("?" for _ in normalized_roles)
-    rows = get_db().execute(
-        f"""
-        SELECT
-            u.id,
-            u.role,
-            u.username,
-            u.notify_whatsapp,
-            u.warehouse_id AS user_warehouse_id,
-            e.warehouse_id AS employee_warehouse_id,
-            COALESCE(NULLIF(TRIM(u.phone), ''), NULLIF(TRIM(e.phone), '')) AS phone,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'User') AS display_name
-        FROM users u
-        LEFT JOIN employees e ON e.id = u.employee_id
-        WHERE u.role IN ({placeholders})
-        ORDER BY u.id ASC
-        """,
-        normalized_roles,
-    ).fetchall()
-
+    db = get_db()
     recipients = []
     seen_user_ids = set()
+    excluded_ids = set()
+    for value in exclude_user_ids or ():
+        try:
+            excluded_ids.add(int(value))
+        except (TypeError, ValueError):
+            continue
+
+    rows = []
+    if normalized_roles or usernames or normalized_user_ids:
+        rows = db.execute(
+            """
+            SELECT
+                u.id,
+                u.role,
+                u.username,
+                u.notify_whatsapp,
+                u.warehouse_id AS user_warehouse_id,
+                e.warehouse_id AS employee_warehouse_id,
+                COALESCE(NULLIF(TRIM(u.phone), ''), NULLIF(TRIM(e.phone), '')) AS phone,
+                COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'User') AS display_name,
+                COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), '') AS full_name
+            FROM users u
+            LEFT JOIN employees e ON e.id = u.employee_id
+            ORDER BY u.id ASC
+            """
+        ).fetchall()
+
     for row in rows:
-        user_id = int(row["id"] or 0)
-        if not user_id or user_id in seen_user_ids:
+        row_dict = dict(row)
+        user_id = int(row_dict["id"] or 0)
+        if not user_id or user_id in seen_user_ids or user_id in excluded_ids:
             continue
+
+        matches_role = row_dict["role"] in normalized_roles
+        matches_alias = row_matches_notification_aliases(row_dict, usernames)
+        matches_user_id = user_id in seen_requested_user_ids
+        if not matches_role and not matches_alias and not matches_user_id:
+            continue
+
+        effective_warehouse_id = row_dict["employee_warehouse_id"] or row_dict["user_warehouse_id"]
+        if not user_matches_scope(row_dict["role"], effective_warehouse_id, warehouse_id):
+            continue
+
+        phone = _normalize_phone_number(row_dict["phone"])
+        if not phone or not int(row_dict["notify_whatsapp"] or 0):
+            continue
+
         seen_user_ids.add(user_id)
-
-        effective_warehouse_id = row["employee_warehouse_id"] or row["user_warehouse_id"]
-        if not user_matches_scope(row["role"], effective_warehouse_id, warehouse_id):
-            continue
-
-        phone = _normalize_phone_number(row["phone"])
-        if not phone or not int(row["notify_whatsapp"] or 0):
-            continue
-
         recipients.append(
             {
                 "user_id": user_id,
-                "role": row["role"],
-                "username": row["username"],
-                "display_name": row["display_name"],
+                "role": row_dict["role"],
+                "username": row_dict["username"],
+                "display_name": row_dict["display_name"],
                 "phone": phone,
             }
         )
+
     return recipients
+
+
+def _role_recipients_for_event(roles, usernames=None, user_ids=None, warehouse_id=None, exclude_user_ids=None):
+    if not roles and not usernames and not user_ids:
+        return []
+    return _event_recipients_for_audience(
+        roles,
+        usernames=usernames,
+        user_ids=user_ids,
+        warehouse_id=warehouse_id,
+        exclude_user_ids=exclude_user_ids,
+    )
 
 
 def _build_event_subject_message(event_type, payload):
@@ -372,11 +427,14 @@ def _build_event_subject_message(event_type, payload):
     if event_type == "attendance.activity":
         punch_label = str(payload.get("punch_label") or "Absensi").strip()
         location_label = str(payload.get("location_label") or "-").strip()
+        duration_text = str(payload.get("duration_text") or "").strip()
         subject = explicit_subject or f"Absensi {punch_label}: {employee_name}"
         message = explicit_message or (
             f"{employee_name} melakukan {punch_label} di {warehouse_name}"
             f"{f' pukul {time_label}' if time_label else ''}. Titik: {location_label}."
         )
+        if duration_text:
+            message = f"{message} {duration_text}".strip()
         return subject, message
 
     if event_type == "report.live_submitted":
@@ -393,6 +451,77 @@ def _build_event_subject_message(event_type, payload):
         message = explicit_message or (
             f"{employee_name} mengirim daily report di {warehouse_name}."
             f"{f' Judul: {title}.' if title else ''}"
+        )
+        return subject, message
+
+    if event_type == "report.status_approved":
+        report_type_label = str(payload.get("report_type_label") or "Report").strip()
+        status_label = str(payload.get("status_label") or "Disetujui").strip()
+        subject = explicit_subject or f"{report_type_label} {status_label}: {employee_name}"
+        message = explicit_message or (
+            f"{report_type_label} milik {employee_name} di {warehouse_name} "
+            f"ditandai {status_label.lower()} oleh {approver_name}."
+            f"{f' Judul: {title}.' if title else ''}"
+            f"{f' Catatan HR: {reason}.' if reason else ''}"
+        )
+        return subject, message
+
+    if event_type == "report.status_rejected":
+        report_type_label = str(payload.get("report_type_label") or "Report").strip()
+        status_label = str(payload.get("status_label") or "Perlu Follow Up").strip()
+        subject = explicit_subject or f"{report_type_label} {status_label}: {employee_name}"
+        message = explicit_message or (
+            f"{report_type_label} milik {employee_name} di {warehouse_name} "
+            f"butuh tindak lanjut menurut {approver_name}."
+            f"{f' Judul: {title}.' if title else ''}"
+            f"{f' Catatan HR: {reason}.' if reason else ''}"
+        )
+        return subject, message
+
+    if event_type == "leave.status_approved":
+        range_label = str(payload.get("range_label") or "-").strip()
+        leave_type_label = str(payload.get("leave_type_label") or "Libur").strip()
+        subject = explicit_subject or f"{leave_type_label} Disetujui: {employee_name}"
+        message = explicit_message or (
+            f"Pengajuan {leave_type_label.lower()} {employee_name} untuk {range_label} "
+            f"disetujui oleh {approver_name} di {warehouse_name}."
+        )
+        return subject, message
+
+    if event_type == "leave.status_rejected":
+        range_label = str(payload.get("range_label") or "-").strip()
+        leave_type_label = str(payload.get("leave_type_label") or "Libur").strip()
+        subject = explicit_subject or f"{leave_type_label} Ditolak: {employee_name}"
+        message = explicit_message or (
+            f"Pengajuan {leave_type_label.lower()} {employee_name} untuk {range_label} "
+            f"ditolak oleh {approver_name} di {warehouse_name}."
+            f"{f' Alasan: {reason}.' if reason else ''}"
+        )
+        return subject, message
+
+    if event_type == "request.owner_requested":
+        subject = explicit_subject or f"Request Barang ke Owner: {warehouse_name}"
+        message = explicit_message or (
+            f"Ada {item_count} item request khusus ke owner dari {warehouse_name}."
+            f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
+        )
+        return subject, message
+
+    if event_type == "request.transfer_submitted":
+        target_warehouse_name = str(payload.get("target_warehouse_name") or "").strip()
+        subject = explicit_subject or f"Request Antar Gudang: {warehouse_name}"
+        message = explicit_message or (
+            f"Ada {item_count} item request antar gudang dari {warehouse_name}"
+            f"{f' ke {target_warehouse_name}' if target_warehouse_name else ''}."
+            f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
+        )
+        return subject, message
+
+    if event_type == "inventory.activity":
+        subject = explicit_subject or f"Aktivitas WMS: {warehouse_name}"
+        message = explicit_message or (
+            f"Ada aktivitas WMS baru di {warehouse_name}."
+            f"{f' Detail: {title}.' if title else ''}"
         )
         return subject, message
 
@@ -420,6 +549,24 @@ def _build_event_subject_message(event_type, payload):
         )
         return subject, message
 
+    if event_type == "inventory.product_edit_approval_requested":
+        item_label = " / ".join(part for part in [sku, product_name, variant_label] if part)
+        subject = explicit_subject or f"Approval Edit Produk: {warehouse_name}"
+        message = explicit_message or (
+            f"Ada perubahan master produk yang menunggu approval di {warehouse_name}."
+            f"{f' Pengaju: {employee_name}.' if employee_name else ''}"
+            f"{f' Item: {item_label}.' if item_label else ''}"
+        )
+        return subject, message
+
+    if event_type == "inventory.product_delete_approval_requested":
+        subject = explicit_subject or f"Approval Hapus Produk: {warehouse_name}"
+        message = explicit_message or (
+            f"Ada {item_count} permintaan hapus master produk yang menunggu approval di {warehouse_name}."
+            f"{f' Pengaju: {employee_name}.' if employee_name else ''}"
+        )
+        return subject, message
+
     if event_type == "inventory.approval_approved":
         item_label = " / ".join(part for part in [sku, product_name, variant_label] if part)
         subject = explicit_subject or f"Approval {approval_type} Disetujui"
@@ -428,6 +575,16 @@ def _build_event_subject_message(event_type, payload):
             f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
             f"{f' Item: {item_label}.' if item_label else ''}"
             f"{f' Qty: {qty_label}.' if qty_label else ''}"
+        )
+        return subject, message
+
+    if event_type == "inventory.product_approval_approved":
+        item_label = " / ".join(part for part in [sku, product_name, variant_label] if part)
+        subject = explicit_subject or f"Approval {approval_type} Disetujui"
+        message = explicit_message or (
+            f"{approval_type} di {warehouse_name} disetujui oleh {approver_name}."
+            f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
+            f"{f' Item: {item_label}.' if item_label else ''}"
         )
         return subject, message
 
@@ -443,6 +600,17 @@ def _build_event_subject_message(event_type, payload):
         )
         return subject, message
 
+    if event_type == "inventory.product_approval_rejected":
+        item_label = " / ".join(part for part in [sku, product_name, variant_label] if part)
+        subject = explicit_subject or f"Approval {approval_type} Ditolak"
+        message = explicit_message or (
+            f"{approval_type} di {warehouse_name} ditolak oleh {approver_name}."
+            f"{f' Pengaju: {requester_name}.' if requester_name else ''}"
+            f"{f' Item: {item_label}.' if item_label else ''}"
+            f"{f' Alasan: {reason}.' if reason else ''}"
+        )
+        return subject, message
+
     subject = explicit_subject or f"Notifikasi {event_type}"
     message = explicit_message or "Ada aktivitas baru yang perlu dicek."
     return subject, message
@@ -451,16 +619,28 @@ def _build_event_subject_message(event_type, payload):
 def send_role_based_notification(event_type, payload):
     normalized_event = str(event_type or "").strip().lower()
     payload = payload or {}
-    roles = payload.get("roles") or ROLE_EVENT_RECIPIENTS.get(normalized_event, ())
+    audience_policy = get_event_notification_policy(normalized_event)
+    roles = tuple(payload.get("roles") or ()) if "roles" in payload else audience_policy["roles"]
+    usernames = tuple(payload.get("usernames") or ()) if "usernames" in payload else audience_policy["usernames"]
+    user_ids = tuple(payload.get("user_ids") or ()) if "user_ids" in payload else audience_policy.get("user_ids", ())
     warehouse_id = payload.get("warehouse_id")
+    exclude_user_ids = payload.get("exclude_user_ids") or ()
     link_url = str(payload.get("link_url") or "").strip()
     subject, message = _build_event_subject_message(normalized_event, payload)
     document_url = str(payload.get("document_url") or "").strip()
 
-    recipients = _role_recipients_for_event(roles, warehouse_id=warehouse_id)
+    recipients = _role_recipients_for_event(
+        roles,
+        usernames=usernames,
+        user_ids=user_ids,
+        warehouse_id=warehouse_id,
+        exclude_user_ids=exclude_user_ids,
+    )
     results = {
         "event_type": normalized_event,
         "roles": list(roles),
+        "usernames": list(usernames or ()),
+        "user_ids": list(user_ids or ()),
         "subject": subject,
         "message": message,
         "deliveries": [],

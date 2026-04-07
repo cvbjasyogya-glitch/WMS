@@ -41,6 +41,29 @@ CALL_SIGNAL_TYPES = {"invite", "accept", "offer", "answer", "ice", "decline", "e
 SUPPORTED_CALL_MODES = {"voice", "video"}
 CALL_SIGNAL_LIMIT = 80
 CALL_RING_TIMEOUT_SECONDS = 90
+CHAT_LOCAL_DAY_NAMES = [
+    "Senin",
+    "Selasa",
+    "Rabu",
+    "Kamis",
+    "Jumat",
+    "Sabtu",
+    "Minggu",
+]
+CHAT_LOCAL_MONTH_NAMES = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "Mei",
+    "Jun",
+    "Jul",
+    "Agu",
+    "Sep",
+    "Okt",
+    "Nov",
+    "Des",
+]
 
 
 def _to_int(value, default=None):
@@ -65,6 +88,74 @@ def _clip_text(value, limit=120):
     if len(text) <= limit:
         return text
     return text[: max(limit - 3, 0)].rstrip() + "..."
+
+
+def _parse_chat_timestamp(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace("T", " ")
+    if len(normalized) == 16:
+        normalized = f"{normalized}:00"
+
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _to_chat_local_time(value):
+    parsed = value if isinstance(value, datetime) else _parse_chat_timestamp(value)
+    if not parsed:
+        return None
+    return parsed + timedelta(hours=CHAT_DISPLAY_UTC_OFFSET_HOURS)
+
+
+def _chat_local_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=CHAT_DISPLAY_UTC_OFFSET_HOURS)
+
+
+def _format_chat_day_label(value):
+    local_time = _to_chat_local_time(value)
+    if not local_time:
+        return "-"
+
+    today = _chat_local_now().date()
+    local_date = local_time.date()
+    if local_date == today:
+        return "Hari Ini"
+    if local_date == today - timedelta(days=1):
+        return "Kemarin"
+
+    day_name = CHAT_LOCAL_DAY_NAMES[local_time.weekday()]
+    month_name = CHAT_LOCAL_MONTH_NAMES[local_time.month - 1]
+    if local_time.year == today.year:
+        return f"{day_name}, {local_time.day} {month_name}"
+    return f"{day_name}, {local_time.day} {month_name} {local_time.year}"
+
+
+def _format_presence_status(value, is_online=False):
+    if is_online:
+        return "Online sekarang"
+
+    local_time = _to_chat_local_time(value)
+    if not local_time:
+        return "Offline"
+
+    now_local = _chat_local_now()
+    delta_seconds = max(int((now_local - local_time).total_seconds()), 0)
+
+    if delta_seconds < 60:
+        return "Aktif barusan"
+    if delta_seconds < 3600:
+        minutes = max(delta_seconds // 60, 1)
+        return f"Aktif {minutes} m lalu"
+    if local_time.date() == now_local.date():
+        return f"Aktif {local_time.strftime('%H:%M')}"
+    if local_time.date() == now_local.date() - timedelta(days=1):
+        return f"Aktif kemarin {local_time.strftime('%H:%M')}"
+    return f"Aktif {local_time.strftime('%d/%m %H:%M')}"
 
 
 def _format_timestamp_label(value):
@@ -208,7 +299,7 @@ def _serialize_contact(row):
     data["is_leader"] = data.get("role") == "leader"
     data["is_same_warehouse"] = bool(data.get("is_same_warehouse"))
     data["initials"] = _get_initials(data.get("username"))
-    data["status_label"] = "Online" if data["is_online"] else "Offline"
+    data["status_label"] = _format_presence_status(data.get("last_seen_at"), data["is_online"])
     data["role_label"] = (data.get("role") or "-").replace("_", " ").title()
     data["warehouse_label"] = data.get("warehouse_name") or "Global"
     data["search_blob"] = " ".join(
@@ -412,6 +503,11 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
             item["partner_initials"] = _get_initials(group_name)
             item["partner_role_label"] = f"Grup | {item['member_count']} member"
             item["partner_warehouse_label"] = warehouse_label
+            item["partner_status_label"] = (
+                f"{item['online_count']} online"
+                if item["online_count"] > 0
+                else "Semua offline"
+            )
             item["search_blob"] = " ".join(
                 [group_name, item.get("group_description") or "", " ".join(participant.get("username") or "" for participant in participants), item["last_message_preview"]]
             ).strip()
@@ -425,6 +521,10 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
             item["partner_initials"] = partner.get("initials") or _get_initials(partner.get("username"))
             item["partner_role_label"] = partner.get("role_label") or "-"
             item["partner_warehouse_label"] = partner.get("warehouse_label") or "Global"
+            item["partner_status_label"] = _format_presence_status(
+                partner.get("last_seen_at"),
+                bool(partner.get("is_online")),
+            )
             item["search_blob"] = " ".join(
                 [item.get("partner_name") or "", item["partner_role_label"], item["partner_warehouse_label"], item["last_message_preview"]]
             ).strip()
@@ -516,6 +616,9 @@ def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
         item["is_mine"] = item.get("sender_id") == current_user_id
         item["sender_initials"] = _get_initials(item.get("sender_name"))
         item["created_label"] = _format_timestamp_label(item.get("created_at"))
+        local_time = _to_chat_local_time(item.get("created_at"))
+        item["day_key"] = local_time.strftime("%Y-%m-%d") if local_time else str(item.get("created_at") or "")[:10]
+        item["day_label"] = _format_chat_day_label(item.get("created_at"))
         item["preview"] = _build_message_preview(item, 80)
         item["sticker"] = _message_sticker_meta(item) if item["message_type"] == "sticker" else None
         item["call_label"] = "Video Call" if item.get("call_mode") == "video" else "Telp"
@@ -1720,6 +1823,7 @@ def chat_realtime():
             "partner_online": selected_thread["partner_online"],
             "partner_role_label": selected_thread["partner_role_label"],
             "partner_warehouse_label": selected_thread["partner_warehouse_label"],
+            "partner_status_label": selected_thread.get("partner_status_label"),
             "partner_phone": selected_thread.get("partner_phone"),
             "participants": selected_thread.get("participants", []),
             "member_count": selected_thread.get("member_count", 0),

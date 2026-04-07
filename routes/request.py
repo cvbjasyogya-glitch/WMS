@@ -3,8 +3,10 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
 from services.request_service import approve_request
+from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_operational_event, notify_roles, notify_user
 from services.rbac import has_permission, is_scoped_role
+from services.whatsapp_service import send_role_based_notification
 import os
 
 try:
@@ -486,18 +488,36 @@ def request_barang():
                 f"Dari: {w1['name']}\n"
                 f"Ke: {w2['name']}"
             )
+            request_policy = get_event_notification_policy("request.transfer_submitted")
             try:
                 notify_roles(
-                    ["leader", "owner", "super_admin"],
+                    request_policy["roles"],
                     subj,
                     msg,
                     warehouse_id=from_wh,
+                    usernames=request_policy["usernames"],
+                    user_ids=request_policy["user_ids"],
+                    send_whatsapp_channel=False,
                     category="request",
                     link_url="/request/",
                     source_type="warehouse_request",
                 )
             except Exception as e:
                 print("NOTIFY ERROR:", e)
+            try:
+                send_role_based_notification(
+                    "request.transfer_submitted",
+                    {
+                        "warehouse_id": from_wh,
+                        "warehouse_name": w1["name"],
+                        "target_warehouse_name": w2["name"],
+                        "requester_name": session.get("username") or "Staff",
+                        "item_count": len(items),
+                        "link_url": "/request/",
+                    },
+                )
+            except Exception as exc:
+                print("REQUEST TRANSFER WHATSAPP ERROR:", exc)
 
             flash(f"{len(items)} request berhasil dibuat", "success")
         except Exception as exc:
@@ -645,17 +665,34 @@ def request_owner_barang():
                 f"Gudang: {warehouse['name']}\n"
                 f"Item pertama: {labels[0]}"
             )
+            owner_request_policy = get_event_notification_policy("request.owner_requested")
             try:
                 notify_roles(
-                    ["owner"],
+                    owner_request_policy["roles"],
                     subject,
                     message,
+                    usernames=owner_request_policy["usernames"],
+                    user_ids=owner_request_policy["user_ids"],
+                    send_whatsapp_channel=False,
                     category="owner_request",
                     link_url="/request/owner",
                     source_type="owner_request",
                 )
             except Exception as exc:
                 print("OWNER REQUEST NOTIFY ERROR:", exc)
+            try:
+                send_role_based_notification(
+                    "request.owner_requested",
+                    {
+                        "warehouse_id": warehouse_id,
+                        "warehouse_name": warehouse["name"],
+                        "requester_name": session.get("username") or "Staff",
+                        "item_count": len(items),
+                        "link_url": "/request/owner",
+                    },
+                )
+            except Exception as exc:
+                print("OWNER REQUEST WHATSAPP ERROR:", exc)
 
             flash(f"{len(items)} request ke owner berhasil dikirim", "success")
         except Exception as exc:
@@ -787,6 +824,9 @@ def approve_request_route(id):
                     warehouse_id=updated_request["from_warehouse"],
                     category="inventory",
                     link_url="/request/",
+                    recipient_roles=("leader",),
+                    recipient_usernames=get_event_notification_policy("inventory.activity")["usernames"],
+                    recipient_user_ids=get_event_notification_policy("inventory.activity")["user_ids"],
                     source_type="warehouse_transfer",
                     source_id=str(updated_request["id"]),
                     push_title="Transfer antar gudang",

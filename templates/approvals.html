@@ -53,11 +53,11 @@
             {% for a in approvals %}
             <tr>
                 <td class="mono">#{{ a.id }}</td>
-                <td>{{ a.type }}</td>
+                <td>{{ (a.type or '-').replace('_', ' ') }}</td>
                 <td>{{ a.product_name or '-' }}</td>
                 <td>{{ a.variant_name or '-' }}</td>
                 <td>{{ a.warehouse_name or '-' }}</td>
-                <td class="mono">{{ a.qty }}</td>
+                <td class="mono">{{ a.qty if a.qty is not none else '-' }}</td>
                 <td>{{ a.note or '' }}</td>
                 <td>{{ a.requester or '-' }}</td>
                 <td class="mono">{{ a.created_at }}</td>

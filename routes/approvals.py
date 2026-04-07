@@ -1,8 +1,18 @@
 from flask import Blueprint, render_template, request, redirect, flash, session
 from database import get_db
+from services.event_notification_policy import get_event_notification_policy
 from services.stock_service import add_stock, remove_stock, adjust_stock
 from services.notification_service import notify_operational_event, notify_roles, notify_user
-from services.rbac import has_permission
+from services.product_master_approval_service import (
+    PRODUCT_DELETE_APPROVAL_TYPE,
+    PRODUCT_EDIT_APPROVAL_TYPE,
+    apply_product_delete_approval,
+    apply_product_edit_approval,
+    build_product_master_context,
+    can_approve_product_master,
+    is_product_master_approval_type,
+)
+from services.rbac import has_permission, normalize_role
 from services.whatsapp_service import send_role_based_notification
 
 approvals_bp = Blueprint("approvals", __name__, url_prefix="/approvals")
@@ -15,6 +25,15 @@ def require_leader():
     return True
 
 
+def _can_process_approval_row(approval_row):
+    if not approval_row:
+        return False
+    role = normalize_role(session.get("role"))
+    if is_product_master_approval_type(approval_row.get("type")):
+        return can_approve_product_master(role)
+    return has_permission(role, "approve_stock_ops")
+
+
 def _approval_result_link(approval_row):
     approval_type = str((approval_row or {}).get("type") or "").strip().upper()
     if approval_type == "INBOUND":
@@ -23,12 +42,17 @@ def _approval_result_link(approval_row):
         return "/outbound"
     if approval_type == "ADJUST":
         return "/stock/"
+    if is_product_master_approval_type(approval_type):
+        return "/stock/?workspace=products"
     return "/approvals"
 
 
 def _approval_item_context(db, approval_row):
     if not approval_row:
         return None
+
+    if is_product_master_approval_type(approval_row.get("type")):
+        return build_product_master_context(db, approval_row)
 
     return db.execute(
         """
@@ -48,6 +72,13 @@ def _approval_item_context(db, approval_row):
             approval_row.get("variant_id"),
         ),
     ).fetchone()
+
+
+def _approval_role_event_type(approval_row, outcome):
+    outcome = "approved" if str(outcome or "").lower() == "approved" else "rejected"
+    if is_product_master_approval_type((approval_row or {}).get("type")):
+        return f"inventory.product_approval_{outcome}"
+    return f"inventory.approval_{outcome}"
 
 
 def _emit_approval_role_notification(approval_row, *, event_type, reason=""):
@@ -139,6 +170,7 @@ def approvals_page():
         """).fetchall()
 
     approvals = [dict(r) for r in rows]
+    approvals = [approval for approval in approvals if _can_process_approval_row(approval)]
 
     return render_template("approvals.html", approvals=approvals)
 
@@ -164,6 +196,13 @@ def approve(id):
         return redirect('/approvals')
 
     a = dict(a)
+    if not _can_process_approval_row(a):
+        flash("Tidak punya akses untuk approval ini", "error")
+        return redirect("/approvals")
+
+    approval_item = _approval_item_context(db, a)
+    if approval_item:
+        approval_item = dict(approval_item)
 
     try:
         ok = False
@@ -179,13 +218,17 @@ def approve(id):
             ok = remove_stock(a['product_id'], a['variant_id'], a['warehouse_id'], a['qty'], note=a['note'] or 'Outbound approval')
         elif a['type'] == 'ADJUST':
             ok = adjust_stock(a['product_id'], a['variant_id'], a['warehouse_id'], a['qty'], note=a['note'] or 'Adjust approval')
+        elif a['type'] == PRODUCT_EDIT_APPROVAL_TYPE:
+            apply_product_edit_approval(db, a)
+            ok = True
+        elif a['type'] == PRODUCT_DELETE_APPROVAL_TYPE:
+            ok = bool(apply_product_delete_approval(db, a))
 
         if ok:
             db.execute("UPDATE approvals SET status='approved', approved_by=?, approved_at=datetime('now') WHERE id=?", (session.get('user_id'), id))
             db.commit()
 
             try:
-                approval_item = _approval_item_context(db, a)
                 if approval_item:
                     variant_label = (
                         "Default"
@@ -197,29 +240,55 @@ def approve(id):
                         (approval_item["warehouse_name"] or "").strip()
                         or f"Gudang {a.get('warehouse_id')}"
                     )
-                    notify_operational_event(
-                        f"Approval {approval_type} diproses",
-                        (
-                            f"{approval_type} untuk {approval_item['sku']} - {approval_item['product_name']} / "
-                            f"{variant_label} sebanyak {a.get('qty')} item di "
-                            f"{warehouse_label} "
-                            "sudah dijalankan."
-                        ),
-                        warehouse_id=a.get("warehouse_id"),
-                        category="inventory",
-                        link_url=_approval_result_link(a),
-                        source_type="approval_execution",
-                        source_id=str(a.get("id")),
-                        push_title=f"Approval {approval_type}",
-                        push_body=f"{approval_item['sku']} | Qty {a.get('qty')}",
-                    )
+                    if is_product_master_approval_type(a.get("type")):
+                        action_label = "hapus master produk" if a["type"] == PRODUCT_DELETE_APPROVAL_TYPE else "edit master produk"
+                        approval_policy = get_event_notification_policy(_approval_role_event_type(a, "approved"))
+                        notify_operational_event(
+                            f"Approval {approval_type} diproses",
+                            (
+                                f"{action_label.title()} untuk {approval_item['sku']} - {approval_item['product_name']}"
+                                f"{f' / {variant_label}' if variant_label and variant_label != '-' else ''}"
+                                f" di {warehouse_label} sudah dijalankan."
+                            ),
+                            warehouse_id=a.get("warehouse_id"),
+                            category="inventory",
+                            link_url=_approval_result_link(a),
+                            recipient_roles=approval_policy["roles"],
+                            recipient_usernames=approval_policy["usernames"],
+                            recipient_user_ids=approval_policy["user_ids"],
+                            source_type="approval_execution",
+                            source_id=str(a.get("id")),
+                            push_title=f"Approval {approval_type}",
+                            push_body=f"{approval_item['sku']} | {approval_item['product_name']}",
+                        )
+                    else:
+                        approval_policy = get_event_notification_policy(_approval_role_event_type(a, "approved"))
+                        notify_operational_event(
+                            f"Approval {approval_type} diproses",
+                            (
+                                f"{approval_type} untuk {approval_item['sku']} - {approval_item['product_name']} / "
+                                f"{variant_label} sebanyak {a.get('qty')} item di "
+                                f"{warehouse_label} "
+                                "sudah dijalankan."
+                            ),
+                            warehouse_id=a.get("warehouse_id"),
+                            category="inventory",
+                            link_url=_approval_result_link(a),
+                            recipient_roles=approval_policy["roles"],
+                            recipient_usernames=approval_policy["usernames"],
+                            recipient_user_ids=approval_policy["user_ids"],
+                            source_type="approval_execution",
+                            source_id=str(a.get("id")),
+                            push_title=f"Approval {approval_type}",
+                            push_body=f"{approval_item['sku']} | Qty {a.get('qty')}",
+                        )
             except Exception as exc:
                 print("APPROVAL EXECUTION NOTIFICATION ERROR:", exc)
 
             try:
                 _emit_approval_role_notification(
                     a,
-                    event_type="inventory.approval_approved",
+                    event_type=_approval_role_event_type(a, "approved"),
                 )
             except Exception as exc:
                 print("APPROVAL WHATSAPP ROLE NOTIFICATION ERROR:", exc)
@@ -252,7 +321,7 @@ def approve(id):
             try:
                 _emit_approval_role_notification(
                     a,
-                    event_type="inventory.approval_rejected",
+                    event_type=_approval_role_event_type(a, "rejected"),
                     reason="gagal diproses",
                 )
             except Exception as exc:
@@ -288,7 +357,7 @@ def approve(id):
             try:
                 _emit_approval_role_notification(
                     a,
-                    event_type="inventory.approval_rejected",
+                    event_type=_approval_role_event_type(a, "rejected"),
                     reason="error sistem",
                 )
             except Exception as exc:
@@ -315,6 +384,9 @@ def reject(id):
         a = dict(a)
         requester = db.execute("SELECT username FROM users WHERE id=?", (a.get("requested_by"),)).fetchone()
         a["requester_name"] = requester["username"] if requester else ""
+    if a and not _can_process_approval_row(a):
+        flash("Tidak punya akses untuk approval ini", "error")
+        return redirect('/approvals')
     if role == 'leader' and session.get('warehouse_id') and a and a['warehouse_id'] != session.get('warehouse_id'):
         flash('Tidak punya akses untuk approval ini', 'error')
         return redirect('/approvals')
@@ -324,7 +396,7 @@ def reject(id):
     try:
         _emit_approval_role_notification(
             a,
-            event_type="inventory.approval_rejected",
+            event_type=_approval_role_event_type(a, "rejected"),
             reason=reason,
         )
     except Exception as exc:

@@ -409,6 +409,37 @@ function roundPosMoney(value) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
+function getPosCurrencyRaw(input) {
+    if (!input) {
+        return "";
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getRawValue(input);
+    }
+    return String(input.value || "").trim();
+}
+
+function getPosCurrencyValue(input) {
+    if (!input) {
+        return 0;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getNumericValue(input);
+    }
+    return Number(input.value || 0);
+}
+
+function setPosCurrencyValue(input, value) {
+    if (!input) {
+        return;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        window.wmsCurrencyInput.setValue(input, value);
+        return;
+    }
+    input.value = value === null || value === undefined ? "" : String(value);
+}
+
 function normalizePosAdjustmentType(value) {
     return String(value || "").toLowerCase() === "percent" ? "percent" : "amount";
 }
@@ -442,11 +473,11 @@ function getPosAdjustmentAmount(baseAmount, adjustmentType, rawValue, { clampToB
 function getPosTotals() {
     const subtotal = getPosSubtotal();
     const discountType = normalizePosAdjustmentType(posDiscountType?.value);
-    const discountValue = Number(posDiscountInput?.value || 0);
+    const discountValue = getPosCurrencyValue(posDiscountInput);
     const discountAmount = getPosAdjustmentAmount(subtotal, discountType, discountValue, { clampToBase: true });
     const taxableBase = Math.max(roundPosMoney(subtotal - discountAmount), 0);
     const taxType = normalizePosAdjustmentType(posTaxType?.value);
-    const taxValue = Number(posTaxInput?.value || 0);
+    const taxValue = getPosCurrencyValue(posTaxInput);
     const taxAmount = getPosAdjustmentAmount(taxableBase, taxType, taxValue);
     const grandTotal = roundPosMoney(taxableBase + taxAmount);
     const totalItems = posCart.reduce((total, item) => total + Number(item.qty || 0), 0);
@@ -572,17 +603,17 @@ function renderPosDraft() {
 
     if (!hasSelection) {
         posDraftDisplay.textContent = "Belum ada barang dipilih";
-        posDraftMeta.textContent = "Buka daftar item, pilih varian, lalu atur jumlah dan harga jual.";
+        posDraftMeta.textContent = "Buka daftar item, pilih varian, lalu atur jumlah. Harga retail akan masuk otomatis dan bisa diubah di keranjang.";
         posDraftQty.value = "";
-        posDraftPrice.value = "";
+        setPosCurrencyValue(posDraftPrice, "");
         setPosDraftStockState(0);
         return;
     }
 
     posDraftDisplay.textContent = `${posDraft.sku} - ${posDraft.name}`;
-    posDraftMeta.textContent = `${posDraft.variant_label} | ${posDraft.category || "Tanpa kategori"} | GTIN ${posDraft.gtin || "-"}`;
+    posDraftMeta.textContent = `${posDraft.variant_label} | ${posDraft.category || "Tanpa kategori"} | GTIN ${posDraft.gtin || "-"} | Ubah harga jual nanti di keranjang.`;
     posDraftQty.value = posDraftQty.value || "1";
-    posDraftPrice.value = posDraft.unit_price > 0 ? String(posDraft.unit_price) : "";
+    setPosCurrencyValue(posDraftPrice, posDraft.unit_price > 0 ? posDraft.unit_price : "");
     setPosDraftStockState(posDraft.stock);
 }
 
@@ -601,7 +632,7 @@ function resetPosDraft() {
 
 function updatePosChangePreview() {
     const grandTotal = getPosTotals().grandTotal;
-    const paidAmount = Number(posPaidAmount.value || 0);
+    const paidAmount = getPosCurrencyValue(posPaidAmount);
     const changeAmount = Math.max(paidAmount - grandTotal, 0);
     posChangeAmount.textContent = formatPosCurrency(changeAmount);
     if (posChangeAmountMirror) {
@@ -658,7 +689,12 @@ function renderPosCart() {
                         </div>
                     </td>
                     <td>PCS</td>
-                    <td>${formatPosCurrency(item.unit_price)}</td>
+                    <td>
+                        <label class="pos-cart-price-editor" aria-label="Harga jual item ${index + 1}">
+                            <input type="number" min="0" step="0.01" value="${item.unit_price}" data-pos-price-index="${index}" class="pos-inline-price" data-wms-currency="currency">
+                            <small>Retail ${formatPosCurrency(item.retail_price || item.unit_price || 0)}</small>
+                        </label>
+                    </td>
                     <td><strong>${formatPosCurrency(lineTotal)}</strong></td>
                     <td><button type="button" class="danger-button" data-pos-remove-index="${index}">Hapus</button></td>
                 </tr>
@@ -680,8 +716,8 @@ function renderPosCart() {
         posTaxValue.textContent = formatPosCurrency(totals.taxAmount);
     }
 
-    if (!Number(posPaidAmount.value || 0) && totals.grandTotal > 0) {
-        posPaidAmount.value = String(totals.grandTotal);
+    if (!getPosCurrencyValue(posPaidAmount) && totals.grandTotal > 0) {
+        setPosCurrencyValue(posPaidAmount, totals.grandTotal);
     }
 
     updatePosChangePreview();
@@ -694,7 +730,7 @@ function fillPosDraftFromItem(item) {
     posDraft.name = item.name || "";
     posDraft.variant_label = item.variant_label || "Default";
     posDraft.stock = Number(item.qty || 0);
-    posDraft.unit_price = Number(item.price_nett || item.price_discount || item.price_retail || 0);
+    posDraft.unit_price = Number(item.price_retail || 0);
     posDraft.category = item.category || "";
     posDraft.gtin = item.gtin || "";
     renderPosDraft();
@@ -718,12 +754,6 @@ function validatePosDraft() {
         return false;
     }
 
-    const unitPrice = Number(posDraftPrice.value || 0);
-    if (unitPrice <= 0) {
-        alert("Harga jual wajib diisi.");
-        return false;
-    }
-
     return true;
 }
 
@@ -731,7 +761,7 @@ function addPosDraftToCart() {
     if (!validatePosDraft()) return;
 
     const qty = Number(posDraftQty.value || 0);
-    const unitPrice = Number(posDraftPrice.value || 0);
+    const unitPrice = getPosCurrencyValue(posDraftPrice);
     const key = `${posDraft.product_id}-${posDraft.variant_id}`;
     const existingIndex = posCart.findIndex((item) => item.key === key);
     const existing = existingIndex >= 0 ? posCart[existingIndex] : null;
@@ -743,7 +773,7 @@ function addPosDraftToCart() {
             return;
         }
         existing.qty = nextQty;
-        existing.unit_price = unitPrice;
+        existing.retail_price = unitPrice || existing.retail_price || existing.unit_price || 0;
     } else {
         posCart.push({
             key,
@@ -754,6 +784,7 @@ function addPosDraftToCart() {
             variant_label: posDraft.variant_label,
             qty,
             unit_price: unitPrice,
+            retail_price: unitPrice,
             stock: posDraft.stock,
         });
     }
@@ -769,7 +800,7 @@ function quickAddCatalogItem(index) {
 
     fillPosDraftFromItem(item);
     posDraftQty.value = "1";
-    posDraftPrice.value = posDraft.unit_price > 0 ? String(posDraft.unit_price) : "";
+    setPosCurrencyValue(posDraftPrice, posDraft.unit_price > 0 ? posDraft.unit_price : "");
     addPosDraftToCart();
     closePosCatalogPicker();
 }
@@ -781,7 +812,7 @@ function renderPosCatalog() {
     }
 
     posCatalogGrid.innerHTML = posCatalog.items.map((item, index) => {
-        const price = Number(item.price_nett || item.price_discount || item.price_retail || 0);
+        const price = Number(item.price_retail || 0);
         const qty = Number(item.qty || 0);
         const isActive = posDraft.product_id === Number(item.product_id || 0) && posDraft.variant_id === Number(item.variant_id || 0);
         const stockBadgeClass = qty <= 0 ? "red" : qty < 5 ? "orange" : "green";
@@ -871,7 +902,7 @@ function checkoutPosTransaction() {
         discount_value: totals.discountValue,
         tax_type: totals.taxType,
         tax_value: totals.taxValue,
-        paid_amount: Number(posPaidAmount.value || 0),
+        paid_amount: getPosCurrencyValue(posPaidAmount),
         note: posNote.value,
         items: posCart.map((item) => ({
             product_id: item.product_id,
@@ -981,31 +1012,44 @@ function updateQtyFromCart(index, nextQty) {
     setPosCartFocusedIndex(index);
 }
 
+function updatePriceFromCart(index, nextPrice) {
+    if (Number.isNaN(index) || !posCart[index]) return;
+
+    let price = Number(nextPrice || 0);
+    if (!Number.isFinite(price) || price < 0) {
+        price = 0;
+    }
+
+    posCart[index].unit_price = roundPosMoney(price);
+    renderPosCart();
+    setPosCartFocusedIndex(index);
+}
+
 function applyPaidShortcut(shortcut) {
     const grandTotal = getPosGrandTotal();
-    const current = Number(posPaidAmount.value || 0);
+    const current = getPosCurrencyValue(posPaidAmount);
 
     if (shortcut === "clear") {
-        posPaidAmount.value = "";
+        setPosCurrencyValue(posPaidAmount, "");
         updatePosChangePreview();
         return;
     }
 
     if (shortcut === "exact") {
-        posPaidAmount.value = String(grandTotal);
+        setPosCurrencyValue(posPaidAmount, grandTotal);
         updatePosChangePreview();
         return;
     }
 
     if (shortcut === "round") {
         const rounded = grandTotal <= 0 ? 0 : Math.ceil(grandTotal / 10000) * 10000;
-        posPaidAmount.value = String(rounded);
+        setPosCurrencyValue(posPaidAmount, rounded);
         updatePosChangePreview();
         return;
     }
 
     const increment = Number(shortcut || 0);
-    posPaidAmount.value = String(current + increment);
+    setPosCurrencyValue(posPaidAmount, current + increment);
     updatePosChangePreview();
 }
 
@@ -1020,11 +1064,19 @@ function applyPosKey(key) {
     const input = posKeypadTarget === "paid" ? posPaidAmount : posDraftQty;
     if (!input) return;
 
-    if (key === "backspace") {
-        input.value = String(input.value || "").slice(0, -1);
+    if (posKeypadTarget === "paid" && window.wmsCurrencyInput?.isManagedInput(input)) {
+        const baseValue = getPosCurrencyRaw(input);
+        const nextRaw = key === "backspace"
+            ? baseValue.slice(0, -1)
+            : `${baseValue}${key}`.replace(/^0+(?=\d)/, "");
+        setPosCurrencyValue(input, nextRaw);
     } else {
-        const baseValue = String(input.value || "");
-        input.value = `${baseValue}${key}`.replace(/^0+(?=\d)/, "");
+        if (key === "backspace") {
+            input.value = String(input.value || "").slice(0, -1);
+        } else {
+            const baseValue = String(input.value || "");
+            input.value = `${baseValue}${key}`.replace(/^0+(?=\d)/, "");
+        }
     }
 
     if (posKeypadTarget === "paid") {
@@ -1262,15 +1314,22 @@ posCartBody.addEventListener("click", (event) => {
 
 posCartBody.addEventListener("input", (event) => {
     const qtyInput = event.target.closest("[data-pos-qty-index]");
-    if (!qtyInput) return;
-    const index = Number(qtyInput.dataset.posQtyIndex);
-    updateQtyFromCart(index, Number(qtyInput.value || 0));
+    if (qtyInput) {
+        const index = Number(qtyInput.dataset.posQtyIndex);
+        updateQtyFromCart(index, Number(qtyInput.value || 0));
+        return;
+    }
+
+    const priceInput = event.target.closest("[data-pos-price-index]");
+    if (!priceInput) return;
+    const index = Number(priceInput.dataset.posPriceIndex);
+    updatePriceFromCart(index, getPosCurrencyValue(priceInput));
 });
 
 posCartBody.addEventListener("focusin", (event) => {
-    const qtyInput = event.target.closest("[data-pos-qty-index]");
-    if (!qtyInput) return;
-    const index = Number(qtyInput.dataset.posQtyIndex);
+    const focusTarget = event.target.closest("[data-pos-qty-index], [data-pos-price-index]");
+    if (!focusTarget) return;
+    const index = Number(focusTarget.dataset.posQtyIndex || focusTarget.dataset.posPriceIndex);
     if (!Number.isNaN(index)) {
         posCartFocusedIndex = index;
     }

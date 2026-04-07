@@ -13,6 +13,10 @@ import zipfile
 import init_db as init_db_module
 import services.notification_service as notification_service
 import services.whatsapp_service as whatsapp_service
+from services.event_notification_policy import (
+    get_event_notification_policy,
+    save_event_notification_policy,
+)
 from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
@@ -1122,6 +1126,80 @@ class WmsRoutesTestCase(unittest.TestCase):
                 ("hr", "6281299900011", "sent"),
                 ("owner", "6281234567890", "sent"),
             },
+        )
+
+    def test_role_based_whatsapp_notification_supports_named_user_overrides(self):
+        self.create_user(
+            "owner_attendance_policy",
+            "pass1234",
+            "owner",
+            phone="081200000001",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "hr_attendance_policy",
+            "pass1234",
+            "hr",
+            phone="081200000002",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "Akmal",
+            "pass1234",
+            "super_admin",
+            phone="081200000003",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "Rio",
+            "pass1234",
+            "super_admin",
+            phone="081200000004",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "super_lain",
+            "pass1234",
+            "super_admin",
+            phone="081200000005",
+            notify_whatsapp=1,
+        )
+        self.create_user(
+            "leader_attendance_policy",
+            "pass1234",
+            "leader",
+            warehouse_id=1,
+            phone="081200000006",
+            notify_whatsapp=1,
+        )
+
+        with self.app.app_context():
+            with patch(
+                "services.whatsapp_service.send_whatsapp_text",
+                side_effect=lambda target, message: {
+                    "ok": True,
+                    "provider": "kirimi",
+                    "receiver": target,
+                    "error": "",
+                },
+            ) as mocked_send:
+                result = whatsapp_service.send_role_based_notification(
+                    "attendance.activity",
+                    {
+                        "warehouse_id": 1,
+                        "employee_name": "Portal Attendance Notify",
+                        "warehouse_name": "Gudang Mataram",
+                        "punch_label": "Check In",
+                        "time_label": "07:58",
+                        "location_label": "Gudang Mataram - Gerbang Timur",
+                    },
+                )
+
+        sent_recipients = {call.args[0] for call in mocked_send.call_args_list}
+        self.assertEqual(len(result["deliveries"]), 4)
+        self.assertEqual(
+            sent_recipients,
+            {"6281200000001", "6281200000002", "6281200000003", "6281200000004"},
         )
 
     def test_schedule_page_opens_coordination_sidebar_group(self):
@@ -2656,6 +2734,50 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(realtime_after_payload["unread_total"], 0)
         self.assertEqual(realtime_after_payload["incoming"], [])
         self.assertEqual(realtime_after_payload["threads"][0]["unread_count"], 0)
+
+    def test_chat_realtime_selected_thread_exposes_presence_and_timeline_metadata(self):
+        self.create_user("leader_chat_meta", "pass1234", "leader", warehouse_id=1)
+        self.create_user("staff_chat_meta", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("leader_chat_meta")
+        self.login("staff_chat_meta", "pass1234")
+
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        send_message = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            json={"message": "Cek jadwal live sore ini ya."},
+            follow_redirects=False,
+        )
+        self.assertEqual(send_message.status_code, 200)
+
+        self.logout()
+        self.login("leader_chat_meta", "pass1234")
+
+        page = self.client.get(f"/chat/?thread={thread_id}")
+        self.assertEqual(page.status_code, 200)
+        page_html = page.get_data(as_text=True)
+        self.assertIn('id="chatSyncBadge"', page_html)
+        self.assertIn('"messages":', page_html)
+
+        realtime_response = self.client.get(
+            f"/chat/realtime?selected_thread_id={thread_id}&after_message_id=0&include_threads=1",
+            follow_redirects=False,
+        )
+        self.assertEqual(realtime_response.status_code, 200)
+        realtime_payload = realtime_response.get_json()
+        self.assertEqual(realtime_payload["status"], "ok")
+        self.assertIn("selected_thread", realtime_payload)
+        self.assertTrue(realtime_payload["selected_thread"]["partner_status_label"])
+        self.assertTrue(realtime_payload["selected_thread"]["messages"])
+        self.assertIn("day_label", realtime_payload["selected_thread"]["messages"][0])
+        self.assertIn("day_key", realtime_payload["selected_thread"]["messages"][0])
 
     def test_chat_widget_launcher_and_bootstrap_render_for_chat_users(self):
         self.create_user("leader_widget", "pass1234", "leader", warehouse_id=1)
@@ -6123,7 +6245,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         actor_notifications = self.client.get("/notifications/api?filter=all&limit=10")
         self.assertEqual(actor_notifications.status_code, 200)
         actor_payload = actor_notifications.get_json()
-        self.assertTrue(
+        self.assertFalse(
             any(
                 item["category"] == "attendance"
                 and item["title"] == "Absensi Check In: Portal Attendance Notify"
@@ -6179,6 +6301,71 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
         self.assertEqual(mocked_role_notify.call_args.args[1]["employee_name"], "Portal Attendance WA")
         self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/absen/")
+
+    def test_attendance_break_finish_notification_includes_break_duration(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-BREAK-NOTIFY",
+            full_name="Portal Break Notify",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_break_notify", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_break_notify", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:58",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.2",
+                "punch_time": f"{today}T12:00",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with patch("routes.attendance_portal.notify_operational_event") as mocked_operational_notify, patch(
+            "routes.attendance_portal.send_role_based_notification"
+        ) as mocked_role_notify:
+            submit_response = self.client.post(
+                "/absen/submit",
+                data={
+                    "punch_type": "break_finish",
+                    "location_label": "Gudang Mataram - Kembali",
+                    "latitude": "-8.583140",
+                    "longitude": "116.116798",
+                    "accuracy_m": "5.9",
+                    "punch_time": f"{today}T12:43",
+                    "photo_data_url": self.build_camera_photo_data_url(),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        mocked_operational_notify.assert_called_once()
+        mocked_role_notify.assert_called_once()
+        self.assertIn("Durasi istirahat:", mocked_operational_notify.call_args.args[1])
+        self.assertIn("43 menit", mocked_operational_notify.call_args.args[1])
+        payload = mocked_role_notify.call_args.args[1]
+        self.assertEqual(payload["duration_kind"], "break")
+        self.assertEqual(payload["duration_label"], "43 menit")
+        self.assertIn("Durasi istirahat: 43 menit.", payload["duration_text"])
 
     def test_attendance_portal_requires_detail_when_location_scope_is_other(self):
         employee_id = self.create_employee_record(
@@ -6997,6 +7184,84 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["check_in"], "07:50")
         self.assertEqual(attendance["check_out"], "17:10")
         self.assertEqual(attendance["status"], "present")
+
+    def test_attendance_check_out_notification_includes_effective_work_duration(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-WORK-NOTIFY",
+            full_name="Portal Work Notify",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_work_notify", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_work_notify", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:50",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T12:00",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_finish",
+                "location_label": "Gudang Mataram - Kembali",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.2",
+                "punch_time": f"{today}T12:30",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with patch("routes.attendance_portal.notify_operational_event") as mocked_operational_notify, patch(
+            "routes.attendance_portal.send_role_based_notification"
+        ) as mocked_role_notify:
+            submit_response = self.client.post(
+                "/absen/submit",
+                data={
+                    "punch_type": "check_out",
+                    "location_label": "Gudang Mataram - Pulang",
+                    "latitude": "-8.583140",
+                    "longitude": "116.116798",
+                    "accuracy_m": "5.4",
+                    "punch_time": f"{today}T17:10",
+                    "photo_data_url": self.build_camera_photo_data_url(),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        mocked_operational_notify.assert_called_once()
+        mocked_role_notify.assert_called_once()
+        self.assertIn("Durasi kerja efektif:", mocked_operational_notify.call_args.args[1])
+        self.assertIn("8 jam 50 menit", mocked_operational_notify.call_args.args[1])
+        payload = mocked_role_notify.call_args.args[1]
+        self.assertEqual(payload["duration_kind"], "work")
+        self.assertEqual(payload["duration_label"], "8 jam 50 menit")
+        self.assertIn("Durasi kerja efektif: 8 jam 50 menit.", payload["duration_text"])
 
     def test_attendance_portal_treats_exactly_ten_minutes_after_shift_start_as_present(self):
         employee_id = self.create_employee_record(
@@ -8000,6 +8265,95 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(updated["status"], "follow_up")
         self.assertEqual(updated["hr_note"], "Lengkapi detail manpower shift berikutnya.")
         self.assertIsNotNone(updated["handled_by"])
+
+    def test_daily_report_status_update_triggers_classified_role_notification(self):
+        self.create_user("staff_report_status", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_report_status", "pass1234")
+        self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "live",
+                "report_date": "2026-09-06",
+                "title": "Live sore marketplace",
+                "summary": "Live selesai sesuai target.",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                "SELECT id FROM daily_live_reports WHERE title=?",
+                ("Live sore marketplace",),
+            ).fetchone()
+
+        self.logout()
+        self.login_hr_user("hr_report_status_policy", "pass1234")
+        with patch("routes.hris.send_role_based_notification") as mocked_role_notify:
+            response = self.client.post(
+                f"/hris/report/daily-live/update/{report['id']}",
+                data={"status": "follow_up", "hr_note": "Mohon tambahkan jam manpower."},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "report.status_rejected")
+
+    def test_leave_rejected_triggers_classified_role_notification(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVREJ",
+            full_name="Portal Leave Reject",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_leave_reject", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_leave_reject", "pass1234")
+        self.client.post(
+            "/libur/submit",
+            data={
+                "leave_type": "annual",
+                "start_date": "2026-09-14",
+                "end_date": "2026-09-15",
+                "reason": "Keperluan keluarga",
+                "note": "Mohon review",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            leave_request = db.execute(
+                """
+                SELECT id
+                FROM leave_requests
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.logout()
+        self.login_hr_user("hr_leave_reject_policy", "pass1234")
+        with patch("routes.hris.send_role_based_notification") as mocked_role_notify:
+            response = self.client.post(
+                f"/hris/leave/update/{leave_request['id']}",
+                data={
+                    "employee_id": str(employee_id),
+                    "leave_type": "annual",
+                    "start_date": "2026-09-14",
+                    "end_date": "2026-09-15",
+                    "status": "rejected",
+                    "reason": "Keperluan keluarga",
+                    "note": "Tanggal bentrok dengan kebutuhan gudang",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "leave.status_rejected")
 
     def test_daily_report_portal_rejects_attachment_for_non_live_report(self):
         self.create_user("ops_daily_plain", "pass1234", "staff", warehouse_id=1)
@@ -9064,7 +9418,6 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/approvals")
 
     def test_inventory_activity_notifications_reach_monitoring_roles(self):
-        self.create_user("owner_inventory_monitor", "pass1234", "owner")
         self.create_user("leader_inventory_notify", "pass1234", "leader", warehouse_id=1)
 
         self.login()
@@ -9112,9 +9465,6 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(outbound_response.status_code, 302)
-        self.logout()
-
-        self.login("owner_inventory_monitor", "pass1234")
         notification_response = self.client.get("/notifications/api?filter=all&limit=10")
         self.assertEqual(notification_response.status_code, 200)
         payload = notification_response.get_json()
@@ -9357,8 +9707,6 @@ class WmsRoutesTestCase(unittest.TestCase):
             recipients,
             {
                 ("leader", "leader_mega@example.com"),
-                ("owner", "owner_request@example.com"),
-                ("super_admin", "super_request@example.com"),
             },
         )
 
@@ -9437,9 +9785,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(notifications[0]["recipient"], "owner_notify@example.com")
 
     def test_bulk_delete_product_cleans_related_wms_records(self):
+        self.create_user("leader_product_delete", "pass1234", "leader", warehouse_id=1)
+        self.create_user("admin_product_delete", "pass1234", "admin", warehouse_id=1)
         self.login()
         _, product_id, variants_rows = self.create_product(variants="DEL")
         variant_id = variants_rows[0]["id"]
+        self.logout()
 
         with self.app.app_context():
             db = get_db()
@@ -9476,13 +9827,56 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
             db.commit()
 
-        response = self.client.post(
-            "/products/bulk-delete",
-            json={"ids": [product_id]},
-            follow_redirects=False,
-        )
+        self.login("admin_product_delete", "pass1234")
+        with patch("routes.products.send_role_based_notification") as mocked_role_notify:
+            response = self.client.post(
+                "/products/bulk-delete",
+                json={"ids": [product_id]},
+                follow_redirects=False,
+            )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["status"], "success")
+        self.assertEqual(response.get_json()["approval_status"], "pending")
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(
+            mocked_role_notify.call_args.args[0],
+            "inventory.product_delete_approval_requested",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                """
+                SELECT id, status, type
+                FROM approvals
+                WHERE product_id=? AND type=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, "PRODUCT_DELETE"),
+            ).fetchone()
+            product_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id=?",
+                (product_id,),
+            ).fetchone()[0]
+
+        self.assertIsNotNone(approval)
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual(approval["type"], "PRODUCT_DELETE")
+        self.assertEqual(product_count, 1)
+
+        self.logout()
+        self.login("leader_product_delete", "pass1234")
+        with patch("routes.approvals.send_role_based_notification") as mocked_approval_notify:
+            approve_response = self.client.post(
+                f"/approvals/approve/{approval['id']}",
+                follow_redirects=False,
+            )
+        self.assertEqual(approve_response.status_code, 302)
+        self.assertEqual(
+            mocked_approval_notify.call_args.args[0],
+            "inventory.product_approval_approved",
+        )
 
         with self.app.app_context():
             db = get_db()
@@ -9501,7 +9895,68 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(product_count, 0)
         self.assertEqual(request_count, 0)
-        self.assertEqual(approval_count, 0)
+        self.assertEqual(approval_count, 1)
+
+    def test_bulk_delete_product_reuses_existing_pending_delete_approval(self):
+        self.create_user("leader_product_delete_existing", "pass1234", "leader", warehouse_id=1)
+        self.create_user("admin_product_delete_existing", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        _, first_product_id, _ = self.create_product(sku="DEL-PENDING-001", variants="DEL-A")
+        _, second_product_id, _ = self.create_product(sku="DEL-PENDING-002", variants="DEL-B")
+        self.logout()
+
+        self.login("admin_product_delete_existing", "pass1234")
+        first_response = self.client.post(
+            "/products/bulk-delete",
+            json={"ids": [first_product_id]},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_response.status_code, 200)
+        first_payload = first_response.get_json()
+        self.assertEqual(first_payload["status"], "success")
+        self.assertEqual(first_payload["approval_status"], "pending")
+        self.assertEqual(len(first_payload["approval_ids"]), 1)
+        existing_approval_id = first_payload["approval_ids"][0]
+
+        with patch("routes.products.send_role_based_notification") as mocked_role_notify:
+            second_response = self.client.post(
+                "/products/bulk-delete",
+                json={"ids": [first_product_id, second_product_id]},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(second_response.status_code, 200)
+        second_payload = second_response.get_json()
+        self.assertEqual(second_payload["status"], "success")
+        self.assertEqual(second_payload["approval_status"], "pending")
+        self.assertTrue(second_payload["approval_existing"])
+        self.assertEqual(len(second_payload["approval_ids"]), 2)
+        self.assertIn(existing_approval_id, second_payload["approval_ids"])
+        self.assertIn("sudah punya approval pending", second_payload["message"])
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(
+            mocked_role_notify.call_args.args[0],
+            "inventory.product_delete_approval_requested",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            approval_rows = db.execute(
+                """
+                SELECT product_id, COUNT(*) AS approval_count
+                FROM approvals
+                WHERE type='PRODUCT_DELETE' AND product_id IN (?, ?)
+                GROUP BY product_id
+                ORDER BY product_id
+                """,
+                (first_product_id, second_product_id),
+            ).fetchall()
+
+        self.assertEqual(len(approval_rows), 2)
+        self.assertEqual(approval_rows[0]["product_id"], first_product_id)
+        self.assertEqual(approval_rows[0]["approval_count"], 1)
+        self.assertEqual(approval_rows[1]["product_id"], second_product_id)
+        self.assertEqual(approval_rows[1]["approval_count"], 1)
 
     def test_owner_can_update_owner_request_status_and_notify_requester(self):
         self.create_user("owner_manager", "pass1234", "owner")
@@ -10414,13 +10869,89 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("ditolak", mocked_notify_user.call_args.args[1].lower())
         self.assertIn("stok tidak sesuai", mocked_notify_user.call_args.args[2].lower())
 
-    def test_role_event_mapping_includes_super_admin_for_attendance_and_approval_events(self):
-        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["attendance.activity"])
-        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.inbound_approval_requested"])
-        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.outbound_approval_requested"])
-        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.adjust_approval_requested"])
-        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.approval_approved"])
-        self.assertIn("super_admin", whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.approval_rejected"])
+    def test_role_event_mapping_matches_notification_classification(self):
+        self.assertEqual(set(whatsapp_service.ROLE_EVENT_RECIPIENTS["attendance.activity"]), {"owner", "hr"})
+        self.assertEqual(set(whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.inbound_approval_requested"]), {"leader"})
+        self.assertEqual(set(whatsapp_service.ROLE_EVENT_RECIPIENTS["inventory.approval_approved"]), {"leader", "admin"})
+        self.assertEqual(set(whatsapp_service.ROLE_EVENT_RECIPIENTS["report.status_approved"]), {"hr", "leader", "admin"})
+        self.assertEqual(set(whatsapp_service.ROLE_EVENT_RECIPIENTS["leave.status_rejected"]), {"hr", "leader", "admin"})
+        self.assertIn("rio", get_event_notification_policy("inventory.approval_approved")["usernames"])
+        self.assertIn("akmal", get_event_notification_policy("attendance.activity")["usernames"])
+        self.assertIn("edi", get_event_notification_policy("report.live_submitted")["usernames"])
+
+    def test_notify_operational_event_uses_custom_notification_policy_user_override(self):
+        self.create_user("owner_ops_policy", "pass1234", "owner")
+        self.create_user("watch_staff_policy", "pass1234", "staff", warehouse_id=1)
+        watcher_id = self.get_user_id("watch_staff_policy")
+
+        with self.app.app_context():
+            save_event_notification_policy(
+                "attendance.activity",
+                roles=[],
+                user_ids=[watcher_id],
+                updated_by=self.get_user_id("owner_ops_policy"),
+            )
+            policy = get_event_notification_policy("attendance.activity")
+
+            notification_service.notify_operational_event(
+                "Absen Uji Override",
+                "Override penerima attendance dari admin panel.",
+                warehouse_id=1,
+                include_actor=False,
+                recipient_roles=policy["roles"],
+                recipient_usernames=policy["usernames"],
+                recipient_user_ids=policy["user_ids"],
+                category="attendance",
+                link_url="/absen/",
+                source_type="test_policy_override",
+                source_id="attendance-override",
+            )
+
+            rows = get_db().execute(
+                "SELECT user_id FROM web_notifications WHERE source_id=? ORDER BY id ASC",
+                ("attendance-override",),
+            ).fetchall()
+
+        self.assertEqual([row["user_id"] for row in rows], [watcher_id])
+
+    def test_send_role_based_notification_uses_custom_notification_policy_user_override(self):
+        self.create_user("owner_wa_policy", "pass1234", "owner")
+        self.create_user(
+            "policy_supervisor",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            phone="628123450001",
+            notify_whatsapp=1,
+        )
+        watcher_id = self.get_user_id("policy_supervisor")
+
+        with self.app.app_context():
+            save_event_notification_policy(
+                "request.owner_requested",
+                roles=[],
+                user_ids=[watcher_id],
+                updated_by=self.get_user_id("owner_wa_policy"),
+            )
+            with patch("services.whatsapp_service.send_whatsapp_text") as mock_send:
+                mock_send.return_value = {
+                    "ok": True,
+                    "provider": "test",
+                    "receiver": "628123450001",
+                    "error": "",
+                }
+                result = whatsapp_service.send_role_based_notification(
+                    "request.owner_requested",
+                    {
+                        "warehouse_id": 1,
+                        "warehouse_name": "Gudang Mataram",
+                        "requester_name": "Admin Uji",
+                    },
+                )
+
+        self.assertEqual(len(result["deliveries"]), 1)
+        self.assertEqual(result["deliveries"][0]["user_id"], watcher_id)
+        self.assertEqual(result["deliveries"][0]["phone"], "628123450001")
 
     def test_leader_bulk_adjust_rejects_zero_qty(self):
         self.create_user("leader_zero", "pass1234", "leader", warehouse_id=1)
@@ -10861,6 +11392,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(update_detail_response.get_json()["status"], "error")
 
     def test_manage_product_master_can_update_detail_from_stock_context(self):
+        self.create_user("leader_master_editor", "pass1234", "leader", warehouse_id=1)
         self.login()
         response, product_id, variants_rows = self.create_product(
             sku="CTX-EDIT-001",
@@ -10869,6 +11401,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         variant_id = variants_rows[0]["id"]
+        self.logout()
+        self.login("leader_master_editor", "pass1234")
 
         update_response = self.client.post(
             "/stock/update-detail",
@@ -10918,6 +11452,312 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(updated_row["price_retail"], 250000)
         self.assertEqual(updated_row["price_discount"], 220000)
         self.assertEqual(updated_row["price_nett"], 199000)
+
+    def test_admin_product_detail_update_creates_pending_approval_and_leader_can_approve(self):
+        self.create_user("leader_product_edit", "pass1234", "leader", warehouse_id=1)
+        self.create_user("admin_product_edit", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CTX-PENDING-001",
+            variants="CTX-41",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.login("admin_product_edit", "pass1234")
+        with patch("routes.stock.send_role_based_notification") as mocked_role_notify:
+            update_response = self.client.post(
+                "/stock/update-detail",
+                data={
+                    "product_id": str(product_id),
+                    "variant_id": str(variant_id),
+                    "sku": "CTX-PENDING-UPDATED",
+                    "name": "Produk Pending Update",
+                    "category_name": "Sepatu Premium",
+                    "variant": "CTX-44",
+                    "price_retail": "255000",
+                    "price_discount": "221000",
+                    "price_nett": "200000",
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["approval_status"], "pending")
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(
+            mocked_role_notify.call_args.args[0],
+            "inventory.product_edit_approval_requested",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                """
+                SELECT id, status, type, payload
+                FROM approvals
+                WHERE product_id=? AND variant_id=? AND type=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id, "PRODUCT_EDIT"),
+            ).fetchone()
+            unchanged_row = db.execute(
+                """
+                SELECT p.sku, p.name, v.variant
+                FROM products p
+                JOIN product_variants v ON v.product_id = p.id
+                WHERE p.id=? AND v.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertIsNotNone(approval)
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual(approval["type"], "PRODUCT_EDIT")
+        self.assertEqual(unchanged_row["sku"], "CTX-PENDING-001")
+        self.assertEqual(unchanged_row["name"], "Produk Uji")
+        self.assertEqual(unchanged_row["variant"], "CTX-41")
+        approval_payload = json.loads(approval["payload"])
+        self.assertEqual(approval_payload["target"]["sku"], "CTX-PENDING-UPDATED")
+        self.assertEqual(approval_payload["target"]["name"], "Produk Pending Update")
+
+        self.logout()
+        self.login("leader_product_edit", "pass1234")
+        with patch("routes.approvals.send_role_based_notification") as mocked_approval_notify:
+            approve_response = self.client.post(
+                f"/approvals/approve/{approval['id']}",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(approve_response.status_code, 302)
+        self.assertEqual(
+            mocked_approval_notify.call_args.args[0],
+            "inventory.product_approval_approved",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            updated_row = db.execute(
+                """
+                SELECT
+                    p.sku,
+                    p.name,
+                    c.name AS category_name,
+                    v.variant,
+                    v.price_retail,
+                    v.price_discount,
+                    v.price_nett
+                FROM products p
+                LEFT JOIN categories c ON c.id = p.category_id
+                LEFT JOIN product_variants v ON v.product_id = p.id
+                WHERE p.id=? AND v.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(updated_row["sku"], "CTX-PENDING-UPDATED")
+        self.assertEqual(updated_row["name"], "Produk Pending Update")
+        self.assertEqual(updated_row["category_name"], "Sepatu Premium")
+        self.assertEqual(updated_row["variant"], "CTX-44")
+        self.assertEqual(updated_row["price_retail"], 255000)
+        self.assertEqual(updated_row["price_discount"], 221000)
+        self.assertEqual(updated_row["price_nett"], 200000)
+
+    def test_admin_product_detail_update_no_changes_returns_unchanged_without_creating_approval(self):
+        self.create_user("admin_product_edit_same", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CTX-NOCHANGE-001",
+            variants="CTX-50",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.login("admin_product_edit_same", "pass1234")
+        with patch("routes.stock.send_role_based_notification") as mocked_role_notify:
+            update_response = self.client.post(
+                "/stock/update-detail",
+                data={
+                    "product_id": str(product_id),
+                    "variant_id": str(variant_id),
+                    "sku": "CTX-NOCHANGE-001",
+                    "name": "Produk Uji",
+                    "category_name": "Testing",
+                    "variant": "CTX-50",
+                    "price_retail": "150000",
+                    "price_discount": "135000",
+                    "price_nett": "120000",
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["approval_status"], "unchanged")
+        self.assertIn("Tidak ada perubahan baru", payload["message"])
+        mocked_role_notify.assert_not_called()
+
+        with self.app.app_context():
+            db = get_db()
+            approval_count = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM approvals
+                WHERE product_id=? AND variant_id=? AND type='PRODUCT_EDIT'
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+
+        self.assertEqual(approval_count, 0)
+
+    def test_admin_product_detail_update_does_not_duplicate_existing_pending_approval(self):
+        self.create_user("admin_product_edit_existing", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CTX-DUP-001",
+            variants="CTX-51",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.login("admin_product_edit_existing", "pass1234")
+        with patch("routes.stock.send_role_based_notification") as first_notify:
+            first_response = self.client.post(
+                "/stock/update-detail",
+                data={
+                    "product_id": str(product_id),
+                    "variant_id": str(variant_id),
+                    "sku": "CTX-DUP-UPDATED",
+                    "name": "Produk Pending Tetap Satu",
+                    "category_name": "Sepatu Premium",
+                    "variant": "CTX-52",
+                    "price_retail": "260000",
+                    "price_discount": "230000",
+                    "price_nett": "205000",
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+                follow_redirects=False,
+            )
+        self.assertEqual(first_response.status_code, 200)
+        first_payload = first_response.get_json()
+        self.assertEqual(first_payload["approval_status"], "pending")
+        first_notify.assert_called_once()
+
+        with patch("routes.stock.send_role_based_notification") as second_notify:
+            second_response = self.client.post(
+                "/stock/update-detail",
+                data={
+                    "product_id": str(product_id),
+                    "variant_id": str(variant_id),
+                    "sku": "CTX-DUP-UPDATED",
+                    "name": "Produk Pending Tetap Satu",
+                    "category_name": "Sepatu Premium",
+                    "variant": "CTX-52",
+                    "price_retail": "260000",
+                    "price_discount": "230000",
+                    "price_nett": "205000",
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(second_response.status_code, 200)
+        second_payload = second_response.get_json()
+        self.assertEqual(second_payload["status"], "success")
+        self.assertEqual(second_payload["approval_status"], "pending")
+        self.assertTrue(second_payload["approval_existing"])
+        self.assertEqual(second_payload["approval_id"], first_payload["approval_id"])
+        self.assertIn("approval", second_payload["message"].lower())
+        second_notify.assert_not_called()
+
+        with self.app.app_context():
+            db = get_db()
+            approval_rows = db.execute(
+                """
+                SELECT id
+                FROM approvals
+                WHERE product_id=? AND variant_id=? AND type='PRODUCT_EDIT'
+                ORDER BY id
+                """,
+                (product_id, variant_id),
+            ).fetchall()
+
+        self.assertEqual(len(approval_rows), 1)
+        self.assertEqual(approval_rows[0]["id"], first_payload["approval_id"])
+
+    def test_owner_cannot_approve_product_master_requests(self):
+        self.create_user("owner_product_guard", "pass1234", "owner")
+        self.create_user("admin_product_guard", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CTX-OWNER-GUARD",
+            variants="CTX-45",
+            qty=1,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.login("admin_product_guard", "pass1234")
+        update_response = self.client.post(
+            "/stock/update-detail",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "sku": "CTX-OWNER-BLOCK",
+                "name": "Produk Owner Guard",
+                "category_name": "Testing",
+                "variant": "CTX-46",
+                "price_retail": "123000",
+                "price_discount": "100000",
+                "price_nett": "95000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            approval = db.execute(
+                """
+                SELECT id, status
+                FROM approvals
+                WHERE product_id=? AND variant_id=? AND type=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id, "PRODUCT_EDIT"),
+            ).fetchone()
+
+        self.logout()
+        self.login("owner_product_guard", "pass1234")
+        reject_response = self.client.post(
+            f"/approvals/approve/{approval['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(reject_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            approval_after = db.execute(
+                "SELECT status FROM approvals WHERE id=?",
+                (approval["id"],),
+            ).fetchone()
+
+        self.assertEqual(approval_after["status"], "pending")
 
     def test_request_check_new_ignores_restored_pending_requests(self):
         self.login()
@@ -11167,6 +12007,46 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tambah Gudang", html)
         self.assertIn("Daftar Gudang", html)
         self.assertNotIn("Tambah User", html)
+
+    def test_owner_can_manage_notification_classification_from_admin_page(self):
+        self.create_user("owner_notif_admin", "pass1234", "owner")
+        self.create_user("notif_target_user", "pass1234", "super_admin", phone="628123450999")
+        self.login("owner_notif_admin", "pass1234")
+
+        response = self.client.get("/admin/notifications")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Klasifikasi Notifikasi", html)
+        self.assertIn("attendance.activity", html)
+
+        target_user_id = self.get_user_id("notif_target_user")
+        save_response = self.client.post(
+            "/admin/notifications/report.live_submitted",
+            data={
+                "roles": ["owner", "super_admin"],
+                "user_ids": [str(target_user_id)],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(save_response.status_code, 302)
+
+        with self.app.app_context():
+            custom_policy = get_event_notification_policy("report.live_submitted")
+        self.assertTrue(custom_policy["is_custom"])
+        self.assertEqual(custom_policy["roles"], ("owner", "super_admin"))
+        self.assertEqual(custom_policy["user_ids"], (target_user_id,))
+
+        reset_response = self.client.post(
+            "/admin/notifications/report.live_submitted/reset",
+            follow_redirects=False,
+        )
+        self.assertEqual(reset_response.status_code, 302)
+
+        with self.app.app_context():
+            default_policy = get_event_notification_policy("report.live_submitted")
+        self.assertFalse(default_policy["is_custom"])
+        self.assertEqual(default_policy["roles"], ("hr",))
+        self.assertIn("edi", default_policy["usernames"])
 
     def test_admin_cannot_access_admin_page(self):
         self.login()

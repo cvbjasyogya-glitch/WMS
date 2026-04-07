@@ -31,6 +31,7 @@
     const voiceCallButton = root.querySelector("[data-chat-widget-voice]");
     const videoCallButton = root.querySelector("[data-chat-widget-video]");
     const fullPageButtons = Array.from(root.querySelectorAll("[data-chat-widget-fullpage]"));
+    const chatUi = window.WmsChatUi || {};
 
     const state = {
         loaded: false,
@@ -43,6 +44,7 @@
         stickers: [],
         currentThreadId: null,
         currentThread: null,
+        currentMessages: [],
         lastMessageId: 0,
         pendingAttachment: null,
         attachmentMaxBytes: 10 * 1024 * 1024,
@@ -220,6 +222,31 @@
         `;
     }
 
+    function loadComposerDraft(forceValue) {
+        if (!composerInput || !state.currentThreadId || !chatUi.loadDraft) {
+            return;
+        }
+        if (!forceValue && (composerInput.value || "").trim()) {
+            return;
+        }
+        composerInput.value = chatUi.loadDraft(state.currentThreadId);
+        autoResizeComposer();
+    }
+
+    function persistComposerDraft() {
+        if (!composerInput || !state.currentThreadId || !chatUi.saveDraft) {
+            return;
+        }
+        chatUi.saveDraft(state.currentThreadId, composerInput.value || "");
+    }
+
+    function clearComposerDraft() {
+        if (!state.currentThreadId || !chatUi.clearDraft) {
+            return;
+        }
+        chatUi.clearDraft(state.currentThreadId);
+    }
+
     function renderThreadList() {
         if (!threadList) {
             return;
@@ -316,7 +343,9 @@
             thread.partner_role_label || "-",
             thread.partner_warehouse_label || "Global",
         ];
-        if (thread.partner_online) {
+        if (thread.partner_status_label) {
+            metaBits.push(thread.partner_status_label);
+        } else if (thread.partner_online) {
             metaBits.push("Online");
         }
         threadPartnerMeta.textContent = metaBits.join(" | ");
@@ -338,11 +367,17 @@
         }
         if (!Array.isArray(messages) || !messages.length) {
             messageBoard.innerHTML = '<div class="chat-list-empty">Belum ada pesan di percakapan ini.</div>';
+            state.currentMessages = [];
             state.lastMessageId = 0;
             return;
         }
-        messageBoard.innerHTML = messages.map(renderMessage).join("");
-        state.lastMessageId = messages.reduce((maxId, item) => Math.max(maxId, Number(item.id || 0)), 0);
+        state.currentMessages = messages.slice();
+        if (chatUi.renderMessageTimeline) {
+            messageBoard.innerHTML = chatUi.renderMessageTimeline(state.currentMessages);
+        } else {
+            messageBoard.innerHTML = state.currentMessages.map(renderMessage).join("");
+        }
+        state.lastMessageId = state.currentMessages.reduce((maxId, item) => Math.max(maxId, Number(item.id || 0)), 0);
         normalizeChatText(messageBoard);
         scrollMessages(true);
     }
@@ -351,26 +386,20 @@
         if (!messageBoard || !Array.isArray(messages) || !messages.length) {
             return;
         }
-        const emptyState = messageBoard.querySelector(".chat-list-empty");
-        if (emptyState) {
-            emptyState.remove();
+        state.currentMessages = chatUi.mergeMessages
+            ? chatUi.mergeMessages(state.currentMessages, messages)
+            : state.currentMessages.concat(messages);
+        if (!state.currentMessages.length) {
+            return;
         }
-
-        let inserted = false;
-        messages.forEach((message) => {
-            const messageId = Number(message.id || 0);
-            if (messageId <= 0 || messageBoard.querySelector(`[data-message-id="${messageId}"]`)) {
-                return;
-            }
-            messageBoard.insertAdjacentHTML("beforeend", renderMessage(message));
-            state.lastMessageId = Math.max(state.lastMessageId, messageId);
-            inserted = true;
-        });
-
-        if (inserted) {
-            normalizeChatText(messageBoard);
-            scrollMessages(Boolean(forceScroll));
+        if (chatUi.renderMessageTimeline) {
+            messageBoard.innerHTML = chatUi.renderMessageTimeline(state.currentMessages);
+        } else {
+            messageBoard.innerHTML = state.currentMessages.map(renderMessage).join("");
         }
+        state.lastMessageId = state.currentMessages.reduce((maxId, item) => Math.max(maxId, Number(item.id || 0)), 0);
+        normalizeChatText(messageBoard);
+        scrollMessages(Boolean(forceScroll));
     }
 
     function autoResizeComposer() {
@@ -503,8 +532,8 @@
             resetAttachmentPreview();
             toggleStickerPanel(false);
             if (composerInput) {
-                composerInput.value = "";
                 autoResizeComposer();
+                loadComposerDraft(true);
                 composerInput.focus();
             }
         } catch (error) {
@@ -569,6 +598,7 @@
             if (safeOptions.resetComposer !== false && composerInput) {
                 composerInput.value = "";
                 autoResizeComposer();
+                clearComposerDraft();
             }
             if (safeOptions.resetAttachment !== false) {
                 resetAttachmentPreview();
@@ -668,6 +698,7 @@
     function goHome() {
         state.currentThreadId = null;
         state.currentThread = null;
+        state.currentMessages = [];
         state.lastMessageId = 0;
         renderThreadList();
         syncHeader(null);
@@ -793,7 +824,10 @@
             composerForm?.requestSubmit();
         }
     });
-    composerInput?.addEventListener("input", autoResizeComposer);
+    composerInput?.addEventListener("input", () => {
+        autoResizeComposer();
+        persistComposerDraft();
+    });
 
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && state.open) {

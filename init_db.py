@@ -1497,9 +1497,41 @@ def init_db(db_path=None, sqlite_options=None):
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS notification_event_policies(
+        event_type TEXT PRIMARY KEY,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS notification_event_policy_roles(
+        event_type TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(event_type, role),
+        FOREIGN KEY(event_type) REFERENCES notification_event_policies(event_type) ON DELETE CASCADE
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS notification_event_policy_users(
+        event_type TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(event_type, user_id),
+        FOREIGN KEY(event_type) REFERENCES notification_event_policies(event_type) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
     c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(recipient, channel, subject, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_user_feed ON web_notifications(user_id, is_read, created_at DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_dedupe ON web_notifications(user_id, dedupe_key, created_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notification_event_policy_roles_event ON notification_event_policy_roles(event_type, role)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notification_event_policy_users_event ON notification_event_policy_users(event_type, user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_lookup ON password_resets(user_id, code, used, expires_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, success, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, success, created_at)")

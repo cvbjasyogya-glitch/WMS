@@ -304,6 +304,32 @@ function bindCheckAllControl() {
     });
 }
 
+function getProductCurrencyRaw(input) {
+    if (!input) {
+        return "";
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getRawValue(input);
+    }
+    return String(input.value || "").trim();
+}
+
+function getProductCurrencyValue(input) {
+    if (!input) {
+        return 0;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getNumericValue(input);
+    }
+    return Number(input.value || 0);
+}
+
+function refreshProductCurrencyInputs(scope) {
+    if (window.wmsCurrencyInput) {
+        window.wmsCurrencyInput.refresh(scope || document);
+    }
+}
+
 async function refreshProductsView() {
     const response = await fetch(window.location.pathname + window.location.search, {
         headers: {
@@ -386,21 +412,21 @@ function createVariantRowMarkup(initial = {}) {
                         <span class="variant-mini-label">Retail</span>
                         <label class="variant-currency-input">
                             <span>Rp</span>
-                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}">
+                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}" data-wms-currency="currency">
                         </label>
                     </div>
                     <div>
                         <span class="variant-mini-label">Diskon</span>
                         <label class="variant-currency-input">
                             <span>Rp</span>
-                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}">
+                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}" data-wms-currency="currency">
                         </label>
                     </div>
                     <div>
                         <span class="variant-mini-label">Nett</span>
                         <label class="variant-currency-input">
                             <span>Rp</span>
-                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}">
+                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}" data-wms-currency="currency">
                         </label>
                     </div>
                 </div>
@@ -439,6 +465,7 @@ function addVariantRow(initial = {}) {
     const row = document.createElement("tr");
     row.innerHTML = createVariantRowMarkup(initial);
     variantRowsBody.appendChild(row);
+    refreshProductCurrencyInputs(row);
     bindVariantRow(row);
 }
 
@@ -451,9 +478,9 @@ function formatCompactCurrency(value) {
 }
 
 function updateVariantPriceSummary(row) {
-    const retail = Number(row.querySelector('[data-field="price_retail"]')?.value || 0);
-    const discount = Number(row.querySelector('[data-field="price_discount"]')?.value || 0);
-    const nett = Number(row.querySelector('[data-field="price_nett"]')?.value || 0);
+    const retail = getProductCurrencyValue(row.querySelector('[data-field="price_retail"]'));
+    const discount = getProductCurrencyValue(row.querySelector('[data-field="price_discount"]'));
+    const nett = getProductCurrencyValue(row.querySelector('[data-field="price_nett"]'));
     const summary = row.querySelector('[data-role="price-summary"]');
 
     if (!summary) return;
@@ -481,6 +508,7 @@ function bindVariantRow(row) {
     row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"]').forEach((input) => {
         input.addEventListener("input", () => updateVariantPriceSummary(row));
     });
+    refreshProductCurrencyInputs(row);
     updateVariantPriceSummary(row);
 }
 
@@ -503,9 +531,9 @@ function getVariantPayload() {
         return {
             variant: (getValue("variant")?.value || "").trim(),
             color: (getValue("color")?.value || "").trim(),
-            price_retail: (getValue("price_retail")?.value || "").trim(),
-            price_discount: (getValue("price_discount")?.value || "").trim(),
-            price_nett: (getValue("price_nett")?.value || "").trim(),
+            price_retail: getProductCurrencyRaw(getValue("price_retail")),
+            price_discount: getProductCurrencyRaw(getValue("price_discount")),
+            price_nett: getProductCurrencyRaw(getValue("price_nett")),
             qty: (getValue("qty")?.value || "").trim(),
             variant_code: (getValue("variant_code")?.value || "").trim(),
             gtin: (getValue("gtin")?.value || "").trim()

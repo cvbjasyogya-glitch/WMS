@@ -29,8 +29,10 @@ from services.hris_catalog import (
     role_has_hris_access,
 )
 from services.announcement_center import build_announcement_notification_payload
-from services.notification_service import notify_broadcast, notify_user
+from services.event_notification_policy import get_event_notification_policy
+from services.notification_service import notify_broadcast, notify_operational_event, notify_user
 from services.rbac import has_permission, is_scoped_role, normalize_role
+from services.whatsapp_service import send_role_based_notification
 
 
 hris_bp = Blueprint("hris", __name__, url_prefix="/hris")
@@ -586,7 +588,7 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
     record = dict(leave_request) if not isinstance(leave_request, dict) else leave_request
     current_status = _normalize_leave_status(record.get("status"))
     prior_status = _normalize_leave_status(previous_status) if previous_status else ""
-    if current_status != "approved" or prior_status == "approved":
+    if current_status not in {"approved", "rejected"} or current_status == prior_status:
         return
 
     recipient = db.execute(
@@ -599,8 +601,7 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
         """,
         (record.get("employee_id"),),
     ).fetchone()
-    if not recipient:
-        return
+    recipient_id = recipient["id"] if recipient else None
 
     leave_type_label = LEAVE_TYPE_LABELS.get(record.get("leave_type"), "Libur")
     range_label = _build_leave_notification_range_label(record.get("start_date"), record.get("end_date"))
@@ -610,21 +611,61 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
         or (record.get("handled_by_name") or "").strip()
         or "HR / Super Admin"
     )
+    status_label = "disetujui" if current_status == "approved" else "ditolak"
+    status_title = "Disetujui" if current_status == "approved" else "Ditolak"
+    event_type = f"leave.status_{'approved' if current_status == 'approved' else 'rejected'}"
+    status_message = (
+        f"Pengajuan {leave_type_label.lower()} untuk {range_label} "
+        f"({total_days} hari) telah {status_label} oleh {approver_label}."
+    )
+    note_reason = str(record.get("note") or "").strip()
 
-    notify_user(
-        recipient["id"],
-        f"Pengajuan {leave_type_label.lower()} disetujui",
-        (
-            f"Pengajuan {leave_type_label.lower()} untuk {range_label} "
-            f"({total_days} hari) telah disetujui oleh {approver_label}."
-        ),
+    if recipient_id:
+        notify_user(
+            recipient_id,
+            f"Pengajuan {leave_type_label.lower()} {status_label}",
+            status_message,
+            category="leave",
+            link_url="/libur/",
+            source_type="leave_request_status",
+            source_id=f"{record.get('id')}:{current_status}",
+            dedupe_key=f"leave_request_status:{record.get('id')}:{current_status}",
+            push_title=f"Libur {status_title}",
+            push_body=f"{leave_type_label} | {range_label}",
+        )
+
+    leave_policy = get_event_notification_policy(event_type)
+    notify_operational_event(
+        f"{leave_type_label} {status_title}: {record.get('employee_name') or 'Karyawan'}",
+        status_message,
+        warehouse_id=record.get("warehouse_id"),
+        include_actor=False,
+        exclude_user_ids=[recipient_id] if recipient_id else None,
+        recipient_roles=leave_policy["roles"],
+        recipient_usernames=leave_policy["usernames"],
+        recipient_user_ids=leave_policy["user_ids"],
         category="leave",
         link_url="/libur/",
         source_type="leave_request_status",
-        source_id=f"{record.get('id')}:approved",
-        dedupe_key=f"leave_request_status:{record.get('id')}:approved",
-        push_title="Libur Disetujui",
-        push_body=f"{leave_type_label} | {range_label}",
+        source_id=f"{record.get('id')}:{current_status}",
+        dedupe_key=f"leave_request_status:ops:{record.get('id')}:{current_status}",
+        push_title=f"{leave_type_label} {status_title}",
+        push_body=f"{record.get('employee_name') or 'Karyawan'} | {range_label}",
+    )
+
+    send_role_based_notification(
+        event_type,
+        {
+            "warehouse_id": record.get("warehouse_id"),
+            "warehouse_name": record.get("warehouse_name") or "Gudang",
+            "employee_name": record.get("employee_name") or "Karyawan",
+            "leave_type_label": leave_type_label,
+            "range_label": range_label,
+            "approver_name": approver_label,
+            "reason": note_reason,
+            "link_url": "/libur/",
+            "exclude_user_ids": [recipient_id] if recipient_id else None,
+        },
     )
 
 
@@ -4798,6 +4839,118 @@ def delete_dashboard_reminder(reminder_id):
     return redirect(return_to)
 
 
+def _get_daily_live_report_by_id(db, report_id):
+    row = db.execute(
+        """
+        SELECT
+            r.*,
+            w.name AS warehouse_name,
+            e.full_name AS employee_name,
+            u.username AS submitter_username,
+            hu.username AS handled_by_name
+        FROM daily_live_reports r
+        LEFT JOIN warehouses w ON w.id = r.warehouse_id
+        LEFT JOIN employees e ON e.id = r.employee_id
+        LEFT JOIN users u ON u.id = r.user_id
+        LEFT JOIN users hu ON hu.id = r.handled_by
+        WHERE r.id=?
+        LIMIT 1
+        """,
+        (report_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _notify_daily_live_report_status_change(db, report_record, previous_status=None):
+    if not report_record:
+        return
+
+    record = dict(report_record) if not isinstance(report_record, dict) else report_record
+    current_status = _normalize_daily_live_report_status(record.get("status"))
+    previous_status = _normalize_daily_live_report_status(previous_status)
+    if current_status == previous_status or current_status == "submitted":
+        return
+
+    requester_id = _to_int(record.get("user_id"))
+    employee_label = (
+        (record.get("employee_name") or "").strip()
+        or (record.get("submitter_username") or "").strip()
+        or "Staff"
+    )
+    warehouse_label = (record.get("warehouse_name") or "Gudang").strip()
+    report_type_label = "Live Report" if (record.get("report_type") or "").strip().lower() == "live" else "Daily Report"
+    status_label = DAILY_LIVE_REPORT_STATUS_LABELS.get(current_status, current_status.replace("_", " ").title())
+    approver_label = (
+        (session.get("username") or "").strip()
+        or (record.get("handled_by_name") or "").strip()
+        or "HR / Super Admin"
+    )
+    hr_note = str(record.get("hr_note") or "").strip()
+    title = str(record.get("title") or "").strip()
+    approved_statuses = {"reviewed", "closed"}
+    event_type = "report.status_approved" if current_status in approved_statuses else "report.status_rejected"
+    requester_message = (
+        f"{report_type_label} Anda untuk {record.get('report_date') or '-'} "
+        f"ditandai {status_label.lower()} oleh {approver_label}."
+        f"{f' Judul: {title}.' if title else ''}"
+        f"{f' Catatan HR: {hr_note}.' if hr_note else ''}"
+    )
+
+    if requester_id:
+        notify_user(
+            requester_id,
+            f"{report_type_label} {status_label}",
+            requester_message,
+            category="report",
+            link_url="/laporan-harian/",
+            source_type="daily_live_report_status",
+            source_id=f"{record.get('id')}:{current_status}",
+            dedupe_key=f"daily_live_report_status:{record.get('id')}:{current_status}",
+            push_title=f"{report_type_label} {status_label}",
+            push_body=f"{record.get('report_date') or '-'} | {status_label}",
+        )
+
+    report_policy = get_event_notification_policy(event_type)
+    notify_operational_event(
+        f"{report_type_label} {status_label}: {employee_label}",
+        (
+            f"{report_type_label} milik {employee_label} di {warehouse_label} "
+            f"ditandai {status_label.lower()} oleh {approver_label}."
+            f"{f' Judul: {title}.' if title else ''}"
+            f"{f' Catatan HR: {hr_note}.' if hr_note else ''}"
+        ),
+        warehouse_id=record.get("warehouse_id"),
+        include_actor=False,
+        exclude_user_ids=[requester_id] if requester_id else None,
+        recipient_roles=report_policy["roles"],
+        recipient_usernames=report_policy["usernames"],
+        recipient_user_ids=report_policy["user_ids"],
+        category="report",
+        link_url="/hris/report",
+        source_type="daily_live_report_status",
+        source_id=f"{record.get('id')}:{current_status}",
+        dedupe_key=f"daily_live_report_status:ops:{record.get('id')}:{current_status}",
+        push_title=f"{report_type_label} {status_label}",
+        push_body=f"{employee_label} | {status_label}",
+    )
+
+    send_role_based_notification(
+        event_type,
+        {
+            "warehouse_id": record.get("warehouse_id"),
+            "warehouse_name": warehouse_label,
+            "employee_name": employee_label,
+            "report_type_label": report_type_label,
+            "status_label": status_label,
+            "approver_name": approver_label,
+            "title": title,
+            "reason": hr_note,
+            "link_url": "/hris/report",
+            "exclude_user_ids": [requester_id] if requester_id else None,
+        },
+    )
+
+
 @hris_bp.route("/report/daily-live/update/<int:report_id>", methods=["POST"])
 def update_daily_live_report(report_id):
     return_to = (request.form.get("return_to") or "").strip()
@@ -4809,13 +4962,11 @@ def update_daily_live_report(report_id):
         return redirect(return_to)
 
     db = get_db()
-    report = db.execute(
-        "SELECT id FROM daily_live_reports WHERE id=?",
-        (report_id,),
-    ).fetchone()
+    report = _get_daily_live_report_by_id(db, report_id)
     if report is None:
         flash("Report tidak ditemukan.", "error")
         return redirect(return_to)
+    previous_status = report["status"]
 
     status = _normalize_daily_live_report_status(request.form.get("status"))
     hr_note = (request.form.get("hr_note") or "").strip()
@@ -4842,6 +4993,12 @@ def update_daily_live_report(report_id):
         ),
     )
     db.commit()
+
+    try:
+        updated_report = _get_daily_live_report_by_id(db, report_id)
+        _notify_daily_live_report_status_change(db, updated_report, previous_status=previous_status)
+    except Exception as exc:
+        print("DAILY LIVE REPORT STATUS NOTIFICATION ERROR:", exc)
 
     flash("Status report harian/live berhasil diperbarui.", "success")
     return redirect(return_to)
@@ -5241,7 +5398,7 @@ def add_leave():
     )
     db.commit()
 
-    if status == "approved":
+    if status in {"approved", "rejected"}:
         try:
             created_leave = _get_leave_request_by_id(db, cursor.lastrowid)
             _notify_leave_request_status_change(db, created_leave)
@@ -5336,7 +5493,7 @@ def update_leave(leave_id):
     )
     db.commit()
 
-    if status == "approved" and previous_status != "approved":
+    if status in {"approved", "rejected"} and status != previous_status:
         try:
             updated_leave = _get_leave_request_by_id(db, leave_id)
             _notify_leave_request_status_change(db, updated_leave, previous_status=previous_status)

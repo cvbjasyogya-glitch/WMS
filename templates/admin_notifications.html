@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Notif Classification | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Administrasi Sistem{% endblock %}
+{% block page_title %}Klasifikasi Notifikasi{% endblock %}
+{% block page_subtitle %}Atur siapa yang menerima event notifikasi ERP langsung dari UI. Default lama tetap aman sampai Anda membuat override sendiri.{% endblock %}
+
+{% block page_actions %}
+<a href="/admin/" class="ghost-button">Akses &amp; Role</a>
+<a href="/admin/warehouses" class="ghost-button">Sistem Gudang</a>
+{% endblock %}
+
+{% block content %}
+{% include "partials/admin_local_nav.html" %}
+
+<div class="summary">
+    <div class="card-mini">
+        <p>Total Event</p>
+        <h3>{{ notification_summary.total_events }}</h3>
+    </div>
+    <div class="card-mini {% if notification_summary.custom_events %}success{% endif %}">
+        <p>Event Custom</p>
+        <h3>{{ notification_summary.custom_events }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>User Spesifik</p>
+        <h3>{{ notification_summary.specific_users }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>User Tersedia</p>
+        <h3>{{ notification_user_options|length }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Fallback Default</span>
+        <strong>Aman</strong>
+    </div>
+    <div class="meta-card">
+        <span>Override Kosong</span>
+        <strong>Matikan Event</strong>
+    </div>
+    <div class="meta-card">
+        <span>WhatsApp</span>
+        <strong>Ikut Policy Ini</strong>
+    </div>
+    <div class="meta-card">
+        <span>Live Chat</span>
+        <strong>Participant Based</strong>
+    </div>
+</div>
+
+<div class="box stack-gap-md">
+    <p class="helper-text">Centang role dan pilih user spesifik sesuai kebutuhan. Kalau semua pilihan dikosongkan lalu disimpan, event itu tidak akan dikirim ke siapa pun sampai di-reset.</p>
+    <p class="helper-text">Catatan: notifikasi live chat tetap mengikuti peserta chat aktif agar tidak spam dan tidak membocorkan percakapan ke role lain.</p>
+</div>
+
+{% for section in notification_sections %}
+<details class="table-box panel-disclosure" open>
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>{{ section.label }}</h2>
+                <p>{{ section.summary }}</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ section.policies|length }} event</span>
+            <span class="panel-summary-state">Buka Detail</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        <div class="stack-scroll-list">
+            {% for policy in section.policies %}
+            <div class="box stack-scroll-card box-no-margin stack-gap-md">
+                <div class="split-actions stack-gap-md">
+                    <div class="stack-gap-sm">
+                        <p>{{ policy.event_type }}</p>
+                        <h3>{{ policy.label }}</h3>
+                        <p>{{ policy.summary }}</p>
+                    </div>
+                    <div class="stack-gap-sm">
+                        <div class="split-actions stack-gap-sm">
+                            <span class="status-pill {% if policy.is_custom %}success{% endif %}">{{ "Custom" if policy.is_custom else "Default" }}</span>
+                            <span class="status-pill">{{ policy.roles|length }} role</span>
+                            <span class="status-pill">{{ policy.effective_user_labels|length }} user spesifik</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cards admin-role-guide-grid">
+                    <article class="card">
+                        <p>Role Aktif</p>
+                        {% if policy.role_labels %}
+                            <div class="admin-role-card-meta">
+                                {% for label in policy.role_labels %}
+                                <span class="status-pill">{{ label }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="muted-note">Tidak ada role aktif.</p>
+                        {% endif %}
+                    </article>
+                    <article class="card">
+                        <p>User Spesifik Aktif</p>
+                        {% if policy.effective_user_labels %}
+                            <div class="stack-gap-sm">
+                                {% for user in policy.effective_user_labels %}
+                                <span class="status-pill">{{ user.label }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="muted-note">Tidak ada user spesifik aktif.</p>
+                        {% endif %}
+                    </article>
+                    <article class="card">
+                        <p>Default Sistem</p>
+                        <div class="stack-gap-sm">
+                            {% if policy.default_roles %}
+                            <div class="admin-role-card-meta">
+                                {% for role in policy.default_roles %}
+                                <span class="status-pill">{{ role }}</span>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <p class="muted-note">Default role kosong.</p>
+                            {% endif %}
+                            {% if policy.default_users %}
+                                {% for user in policy.default_users %}
+                                <span class="status-pill">{{ user.label }}</span>
+                                {% endfor %}
+                            {% elif policy.default_usernames %}
+                            <p class="muted-note">{{ policy.default_usernames|join(", ") }}</p>
+                            {% else %}
+                            <p class="muted-note">Default user spesifik kosong.</p>
+                            {% endif %}
+                        </div>
+                    </article>
+                </div>
+
+                <form method="POST" action="/admin/notifications/{{ policy.event_type }}" class="stack-gap-md">
+                    <div class="form-grid">
+                        <div>
+                            <label>Role Penerima</label>
+                            <div class="stack-gap-sm">
+                                {% for role_option in notification_role_options %}
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        name="roles"
+                                        value="{{ role_option.value }}"
+                                        {% if role_option.value in policy.roles %}checked{% endif %}
+                                    >
+                                    {{ role_option.label }}
+                                </label>
+                                {% endfor %}
+                            </div>
+                            <small class="helper-text">Role ini akan ikut notif web dan WhatsApp sesuai setting akun masing-masing.</small>
+                        </div>
+                        <div>
+                            <label>User Spesifik</label>
+                            <select name="user_ids" multiple size="8">
+                                {% for user_option in notification_user_options %}
+                                <option value="{{ user_option.id }}" {% if user_option.id in policy.user_ids %}selected{% endif %}>{{ user_option.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="helper-text">Pilih user tertentu kalau ada watcher tetap seperti owner khusus, HR prioritas, atau monitoring ERP global.</small>
+                        </div>
+                    </div>
+                    <div class="split-actions stack-gap-md">
+                        <button type="submit">Simpan Klasifikasi</button>
+                        {% if policy.is_custom %}
+                        <button type="submit" class="ghost-button" formaction="/admin/notifications/{{ policy.event_type }}/reset">Reset ke Default</button>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</details>
+{% endfor %}
+{% endblock %}

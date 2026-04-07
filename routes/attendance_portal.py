@@ -15,6 +15,7 @@ from routes.hris import (
     _resync_attendance_from_biometrics,
     _save_biometric_photo_data,
 )
+from services.event_notification_policy import get_event_notification_policy
 from services.rbac import normalize_role
 from services.notification_service import notify_operational_event
 from services.whatsapp_service import send_role_based_notification
@@ -358,6 +359,109 @@ def _format_portal_datetime_display(raw_value, include_date=False):
     if include_date:
         return parsed.strftime("%d %b %Y %H:%M")
     return parsed.strftime("%H:%M")
+
+
+def _parse_attendance_portal_datetime(raw_value):
+    safe_value = (raw_value or "").strip()
+    if not safe_value:
+        return None
+    try:
+        return datetime.fromisoformat(safe_value.replace("T", " "))
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                return datetime.strptime(safe_value, fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def _format_attendance_duration_label(total_seconds):
+    safe_seconds = max(0, int(total_seconds or 0))
+    total_minutes = safe_seconds // 60
+    if total_minutes <= 0:
+        return "kurang dari 1 menit"
+
+    days, remainder_minutes = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(remainder_minutes, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} hari")
+    if hours:
+        parts.append(f"{hours} jam")
+    if minutes:
+        parts.append(f"{minutes} menit")
+    return " ".join(parts) if parts else "kurang dari 1 menit"
+
+
+def _build_attendance_duration_meta(day_logs, punch_time, punch_type):
+    current_punch_at = _parse_attendance_portal_datetime(punch_time)
+    safe_punch_type = (punch_type or "").strip().lower()
+    if current_punch_at is None or safe_punch_type not in {"break_finish", "check_out"}:
+        return {"duration_kind": "", "duration_label": "", "duration_text": ""}
+
+    normalized_logs = []
+    for log in day_logs or []:
+        log_time = _parse_attendance_portal_datetime(log.get("punch_time"))
+        log_type = (log.get("punch_type") or "").strip().lower()
+        if log_time is None or not log_type:
+            continue
+        normalized_logs.append({"punch_time": log_time, "punch_type": log_type})
+    normalized_logs.sort(key=lambda item: item["punch_time"])
+
+    if safe_punch_type == "break_finish":
+        break_started_at = None
+        for log in normalized_logs:
+            if log["punch_type"] == "break_start":
+                break_started_at = log["punch_time"]
+            elif log["punch_type"] in {"break_finish", "check_out"}:
+                break_started_at = None
+        if break_started_at is None or current_punch_at <= break_started_at:
+            return {"duration_kind": "", "duration_label": "", "duration_text": ""}
+
+        duration_label = _format_attendance_duration_label(
+            (current_punch_at - break_started_at).total_seconds()
+        )
+        return {
+            "duration_kind": "break",
+            "duration_label": duration_label,
+            "duration_text": f"Durasi istirahat: {duration_label}.",
+        }
+
+    check_in_at = next(
+        (
+            log["punch_time"]
+            for log in normalized_logs
+            if log["punch_type"] == "check_in"
+        ),
+        None,
+    )
+    if check_in_at is None or current_punch_at <= check_in_at:
+        return {"duration_kind": "", "duration_label": "", "duration_text": ""}
+
+    break_started_at = None
+    break_seconds = 0
+    for log in normalized_logs:
+        if log["punch_type"] == "break_start":
+            break_started_at = log["punch_time"]
+        elif log["punch_type"] in {"break_finish", "check_out"} and break_started_at is not None:
+            if log["punch_time"] > break_started_at:
+                break_seconds += (log["punch_time"] - break_started_at).total_seconds()
+            break_started_at = None
+
+    if break_started_at is not None and current_punch_at > break_started_at:
+        break_seconds += (current_punch_at - break_started_at).total_seconds()
+
+    total_seconds = (current_punch_at - check_in_at).total_seconds() - break_seconds
+    if total_seconds <= 0:
+        return {"duration_kind": "", "duration_label": "", "duration_text": ""}
+
+    duration_label = _format_attendance_duration_label(total_seconds)
+    return {
+        "duration_kind": "work",
+        "duration_label": duration_label,
+        "duration_text": f"Durasi kerja efektif: {duration_label}.",
+    }
 
 
 def _build_checkout_edit_value(punch_time, attendance_date, fallback_check_out):
@@ -743,6 +847,7 @@ def submit():
     employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
     warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()
     punch_label = _get_attendance_punch_label(punch_type)
+    duration_meta = _build_attendance_duration_meta(day_logs, punch_time, punch_type)
 
     try:
         attendance_message = (
@@ -751,17 +856,29 @@ def submit():
         )
         if shift_label:
             attendance_message += f" Shift aktif: {shift_label}."
+        if duration_meta["duration_text"]:
+            attendance_message += f" {duration_meta['duration_text']}"
 
+        attendance_policy = get_event_notification_policy("attendance.activity")
+        push_segments = [employee_label, warehouse_label, punch_time[11:16]]
+        if duration_meta["duration_label"]:
+            duration_prefix = "istirahat" if duration_meta["duration_kind"] == "break" else "kerja"
+            push_segments.append(f"{duration_prefix} {duration_meta['duration_label']}")
         notify_operational_event(
             f"Absensi {punch_label}: {employee_label}",
             attendance_message,
             warehouse_id=linked_employee["warehouse_id"],
+            include_actor=False,
+            exclude_user_ids=[session.get("user_id")],
             category="attendance",
             link_url="/absen/",
+            recipient_roles=attendance_policy["roles"],
+            recipient_usernames=attendance_policy["usernames"],
+            recipient_user_ids=attendance_policy["user_ids"],
             source_type="biometric_log",
             source_id=str(biometric_log_id),
             push_title=f"Absensi {punch_label}",
-            push_body=f"{employee_label} | {warehouse_label} | {punch_time[11:16]}",
+            push_body=" | ".join(push_segments),
         )
     except Exception as exc:
         print("ATTENDANCE NOTIFICATION ERROR:", exc)
@@ -776,7 +893,11 @@ def submit():
                 "punch_label": punch_label,
                 "time_label": punch_time[11:16],
                 "location_label": location_label,
+                "duration_kind": duration_meta["duration_kind"],
+                "duration_label": duration_meta["duration_label"],
+                "duration_text": duration_meta["duration_text"],
                 "link_url": "/absen/",
+                "exclude_user_ids": [session.get("user_id")],
             },
         )
     except Exception as exc:
@@ -955,12 +1076,18 @@ def edit_punch_log(biometric_id):
     try:
         employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
         warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()
+        attendance_policy = get_event_notification_policy("attendance.activity")
         notify_operational_event(
             f"Koreksi Log Absen: {employee_label}",
             f"{employee_label} memperbarui log terakhir menjadi {corrected_label} pada {updated_punch_time[11:16]} di {warehouse_label} untuk tanggal {original_attendance_date}.",
             warehouse_id=linked_employee["warehouse_id"],
+            include_actor=False,
+            exclude_user_ids=[session.get("user_id")],
             category="attendance",
             link_url="/absen/#riwayat-absen",
+            recipient_roles=attendance_policy["roles"],
+            recipient_usernames=attendance_policy["usernames"],
+            recipient_user_ids=attendance_policy["user_ids"],
             source_type="biometric_log",
             source_id=str(biometric_id),
             push_title="Koreksi Log Absen",

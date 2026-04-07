@@ -163,8 +163,9 @@
                 </div>
             </div>
             <div class="chat-focus-actions">
+                <span class="badge chat-sync-badge" id="chatSyncBadge">Sinkron Aktif</span>
                 <span class="badge {% if selected_thread.partner_online %}green{% endif %}" id="chatPartnerStatus">
-                    {{ "Online" if selected_thread.partner_online else "Offline" }}
+                    {{ selected_thread.partner_status_label or ("Online" if selected_thread.partner_online else "Offline") }}
                 </span>
                 <button type="button" class="ghost-button chat-action-button chat-action-icon" id="chatVoiceCallButton" aria-label="Telp">
                     <span aria-hidden="true">&#128222;</span>
@@ -367,6 +368,7 @@
     "threads": threads,
     "contacts": contacts,
     "selected_thread": selected_thread,
+    "messages": messages,
     "current_user": current_user_payload,
     "current_thread_id": current_thread_id,
     "current_thread_last_message_id": current_thread_last_message_id,

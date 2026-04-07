@@ -781,6 +781,7 @@ def create_app():
             "js/app_shell.js",
             "js/push_notifications.js",
             "js/web_notifications.js",
+            "js/chat_ui_shared.js",
             "js/chat_realtime.js",
             "js/chat_widget.js",
             "js/floating_toolbelt.js",

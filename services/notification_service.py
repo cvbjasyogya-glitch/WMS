@@ -8,6 +8,7 @@ from flask import current_app, has_request_context, request, session
 
 from database import get_db
 from services.announcement_center import role_matches_audience, user_matches_scope
+from services.event_notification_policy import row_matches_notification_aliases
 from services.whatsapp_service import send_whatsapp_text
 
 try:
@@ -651,6 +652,32 @@ def _get_recipients_by_roles(roles):
     return [dict(r) for r in rows]
 
 
+def _get_recipients_by_aliases(aliases):
+    if not aliases:
+        return []
+
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT
+            u.id,
+            u.username,
+            u.email,
+            u.phone,
+            u.role,
+            u.notify_email,
+            u.notify_whatsapp,
+            u.warehouse_id,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'User') AS display_name,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), '') AS full_name
+        FROM users u
+        LEFT JOIN employees e ON e.id = u.employee_id
+        ORDER BY u.id ASC
+        """
+    ).fetchall()
+    return [dict(row) for row in rows if row_matches_notification_aliases(dict(row), aliases)]
+
+
 def _get_users_by_ids(user_ids):
     user_ids = _normalize_user_ids(user_ids)
     if not user_ids:
@@ -673,6 +700,9 @@ def notify_operational_event(
     include_actor=True,
     include_user_ids=None,
     exclude_user_ids=None,
+    recipient_roles=None,
+    recipient_usernames=None,
+    recipient_user_ids=None,
     push_title=None,
     push_body=None,
     push_tag=None,
@@ -686,7 +716,28 @@ def notify_operational_event(
     recipient_map = {}
     exclude_ids = set(_normalize_user_ids(exclude_user_ids))
 
-    for recipient in _get_recipients_by_roles(OPERATIONAL_MONITOR_ROLES):
+    role_recipients = (
+        _get_recipients_by_roles(recipient_roles)
+        if recipient_roles is not None
+        else _get_recipients_by_roles(OPERATIONAL_MONITOR_ROLES)
+    )
+    for recipient in role_recipients:
+        recipient_id = recipient.get("id")
+        if not recipient_id or recipient_id in exclude_ids:
+            continue
+        if not user_matches_scope(recipient.get("role"), recipient.get("warehouse_id"), warehouse_id):
+            continue
+        recipient_map[recipient_id] = recipient
+
+    for recipient in _get_recipients_by_aliases(recipient_usernames):
+        recipient_id = recipient.get("id")
+        if not recipient_id or recipient_id in exclude_ids:
+            continue
+        if not user_matches_scope(recipient.get("role"), recipient.get("warehouse_id"), warehouse_id):
+            continue
+        recipient_map[recipient_id] = recipient
+
+    for recipient in _get_users_by_ids(recipient_user_ids):
         recipient_id = recipient.get("id")
         if not recipient_id or recipient_id in exclude_ids:
             continue
@@ -956,6 +1007,9 @@ def notify_roles(
     message,
     warehouse_id=None,
     *,
+    usernames=None,
+    user_ids=None,
+    send_whatsapp_channel=True,
     category=None,
     link_url=None,
     source_type=None,
@@ -963,10 +1017,22 @@ def notify_roles(
     dedupe_key=None,
 ):
     roles = _normalize_roles(roles)
-    if not roles:
+    usernames = usernames or ()
+    user_ids = _normalize_user_ids(user_ids)
+    if not roles and not usernames and not user_ids:
         return {"email": [], "wa": []}
 
     recipients = _get_recipients_by_roles(roles)
+    recipient_map = {recipient.get("id"): recipient for recipient in recipients if recipient.get("id")}
+    for recipient in _get_recipients_by_aliases(usernames):
+        recipient_id = recipient.get("id")
+        if recipient_id:
+            recipient_map[recipient_id] = recipient
+    for recipient in _get_users_by_ids(user_ids):
+        recipient_id = recipient.get("id")
+        if recipient_id:
+            recipient_map[recipient_id] = recipient
+    recipients = list(recipient_map.values())
 
     # when warehouse_id provided, only notify the source-warehouse leader
     # plus global approvers (owner/super_admin)
@@ -982,7 +1048,13 @@ def notify_roles(
                         continue
                 except (TypeError, ValueError):
                     continue
-            elif role not in ("owner", "super_admin"):
+            elif role in ("admin", "staff"):
+                try:
+                    if user_warehouse is None or int(user_warehouse) != int(warehouse_id):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            elif role not in ("owner", "super_admin", "hr"):
                 continue
 
             combined[r.get('id')] = r
@@ -1019,7 +1091,7 @@ def notify_roles(
                     pass
 
         # whatsapp (respect user preference)
-        if phone and r.get("notify_whatsapp"):
+        if send_whatsapp_channel and phone and r.get("notify_whatsapp"):
             if not _notification_exists_recent(db, phone, 'wa', subject, message):
                 ok = send_whatsapp(phone, message)
                 results["wa"].append({"to": phone, "ok": ok})
@@ -1030,7 +1102,7 @@ def notify_roles(
                     pass
 
     # fallback: if no specific contacts, send to configured FONNTE_TARGET and store a notification
-    if not recipients and os.getenv("FONNTE_TARGET"):
+    if send_whatsapp_channel and not recipients and os.getenv("FONNTE_TARGET"):
         if not _notification_exists_recent(db, os.getenv("FONNTE_TARGET"), 'wa', subject, message):
             ok = send_whatsapp(os.getenv("FONNTE_TARGET"), message)
             try:

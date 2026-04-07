@@ -2,6 +2,13 @@ from flask import Blueprint, flash, redirect, render_template, request, session
 from werkzeug.security import generate_password_hash
 
 from database import get_db
+from services.event_notification_policy import (
+    ALLOWED_NOTIFICATION_RECIPIENT_ROLES,
+    list_event_notification_policies,
+    reset_event_notification_policy,
+    row_matches_notification_aliases,
+    save_event_notification_policy,
+)
 from services.rbac import has_permission, is_scoped_role
 
 
@@ -47,6 +54,15 @@ ROLE_GUIDE = [
     },
 ]
 
+NOTIFICATION_ROLE_LABELS = {
+    "owner": "Owner",
+    "hr": "HR",
+    "super_admin": "Super Admin",
+    "leader": "Leader",
+    "admin": "Admin",
+    "staff": "Staff",
+}
+
 
 def require_admin():
     if not has_permission(session.get("role"), "view_admin"):
@@ -58,7 +74,133 @@ def require_admin():
 def _admin_redirect(section="access"):
     if section == "warehouses":
         return redirect("/admin/warehouses")
+    if section == "notifications":
+        return redirect("/admin/notifications")
     return redirect("/admin/")
+
+
+def _format_notification_user_label(user):
+    display_name = (
+        str(user.get("employee_name") or user.get("display_name") or user.get("full_name") or user.get("username") or "User").strip()
+    )
+    username = str(user.get("username") or "").strip()
+    role = NOTIFICATION_ROLE_LABELS.get(str(user.get("role") or "").strip(), str(user.get("role") or "").strip() or "User")
+    warehouse_name = str(user.get("warehouse_name") or "").strip()
+
+    parts = [display_name]
+    meta = []
+    if username and username.lower() != display_name.lower():
+        meta.append(f"@{username}")
+    meta.append(role)
+    if warehouse_name:
+        meta.append(warehouse_name)
+    if meta:
+        parts.append(" | ".join(meta))
+    return " - ".join(parts)
+
+
+def _resolve_default_notification_users(users, aliases):
+    aliases = tuple(aliases or ())
+    if not aliases:
+        return []
+
+    matched = []
+    used_ids = set()
+    for user in users:
+        user_row = {
+            "username": user.get("username"),
+            "display_name": user.get("employee_name") or user.get("username"),
+            "full_name": user.get("employee_name") or user.get("username"),
+        }
+        if not row_matches_notification_aliases(user_row, aliases):
+            continue
+        user_id = user.get("id")
+        if user_id in used_ids:
+            continue
+        used_ids.add(user_id)
+        matched.append(
+            {
+                "id": user_id,
+                "label": _format_notification_user_label(user),
+            }
+        )
+    return matched
+
+
+def _build_notification_policy_sections(users):
+    role_options = [
+        {
+            "value": role,
+            "label": NOTIFICATION_ROLE_LABELS.get(role, role.replace("_", " ").title()),
+        }
+        for role in ALLOWED_NOTIFICATION_RECIPIENT_ROLES
+    ]
+    user_options = [
+        {
+            "id": user["id"],
+            "label": _format_notification_user_label(user),
+        }
+        for user in sorted(
+            users,
+            key=lambda item: (
+                str(item.get("employee_name") or item.get("username") or "").lower(),
+                int(item.get("id") or 0),
+            ),
+        )
+    ]
+
+    sections = {}
+    custom_count = 0
+    explicit_user_target_count = 0
+
+    for policy in list_event_notification_policies():
+        if policy["is_custom"]:
+            custom_count += 1
+        explicit_user_target_count += len(policy.get("user_ids") or ())
+
+        section_key = policy["section"]
+        section_bucket = sections.setdefault(
+            section_key,
+            {
+                "key": section_key,
+                "label": policy["section_label"],
+                "summary": policy["section_summary"],
+                "sort_order": policy["section_sort_order"],
+                "policies": [],
+            },
+        )
+
+        default_users = _resolve_default_notification_users(users, policy.get("default_usernames"))
+        selected_users = [
+            {
+                "id": int(user.get("id") or 0),
+                "label": _format_notification_user_label(user),
+            }
+            for user in policy.get("selected_users") or ()
+            if user.get("id")
+        ]
+        effective_user_labels = selected_users if policy["is_custom"] else default_users
+
+        section_bucket["policies"].append(
+            {
+                **policy,
+                "default_users": default_users,
+                "selected_user_labels": selected_users,
+                "effective_user_labels": effective_user_labels,
+                "role_labels": [NOTIFICATION_ROLE_LABELS.get(role, role) for role in policy["roles"]],
+            }
+        )
+
+    return {
+        "sections": sorted(sections.values(), key=lambda item: (item["sort_order"], item["label"])),
+        "role_options": role_options,
+        "user_options": user_options,
+        "summary": {
+            "total_events": sum(len(section["policies"]) for section in sections.values()),
+            "custom_events": custom_count,
+            "specific_users": explicit_user_target_count,
+        },
+    }
 
 
 def _load_admin_context():
@@ -218,6 +360,61 @@ def warehouse_admin_page():
         admin_section="warehouses",
         **_load_admin_context(),
     )
+
+
+@admin_bp.route("/notifications")
+def admin_notification_page():
+    if not require_admin():
+        return redirect("/")
+
+    admin_context = _load_admin_context()
+    notification_context = _build_notification_policy_sections(admin_context["users"])
+    return render_template(
+        "admin_notifications.html",
+        admin_section="notifications",
+        notification_sections=notification_context["sections"],
+        notification_role_options=notification_context["role_options"],
+        notification_user_options=notification_context["user_options"],
+        notification_summary=notification_context["summary"],
+        **admin_context,
+    )
+
+
+@admin_bp.route("/notifications/<event_type>", methods=["POST"])
+def update_notification_policy(event_type):
+    if not require_admin():
+        return redirect("/")
+
+    roles = request.form.getlist("roles")
+    user_ids = request.form.getlist("user_ids")
+    try:
+        save_event_notification_policy(
+            event_type,
+            roles=roles,
+            user_ids=user_ids,
+            updated_by=session.get("user_id"),
+        )
+    except ValueError:
+        flash("Event notifikasi tidak valid atau user pilihan tidak ditemukan.", "error")
+        return _admin_redirect("notifications")
+
+    flash("Klasifikasi notif berhasil diperbarui.", "success")
+    return _admin_redirect("notifications")
+
+
+@admin_bp.route("/notifications/<event_type>/reset", methods=["POST"])
+def reset_notification_policy_route(event_type):
+    if not require_admin():
+        return redirect("/")
+
+    try:
+        reset_event_notification_policy(event_type)
+    except ValueError:
+        flash("Event notifikasi tidak valid.", "error")
+        return _admin_redirect("notifications")
+
+    flash("Klasifikasi notif dikembalikan ke default.", "success")
+    return _admin_redirect("notifications")
 
 
 @admin_bp.route("/add_user", methods=["POST"])

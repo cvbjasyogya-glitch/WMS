@@ -3,6 +3,7 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, session
 
 from database import get_db
+from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_operational_event, notify_roles
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import add_stock
@@ -198,6 +199,7 @@ def inbound():
                 db.commit()
 
                 try:
+                    inventory_policy = get_event_notification_policy("inventory.activity")
                     notify_operational_event(
                         f"Inbound selesai: {processed} item",
                         (
@@ -208,6 +210,9 @@ def inbound():
                         warehouse_id=warehouse_id,
                         category="inventory",
                         link_url="/inbound/",
+                        recipient_roles=inventory_policy["roles"],
+                        recipient_usernames=inventory_policy["usernames"],
+                        recipient_user_ids=inventory_policy["user_ids"],
                         source_type="inbound_batch",
                         push_title="Inbound berhasil diproses",
                         push_body=(
@@ -256,11 +261,15 @@ def inbound():
                 db.commit()
 
                 try:
+                    approval_policy = get_event_notification_policy("inventory.inbound_approval_requested")
                     notify_roles(
-                        ["leader", "owner", "super_admin"],
+                        approval_policy["roles"],
                         "Permintaan Inbound Massal",
                         f"Ada {len(items)} item inbound yang menunggu approval.",
                         warehouse_id=warehouse_id,
+                        usernames=approval_policy["usernames"],
+                        user_ids=approval_policy["user_ids"],
+                        send_whatsapp_channel=False,
                         category="approval",
                         link_url="/approvals",
                         source_type="approval_queue",

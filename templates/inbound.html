@@ -134,7 +134,7 @@
                     <label>Biaya Modal</label>
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" id="inboundDraftCost" min="0" step="0.01" placeholder="0">
+                        <input type="number" id="inboundDraftCost" min="0" step="0.01" placeholder="0" data-wms-currency="currency">
                     </div>
                 </div>
 
@@ -238,6 +238,27 @@ function formatCurrency(value) {
     return new Intl.NumberFormat("id-ID").format(Number(value || 0));
 }
 
+function getInboundCurrencyValue(input) {
+    if (!input) {
+        return 0;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getNumericValue(input);
+    }
+    return Number(input.value || 0);
+}
+
+function setInboundCurrencyValue(input, value) {
+    if (!input) {
+        return;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        window.wmsCurrencyInput.setValue(input, value);
+        return;
+    }
+    input.value = value === null || value === undefined ? "" : String(value);
+}
+
 function renderInboundWorkspaceSummary() {
     const count = inboundItems.length;
     const totalQty = inboundItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
@@ -293,7 +314,7 @@ function resetInboundDraft() {
     inboundDraftDisplay.value = "";
     inboundDraftMeta.textContent = "Belum ada barang yang dipilih.";
     inboundDraftQty.value = "";
-    inboundDraftCost.value = "";
+    setInboundCurrencyValue(inboundDraftCost, "");
     inboundDraftExpiry.value = "";
     inboundDraftNote.value = "";
     inboundDraftDate.value = inboundDraftDate.value || getLocalToday();
@@ -418,7 +439,7 @@ function addInboundItem() {
     }
 
     const qty = Number(inboundDraftQty.value || 0);
-    const cost = Number(inboundDraftCost.value || 0);
+    const cost = getInboundCurrencyValue(inboundDraftCost);
 
     if (!Number.isFinite(qty) || qty <= 0) {
         alert("Qty masuk harus lebih dari 0.");

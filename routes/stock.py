@@ -7,8 +7,16 @@ from flask import Blueprint, Response, render_template, request, session, redire
 
 from database import get_db
 
+from services.event_notification_policy import get_event_notification_policy
 from services.stock_service import adjust_stock
 from services.notification_service import notify_operational_event, notify_roles
+from services.product_master_approval_service import (
+    build_product_edit_payload,
+    can_queue_product_master_approval,
+    find_pending_product_edit_approval,
+    payload_has_product_edit_changes,
+    queue_product_edit_approval,
+)
 from services.whatsapp_service import send_role_based_notification
 from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role, normalize_role
@@ -538,6 +546,56 @@ def _can_manage_product_master():
     return has_permission(session.get("role"), "manage_product_master")
 
 
+def _queue_product_edit_request(db, payload):
+    warehouse_id = session.get("warehouse_id") or 0
+    approval_id = queue_product_edit_approval(
+        db,
+        warehouse_id=warehouse_id,
+        requested_by=session.get("user_id"),
+        payload=payload,
+    )
+
+    try:
+        approval_policy = get_event_notification_policy("inventory.product_edit_approval_requested")
+        notify_roles(
+            approval_policy["roles"],
+            "Permintaan Edit Master Produk",
+            "Ada perubahan master produk yang menunggu approval.",
+            warehouse_id=warehouse_id,
+            usernames=approval_policy["usernames"],
+            user_ids=approval_policy["user_ids"],
+            send_whatsapp_channel=False,
+            category="approval",
+            link_url="/approvals",
+            source_type="approval_queue",
+        )
+    except Exception as exc:
+        print("PRODUCT EDIT APPROVAL NOTIFY ERROR:", exc)
+
+    try:
+        warehouse_row = None
+        if warehouse_id:
+            warehouse_row = db.execute("SELECT name FROM warehouses WHERE id=?", (warehouse_id,)).fetchone()
+        target = payload.get("target") or {}
+        send_role_based_notification(
+            "inventory.product_edit_approval_requested",
+            {
+                "warehouse_id": warehouse_id,
+                "warehouse_name": ((warehouse_row["name"] if warehouse_row else "") or f"Gudang {warehouse_id or '-'}").strip(),
+                "requester_name": session.get("username") or "Admin",
+                "item_count": 1,
+                "sku": str(target.get("sku") or "").strip(),
+                "product_name": str(target.get("name") or "").strip(),
+                "variant_label": str(target.get("variant") or "").strip(),
+                "link_url": "/approvals",
+            },
+        )
+    except Exception as exc:
+        print("PRODUCT EDIT APPROVAL WHATSAPP ERROR:", exc)
+
+    return approval_id
+
+
 def _can_render_stock_adjust_controls():
     role = session.get("role")
     if role == "staff":
@@ -801,6 +859,7 @@ def adjust():
                                 else stock_item["variant_name"]
                             )
                             qty_label = f"+{qty}" if qty > 0 else str(qty)
+                            inventory_policy = get_event_notification_policy("inventory.activity")
                             notify_operational_event(
                                 f"Adjustment stok: {stock_item['sku']} - {stock_item['product_name']}",
                                 (
@@ -811,6 +870,9 @@ def adjust():
                                 warehouse_id=warehouse_id,
                                 category="inventory",
                                 link_url="/stock/",
+                                recipient_roles=inventory_policy["roles"],
+                                recipient_usernames=inventory_policy["usernames"],
+                                recipient_user_ids=inventory_policy["user_ids"],
                                 source_type="stock_adjustment",
                                 push_title="Adjustment stok",
                                 push_body=f"{stock_item['sku']} | {qty_label}",
@@ -850,6 +912,7 @@ def adjust():
                             else stock_item["variant_name"]
                         )
                         qty_label = f"+{qty}" if qty > 0 else str(qty)
+                        inventory_policy = get_event_notification_policy("inventory.activity")
                         notify_operational_event(
                             f"Adjustment stok: {stock_item['sku']} - {stock_item['product_name']}",
                             (
@@ -860,6 +923,9 @@ def adjust():
                             warehouse_id=warehouse_id,
                             category="inventory",
                             link_url="/stock/",
+                            recipient_roles=inventory_policy["roles"],
+                            recipient_usernames=inventory_policy["usernames"],
+                            recipient_user_ids=inventory_policy["user_ids"],
                             source_type="stock_adjustment",
                             push_title="Adjustment stok",
                             push_body=f"{stock_item['sku']} | {qty_label}",
@@ -894,11 +960,15 @@ def adjust():
                 f"Produk:{product_id} Variant:{variant_id} Gudang:{warehouse_id} Qty:{qty}"
             )
             try:
+                approval_policy = get_event_notification_policy("inventory.adjust_approval_requested")
                 notify_roles(
-                    ["leader", "owner", "super_admin"],
+                    approval_policy["roles"],
                     subj,
                     msg,
                     warehouse_id=warehouse_id,
+                    usernames=approval_policy["usernames"],
+                    user_ids=approval_policy["user_ids"],
+                    send_whatsapp_channel=False,
                     category="approval",
                     link_url="/approvals",
                     source_type="approval_queue",
@@ -966,6 +1036,74 @@ def update_field():
     try:
         if not value:
             return _stock_json_error("Tidak boleh kosong")
+
+        if field == "sku":
+            duplicate = db.execute(
+                "SELECT id FROM products WHERE sku=? AND id!=?",
+                (value, product_id),
+            ).fetchone()
+            if duplicate:
+                return _stock_json_error("SKU sudah ada")
+
+        elif field in ["price_retail", "price_discount", "price_nett"]:
+            try:
+                float(value)
+            except Exception:
+                return _stock_json_error("Harus angka")
+
+        if can_queue_product_master_approval(session.get("role")):
+            updates = {}
+            if field in {"sku", "name", "variant"}:
+                updates[field] = value
+            elif field in ["price_retail", "price_discount", "price_nett"]:
+                try:
+                    updates[field] = float(value)
+                except Exception:
+                    return _stock_json_error("Harus angka")
+            else:
+                return _stock_json_error("Field tidak dikenal")
+
+            payload = build_product_edit_payload(
+                db,
+                product_id=product_id,
+                variant_id=variant_id,
+                updates=updates,
+            )
+            if not payload_has_product_edit_changes(payload):
+                return jsonify(
+                    {
+                        "status": "success",
+                        "message": "Tidak ada perubahan baru pada produk ini.",
+                        "approval_status": "unchanged",
+                    }
+                )
+
+            existing_pending = find_pending_product_edit_approval(
+                db,
+                product_id=payload.get("product_id") or product_id,
+                variant_id=payload.get("variant_id") or variant_id,
+            )
+            if existing_pending:
+                return jsonify(
+                    {
+                        "status": "success",
+                        "message": "Perubahan produk ini sudah menunggu approval. Selesaikan approval sebelumnya dulu.",
+                        "approval_status": "pending",
+                        "approval_existing": True,
+                        "approval_id": existing_pending["id"],
+                    }
+                )
+            db.execute("BEGIN")
+            approval_id = _queue_product_edit_request(db, payload)
+            db.commit()
+            return jsonify(
+                {
+                    "status": "success",
+                    "approval_status": "pending",
+                    "approval_id": approval_id,
+                    "message": "Perubahan produk dikirim dan menunggu approval leader / super admin.",
+                }
+            )
 
         if field == "sku":
             exist = db.execute(
@@ -1040,6 +1178,61 @@ def update_detail():
         if duplicate:
             return _stock_json_error("SKU sudah dipakai produk lain")
 
+        if variant_id and not variant:
+            return _stock_json_error("Variant wajib diisi untuk baris detail")
+
+        if can_queue_product_master_approval(session.get("role")):
+            payload = build_product_edit_payload(
+                db,
+                product_id=product_id,
+                variant_id=variant_id,
+                updates={
+                    "sku": sku,
+                    "name": name,
+                    "category_name": category_name,
+                    "unit_label": unit_label,
+                    "variant": variant,
+                    "price_retail": price_retail,
+                    "price_discount": price_discount,
+                    "price_nett": price_nett,
+                },
+            )
+            if not payload_has_product_edit_changes(payload):
+                return jsonify(
+                    {
+                        "status": "success",
+                        "message": "Tidak ada perubahan baru pada detail produk ini.",
+                        "approval_status": "unchanged",
+                    }
+                )
+
+            existing_pending = find_pending_product_edit_approval(
+                db,
+                product_id=payload.get("product_id") or product_id,
+                variant_id=payload.get("variant_id") or variant_id,
+            )
+            if existing_pending:
+                return jsonify(
+                    {
+                        "status": "success",
+                        "message": "Detail produk ini sudah punya approval pending. Selesaikan approval sebelumnya dulu.",
+                        "approval_status": "pending",
+                        "approval_existing": True,
+                        "approval_id": existing_pending["id"],
+                    }
+                )
+            db.execute("BEGIN")
+            approval_id = _queue_product_edit_request(db, payload)
+            db.commit()
+            return jsonify(
+                {
+                    "status": "success",
+                    "approval_status": "pending",
+                    "approval_id": approval_id,
+                    "message": "Perubahan detail produk dikirim dan menunggu approval leader / super admin.",
+                }
+            )
+
         category_id = _resolve_category_id(db, category_name)
 
         db.execute("BEGIN")
@@ -1049,10 +1242,6 @@ def update_detail():
         )
 
         if variant_id:
-            if not variant:
-                db.rollback()
-                return _stock_json_error("Variant wajib diisi untuk baris detail")
-
             db.execute(
                 """
                 UPDATE product_variants

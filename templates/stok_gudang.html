@@ -393,7 +393,7 @@
                                             {% if can('manage_product_master') %}
                                             <div class="money-input">
                                                 <span>Rp</span>
-                                                <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                                <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" data-wms-currency="currency" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             </div>
                                             {% else %}
                                             <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_retail or 0) }}</strong></div>
@@ -403,7 +403,7 @@
                                             {% if can('manage_product_master') %}
                                             <div class="money-input">
                                                 <span>Rp</span>
-                                                <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                                <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" data-wms-currency="currency" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             </div>
                                             {% else %}
                                             <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_discount or 0) }}</strong></div>
@@ -413,7 +413,7 @@
                                             {% if can('manage_product_master') %}
                                             <div class="money-input">
                                                 <span>Rp</span>
-                                                <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                                                <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" data-wms-currency="currency" {% if not can('manage_product_master') %}disabled{% endif %}>
                                             </div>
                                             {% else %}
                                             <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_nett or 0) }}</strong></div>
@@ -514,7 +514,7 @@
                     {% if can('manage_product_master') %}
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                        <input type="number" step="0.01" class="edit-field" data-field="price_retail" data-variant="{{ s.variant_id }}" value="{{ s.price_retail }}" data-wms-currency="currency" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
                     {% else %}
                     <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_retail or 0) }}</strong></div>
@@ -524,7 +524,7 @@
                     {% if can('manage_product_master') %}
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                        <input type="number" step="0.01" class="edit-field" data-field="price_discount" data-variant="{{ s.variant_id }}" value="{{ s.price_discount }}" data-wms-currency="currency" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
                     {% else %}
                     <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_discount or 0) }}</strong></div>
@@ -534,7 +534,7 @@
                     {% if can('manage_product_master') %}
                     <div class="money-input">
                         <span>Rp</span>
-                        <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" {% if not can('manage_product_master') %}disabled{% endif %}>
+                        <input type="number" step="0.01" class="edit-field" data-field="price_nett" data-variant="{{ s.variant_id }}" value="{{ s.price_nett }}" data-wms-currency="currency" {% if not can('manage_product_master') %}disabled{% endif %}>
                     </div>
                     {% else %}
                     <div class="stock-readonly-money"><span>Rp</span><strong>{{ "{:,.0f}".format(s.price_nett or 0) }}</strong></div>
@@ -599,15 +599,15 @@
                 </div>
                 <div id="stockEditRetailWrap">
                     <label>Harga Retail</label>
-                    <input type="number" step="0.01" min="0" name="price_retail" id="stockEditPriceRetail">
+                    <input type="number" step="0.01" min="0" name="price_retail" id="stockEditPriceRetail" data-wms-currency="currency">
                 </div>
                 <div id="stockEditDiscountWrap">
                     <label>Harga Discount</label>
-                    <input type="number" step="0.01" min="0" name="price_discount" id="stockEditPriceDiscount">
+                    <input type="number" step="0.01" min="0" name="price_discount" id="stockEditPriceDiscount" data-wms-currency="currency">
                 </div>
                 <div id="stockEditNettWrap">
                     <label>Harga Nett</label>
-                    <input type="number" step="0.01" min="0" name="price_nett" id="stockEditPriceNett">
+                    <input type="number" step="0.01" min="0" name="price_nett" id="stockEditPriceNett" data-wms-currency="currency">
                 </div>
             </div>
 
@@ -669,6 +669,43 @@ function notifyStockMessage(message, type = "info") {
 
 function formatRupiahNumber(value) {
     return `Rp ${Math.round(value).toLocaleString("id-ID")}`;
+}
+
+function getStockCurrencyRaw(input) {
+    if (!input) {
+        return "";
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getRawValue(input);
+    }
+    return String(input.value || "").trim();
+}
+
+function getStockCurrencyValue(input) {
+    if (!input) {
+        return 0;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        return window.wmsCurrencyInput.getNumericValue(input);
+    }
+    return Number(input.value || 0);
+}
+
+function setStockCurrencyValue(input, value) {
+    if (!input) {
+        return;
+    }
+    if (window.wmsCurrencyInput?.isManagedInput(input)) {
+        window.wmsCurrencyInput.setValue(input, value);
+        return;
+    }
+    input.value = value === null || value === undefined ? "" : String(value);
+}
+
+function refreshStockCurrencyInputs(scope) {
+    if (window.wmsCurrencyInput) {
+        window.wmsCurrencyInput.refresh(scope || document);
+    }
 }
 
 function getStockLevel(qty) {
@@ -923,9 +960,9 @@ function updateSummaryCounts(previousQty, nextQty, bestPrice) {
 }
 
 function getBestPriceFromRow(row) {
-    const nett = parseFloat(row.querySelector('[data-field="price_nett"]')?.value || "0") || 0;
-    const discount = parseFloat(row.querySelector('[data-field="price_discount"]')?.value || "0") || 0;
-    const retail = parseFloat(row.querySelector('[data-field="price_retail"]')?.value || "0") || 0;
+    const nett = getStockCurrencyValue(row.querySelector('[data-field="price_nett"]'));
+    const discount = getStockCurrencyValue(row.querySelector('[data-field="price_discount"]'));
+    const retail = getStockCurrencyValue(row.querySelector('[data-field="price_retail"]'));
 
     if (nett > 0) {
         return nett;
@@ -1058,7 +1095,7 @@ function bindStockInlineEditors(scope = document) {
         input.dataset.bound = "1";
         input.addEventListener("change", function() {
             const field = this.dataset.field;
-            const value = this.value.trim();
+            const value = getStockCurrencyRaw(this) || this.value.trim();
             const groupSummaryRow = getGroupSummaryRow(this);
 
             if (!value) {
@@ -1078,9 +1115,15 @@ function bindStockInlineEditors(scope = document) {
                 body: formData
             })
             .then((res) => res.json())
-            .then((data) => {
+            .then(async (data) => {
                 if (data.status !== "success") {
-                    alert(data.message || "Update gagal disimpan.");
+                    notifyStockMessage(data.message || "Update gagal disimpan.", "error");
+                    return;
+                }
+
+                notifyStockMessage(data.message || "Perubahan produk diproses.");
+                if (data.approval_status === "pending") {
+                    await refreshProductsView();
                     return;
                 }
 
@@ -1089,7 +1132,7 @@ function bindStockInlineEditors(scope = document) {
                     renderGroupSummary(groupSummaryRow);
                 }
             })
-            .catch(() => alert("Terjadi error saat update data."));
+            .catch(() => notifyStockMessage("Terjadi error saat update data.", "error"));
         });
     });
 }
@@ -1629,21 +1672,21 @@ function createVariantRowMarkup(initial = {}) {
                         <span class="variant-mini-label">Retail</span>
                         <label class="variant-currency-input">
                             <span>Rp</span>
-                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}">
+                            <input type="number" data-field="price_retail" min="0" step="0.01" placeholder="649900" value="${priceRetail}" data-wms-currency="currency">
                         </label>
                     </div>
                     <div>
                         <span class="variant-mini-label">Diskon</span>
                         <label class="variant-currency-input">
                             <span>Rp</span>
-                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}">
+                            <input type="number" data-field="price_discount" min="0" step="0.01" placeholder="552415" value="${priceDiscount}" data-wms-currency="currency">
                         </label>
                     </div>
                     <div>
                         <span class="variant-mini-label">Nett</span>
                         <label class="variant-currency-input">
                             <span>Rp</span>
-                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}">
+                            <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}" data-wms-currency="currency">
                         </label>
                     </div>
                 </div>
@@ -1692,6 +1735,7 @@ function addVariantRow(initial = {}) {
     const row = document.createElement("tr");
     row.innerHTML = createVariantRowMarkup(initial);
     variantRowsBody.appendChild(row);
+    refreshStockCurrencyInputs(row);
     bindVariantRow(row);
     syncManualProductModeUi();
 }
@@ -1705,9 +1749,9 @@ function formatCompactCurrency(value) {
 }
 
 function updateVariantPriceSummary(row) {
-    const retail = Number(row.querySelector('[data-field="price_retail"]')?.value || 0);
-    const discount = Number(row.querySelector('[data-field="price_discount"]')?.value || 0);
-    const nett = Number(row.querySelector('[data-field="price_nett"]')?.value || 0);
+    const retail = getStockCurrencyValue(row.querySelector('[data-field="price_retail"]'));
+    const discount = getStockCurrencyValue(row.querySelector('[data-field="price_discount"]'));
+    const nett = getStockCurrencyValue(row.querySelector('[data-field="price_nett"]'));
     const summary = row.querySelector('[data-role="price-summary"]');
 
     if (!summary) {
@@ -1737,6 +1781,7 @@ function bindVariantRow(row) {
     row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"]').forEach((input) => {
         input.addEventListener("input", () => updateVariantPriceSummary(row));
     });
+    refreshStockCurrencyInputs(row);
     updateVariantPriceSummary(row);
     syncManualProductUnitLabels();
 }
@@ -1766,9 +1811,9 @@ function getVariantPayload() {
         return {
             variant: (getValue("variant")?.value || "").trim(),
             color: (getValue("color")?.value || "").trim(),
-            price_retail: (getValue("price_retail")?.value || "").trim(),
-            price_discount: (getValue("price_discount")?.value || "").trim(),
-            price_nett: (getValue("price_nett")?.value || "").trim(),
+            price_retail: getStockCurrencyRaw(getValue("price_retail")),
+            price_discount: getStockCurrencyRaw(getValue("price_discount")),
+            price_nett: getStockCurrencyRaw(getValue("price_nett")),
             qty: (getValue("qty")?.value || "").trim(),
             variant_code: (getValue("variant_code")?.value || "").trim(),
             gtin: (getValue("gtin")?.value || "").trim()
@@ -2148,11 +2193,12 @@ if (stockPageConfig.canManageProductMaster) {
         document.getElementById("stockEditCategory").value = source.dataset.productCategory || "";
         document.getElementById("stockEditUnitLabel").value = source.dataset.productUnitLabel || "pcs";
         document.getElementById("stockEditVariant").value = source.dataset.productVariant || "";
-        document.getElementById("stockEditPriceRetail").value = source.dataset.priceRetail || "";
-        document.getElementById("stockEditPriceDiscount").value = source.dataset.priceDiscount || "";
-        document.getElementById("stockEditPriceNett").value = source.dataset.priceNett || "";
+        setStockCurrencyValue(document.getElementById("stockEditPriceRetail"), source.dataset.priceRetail || "");
+        setStockCurrencyValue(document.getElementById("stockEditPriceDiscount"), source.dataset.priceDiscount || "");
+        setStockCurrencyValue(document.getElementById("stockEditPriceNett"), source.dataset.priceNett || "");
 
         toggleStockEditVariantFields(source);
+        refreshStockCurrencyInputs(stockEditModal);
         stockEditModal.hidden = false;
         document.body.classList.add("stock-edit-modal-open");
     }

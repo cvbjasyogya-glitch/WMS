@@ -146,15 +146,15 @@
                         <div class="pos-ipos-draft-copy">
                             <span class="pos-ipos-kicker">Produk Pilihan</span>
                             <strong id="posDraftDisplay">Belum ada barang dipilih</strong>
-                            <small id="posDraftMeta">Buka daftar item untuk memilih varian dan harga jual.</small>
+                            <small id="posDraftMeta">Buka daftar item untuk memilih varian. Harga retail akan masuk otomatis dan bisa diubah di keranjang.</small>
                         </div>
                         <div class="pos-ipos-field pos-ipos-field-compact">
                             <label for="posDraftQty">Jumlah</label>
                             <input type="number" id="posDraftQty" min="1" step="1" placeholder="1">
                         </div>
                         <div class="pos-ipos-field pos-ipos-field-compact">
-                            <label for="posDraftPrice">Harga</label>
-                            <input type="number" id="posDraftPrice" min="0" step="0.01" placeholder="0">
+                            <label for="posDraftPrice">Harga Retail</label>
+                            <input type="number" id="posDraftPrice" min="0" step="0.01" placeholder="0" readonly data-wms-currency="currency">
                         </div>
                         <div class="pos-ipos-field pos-ipos-field-stock">
                             <label>Stok</label>
@@ -189,7 +189,7 @@
                                     <th>Keterangan</th>
                                     <th>Jumlah</th>
                                     <th>Satuan</th>
-                                    <th>Harga</th>
+                                    <th>Harga Jual</th>
                                     <th>Total</th>
                                     <th>Aksi</th>
                                 </tr>
@@ -227,7 +227,7 @@
                                     <option value="amount">Rp</option>
                                     <option value="percent">%</option>
                                 </select>
-                                <input type="number" id="posDiscountInput" min="0" step="0.01" placeholder="0" inputmode="decimal">
+                                <input type="number" id="posDiscountInput" min="0" step="0.01" placeholder="0" inputmode="decimal" data-wms-currency="switch" data-wms-currency-switch-source="posDiscountType" data-wms-currency-switch-match="amount">
                             </div>
                         </div>
                         <div>
@@ -241,7 +241,7 @@
                                     <option value="amount">Rp</option>
                                     <option value="percent">%</option>
                                 </select>
-                                <input type="number" id="posTaxInput" min="0" step="0.01" placeholder="0" inputmode="decimal">
+                                <input type="number" id="posTaxInput" min="0" step="0.01" placeholder="0" inputmode="decimal" data-wms-currency="switch" data-wms-currency-switch-source="posTaxType" data-wms-currency-switch-match="amount">
                             </div>
                         </div>
                         <div>
@@ -250,7 +250,7 @@
                         </div>
                         <label class="pos-ipos-summary-input" for="posPaidAmount">
                             <span>Bayar</span>
-                            <input type="number" id="posPaidAmount" min="0" step="0.01" placeholder="0">
+                            <input type="number" id="posPaidAmount" min="0" step="0.01" placeholder="0" data-wms-currency="currency">
                         </label>
                         <div class="is-accent">
                             <span>Kembalian</span>

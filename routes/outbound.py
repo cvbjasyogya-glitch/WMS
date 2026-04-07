@@ -3,6 +3,7 @@ import json
 from flask import Blueprint, render_template, request, redirect, flash, session
 
 from database import get_db
+from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_operational_event, notify_roles
 from services.rbac import has_permission, is_scoped_role
 from services.stock_service import remove_stock
@@ -185,6 +186,7 @@ def outbound():
                 db.commit()
 
                 try:
+                    inventory_policy = get_event_notification_policy("inventory.activity")
                     notify_operational_event(
                         f"Outbound selesai: {processed} item",
                         (
@@ -195,6 +197,9 @@ def outbound():
                         warehouse_id=warehouse_id,
                         category="inventory",
                         link_url="/outbound/",
+                        recipient_roles=inventory_policy["roles"],
+                        recipient_usernames=inventory_policy["usernames"],
+                        recipient_user_ids=inventory_policy["user_ids"],
                         source_type="outbound_batch",
                         push_title="Outbound berhasil diproses",
                         push_body=(
@@ -243,11 +248,15 @@ def outbound():
                 db.commit()
 
                 try:
+                    approval_policy = get_event_notification_policy("inventory.outbound_approval_requested")
                     notify_roles(
-                        ["leader", "owner", "super_admin"],
+                        approval_policy["roles"],
                         "Permintaan Outbound Massal",
                         f"Ada {len(items)} item outbound yang menunggu approval.",
                         warehouse_id=warehouse_id,
+                        usernames=approval_policy["usernames"],
+                        user_ids=approval_policy["user_ids"],
+                        send_whatsapp_channel=False,
                         category="approval",
                         link_url="/approvals",
                         source_type="approval_queue",

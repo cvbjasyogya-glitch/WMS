@@ -32,6 +32,7 @@
     const participantStrip = document.getElementById("chatParticipantStrip");
     const mobileBackButton = document.getElementById("chatMobileBackButton");
     const sidebarPanel = shell.querySelector(".chat-sidebar-panel");
+    const syncBadge = document.getElementById("chatSyncBadge");
 
     const createGroupButton = document.getElementById("chatCreateGroupButton");
     const groupModal = document.getElementById("chatGroupModal");
@@ -50,7 +51,9 @@
     let sendInFlight = false;
     let activeTab = "threads";
     let pendingAttachment = null;
+    let currentMessages = Array.isArray(bootstrap.messages) ? bootstrap.messages.slice() : [];
     const maxAttachmentBytes = Number(shell.dataset.maxAttachmentBytes || 10485760) || 10485760;
+    const chatUi = window.WmsChatUi || {};
     const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
     const lowDataMode = Boolean(
         navigator.connection
@@ -60,6 +63,25 @@
         )
     );
     const pollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;
+
+    function setSyncState(stateName) {
+        if (!syncBadge) {
+            return;
+        }
+        const safeState = String(stateName || "ready").trim().toLowerCase() || "ready";
+        syncBadge.classList.remove("is-syncing", "is-stale");
+        if (safeState === "syncing") {
+            syncBadge.classList.add("is-syncing");
+            syncBadge.textContent = "Sinkron...";
+            return;
+        }
+        if (safeState === "stale") {
+            syncBadge.classList.add("is-stale");
+            syncBadge.textContent = "Perlu Sinkron";
+            return;
+        }
+        syncBadge.textContent = "Sinkron Aktif";
+    }
 
     function escapeHtml(value) {
         return String(value || "")
@@ -195,6 +217,51 @@
         `;
     }
 
+    function loadComposerDraft(forceValue) {
+        if (!composerInput || !currentThreadId || !chatUi.loadDraft) {
+            return;
+        }
+        if (!forceValue && (composerInput.value || "").trim()) {
+            return;
+        }
+        composerInput.value = chatUi.loadDraft(currentThreadId);
+        autoResizeComposer();
+    }
+
+    function persistComposerDraft() {
+        if (!composerInput || !currentThreadId || !chatUi.saveDraft) {
+            return;
+        }
+        chatUi.saveDraft(currentThreadId, composerInput.value || "");
+    }
+
+    function clearComposerDraft() {
+        if (!currentThreadId || !chatUi.clearDraft) {
+            return;
+        }
+        chatUi.clearDraft(currentThreadId);
+    }
+
+    function renderCurrentMessages(forceScroll) {
+        if (!messageBoard) {
+            return;
+        }
+        if (!Array.isArray(currentMessages) || !currentMessages.length) {
+            messageBoard.innerHTML = '<div class="chat-list-empty">Belum ada pesan di percakapan ini.</div>';
+            lastMessageId = 0;
+            return;
+        }
+
+        if (chatUi.renderMessageTimeline) {
+            messageBoard.innerHTML = chatUi.renderMessageTimeline(currentMessages);
+        } else {
+            messageBoard.innerHTML = currentMessages.map(renderMessage).join("");
+        }
+        lastMessageId = currentMessages.reduce((maxId, message) => Math.max(maxId, Number(message.id || 0)), 0);
+        normalizeChatText(messageBoard);
+        scrollMessages(Boolean(forceScroll));
+    }
+
     function renderParticipantStrip(selectedThread) {
         if (!participantStrip) {
             return;
@@ -230,22 +297,10 @@
         if (!messageBoard || !Array.isArray(messages) || !messages.length) {
             return;
         }
-
-        let inserted = false;
-        messages.forEach((message) => {
-            const messageId = Number(message.id || 0);
-            if (messageId <= 0 || messageBoard.querySelector(`[data-message-id="${messageId}"]`)) {
-                return;
-            }
-            messageBoard.insertAdjacentHTML("beforeend", renderMessage(message));
-            lastMessageId = Math.max(lastMessageId, messageId);
-            inserted = true;
-        });
-
-        if (inserted) {
-            normalizeChatText(messageBoard);
-            scrollMessages(Boolean(forceScroll));
-        }
+        currentMessages = chatUi.mergeMessages
+            ? chatUi.mergeMessages(currentMessages, messages)
+            : currentMessages.concat(messages);
+        renderCurrentMessages(forceScroll);
     }
 
     function updatePartnerState(selectedThread) {
@@ -259,11 +314,19 @@
             partnerName.textContent = selectedThread.partner_name || "";
         }
         if (partnerMeta) {
-            const statusSuffix = selectedThread.partner_online ? " | Online" : "";
-            partnerMeta.textContent = `${selectedThread.partner_role_label || "-"} | ${selectedThread.partner_warehouse_label || "Global"}${statusSuffix}`;
+            const metaBits = [
+                selectedThread.partner_role_label || "-",
+                selectedThread.partner_warehouse_label || "Global",
+            ];
+            if (selectedThread.partner_status_label) {
+                metaBits.push(selectedThread.partner_status_label);
+            } else if (selectedThread.partner_online) {
+                metaBits.push("Online");
+            }
+            partnerMeta.textContent = metaBits.join(" | ");
         }
         if (partnerStatus) {
-            partnerStatus.textContent = selectedThread.partner_online ? "Online" : "Offline";
+            partnerStatus.textContent = selectedThread.partner_status_label || (selectedThread.partner_online ? "Online" : "Offline");
             partnerStatus.className = `badge ${selectedThread.partner_online ? "green" : ""}`.trim();
         }
         if (voiceCallButton) {
@@ -437,6 +500,7 @@
                     autoResizeComposer();
                     composerInput.focus();
                 }
+                clearComposerDraft();
             }
             resetAttachmentPreview();
             toggleStickerPanel(false);
@@ -521,6 +585,7 @@
         }
 
         pollInFlight = true;
+        setSyncState("syncing");
         try {
             const params = new URLSearchParams();
             params.set(
@@ -552,7 +617,9 @@
                 updatePartnerState(payload.selected_thread);
                 appendMessages(payload.selected_thread.messages || [], forceScroll);
             }
+            setSyncState("ready");
         } catch (error) {
+            setSyncState("stale");
         } finally {
             pollInFlight = false;
         }
@@ -642,7 +709,10 @@
         sendPayload({ call_mode: "video" }, false);
     });
 
-    composerInput?.addEventListener("input", autoResizeComposer);
+    composerInput?.addEventListener("input", () => {
+        autoResizeComposer();
+        persistComposerDraft();
+    });
     composerInput?.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -672,7 +742,9 @@
     }
     closeGroupModal();
     autoResizeComposer();
-    scrollMessages(true);
+    renderCurrentMessages(true);
+    loadComposerDraft(true);
+    setSyncState("ready");
     if (window.WmsChatRealtime?.updateUnreadBadge) {
         window.WmsChatRealtime.updateUnreadBadge(bootstrap.unread_total || 0);
     }

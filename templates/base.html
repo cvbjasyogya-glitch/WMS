@@ -17,9 +17,12 @@
 {% set app_shell_js_url = asset_url('js/app_shell.js') %}
 {% set push_notifications_js_url = asset_url('js/push_notifications.js') %}
 {% set web_notifications_js_url = asset_url('js/web_notifications.js') %}
+{% set chat_ui_shared_js_url = asset_url('js/chat_ui_shared.js') %}
 {% set chat_realtime_js_url = asset_url('js/chat_realtime.js') %}
 {% set chat_widget_js_url = asset_url('js/chat_widget.js') %}
 {% set floating_toolbelt_js_url = asset_url('js/floating_toolbelt.js') %}
+{% set currency_inputs_js_url = asset_url('js/currency_inputs.js') %}
+{% set table_layout_controls_js_url = asset_url('js/table_layout_controls.js') %}
 {% set offline_url = asset_url('offline-app.html') %}
 {% set notification_sound_url = asset_url('notif.mp3') %}
 {% set chat_ringtone_url = asset_url('audio/chat-call-ringtone.mp3') %}
@@ -966,6 +969,8 @@ function updateScrollableTableHints() {
     });
 }
 
+window.updateScrollableTableHints = updateScrollableTableHints;
+
 function syncResponsiveShell() {
     const mode = getDeviceMode();
     const sidebarNode = getSidebarNode();
@@ -1083,6 +1088,7 @@ function normalizeSidebarShellLayout() {
         closeMenu();
     } else {
         applyDesktopSidebarState(false, false);
+        closeMenu();
     }
 
     syncResponsiveShell();
@@ -1108,6 +1114,14 @@ function closeMenu() {
     }
     if (menu && !isDesktopViewport()) {
         menu.setAttribute("aria-hidden", "true");
+    }
+}
+
+function prepareSidebarNavigation() {
+    persistSidebarScrollPosition();
+    persistSidebarDisclosureState();
+    if (!isDesktopViewport()) {
+        closeMenu();
     }
 }
 
@@ -1167,12 +1181,15 @@ document.querySelectorAll(".flash").forEach((flash) => {
 
 if (hasAppShell) {
     document.querySelectorAll("#menu a, #menu form button").forEach((node) => {
+        if (node.matches("a")) {
+            node.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    prepareSidebarNavigation();
+                }
+            });
+        }
         node.addEventListener("click", () => {
-            persistSidebarScrollPosition();
-            persistSidebarDisclosureState();
-            if (window.innerWidth <= 1080) {
-                closeMenu();
-            }
+            prepareSidebarNavigation();
         });
     });
 
@@ -1241,6 +1258,12 @@ window.addEventListener("resize", () => {
 
 window.addEventListener("pageshow", () => {
     normalizeSidebarShellLayout();
+});
+
+window.addEventListener("pagehide", () => {
+    if (hasAppShell) {
+        closeMenu();
+    }
 });
 
 window.addEventListener("beforeunload", () => {
@@ -1392,6 +1415,7 @@ window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
 };
 window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigData");
 </script>
+<script src="{{ chat_ui_shared_js_url }}"></script>
 <script src="{{ chat_realtime_js_url }}"></script>
 {% if has_app_shell and not request.path.startswith('/chat') %}
 <script src="{{ chat_widget_js_url }}"></script>
@@ -1400,6 +1424,8 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
 {% if has_app_shell %}
 <script src="{{ floating_toolbelt_js_url }}"></script>
 {% endif %}
+<script src="{{ currency_inputs_js_url }}"></script>
+<script src="{{ table_layout_controls_js_url }}"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
