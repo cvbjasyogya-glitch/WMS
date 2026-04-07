@@ -360,6 +360,8 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "chat_threads", "thread_type", "TEXT DEFAULT 'direct'")
     _ensure_column(cursor, "chat_threads", "group_name", "TEXT")
     _ensure_column(cursor, "chat_threads", "group_description", "TEXT")
+    _ensure_column(cursor, "chat_thread_members", "is_pinned", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "chat_thread_members", "pinned_at", "TIMESTAMP")
     _ensure_column(cursor, "chat_messages", "message_type", "TEXT DEFAULT 'text'")
     _ensure_column(cursor, "chat_messages", "attachment_name", "TEXT")
     _ensure_column(cursor, "chat_messages", "attachment_path", "TEXT")
@@ -367,6 +369,9 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "chat_messages", "attachment_size", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "chat_messages", "sticker_code", "TEXT")
     _ensure_column(cursor, "chat_messages", "call_mode", "TEXT")
+    _ensure_column(cursor, "chat_messages", "reply_to_message_id", "INTEGER")
+    _ensure_column(cursor, "user_presence", "typing_thread_id", "INTEGER")
+    _ensure_column(cursor, "user_presence", "typing_until", "TIMESTAMP")
 
 
 def init_db(db_path=None, sqlite_options=None):
@@ -1155,6 +1160,8 @@ def init_db(db_path=None, sqlite_options=None):
         user_id INTEGER NOT NULL,
         last_read_message_id INTEGER,
         last_read_at TIMESTAMP,
+        is_pinned INTEGER DEFAULT 0,
+        pinned_at TIMESTAMP,
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(thread_id, user_id),
         FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
@@ -1175,9 +1182,11 @@ def init_db(db_path=None, sqlite_options=None):
         attachment_size INTEGER DEFAULT 0,
         sticker_code TEXT,
         call_mode TEXT,
+        reply_to_message_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
-        FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE
+        FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(reply_to_message_id) REFERENCES chat_messages(id) ON DELETE SET NULL
     )
     """)
 
@@ -1186,10 +1195,13 @@ def init_db(db_path=None, sqlite_options=None):
         user_id INTEGER PRIMARY KEY,
         current_path TEXT,
         active_thread_id INTEGER,
+        typing_thread_id INTEGER,
+        typing_until TIMESTAMP,
         last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(active_thread_id) REFERENCES chat_threads(id) ON DELETE SET NULL
+        FOREIGN KEY(active_thread_id) REFERENCES chat_threads(id) ON DELETE SET NULL,
+        FOREIGN KEY(typing_thread_id) REFERENCES chat_threads(id) ON DELETE SET NULL
     )
     """)
 
@@ -1395,10 +1407,13 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_main ON chat_threads(last_message_at, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_group ON chat_threads(thread_type, group_name, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_thread_members(user_id, thread_id, last_read_message_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_members_pin ON chat_thread_members(user_id, is_pinned, pinned_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id, id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_sender ON chat_messages(sender_id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_type ON chat_messages(thread_id, message_type, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_reply ON chat_messages(thread_id, reply_to_message_id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_user_presence_last_seen ON user_presence(last_seen_at, active_thread_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_user_presence_typing ON user_presence(typing_thread_id, typing_until)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_sessions_open ON chat_call_sessions(status, initiator_id, receiver_id, thread_id, started_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_sessions_thread ON chat_call_sessions(thread_id, status, started_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_call_signals_recipient ON chat_call_signals(recipient_id, id, created_at)")

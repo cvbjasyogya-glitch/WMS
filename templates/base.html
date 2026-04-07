@@ -326,7 +326,7 @@
                         <img src="{{ asset_url('icons/workspace/wms-stok-produk.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Stok &amp; Produk</span>
                     </a>
-                    {% if can("view_pos") %}
+                    {% if can_access_pos_terminal() %}
                     <a href="/kasir/" class="sidebar-subtile {% if is_pos_active %}active{% endif %}" aria-label="Kasir Harian">
                         <img src="{{ asset_url('icons/workspace/wms-kasir.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Kasir Harian</span>
@@ -682,9 +682,20 @@
                 <div class="chat-message-board chat-widget-message-board" data-chat-widget-messages>
                     <div class="chat-list-empty">Pilih percakapan dulu untuk mulai chat.</div>
                 </div>
+                <div class="chat-typing-indicator chat-widget-typing-indicator" data-chat-widget-typing hidden>
+                    <span class="chat-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <strong data-chat-widget-typing-label></strong>
+                </div>
                 <form class="chat-widget-composer" data-chat-widget-composer>
                     <input type="file" data-chat-widget-attachment hidden accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx">
                     <input type="file" data-chat-widget-sticker-image hidden accept=".png,.jpg,.jpeg,.gif,.webp">
+                    <div class="chat-reply-preview chat-widget-reply-preview" data-chat-widget-reply-preview hidden>
+                        <div class="chat-reply-preview-body">
+                            <strong data-chat-widget-reply-author>Balas pesan</strong>
+                            <span data-chat-widget-reply-text>Pilih pesan yang ingin dikutip.</span>
+                        </div>
+                        <button type="button" class="chat-widget-ghost" data-chat-widget-reply-cancel>Batal</button>
+                    </div>
                     <div class="chat-widget-attachment-preview" data-chat-widget-attachment-preview hidden></div>
                     <div class="chat-widget-sticker-panel" data-chat-widget-stickers hidden></div>
                     <div class="chat-widget-composer-row">

@@ -4,6 +4,9 @@ ROLE_ALIASES = {
     "super-admin": "super_admin",
 }
 
+POS_TERMINAL_ROLES = {"owner", "super_admin", "leader"}
+POS_ASSIGNABLE_ROLES = {"owner", "super_admin", "leader", "admin", "staff"}
+
 ROLE_PERMISSIONS = {
     "super_admin": {
         "view_admin",
@@ -112,3 +115,11 @@ def has_permission(role, permission):
 
 def is_scoped_role(role):
     return has_permission(role, "scoped_warehouse")
+
+
+def can_access_pos_terminal(role):
+    return normalize_role(role) in POS_TERMINAL_ROLES
+
+
+def can_assign_pos_staff(role):
+    return normalize_role(role) in POS_ASSIGNABLE_ROLES

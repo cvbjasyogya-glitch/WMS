@@ -1,502 +1,199 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
+{% set stock_opname_js_url = asset_url('js/stock_opname.js') %}
 
 {% block title %}Stock Opname | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Kontrol Hitung Fisik{% endblock %}
 {% block page_title %}Stock Opname{% endblock %}
-{% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas dan tetap stabil untuk data restore lama.{% endblock %}
+{% block page_subtitle %}Bandingkan stok sistem dan stok fisik untuk area display maupun gudang, lalu simpan hasil penyesuaian dengan histori yang jelas dan stabil untuk kebutuhan audit harian.{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions">
-    <a href="/so/export?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportSoLink">Ekspor CSV</a>
-    <a href="/so/export_report?display_id={{ display_id }}&gudang_id={{ gudang_id }}" class="btn-link" id="exportReportLink">Laporan SO</a>
-    <button type="button" id="saveSoHeroBtn" onclick="submitSO()">Simpan Hasil SO</button>
+    <a href="/so/export?display_id={{ display_id }}&gudang_id={{ gudang_id }}{% if search %}&q={{ search|urlencode }}{% endif %}" class="btn-link" id="exportSoLink">Ekspor CSV</a>
+    <a href="/so/export_report?display_id={{ display_id }}&gudang_id={{ gudang_id }}{% if search %}&q={{ search|urlencode }}{% endif %}" class="btn-link" id="exportReportLink">Laporan SO</a>
+    <button type="button" id="saveSoHeroBtn">Simpan Hasil SO</button>
 </div>
 {% endblock %}
 
 {% block content %}
-<div class="wms-page-stack">
-<div class="wms-step-grid">
-    <article class="wms-step-card">
-        <span>Step 01</span>
-        <strong>Pilih Display dan Gudang</strong>
-        <p>Gunakan pasangan lokasi yang tepat agar perbandingan stok sistem dan fisik dibaca dari sumber yang relevan.</p>
-    </article>
-    <article class="wms-step-card">
-        <span>Step 02</span>
-        <strong>Masukkan Hitungan Fisik</strong>
-        <p>Isi qty hasil hitung lapangan. Selisih display dan gudang akan dihitung real-time pada setiap baris.</p>
-    </article>
-    <article class="wms-step-card">
-        <span>Step 03</span>
-        <strong>Simpan Hasil SO</strong>
-        <p>Gunakan simpan hanya saat hasil hitung sudah final supaya histori stock opname tetap rapi dan akurat.</p>
-    </article>
-</div>
+<div class="wms-page-stack stock-opname-shell" id="stockOpnameApp">
+    <div class="wms-step-grid">
+        <article class="wms-step-card">
+            <span>Step 01</span>
+            <strong>Pilih Display dan Gudang</strong>
+            <p>Gunakan pasangan lokasi yang tepat agar perbandingan stok sistem dan fisik dibaca dari sumber yang relevan.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 02</span>
+            <strong>Masukkan Hitungan Fisik</strong>
+            <p>Isi qty hasil hitung lapangan. Selisih display dan gudang akan dihitung real-time pada setiap baris.</p>
+        </article>
+        <article class="wms-step-card">
+            <span>Step 03</span>
+            <strong>Simpan Hasil SO</strong>
+            <p>Gunakan simpan hanya saat hasil hitung sudah final supaya histori stock opname tetap rapi dan akurat.</p>
+        </article>
+    </div>
 
-<div class="summary">
-    <div class="card-mini">
-        <p>Data Tampil</p>
-        <h3 id="soSummaryItems">{{ summary["items"] }}</h3>
-        <small class="helper-text">Baris SKU pada halaman aktif.</small>
-    </div>
-    <div class="card-mini">
-        <p>Qty Display</p>
-        <h3 id="soSummaryDisplayQty">{{ summary.display_qty }}</h3>
-        <small class="helper-text">Stok sistem area display.</small>
-    </div>
-    <div class="card-mini">
-        <p>Qty Gudang</p>
-        <h3 id="soSummaryGudangQty">{{ summary.gudang_qty }}</h3>
-        <small class="helper-text">Stok sistem area gudang.</small>
-    </div>
-    <div class="card-mini {% if summary.gap_count %}warning{% endif %}" id="soSummaryGapCard">
-        <p>Selisih Lokasi</p>
-        <h3 id="soSummaryGapCount">{{ summary.gap_count }}</h3>
-        <small class="helper-text">Item yang qty display dan gudangnya memang berbeda.</small>
-    </div>
-</div>
-
-<div class="meta-grid">
-    <div class="meta-card">
-        <span>Display Aktif</span>
-        <strong id="soDisplayName">{{ display_name }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Gudang Aktif</span>
-        <strong id="soGudangName">{{ gudang_name }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Halaman</span>
-        <strong id="soMetaPage">{{ page }} / {{ total_pages }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Mode</span>
-        <strong>SO Live</strong>
-    </div>
-</div>
-
-<form method="GET" class="top-bar" id="soFilterForm">
-    <select name="display_id" id="displaySelect">
-        {% for w in warehouses %}
-        <option value="{{ w.id }}" {% if w.id == display_id %}selected{% endif %}>Display: {{ w.name }}</option>
-        {% endfor %}
-    </select>
-    <select name="gudang_id" id="gudangSelect">
-        {% for w in warehouses %}
-        <option value="{{ w.id }}" {% if w.id == gudang_id %}selected{% endif %}>Gudang: {{ w.name }}</option>
-        {% endfor %}
-    </select>
-    <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau varian" value="{{ search or '' }}">
-    <button type="submit">Cari</button>
-    <button type="button" class="ghost-button" id="saveSoTopBtn" onclick="submitSO()">Simpan Opname</button>
-</form>
-
-<small class="helper-text">Display dan gudang otomatis dipisah supaya stock opname tidak tertimpa ke gudang yang sama. Qty sistem di halaman ini mengambil sumber data `stock` yang sama dengan halaman `Stok Gudang` untuk warehouse yang sedang dipilih.</small>
-
-<div class="table-box" data-scrollable-table="1">
-    <div class="section-title">
-        <div>
-            <h2>Perbandingan Stok Sistem vs Fisik</h2>
-            <p>Masukkan hasil hitungan fisik. Selisih dihitung real-time, lalu simpan untuk menulis histori stock opname dan menyamakan stok sistem ke angka fisik.</p>
+    <div class="summary">
+        <div class="card-mini">
+            <p>Data Tampil</p>
+            <h3 id="soSummaryItems">{{ summary["items"] }}</h3>
+            <small class="helper-text">Total SKU hasil filter aktif.</small>
+        </div>
+        <div class="card-mini">
+            <p>Qty Display</p>
+            <h3 id="soSummaryDisplayQty">{{ summary.display_qty }}</h3>
+            <small class="helper-text">Stok sistem area display.</small>
+        </div>
+        <div class="card-mini">
+            <p>Qty Gudang</p>
+            <h3 id="soSummaryGudangQty">{{ summary.gudang_qty }}</h3>
+            <small class="helper-text">Stok sistem area gudang.</small>
+        </div>
+        <div class="card-mini {% if summary.gap_count %}warning{% endif %}" id="soSummaryGapCard">
+            <p>Selisih Lokasi</p>
+            <h3 id="soSummaryGapCount">{{ summary.gap_count }}</h3>
+            <small class="helper-text">Item yang display dan gudangnya memang belum sama.</small>
         </div>
     </div>
 
-    {% if data %}
-    <table>
-        <thead>
-            <tr>
-                <th>SKU</th>
-                <th>Nama</th>
-                <th>Varian</th>
-                <th>Display Sistem</th>
-                <th>Display Fisik</th>
-                <th>Selisih</th>
-                <th>Gudang Sistem</th>
-                <th>Gudang Fisik</th>
-                <th>Selisih</th>
-            </tr>
-        </thead>
-        <tbody id="soTable">
-            {% for item in data %}
-            <tr data-row="item">
-                <td class="mono">{{ item.sku }}</td>
-                <td>{{ item.name }}</td>
-                <td>{{ item.variant }}</td>
-                <td class="display">{{ item.display_qty }}</td>
-                <td><input type="number" class="physical_display" value="{{ item.display_qty }}"></td>
-                <td class="diff_display mono">0</td>
-                <td class="gudang">{{ item.gudang_qty }}</td>
-                <td><input type="number" class="physical_gudang" value="{{ item.gudang_qty }}"></td>
-                <td class="diff_gudang mono">0</td>
-                <td style="display:none;">
-                    <input type="hidden" class="product_id" value="{{ item.product_id }}">
-                    <input type="hidden" class="variant_id" value="{{ item.variant_id }}">
-                </td>
-            </tr>
+    <div class="meta-grid">
+        <div class="meta-card">
+            <span>Display Aktif</span>
+            <strong id="soDisplayName">{{ display_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Gudang Aktif</span>
+            <strong id="soGudangName">{{ gudang_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Halaman</span>
+            <strong id="soMetaPage">{{ page }} / {{ total_pages }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Mode</span>
+            <strong>SO Live</strong>
+        </div>
+    </div>
+
+    <form method="GET" class="top-bar" id="soFilterForm" autocomplete="off">
+        <select name="display_id" id="displaySelect">
+            {% for w in warehouses %}
+            <option value="{{ w.id }}" {% if w.id == display_id %}selected{% endif %}>Display: {{ w.name }}</option>
             {% endfor %}
-        </tbody>
-    </table>
+        </select>
+        <select name="gudang_id" id="gudangSelect">
+            {% for w in warehouses %}
+            <option value="{{ w.id }}" {% if w.id == gudang_id %}selected{% endif %}>Gudang: {{ w.name }}</option>
+            {% endfor %}
+        </select>
+        <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau varian" value="{{ search or '' }}">
+        <button type="submit">Cari</button>
+        <button type="button" class="ghost-button" id="saveSoTopBtn">Simpan Opname</button>
+    </form>
 
-    <div class="pagination">
-        <button type="button" class="ghost-button" onclick="changePage(-1)" id="prevBtn">Sebelumnya</button>
-        <span id="pageInfo" class="status-pill">Halaman {{ page }} / {{ total_pages }}</span>
-        <button type="button" class="ghost-button" onclick="changePage(1)" id="nextBtn">Berikutnya</button>
-    </div>
-    {% else %}
-    <div class="empty-state">Tidak ada item yang cocok untuk stok opname saat ini.</div>
-    {% endif %}
-</div>
+    <article class="wms-panel-note stock-opname-note">
+        <strong>Pair warehouse aktif</strong>
+        <p>Display dan gudang otomatis dijaga tetap berbeda supaya stock opname tidak tertimpa ke lokasi yang sama. Qty sistem di halaman ini mengambil sumber data `stock` yang sama dengan halaman `Stok Gudang` untuk warehouse yang sedang dipilih.</p>
+    </article>
 
-<div class="so-save-bar" id="soSaveBar" data-state="clean">
-    <div>
-        <strong id="soPendingCount">0 perubahan</strong>
-        <small id="soPendingHelp" class="helper-text">Belum ada perubahan fisik yang perlu disimpan.</small>
+    <div class="table-box stock-opname-table-box" data-scrollable-table="1">
+        <div class="section-title">
+            <div>
+                <h2>Perbandingan Stok Sistem vs Fisik</h2>
+                <p>Masukkan hasil hitungan fisik. Selisih dihitung real-time, lalu simpan untuk menulis histori stock opname dan menyamakan stok sistem ke angka fisik.</p>
+            </div>
+        </div>
+
+        <table class="stock-opname-table" id="stockOpnameTable" data-table-layout-id="stock-opname-main">
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Nama Produk</th>
+                    <th>Varian</th>
+                    <th>Display Sistem</th>
+                    <th>Display Fisik</th>
+                    <th>Selisih</th>
+                    <th>Gudang Sistem</th>
+                    <th>Gudang Fisik</th>
+                    <th>Selisih</th>
+                </tr>
+            </thead>
+            <tbody id="soTable">
+                {% if data %}
+                    {% for item in data %}
+                    <tr data-row="item" data-product-id="{{ item.product_id }}" data-variant-id="{{ item.variant_id }}">
+                        <td class="mono">{{ item.sku }}</td>
+                        <td class="stock-opname-product-cell">
+                            <strong>{{ item.name }}</strong>
+                            <small>Bandingkan fisik per variant aktif.</small>
+                        </td>
+                        <td>{{ item.variant }}</td>
+                        <td class="display stock-opname-system-cell">{{ item.display_qty }}</td>
+                        <td class="stock-opname-input-cell">
+                            <input type="number" min="0" inputmode="numeric" class="physical_display" value="{{ item.display_qty }}">
+                        </td>
+                        <td class="diff_display mono stock-opname-diff-cell" data-state="zero">0</td>
+                        <td class="gudang stock-opname-system-cell">{{ item.gudang_qty }}</td>
+                        <td class="stock-opname-input-cell">
+                            <input type="number" min="0" inputmode="numeric" class="physical_gudang" value="{{ item.gudang_qty }}">
+                        </td>
+                        <td class="diff_gudang mono stock-opname-diff-cell" data-state="zero">0</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr class="so-empty-row">
+                        <td colspan="9" class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <div class="pagination">
+            <button type="button" class="ghost-button" id="prevBtn">Sebelumnya</button>
+            <span id="pageInfo" class="status-pill">Halaman {{ page }} / {{ total_pages }}</span>
+            <button type="button" class="ghost-button" id="nextBtn">Berikutnya</button>
+        </div>
     </div>
-    <div class="split-actions">
-        <button type="button" class="ghost-button" id="resetSoBtn" onclick="resetSOInputs()">Reset Halaman</button>
-        <button type="button" id="saveSoStickyBtn" onclick="submitSO()" disabled>Simpan Hasil SO</button>
+
+    <div class="so-save-bar" id="soSaveBar" data-state="clean">
+        <div>
+            <strong id="soPendingCount">0 perubahan</strong>
+            <small id="soPendingHelp" class="helper-text">Belum ada perubahan fisik yang perlu disimpan.</small>
+        </div>
+        <div class="split-actions">
+            <button type="button" class="ghost-button" id="resetSoBtn">Reset Halaman</button>
+            <button type="button" id="saveSoStickyBtn" disabled>Simpan Hasil SO</button>
+        </div>
     </div>
-</div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-let currentPage = parseInt("{{ page }}" || "1", 10);
-let totalPages = parseInt("{{ total_pages }}" || "1", 10);
-let currentSearch = {{ (search or '')|tojson }};
-let displayId = {{ display_id|int }};
-let gudangId = {{ gudang_id|int }};
-let soSaving = false;
-
-function syncExportLinks() {
-    const exportSoLink = document.getElementById("exportSoLink");
-    const exportReportLink = document.getElementById("exportReportLink");
-    if (exportSoLink) {
-        exportSoLink.href = "/so/export?display_id=" + displayId + "&gudang_id=" + gudangId;
+<script id="stockOpnameConfigData" type="application/json">
+{{ {
+    "page": page,
+    "totalPages": total_pages,
+    "search": search or "",
+    "displayId": display_id,
+    "gudangId": gudang_id,
+    "listUrl": "/so",
+    "submitUrl": "/so/submit",
+    "exportUrl": "/so/export",
+    "reportUrl": "/so/export_report",
+    "messages": {
+        "loadError": "Gagal memuat data stock opname.",
+        "saveError": "Gagal menyimpan stock opname.",
+        "saveSuccess": "SO berhasil disimpan.",
+        "emptyChanges": "Tidak ada perubahan yang perlu disimpan.",
+        "invalidInput": "Cek lagi, stok fisik harus angka dan tidak boleh negatif.",
+        "confirmPageChange": "Perubahan SO di halaman ini belum disimpan. Lanjut pindah halaman?",
+        "confirmFilterChange": "Perubahan SO di halaman ini belum disimpan. Lanjut ganti filter?"
     }
-    if (exportReportLink) {
-        exportReportLink.href = "/so/export_report?display_id=" + displayId + "&gudang_id=" + gudangId;
-    }
-}
-
-function renderSummary(summary) {
-    if (!summary) return;
-    const itemsNode = document.getElementById("soSummaryItems");
-    const displayQtyNode = document.getElementById("soSummaryDisplayQty");
-    const gudangQtyNode = document.getElementById("soSummaryGudangQty");
-    const gapCountNode = document.getElementById("soSummaryGapCount");
-    const gapCardNode = document.getElementById("soSummaryGapCard");
-
-    if (itemsNode) itemsNode.innerText = summary.items ?? 0;
-    if (displayQtyNode) displayQtyNode.innerText = summary.display_qty ?? 0;
-    if (gudangQtyNode) gudangQtyNode.innerText = summary.gudang_qty ?? 0;
-    if (gapCountNode) gapCountNode.innerText = summary.gap_count ?? 0;
-    if (gapCardNode) {
-        gapCardNode.classList.toggle("warning", Number(summary.gap_count || 0) > 0);
-    }
-}
-
-function syncWarehouseSelectors() {
-    const displaySelect = document.getElementById("displaySelect");
-    const gudangSelect = document.getElementById("gudangSelect");
-    if (displaySelect) displaySelect.value = String(displayId);
-    if (gudangSelect) gudangSelect.value = String(gudangId);
-}
-
-function applySoPayload(payload) {
-    if (!payload) return;
-
-    currentPage = payload.page ?? currentPage;
-    totalPages = payload.total_pages ?? totalPages;
-    displayId = payload.display_id ?? displayId;
-    gudangId = payload.gudang_id ?? gudangId;
-
-    renderTable(payload.data || []);
-    renderSummary(payload.summary || {});
-    syncWarehouseSelectors();
-    syncExportLinks();
-
-    const pageInfoNode = document.getElementById("pageInfo");
-    const metaPageNode = document.getElementById("soMetaPage");
-    const displayNameNode = document.getElementById("soDisplayName");
-    const gudangNameNode = document.getElementById("soGudangName");
-    const prevBtn = document.getElementById("prevBtn");
-    const nextBtn = document.getElementById("nextBtn");
-
-    if (pageInfoNode) pageInfoNode.innerText = "Page " + currentPage + " / " + totalPages;
-    if (metaPageNode) metaPageNode.innerText = currentPage + " / " + totalPages;
-    if (displayNameNode && payload.display_name) displayNameNode.innerText = payload.display_name;
-    if (gudangNameNode && payload.gudang_name) gudangNameNode.innerText = payload.gudang_name;
-    if (prevBtn) prevBtn.disabled = currentPage <= 1;
-    if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
-}
-
-function parseRowNumber(input) {
-    const raw = (input?.value ?? "").toString().trim();
-    if (raw === "") return null;
-    const value = parseInt(raw, 10);
-    return Number.isNaN(value) ? null : value;
-}
-
-function formatDiff(value) {
-    if (value > 0) return "+" + value;
-    return String(value || 0);
-}
-
-function setDiffState(cell, diff) {
-    cell.innerText = formatDiff(diff);
-    cell.className = "mono " + (diff > 0 ? "green" : diff < 0 ? "red" : "");
-}
-
-function syncRowDiff(row) {
-    const displaySystem = parseInt(row.querySelector(".display")?.innerText || "0", 10) || 0;
-    const displayPhysical = parseRowNumber(row.querySelector(".physical_display"));
-    const gudangSystem = parseInt(row.querySelector(".gudang")?.innerText || "0", 10) || 0;
-    const gudangPhysical = parseRowNumber(row.querySelector(".physical_gudang"));
-    const displayCell = row.querySelector(".diff_display");
-    const gudangCell = row.querySelector(".diff_gudang");
-
-    setDiffState(displayCell, (displayPhysical ?? displaySystem) - displaySystem);
-    setDiffState(gudangCell, (gudangPhysical ?? gudangSystem) - gudangSystem);
-}
-
-function collectPendingItems() {
-    const items = [];
-    let invalid = false;
-
-    document.querySelectorAll("#soTable tr[data-row='item']").forEach((row) => {
-        const displaySystem = parseInt(row.querySelector(".display")?.innerText || "0", 10) || 0;
-        const displayPhysical = parseRowNumber(row.querySelector(".physical_display"));
-        const gudangSystem = parseInt(row.querySelector(".gudang")?.innerText || "0", 10) || 0;
-        const gudangPhysical = parseRowNumber(row.querySelector(".physical_gudang"));
-
-        if (displayPhysical === null || gudangPhysical === null || displayPhysical < 0 || gudangPhysical < 0) {
-            invalid = true;
-            return;
-        }
-
-        if (displayPhysical !== displaySystem || gudangPhysical !== gudangSystem) {
-            items.push({
-                product_id: parseInt(row.querySelector(".product_id").value, 10),
-                variant_id: parseInt(row.querySelector(".variant_id").value, 10),
-                display_system: displaySystem,
-                display_physical: displayPhysical,
-                gudang_system: gudangSystem,
-                gudang_physical: gudangPhysical
-            });
-        }
-    });
-
-    return { items, invalid };
-}
-
-function updateSoState() {
-    document.querySelectorAll("#soTable tr[data-row='item']").forEach(syncRowDiff);
-
-    const state = collectPendingItems();
-    const pendingCount = document.getElementById("soPendingCount");
-    const pendingHelp = document.getElementById("soPendingHelp");
-    const saveBar = document.getElementById("soSaveBar");
-    const hasChanges = state.items.length > 0;
-    const disabled = soSaving || state.invalid || !hasChanges;
-
-    if (pendingCount) {
-        pendingCount.innerText = state.invalid
-            ? "Input belum valid"
-            : state.items.length + " perubahan";
-    }
-
-    if (pendingHelp) {
-        pendingHelp.innerText = state.invalid
-            ? "Cek lagi, stok fisik harus angka dan tidak boleh negatif."
-            : hasChanges
-                ? "Perubahan di halaman ini siap disimpan ke hasil stock opname."
-                : "Belum ada perubahan fisik yang perlu disimpan.";
-    }
-
-    if (saveBar) {
-        saveBar.dataset.state = state.invalid ? "invalid" : hasChanges ? "dirty" : "clean";
-    }
-
-    ["saveSoHeroBtn", "saveSoTopBtn", "saveSoStickyBtn", "resetSoBtn"].forEach((id) => {
-        const button = document.getElementById(id);
-        if (!button) return;
-        if (id === "resetSoBtn") {
-            button.disabled = soSaving || !hasChanges;
-            return;
-        }
-        button.disabled = disabled;
-    });
-
-    return state;
-}
-
-function attachEvents() {
-    document.querySelectorAll("#soTable tr[data-row='item']").forEach((row) => {
-        const displayInput = row.querySelector(".physical_display");
-        const gudangInput = row.querySelector(".physical_gudang");
-        if (!displayInput || !gudangInput) return;
-
-        displayInput.addEventListener("input", updateSoState);
-        gudangInput.addEventListener("input", updateSoState);
-        syncRowDiff(row);
-    });
-
-    updateSoState();
-}
-
-function renderTable(data) {
-    const tbody = document.getElementById("soTable");
-    tbody.innerHTML = "";
-
-    if (!data.length) {
-        tbody.innerHTML = "<tr><td colspan='9' class='empty-state'>Tidak ada item yang cocok untuk stock opname saat ini.</td></tr>";
-        updateSoState();
-        return;
-    }
-
-    data.forEach((item) => {
-        const tr = document.createElement("tr");
-        tr.dataset.row = "item";
-        tr.innerHTML = `
-            <td class="mono">${item.sku}</td>
-            <td>${item.name}</td>
-            <td>${item.variant}</td>
-            <td class="display">${item.display_qty}</td>
-            <td><input type="number" class="physical_display" value="${item.display_qty}"></td>
-            <td class="diff_display mono">0</td>
-            <td class="gudang">${item.gudang_qty}</td>
-            <td><input type="number" class="physical_gudang" value="${item.gudang_qty}"></td>
-            <td class="diff_gudang mono">0</td>
-            <td style="display:none;">
-                <input type="hidden" class="product_id" value="${item.product_id}">
-                <input type="hidden" class="variant_id" value="${item.variant_id}">
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
-
-    attachEvents();
-}
-
-function loadPage(page) {
-    fetch(
-        "/so?page=" + page
-        + "&q=" + encodeURIComponent(currentSearch)
-        + "&display_id=" + displayId
-        + "&gudang_id=" + gudangId,
-        {
-            headers: { "X-Requested-With": "XMLHttpRequest" }
-        }
-    )
-    .then((res) => {
-        if (!res.ok) throw new Error("Server error");
-        return res.json();
-    })
-    .then((data) => {
-        applySoPayload(data);
-    })
-    .catch(() => alert("Gagal memuat data stock opname."));
-}
-
-function changePage(delta) {
-    const nextPage = currentPage + delta;
-    if (nextPage < 1 || nextPage > totalPages) return;
-
-    if (collectPendingItems().items.length && !confirm("Perubahan SO di halaman ini belum disimpan. Lanjut pindah halaman?")) {
-        return;
-    }
-
-    loadPage(nextPage);
-}
-
-function resetSOInputs() {
-    document.querySelectorAll("#soTable tr[data-row='item']").forEach((row) => {
-        const displaySystem = parseInt(row.querySelector(".display")?.innerText || "0", 10) || 0;
-        const gudangSystem = parseInt(row.querySelector(".gudang")?.innerText || "0", 10) || 0;
-        row.querySelector(".physical_display").value = displaySystem;
-        row.querySelector(".physical_gudang").value = gudangSystem;
-    });
-    updateSoState();
-}
-
-function submitSO() {
-    const state = updateSoState();
-
-    if (state.invalid) {
-        alert("Stock fisik tidak boleh negatif.");
-        return;
-    }
-
-    if (!state.items.length) {
-        alert("Tidak ada perubahan yang perlu disimpan.");
-        return;
-    }
-
-    soSaving = true;
-    updateSoState();
-
-    fetch("/so/submit", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-Requested-With": "XMLHttpRequest"
-        },
-        body: JSON.stringify({
-            display_id: displayId,
-            gudang_id: gudangId,
-            q: currentSearch,
-            page: currentPage,
-            items: state.items
-        })
-    })
-    .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-            throw new Error(data.error || "Gagal menyimpan stock opname.");
-        }
-        return data;
-    })
-    .then((data) => {
-        applySoPayload(data);
-        alert(data.message || "SO berhasil disimpan.");
-    })
-    .catch((error) => alert(error.message || "Gagal menyimpan stock opname."))
-    .finally(() => {
-        soSaving = false;
-        updateSoState();
-    });
-}
-
-document.getElementById("displaySelect")?.addEventListener("change", function() {
-    displayId = parseInt(this.value || "0", 10);
-    syncExportLinks();
-});
-
-document.getElementById("gudangSelect")?.addEventListener("change", function() {
-    gudangId = parseInt(this.value || "0", 10);
-    syncExportLinks();
-});
-
-document.getElementById("searchInput")?.addEventListener("change", function() {
-    currentSearch = this.value || "";
-    syncExportLinks();
-});
-
-document.getElementById("soFilterForm")?.addEventListener("submit", function(event) {
-    if (collectPendingItems().items.length && !confirm("Perubahan SO di halaman ini belum disimpan. Lanjut ganti filter?")) {
-        event.preventDefault();
-    }
-});
-
-attachEvents();
-syncExportLinks();
-const prevBtn = document.getElementById("prevBtn");
-const nextBtn = document.getElementById("nextBtn");
-if (prevBtn) prevBtn.disabled = currentPage <= 1;
-if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+}|tojson }}
 </script>
+<script>
+window.stockOpnameConfig = window.wmsReadJsonScript("stockOpnameConfigData");
+</script>
+<script src="{{ stock_opname_js_url }}"></script>
 {% endblock %}
-

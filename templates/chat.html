@@ -63,6 +63,7 @@
                             <div class="chat-thread-body">
                                 <div class="chat-thread-topline">
                                     <strong>{{ thread.partner_name }}</strong>
+                                    {% if thread.is_pinned %}<span class="badge gold">Pin</span>{% endif %}
                                     {% if thread.thread_type == "group" %}<span class="badge">Grup</span>{% endif %}
                                     {% if thread.partner_online %}<span class="badge green">Online</span>{% endif %}
                                 </div>
@@ -167,6 +168,23 @@
                 <span class="badge {% if selected_thread.partner_online %}green{% endif %}" id="chatPartnerStatus">
                     {{ selected_thread.partner_status_label or ("Online" if selected_thread.partner_online else "Offline") }}
                 </span>
+                <button
+                    type="button"
+                    class="ghost-button chat-action-button"
+                    id="chatSearchToggleButton"
+                    aria-expanded="false"
+                    aria-controls="chatSearchPanel"
+                >
+                    Cari Pesan
+                </button>
+                <button
+                    type="button"
+                    class="ghost-button chat-action-button {% if selected_thread.is_pinned %}is-active{% endif %}"
+                    id="chatPinThreadButton"
+                    data-pinned="{{ 1 if selected_thread.is_pinned else 0 }}"
+                >
+                    {% if selected_thread.is_pinned %}Lepas Pin{% else %}Pin Chat{% endif %}
+                </button>
                 <button type="button" class="ghost-button chat-action-button chat-action-icon" id="chatVoiceCallButton" aria-label="Telp">
                     <span aria-hidden="true">&#128222;</span>
                 </button>
@@ -202,6 +220,22 @@
                 {% endfor %}
             {% endif %}
         </div>
+
+        <section class="chat-search-panel" id="chatSearchPanel" hidden>
+            <div class="chat-search-panel-head">
+                <div>
+                    <strong>Cari Pesan di Thread</strong>
+                    <span>Cari isi pesan, nama lampiran, atau pesan lama lalu lompat ke titiknya.</span>
+                </div>
+                <button type="button" class="ghost-button" id="chatSearchCloseButton">Tutup</button>
+            </div>
+            <label class="chat-thread-search-field">
+                <input type="text" id="chatThreadSearchInput" placeholder="Cari pesan di percakapan ini">
+            </label>
+            <div class="chat-thread-search-results" id="chatThreadSearchResults">
+                <div class="chat-list-empty">Ketik minimal 2 huruf untuk mulai mencari pesan di thread ini.</div>
+            </div>
+        </section>
 
         <div class="chat-message-board" id="chatMessageBoard">
             {% for message in messages %}
@@ -245,6 +279,11 @@
             {% endfor %}
         </div>
 
+        <div class="chat-typing-indicator" id="chatTypingIndicator" {% if not selected_thread.typing_label %}hidden{% endif %}>
+            <span class="chat-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <strong id="chatTypingLabel">{{ selected_thread.typing_label or "" }}</strong>
+        </div>
+
         <form class="chat-composer" id="chatComposerForm" data-thread-id="{{ selected_thread.id }}">
             <div class="chat-composer-tools">
                 <button type="button" class="ghost-button chat-tool-button" id="chatAttachButton">Attach File</button>
@@ -254,6 +293,13 @@
             <div class="chat-composer-inputs">
                 <input type="file" id="chatAttachmentInput" hidden accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx">
                 <input type="file" id="chatStickerImageInput" hidden accept=".png,.jpg,.jpeg,.gif,.webp">
+                <div class="chat-reply-preview" id="chatReplyPreview" hidden>
+                    <div class="chat-reply-preview-body">
+                        <strong id="chatReplyPreviewAuthor">Balas pesan</strong>
+                        <span id="chatReplyPreviewText">Pilih pesan yang ingin dikutip.</span>
+                    </div>
+                    <button type="button" class="ghost-button" id="chatReplyPreviewCancel">Batal</button>
+                </div>
                 <div class="chat-attachment-preview" id="chatAttachmentPreview" hidden></div>
                 <textarea id="chatComposerInput" rows="1" placeholder="Ketik pesan untuk {{ selected_thread.partner_name }} lalu tekan Enter atau tombol kirim"></textarea>
                 <div class="chat-sticker-panel" id="chatStickerPanel" hidden>
@@ -372,6 +418,7 @@
     "current_user": current_user_payload,
     "current_thread_id": current_thread_id,
     "current_thread_last_message_id": current_thread_last_message_id,
+    "focused_message_id": focused_message_id,
     "unread_total": unread_total,
     "stickers": stickers,
     "auto_start_call_mode": auto_start_call_mode,

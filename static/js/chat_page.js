@@ -33,6 +33,18 @@
     const mobileBackButton = document.getElementById("chatMobileBackButton");
     const sidebarPanel = shell.querySelector(".chat-sidebar-panel");
     const syncBadge = document.getElementById("chatSyncBadge");
+    const pinThreadButton = document.getElementById("chatPinThreadButton");
+    const searchToggleButton = document.getElementById("chatSearchToggleButton");
+    const searchPanel = document.getElementById("chatSearchPanel");
+    const searchCloseButton = document.getElementById("chatSearchCloseButton");
+    const threadSearchInput = document.getElementById("chatThreadSearchInput");
+    const threadSearchResults = document.getElementById("chatThreadSearchResults");
+    const typingIndicator = document.getElementById("chatTypingIndicator");
+    const typingLabel = document.getElementById("chatTypingLabel");
+    const replyPreview = document.getElementById("chatReplyPreview");
+    const replyPreviewAuthor = document.getElementById("chatReplyPreviewAuthor");
+    const replyPreviewText = document.getElementById("chatReplyPreviewText");
+    const replyPreviewCancel = document.getElementById("chatReplyPreviewCancel");
 
     const createGroupButton = document.getElementById("chatCreateGroupButton");
     const groupModal = document.getElementById("chatGroupModal");
@@ -52,6 +64,14 @@
     let activeTab = "threads";
     let pendingAttachment = null;
     let currentMessages = Array.isArray(bootstrap.messages) ? bootstrap.messages.slice() : [];
+    let activeReplyMessageId = null;
+    let activeReplyPreview = null;
+    let threadSearchTimer = null;
+    let threadSearchOpen = false;
+    let lastTypingAt = 0;
+    let typingKeepAliveTimer = null;
+    let typingIdleTimer = null;
+    let pendingFocusMessageId = Number(bootstrap.focused_message_id || 0) || null;
     const maxAttachmentBytes = Number(shell.dataset.maxAttachmentBytes || 10485760) || 10485760;
     const chatUi = window.WmsChatUi || {};
     const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
@@ -103,6 +123,274 @@
         return `${(safeSize / (1024 * 1024)).toFixed(1)} MB`;
     }
 
+    function getMessageById(messageId) {
+        const safeMessageId = Number(messageId || 0);
+        return currentMessages.find((message) => Number(message.id || 0) === safeMessageId) || null;
+    }
+
+    function updateTypingState(labelText) {
+        if (!typingIndicator || !typingLabel) {
+            return;
+        }
+        const safeLabel = String(labelText || "").trim();
+        typingIndicator.hidden = !safeLabel;
+        typingLabel.textContent = safeLabel;
+    }
+
+    function updatePinButton(selectedThread) {
+        if (!pinThreadButton) {
+            return;
+        }
+        const isPinned = Boolean(selectedThread && selectedThread.is_pinned);
+        pinThreadButton.dataset.pinned = isPinned ? "1" : "0";
+        pinThreadButton.classList.toggle("is-active", isPinned);
+        pinThreadButton.textContent = isPinned ? "Lepas Pin" : "Pin Chat";
+    }
+
+    function renderReplyTarget(preview) {
+        if (!replyPreview || !replyPreviewAuthor || !replyPreviewText) {
+            return;
+        }
+        if (!preview || !activeReplyMessageId) {
+            replyPreview.hidden = true;
+            replyPreviewAuthor.textContent = "Balas pesan";
+            replyPreviewText.textContent = "Pilih pesan yang ingin dikutip.";
+            return;
+        }
+        replyPreview.hidden = false;
+        replyPreviewAuthor.textContent = preview.sender_name || "Pesan";
+        replyPreviewText.textContent = preview.preview || preview.body || "Pesan";
+    }
+
+    function setReplyTarget(messageId, preview) {
+        activeReplyMessageId = Number(messageId || 0) || null;
+        activeReplyPreview = activeReplyMessageId ? (preview || null) : null;
+        renderReplyTarget(activeReplyPreview);
+        composerInput?.focus();
+    }
+
+    function clearReplyTarget() {
+        activeReplyMessageId = null;
+        activeReplyPreview = null;
+        renderReplyTarget(null);
+    }
+
+    function clearThreadSearchResults(message) {
+        if (!threadSearchResults) {
+            return;
+        }
+        threadSearchResults.innerHTML = `<div class="chat-list-empty">${escapeHtml(message || "Ketik minimal 2 huruf untuk mulai mencari pesan di thread ini.")}</div>`;
+    }
+
+    function toggleSearchPanel(forceOpen) {
+        if (!searchPanel || !searchToggleButton) {
+            return;
+        }
+        const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : searchPanel.hidden;
+        searchPanel.hidden = !shouldOpen;
+        threadSearchOpen = shouldOpen;
+        searchToggleButton.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+        if (!shouldOpen) {
+            if (threadSearchInput) {
+                threadSearchInput.value = "";
+            }
+            clearThreadSearchResults();
+            return;
+        }
+        clearThreadSearchResults();
+        window.setTimeout(() => threadSearchInput?.focus(), 30);
+    }
+
+    function highlightMessage(messageId) {
+        const row = messageBoard?.querySelector(`[data-message-id="${messageId}"]`);
+        if (!row) {
+            return false;
+        }
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("is-focused");
+        window.setTimeout(() => row.classList.remove("is-focused"), 1800);
+        return true;
+    }
+
+    async function focusMessageById(messageId) {
+        const safeMessageId = Number(messageId || 0);
+        if (!safeMessageId || !currentThreadId) {
+            return;
+        }
+        if (highlightMessage(safeMessageId)) {
+            return;
+        }
+        try {
+            const response = await fetch(`/chat/thread/${currentThreadId}/focus?message_id=${safeMessageId}`, {
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== "ok") {
+                throw new Error(payload.message || "Pesan tidak bisa dibuka");
+            }
+            currentMessages = Array.isArray(payload.messages) ? payload.messages.slice() : [];
+            pendingFocusMessageId = Number(payload.focus_message_id || safeMessageId) || safeMessageId;
+            updateTypingState(payload.typing_label || "");
+            renderCurrentMessages(true);
+        } catch (error) {
+            window.alert(error.message || "Pesan tidak bisa dibuka");
+        }
+    }
+
+    function renderSearchResults(results) {
+        if (!threadSearchResults) {
+            return;
+        }
+        if (!Array.isArray(results) || !results.length) {
+            clearThreadSearchResults("Belum ada pesan yang cocok di thread ini.");
+            return;
+        }
+        threadSearchResults.innerHTML = results.map((item) => `
+            <button
+                type="button"
+                class="chat-search-result"
+                data-chat-search-result-id="${item.id}"
+            >
+                <span class="chat-avatar mini">${escapeHtml(item.sender_initials || "?")}</span>
+                <span class="chat-search-result-body">
+                    <strong>${escapeHtml(item.sender_name || "-")}</strong>
+                    <span>${escapeHtml(item.preview || "")}</span>
+                </span>
+                <time>${escapeHtml(item.created_label || "-")}</time>
+            </button>
+        `).join("");
+        normalizeChatText(threadSearchResults);
+    }
+
+    async function searchThreadMessages(queryText) {
+        const query = String(queryText || "").trim();
+        if (!currentThreadId || !threadSearchResults) {
+            return;
+        }
+        if (query.length < 2) {
+            clearThreadSearchResults();
+            return;
+        }
+        threadSearchResults.innerHTML = '<div class="chat-list-empty">Mencari pesan di thread...</div>';
+        try {
+            const response = await fetch(`/chat/thread/${currentThreadId}/search?q=${encodeURIComponent(query)}`, {
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== "ok") {
+                throw new Error(payload.message || "Pencarian pesan gagal");
+            }
+            renderSearchResults(payload.results || []);
+        } catch (error) {
+            clearThreadSearchResults(error.message || "Pencarian pesan gagal.");
+        }
+    }
+
+    async function toggleThreadPin() {
+        if (!currentThreadId || !pinThreadButton) {
+            return;
+        }
+        const nextPinned = pinThreadButton.dataset.pinned !== "1";
+        pinThreadButton.disabled = true;
+        try {
+            const response = await fetch(`/chat/thread/${currentThreadId}/pin`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: JSON.stringify({ pinned: nextPinned }),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== "ok") {
+                throw new Error(payload.message || "Pin chat gagal diubah");
+            }
+            if (Array.isArray(payload.threads)) {
+                renderThreadList(payload.threads);
+            }
+            if (payload.selected_thread) {
+                updatePinButton(payload.selected_thread);
+            } else {
+                updatePinButton({ is_pinned: payload.is_pinned });
+            }
+        } catch (error) {
+            window.alert(error.message || "Pin chat gagal diubah");
+        } finally {
+            pinThreadButton.disabled = false;
+        }
+    }
+
+    async function sendTypingState(isTyping) {
+        if (!currentThreadId) {
+            return;
+        }
+        try {
+            await fetch("/chat/typing", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: JSON.stringify({
+                    thread_id: currentThreadId,
+                    is_typing: Boolean(isTyping),
+                    path: `${window.location.pathname}${window.location.search}`,
+                }),
+            });
+        } catch (error) {
+        }
+    }
+
+    function stopTypingLoop() {
+        if (typingKeepAliveTimer) {
+            window.clearInterval(typingKeepAliveTimer);
+            typingKeepAliveTimer = null;
+        }
+        if (typingIdleTimer) {
+            window.clearTimeout(typingIdleTimer);
+            typingIdleTimer = null;
+        }
+        lastTypingAt = 0;
+        sendTypingState(false);
+    }
+
+    function queueTypingHeartbeat() {
+        if (!currentThreadId || !composerInput) {
+            return;
+        }
+        const hasDraft = Boolean((composerInput.value || "").trim());
+        if (!hasDraft) {
+            stopTypingLoop();
+            return;
+        }
+
+        const now = Date.now();
+        if (!lastTypingAt || now - lastTypingAt > 1800) {
+            lastTypingAt = now;
+            sendTypingState(true);
+        }
+        if (!typingKeepAliveTimer) {
+            typingKeepAliveTimer = window.setInterval(() => {
+                if (!(composerInput.value || "").trim()) {
+                    stopTypingLoop();
+                    return;
+                }
+                lastTypingAt = Date.now();
+                sendTypingState(true);
+            }, 3000);
+        }
+        if (typingIdleTimer) {
+            window.clearTimeout(typingIdleTimer);
+        }
+        typingIdleTimer = window.setTimeout(() => {
+            stopTypingLoop();
+        }, 3600);
+    }
+
     function normalizeChatText(root) {
         const target = root || document.body;
         if (!target || !window.NodeFilter || !document.createTreeWalker) {
@@ -137,6 +425,7 @@
                     <div class="chat-thread-topline">
                         <strong>${escapeHtml(thread.partner_name || "-")}</strong>
                         ${isGroup ? '<span class="badge">Grup</span>' : ""}
+                        ${thread.is_pinned ? '<span class="badge gold">Pin</span>' : ""}
                         ${thread.partner_online ? '<span class="badge green">Online</span>' : ""}
                     </div>
                     <div class="chat-thread-meta">
@@ -260,6 +549,11 @@
         lastMessageId = currentMessages.reduce((maxId, message) => Math.max(maxId, Number(message.id || 0)), 0);
         normalizeChatText(messageBoard);
         scrollMessages(Boolean(forceScroll));
+        if (pendingFocusMessageId) {
+            const focusTarget = pendingFocusMessageId;
+            pendingFocusMessageId = null;
+            window.setTimeout(() => highlightMessage(focusTarget), 40);
+        }
     }
 
     function renderParticipantStrip(selectedThread) {
@@ -329,6 +623,8 @@
             partnerStatus.textContent = selectedThread.partner_status_label || (selectedThread.partner_online ? "Online" : "Offline");
             partnerStatus.className = `badge ${selectedThread.partner_online ? "green" : ""}`.trim();
         }
+        updateTypingState(selectedThread.typing_label || "");
+        updatePinButton(selectedThread);
         if (voiceCallButton) {
             voiceCallButton.disabled = !callSupported;
             voiceCallButton.title = callSupported ? "Mulai voice call" : "Call grup belum didukung";
@@ -502,6 +798,8 @@
                 }
                 clearComposerDraft();
             }
+            clearReplyTarget();
+            stopTypingLoop();
             resetAttachmentPreview();
             toggleStickerPanel(false);
             await pollNow(true);
@@ -519,13 +817,20 @@
             const formData = new FormData();
             formData.set("message", text);
             formData.set("attachment", pendingAttachment);
+            if (activeReplyMessageId) {
+                formData.set("reply_to_message_id", String(activeReplyMessageId));
+            }
             sendPayload(formData, true);
             return;
         }
         if (!text) {
             return;
         }
-        sendPayload({ message: text }, false);
+        const payload = { message: text };
+        if (activeReplyMessageId) {
+            payload.reply_to_message_id = activeReplyMessageId;
+        }
+        sendPayload(payload, false);
     }
 
     function sendStickerImage(file) {
@@ -539,6 +844,9 @@
         const formData = new FormData();
         formData.set("message", (composerInput?.value || "").trim());
         formData.set("sticker_image", file);
+        if (activeReplyMessageId) {
+            formData.set("reply_to_message_id", String(activeReplyMessageId));
+        }
         sendPayload(formData, true);
     }
 
@@ -616,6 +924,8 @@
             if (payload.selected_thread) {
                 updatePartnerState(payload.selected_thread);
                 appendMessages(payload.selected_thread.messages || [], forceScroll);
+            } else {
+                updateTypingState("");
             }
             setSyncState("ready");
         } catch (error) {
@@ -632,6 +942,32 @@
             return;
         }
 
+        const replyButton = event.target.closest("[data-chat-reply-message-id]");
+        if (replyButton) {
+            const messageId = Number(replyButton.dataset.chatReplyMessageId || 0);
+            const targetMessage = getMessageById(messageId);
+            if (targetMessage) {
+                setReplyTarget(messageId, {
+                    sender_name: targetMessage.sender_name,
+                    preview: targetMessage.preview || targetMessage.body || "",
+                });
+            }
+            return;
+        }
+
+        const jumpButton = event.target.closest("[data-chat-jump-message-id]");
+        if (jumpButton) {
+            focusMessageById(jumpButton.dataset.chatJumpMessageId);
+            return;
+        }
+
+        const searchResultButton = event.target.closest("[data-chat-search-result-id]");
+        if (searchResultButton) {
+            focusMessageById(searchResultButton.dataset.chatSearchResultId);
+            toggleSearchPanel(false);
+            return;
+        }
+
         if (event.target.closest("[data-remove-attachment]")) {
             resetAttachmentPreview();
         }
@@ -641,10 +977,23 @@
         button.addEventListener("click", () => setActiveTab(button.dataset.chatTabTarget));
     });
     mobileBackButton?.addEventListener("click", returnToThreadList);
+    pinThreadButton?.addEventListener("click", toggleThreadPin);
+    searchToggleButton?.addEventListener("click", () => toggleSearchPanel());
+    searchCloseButton?.addEventListener("click", () => toggleSearchPanel(false));
+    replyPreviewCancel?.addEventListener("click", clearReplyTarget);
 
     searchInput?.addEventListener("input", (event) => {
         searchQuery = event.target.value || "";
         applySearchFilter();
+    });
+    threadSearchInput?.addEventListener("input", (event) => {
+        const nextQuery = event.target.value || "";
+        if (threadSearchTimer) {
+            window.clearTimeout(threadSearchTimer);
+        }
+        threadSearchTimer = window.setTimeout(() => {
+            searchThreadMessages(nextQuery);
+        }, 220);
     });
 
     createGroupButton?.addEventListener("click", openGroupModal);
@@ -712,11 +1061,17 @@
     composerInput?.addEventListener("input", () => {
         autoResizeComposer();
         persistComposerDraft();
+        queueTypingHeartbeat();
     });
     composerInput?.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             sendCurrentMessage();
+        }
+    });
+    composerInput?.addEventListener("blur", () => {
+        if (!(composerInput.value || "").trim()) {
+            stopTypingLoop();
         }
     });
 
@@ -728,7 +1083,10 @@
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
             pollNow(false);
+            queueTypingHeartbeat();
+            return;
         }
+        stopTypingLoop();
     });
 
     window.WmsChatPage = {
@@ -751,6 +1109,7 @@
     if (bootstrap.selected_thread) {
         updatePartnerState(bootstrap.selected_thread);
     }
+    updateTypingState((bootstrap.selected_thread && bootstrap.selected_thread.typing_label) || "");
     normalizeChatText(shell);
     pollNow(false);
     pollTimer = window.setInterval(() => pollNow(false), pollIntervalMs);
@@ -759,5 +1118,6 @@
         if (pollTimer) {
             window.clearInterval(pollTimer);
         }
+        stopTypingLoop();
     });
 })();

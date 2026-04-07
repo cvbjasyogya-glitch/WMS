@@ -216,6 +216,7 @@
         handle.className = className;
         handle.setAttribute("aria-label", axisLabel);
         handle.setAttribute("tabindex", "-1");
+        handle.draggable = false;
         return handle;
     }
 
@@ -239,12 +240,22 @@
             applyStoredWidths(table, widths, false);
         }
 
+        const handle = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+        if (handle && typeof handle.setPointerCapture === "function" && typeof event.pointerId === "number") {
+            try {
+                handle.setPointerCapture(event.pointerId);
+            } catch (error) {
+            }
+        }
+
         resizeState = {
             type: "column",
             table,
             columnIndex,
             startX: event.clientX,
             widths,
+            handle,
+            pointerId: typeof event.pointerId === "number" ? event.pointerId : null,
         };
         document.body.classList.add("is-table-layout-resizing");
         document.body.dataset.tableResizeAxis = "col";
@@ -257,11 +268,21 @@
         event.preventDefault();
         event.stopPropagation();
 
+        const handle = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+        if (handle && typeof handle.setPointerCapture === "function" && typeof event.pointerId === "number") {
+            try {
+                handle.setPointerCapture(event.pointerId);
+            } catch (error) {
+            }
+        }
+
         resizeState = {
             type: "row",
             row,
             startY: event.clientY,
             startHeight: Math.max(MIN_ROW_HEIGHT, Math.round(row.getBoundingClientRect().height)),
+            handle,
+            pointerId: typeof event.pointerId === "number" ? event.pointerId : null,
         };
         document.body.classList.add("is-table-layout-resizing");
         document.body.dataset.tableResizeAxis = "row";
@@ -381,6 +402,9 @@
         if (!resizeState) {
             return;
         }
+        if (resizeState.pointerId !== null && typeof event.pointerId === "number" && event.pointerId !== resizeState.pointerId) {
+            return;
+        }
 
         if (resizeState.type === "column") {
             const delta = event.clientX - resizeState.startX;
@@ -394,8 +418,11 @@
         applyRowHeight(resizeState.row, resizeState.startHeight + deltaY);
     }
 
-    function stopResize() {
+    function stopResize(event) {
         if (!resizeState) {
+            return;
+        }
+        if (resizeState.pointerId !== null && event && typeof event.pointerId === "number" && event.pointerId !== resizeState.pointerId) {
             return;
         }
 
@@ -407,6 +434,13 @@
                     : measureCurrentColumnWidths(resizeState.table)[index] || MIN_COL_WIDTH;
             });
             writeStoredLayout(resizeState.table, widths);
+        }
+
+        if (resizeState.handle && typeof resizeState.handle.releasePointerCapture === "function" && resizeState.pointerId !== null) {
+            try {
+                resizeState.handle.releasePointerCapture(resizeState.pointerId);
+            } catch (error) {
+            }
         }
 
         resizeState = null;
@@ -431,6 +465,12 @@
         document.addEventListener("pointermove", handlePointerMove, { passive: true });
         document.addEventListener("pointerup", stopResize);
         document.addEventListener("pointercancel", stopResize);
+        window.addEventListener("blur", stopResize);
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "hidden") {
+                stopResize();
+            }
+        });
         window.addEventListener("resize", queueInitManagedTables);
     }
 

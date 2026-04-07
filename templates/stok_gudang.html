@@ -151,7 +151,7 @@
             <span class="status-pill">Tipis {{ summary.low_count }}</span>
             <span class="status-pill">Kosong {{ summary.zero_count }}</span>
         </div>
-        <small>Grup produk dengan nama sama akan digabung agar operator tidak tenggelam oleh varian yang berulang.</small>
+        <small>Varian dari master produk yang sama akan digabung agar nama produk tetap bisa dikelola tanpa mencampur produk lain yang kebetulan bernama mirip.</small>
     </aside>
 </div>
 
@@ -280,7 +280,7 @@
                     {% else %}
                     <div class="stock-group-summary-meta">
                         <strong>{{ group.name }}</strong>
-                        <small>{{ group.product_count }} record produk digabung - Satuan: {{ group.unit_summary }}</small>
+                        <small>{{ group.variant_count }} varian terhubung - Satuan: {{ group.unit_summary }}</small>
                     </div>
                     {% endif %}
                 </td>
@@ -289,13 +289,23 @@
                         <summary class="stock-variant-summary">
                             <span class="stock-group-mobile-copy">
                                 <strong>{{ group.name }}</strong>
-                                <small>{{ group.sku_count }} SKU · {{ group.product_count }} record · {{ group.variant_count }} varian</small>
+                                <small>{{ group.sku_count }} SKU · {{ group.variant_count }} varian</small>
                             </span>
                             <span class="stock-variant-summary-copy">
                                 <strong data-stock-group-count>{{ group.variant_count }} varian</strong>
                                 <small data-stock-group-preview>{{ group.variant_preview }}</small>
                             </span>
                             <span class="stock-variant-summary-pills">
+                                {% if can('manage_product_master') and group.editable_master %}
+                                <button
+                                    type="button"
+                                    class="ghost-button stock-group-edit-trigger"
+                                    data-stock-group-edit-trigger
+                                    aria-label="Edit master produk {{ group.name }}"
+                                >
+                                    Edit Master
+                                </button>
+                                {% endif %}
                                 <span class="badge {{ group.qty_tone }}" data-stock-group-qty-badge>{{ group.total_qty }}</span>
                                 <span class="badge {{ group.status_tone }}" data-stock-group-status-badge>{{ group.status_label }}</span>
                             </span>
@@ -2247,6 +2257,20 @@ if (stockPageConfig.canManageProductMaster) {
 
         if (action === "edit") {
             openStockEditModal(activeContextSource);
+        }
+    });
+
+    document.addEventListener("click", (event) => {
+        const trigger = event.target.closest("[data-stock-group-edit-trigger]");
+        if (!trigger) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        const source = trigger.closest("[data-stock-group-summary-row]");
+        if (source) {
+            openStockEditModal(source);
         }
     });
 

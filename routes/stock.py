@@ -486,15 +486,14 @@ def _build_stock_group(rows):
 
 def _group_stock_rows(rows):
     grouped_rows = []
-    groups_by_name = {}
+    groups_by_product = {}
 
     for row in rows:
-        normalized_name = " ".join(str(row.get("name") or "").strip().lower().split())
-        group_key = normalized_name or f"product:{row['product_id']}"
-        if group_key not in groups_by_name:
-            groups_by_name[group_key] = []
-            grouped_rows.append(groups_by_name[group_key])
-        groups_by_name[group_key].append(row)
+        group_key = int(row["product_id"])
+        if group_key not in groups_by_product:
+            groups_by_product[group_key] = []
+            grouped_rows.append(groups_by_product[group_key])
+        groups_by_product[group_key].append(row)
 
     return [_build_stock_group(group_rows) for group_rows in grouped_rows]
 

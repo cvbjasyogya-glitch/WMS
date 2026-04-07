@@ -31,6 +31,12 @@
     const voiceCallButton = root.querySelector("[data-chat-widget-voice]");
     const videoCallButton = root.querySelector("[data-chat-widget-video]");
     const fullPageButtons = Array.from(root.querySelectorAll("[data-chat-widget-fullpage]"));
+    const typingIndicator = root.querySelector("[data-chat-widget-typing]");
+    const typingLabel = root.querySelector("[data-chat-widget-typing-label]");
+    const replyPreview = root.querySelector("[data-chat-widget-reply-preview]");
+    const replyPreviewAuthor = root.querySelector("[data-chat-widget-reply-author]");
+    const replyPreviewText = root.querySelector("[data-chat-widget-reply-text]");
+    const replyPreviewCancel = root.querySelector("[data-chat-widget-reply-cancel]");
     const chatUi = window.WmsChatUi || {};
 
     const state = {
@@ -49,6 +55,11 @@
         pendingAttachment: null,
         attachmentMaxBytes: 10 * 1024 * 1024,
         sendInFlight: false,
+        activeReplyMessageId: null,
+        activeReplyPreview: null,
+        lastTypingAt: 0,
+        typingKeepAliveTimer: null,
+        typingIdleTimer: null,
     };
 
     function escapeHtml(value) {
@@ -69,6 +80,148 @@
             return `${(safeSize / 1024).toFixed(1)} KB`;
         }
         return `${(safeSize / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function getMessageById(messageId) {
+        const safeMessageId = Number(messageId || 0);
+        return state.currentMessages.find((message) => Number(message.id || 0) === safeMessageId) || null;
+    }
+
+    function updateTypingState(labelText) {
+        if (!typingIndicator || !typingLabel) {
+            return;
+        }
+        const safeLabel = String(labelText || "").trim();
+        typingIndicator.hidden = !safeLabel;
+        typingLabel.textContent = safeLabel;
+    }
+
+    function renderReplyTarget(preview) {
+        if (!replyPreview || !replyPreviewAuthor || !replyPreviewText) {
+            return;
+        }
+        if (!preview || !state.activeReplyMessageId) {
+            replyPreview.hidden = true;
+            replyPreviewAuthor.textContent = "Balas pesan";
+            replyPreviewText.textContent = "Pilih pesan yang ingin dikutip.";
+            return;
+        }
+        replyPreview.hidden = false;
+        replyPreviewAuthor.textContent = preview.sender_name || "Pesan";
+        replyPreviewText.textContent = preview.preview || preview.body || "Pesan";
+    }
+
+    function setReplyTarget(messageId, preview) {
+        state.activeReplyMessageId = Number(messageId || 0) || null;
+        state.activeReplyPreview = state.activeReplyMessageId ? (preview || null) : null;
+        renderReplyTarget(state.activeReplyPreview);
+        composerInput?.focus();
+    }
+
+    function clearReplyTarget() {
+        state.activeReplyMessageId = null;
+        state.activeReplyPreview = null;
+        renderReplyTarget(null);
+    }
+
+    async function focusMessageById(messageId) {
+        const safeMessageId = Number(messageId || 0);
+        if (!safeMessageId || !state.currentThreadId) {
+            return;
+        }
+        const currentRow = messageBoard?.querySelector(`[data-message-id="${safeMessageId}"]`);
+        if (currentRow) {
+            currentRow.scrollIntoView({ behavior: "smooth", block: "center" });
+            currentRow.classList.add("is-focused");
+            window.setTimeout(() => currentRow.classList.remove("is-focused"), 1800);
+            return;
+        }
+        try {
+            const response = await fetch(`/chat/thread/${state.currentThreadId}/focus?message_id=${safeMessageId}`, {
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== "ok") {
+                throw new Error(payload.message || "Pesan tidak bisa dibuka");
+            }
+            replaceMessages(Array.isArray(payload.messages) ? payload.messages : []);
+            updateTypingState(payload.typing_label || "");
+            const focusedRow = messageBoard?.querySelector(`[data-message-id="${safeMessageId}"]`);
+            if (focusedRow) {
+                focusedRow.scrollIntoView({ behavior: "smooth", block: "center" });
+                focusedRow.classList.add("is-focused");
+                window.setTimeout(() => focusedRow.classList.remove("is-focused"), 1800);
+            }
+        } catch (error) {
+            window.showToast?.(error.message || "Pesan tidak bisa dibuka");
+        }
+    }
+
+    async function sendTypingState(isTyping) {
+        if (!state.currentThreadId) {
+            return;
+        }
+        try {
+            await fetch("/chat/typing", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: JSON.stringify({
+                    thread_id: state.currentThreadId,
+                    is_typing: Boolean(isTyping),
+                    path: `${window.location.pathname}${window.location.search}`,
+                }),
+            });
+        } catch (error) {
+        }
+    }
+
+    function stopTypingLoop() {
+        if (state.typingKeepAliveTimer) {
+            window.clearInterval(state.typingKeepAliveTimer);
+            state.typingKeepAliveTimer = null;
+        }
+        if (state.typingIdleTimer) {
+            window.clearTimeout(state.typingIdleTimer);
+            state.typingIdleTimer = null;
+        }
+        state.lastTypingAt = 0;
+        sendTypingState(false);
+    }
+
+    function queueTypingHeartbeat() {
+        if (!state.currentThreadId || !composerInput) {
+            return;
+        }
+        if (!(composerInput.value || "").trim()) {
+            stopTypingLoop();
+            return;
+        }
+        const now = Date.now();
+        if (!state.lastTypingAt || now - state.lastTypingAt > 1800) {
+            state.lastTypingAt = now;
+            sendTypingState(true);
+        }
+        if (!state.typingKeepAliveTimer) {
+            state.typingKeepAliveTimer = window.setInterval(() => {
+                if (!(composerInput.value || "").trim()) {
+                    stopTypingLoop();
+                    return;
+                }
+                state.lastTypingAt = Date.now();
+                sendTypingState(true);
+            }, 3000);
+        }
+        if (state.typingIdleTimer) {
+            window.clearTimeout(state.typingIdleTimer);
+        }
+        state.typingIdleTimer = window.setTimeout(() => {
+            stopTypingLoop();
+        }, 3600);
     }
 
     function normalizeChatText(rootNode) {
@@ -97,6 +250,9 @@
         launcher.setAttribute("aria-expanded", state.open ? "true" : "false");
         if (!state.open) {
             toggleStickerPanel(false);
+            clearReplyTarget();
+            updateTypingState("");
+            stopTypingLoop();
         }
         if (state.open) {
             ensureBootstrap();
@@ -136,6 +292,7 @@
                 <div class="chat-thread-body">
                     <div class="chat-thread-topline">
                         <strong>${escapeHtml(thread.partner_name || "-")}</strong>
+                        ${thread.is_pinned ? '<span class="badge gold">Pin</span>' : ""}
                         ${thread.thread_type === "group" ? '<span class="badge">Grup</span>' : ""}
                         ${thread.partner_online ? '<span class="badge green">Online</span>' : ""}
                     </div>
@@ -335,6 +492,7 @@
             threadAvatar.textContent = "MS";
             threadPartnerName.textContent = "Live Chat";
             threadPartnerMeta.textContent = "Pilih percakapan";
+            updateTypingState("");
             return;
         }
         threadAvatar.textContent = thread.partner_initials || "MS";
@@ -349,6 +507,7 @@
             metaBits.push("Online");
         }
         threadPartnerMeta.textContent = metaBits.join(" | ");
+        updateTypingState(thread.typing_label || "");
     }
 
     function scrollMessages(force) {
@@ -501,6 +660,9 @@
         if (!parsedThreadId) {
             return;
         }
+        if (state.currentThreadId && Number(state.currentThreadId) !== parsedThreadId) {
+            stopTypingLoop();
+        }
         try {
             const params = new URLSearchParams({
                 selected_thread_id: String(parsedThreadId),
@@ -529,6 +691,7 @@
             syncHeader(payload.selected_thread);
             replaceMessages(Array.isArray(payload.selected_thread.messages) ? payload.selected_thread.messages : []);
             setThreadMode(true);
+            clearReplyTarget();
             resetAttachmentPreview();
             toggleStickerPanel(false);
             if (composerInput) {
@@ -600,6 +763,8 @@
                 autoResizeComposer();
                 clearComposerDraft();
             }
+            clearReplyTarget();
+            stopTypingLoop();
             if (safeOptions.resetAttachment !== false) {
                 resetAttachmentPreview();
             }
@@ -632,11 +797,18 @@
             const formData = new FormData();
             formData.append("message", message);
             formData.append("attachment", state.pendingAttachment);
+            if (state.activeReplyMessageId) {
+                formData.append("reply_to_message_id", String(state.activeReplyMessageId));
+            }
             await sendPayload(formData, true, {});
             return;
         }
 
-        await sendPayload({ message }, false, {});
+        const payload = { message };
+        if (state.activeReplyMessageId) {
+            payload.reply_to_message_id = state.activeReplyMessageId;
+        }
+        await sendPayload(payload, false, {});
     }
 
     async function sendStickerImage(file) {
@@ -654,6 +826,9 @@
         const formData = new FormData();
         formData.append("message", (composerInput?.value || "").trim());
         formData.append("sticker_image", file);
+        if (state.activeReplyMessageId) {
+            formData.append("reply_to_message_id", String(state.activeReplyMessageId));
+        }
         await sendPayload(formData, true, {});
     }
 
@@ -692,6 +867,8 @@
             state.currentThread = payload.selected_thread;
             syncHeader(payload.selected_thread);
             appendMessages(Array.isArray(payload.selected_thread.messages) ? payload.selected_thread.messages : []);
+        } else if (!payload.selected_thread) {
+            updateTypingState("");
         }
     }
 
@@ -705,6 +882,8 @@
         setThreadMode(false);
         resetAttachmentPreview();
         toggleStickerPanel(false);
+        clearReplyTarget();
+        stopTypingLoop();
     }
 
     launcher?.addEventListener("click", () => {
@@ -721,7 +900,8 @@
 
     fullPageButtons.forEach((button) => {
         button.addEventListener("click", () => {
-            window.location.href = "/chat/";
+            const targetUrl = state.currentThreadId ? `/chat/?thread=${state.currentThreadId}` : "/chat/";
+            window.location.href = targetUrl;
         });
     });
 
@@ -749,6 +929,25 @@
             return;
         }
 
+        const replyButton = event.target.closest("[data-chat-reply-message-id]");
+        if (replyButton) {
+            const messageId = Number(replyButton.dataset.chatReplyMessageId || 0);
+            const targetMessage = getMessageById(messageId);
+            if (targetMessage) {
+                setReplyTarget(messageId, {
+                    sender_name: targetMessage.sender_name,
+                    preview: targetMessage.preview || targetMessage.body || "",
+                });
+            }
+            return;
+        }
+
+        const jumpButton = event.target.closest("[data-chat-jump-message-id]");
+        if (jumpButton) {
+            focusMessageById(jumpButton.dataset.chatJumpMessageId);
+            return;
+        }
+
         const uploadStickerButton = event.target.closest("[data-chat-widget-upload-sticker]");
         if (uploadStickerButton) {
             stickerImageInput?.click();
@@ -758,6 +957,11 @@
         const removeAttachmentButton = event.target.closest("[data-chat-widget-remove-attachment]");
         if (removeAttachmentButton) {
             resetAttachmentPreview();
+        }
+
+        const cancelReplyButton = event.target.closest("[data-chat-widget-reply-cancel]");
+        if (cancelReplyButton) {
+            clearReplyTarget();
         }
     });
 
@@ -827,6 +1031,12 @@
     composerInput?.addEventListener("input", () => {
         autoResizeComposer();
         persistComposerDraft();
+        queueTypingHeartbeat();
+    });
+    composerInput?.addEventListener("blur", () => {
+        if (!(composerInput.value || "").trim()) {
+            stopTypingLoop();
+        }
     });
 
     document.addEventListener("keydown", (event) => {
@@ -846,11 +1056,25 @@
         setPanelOpen(false);
     });
 
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && state.open && state.currentThreadId) {
+            queueTypingHeartbeat();
+            return;
+        }
+        stopTypingLoop();
+    });
+
+    window.addEventListener("beforeunload", () => {
+        stopTypingLoop();
+    });
+
     syncHeader(null);
     setActiveTab("threads");
     setThreadMode(false);
     toggleStickerPanel(false);
     autoResizeComposer();
+    renderReplyTarget(null);
+    updateTypingState("");
 
     window.WmsChatWidget = {
         isOpen() {

@@ -90,6 +90,27 @@
         return `<p>${escapeHtml(message.body || "")}</p>`;
     }
 
+    function buildReplyPreviewMarkup(replyPreview) {
+        if (!replyPreview || !replyPreview.id) {
+            return "";
+        }
+
+        return `
+            <button
+                type="button"
+                class="chat-reply-quote"
+                data-chat-jump-message-id="${escapeHtml(replyPreview.id)}"
+                aria-label="Lihat pesan yang dikutip"
+            >
+                <span class="chat-reply-quote-bar" aria-hidden="true"></span>
+                <span class="chat-reply-quote-copy">
+                    <strong>${escapeHtml(replyPreview.sender_name || "Pesan")}</strong>
+                    <span>${escapeHtml(replyPreview.preview || "")}</span>
+                </span>
+            </button>
+        `;
+    }
+
     function shouldGroupMessage(previousMessage, currentMessage) {
         if (!previousMessage || !currentMessage) {
             return false;
@@ -147,8 +168,18 @@
                 <article class="chat-message-row ${mineClass}${grouped ? " is-grouped" : ""}" data-message-id="${escapeHtml(message.id || "")}">
                     ${senderMeta}
                     <div class="chat-message-bubble chat-message-type-${escapeHtml(message.message_type || "text")}">
+                        ${buildReplyPreviewMarkup(message.reply_preview)}
                         ${buildMessageContent(message)}
-                        <time>${escapeHtml(message.created_label || "-")}</time>
+                        <div class="chat-message-meta-row">
+                            <time>${escapeHtml(message.created_label || "-")}</time>
+                            <button
+                                type="button"
+                                class="chat-message-action"
+                                data-chat-reply-message-id="${escapeHtml(message.id || "")}"
+                            >
+                                Balas
+                            </button>
+                        </div>
                     </div>
                 </article>
             `;

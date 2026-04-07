@@ -95,6 +95,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.create_user(username, password, "hr")
         return self.login(username, password)
 
+    def login_pos_user(self, username="pos_manager", role="super_admin", warehouse_id=None, password="pass1234"):
+        self.create_user(username, password, role, warehouse_id=warehouse_id)
+        return self.login(username, password)
+
     def create_user(
         self,
         username,
@@ -333,9 +337,6 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/info-produk/",
             "/stock/?workspace=products",
             "/stock/",
-            "/kasir/",
-            "/kasir/staff-sales",
-            "/kasir/log",
             "/inbound/",
             "/outbound/",
             "/transfers/",
@@ -376,6 +377,33 @@ class WmsRoutesTestCase(unittest.TestCase):
                 else:
                     self.assertIn('data-chat-widget-launcher', html)
 
+        self.logout()
+        self.login_pos_user("pos_shell_super", "super_admin")
+
+        for path in [
+            "/kasir/",
+            "/kasir/staff-sales",
+            "/kasir/log",
+        ]:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertIn('name="viewport"', html)
+                self.assertIn('mobile-nav', html)
+                self.assertIn('data-app-mode="browser"', html)
+                self.assertIn('@pos_shell_super', html)
+                self.assertIn('data-theme-toggle', html)
+                self.assertIn('data-pwa-install-trigger', html)
+                self.assertIn('/static/js/app_shell.js', html)
+                self.assertIn('data-sidebar-icon-rail', html)
+                self.assertIn('aria-label="Pusat Modul"', html)
+                self.assertIn('aria-label="Kasir Harian"', html)
+                self.assertIn('/static/icons/workspace/wms-kasir.svg', html)
+                self.assertIn('data-chat-widget-launcher', html)
+
+        self.logout()
+        self.login()
         admin_page = self.client.get("/admin/", follow_redirects=False)
         self.assertEqual(admin_page.status_code, 302)
 
@@ -427,24 +455,43 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('aria-label="Approvals"', html)
         self.assertIn('href="/request"', html)
 
-    def test_pos_page_can_be_opened_by_admin_and_denied_for_hr(self):
-        self.create_user("staff_sales_option", "pass1234", "staff", warehouse_id=1)
-        self.login()
+    def test_pos_page_is_limited_to_owner_super_admin_and_leader(self):
+        self.create_user("staff_sales_mataram", "pass1234", "staff", warehouse_id=1)
+        self.create_user("staff_sales_mega", "pass1234", "staff", warehouse_id=2)
+        self.login_pos_user("owner_pos_access", "owner")
 
-        admin_response = self.client.get("/kasir/")
-        self.assertEqual(admin_response.status_code, 200)
-        admin_html = admin_response.get_data(as_text=True)
-        self.assertIn("Checkout Kasir", admin_html)
-        self.assertIn('aria-label="Kasir Harian"', admin_html)
-        self.assertIn('/static/icons/workspace/wms-kasir.svg', admin_html)
-        self.assertIn("data-has-app-shell=\"1\"", admin_html)
-        self.assertIn('id="posCashierUserId"', admin_html)
-        self.assertIn("staff_sales_option", admin_html)
-        self.assertIn("Log Penjualan Hari Ini", admin_html)
-        self.assertIn("Menu POS", admin_html)
-        self.assertIn("/kasir/log?warehouse=1", admin_html)
-        self.assertIn("/kasir/staff-sales?warehouse=1", admin_html)
-        self.assertIn("/kasir/log", admin_html)
+        owner_response = self.client.get("/kasir/?warehouse=1")
+        self.assertEqual(owner_response.status_code, 200)
+        owner_html = owner_response.get_data(as_text=True)
+        self.assertIn("Checkout Kasir", owner_html)
+        self.assertIn('aria-label="Kasir Harian"', owner_html)
+        self.assertIn('/static/icons/workspace/wms-kasir.svg', owner_html)
+        self.assertIn("data-has-app-shell=\"1\"", owner_html)
+        self.assertIn('id="posCashierUserId"', owner_html)
+        self.assertIn("staff_sales_mataram", owner_html)
+        self.assertNotIn("staff_sales_mega", owner_html)
+        self.assertIn("Log Penjualan Hari Ini", owner_html)
+        self.assertIn("Menu POS", owner_html)
+        self.assertIn("/kasir/log?warehouse=1", owner_html)
+        self.assertIn("/kasir/staff-sales?warehouse=1", owner_html)
+
+        self.logout()
+        self.login_pos_user("leader_pos_access", "leader", warehouse_id=2)
+        leader_response = self.client.get("/kasir/?warehouse=1", follow_redirects=False)
+        self.assertEqual(leader_response.status_code, 200)
+        leader_html = leader_response.get_data(as_text=True)
+        self.assertIn("Gudang Mega", leader_html)
+        self.assertIn("staff_sales_mega", leader_html)
+        self.assertNotIn("staff_sales_mataram", leader_html)
+
+        self.logout()
+        self.login()
+        admin_workspace = self.client.get("/workspace/")
+        self.assertEqual(admin_workspace.status_code, 200)
+        self.assertNotIn('aria-label="Kasir Harian"', admin_workspace.get_data(as_text=True))
+        admin_response = self.client.get("/kasir/", follow_redirects=False)
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
 
         self.logout()
         self.login_hr_user("hr_pos_denied", "pass1234")
@@ -452,16 +499,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hr_response.status_code, 302)
         self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
 
-    def test_pos_sales_log_page_can_be_opened_by_admin_and_denied_for_hr(self):
-        self.login()
+    def test_pos_sales_log_page_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
+        self.login_pos_user("super_pos_log", "super_admin")
 
-        admin_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03")
-        self.assertEqual(admin_response.status_code, 200)
-        admin_html = admin_response.get_data(as_text=True)
-        self.assertIn("Log Penjualan POS", admin_html)
-        self.assertIn("Log Penjualan", admin_html)
-        self.assertIn("Tampilkan Log", admin_html)
-        self.assertIn('aria-label="Kasir Harian"', admin_html)
+        super_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03")
+        self.assertEqual(super_response.status_code, 200)
+        super_html = super_response.get_data(as_text=True)
+        self.assertIn("Log Penjualan POS", super_html)
+        self.assertIn("Log Penjualan", super_html)
+        self.assertIn("Tampilkan Log", super_html)
+        self.assertIn('aria-label="Kasir Harian"', super_html)
+        self.assertNotIn(">Semua Gudang<", super_html)
 
         self.logout()
         self.login_hr_user("hr_pos_log_denied", "pass1234")
@@ -469,23 +517,36 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hr_response.status_code, 302)
         self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
 
-    def test_pos_staff_sales_report_can_be_opened_by_admin_and_denied_for_hr(self):
+        self.logout()
         self.login()
+        admin_response = self.client.get("/kasir/log", follow_redirects=False)
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
 
-        admin_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-16&month=2026-04")
-        self.assertEqual(admin_response.status_code, 200)
-        admin_html = admin_response.get_data(as_text=True)
-        self.assertIn("Rekap Penjualan Staff", admin_html)
-        self.assertIn("Rekap Penjualan Staff Mingguan", admin_html)
-        self.assertIn("Rekap Penjualan Staff Bulanan", admin_html)
-        self.assertIn('data-pos-sales-period="weekly"', admin_html)
-        self.assertIn('data-pos-sales-period="monthly"', admin_html)
+    def test_pos_staff_sales_report_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
+        self.login_pos_user("owner_sales_report", "owner")
+
+        owner_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-16&month=2026-04")
+        self.assertEqual(owner_response.status_code, 200)
+        owner_html = owner_response.get_data(as_text=True)
+        self.assertIn("Rekap Penjualan Staff", owner_html)
+        self.assertIn("Rekap Penjualan Staff Mingguan", owner_html)
+        self.assertIn("Rekap Penjualan Staff Bulanan", owner_html)
+        self.assertIn('data-pos-sales-period="weekly"', owner_html)
+        self.assertIn('data-pos-sales-period="monthly"', owner_html)
+        self.assertNotIn(">Semua Gudang<", owner_html)
 
         self.logout()
         self.login_hr_user("hr_sales_report_denied", "pass1234")
         hr_response = self.client.get("/kasir/staff-sales", follow_redirects=False)
         self.assertEqual(hr_response.status_code, 302)
         self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
+
+        self.logout()
+        self.login()
+        admin_response = self.client.get("/kasir/staff-sales", follow_redirects=False)
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
 
     def test_staff_intern_cannot_access_pos_page(self):
         self.create_user("intern_pos_denied", "pass1234", "staff_intern", warehouse_id=1)
@@ -498,7 +559,7 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_pos_checkout_syncs_to_stock_and_crm_purchase_records(self):
         self.create_user("staff_sales_checkout", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_checkout")
-        self.login()
+        self.login_pos_user("pos_checkout_super", "super_admin")
         response, product_id, variants_rows = self.create_product(
             sku="POS-ITEM-001",
             qty=5,
@@ -615,7 +676,7 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_pos_checkout_supports_custom_discount_and_tax_rules(self):
         self.create_user("staff_sales_discount", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_discount")
-        self.login()
+        self.login_pos_user("pos_discount_super", "super_admin")
         response, product_id, variants_rows = self.create_product(
             sku="POS-DISC-001",
             qty=6,
@@ -696,7 +757,7 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_pos_sales_log_and_receipt_print_show_complete_sale_details(self):
         self.create_user("staff_sales_receipt", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_receipt")
-        self.login()
+        self.login_pos_user("pos_receipt_super", "super_admin")
         response, product_id, variants_rows = self.create_product(
             sku="POS-NOTA-001",
             qty=8,
@@ -769,7 +830,7 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_pos_checkout_generates_public_receipt_pdf_and_logs_failed_whatsapp_without_blocking_sale(self):
         self.create_user("staff_sales_kirimi", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_kirimi")
-        self.login()
+        self.login_pos_user("pos_kirimi_super", "super_admin")
         response, product_id, variants_rows = self.create_product(
             sku="POS-KIRIMI-001",
             qty=5,
@@ -861,7 +922,7 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_pos_void_item_restores_stock_and_recalculates_sale_totals(self):
         self.create_user("staff_sales_void", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_void")
-        self.login()
+        self.login_pos_user("pos_void_super", "super_admin")
         response, product_id, variants_rows = self.create_product(
             sku="POS-VOID-001",
             qty=5,
@@ -989,7 +1050,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         month_cashier_user_id = self.get_user_id("sales_month_report")
         old_cashier_user_id = self.get_user_id("sales_old_report")
 
-        self.login()
+        self.login_pos_user("pos_report_super", "super_admin")
         response, product_id, variants_rows = self.create_product(
             sku="POS-REPORT-001",
             qty=20,
@@ -2778,6 +2839,155 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(realtime_payload["selected_thread"]["messages"])
         self.assertIn("day_label", realtime_payload["selected_thread"]["messages"][0])
         self.assertIn("day_key", realtime_payload["selected_thread"]["messages"][0])
+        self.assertIn('id="chatSearchPanel"', page_html)
+        self.assertIn('id="chatPinThreadButton"', page_html)
+        self.assertIn('id="chatReplyPreview"', page_html)
+        self.assertIn('id="chatTypingIndicator"', page_html)
+
+    def test_chat_message_supports_reply_quote_and_focus_context(self):
+        self.create_user("leader_chat_reply", "pass1234", "leader", warehouse_id=1)
+        self.create_user("staff_chat_reply", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("leader_chat_reply")
+        self.login("staff_chat_reply", "pass1234")
+
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        first_send = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            json={"message": "Tolong cek inbound batch sore ini."},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_send.status_code, 200)
+        first_payload = first_send.get_json()
+        first_message_id = first_payload["message"]["id"]
+
+        reply_send = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            json={
+                "message": "Siap, saya follow up sekarang.",
+                "reply_to_message_id": first_message_id,
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(reply_send.status_code, 200)
+        reply_payload = reply_send.get_json()
+        self.assertEqual(reply_payload["message"]["reply_to_message_id"], first_message_id)
+        self.assertIsNotNone(reply_payload["message"]["reply_preview"])
+        self.assertEqual(reply_payload["message"]["reply_preview"]["id"], first_message_id)
+        self.assertIn("Tolong cek inbound", reply_payload["message"]["reply_preview"]["preview"])
+
+        self.logout()
+        self.login("leader_chat_reply", "pass1234")
+
+        focus_response = self.client.get(
+            f"/chat/thread/{thread_id}/focus?message_id={first_message_id}",
+            follow_redirects=False,
+        )
+        self.assertEqual(focus_response.status_code, 200)
+        focus_payload = focus_response.get_json()
+        self.assertEqual(focus_payload["status"], "ok")
+        self.assertEqual(focus_payload["focus_message_id"], first_message_id)
+        self.assertTrue(any(item["id"] == first_message_id for item in focus_payload["messages"]))
+        self.assertTrue(
+            any(
+                item["reply_to_message_id"] == first_message_id and item["reply_preview"]
+                for item in focus_payload["messages"]
+            )
+        )
+
+    def test_chat_thread_search_and_pin_features_work(self):
+        self.create_user("leader_chat_search", "pass1234", "leader", warehouse_id=1)
+        self.create_user("staff_chat_search", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("leader_chat_search")
+        self.login("staff_chat_search", "pass1234")
+
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        send_message = self.client.post(
+            f"/chat/thread/{thread_id}/send",
+            json={"message": "Kode unik followup-live-warehouse untuk dicari."},
+            follow_redirects=False,
+        )
+        self.assertEqual(send_message.status_code, 200)
+        target_message_id = send_message.get_json()["message"]["id"]
+
+        self.logout()
+        self.login("leader_chat_search", "pass1234")
+
+        pin_response = self.client.post(
+            f"/chat/thread/{thread_id}/pin",
+            json={"pinned": True},
+            follow_redirects=False,
+        )
+        self.assertEqual(pin_response.status_code, 200)
+        pin_payload = pin_response.get_json()
+        self.assertEqual(pin_payload["status"], "ok")
+        self.assertTrue(pin_payload["is_pinned"])
+        self.assertTrue(pin_payload["selected_thread"]["is_pinned"])
+        self.assertEqual(pin_payload["threads"][0]["id"], thread_id)
+
+        search_response = self.client.get(
+            f"/chat/thread/{thread_id}/search?q=followup-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(search_response.status_code, 200)
+        search_payload = search_response.get_json()
+        self.assertEqual(search_payload["status"], "ok")
+        self.assertTrue(search_payload["results"])
+        self.assertEqual(search_payload["results"][0]["id"], target_message_id)
+        self.assertIn("followup-live-warehouse", search_payload["results"][0]["preview"])
+
+    def test_chat_typing_indicator_endpoint_exposed_in_realtime(self):
+        self.create_user("leader_chat_typing", "pass1234", "leader", warehouse_id=1)
+        self.create_user("staff_chat_typing", "pass1234", "staff", warehouse_id=1)
+
+        leader_user_id = self.get_user_id("leader_chat_typing")
+        self.login("staff_chat_typing", "pass1234")
+
+        start_thread = self.client.post(
+            "/chat/thread/start",
+            json={"target_user_id": leader_user_id},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_thread.status_code, 200)
+        thread_id = start_thread.get_json()["thread_id"]
+
+        typing_response = self.client.post(
+            "/chat/typing",
+            json={"thread_id": thread_id, "is_typing": True, "path": f"/chat/?thread={thread_id}"},
+            follow_redirects=False,
+        )
+        self.assertEqual(typing_response.status_code, 200)
+        self.assertEqual(typing_response.get_json()["status"], "ok")
+
+        self.logout()
+        self.login("leader_chat_typing", "pass1234")
+
+        realtime_response = self.client.get(
+            f"/chat/realtime?selected_thread_id={thread_id}&after_message_id=0&include_threads=1",
+            follow_redirects=False,
+        )
+        self.assertEqual(realtime_response.status_code, 200)
+        realtime_payload = realtime_response.get_json()
+        self.assertEqual(realtime_payload["status"], "ok")
+        self.assertIn("selected_thread", realtime_payload)
+        self.assertIn("typing_label", realtime_payload["selected_thread"])
+        self.assertIn("staff_chat_typing", realtime_payload["selected_thread"]["typing_label"])
+        self.assertTrue(realtime_payload["selected_thread"]["typing_users"])
 
     def test_chat_widget_launcher_and_bootstrap_render_for_chat_users(self):
         self.create_user("leader_widget", "pass1234", "leader", warehouse_id=1)
@@ -2792,6 +3002,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="wmsChatRealtimeConfigData"', dashboard_html)
         self.assertIn('"callPollUrl": "/chat/call/poll"', dashboard_html)
         self.assertIn('"callRingtoneUrl": "/static/audio/chat-call-ringtone.mp3', dashboard_html)
+        self.assertIn("data-chat-widget-typing", dashboard_html)
+        self.assertIn("data-chat-widget-reply-preview", dashboard_html)
         self.assertNotIn('id="chatSidebarUnread"', dashboard_html)
 
         bootstrap_response = self.client.get("/chat/widget/bootstrap")
@@ -9191,9 +9403,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("black red-33", html)
         self.assertIn("black red-34", html)
         self.assertIn("black red-35", html)
+        self.assertIn("data-stock-group-edit-trigger", html)
         self.assertEqual(html.count('value="AERO COMFORT 4"'), 1)
 
-    def test_stock_page_groups_same_name_across_multiple_product_records(self):
+    def test_stock_page_keeps_same_name_products_separate_so_master_name_stays_editable(self):
         self.login()
         response_one, product_one_id, _ = self.create_product(
             sku="AERO-33",
@@ -9220,13 +9433,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
 
-        self.assertIn('class="stock-variant-disclosure"', html)
-        self.assertIn("2 varian", html)
-        self.assertIn("2 SKU", html)
+        self.assertNotIn("2 record produk digabung", html)
         self.assertIn('value="AERO-33"', html)
         self.assertIn('value="AERO-34"', html)
-        self.assertIn("<strong>AERO COMFORT 4</strong>", html)
-        self.assertNotIn('data-field="name" data-product', html)
+        self.assertIn(f'data-product="{product_one_id}" value="AERO COMFORT 4"', html)
+        self.assertIn(f'data-product="{product_two_id}" value="AERO COMFORT 4"', html)
 
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
@@ -12171,6 +12382,49 @@ class WmsRoutesTestCase(unittest.TestCase):
         export = self.client.get("/so/export?display_id=1&gudang_id=2")
         self.assertEqual(export.status_code, 200)
         self.assertIn("Display System Qty", export.get_data(as_text=True))
+
+    def test_stock_opname_page_uses_refactored_script_and_row_data_attributes(self):
+        self.login()
+        response, _, _ = self.create_product(
+            sku="SO-UI-ROW",
+            qty=1,
+            variants="UI-ROW",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        response = self.client.get("/so/?display_id=1&gudang_id=2")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn('id="stockOpnameApp"', html)
+        self.assertIn("stock_opname.js", html)
+        self.assertIn('data-product-id="', html)
+        self.assertNotIn('class="product_id"', html)
+        self.assertNotIn('class="variant_id"', html)
+
+    def test_stock_opname_export_respects_search_filter(self):
+        self.login()
+        response_a, _, _ = self.create_product(
+            sku="SO-FILTER-ALPHA",
+            qty=1,
+            variants="FILTER-A",
+            warehouse_id="1",
+        )
+        response_b, _, _ = self.create_product(
+            sku="SO-FILTER-BETA",
+            qty=1,
+            variants="FILTER-B",
+            warehouse_id="1",
+        )
+        self.assertEqual(response_a.status_code, 302)
+        self.assertEqual(response_b.status_code, 302)
+
+        export = self.client.get("/so/export?display_id=1&gudang_id=2&q=ALPHA")
+        self.assertEqual(export.status_code, 200)
+        csv_text = export.get_data(as_text=True)
+
+        self.assertIn("SO-FILTER-ALPHA", csv_text)
+        self.assertNotIn("SO-FILTER-BETA", csv_text)
 
     def test_stock_opname_summary_counts_all_filtered_rows_not_just_current_page(self):
         self.login()

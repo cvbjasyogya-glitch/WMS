@@ -9,7 +9,7 @@ from config import Config
 from database import close_db, get_db
 from datetime import datetime, timezone
 from services.notification_service import send_email, send_whatsapp
-from services.rbac import has_permission, is_scoped_role, normalize_role
+from services.rbac import can_access_pos_terminal, has_permission, is_scoped_role, normalize_role
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -919,6 +919,7 @@ def create_app():
         shell_break_timer = _build_shell_break_timer_state() if session.get("user_id") else {"active": False}
         return {
             "can": lambda permission: has_permission(role, permission),
+            "can_access_pos_terminal": lambda: can_access_pos_terminal(role),
             "is_scoped_user": is_scoped_role(role),
             "can_view_hris_module": lambda slug: can_view_hris_module(role, slug),
             "can_manage_hris_module": lambda slug: can_manage_hris_module(role, slug),

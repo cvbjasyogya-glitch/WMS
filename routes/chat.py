@@ -19,6 +19,9 @@ INITIAL_MESSAGE_LIMIT = 120
 POLL_MESSAGE_LIMIT = 60
 INCOMING_TOAST_LIMIT = 12
 CHAT_DISPLAY_UTC_OFFSET_HOURS = 7
+CHAT_THREAD_SEARCH_LIMIT = 24
+CHAT_MESSAGE_FOCUS_WINDOW = 24
+CHAT_TYPING_TTL_SECONDS = 8
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp",
     ".pdf", ".txt", ".csv", ".zip",
@@ -194,6 +197,18 @@ def _format_file_size(size_bytes):
     return f"{size / (1024 * 1024):.1f} MB"
 
 
+def _serialize_reply_preview(row):
+    item = dict(row)
+    return {
+        "id": int(item["id"]),
+        "sender_name": item.get("sender_name") or "User",
+        "sender_initials": _get_initials(item.get("sender_name")),
+        "message_type": (item.get("message_type") or "text").strip().lower(),
+        "preview": _build_message_preview(item, 84),
+        "call_label": _call_label_for_mode(item.get("call_mode")),
+    }
+
+
 def _get_chat_attachment_max_bytes():
     configured = current_app.config.get("CHAT_ATTACHMENT_MAX_BYTES", 10 * 1024 * 1024)
     try:
@@ -227,24 +242,25 @@ def _message_sticker_meta(message):
 
 
 def _build_message_preview(message, limit=120):
-    message_type = (message.get("message_type") or "text").strip().lower()
+    data = dict(message) if isinstance(message, sqlite3.Row) else (message or {})
+    message_type = (data.get("message_type") or "text").strip().lower()
     if message_type == "attachment":
-        attachment_name = message.get("attachment_name") or "Lampiran"
-        caption = (message.get("body") or "").strip()
+        attachment_name = data.get("attachment_name") or "Lampiran"
+        caption = (data.get("body") or "").strip()
         preview = f"Lampiran: {attachment_name}"
         if caption:
             preview = f"{preview} - {caption}"
         return _clip_text(preview, limit)
     if message_type == "sticker":
-        if (message.get("attachment_name") or "").strip():
+        if (data.get("attachment_name") or "").strip():
             return _clip_text("Sticker Gambar", limit)
-        sticker = _sticker_meta(message.get("sticker_code"))
+        sticker = _sticker_meta(data.get("sticker_code"))
         return _clip_text(f"{sticker['emoji']} Sticker {sticker['label']}", limit)
     if message_type == "call":
-        call_mode = "Video Call" if (message.get("call_mode") or "").lower() == "video" else "Telp"
-        body = (message.get("body") or "").strip() or f"Permintaan {call_mode}"
+        call_mode = "Video Call" if (data.get("call_mode") or "").lower() == "video" else "Telp"
+        body = (data.get("body") or "").strip() or f"Permintaan {call_mode}"
         return _clip_text(body, limit)
-    return _clip_text(message.get("body") or "Pesan baru", limit)
+    return _clip_text(data.get("body") or "Pesan baru", limit)
 
 
 def _chat_access_denied_redirect():
@@ -378,6 +394,8 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
             t.created_at,
             t.last_message_at,
             member.last_read_message_id,
+            COALESCE(member.is_pinned, 0) AS is_pinned,
+            member.pinned_at,
             last_msg.id AS last_message_id,
             last_msg.body AS last_message_body,
             last_msg.created_at AS last_message_created_at,
@@ -399,7 +417,13 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
               LIMIT 1
           )
         WHERE (? IS NULL OR t.id = ?)
-        ORDER BY COALESCE(t.last_message_at, t.created_at) DESC, t.id DESC
+        ORDER BY
+            CASE WHEN COALESCE(member.is_pinned, 0) = 1 THEN 0 ELSE 1 END,
+            CASE
+                WHEN COALESCE(member.is_pinned, 0) = 1 THEN COALESCE(member.pinned_at, t.last_message_at, t.created_at)
+                ELSE COALESCE(t.last_message_at, t.created_at)
+            END DESC,
+            t.id DESC
         """,
         (current_user_id, thread_id, thread_id),
     ).fetchall()
@@ -463,6 +487,7 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
         participants = participants_by_thread.get(item["id"], [])
         others = [participant for participant in participants if not participant.get("is_current")]
         item["thread_type"] = (item.get("thread_type") or "direct").strip().lower()
+        item["is_pinned"] = bool(item.get("is_pinned"))
         item["participants"] = participants
         item["member_count"] = len(participants)
         item["online_count"] = sum(1 for participant in others if participant.get("is_online"))
@@ -549,6 +574,99 @@ def _user_can_access_thread(db, current_user_id, thread_id):
     return bool(row)
 
 
+def _fetch_reply_preview_map(db, reply_ids):
+    unique_reply_ids = sorted({int(reply_id) for reply_id in reply_ids if reply_id})
+    if not unique_reply_ids:
+        return {}
+
+    rows = db.execute(
+        f"""
+        SELECT
+            cm.id,
+            cm.body,
+            cm.message_type,
+            cm.attachment_name,
+            cm.sticker_code,
+            cm.call_mode,
+            sender.username AS sender_name
+        FROM chat_messages cm
+        JOIN users sender ON sender.id = cm.sender_id
+        WHERE cm.id IN ({",".join("?" for _ in unique_reply_ids)})
+        """,
+        tuple(unique_reply_ids),
+    ).fetchall()
+    return {
+        int(row["id"]): _serialize_reply_preview(row)
+        for row in rows
+    }
+
+
+def _serialize_chat_message_rows(db, rows, current_user_id):
+    raw_rows = [dict(row) for row in rows]
+    reply_preview_map = _fetch_reply_preview_map(
+        db,
+        [_to_int(item.get("reply_to_message_id")) for item in raw_rows],
+    )
+
+    messages = []
+    for item in raw_rows:
+        item["message_type"] = (item.get("message_type") or "text").strip().lower()
+        item["is_mine"] = item.get("sender_id") == current_user_id
+        item["sender_initials"] = _get_initials(item.get("sender_name"))
+        item["created_label"] = _format_timestamp_label(item.get("created_at"))
+        local_time = _to_chat_local_time(item.get("created_at"))
+        item["day_key"] = local_time.strftime("%Y-%m-%d") if local_time else str(item.get("created_at") or "")[:10]
+        item["day_label"] = _format_chat_day_label(item.get("created_at"))
+        item["preview"] = _build_message_preview(item, 80)
+        item["sticker"] = _message_sticker_meta(item) if item["message_type"] == "sticker" else None
+        item["call_label"] = "Video Call" if item.get("call_mode") == "video" else "Telp"
+        if item.get("attachment_path"):
+            item["attachment_url"] = f"{current_app.config['CHAT_UPLOAD_URL_PREFIX'].rstrip('/')}/{item['attachment_path']}"
+        else:
+            item["attachment_url"] = ""
+        item["sticker_image_url"] = item["attachment_url"] if item["message_type"] == "sticker" else ""
+        item["attachment_size_label"] = _format_file_size(item.get("attachment_size"))
+        reply_to_message_id = _to_int(item.get("reply_to_message_id"))
+        item["reply_to_message_id"] = reply_to_message_id
+        item["reply_preview"] = reply_preview_map.get(reply_to_message_id)
+        messages.append(item)
+    return messages
+
+
+def _fetch_messages_by_ids(db, thread_id, current_user_id, message_ids):
+    unique_message_ids = sorted({int(message_id) for message_id in message_ids if message_id})
+    if not unique_message_ids:
+        return []
+
+    rows = db.execute(
+        f"""
+        SELECT
+            cm.id,
+            cm.thread_id,
+            cm.sender_id,
+            sender.username AS sender_name,
+            sender.role AS sender_role,
+            cm.body,
+            cm.message_type,
+            cm.attachment_name,
+            cm.attachment_path,
+            cm.attachment_mime,
+            cm.attachment_size,
+            cm.sticker_code,
+            cm.call_mode,
+            cm.reply_to_message_id,
+            cm.created_at
+        FROM chat_messages cm
+        JOIN users sender ON sender.id = cm.sender_id
+        WHERE cm.thread_id=?
+          AND cm.id IN ({",".join("?" for _ in unique_message_ids)})
+        ORDER BY cm.id ASC
+        """,
+        (thread_id, *unique_message_ids),
+    ).fetchall()
+    return _serialize_chat_message_rows(db, rows, current_user_id)
+
+
 def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
     after_message_id = max(after_message_id or 0, 0)
     if after_message_id:
@@ -568,6 +686,7 @@ def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
                 cm.attachment_size,
                 cm.sticker_code,
                 cm.call_mode,
+                cm.reply_to_message_id,
                 cm.created_at
             FROM chat_messages cm
             JOIN users sender ON sender.id = cm.sender_id
@@ -597,6 +716,7 @@ def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
                     cm.attachment_size,
                     cm.sticker_code,
                     cm.call_mode,
+                    cm.reply_to_message_id,
                     cm.created_at
                 FROM chat_messages cm
                 JOIN users sender ON sender.id = cm.sender_id
@@ -609,27 +729,7 @@ def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
             (thread_id, INITIAL_MESSAGE_LIMIT),
         ).fetchall()
 
-    messages = []
-    for row in rows:
-        item = dict(row)
-        item["message_type"] = (item.get("message_type") or "text").strip().lower()
-        item["is_mine"] = item.get("sender_id") == current_user_id
-        item["sender_initials"] = _get_initials(item.get("sender_name"))
-        item["created_label"] = _format_timestamp_label(item.get("created_at"))
-        local_time = _to_chat_local_time(item.get("created_at"))
-        item["day_key"] = local_time.strftime("%Y-%m-%d") if local_time else str(item.get("created_at") or "")[:10]
-        item["day_label"] = _format_chat_day_label(item.get("created_at"))
-        item["preview"] = _build_message_preview(item, 80)
-        item["sticker"] = _message_sticker_meta(item) if item["message_type"] == "sticker" else None
-        item["call_label"] = "Video Call" if item.get("call_mode") == "video" else "Telp"
-        if item.get("attachment_path"):
-            item["attachment_url"] = f"{current_app.config['CHAT_UPLOAD_URL_PREFIX'].rstrip('/')}/{item['attachment_path']}"
-        else:
-            item["attachment_url"] = ""
-        item["sticker_image_url"] = item["attachment_url"] if item["message_type"] == "sticker" else ""
-        item["attachment_size_label"] = _format_file_size(item.get("attachment_size"))
-        messages.append(item)
-    return messages
+    return _serialize_chat_message_rows(db, rows, current_user_id)
 
 
 def _mark_thread_read(db, thread_id, current_user_id):
@@ -677,6 +777,172 @@ def _compute_unread_total(db, current_user_id):
         (current_user_id, current_user_id),
     ).fetchone()
     return int(row["unread_total"] if row else 0)
+
+
+def _set_thread_pin_state(db, thread_id, current_user_id, pinned=None):
+    membership = db.execute(
+        """
+        SELECT COALESCE(is_pinned, 0) AS is_pinned
+        FROM chat_thread_members
+        WHERE thread_id=? AND user_id=?
+        LIMIT 1
+        """,
+        (thread_id, current_user_id),
+    ).fetchone()
+    if not membership:
+        raise ValueError("Thread chat tidak ditemukan")
+
+    current_state = bool(membership["is_pinned"])
+    next_state = (not current_state) if pinned is None else bool(pinned)
+    db.execute(
+        """
+        UPDATE chat_thread_members
+        SET is_pinned=?,
+            pinned_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END
+        WHERE thread_id=? AND user_id=?
+        """,
+        (1 if next_state else 0, 1 if next_state else 0, thread_id, current_user_id),
+    )
+    return next_state
+
+
+def _build_thread_search_terms(raw_query):
+    return [term for term in dict.fromkeys(str(raw_query or "").strip().lower().split()) if term]
+
+
+def _search_thread_messages(db, thread_id, query, limit=CHAT_THREAD_SEARCH_LIMIT):
+    terms = _build_thread_search_terms(query)
+    if not terms:
+        return []
+
+    filters = []
+    params = [thread_id]
+    for term in terms:
+        like_term = f"%{term}%"
+        filters.append(
+            """
+            (
+                LOWER(COALESCE(cm.body, '')) LIKE ?
+                OR LOWER(COALESCE(cm.attachment_name, '')) LIKE ?
+                OR LOWER(COALESCE(cm.sticker_code, '')) LIKE ?
+            )
+            """
+        )
+        params.extend([like_term, like_term, like_term])
+
+    params.append(max(int(limit or CHAT_THREAD_SEARCH_LIMIT), 1))
+    rows = db.execute(
+        f"""
+        SELECT
+            cm.id,
+            cm.sender_id,
+            sender.username AS sender_name,
+            cm.body,
+            cm.message_type,
+            cm.attachment_name,
+            cm.sticker_code,
+            cm.call_mode,
+            cm.created_at
+        FROM chat_messages cm
+        JOIN users sender ON sender.id = cm.sender_id
+        WHERE cm.thread_id=?
+          AND {" AND ".join(filters)}
+        ORDER BY cm.id DESC
+        LIMIT ?
+        """,
+        tuple(params),
+    ).fetchall()
+
+    return [
+        {
+            "id": int(row["id"]),
+            "sender_name": row["sender_name"],
+            "sender_initials": _get_initials(row["sender_name"]),
+            "created_at": row["created_at"],
+            "created_label": _format_timestamp_label(row["created_at"]),
+            "preview": _build_message_preview(row, 120),
+            "message_type": (row["message_type"] or "text").strip().lower(),
+        }
+        for row in rows
+    ]
+
+
+def _fetch_thread_message_focus_context(db, thread_id, current_user_id, focus_message_id, window=CHAT_MESSAGE_FOCUS_WINDOW):
+    focus_message_id = _to_int(focus_message_id)
+    if not focus_message_id:
+        return []
+
+    focus_row = db.execute(
+        "SELECT id FROM chat_messages WHERE thread_id=? AND id=? LIMIT 1",
+        (thread_id, focus_message_id),
+    ).fetchone()
+    if not focus_row:
+        return []
+
+    before_ids = [
+        int(row["id"])
+        for row in db.execute(
+            """
+            SELECT id
+            FROM chat_messages
+            WHERE thread_id=? AND id<=?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (thread_id, focus_message_id, max(int(window or CHAT_MESSAGE_FOCUS_WINDOW), 1)),
+        ).fetchall()
+    ]
+    after_ids = [
+        int(row["id"])
+        for row in db.execute(
+            """
+            SELECT id
+            FROM chat_messages
+            WHERE thread_id=? AND id>?
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (thread_id, focus_message_id, max(int(window or CHAT_MESSAGE_FOCUS_WINDOW), 1)),
+        ).fetchall()
+    ]
+    return _fetch_messages_by_ids(db, thread_id, current_user_id, before_ids + after_ids)
+
+
+def _fetch_thread_typing_state(db, thread_id, current_user_id):
+    rows = db.execute(
+        """
+        SELECT u.id, u.username
+        FROM user_presence up
+        JOIN users u ON u.id = up.user_id
+        JOIN chat_thread_members member
+          ON member.thread_id = ?
+         AND member.user_id = u.id
+        WHERE up.typing_thread_id=?
+          AND up.typing_until >= CURRENT_TIMESTAMP
+          AND u.id != ?
+        ORDER BY up.typing_until DESC, LOWER(u.username) ASC
+        LIMIT 3
+        """,
+        (thread_id, thread_id, current_user_id),
+    ).fetchall()
+
+    users = [
+        {
+            "id": int(row["id"]),
+            "username": row["username"],
+            "initials": _get_initials(row["username"]),
+        }
+        for row in rows
+    ]
+    if not users:
+        return {"users": [], "label": ""}
+    if len(users) == 1:
+        label = f"{users[0]['username']} sedang mengetik..."
+    elif len(users) == 2:
+        label = f"{users[0]['username']} dan {users[1]['username']} sedang mengetik..."
+    else:
+        label = f"{users[0]['username']}, {users[1]['username']}, dan lainnya sedang mengetik..."
+    return {"users": users, "label": label}
 
 
 def _fetch_incoming_messages(db, current_user_id, since_message_id):
@@ -876,8 +1142,10 @@ def _insert_chat_message(db, thread_id, sender_id, body, message_type, extra):
             attachment_size,
             sticker_code,
             call_mode
+            ,
+            reply_to_message_id
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             thread_id,
@@ -890,6 +1158,7 @@ def _insert_chat_message(db, thread_id, sender_id, body, message_type, extra):
             int(extra.get("attachment_size") or 0),
             extra.get("sticker_code"),
             extra.get("call_mode"),
+            _to_int(extra.get("reply_to_message_id")),
         ),
     )
     message_id = int(cursor.lastrowid)
@@ -911,6 +1180,18 @@ def _insert_chat_message(db, thread_id, sender_id, body, message_type, extra):
         WHERE thread_id=? AND user_id=?
         """,
         (message_id, thread_id, sender_id),
+    )
+    db.execute(
+        """
+        UPDATE user_presence
+        SET active_thread_id=?,
+            typing_thread_id=NULL,
+            typing_until=NULL,
+            last_seen_at=CURRENT_TIMESTAMP,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE user_id=?
+        """,
+        (thread_id, sender_id),
     )
     return message_id
 
@@ -1204,6 +1485,7 @@ def chat_page():
         return redirect(f"/chat/?thread={thread_id}")
 
     selected_thread_id = _to_int(request.args.get("thread"))
+    focused_message_id = _to_int(request.args.get("focus_message"))
     selected_thread = None
 
     if selected_thread_id:
@@ -1221,8 +1503,22 @@ def chat_page():
 
     if selected_thread:
         selected_thread = next((thread for thread in threads if thread["id"] == selected_thread["id"]), selected_thread)
+        typing_state = _fetch_thread_typing_state(db, selected_thread["id"], current_user["id"])
+        selected_thread["typing_users"] = typing_state["users"]
+        selected_thread["typing_label"] = typing_state["label"]
 
-    messages = _fetch_messages(db, selected_thread["id"], current_user["id"]) if selected_thread else []
+    if selected_thread:
+        if focused_message_id:
+            messages = _fetch_thread_message_focus_context(
+                db,
+                selected_thread["id"],
+                current_user["id"],
+                focused_message_id,
+            ) or _fetch_messages(db, selected_thread["id"], current_user["id"])
+        else:
+            messages = _fetch_messages(db, selected_thread["id"], current_user["id"])
+    else:
+        messages = []
     contacts = _fetch_contacts(db, current_user)
     unread_total = _compute_unread_total(db, current_user["id"])
     auto_start_call_mode = ((request.args.get("call") or "").strip().lower()) or None
@@ -1255,6 +1551,7 @@ def chat_page():
         summary=summary,
         current_thread_id=selected_thread["id"] if selected_thread else None,
         current_thread_last_message_id=messages[-1]["id"] if messages else 0,
+        focused_message_id=focused_message_id,
         chat_attachment_max_bytes=_get_chat_attachment_max_bytes(),
         current_user_payload=_serialize_current_user(current_user),
         auto_start_call_mode=auto_start_call_mode,
@@ -1360,6 +1657,7 @@ def send_message(thread_id):
     body = ((payload.get("message") if payload else "") or "").strip()
     sticker_code = ((payload.get("sticker_code") if payload else "") or "").strip()
     call_mode = ((payload.get("call_mode") if payload else "") or "").strip().lower()
+    reply_to_message_id = _to_int(payload.get("reply_to_message_id") if payload else None)
     attachment = request.files.get("attachment")
     sticker_image = request.files.get("sticker_image")
 
@@ -1378,7 +1676,17 @@ def send_message(thread_id):
         "attachment_size": 0,
         "sticker_code": None,
         "call_mode": None,
+        "reply_to_message_id": None,
     }
+
+    if reply_to_message_id:
+        reply_row = db.execute(
+            "SELECT id FROM chat_messages WHERE id=? AND thread_id=? LIMIT 1",
+            (reply_to_message_id, thread_id),
+        ).fetchone()
+        if not reply_row:
+            return jsonify({"status": "error", "message": "Pesan yang ingin dibalas tidak ditemukan"}), 404
+        extra["reply_to_message_id"] = reply_to_message_id
 
     if sticker_image and (sticker_image.filename or "").strip():
         try:
@@ -1474,6 +1782,99 @@ def send_message(thread_id):
             "status": "ok",
             "message": message[0] if message else None,
             "unread_total": _compute_unread_total(db, current_user["id"]),
+        }
+    )
+
+
+@chat_bp.route("/thread/<int:thread_id>/pin", methods=["POST"])
+def toggle_thread_pin(thread_id):
+    if not _require_chat_manage():
+        return jsonify({"status": "error", "message": "Akses ditolak"}), 403
+
+    payload = request.get_json(silent=True) or request.form
+    pinned_value = payload.get("pinned") if payload else None
+    if isinstance(pinned_value, str):
+        normalized_pinned = pinned_value.strip().lower()
+        pinned = normalized_pinned in {"1", "true", "yes", "on"}
+        if normalized_pinned in {"", "toggle"}:
+            pinned = None
+    elif pinned_value is None:
+        pinned = None
+    else:
+        pinned = bool(pinned_value)
+
+    db = get_db()
+    current_user = _fetch_current_user(db)
+    if not _user_can_access_thread(db, current_user["id"], thread_id):
+        return jsonify({"status": "error", "message": "Thread chat tidak ditemukan"}), 404
+
+    try:
+        is_pinned = _set_thread_pin_state(db, thread_id, current_user["id"], pinned)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 404
+
+    threads = _fetch_thread_summaries(db, current_user["id"])
+    selected_thread = next((thread for thread in threads if int(thread["id"]) == int(thread_id)), None)
+    return jsonify(
+        {
+            "status": "ok",
+            "thread_id": thread_id,
+            "is_pinned": is_pinned,
+            "threads": threads,
+            "selected_thread": selected_thread,
+        }
+    )
+
+
+@chat_bp.route("/thread/<int:thread_id>/search")
+def search_thread_messages(thread_id):
+    if not _require_chat_view():
+        return jsonify({"status": "error", "message": "Akses ditolak"}), 403
+
+    db = get_db()
+    current_user = _fetch_current_user(db)
+    if not _user_can_access_thread(db, current_user["id"], thread_id):
+        return jsonify({"status": "error", "message": "Thread chat tidak ditemukan"}), 404
+
+    query = (request.args.get("q") or "").strip()
+    if len(query) < 2:
+        return jsonify({"status": "ok", "results": []})
+
+    return jsonify(
+        {
+            "status": "ok",
+            "results": _search_thread_messages(db, thread_id, query),
+        }
+    )
+
+
+@chat_bp.route("/thread/<int:thread_id>/focus")
+def focus_thread_message(thread_id):
+    if not _require_chat_view():
+        return jsonify({"status": "error", "message": "Akses ditolak"}), 403
+
+    db = get_db()
+    current_user = _fetch_current_user(db)
+    if not _user_can_access_thread(db, current_user["id"], thread_id):
+        return jsonify({"status": "error", "message": "Thread chat tidak ditemukan"}), 404
+
+    message_id = _to_int(request.args.get("message_id"))
+    if not message_id:
+        return jsonify({"status": "error", "message": "Pesan target tidak valid"}), 400
+
+    messages = _fetch_thread_message_focus_context(db, thread_id, current_user["id"], message_id)
+    if not messages:
+        return jsonify({"status": "error", "message": "Pesan target tidak ditemukan"}), 404
+
+    _mark_thread_read(db, thread_id, current_user["id"])
+    typing_state = _fetch_thread_typing_state(db, thread_id, current_user["id"])
+    return jsonify(
+        {
+            "status": "ok",
+            "focus_message_id": message_id,
+            "messages": messages,
+            "typing_label": typing_state["label"],
+            "typing_users": typing_state["users"],
         }
     )
 
@@ -1815,6 +2216,7 @@ def chat_realtime():
         payload["threads"] = _fetch_thread_summaries(db, current_user["id"])
 
     if selected_thread:
+        typing_state = _fetch_thread_typing_state(db, selected_thread["id"], current_user["id"])
         payload["selected_thread"] = {
             "id": selected_thread["id"],
             "thread_type": selected_thread.get("thread_type"),
@@ -1828,9 +2230,89 @@ def chat_realtime():
             "participants": selected_thread.get("participants", []),
             "member_count": selected_thread.get("member_count", 0),
             "online_count": selected_thread.get("online_count", 0),
+            "is_pinned": bool(selected_thread.get("is_pinned")),
+            "typing_users": typing_state["users"],
+            "typing_label": typing_state["label"],
         }
 
     return jsonify(payload)
+
+
+@chat_bp.route("/typing", methods=["POST"])
+def update_typing():
+    if not _require_chat_view():
+        return jsonify({"status": "error", "message": "Akses ditolak"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    current_user_id = session.get("user_id")
+    thread_id = _to_int(payload.get("thread_id"))
+    is_typing = bool(payload.get("is_typing"))
+    current_path = (payload.get("path") or "/chat/").strip()[:255] or "/chat/"
+
+    try:
+        db = get_db()
+        try:
+            db.execute("PRAGMA busy_timeout = 1200")
+        except sqlite3.Error:
+            pass
+
+        if thread_id and not _user_can_access_thread(db, current_user_id, thread_id):
+            return jsonify({"status": "error", "message": "Thread chat tidak ditemukan"}), 404
+
+        if is_typing and thread_id:
+            db.execute(
+                """
+                INSERT INTO user_presence(
+                    user_id,
+                    current_path,
+                    active_thread_id,
+                    typing_thread_id,
+                    typing_until,
+                    last_seen_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, datetime('now', ?), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    current_path=excluded.current_path,
+                    active_thread_id=excluded.active_thread_id,
+                    typing_thread_id=excluded.typing_thread_id,
+                    typing_until=excluded.typing_until,
+                    last_seen_at=CURRENT_TIMESTAMP,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (current_user_id, current_path, thread_id, thread_id, f"+{CHAT_TYPING_TTL_SECONDS} seconds"),
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO user_presence(
+                    user_id,
+                    current_path,
+                    active_thread_id,
+                    typing_thread_id,
+                    typing_until,
+                    last_seen_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    current_path=excluded.current_path,
+                    active_thread_id=excluded.active_thread_id,
+                    typing_thread_id=NULL,
+                    typing_until=NULL,
+                    last_seen_at=CURRENT_TIMESTAMP,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (current_user_id, current_path, thread_id),
+            )
+    except sqlite3.Error as exc:
+        current_app.logger.warning("CHAT TYPING SQLITE ERROR: %s", exc)
+        return jsonify({"status": "ok", "degraded": True})
+    except Exception as exc:
+        current_app.logger.warning("CHAT TYPING ERROR: %s", exc)
+        return jsonify({"status": "ok", "degraded": True})
+
+    return jsonify({"status": "ok"})
 
 
 @chat_bp.route("/presence", methods=["POST"])

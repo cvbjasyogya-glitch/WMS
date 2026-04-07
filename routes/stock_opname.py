@@ -5,6 +5,23 @@ import csv
 from io import StringIO
 
 so_bp = Blueprint("so", __name__, url_prefix="/so")
+SO_PAGE_SIZE = 20
+
+
+def _normalize_so_search(value):
+    return (value or "").strip()
+
+
+def _build_so_search_clause(search, columns):
+    search = _normalize_so_search(search)
+    if not search:
+        return "", []
+
+    token = f"%{search}%"
+    return (
+        " AND (" + " OR ".join(f"{column} LIKE ?" for column in columns) + ")",
+        [token for _ in columns],
+    )
 
 
 def _warehouse_exists(db, warehouse_id):
@@ -62,6 +79,25 @@ def _build_so_summary(rows):
     }
 
 
+def _build_so_response_payload(payload, *, message=None, processed=None):
+    response = {
+        "data": payload["data"],
+        "page": payload["page"],
+        "total_pages": payload["total_pages"],
+        "summary": payload["summary"],
+        "search": payload["search"],
+        "display_id": payload["display_id"],
+        "gudang_id": payload["gudang_id"],
+        "display_name": payload["display_name"],
+        "gudang_name": payload["gudang_name"],
+    }
+    if message is not None:
+        response["message"] = message
+    if processed is not None:
+        response["processed"] = processed
+    return response
+
+
 def _build_so_base_query(search):
     base_query = """
         FROM products p
@@ -78,9 +114,12 @@ def _build_so_base_query(search):
     """
     params = []
 
-    if search:
-        base_query += " AND (p.name LIKE ? OR p.sku LIKE ? OR pv.variant LIKE ?)"
-        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
+    search_clause, search_params = _build_so_search_clause(
+        search,
+        ("p.name", "p.sku", "pv.variant"),
+    )
+    base_query += search_clause
+    params += search_params
 
     return base_query, params
 
@@ -93,7 +132,7 @@ def _build_so_page_payload(db, display_id, gudang_id, search="", page=1, limit=2
     except:
         page = 1
 
-    search = (search or "").strip()
+    search = _normalize_so_search(search)
     offset = (page - 1) * limit
     base_query, extra_params = _build_so_base_query(search)
     params = [display_id, gudang_id] + extra_params
@@ -248,7 +287,7 @@ def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, p
 @so_bp.route("/")
 def so_page():
     db = get_db()
-    search = (request.args.get("q") or "").strip()
+    search = _normalize_so_search(request.args.get("q"))
 
     display_id, gudang_id = _resolve_so_warehouses(
         db,
@@ -261,22 +300,11 @@ def so_page():
         gudang_id,
         search=search,
         page=request.args.get("page", 1),
-        limit=20,
+        limit=SO_PAGE_SIZE,
     )
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify(
-            {
-                "data": payload["data"],
-                "page": payload["page"],
-                "total_pages": payload["total_pages"],
-                "summary": payload["summary"],
-                "display_id": payload["display_id"],
-                "gudang_id": payload["gudang_id"],
-                "display_name": payload["display_name"],
-                "gudang_name": payload["gudang_name"],
-            }
-        )
+        return jsonify(_build_so_response_payload(payload))
 
     return render_template(
         "stock_opname.html",
@@ -297,7 +325,7 @@ def so_page():
 def submit_so():
     db = get_db()
     data = request.get_json(silent=True) or {}
-    search = (data.get("q") or "").strip()
+    search = _normalize_so_search(data.get("q"))
     page = data.get("page", 1)
 
     display_id, gudang_id = _resolve_so_warehouses(
@@ -314,6 +342,7 @@ def submit_so():
     try:
         db.execute("BEGIN IMMEDIATE")
         processed = 0
+        valid_items = 0
 
         for item in items:
             try:
@@ -321,7 +350,7 @@ def submit_so():
                 variant_id = int(item["variant_id"])
                 display_physical = int(item.get("display_physical", 0) or 0)
                 gudang_physical = int(item.get("gudang_physical", 0) or 0)
-            except:
+            except Exception:
                 continue
 
             entity = db.execute(
@@ -341,6 +370,8 @@ def submit_so():
             if display_physical < 0 or gudang_physical < 0:
                 db.rollback()
                 return jsonify({"error": "Stock fisik tidak boleh negatif"}), 400
+
+            valid_items += 1
 
             stock_row = db.execute(
                 """
@@ -387,6 +418,10 @@ def submit_so():
                 )
                 processed += 1
 
+        if valid_items == 0:
+            db.rollback()
+            return jsonify({"error": "Tidak ada item valid yang bisa diproses"}), 400
+
         if processed == 0:
             db.rollback()
             payload = _build_so_page_payload(
@@ -395,15 +430,15 @@ def submit_so():
                 gudang_id,
                 search=search,
                 page=page,
-                limit=20,
+                limit=SO_PAGE_SIZE,
             )
-            payload.update(
-                {
-                    "message": "Tidak ada perubahan baru. Data stok sudah sinkron dengan hasil SO.",
-                    "processed": 0,
-                }
+            return jsonify(
+                _build_so_response_payload(
+                    payload,
+                    message="Tidak ada perubahan baru. Data stok sudah sinkron dengan hasil SO.",
+                    processed=0,
+                )
             )
-            return jsonify(payload)
 
         db.commit()
         payload = _build_so_page_payload(
@@ -412,13 +447,12 @@ def submit_so():
             gudang_id,
             search=search,
             page=page,
-            limit=20,
+            limit=SO_PAGE_SIZE,
         )
-        payload.update(
-            {
-                "message": "SO berhasil disimpan dan stock sudah sinkron",
-                "processed": processed,
-            }
+        response_payload = _build_so_response_payload(
+            payload,
+            message="SO berhasil disimpan dan stock sudah sinkron",
+            processed=processed,
         )
         try:
             notify_operational_event(
@@ -436,7 +470,7 @@ def submit_so():
             )
         except Exception as exc:
             print("STOCK OPNAME NOTIFICATION ERROR:", exc)
-        return jsonify(payload)
+        return jsonify(response_payload)
 
     except Exception as e:
         db.rollback()
@@ -447,12 +481,15 @@ def submit_so():
 @so_bp.route("/export")
 def export_so():
     db = get_db()
+    search = _normalize_so_search(request.args.get("q"))
 
     display_id, gudang_id = _resolve_so_warehouses(
         db,
         request.args.get("display_id"),
         request.args.get("gudang_id"),
     )
+    base_query, extra_params = _build_so_base_query(search)
+    params = [display_id, gudang_id] + extra_params
 
     data = db.execute(
         """
@@ -462,19 +499,12 @@ def export_so():
             pv.variant,
             COALESCE(sd.qty,0) as display_qty,
             COALESCE(sg.qty,0) as gudang_qty
-        FROM products p
-        JOIN product_variants pv ON p.id = pv.product_id
-        LEFT JOIN stock sd
-            ON sd.product_id = p.id
-            AND sd.variant_id = pv.id
-            AND sd.warehouse_id = ?
-        LEFT JOIN stock sg
-            ON sg.product_id = p.id
-            AND sg.variant_id = pv.id
-            AND sg.warehouse_id = ?
+        """
+        + base_query
+        + """
         ORDER BY p.name ASC
         """,
-        (display_id, gudang_id),
+        params,
     ).fetchall()
 
     output = StringIO()
@@ -514,12 +544,19 @@ def export_so():
 @so_bp.route("/export_report")
 def export_so_report():
     db = get_db()
+    search = _normalize_so_search(request.args.get("q"))
 
     display_id, gudang_id = _resolve_so_warehouses(
         db,
         request.args.get("display_id"),
         request.args.get("gudang_id"),
     )
+    params = [display_id, gudang_id]
+    search_clause, search_params = _build_so_search_clause(
+        search,
+        ("p.sku", "p.name", "pv.variant"),
+    )
+    params.extend(search_params)
 
     data = db.execute(
         """
@@ -539,9 +576,12 @@ def export_so_report():
         LEFT JOIN users u ON r.user_id = u.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
         WHERE r.warehouse_id IN (?, ?)
+        """
+        + search_clause
+        + """
         ORDER BY r.created_at DESC
         """,
-        (display_id, gudang_id),
+        params,
     ).fetchall()
 
     output = StringIO()

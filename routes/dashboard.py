@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, session, request, jsonify
 from database import get_db
-from services.rbac import has_permission, is_scoped_role, normalize_role
+from services.rbac import can_access_pos_terminal, has_permission, is_scoped_role, normalize_role
 from services.hris_catalog import get_hris_navigation_modules, role_can_see_hris_navigation
 from services.workspace_icons import get_workspace_icon_asset, get_hris_workspace_icon_key
 
@@ -153,7 +153,7 @@ def _build_workspace_sections(role):
             ),
         ]
 
-        if has_permission(normalized_role, "view_pos"):
+        if can_access_pos_terminal(normalized_role):
             wms_items.append(
                 _workspace_tile(
                     "Kasir Harian",

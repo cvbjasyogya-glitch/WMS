@@ -66,15 +66,26 @@
                     Tutup
                 </button>
             </div>
+            <div class="pos-ipos-toolbar">
+                <div class="pos-ipos-toolbar-pill"><span>Tanggal</span><strong>{{ sale_date }}</strong></div>
+                <div class="pos-ipos-toolbar-pill"><span>Waktu</span><strong id="posClockDisplay">--:--:--</strong></div>
+                <div class="pos-ipos-toolbar-pill"><span>Kasir</span><strong id="posCashierDisplay">{{ selected_pos_staff_label }}</strong></div>
+                {% if scoped_warehouse %}
+                <div class="pos-ipos-toolbar-pill"><span>Gudang</span><strong>{{ selected_warehouse_name }}</strong></div>
+                {% else %}
+                <form method="GET" class="pos-ipos-toolbar-pill pos-ipos-toolbar-switcher">
+                    <input type="hidden" name="sale_date" value="{{ sale_date }}">
+                    <span>Gudang</span>
+                    <select name="warehouse" aria-label="Pilih gudang POS" onchange="this.form.submit()">
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if warehouse.id == selected_warehouse %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+                {% endif %}
+                <div class="pos-ipos-toolbar-pill"><span>Warehouse ID</span><strong>WH {{ selected_warehouse }}</strong></div>
+            </div>
         </header>
-
-        <div class="pos-ipos-toolbar">
-            <div class="pos-ipos-toolbar-pill"><span>Tanggal</span><strong>{{ sale_date }}</strong></div>
-            <div class="pos-ipos-toolbar-pill"><span>Waktu</span><strong id="posClockDisplay">--:--:--</strong></div>
-            <div class="pos-ipos-toolbar-pill"><span>Kasir</span><strong id="posCashierDisplay">{{ selected_pos_staff_label }}</strong></div>
-            <div class="pos-ipos-toolbar-pill"><span>Gudang</span><strong>{{ selected_warehouse_name }}</strong></div>
-            <div class="pos-ipos-toolbar-pill"><span>Warehouse ID</span><strong>WH {{ selected_warehouse }}</strong></div>
-        </div>
 
         <div class="pos-ipos-layout">
             <div class="pos-ipos-main">

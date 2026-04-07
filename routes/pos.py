@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, flash, jsonify, redirect, render_templ
 from database import get_db
 from services.notification_service import notify_operational_event
 from services.receipt_pdf_service import generate_pos_receipt_pdf
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role
 from services.stock_service import add_stock, remove_stock
 from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_document
 
@@ -241,10 +241,10 @@ def _json_error(message, status=400):
 
 
 def _require_pos_access(json_mode=False):
-    if has_permission(session.get("role"), "view_pos"):
+    if can_access_pos_terminal(session.get("role")):
         return None
 
-    message = "Akses kasir hanya tersedia untuk role operasional."
+    message = "Akses kasir hanya tersedia untuk owner, super admin, dan leader."
     if json_mode:
         return _json_error(message, 403)
 
@@ -332,7 +332,7 @@ def _build_pos_staff_option(row, warehouse_id):
         return None
 
     role = row["role"]
-    if not has_permission(role, "manage_pos"):
+    if not can_assign_pos_staff(role):
         return None
 
     employment_status = str(row["employment_status"] or "").strip().lower()
@@ -343,8 +343,11 @@ def _build_pos_staff_option(row, warehouse_id):
         row["employee_warehouse_id"],
         _to_int(row["user_warehouse_id"], 0),
     )
-    if warehouse_id is not None and is_scoped_role(role) and assigned_warehouse_id > 0 and int(assigned_warehouse_id) != int(warehouse_id):
-        return None
+    if warehouse_id is not None:
+        if assigned_warehouse_id <= 0:
+            return None
+        if int(assigned_warehouse_id) != int(warehouse_id):
+            return None
 
     display_name = (row["full_name"] or row["username"] or "").strip() or f"User {row['id']}"
     meta_parts = []
@@ -1741,7 +1744,7 @@ def pos_staff_sales_report():
     db = get_db()
     warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
-    selected_warehouse = _resolve_pos_report_warehouse(db, request.args.get("warehouse"))
+    selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
     week_period = _resolve_week_range(request.args.get("week_date"))
     month_period = _resolve_month_range(request.args.get("month"))
 
@@ -1749,9 +1752,9 @@ def pos_staff_sales_report():
         (
             warehouse["name"]
             for warehouse in warehouses
-            if selected_warehouse and int(warehouse["id"] or 0) == int(selected_warehouse)
+            if int(warehouse["id"] or 0) == int(selected_warehouse)
         ),
-        "Semua Gudang" if not selected_warehouse else f"WH {selected_warehouse}",
+        f"WH {selected_warehouse}",
     )
 
     weekly_rows = _fetch_pos_staff_sales_rows(
@@ -1791,19 +1794,21 @@ def pos_sales_log_page():
     db = get_db()
     warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
-    selected_warehouse = _resolve_pos_report_warehouse(db, request.args.get("warehouse"))
+    selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
     date_range = _normalize_pos_log_date_range(request.args.get("date_from"), request.args.get("date_to"))
     cashier_filter_id = _to_int(request.args.get("cashier_user_id"), 0)
     selected_cashier_user_id = cashier_filter_id if cashier_filter_id > 0 else None
     cashier_filter_options = _fetch_pos_staff_options(db, selected_warehouse)
+    if selected_cashier_user_id and not any(option["id"] == selected_cashier_user_id for option in cashier_filter_options):
+        selected_cashier_user_id = None
 
     selected_warehouse_name = next(
         (
             warehouse["name"]
             for warehouse in warehouses
-            if selected_warehouse and int(warehouse["id"] or 0) == int(selected_warehouse)
+            if int(warehouse["id"] or 0) == int(selected_warehouse)
         ),
-        "Semua Gudang" if not selected_warehouse else f"WH {selected_warehouse}",
+        f"WH {selected_warehouse}",
     )
 
     sales_log_rows = _fetch_pos_sale_logs(

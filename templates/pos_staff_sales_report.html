@@ -7,7 +7,7 @@
 
 {% block page_actions %}
 <div class="split-actions">
-    <a href="/kasir/" class="btn-link">Buka Kasir</a>
+    <a href="/kasir/?warehouse={{ selected_warehouse }}&sale_date={{ week_period.reference_date }}" class="btn-link">Buka Kasir</a>
     <a href="/workspace/" class="ghost-button">Pusat Modul</a>
 </div>
 {% endblock %}
@@ -35,7 +35,6 @@
 
     <form method="GET" class="top-bar">
         <select name="warehouse" {% if scoped_warehouse %}disabled{% endif %}>
-            <option value="" {% if not selected_warehouse %}selected{% endif %}>Semua Gudang</option>
             {% for warehouse in warehouses %}
             <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
             {% endfor %}
