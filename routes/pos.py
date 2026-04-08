@@ -158,6 +158,19 @@ def _currency(value):
     return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def _normalize_pos_phone(value):
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if digits.startswith("0"):
+        digits = f"62{digits[1:]}"
+    elif not digits.startswith("62") and len(digits) >= 8:
+        digits = f"62{digits.lstrip('0')}"
+    return digits
+
+
 def _record_pos_receipt_delivery_state(
     db,
     sale_id,
@@ -230,7 +243,7 @@ def _generate_backend_pos_receipt_pdf(db, receipt_no):
 def _send_pos_receipt_to_customer(db, sale):
     sale = sale or {}
     sale_id = _to_int(sale.get("id"), 0)
-    target_phone = (sale.get("customer_phone") or "").strip()
+    target_phone = _normalize_pos_phone(sale.get("customer_phone"))
     receipt_url = (sale.get("receipt_pdf_public_url") or sale.get("receipt_pdf_url") or "").strip()
     receipt_no = (sale.get("receipt_no") or "-").strip()
     customer_name = (sale.get("customer_name") or "Pelanggan").strip()
@@ -287,17 +300,54 @@ def _send_pos_receipt_to_customer(db, sale):
         warehouse_id=sale.get("warehouse_id"),
         warehouse_name=sale.get("warehouse_name"),
     )
+    delivery_error = str(delivery.get("error") or "").strip()
+    if delivery_error == "missing_target":
+        delivery_error = "customer_phone_missing"
+        delivery["error"] = delivery_error
+    persisted_delivery_error = delivery_error[:500]
+    if delivery.get("ok") is True and not persisted_delivery_error:
+        persisted_delivery_error = ""
     status_value = "sent" if delivery.get("ok") else ("skipped" if delivery.get("ok") is None else "failed")
     _record_pos_receipt_delivery_state(
         db,
         sale_id,
         receipt_whatsapp_status=status_value,
-        receipt_whatsapp_error=(delivery.get("error") or "")[:500] or None,
+        receipt_whatsapp_error=(
+            persisted_delivery_error
+            if (delivery.get("ok") is True or persisted_delivery_error)
+            else None
+        ),
         mark_sent=bool(delivery.get("ok")),
     )
     record_whatsapp_delivery(None, None, target_phone, subject, message, delivery, channel="wa_document")
     db.commit()
     return delivery
+
+
+def _resolve_pos_receipt_whatsapp_status(delivery):
+    if delivery is None:
+        return "pending"
+    if delivery.get("ok") is True:
+        return "sent"
+    if delivery.get("ok") is None:
+        return "skipped"
+    return "failed"
+
+
+def _resolve_pos_receipt_whatsapp_feedback(status, error_code):
+    safe_status = str(status or "pending").strip().lower()
+    safe_error = str(error_code or "").strip().lower()
+    if safe_status == "sent":
+        return "Nota customer berhasil dikirim via WhatsApp."
+    if safe_status == "skipped":
+        if safe_error in {"customer_phone_missing", "missing_target"}:
+            return "Nota belum terkirim karena nomor customer kosong atau tidak valid."
+        if safe_error == "receipt_public_url_missing":
+            return "Nota belum terkirim karena file PDF belum siap."
+        return f"Nota belum terkirim ({safe_error or 'skipped'})."
+    if safe_status == "failed":
+        return f"Kirim WA nota gagal ({safe_error or 'unknown_error'})."
+    return "Status kirim nota masih pending."
 
 
 def _fetch_pos_loyalty_record(db, purchase_id, member_id):
@@ -815,7 +865,16 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
     return item_map
 
 
-def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashier_user_id=None, search_query="", limit=60):
+def _fetch_pos_sale_logs(
+    db,
+    date_from,
+    date_to,
+    selected_warehouse=None,
+    cashier_user_id=None,
+    search_query="",
+    limit=60,
+    receipt_wa_status=None,
+):
     safe_limit = max(1, min(_to_int(limit, 60), 200))
     params = [date_from, date_to]
     query = """
@@ -869,6 +928,11 @@ def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashie
             )
         """
         params.extend([search_pattern] * 5)
+
+    safe_receipt_wa_status = str(receipt_wa_status or "").strip().lower()
+    if safe_receipt_wa_status:
+        query += " AND LOWER(COALESCE(ps.receipt_whatsapp_status, 'pending'))=?"
+        params.append(safe_receipt_wa_status)
 
     query += """
         ORDER BY ps.sale_date DESC, ps.id DESC
@@ -1184,6 +1248,7 @@ def _build_next_receipt_no(db, sale_date):
 
 
 def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, customer_phone):
+    safe_phone = _normalize_pos_phone(customer_phone)
     if customer_id > 0:
         customer = db.execute(
             """
@@ -1195,10 +1260,27 @@ def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, cu
         ).fetchone()
         if not customer or int(customer["warehouse_id"] or 0) != int(warehouse_id):
             raise ValueError("Customer tidak valid untuk gudang aktif.")
+        current_phone = _normalize_pos_phone(customer["phone"])
+        if safe_phone and safe_phone != current_phone:
+            db.execute(
+                """
+                UPDATE crm_customers
+                SET phone=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (safe_phone, customer_id),
+            )
+            customer = db.execute(
+                """
+                SELECT id, warehouse_id, customer_name, phone
+                FROM crm_customers
+                WHERE id=?
+                """,
+                (customer_id,),
+            ).fetchone()
         return customer
 
     safe_name = (customer_name or "").strip() or "Walk-in Customer"
-    safe_phone = (customer_phone or "").strip()
 
     existing = db.execute(
         """
@@ -1433,7 +1515,16 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
     return item_map
 
 
-def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashier_user_id=None, search_query="", limit=60):
+def _fetch_pos_sale_logs(
+    db,
+    date_from,
+    date_to,
+    selected_warehouse=None,
+    cashier_user_id=None,
+    search_query="",
+    limit=60,
+    receipt_wa_status=None,
+):
     safe_limit = max(1, min(_to_int(limit, 60), 200))
     params = [date_from, date_to]
     query = """
@@ -1506,6 +1597,11 @@ def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashie
             )
         """
         params.extend([search_pattern] * 5)
+
+    safe_receipt_wa_status = str(receipt_wa_status or "").strip().lower()
+    if safe_receipt_wa_status:
+        query += " AND LOWER(COALESCE(ps.receipt_whatsapp_status, 'pending'))=?"
+        params.append(safe_receipt_wa_status)
 
     query += """
         ORDER BY ps.sale_date DESC, ps.id DESC
@@ -1674,6 +1770,28 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         **_build_pos_sale_status_payload(sale.get("status")),
     }
     return _attach_pos_loyalty_summary(db, sale_detail)
+
+
+def _fetch_pos_sale_detail_by_id(db, sale_id):
+    safe_sale_id = _to_int(sale_id, 0)
+    if safe_sale_id <= 0:
+        return None
+
+    params = [safe_sale_id]
+    query = """
+        SELECT receipt_no
+        FROM pos_sales
+        WHERE id=?
+    """
+    if is_scoped_role(session.get("role")):
+        query += " AND warehouse_id=?"
+        params.append(session.get("warehouse_id"))
+    query += " LIMIT 1"
+
+    row = db.execute(query, params).fetchone()
+    if not row:
+        return None
+    return _fetch_pos_sale_detail_by_receipt(db, row["receipt_no"])
 
 
 def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None):
@@ -2098,6 +2216,7 @@ def pos_sales_log_page():
     date_range = _normalize_pos_log_date_range(request.args.get("date_from"), request.args.get("date_to"))
     cashier_filter_id = _to_int(request.args.get("cashier_user_id"), 0)
     selected_cashier_user_id = cashier_filter_id if cashier_filter_id > 0 else None
+    wa_failed_only = str(request.args.get("wa_failed") or "").strip().lower() in {"1", "true", "yes", "on"}
     cashier_filter_options = _fetch_pos_staff_options(db, selected_warehouse)
     if selected_cashier_user_id and not any(option["id"] == selected_cashier_user_id for option in cashier_filter_options):
         selected_cashier_user_id = None
@@ -2119,6 +2238,7 @@ def pos_sales_log_page():
         cashier_user_id=selected_cashier_user_id,
         search_query=request.args.get("search"),
         limit=120,
+        receipt_wa_status="failed" if wa_failed_only else "",
     )
 
     return render_template(
@@ -2129,6 +2249,7 @@ def pos_sales_log_page():
         selected_warehouse_name=selected_warehouse_name,
         cashier_filter_options=cashier_filter_options,
         selected_cashier_user_id=selected_cashier_user_id,
+        wa_failed_only=wa_failed_only,
         search_query=str(request.args.get("search") or "").strip(),
         date_range=date_range,
         sales_log_rows=sales_log_rows,
@@ -2163,6 +2284,54 @@ def pos_receipt_print(receipt_no):
         store_phone=store_phone,
         receipt_layout=receipt_layout,
         auto_print=request.args.get("autoprint") == "1",
+    )
+
+
+@pos_bp.post("/sale/<int:sale_id>/resend-receipt")
+def pos_resend_receipt_to_customer(sale_id):
+    denied = _require_pos_access(json_mode=True)
+    if denied:
+        return denied
+
+    if not has_permission(session.get("role"), "manage_pos"):
+        return _json_error("Role ini belum punya izin kirim ulang nota POS.", 403)
+
+    db = get_db()
+    sale_detail = _fetch_pos_sale_detail_by_id(db, sale_id)
+    if sale_detail is None:
+        return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
+
+    try:
+        if not str(sale_detail.get("receipt_pdf_public_url") or "").strip():
+            regenerated_sale, regenerated_pdf = _generate_backend_pos_receipt_pdf(db, sale_detail["receipt_no"])
+            sale_detail = regenerated_sale
+            sale_detail["receipt_pdf_public_url"] = regenerated_pdf.get("public_url") or ""
+    except Exception as exc:
+        print("POS RECEIPT RESEND PDF ERROR:", exc)
+        return _json_error("Gagal menyiapkan PDF nota untuk kirim ulang. Coba lagi beberapa detik.", 500)
+
+    try:
+        sale_detail = _prepare_pos_receipt_sale(sale_detail)
+        delivery = _send_pos_receipt_to_customer(db, sale_detail)
+    except Exception as exc:
+        print("POS RECEIPT RESEND WA ERROR:", exc)
+        return _json_error("Kirim ulang nota WA gagal diproses. Coba ulangi beberapa detik lagi.", 500)
+
+    receipt_whatsapp_status = _resolve_pos_receipt_whatsapp_status(delivery)
+    receipt_whatsapp_error = str((delivery or {}).get("error") or "").strip()
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": _resolve_pos_receipt_whatsapp_feedback(receipt_whatsapp_status, receipt_whatsapp_error),
+            "sale_id": sale_detail["id"],
+            "receipt_no": sale_detail["receipt_no"],
+            "customer_name": sale_detail.get("customer_name") or "Pelanggan",
+            "customer_phone_label": sale_detail.get("customer_phone_label") or "Tanpa nomor",
+            "receipt_pdf_public_url": sale_detail.get("receipt_pdf_public_url") or "",
+            "receipt_whatsapp_status": receipt_whatsapp_status,
+            "receipt_whatsapp_error": receipt_whatsapp_error,
+        }
     )
 
 
@@ -2611,10 +2780,7 @@ def pos_checkout():
             "change_amount": _currency(change_amount),
             "receipt_print_url": f"/kasir/receipt/{receipt_no}/print?layout=thermal&autoprint=1",
             "receipt_pdf_public_url": (receipt_pdf_meta or {}).get("public_url") or "",
-            "receipt_whatsapp_status": (
-                "sent"
-                if (receipt_delivery or {}).get("ok")
-                else ("skipped" if receipt_delivery and receipt_delivery.get("ok") is None else "failed")
-            ) if receipt_delivery is not None else "pending",
+            "receipt_whatsapp_status": _resolve_pos_receipt_whatsapp_status(receipt_delivery),
+            "receipt_whatsapp_error": str((receipt_delivery or {}).get("error") or "").strip(),
         }
     )

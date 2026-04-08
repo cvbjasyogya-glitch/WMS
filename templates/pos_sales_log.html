@@ -51,6 +51,10 @@
             {% endfor %}
         </select>
         <input type="search" name="search" value="{{ search_query }}" placeholder="Cari receipt, customer, staff, atau catatan">
+        <label class="pos-sales-log-wa-filter">
+            <input type="checkbox" name="wa_failed" value="1" {% if wa_failed_only %}checked{% endif %}>
+            <span>Hanya transaksi WA gagal</span>
+        </label>
         <button type="submit">Tampilkan Log</button>
     </form>
 
@@ -159,8 +163,28 @@
                     <td>{{ sale.note or "-" }}</td>
                     <td class="pos-sales-log-actions">
                         <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
+                        {% if sale.receipt_whatsapp_status == "sent" %}
+                        <div class="helper-text">WA Nota: terkirim</div>
+                        {% elif sale.receipt_whatsapp_status == "failed" %}
+                        <div class="helper-text">WA Nota: gagal</div>
+                        {% elif sale.receipt_whatsapp_status == "skipped" %}
+                        <div class="helper-text">WA Nota: belum terkirim</div>
+                        {% else %}
+                        <div class="helper-text">WA Nota: pending</div>
+                        {% endif %}
+                        {% if sale.receipt_whatsapp_error %}
+                        <div class="helper-text">{{ sale.receipt_whatsapp_error }}</div>
+                        {% endif %}
                         <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button">Preview Nota</a>
                         <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
+                        <button
+                            type="button"
+                            class="ghost-button"
+                            data-pos-resend-receipt-sale-id="{{ sale.id }}"
+                            data-pos-resend-receipt-no="{{ sale.receipt_no }}"
+                        >
+                            Kirim Ulang Nota WA
+                        </button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -228,13 +252,66 @@ async function submitPosVoidFromLog(button) {
     }
 }
 
+async function submitPosReceiptResendFromLog(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+        return;
+    }
+
+    const saleId = Number(button.dataset.posResendReceiptSaleId || 0);
+    const receiptNo = String(button.dataset.posResendReceiptNo || "").trim();
+    if (!saleId) {
+        return;
+    }
+
+    const confirmed = window.confirm(
+        `Kirim ulang nota WA untuk ${receiptNo || "transaksi ini"}?`
+    );
+    if (!confirmed) {
+        return;
+    }
+
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "Mengirim...";
+
+    try {
+        const response = await fetch(`/kasir/sale/${saleId}/resend-receipt`, {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || "Kirim ulang nota WA gagal diproses.");
+        }
+
+        const statusLabel = `Status: ${String(data.receipt_whatsapp_status || "-").toUpperCase()}`;
+        const errorInfo = data.receipt_whatsapp_error ? `\nDetail: ${data.receipt_whatsapp_error}` : "";
+        window.alert(`${data.message}\n${statusLabel}${errorInfo}`);
+        window.location.reload();
+    } catch (error) {
+        window.alert(error.message || "Kirim ulang nota WA gagal diproses.");
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
 document.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-pos-void-item-id]");
-    if (!button) {
+    const voidButton = event.target.closest("[data-pos-void-item-id]");
+    if (voidButton) {
+        event.preventDefault();
+        submitPosVoidFromLog(voidButton);
+        return;
+    }
+
+    const resendButton = event.target.closest("[data-pos-resend-receipt-sale-id]");
+    if (!resendButton) {
         return;
     }
     event.preventDefault();
-    submitPosVoidFromLog(button);
+    submitPosReceiptResendFromLog(resendButton);
 });
 </script>
 {% endblock %}

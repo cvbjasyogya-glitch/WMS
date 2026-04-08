@@ -120,6 +120,22 @@
                             <input type="text" value="{{ selected_warehouse_name }}" readonly>
                         </div>
                         <div class="pos-ipos-field">
+                            <label for="posCustomerName">Nama Customer</label>
+                            <input type="text" id="posCustomerName" placeholder="Nama customer" value="Walk-in Customer">
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posCustomerPhone">No HP Customer</label>
+                            <input type="text" id="posCustomerPhone" placeholder="No HP customer">
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posTransactionType">Jenis Transaksi Loyalty</label>
+                            <select id="posTransactionType">
+                                {% for transaction_type, transaction_label in transaction_type_labels.items() %}
+                                <option value="{{ transaction_type }}">{{ transaction_label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="pos-ipos-field pos-ipos-field-customer">
                             <label for="posCustomerId">Pelanggan CRM</label>
                             <div class="pos-ipos-select-search">
                                 <input
@@ -144,29 +160,12 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <small id="posCustomerSearchSummary" class="helper-text">Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.</small>
+                            <small id="posCustomerSearchSummary" class="helper-text" hidden aria-hidden="true">Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.</small>
                         </div>
-                        <div class="pos-ipos-field">
-                            <label for="posCustomerName">Nama Customer</label>
-                            <input type="text" id="posCustomerName" placeholder="Nama customer" value="Walk-in Customer">
-                        </div>
-                        <div class="pos-ipos-field">
-                            <label for="posCustomerPhone">No HP Customer</label>
-                            <input type="text" id="posCustomerPhone" placeholder="No HP customer">
-                        </div>
-                        <div class="pos-ipos-field">
-                            <label for="posTransactionType">Jenis Transaksi Loyalty</label>
-                            <select id="posTransactionType">
-                                {% for transaction_type, transaction_label in transaction_type_labels.items() %}
-                                <option value="{{ transaction_type }}">{{ transaction_label }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="pos-ipos-field" style="grid-column: span 2;">
-                            <label>Status Member</label>
+                        <div class="pos-ipos-field pos-ipos-field-member-status" hidden aria-hidden="true">
                             <small id="posCustomerLoyaltyHint" class="helper-text">Pilih customer untuk melihat jenis member dan panduan transaksi loyalty.</small>
                         </div>
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-cashier">
                             <label for="posCashierUserId">Kasir / Sales</label>
                             <div class="pos-ipos-select-search">
                                 <input
@@ -188,7 +187,7 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <small id="posCashierSearchSummary" class="helper-text">Cari kasir/sales lebih cepat tanpa scroll panjang.</small>
+                            <small id="posCashierSearchSummary" class="helper-text" hidden aria-hidden="true">Cari kasir/sales lebih cepat tanpa scroll panjang.</small>
                         </div>
                     </div>
                 </section>

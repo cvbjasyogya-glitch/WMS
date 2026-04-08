@@ -397,6 +397,7 @@ const posKeypadTargets = document.getElementById("posKeypadTargets");
 const posKeypadGrid = document.getElementById("posKeypadGrid");
 const posClockDisplay = document.getElementById("posClockDisplay");
 const posHeaderMenus = Array.from(document.querySelectorAll("[data-pos-header-menu]"));
+const posGrandTotalBox = posGrandTotal?.closest(".pos-ipos-totalbox") || null;
 
 const POS_QUICK_SEARCH_DEFAULT_SUMMARY = "Smart search aktif. Ketik nama, SKU, warna, atau kata gabungan. Beda spasi tetap bisa dibaca.";
 const POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY = "Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.";
@@ -406,6 +407,8 @@ let posQuickSearchTimer = null;
 let posKeypadTarget = "qty";
 let posCartFocusedIndex = -1;
 let posQuickSearchRequestId = 0;
+let posGrandTotalFitFrame = 0;
+let posGrandTotalResizeObserver = null;
 const posCustomerOptionsState = {
     all: [],
 };
@@ -1062,11 +1065,44 @@ function setPosPaymentMethod(method) {
     });
 }
 
+function fitPosGrandTotalText() {
+    if (!posGrandTotal || !posGrandTotalBox) {
+        return;
+    }
+
+    const valueText = String(posGrandTotal.textContent || "").trim() || "Rp 0";
+    const availableWidth = Math.max(Math.floor((posGrandTotalBox.clientWidth || 0) - 32), 120);
+    const maxFontSizePx = 78;
+    const minFontSizePx = 12;
+
+    let fontSizePx = Math.min(maxFontSizePx, Math.max(minFontSizePx, Math.floor(availableWidth * 0.22)));
+    posGrandTotal.style.fontSize = `${fontSizePx}px`;
+    posGrandTotal.setAttribute("title", valueText);
+
+    let guard = 0;
+    while (posGrandTotal.scrollWidth > availableWidth && fontSizePx > minFontSizePx && guard < 120) {
+        fontSizePx -= 1;
+        posGrandTotal.style.fontSize = `${fontSizePx}px`;
+        guard += 1;
+    }
+}
+
+function scheduleFitPosGrandTotalText() {
+    if (posGrandTotalFitFrame) {
+        window.cancelAnimationFrame(posGrandTotalFitFrame);
+    }
+    posGrandTotalFitFrame = window.requestAnimationFrame(() => {
+        posGrandTotalFitFrame = 0;
+        fitPosGrandTotalText();
+    });
+}
+
 function renderPosCartSummary() {
     const totals = getPosTotals();
     posTotalItems.textContent = String(totals.totalItems);
     posCartBadge.textContent = `${totals.totalItems} item`;
     posGrandTotal.textContent = formatPosCurrency(totals.grandTotal);
+    scheduleFitPosGrandTotalText();
     if (posSubtotalValue) {
         posSubtotalValue.textContent = formatPosCurrency(totals.subtotal);
     }
@@ -1353,8 +1389,22 @@ function checkoutPosTransaction() {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Checkout gagal.");
         }
+        const waStatus = String(data.receipt_whatsapp_status || "pending").toLowerCase();
+        const waError = String(data.receipt_whatsapp_error || "").trim();
+        let waInfoLine = "Status WA nota customer: menunggu proses backend.";
+        if (waStatus === "sent") {
+            waInfoLine = "Status WA nota customer: terkirim.";
+        } else if (waStatus === "skipped") {
+            if (waError === "customer_phone_missing" || waError === "missing_target") {
+                waInfoLine = "Status WA nota customer: belum terkirim karena nomor customer kosong / tidak valid.";
+            } else {
+                waInfoLine = `Status WA nota customer: belum terkirim (${waError || "skipped"}).`;
+            }
+        } else if (waStatus === "failed") {
+            waInfoLine = `Status WA nota customer: gagal (${waError || "error tidak diketahui"}).`;
+        }
         const shouldPrintReceipt = window.confirm(
-            `${data.message}\nReceipt: ${data.receipt_no}\n\nBuka nota print sekarang?`
+            `${data.message}\nReceipt: ${data.receipt_no}\n${waInfoLine}\n\nBuka nota print sekarang?`
         );
         if (shouldPrintReceipt && data.receipt_print_url) {
             window.open(data.receipt_print_url, "_blank", "noopener");
@@ -1864,6 +1914,13 @@ setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
 syncPosCustomerLoyaltyHint();
 updatePosClock();
 window.setInterval(updatePosClock, 1000);
+window.addEventListener("resize", scheduleFitPosGrandTotalText);
+if (window.ResizeObserver && posGrandTotalBox) {
+    posGrandTotalResizeObserver = new ResizeObserver(() => {
+        scheduleFitPosGrandTotalText();
+    });
+    posGrandTotalResizeObserver.observe(posGrandTotalBox);
+}
 renderPosCart();
 resetPosDraft();
 resetPosQuickSearch();

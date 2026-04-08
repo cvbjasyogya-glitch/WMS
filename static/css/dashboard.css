@@ -425,7 +425,7 @@ body .pos-ipos-refactor .pos-ipos-kicker {
 body .pos-ipos-refactor .pos-ipos-transaction-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px 12px;
 }
 
 body .pos-ipos-refactor .pos-ipos-transaction-panel,
@@ -440,12 +440,36 @@ body .pos-ipos-refactor .pos-ipos-draft-panel .pos-ipos-panel-head {
 
 body .pos-ipos-refactor .pos-ipos-field {
     display: grid;
-    gap: 6px;
+    gap: 4px;
+    align-content: start;
+}
+
+body .pos-ipos-refactor .pos-ipos-field-full {
+    grid-column: 1 / -1;
+}
+
+body .pos-ipos-refactor .pos-ipos-field-customer {
+    grid-column: span 2;
+}
+
+body .pos-ipos-refactor .pos-ipos-field-cashier {
+    grid-column: span 1;
 }
 
 body .pos-ipos-refactor .pos-ipos-select-search {
     display: grid;
-    gap: 8px;
+    gap: 6px;
+}
+
+body .pos-ipos-refactor .pos-ipos-field-member-status .helper-text {
+    margin: 0;
+    line-height: 1.35;
+}
+
+body .pos-ipos-refactor #posCustomerSearchSummary,
+body .pos-ipos-refactor #posCashierSearchSummary,
+body .pos-ipos-refactor .pos-ipos-field-member-status {
+    display: none !important;
 }
 
 body .pos-ipos-refactor .pos-ipos-select-search input[type="search"] {
@@ -909,9 +933,17 @@ body .pos-ipos-refactor .pos-ipos-totalbox {
 }
 
 body .pos-ipos-refactor .pos-ipos-totalbox > strong {
-    font-size: clamp(3rem, 6vw, 4.8rem);
-    line-height: 0.94;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
+    font-size: clamp(2.1rem, 6vw, 4.8rem);
+    line-height: 0.92;
     letter-spacing: -0.06em;
+    font-variant-numeric: tabular-nums lining-nums;
+    transition: font-size 120ms ease-out;
     color: var(--ipos-total-value);
 }
 
@@ -1149,6 +1181,11 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    body .pos-ipos-refactor .pos-ipos-field-customer,
+    body .pos-ipos-refactor .pos-ipos-field-cashier {
+        grid-column: 1 / -1;
+    }
+
     body .pos-ipos-refactor .pos-ipos-draft-grid {
         grid-template-columns: minmax(0, 1fr) repeat(2, minmax(120px, 1fr));
     }
@@ -1176,6 +1213,10 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
     body .pos-ipos-refactor .pos-ipos-transaction-panel .pos-ipos-transaction-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px 12px;
+    }
+
+    body .pos-ipos-refactor .pos-ipos-transaction-panel .pos-ipos-field-cashier {
+        grid-column: span 1;
     }
 }
 
@@ -1235,6 +1276,12 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
     body .pos-ipos-refactor .pos-ipos-search,
     body .pos-ipos-refactor .pos-ipos-quicksearch-controls {
         grid-template-columns: 1fr;
+    }
+
+    body .pos-ipos-refactor .pos-ipos-field-customer,
+    body .pos-ipos-refactor .pos-ipos-field-cashier,
+    body .pos-ipos-refactor .pos-ipos-field-full {
+        grid-column: 1 / -1;
     }
 
     body .pos-ipos-refactor .pos-ipos-methodgrid {
@@ -5108,6 +5155,28 @@ body .top-bar {
 }
 
 body .top-bar > * {
+    margin: 0;
+}
+
+body .pos-sales-log-wa-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(8, 15, 28, 0.42);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text-strong);
+    user-select: none;
+    cursor: pointer;
+}
+
+body .pos-sales-log-wa-filter input {
+    width: 16px;
+    height: 16px;
     margin: 0;
 }
 

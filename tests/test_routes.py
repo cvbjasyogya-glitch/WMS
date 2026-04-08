@@ -502,6 +502,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Smart search member aktif", owner_html)
         self.assertIn("Cari kasir/sales lebih cepat", owner_html)
         self.assertNotIn('id="posCategoryStrip"', owner_html)
+        self.assertIn('class="pos-ipos-field pos-ipos-field-customer"', owner_html)
+        self.assertIn('class="pos-ipos-field pos-ipos-field-cashier"', owner_html)
+        self.assertIn('class="pos-ipos-field pos-ipos-field-member-status"', owner_html)
 
         self.logout()
         self.login_pos_user("leader_pos_access", "leader", warehouse_id=2)
@@ -731,6 +734,98 @@ class WmsRoutesTestCase(unittest.TestCase):
         admin_response = self.client.get("/kasir/log", follow_redirects=False)
         self.assertEqual(admin_response.status_code, 302)
         self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
+
+    def test_pos_sales_log_supports_quick_filter_for_failed_whatsapp_transactions(self):
+        self.create_user("staff_sales_log_filter", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_log_filter")
+        self.login_pos_user("super_pos_log_filter", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-LOG-FILTER-001",
+            qty=12,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            side_effect=[
+                {
+                    "ok": False,
+                    "provider": "kirimi",
+                    "receiver": "6281230009001",
+                    "error": "kirimi_http_500",
+                },
+                {
+                    "ok": True,
+                    "provider": "kirimi",
+                    "receiver": "6281230009002",
+                    "error": "",
+                },
+            ],
+        ):
+            failed_checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer WA Gagal",
+                    "customer_phone": "081230009001",
+                    "payment_method": "cash",
+                    "paid_amount": 151000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+            sent_checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer WA Sukses",
+                    "customer_phone": "081230009002",
+                    "payment_method": "cash",
+                    "paid_amount": 151000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(failed_checkout.status_code, 200)
+        self.assertEqual(sent_checkout.status_code, 200)
+        failed_receipt = failed_checkout.get_json()["receipt_no"]
+        sent_receipt = sent_checkout.get_json()["receipt_no"]
+
+        all_log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03")
+        self.assertEqual(all_log_response.status_code, 200)
+        all_log_html = all_log_response.get_data(as_text=True)
+        self.assertIn(failed_receipt, all_log_html)
+        self.assertIn(sent_receipt, all_log_html)
+        self.assertIn("Hanya transaksi WA gagal", all_log_html)
+
+        failed_only_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03&wa_failed=1")
+        self.assertEqual(failed_only_response.status_code, 200)
+        failed_only_html = failed_only_response.get_data(as_text=True)
+        self.assertIn(failed_receipt, failed_only_html)
+        self.assertNotIn(sent_receipt, failed_only_html)
+        self.assertIn('name="wa_failed" value="1" checked', failed_only_html)
 
     def test_pos_staff_sales_report_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
         self.login_pos_user("owner_sales_report", "owner")
@@ -1202,6 +1297,105 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Homebase Mataram", pdf_text)
         self.assertIn("/Subtype /Image", pdf_text)
         self.assertIn("/DCTDecode", pdf_text)
+
+    def test_pos_sales_log_supports_resend_receipt_whatsapp_action(self):
+        self.create_user("staff_sales_resend", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_resend")
+        self.login_pos_user("pos_resend_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-RESEND-001",
+            qty=8,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": False,
+                "provider": "kirimi",
+                "receiver": "628120005555",
+                "error": "kirimi_http_500",
+            },
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-04",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Resend",
+                    "customer_phone": "08120005555",
+                    "payment_method": "cash",
+                    "paid_amount": 155000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+        self.assertEqual(checkout_payload["receipt_whatsapp_status"], "failed")
+
+        with self.app.app_context():
+            db = get_db()
+            sale_before = db.execute(
+                "SELECT id, receipt_no, receipt_whatsapp_status FROM pos_sales WHERE receipt_no=?",
+                (checkout_payload["receipt_no"],),
+            ).fetchone()
+        self.assertIsNotNone(sale_before)
+        sale_id = sale_before["id"]
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-04&date_to=2026-04-04")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn("Kirim Ulang Nota WA", log_html)
+        self.assertIn(f'data-pos-resend-receipt-sale-id="{sale_id}"', log_html)
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "628120005555",
+                "error": "",
+            },
+        ) as mocked_resend:
+            resend_response = self.client.post(
+                f"/kasir/sale/{sale_id}/resend-receipt",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(resend_response.status_code, 200)
+        resend_payload = resend_response.get_json()
+        self.assertEqual(resend_payload["status"], "success")
+        self.assertEqual(resend_payload["receipt_no"], checkout_payload["receipt_no"])
+        self.assertEqual(resend_payload["receipt_whatsapp_status"], "sent")
+        mocked_resend.assert_called_once()
+
+        with self.app.app_context():
+            db = get_db()
+            sale_after = db.execute(
+                """
+                SELECT receipt_whatsapp_status, receipt_whatsapp_error, receipt_whatsapp_sent_at
+                FROM pos_sales
+                WHERE id=?
+                """,
+                (sale_id,),
+            ).fetchone()
+
+        self.assertEqual(sale_after["receipt_whatsapp_status"], "sent")
+        self.assertFalse(sale_after["receipt_whatsapp_error"])
+        self.assertIsNotNone(sale_after["receipt_whatsapp_sent_at"])
 
     def test_pos_receipt_print_thermal_layout_renders_footer_style_for_ipos(self):
         self.app.config.update(
