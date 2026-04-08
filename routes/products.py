@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlencode
 
 from flask import Blueprint, request, redirect, jsonify, flash, session
@@ -14,16 +15,12 @@ from services.product_master_approval_service import (
 from services.whatsapp_service import send_role_based_notification
 from services.stock_service import add_stock
 import csv
+from importlib import import_module
 import json
 import uuid
 from io import BytesIO, StringIO
 import xml.etree.ElementTree as ET
 import zipfile
-
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
 
 products_bp = Blueprint("products", __name__, url_prefix="/products")
 
@@ -146,60 +143,117 @@ def _normalize_picker_query(raw_query):
     return " ".join(str(raw_query or "").strip().split())
 
 
+def _normalize_picker_compact_query(raw_query):
+    return re.sub(r"[^a-z0-9]+", "", str(raw_query or "").strip().lower())
+
+
+def _build_picker_compact_expression(expression):
+    compact_expression = f"lower({expression})"
+    for needle in (" ", "-", "/", "_", ".", "+", "(", ")", ","):
+        compact_expression = f"replace({compact_expression}, '{needle}', '')"
+    return compact_expression
+
+
+def _get_picker_search_fields():
+    return [
+        "p.sku",
+        "p.name",
+        "COALESCE(c.name, '')",
+        "COALESCE(v.variant, '')",
+        "COALESCE(v.variant_code, '')",
+        "COALESCE(v.color, '')",
+        "COALESCE(v.gtin, '')",
+    ]
+
+
 def _build_picker_search_conditions(query):
     if not query:
         return "", []
 
+    search_fields = _get_picker_search_fields()
+    compact_search_fields = [_build_picker_compact_expression(field) for field in search_fields]
     clauses = []
     params = []
     for term in query.split():
-        token = f"%{term}%"
+        raw_token = f"%{term}%"
+        compact_term = _normalize_picker_compact_query(term)
         clauses.append(
-            """
-            (
-                p.sku LIKE ?
-                OR p.name LIKE ?
-                OR COALESCE(c.name, '') LIKE ?
-                OR COALESCE(v.variant, '') LIKE ?
-                OR COALESCE(v.variant_code, '') LIKE ?
-                OR COALESCE(v.color, '') LIKE ?
-                OR COALESCE(v.gtin, '') LIKE ?
-            )
-            """
+            "("
+            + " OR ".join([f"{field} LIKE ?" for field in search_fields] + ([f"{field} LIKE ?" for field in compact_search_fields] if compact_term else []))
+            + ")"
         )
-        params.extend([token] * 7)
+        params.extend([raw_token] * len(search_fields))
+        if compact_term:
+            params.extend([f"%{compact_term}%"] * len(compact_search_fields))
 
     return " AND ".join(clauses), params
 
 
 def _build_picker_order_by(query, mode):
     if query:
-        exact_token = query.lower()
-        prefix_token = f"{query}%"
-        contains_token = f"%{query}%"
+        compact_query = _normalize_picker_compact_query(query)
+        if not compact_query:
+            exact_token = query.lower()
+            prefix_token = f"{query.lower()}%"
+            contains_token = f"%{query.lower()}%"
+            return (
+                """
+                CASE
+                    WHEN lower(p.sku) = ? THEN 0
+                    WHEN lower(COALESCE(v.gtin, '')) = ? THEN 1
+                    WHEN lower(COALESCE(v.variant_code, '')) = ? THEN 2
+                    WHEN lower(p.name) = ? THEN 3
+                    WHEN lower(COALESCE(v.variant, '')) = ? THEN 4
+                    WHEN lower(COALESCE(v.color, '')) = ? THEN 5
+                    WHEN lower(COALESCE(c.name, '')) = ? THEN 6
+                    WHEN lower(p.sku) LIKE ? THEN 7
+                    WHEN lower(COALESCE(v.gtin, '')) LIKE ? THEN 8
+                    WHEN lower(COALESCE(v.variant_code, '')) LIKE ? THEN 9
+                    WHEN lower(p.name) LIKE ? THEN 10
+                    WHEN lower(COALESCE(v.variant, '')) LIKE ? THEN 11
+                    WHEN lower(COALESCE(v.color, '')) LIKE ? THEN 12
+                    WHEN lower(COALESCE(c.name, '')) LIKE ? THEN 13
+                    WHEN lower(
+                        p.sku || ' ' || p.name || ' ' || COALESCE(c.name, '') || ' ' ||
+                        COALESCE(v.variant, '') || ' ' || COALESCE(v.variant_code, '') || ' ' ||
+                        COALESCE(v.color, '') || ' ' || COALESCE(v.gtin, '')
+                    ) LIKE ? THEN 14
+                    ELSE 15
+                END,
+                CASE WHEN COALESCE(s.qty, 0) > 0 THEN 0 ELSE 1 END,
+                COALESCE(s.qty, 0) DESC,
+                p.name COLLATE NOCASE ASC,
+                CASE WHEN lower(v.variant) = 'default' THEN 0 ELSE 1 END,
+                v.variant COLLATE NOCASE ASC
+                """,
+                [exact_token] * 7 + [prefix_token] * 7 + [contains_token],
+            )
+        search_fields = _get_picker_search_fields()
+        compact_fields = [_build_picker_compact_expression(field) for field in search_fields]
+        combined_compact_field = _build_picker_compact_expression(
+            "p.sku || ' ' || p.name || ' ' || COALESCE(c.name, '') || ' ' || "
+            "COALESCE(v.variant, '') || ' ' || COALESCE(v.variant_code, '') || ' ' || "
+            "COALESCE(v.color, '') || ' ' || COALESCE(v.gtin, '')"
+        )
+        exact_token = compact_query
+        prefix_token = f"{compact_query}%"
+        contains_token = f"%{compact_query}%"
+        exact_checks = "\n".join(
+            f"                WHEN {field} = ? THEN {index}"
+            for index, field in enumerate(compact_fields)
+        )
+        prefix_checks = "\n".join(
+            f"                WHEN {field} LIKE ? THEN {index + len(compact_fields)}"
+            for index, field in enumerate(compact_fields)
+        )
+        combined_rank = len(compact_fields) * 2
         return (
-            """
+            f"""
             CASE
-                WHEN lower(p.sku) = ? THEN 0
-                WHEN lower(COALESCE(v.gtin, '')) = ? THEN 1
-                WHEN lower(COALESCE(v.variant_code, '')) = ? THEN 2
-                WHEN lower(p.name) = ? THEN 3
-                WHEN lower(COALESCE(v.variant, '')) = ? THEN 4
-                WHEN lower(COALESCE(v.color, '')) = ? THEN 5
-                WHEN lower(COALESCE(c.name, '')) = ? THEN 6
-                WHEN lower(p.sku) LIKE lower(?) THEN 7
-                WHEN lower(COALESCE(v.gtin, '')) LIKE lower(?) THEN 8
-                WHEN lower(COALESCE(v.variant_code, '')) LIKE lower(?) THEN 9
-                WHEN lower(p.name) LIKE lower(?) THEN 10
-                WHEN lower(COALESCE(v.variant, '')) LIKE lower(?) THEN 11
-                WHEN lower(COALESCE(v.color, '')) LIKE lower(?) THEN 12
-                WHEN lower(COALESCE(c.name, '')) LIKE lower(?) THEN 13
-                WHEN lower(
-                    p.sku || ' ' || p.name || ' ' || COALESCE(c.name, '') || ' ' ||
-                    COALESCE(v.variant, '') || ' ' || COALESCE(v.variant_code, '') || ' ' ||
-                    COALESCE(v.color, '') || ' ' || COALESCE(v.gtin, '')
-                ) LIKE lower(?) THEN 14
-                ELSE 15
+{exact_checks}
+{prefix_checks}
+                WHEN {combined_compact_field} LIKE ? THEN {combined_rank}
+                ELSE {combined_rank + 1}
             END,
             CASE WHEN COALESCE(s.qty, 0) > 0 THEN 0 ELSE 1 END,
             COALESCE(s.qty, 0) DESC,
@@ -207,7 +261,7 @@ def _build_picker_order_by(query, mode):
             CASE WHEN lower(v.variant) = 'default' THEN 0 ELSE 1 END,
             v.variant COLLATE NOCASE ASC
             """,
-            [exact_token] * 7 + [prefix_token] * 7 + [contains_token],
+            [exact_token] * len(compact_fields) + [prefix_token] * len(compact_fields) + [contains_token],
         )
 
     if mode == "outbound":
@@ -686,11 +740,16 @@ def _read_xlsx_dataset(file):
 
 
 def _read_import_file(file):
-    if pd is None:
-        raise RuntimeError("Fitur import membutuhkan dependency pandas dan openpyxl.")
+    try:
+        pandas_module = import_module("pandas")
+    except ImportError as exc:
+        raise RuntimeError(
+            "Format Excel lama (.xls) membutuhkan dependency pandas di environment ini. "
+            "Gunakan interpreter project yang benar atau pakai template .xlsx/.csv."
+        ) from exc
 
     try:
-        return pd.read_excel(file)
+        return pandas_module.read_excel(file)
     except Exception as exc:
         raise RuntimeError("Format Excel lama (.xls) belum bisa dibaca di server ini. Gunakan template .xlsx atau .csv.") from exc
 

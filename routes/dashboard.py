@@ -39,48 +39,67 @@ def _build_workspace_sections(role):
     normalized_role = normalize_role(role)
     sections = []
 
-    coordination_items = [
-        _workspace_tile(
-            "Pengumuman",
-            "/announcements/",
-            "Broadcast operasional, update penting, dan perubahan jadwal terbaru.",
-            "Info",
-            "sky",
-            "coordination-pengumuman",
-        ),
-        _workspace_tile(
-            "Meeting Live",
-            "/meetings/",
-            "Masuk room meeting browser yang ringan untuk koordinasi cepat tim.",
-            "Live",
-            "violet",
-            "coordination-meeting-live",
-        ),
-        _workspace_tile(
-            "Absen Foto",
-            "/absen/",
-            "Clock in, break, dan check out dengan geotag dan foto langsung dari browser.",
-            "Daily",
-            "emerald",
-            "coordination-absen-foto",
-        ),
-        _workspace_tile(
-            "Libur",
-            "/libur/",
-            "Ajukan cuti dan lihat status approval bulanan dari satu portal sederhana.",
-            "Leave",
-            "amber",
-            "coordination-libur",
-        ),
-        _workspace_tile(
-            "Report Harian",
-            "/laporan-harian/",
-            "Kirim update kerja, report live, dan lampiran bukti dari portal harian.",
-            "Report",
-            "rose",
-            "coordination-report-harian",
-        ),
-    ]
+    coordination_items = []
+
+    if has_permission(normalized_role, "view_announcements"):
+        coordination_items.append(
+            _workspace_tile(
+                "Pengumuman",
+                "/announcements/",
+                "Broadcast operasional, update penting, dan perubahan jadwal terbaru.",
+                "Info",
+                "sky",
+                "coordination-pengumuman",
+            )
+        )
+
+    if has_permission(normalized_role, "view_meetings"):
+        coordination_items.append(
+            _workspace_tile(
+                "Meeting Live",
+                "/meetings/",
+                "Masuk room meeting browser yang ringan untuk koordinasi cepat tim.",
+                "Live",
+                "violet",
+                "coordination-meeting-live",
+            )
+        )
+
+    if has_permission(normalized_role, "access_attendance_portal"):
+        coordination_items.append(
+            _workspace_tile(
+                "Absen Foto",
+                "/absen/",
+                "Clock in, break, dan check out dengan geotag dan foto langsung dari browser.",
+                "Daily",
+                "emerald",
+                "coordination-absen-foto",
+            )
+        )
+
+    if has_permission(normalized_role, "access_leave_portal"):
+        coordination_items.append(
+            _workspace_tile(
+                "Libur",
+                "/libur/",
+                "Ajukan cuti dan lihat status approval bulanan dari satu portal sederhana.",
+                "Leave",
+                "amber",
+                "coordination-libur",
+            )
+        )
+
+    if has_permission(normalized_role, "access_daily_report_portal"):
+        coordination_items.append(
+            _workspace_tile(
+                "Report Harian",
+                "/laporan-harian/",
+                "Kirim update kerja, report live, dan lampiran bukti dari portal harian.",
+                "Report",
+                "rose",
+                "coordination-report-harian",
+            )
+        )
 
     if has_permission(normalized_role, "view_schedule"):
         coordination_items.append(
@@ -94,16 +113,17 @@ def _build_workspace_sections(role):
             )
         )
 
-    coordination_items.append(
-        _workspace_tile(
-            "Chat Operasional",
-            "/chat/",
-            "Buka komunikasi cepat, panggilan, dan notifikasi lintas tim.",
-            "Chat",
-            "cyan",
-            "coordination-chat-operasional",
+    if has_permission(normalized_role, "view_chat"):
+        coordination_items.append(
+            _workspace_tile(
+                "Chat Operasional",
+                "/chat/",
+                "Buka komunikasi cepat, panggilan, dan notifikasi lintas tim.",
+                "Chat",
+                "cyan",
+                "coordination-chat-operasional",
+            )
         )
-    )
 
     if has_permission(normalized_role, "view_crm"):
         coordination_items.append(
@@ -117,15 +137,16 @@ def _build_workspace_sections(role):
             )
         )
 
-    sections.append(
-        {
-            "title": "Koordinasi Harian",
-            "summary": "Akses cepat untuk komunikasi, kehadiran, dan ritme kerja tim setiap hari.",
-            "items": coordination_items,
-        }
-    )
+    if coordination_items:
+        sections.append(
+            {
+                "title": "Koordinasi Harian",
+                "summary": "Akses cepat untuk komunikasi, kehadiran, dan ritme kerja tim setiap hari.",
+                "items": coordination_items,
+            }
+        )
 
-    if normalized_role != "hr":
+    if has_permission(normalized_role, "view_wms"):
         wms_items = [
             _workspace_tile(
                 "Dashboard WMS",

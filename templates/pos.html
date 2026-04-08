@@ -341,9 +341,15 @@ const posCatalog = {
 };
 
 const posCustomerId = document.getElementById("posCustomerId");
+const posCustomerSearch = document.getElementById("posCustomerSearch");
+const posCustomerSearchSummary = document.getElementById("posCustomerSearchSummary");
 const posCustomerName = document.getElementById("posCustomerName");
 const posCustomerPhone = document.getElementById("posCustomerPhone");
+const posTransactionType = document.getElementById("posTransactionType");
+const posCustomerLoyaltyHint = document.getElementById("posCustomerLoyaltyHint");
 const posCashierUserId = document.getElementById("posCashierUserId");
+const posCashierSearch = document.getElementById("posCashierSearch");
+const posCashierSearchSummary = document.getElementById("posCashierSearchSummary");
 const posCashierDisplay = document.getElementById("posCashierDisplay");
 const posPaymentMethod = document.getElementById("posPaymentMethod");
 const posPaymentMethodGrid = document.getElementById("posPaymentMethodGrid");
@@ -382,15 +388,35 @@ const posCatalogPicker = document.getElementById("posCatalogPicker");
 const posCatalogOpenButton = document.getElementById("posCatalogOpenButton");
 const posCatalogOpenButtonSecondary = document.getElementById("posCatalogOpenButtonSecondary");
 const posCatalogCloseButton = document.getElementById("posCatalogCloseButton");
+const posQuickSearchForm = document.getElementById("posQuickSearchForm");
+const posQuickSearch = document.getElementById("posQuickSearch");
+const posQuickSearchSummary = document.getElementById("posQuickSearchSummary");
+const posQuickSearchResults = document.getElementById("posQuickSearchResults");
 const posPaidQuickActions = document.getElementById("posPaidQuickActions");
 const posKeypadTargets = document.getElementById("posKeypadTargets");
 const posKeypadGrid = document.getElementById("posKeypadGrid");
 const posClockDisplay = document.getElementById("posClockDisplay");
 const posHeaderMenus = Array.from(document.querySelectorAll("[data-pos-header-menu]"));
 
+const POS_QUICK_SEARCH_DEFAULT_SUMMARY = "Smart search aktif. Ketik nama, SKU, warna, atau kata gabungan. Beda spasi tetap bisa dibaca.";
+const POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY = "Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.";
+const POS_CASHIER_SEARCH_DEFAULT_SUMMARY = "Cari kasir/sales lebih cepat tanpa scroll panjang.";
 let posSearchTimer = null;
+let posQuickSearchTimer = null;
 let posKeypadTarget = "qty";
 let posCartFocusedIndex = -1;
+let posQuickSearchRequestId = 0;
+const posCustomerOptionsState = {
+    all: [],
+};
+const posCashierOptionsState = {
+    all: [],
+};
+const posQuickSearchState = {
+    items: [],
+    totalItems: 0,
+    query: "",
+};
 
 function escapeHtml(value) {
     return String(value ?? "")
@@ -401,12 +427,214 @@ function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+function syncPosHeaderMenuBodyState() {
+    document.body.classList.toggle(
+        "pos-ipos-menu-open",
+        posHeaderMenus.some((menu) => menu.open)
+    );
+}
+
+function normalizePosCustomerSearchValue(value) {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "");
+}
+
+function setPosCustomerSearchSummary(message) {
+    if (!posCustomerSearchSummary) {
+        return;
+    }
+    posCustomerSearchSummary.textContent = message || POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY;
+}
+
+function buildPosCustomerOptionState(option) {
+    const label = String(option?.textContent || "").trim();
+    const dataset = Object.fromEntries(Object.entries(option?.dataset || {}).map(([key, value]) => [key, String(value || "")]));
+    const phone = String(dataset.phone || "").trim();
+    const memberCode = String(dataset.memberCode || "").trim();
+    const memberType = String(dataset.memberType || "").trim();
+    const rewardUnitAmount = String(dataset.rewardUnitAmount || "").trim();
+    const searchBlob = [label, ...Object.values(dataset)].join(" ");
+    return {
+        value: String(option?.value || ""),
+        label,
+        phone,
+        memberCode,
+        memberType,
+        rewardUnitAmount,
+        dataset,
+        plainSearch: searchBlob.toLowerCase(),
+        compactSearch: normalizePosCustomerSearchValue(searchBlob),
+    };
+}
+
+function collectPosCustomerOptions() {
+    if (!posCustomerId) {
+        return;
+    }
+    posCustomerOptionsState.all = Array.from(posCustomerId.options).map(buildPosCustomerOptionState);
+}
+
+function optionMatchesPosCustomerQuery(optionState, query) {
+    const safeQuery = String(query || "").trim().toLowerCase();
+    if (!safeQuery || !optionState) {
+        return true;
+    }
+    const compactQuery = normalizePosCustomerSearchValue(safeQuery);
+    return optionState.plainSearch.includes(safeQuery) || (!!compactQuery && optionState.compactSearch.includes(compactQuery));
+}
+
+function createPosCustomerOptionNode(optionState) {
+    const option = document.createElement("option");
+    option.value = optionState.value;
+    option.textContent = optionState.label;
+    Object.entries(optionState.dataset || {}).forEach(([key, value]) => {
+        option.dataset[key] = value;
+    });
+    return option;
+}
+
+function filterPosCustomerOptions(query = "") {
+    if (!posCustomerId) {
+        return;
+    }
+
+    const currentValue = String(posCustomerId.value || "");
+    const safeQuery = String(query || "").trim();
+    const allOptions = Array.isArray(posCustomerOptionsState.all) ? posCustomerOptionsState.all : [];
+    const defaultOption = allOptions.find((item) => item.value === "") || {
+        value: "",
+        label: "UMUM / walk-in",
+        phone: "",
+        memberCode: "",
+        memberType: "",
+        rewardUnitAmount: "",
+        plainSearch: "umum walk in",
+        compactSearch: "umumwalkin",
+    };
+    const filteredOptions = allOptions.filter((item) => item.value !== "" && optionMatchesPosCustomerQuery(item, safeQuery));
+    const currentSelectedOption = currentValue ? allOptions.find((item) => item.value === currentValue) : null;
+
+    posCustomerId.replaceChildren(createPosCustomerOptionNode(defaultOption));
+    filteredOptions.forEach((item) => {
+        posCustomerId.appendChild(createPosCustomerOptionNode(item));
+    });
+
+    if (
+        currentSelectedOption
+        && currentSelectedOption.value !== ""
+        && !filteredOptions.some((item) => item.value === currentSelectedOption.value)
+    ) {
+        posCustomerId.appendChild(createPosCustomerOptionNode(currentSelectedOption));
+    }
+
+    const canPreserveSelection = currentSelectedOption && Array.from(posCustomerId.options).some((option) => option.value === currentSelectedOption.value);
+    posCustomerId.value = canPreserveSelection ? currentSelectedOption.value : "";
+
+    if (!safeQuery) {
+        setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
+        return;
+    }
+
+    if (!filteredOptions.length) {
+        setPosCustomerSearchSummary(`Tidak ada member yang cocok untuk "${safeQuery}". Pilihan walk-in tetap tersedia.`);
+        return;
+    }
+
+    setPosCustomerSearchSummary(`${filteredOptions.length} customer cocok untuk "${safeQuery}".`);
+}
+
+function setPosCashierSearchSummary(message) {
+    if (!posCashierSearchSummary) {
+        return;
+    }
+    posCashierSearchSummary.textContent = message || POS_CASHIER_SEARCH_DEFAULT_SUMMARY;
+}
+
+function collectPosCashierOptions() {
+    if (!posCashierUserId) {
+        return;
+    }
+    posCashierOptionsState.all = Array.from(posCashierUserId.options).map(buildPosCustomerOptionState);
+}
+
+function filterPosCashierOptions(query = "") {
+    if (!posCashierUserId) {
+        return;
+    }
+
+    const currentValue = String(posCashierUserId.value || "");
+    const safeQuery = String(query || "").trim();
+    const allOptions = Array.isArray(posCashierOptionsState.all) ? posCashierOptionsState.all : [];
+    const filteredOptions = allOptions.filter((item) => optionMatchesPosCustomerQuery(item, safeQuery));
+    const currentSelectedOption = currentValue ? allOptions.find((item) => item.value === currentValue) : null;
+
+    posCashierUserId.replaceChildren();
+    filteredOptions.forEach((item) => {
+        posCashierUserId.appendChild(createPosCustomerOptionNode(item));
+    });
+
+    if (
+        currentSelectedOption
+        && !filteredOptions.some((item) => item.value === currentSelectedOption.value)
+    ) {
+        posCashierUserId.appendChild(createPosCustomerOptionNode(currentSelectedOption));
+    }
+
+    const canPreserveSelection = currentSelectedOption && Array.from(posCashierUserId.options).some((option) => option.value === currentSelectedOption.value);
+    if (canPreserveSelection) {
+        posCashierUserId.value = currentSelectedOption.value;
+    }
+
+    if (!safeQuery) {
+        setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
+        return;
+    }
+
+    if (!filteredOptions.length) {
+        setPosCashierSearchSummary(`Tidak ada kasir/sales yang cocok untuk "${safeQuery}".`);
+        return;
+    }
+
+    setPosCashierSearchSummary(`${filteredOptions.length} kasir/sales cocok untuk "${safeQuery}".`);
+}
+
 function formatPosCurrency(value) {
     return `Rp ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(value || 0))}`;
 }
 
 function roundPosMoney(value) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function setPosQuickSearchSummary(message) {
+    if (posQuickSearchSummary) {
+        posQuickSearchSummary.textContent = message || POS_QUICK_SEARCH_DEFAULT_SUMMARY;
+    }
+}
+
+function buildPosCatalogFetchParams(page = 1, pageSize = 24, query = "", category = "all") {
+    const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(pageSize),
+        warehouse_id: String(posWarehouseId || ""),
+        mode: "outbound",
+        q: String(query || "").trim(),
+    });
+
+    if (category && category !== "all") {
+        params.set("category", category);
+    }
+    return params;
+}
+
+async function fetchPosCatalogData(page = 1, pageSize = 24, query = "", category = "all") {
+    const response = await fetch(`/products/picker?${buildPosCatalogFetchParams(page, pageSize, query, category).toString()}`);
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.error || "Gagal memuat katalog produk.");
+    }
+    return data;
 }
 
 function getPosCurrencyRaw(input) {
@@ -515,12 +743,73 @@ function closePosHeaderMenus(exceptMenu = null) {
         }
         menu.removeAttribute("open");
     });
+    syncPosHeaderMenuBodyState();
 }
 
 function syncPosCashierDisplay() {
     if (!posCashierDisplay || !posCashierUserId) return;
     const selectedOption = posCashierUserId.options[posCashierUserId.selectedIndex];
     posCashierDisplay.textContent = selectedOption?.dataset.displayName || selectedOption?.textContent || "-";
+}
+
+function syncPosCustomerLoyaltyHint() {
+    if (!posCustomerLoyaltyHint || !posCustomerId) return;
+    const selectedOption = posCustomerId.options[posCustomerId.selectedIndex];
+    if (!selectedOption || !posCustomerId.value) {
+        posCustomerLoyaltyHint.textContent = "Customer umum bisa langsung checkout. Pilih customer member kalau transaksi perlu update loyalty.";
+        if (posTransactionType) {
+            posTransactionType.value = "purchase";
+        }
+        syncPosTransactionPricing();
+        return;
+    }
+
+    const memberCode = selectedOption.dataset.memberCode || "";
+    const memberType = selectedOption.dataset.memberType || "";
+    if (!memberCode || !memberType) {
+        posCustomerLoyaltyHint.textContent = "Customer ini belum punya member aktif. Transaksi tetap tersimpan ke CRM customer.";
+        if (posTransactionType) {
+            posTransactionType.value = "purchase";
+        }
+        syncPosTransactionPricing();
+        return;
+    }
+
+    if (memberType === "stringing") {
+        posCustomerLoyaltyHint.textContent = `${memberCode} • Member Senaran. Pilih "Senaran Berbayar" untuk hitung kunjungan atau "Senaran Free Reward" saat free dipakai.`;
+        if (posTransactionType && posTransactionType.value === "purchase") {
+            posTransactionType.value = "stringing_service";
+        }
+        syncPosTransactionPricing();
+        return;
+    }
+
+    posCustomerLoyaltyHint.textContent = `${memberCode} • Member Pembelian. Setiap total Rp 10.000 otomatis menambah 1 poin dari checkout ini.`;
+    if (posTransactionType) {
+        posTransactionType.value = "purchase";
+    }
+    syncPosTransactionPricing();
+}
+
+function isPosFreeRewardMode() {
+    return (posTransactionType?.value || "purchase") === "stringing_reward_redemption";
+}
+
+function syncPosTransactionPricing() {
+    const isFreeReward = isPosFreeRewardMode();
+    posCart.forEach((item) => {
+        item.unit_price = isFreeReward ? 0 : Number(item.retail_price || item.unit_price || 0);
+    });
+
+    if (posDraftPrice) {
+        if (isFreeReward) {
+            setPosCurrencyValue(posDraftPrice, 0);
+        } else if (posDraft.unit_price > 0) {
+            setPosCurrencyValue(posDraftPrice, posDraft.unit_price);
+        }
+    }
+
+    renderPosCart();
 }
 
 function isEditablePosTarget(target) {
@@ -545,6 +834,10 @@ function shouldBlockPosEnterKey(target) {
     }
 
     if (target.closest("#posCatalogSearchForm")) {
+        return false;
+    }
+
+    if (target.closest("#posQuickSearchForm")) {
         return false;
     }
 
@@ -613,7 +906,7 @@ function renderPosDraft() {
     posDraftDisplay.textContent = `${posDraft.sku} - ${posDraft.name}`;
     posDraftMeta.textContent = `${posDraft.variant_label} | ${posDraft.category || "Tanpa kategori"} | GTIN ${posDraft.gtin || "-"} | Ubah harga jual nanti di keranjang.`;
     posDraftQty.value = posDraftQty.value || "1";
-    setPosCurrencyValue(posDraftPrice, posDraft.unit_price > 0 ? posDraft.unit_price : "");
+    setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (posDraft.unit_price > 0 ? posDraft.unit_price : ""));
     setPosDraftStockState(posDraft.stock);
 }
 
@@ -644,6 +937,7 @@ function openPosCatalogPicker() {
     if (!posCatalogPicker) return;
     posCatalogPicker.hidden = false;
     posCatalogPicker.classList.add("is-open");
+    document.body.classList.add("pos-ipos-picker-open");
     posCatalogSearch?.focus();
 }
 
@@ -651,7 +945,114 @@ function closePosCatalogPicker() {
     if (!posCatalogPicker) return;
     posCatalogPicker.classList.remove("is-open");
     posCatalogPicker.hidden = true;
+    document.body.classList.remove("pos-ipos-picker-open");
     posCatalogOpenButton?.focus();
+}
+
+function resetPosQuickSearch(options = {}) {
+    const keepQuery = Boolean(options.keepQuery);
+    const summary = options.summary || POS_QUICK_SEARCH_DEFAULT_SUMMARY;
+
+    if (!keepQuery && posQuickSearch) {
+        posQuickSearch.value = "";
+    }
+    posQuickSearchState.items = [];
+    posQuickSearchState.totalItems = 0;
+    posQuickSearchState.query = keepQuery ? String(posQuickSearch?.value || "").trim() : "";
+    if (posQuickSearchResults) {
+        posQuickSearchResults.hidden = true;
+        posQuickSearchResults.innerHTML = "";
+    }
+    setPosQuickSearchSummary(summary);
+}
+
+function renderPosQuickSearchResults() {
+    if (!posQuickSearchResults) {
+        return;
+    }
+    if (!posQuickSearchState.items.length) {
+        posQuickSearchResults.hidden = false;
+        posQuickSearchResults.innerHTML = `<div class="pos-ipos-quicksearch-empty">Barang tidak ditemukan untuk kata kunci ini.</div>`;
+        return;
+    }
+
+    posQuickSearchResults.hidden = false;
+    posQuickSearchResults.innerHTML = posQuickSearchState.items.map((item, index) => {
+        const stockQty = Number(item.qty || 0);
+        const stockBadgeClass = stockQty <= 0 ? "red" : stockQty < 5 ? "orange" : "green";
+        return `
+            <button type="button" class="pos-ipos-quicksearch-result" data-pos-quick-search-index="${index}">
+                <span class="pos-ipos-quicksearch-result-copy">
+                    <strong>${escapeHtml(item.sku)} - ${escapeHtml(item.name)}</strong>
+                    <small>${escapeHtml(item.variant_label || "Default")} | ${escapeHtml(item.category || "Tanpa kategori")} | GTIN ${escapeHtml(item.gtin || "-")}</small>
+                </span>
+                <span class="pos-ipos-quicksearch-result-meta">
+                    <span class="badge ${stockBadgeClass}">Stok ${escapeHtml(stockQty)}</span>
+                    <span>${formatPosCurrency(item.price_retail || 0)}</span>
+                </span>
+            </button>
+        `;
+    }).join("");
+}
+
+function applyPosQuickSearchItem(index) {
+    const item = posQuickSearchState.items[index];
+    if (!item) {
+        return;
+    }
+    fillPosDraftFromItem(item);
+    posDraftQty.value = "1";
+    setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (Number(item.price_retail || 0) > 0 ? Number(item.price_retail || 0) : ""));
+    resetPosQuickSearch({
+        summary: `Produk dipilih: ${item.sku} - ${item.name}. Silakan atur jumlah lalu tambah ke keranjang.`,
+    });
+    posDraftQty.focus();
+}
+
+async function loadPosQuickSearchResults(query) {
+    const trimmedQuery = String(query || "").trim();
+    posQuickSearchState.query = trimmedQuery;
+
+    if (!trimmedQuery) {
+        resetPosQuickSearch({ keepQuery: true });
+        return;
+    }
+
+    const requestId = ++posQuickSearchRequestId;
+    setPosQuickSearchSummary(`Mencari "${trimmedQuery}"...`);
+    if (posQuickSearchResults) {
+        posQuickSearchResults.hidden = false;
+        posQuickSearchResults.innerHTML = `<div class="pos-ipos-quicksearch-empty">Mencari barang...</div>`;
+    }
+
+    try {
+        const data = await fetchPosCatalogData(1, 6, trimmedQuery, "all");
+        if (requestId !== posQuickSearchRequestId) {
+            return;
+        }
+        posQuickSearchState.items = Array.isArray(data.items) ? data.items : [];
+        posQuickSearchState.totalItems = Number(data.total_items || 0);
+        renderPosQuickSearchResults();
+        if (posQuickSearchState.totalItems > 0) {
+            const visibleCount = posQuickSearchState.items.length;
+            setPosQuickSearchSummary(
+                `Smart search "${trimmedQuery}" menemukan ${posQuickSearchState.totalItems} produk / varian. Menampilkan ${visibleCount} hasil teratas.`
+            );
+            return;
+        }
+        setPosQuickSearchSummary(`Tidak ada barang yang cocok untuk "${trimmedQuery}".`);
+    } catch (error) {
+        if (requestId !== posQuickSearchRequestId) {
+            return;
+        }
+        posQuickSearchState.items = [];
+        posQuickSearchState.totalItems = 0;
+        if (posQuickSearchResults) {
+            posQuickSearchResults.hidden = false;
+            posQuickSearchResults.innerHTML = `<div class="pos-ipos-quicksearch-empty">${escapeHtml(error.message || "Gagal memuat quick search.")}</div>`;
+        }
+        setPosQuickSearchSummary(error.message || "Gagal memuat quick search barang.");
+    }
 }
 
 function setPosPaymentMethod(method) {
@@ -661,47 +1062,7 @@ function setPosPaymentMethod(method) {
     });
 }
 
-function renderPosCart() {
-    if (!posCart.length) {
-        posCartFocusedIndex = -1;
-        posCartBody.innerHTML = `<tr><td colspan="8"><div class="ops-queue-empty">Keranjang masih kosong.</div></td></tr>`;
-    } else {
-        if (posCartFocusedIndex >= posCart.length) {
-            posCartFocusedIndex = posCart.length - 1;
-        }
-
-        posCartBody.innerHTML = posCart.map((item, index) => {
-            const lineTotal = Number(item.qty) * Number(item.unit_price);
-            const isActive = index === posCartFocusedIndex;
-            return `
-                <tr class="pos-vintage-cart-row ${isActive ? "is-active" : ""}" data-pos-cart-row-index="${index}" aria-selected="${isActive ? "true" : "false"}">
-                    <td>${index + 1}</td>
-                    <td class="mono">${escapeHtml(item.sku)}</td>
-                    <td>
-                        <strong>${escapeHtml(item.name)}</strong>
-                        <div class="helper-text">${escapeHtml(item.variant_label)}</div>
-                    </td>
-                    <td>
-                        <div class="pos-order-stepper">
-                            <button type="button" data-pos-decrement-index="${index}" aria-label="Kurangi qty">-</button>
-                            <input type="number" min="1" step="1" value="${item.qty}" data-pos-qty-index="${index}" class="pos-inline-qty">
-                            <button type="button" data-pos-increment-index="${index}" aria-label="Tambah qty">+</button>
-                        </div>
-                    </td>
-                    <td>PCS</td>
-                    <td>
-                        <label class="pos-cart-price-editor" aria-label="Harga jual item ${index + 1}">
-                            <input type="number" min="0" step="0.01" value="${item.unit_price}" data-pos-price-index="${index}" class="pos-inline-price" data-wms-currency="currency">
-                            <small>Retail ${formatPosCurrency(item.retail_price || item.unit_price || 0)}</small>
-                        </label>
-                    </td>
-                    <td><strong>${formatPosCurrency(lineTotal)}</strong></td>
-                    <td><button type="button" class="danger-button" data-pos-remove-index="${index}">Hapus</button></td>
-                </tr>
-            `;
-        }).join("");
-    }
-
+function renderPosCartSummary() {
     const totals = getPosTotals();
     posTotalItems.textContent = String(totals.totalItems);
     posCartBadge.textContent = `${totals.totalItems} item`;
@@ -721,6 +1082,84 @@ function renderPosCart() {
     }
 
     updatePosChangePreview();
+}
+
+function syncPosCartLineDisplay(index, options = {}) {
+    if (Number.isNaN(index) || !posCart[index]) {
+        return;
+    }
+    const row = posCartBody?.querySelector(`[data-pos-cart-row-index="${index}"]`);
+    if (!row) {
+        return;
+    }
+    const syncQtyInput = Boolean(options.syncQtyInput);
+    const syncPriceInput = Boolean(options.syncPriceInput);
+    const qtyInput = row.querySelector("[data-pos-qty-index]");
+    if (syncQtyInput && qtyInput) {
+        const normalizedQty = String(posCart[index].qty ?? "");
+        if (String(qtyInput.value || "") !== normalizedQty) {
+            qtyInput.value = normalizedQty;
+        }
+    }
+    const priceInput = row.querySelector("[data-pos-price-index]");
+    if (syncPriceInput && priceInput) {
+        const rawPrice = String(getPosCurrencyRaw(priceInput) || "").trim();
+        const shouldRefreshPrice = document.activeElement !== priceInput || !rawPrice;
+        if (shouldRefreshPrice) {
+            setPosCurrencyValue(priceInput, posCart[index].unit_price);
+        }
+    }
+    const lineTotalTarget = row.querySelector("[data-pos-line-total]");
+    if (lineTotalTarget) {
+        lineTotalTarget.textContent = formatPosCurrency(roundPosMoney(Number(posCart[index].qty) * Number(posCart[index].unit_price)));
+    }
+    row.classList.toggle("is-active", index === posCartFocusedIndex);
+    row.setAttribute("aria-selected", index === posCartFocusedIndex ? "true" : "false");
+}
+
+function renderPosCart() {
+    if (!posCart.length) {
+        posCartFocusedIndex = -1;
+        posCartBody.innerHTML = `<tr><td colspan="8"><div class="ops-queue-empty">Keranjang masih kosong.</div></td></tr>`;
+    } else {
+        if (posCartFocusedIndex >= posCart.length) {
+            posCartFocusedIndex = posCart.length - 1;
+        }
+
+        posCartBody.innerHTML = posCart.map((item, index) => {
+            const lineTotal = Number(item.qty) * Number(item.unit_price);
+            const isActive = index === posCartFocusedIndex;
+            const isFreeReward = isPosFreeRewardMode();
+            return `
+                <tr class="pos-vintage-cart-row ${isActive ? "is-active" : ""}" data-pos-cart-row-index="${index}" aria-selected="${isActive ? "true" : "false"}">
+                    <td>${index + 1}</td>
+                    <td class="mono">${escapeHtml(item.sku)}</td>
+                    <td>
+                        <strong>${escapeHtml(item.name)}</strong>
+                        <div class="helper-text">${escapeHtml(item.variant_label)}</div>
+                    </td>
+                    <td>
+                        <div class="pos-order-stepper">
+                            <button type="button" data-pos-decrement-index="${index}" aria-label="Kurangi qty">-</button>
+                            <input type="number" min="1" step="1" value="${item.qty}" data-pos-qty-index="${index}" class="pos-inline-qty">
+                            <button type="button" data-pos-increment-index="${index}" aria-label="Tambah qty">+</button>
+                        </div>
+                    </td>
+                    <td>PCS</td>
+                    <td>
+                        <label class="pos-cart-price-editor" aria-label="Harga jual item ${index + 1}">
+                            <input type="number" min="0" step="0.01" value="${item.unit_price}" data-pos-price-index="${index}" class="pos-inline-price" data-wms-currency="currency" ${isFreeReward ? "disabled" : ""}>
+                            <small>${isFreeReward ? "Free Reward Aktif" : "Retail " + formatPosCurrency(item.retail_price || item.unit_price || 0)}</small>
+                        </label>
+                    </td>
+                    <td><strong data-pos-line-total>${formatPosCurrency(lineTotal)}</strong></td>
+                    <td><button type="button" class="danger-button" data-pos-remove-index="${index}">Hapus</button></td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    renderPosCartSummary();
 }
 
 function fillPosDraftFromItem(item) {
@@ -761,7 +1200,7 @@ function addPosDraftToCart() {
     if (!validatePosDraft()) return;
 
     const qty = Number(posDraftQty.value || 0);
-    const unitPrice = getPosCurrencyValue(posDraftPrice);
+    const unitPrice = isPosFreeRewardMode() ? 0 : getPosCurrencyValue(posDraftPrice);
     const key = `${posDraft.product_id}-${posDraft.variant_id}`;
     const existingIndex = posCart.findIndex((item) => item.key === key);
     const existing = existingIndex >= 0 ? posCart[existingIndex] : null;
@@ -773,7 +1212,8 @@ function addPosDraftToCart() {
             return;
         }
         existing.qty = nextQty;
-        existing.retail_price = unitPrice || existing.retail_price || existing.unit_price || 0;
+        existing.unit_price = unitPrice;
+        existing.retail_price = existing.retail_price || posDraft.unit_price || existing.unit_price || 0;
     } else {
         posCart.push({
             key,
@@ -784,7 +1224,7 @@ function addPosDraftToCart() {
             variant_label: posDraft.variant_label,
             qty,
             unit_price: unitPrice,
-            retail_price: unitPrice,
+            retail_price: posDraft.unit_price || unitPrice,
             stock: posDraft.stock,
         });
     }
@@ -792,6 +1232,7 @@ function addPosDraftToCart() {
     renderPosCart();
     setPosCartFocusedIndex(existing ? existingIndex : posCart.length - 1);
     resetPosDraft();
+    resetPosQuickSearch();
 }
 
 function quickAddCatalogItem(index) {
@@ -800,7 +1241,7 @@ function quickAddCatalogItem(index) {
 
     fillPosDraftFromItem(item);
     posDraftQty.value = "1";
-    setPosCurrencyValue(posDraftPrice, posDraft.unit_price > 0 ? posDraft.unit_price : "");
+    setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (posDraft.unit_price > 0 ? posDraft.unit_price : ""));
     addPosDraftToCart();
     closePosCatalogPicker();
 }
@@ -842,25 +1283,8 @@ async function loadPosCatalog(page = 1) {
     posCatalogPrev.disabled = true;
     posCatalogNext.disabled = true;
 
-    const params = new URLSearchParams({
-        page: String(page),
-        page_size: "24",
-        warehouse_id: String(posWarehouseId || ""),
-        mode: "outbound",
-        q: posCatalog.query,
-    });
-
-    if (posCatalog.category && posCatalog.category !== "all") {
-        params.set("category", posCatalog.category);
-    }
-
     try {
-        const response = await fetch(`/products/picker?${params.toString()}`);
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || "Gagal memuat katalog produk.");
-        }
+        const data = await fetchPosCatalogData(page, 24, posCatalog.query, posCatalog.category);
 
         posCatalog.items = Array.isArray(data.items) ? data.items : [];
         posCatalog.totalPages = Number(data.total_pages || 1);
@@ -897,6 +1321,7 @@ function checkoutPosTransaction() {
         customer_id: Number(posCustomerId.value || 0),
         customer_name: posCustomerName.value,
         customer_phone: posCustomerPhone.value,
+        transaction_type: posTransactionType?.value || "purchase",
         payment_method: posPaymentMethod.value,
         discount_type: totals.discountType,
         discount_value: totals.discountValue,
@@ -929,7 +1354,7 @@ function checkoutPosTransaction() {
             throw new Error(data.message || "Checkout gagal.");
         }
         const shouldPrintReceipt = window.confirm(
-            `${data.message}\nReceipt: ${data.receipt_no}\n\nBuka template nota untuk cetak PDF sekarang?`
+            `${data.message}\nReceipt: ${data.receipt_no}\n\nBuka nota print sekarang?`
         );
         if (shouldPrintReceipt && data.receipt_print_url) {
             window.open(data.receipt_print_url, "_blank", "noopener");
@@ -998,8 +1423,9 @@ async function submitPosVoidRequest(button) {
     }
 }
 
-function updateQtyFromCart(index, nextQty) {
+function updateQtyFromCart(index, nextQty, options = {}) {
     if (Number.isNaN(index) || !posCart[index]) return;
+    const renderFull = options.renderFull !== false;
 
     let qty = Number(nextQty || 0);
     if (qty < 1) qty = 1;
@@ -1008,12 +1434,29 @@ function updateQtyFromCart(index, nextQty) {
     }
 
     posCart[index].qty = qty;
-    renderPosCart();
-    setPosCartFocusedIndex(index);
+    if (renderFull) {
+        renderPosCart();
+        setPosCartFocusedIndex(index);
+        return;
+    }
+    syncPosCartLineDisplay(index, { syncQtyInput: Boolean(options.syncInput) });
+    renderPosCartSummary();
 }
 
-function updatePriceFromCart(index, nextPrice) {
+function updatePriceFromCart(index, nextPrice, options = {}) {
     if (Number.isNaN(index) || !posCart[index]) return;
+    const renderFull = options.renderFull !== false;
+    if (isPosFreeRewardMode()) {
+        posCart[index].unit_price = 0;
+        if (renderFull) {
+            renderPosCart();
+            setPosCartFocusedIndex(index);
+            return;
+        }
+        syncPosCartLineDisplay(index, { syncPriceInput: Boolean(options.syncInput) });
+        renderPosCartSummary();
+        return;
+    }
 
     let price = Number(nextPrice || 0);
     if (!Number.isFinite(price) || price < 0) {
@@ -1021,8 +1464,13 @@ function updatePriceFromCart(index, nextPrice) {
     }
 
     posCart[index].unit_price = roundPosMoney(price);
-    renderPosCart();
-    setPosCartFocusedIndex(index);
+    if (renderFull) {
+        renderPosCart();
+        setPosCartFocusedIndex(index);
+        return;
+    }
+    syncPosCartLineDisplay(index, { syncPriceInput: Boolean(options.syncInput) });
+    renderPosCartSummary();
 }
 
 function applyPaidShortcut(shortcut) {
@@ -1117,6 +1565,42 @@ posPaymentMethodGrid?.addEventListener("click", (event) => {
     setPosPaymentMethod(button.dataset.posPaymentMethod || "cash");
 });
 
+posQuickSearchForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const query = String(posQuickSearch?.value || "").trim();
+    if (!query) {
+        resetPosQuickSearch();
+        posQuickSearch?.focus();
+        return;
+    }
+    if (!posQuickSearchState.items.length || posQuickSearchState.query !== query) {
+        await loadPosQuickSearchResults(query);
+    }
+    if (posQuickSearchState.items.length) {
+        applyPosQuickSearchItem(0);
+    }
+});
+
+posQuickSearch?.addEventListener("input", () => {
+    window.clearTimeout(posQuickSearchTimer);
+    const query = String(posQuickSearch.value || "").trim();
+    if (!query) {
+        resetPosQuickSearch({ keepQuery: true });
+        return;
+    }
+    posQuickSearchTimer = window.setTimeout(() => {
+        loadPosQuickSearchResults(query);
+    }, 220);
+});
+
+posQuickSearchResults?.addEventListener("click", (event) => {
+    const resultButton = event.target.closest("[data-pos-quick-search-index]");
+    if (!resultButton) {
+        return;
+    }
+    applyPosQuickSearchItem(Number(resultButton.dataset.posQuickSearchIndex));
+});
+
 posCategoryStrip?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pos-category]");
     if (!button) return;
@@ -1180,9 +1664,15 @@ posHeaderMenus.forEach((menu) => {
         if (menu.open) {
             closePosHeaderMenus(menu);
         }
+        syncPosHeaderMenuBodyState();
     });
     menu.querySelectorAll("[data-pos-header-menu-link]").forEach((link) => {
         link.addEventListener("click", () => {
+            menu.removeAttribute("open");
+        });
+    });
+    menu.querySelectorAll("[data-pos-header-menu-close]").forEach((button) => {
+        button.addEventListener("click", () => {
             menu.removeAttribute("open");
         });
     });
@@ -1224,6 +1714,7 @@ document.addEventListener("click", (event) => {
         }
         menu.removeAttribute("open");
     });
+    syncPosHeaderMenuBodyState();
 
     const voidButton = event.target.closest("[data-pos-void-item-id]");
     if (voidButton) {
@@ -1266,10 +1757,25 @@ posCustomerId.addEventListener("change", () => {
     if (!posCustomerId.value) {
         posCustomerName.value = "Walk-in Customer";
         posCustomerPhone.value = "";
+        syncPosCustomerLoyaltyHint();
         return;
     }
     posCustomerName.value = option.textContent.split("|")[0].trim();
     posCustomerPhone.value = option.dataset.phone || "";
+    syncPosCustomerLoyaltyHint();
+});
+
+posCustomerSearch?.addEventListener("input", () => {
+    filterPosCustomerOptions(posCustomerSearch.value || "");
+});
+
+posCashierSearch?.addEventListener("input", () => {
+    filterPosCashierOptions(posCashierSearch.value || "");
+});
+
+posTransactionType?.addEventListener("change", () => {
+    syncPosCustomerLoyaltyHint();
+    syncPosTransactionPricing();
 });
 
 posCartBody.addEventListener("click", (event) => {
@@ -1316,14 +1822,28 @@ posCartBody.addEventListener("input", (event) => {
     const qtyInput = event.target.closest("[data-pos-qty-index]");
     if (qtyInput) {
         const index = Number(qtyInput.dataset.posQtyIndex);
-        updateQtyFromCart(index, Number(qtyInput.value || 0));
+        updateQtyFromCart(index, Number(qtyInput.value || 0), { renderFull: false });
         return;
     }
 
     const priceInput = event.target.closest("[data-pos-price-index]");
     if (!priceInput) return;
     const index = Number(priceInput.dataset.posPriceIndex);
-    updatePriceFromCart(index, getPosCurrencyValue(priceInput));
+    updatePriceFromCart(index, getPosCurrencyValue(priceInput), { renderFull: false });
+});
+
+posCartBody.addEventListener("change", (event) => {
+    const qtyInput = event.target.closest("[data-pos-qty-index]");
+    if (qtyInput) {
+        const index = Number(qtyInput.dataset.posQtyIndex);
+        updateQtyFromCart(index, Number(qtyInput.value || 0), { renderFull: false, syncInput: true });
+        return;
+    }
+
+    const priceInput = event.target.closest("[data-pos-price-index]");
+    if (!priceInput) return;
+    const index = Number(priceInput.dataset.posPriceIndex);
+    updatePriceFromCart(index, getPosCurrencyValue(priceInput), { renderFull: false, syncInput: true });
 });
 
 posCartBody.addEventListener("focusin", (event) => {
@@ -1337,10 +1857,16 @@ posCartBody.addEventListener("focusin", (event) => {
 
 setPosPaymentMethod(posPaymentMethod.value || "cash");
 syncPosCashierDisplay();
+collectPosCustomerOptions();
+collectPosCashierOptions();
+setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
+setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
+syncPosCustomerLoyaltyHint();
 updatePosClock();
 window.setInterval(updatePosClock, 1000);
 renderPosCart();
 resetPosDraft();
+resetPosQuickSearch();
 loadPosCatalog(1);
 </script>
 {% endblock %}

@@ -22,6 +22,7 @@
 {% set chat_widget_js_url = asset_url('js/chat_widget.js') %}
 {% set floating_toolbelt_js_url = asset_url('js/floating_toolbelt.js') %}
 {% set currency_inputs_js_url = asset_url('js/currency_inputs.js') %}
+{% set searchable_select_js_url = asset_url('js/searchable_select.js') %}
 {% set table_layout_controls_js_url = asset_url('js/table_layout_controls.js') %}
 {% set offline_url = asset_url('offline-app.html') %}
 {% set notification_sound_url = asset_url('notif.mp3') %}
@@ -47,16 +48,15 @@
 
     try {
         const storedSidebarKey = sessionStorage.getItem("wms-sidebar-main-panel") || "";
-        const storedSidebarOpenKey = sessionStorage.getItem("wms-sidebar-main-panel-open") || "";
-        const activeSidebarKey = storedSidebarOpenKey || storedSidebarKey;
+        sessionStorage.removeItem("wms-sidebar-main-panel-open");
 
-        if (activeSidebarKey) {
-            root.dataset.sidebarMainActive = activeSidebarKey;
-            root.dataset.sidebarMainOpen = storedSidebarOpenKey;
+        if (storedSidebarKey) {
+            root.dataset.sidebarMainActive = storedSidebarKey;
         } else {
             delete root.dataset.sidebarMainActive;
-            delete root.dataset.sidebarMainOpen;
         }
+
+        delete root.dataset.sidebarMainOpen;
     } catch (error) {
         delete root.dataset.sidebarMainActive;
         delete root.dataset.sidebarMainOpen;
@@ -74,7 +74,7 @@
 {% block extra_head %}{% endblock %}
 </head>
 {% set has_app_shell = session.get("user_id") %}
-<body class="{% if has_app_shell %}has-floating-toolbelt {% endif %}{% if not has_app_shell %}minimal-shell {% endif %}browser-mode" data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser" data-floating-toolbelt-mode="{% block floating_toolbelt_mode %}grouped{% endblock %}">
+<body class="{% if has_app_shell %}has-floating-toolbelt {% endif %}{% if not has_app_shell %}minimal-shell {% endif %}browser-mode" data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser" data-floating-toolbelt-mode="{% block floating_toolbelt_mode %}grouped{% endblock %}" data-ui-homebase="{{ '1' if use_homebase_ui else '0' }}">
 <a href="#mainContent" class="skip-link">Lewati ke konten utama</a>
 
 {% if has_app_shell %}
@@ -182,14 +182,17 @@
     {% set is_hris_active = request.path.startswith('/hris') %}
     {% set is_system_active = request.path.startswith('/admin') %}
     {% set is_account_active = request.path.startswith('/account') %}
-    {% set is_hr_role = session.get("role") == "hr" %}
+    {% set can_view_coordination = can("view_announcements") or can("view_meetings") or can("access_attendance_portal") or can("access_leave_portal") or can("access_daily_report_portal") or can("view_schedule") %}
+    {% set can_view_workspace = can("view_workspace") or can("view_product_lookup") or can("view_crm") %}
+    {% set can_view_wms = can("view_wms") %}
+    {% set show_account_settings = session.get("role") != "free_lance" %}
     {% if is_system_active and can("view_admin") %}
         {% set default_sidebar_main = "system" %}
     {% elif is_hris_active and sidebar_hris_modules %}
         {% set default_sidebar_main = "hris" %}
-    {% elif is_wms_active and not is_hr_role %}
+    {% elif is_wms_active and can_view_wms %}
         {% set default_sidebar_main = "wms" %}
-    {% elif is_coordination_active or is_announcements_active %}
+    {% elif can_view_coordination and (is_coordination_active or is_announcements_active) %}
         {% set default_sidebar_main = "coordination" %}
     {% else %}
         {% set default_sidebar_main = "workspace" %}
@@ -198,17 +201,19 @@
     <div class="sidebar-app-shell" data-sidebar-main-default="{{ default_sidebar_main }}">
         <div class="sidebar-main-rail">
             <nav class="sidebar-main-icons" aria-label="Navigasi utama">
-                {% if session.get("user_id") %}
+                {% if session.get("user_id") and can_view_coordination %}
                 <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'coordination' %}active{% endif %}" data-sidebar-main-trigger="coordination" aria-label="Koordinasi" title="Koordinasi" data-tooltip="Koordinasi">
                     <img src="{{ asset_url('icons/workspace/group-coordination.svg') }}" alt="" class="sidebar-icon-image">
                     <span class="sr-only">Koordinasi</span>
                 </button>
                 {% endif %}
+                {% if can_view_workspace %}
                 <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'workspace' %}active{% endif %}" data-sidebar-main-trigger="workspace" aria-label="Workspace" title="Workspace" data-tooltip="Workspace">
                     <img src="{{ asset_url('icons/workspace/group-workspace.svg') }}" alt="" class="sidebar-icon-image">
                     <span class="sr-only">Workspace</span>
                 </button>
-                {% if not is_hr_role %}
+                {% endif %}
+                {% if can_view_wms %}
                 <button type="button" class="ghost-button sidebar-main-trigger {% if default_sidebar_main == 'wms' %}active{% endif %}" data-sidebar-main-trigger="wms" aria-label="WMS" title="WMS" data-tooltip="WMS">
                     <img src="{{ asset_url('icons/workspace/group-wms.svg') }}" alt="" class="sidebar-icon-image">
                     <span class="sr-only">WMS</span>
@@ -238,10 +243,12 @@
                         <img src="{{ asset_url('icons/workspace/utility-install.svg') }}" alt="" class="sidebar-icon-image">
                         <span class="sr-only" data-pwa-install-label>Install App</span>
                     </button>
+                    {% if show_account_settings %}
                     <a href="/account/settings" class="ghost-button sidebar-icon-button sidebar-footer-link {% if is_account_active %}active{% endif %}" aria-label="Pengaturan Akun" title="Pengaturan Akun" data-tooltip="Pengaturan Akun">
                         <img src="{{ asset_url('icons/workspace/utility-account-settings.svg') }}" alt="" class="sidebar-icon-image">
                         <span class="sr-only">Pengaturan Akun</span>
                     </a>
+                    {% endif %}
                     <form method="GET" action="/logout">
                         <button type="submit" class="ghost-button sidebar-icon-button" aria-label="Keluar" title="Keluar" data-tooltip="Keluar">
                             <img src="{{ asset_url('icons/workspace/utility-logout.svg') }}" alt="" class="sidebar-icon-image">
@@ -253,32 +260,42 @@
         </div>
 
         <div class="sidebar-subpanel-stack">
-            {% if session.get("user_id") %}
+            {% if session.get("user_id") and can_view_coordination %}
             <section class="sidebar-subpanel" data-sidebar-main-panel="coordination" data-sidebar-group="coordination" {% if default_sidebar_main == 'coordination' %}open{% endif %} hidden aria-hidden="true">
                 <div class="sidebar-subpanel-head">
                     <h3>Koordinasi</h3>
                 </div>
                 <div class="sidebar-subgrid">
+                    {% if can("view_announcements") %}
                     <a href="/announcements/" class="sidebar-subtile {% if is_announcements_active %}active{% endif %}" aria-label="Pengumuman">
                         <img src="{{ asset_url('icons/workspace/coordination-pengumuman.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Pengumuman</span>
                     </a>
+                    {% endif %}
+                    {% if can("view_meetings") %}
                     <a href="/meetings/" class="sidebar-subtile {% if is_meeting_active %}active{% endif %}" aria-label="Meeting Live">
                         <img src="{{ asset_url('icons/workspace/coordination-meeting-live.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Meeting Live</span>
                     </a>
+                    {% endif %}
+                    {% if can("access_attendance_portal") %}
                     <a href="/absen/" class="sidebar-subtile {% if request.path.startswith('/absen') %}active{% endif %}" aria-label="Absen">
                         <img src="{{ asset_url('icons/workspace/coordination-absen-foto.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Absen</span>
                     </a>
+                    {% endif %}
+                    {% if can("access_leave_portal") %}
                     <a href="/libur/" class="sidebar-subtile {% if request.path.startswith('/libur') %}active{% endif %}" aria-label="Libur">
                         <img src="{{ asset_url('icons/workspace/coordination-libur.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Libur</span>
                     </a>
+                    {% endif %}
+                    {% if can("access_daily_report_portal") %}
                     <a href="/laporan-harian/" class="sidebar-subtile {% if request.path.startswith('/laporan-harian') %}active{% endif %}" aria-label="Report Harian">
                         <img src="{{ asset_url('icons/workspace/coordination-report-harian.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Report Harian</span>
                     </a>
+                    {% endif %}
                     {% if can("view_schedule") %}
                     <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active sidebar-subtile{% else %}sidebar-subtile{% endif %}" aria-label="Jadwal">
                         <img src="{{ asset_url('icons/workspace/coordination-jadwal.svg') }}" alt="" class="sidebar-subtile-icon">
@@ -290,19 +307,24 @@
             </section>
             {% endif %}
 
+            {% if can_view_workspace %}
             <section class="sidebar-subpanel" data-sidebar-main-panel="workspace" hidden aria-hidden="true">
                 <div class="sidebar-subpanel-head">
                     <h3>Workspace</h3>
                 </div>
                 <div class="sidebar-subgrid">
+                    {% if can("view_workspace") %}
                     <a href="/workspace/" class="sidebar-subtile {% if is_workspace_home_active %}active{% endif %}" data-sidebar-group="workspace-home" aria-label="Pusat Modul">
                         <img src="{{ asset_url('icons/workspace/hris-home.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Pusat Modul</span>
                     </a>
+                    {% endif %}
+                    {% if can("view_product_lookup") %}
                     <a href="/info-produk/" class="sidebar-subtile {% if is_product_lookup_active %}active{% endif %}" aria-label="Info Produk">
                         <img src="{{ asset_url('icons/workspace/wms-info-produk.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Info Produk</span>
                     </a>
+                    {% endif %}
                     {% if can("view_crm") %}
                     <a href="/crm/" class="sidebar-subtile {% if is_crm_active %}active{% endif %}" aria-label="CRM">
                         <img src="{{ asset_url('icons/workspace/coordination-crm.svg') }}" alt="" class="sidebar-subtile-icon">
@@ -311,8 +333,9 @@
                     {% endif %}
                 </div>
             </section>
+            {% endif %}
 
-            {% if not is_hr_role %}
+            {% if can_view_wms %}
             <section class="sidebar-subpanel" data-sidebar-main-panel="wms" data-sidebar-group="wms" {% if request.path == '/' or request.path.startswith('/stock') or request.path.startswith('/products') or is_pos_active or is_pos_staff_report_active or is_pos_sales_log_active or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}open{% endif %} hidden aria-hidden="true">
                 <div class="sidebar-subpanel-head">
                     <h3>WMS</h3>
@@ -929,14 +952,13 @@ function restoreSidebarMainPanelState() {
         .map((node) => node.dataset.sidebarMainTrigger)
         .filter(Boolean);
     const storedKey = readSidebarStorage(SIDEBAR_MAIN_PANEL_KEY, defaultKey);
-    const storedOpenKey = readSidebarStorage(SIDEBAR_MAIN_PANEL_OPEN_KEY, "");
     const safeDefaultKey = availableKeys.includes(defaultKey) ? defaultKey : (availableKeys[0] || "");
     const safeStoredKey = availableKeys.includes(storedKey) ? storedKey : "";
-    const safeStoredOpenKey = availableKeys.includes(storedOpenKey) ? storedOpenKey : "";
-    const preferredKey = safeStoredOpenKey || safeStoredKey || safeDefaultKey;
+    const preferredKey = safeStoredKey || safeDefaultKey;
+    writeSidebarStorage(SIDEBAR_MAIN_PANEL_OPEN_KEY, "");
     setActiveSidebarMain(preferredKey, {
         persist: false,
-        open: Boolean(safeStoredOpenKey),
+        open: false,
         allowEmpty: true,
     });
 }
@@ -1129,6 +1151,7 @@ function closeMenu() {
 }
 
 function prepareSidebarNavigation() {
+    closeSidebarMainPanels(true);
     persistSidebarScrollPosition();
     persistSidebarDisclosureState();
     if (!isDesktopViewport()) {
@@ -1437,6 +1460,134 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
 {% endif %}
 <script src="{{ currency_inputs_js_url }}"></script>
 <script src="{{ table_layout_controls_js_url }}"></script>
+<script>
+(() => {
+    const body = document.body;
+    if (!body || body.dataset.uiHomebase !== "1") {
+        return;
+    }
+
+    const replaceScopeLabel = (value) => String(value || "")
+        .replace(/\bGUDANG\b/g, "HOMEBASE")
+        .replace(/\bGudang\b/g, "Homebase")
+        .replace(/\bgudang\b/g, "homebase");
+
+    const isPreservedLabel = (node) => {
+        if (!node) {
+            return false;
+        }
+        const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+        return Boolean(element && element.closest("[data-preserve-gudang-label]"));
+    };
+
+    const isSkippableTag = (tagName) => {
+        return ["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"].includes(String(tagName || "").toUpperCase());
+    };
+
+    const normalizeAttribute = (element, attributeName) => {
+        if (!element || !element.hasAttribute(attributeName)) {
+            return;
+        }
+        const currentValue = element.getAttribute(attributeName) || "";
+        const nextValue = replaceScopeLabel(currentValue);
+        if (nextValue !== currentValue) {
+            element.setAttribute(attributeName, nextValue);
+        }
+    };
+
+    const normalizeControlValue = (element) => {
+        if (!(element instanceof HTMLInputElement)) {
+            return;
+        }
+        const inputType = String(element.type || "text").toLowerCase();
+        const canRewriteValue = element.readOnly || ["button", "submit", "reset"].includes(inputType);
+        if (!canRewriteValue) {
+            return;
+        }
+        const currentValue = element.value || "";
+        const nextValue = replaceScopeLabel(currentValue);
+        if (nextValue !== currentValue) {
+            element.value = nextValue;
+        }
+    };
+
+    const normalizeTextNode = (node) => {
+        if (!node || node.nodeType !== Node.TEXT_NODE || isPreservedLabel(node)) {
+            return;
+        }
+        const parent = node.parentElement;
+        if (!parent || isSkippableTag(parent.tagName)) {
+            return;
+        }
+        const currentValue = node.nodeValue || "";
+        const nextValue = replaceScopeLabel(currentValue);
+        if (nextValue !== currentValue) {
+            node.nodeValue = nextValue;
+        }
+    };
+
+    const normalizeElement = (root) => {
+        if (!(root instanceof Element) || isPreservedLabel(root)) {
+            return;
+        }
+        if (isSkippableTag(root.tagName)) {
+            return;
+        }
+
+        normalizeAttribute(root, "title");
+        normalizeAttribute(root, "aria-label");
+        normalizeAttribute(root, "placeholder");
+        normalizeAttribute(root, "data-tooltip");
+        normalizeControlValue(root);
+
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) {
+            textNodes.push(walker.currentNode);
+        }
+        textNodes.forEach(normalizeTextNode);
+
+        root.querySelectorAll("[title], [aria-label], [placeholder], [data-tooltip], input[readonly], input[type='button'], input[type='submit'], input[type='reset']").forEach((element) => {
+            if (isPreservedLabel(element) || isSkippableTag(element.tagName)) {
+                return;
+            }
+            normalizeAttribute(element, "title");
+            normalizeAttribute(element, "aria-label");
+            normalizeAttribute(element, "placeholder");
+            normalizeAttribute(element, "data-tooltip");
+            normalizeControlValue(element);
+        });
+    };
+
+    document.title = replaceScopeLabel(document.title);
+    normalizeElement(body);
+
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === "characterData") {
+                normalizeTextNode(mutation.target);
+                return;
+            }
+            mutation.addedNodes.forEach((node) => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    normalizeTextNode(node);
+                    return;
+                }
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    normalizeElement(node);
+                }
+            });
+        });
+    });
+
+    observer.observe(body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+    });
+})();
+</script>
+<script src="{{ searchable_select_js_url }}"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

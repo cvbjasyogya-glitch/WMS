@@ -96,7 +96,7 @@
 </div>
 
 <form method="GET" class="top-bar schedule-filter-bar">
-    <select name="warehouse">
+    <select name="warehouse" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang.">
         <option value="">Semua Gudang</option>
         {% for warehouse in warehouses %}
         <option value="{{ warehouse.id }}" {% if dashboard_filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
@@ -164,7 +164,7 @@
             </div>
             <div>
                 <label>Scope Gudang</label>
-                <select name="warehouse_id">
+                <select name="warehouse_id" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang.">
                     <option value="">Semua Gudang</option>
                     {% for warehouse in warehouses %}
                     <option value="{{ warehouse.id }}" {% if dashboard_filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
@@ -405,7 +405,7 @@
 
 <form method="GET" class="top-bar products-filter-bar">
     <input type="text" name="q" value="{{ employee_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
-    <select name="warehouse" {% if employee_scope_warehouse %}disabled{% endif %}>
+    <select name="warehouse" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang." {% if employee_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if employee_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -454,7 +454,7 @@
             </div>
             <div>
                 <label>Gudang Kerja</label>
-                <select name="warehouse_id" required {% if employee_scope_warehouse %}disabled{% endif %}>
+                <select name="warehouse_id" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang." required {% if employee_scope_warehouse %}disabled{% endif %}>
                     <option value="">Pilih Gudang</option>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if employee_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -541,7 +541,7 @@
                         </div>
                         <div>
                             <label>Gudang Kerja</label>
-                            <select name="warehouse_id" required {% if employee_scope_warehouse %}disabled{% endif %}>
+                <select name="warehouse_id" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang." required {% if employee_scope_warehouse %}disabled{% endif %}>
                                 {% for w in warehouses %}
                                 <option value="{{ w.id }}" {% if employee.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
                                 {% endfor %}
@@ -672,7 +672,7 @@
 
 <form method="GET" class="top-bar products-filter-bar">
     <input type="text" name="q" value="{{ attendance_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
-    <select name="warehouse" {% if attendance_scope_warehouse %}disabled{% endif %}>
+    <select name="warehouse" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang." {% if attendance_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if attendance_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -717,7 +717,7 @@
         <div class="form-grid">
             <div>
                 <label>Karyawan</label>
-                <select name="employee_id" required>
+                <select name="employee_id" data-searchable-select="1" data-searchable-placeholder="Cari karyawan" data-searchable-summary="Cari karyawan berdasarkan nama, kode, atau homebase." required>
                     <option value="">Pilih Karyawan</option>
                     {% for employee in attendance_employees %}
                     <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
@@ -785,7 +785,7 @@
                     <div class="form-grid">
                         <div>
                             <label>Karyawan</label>
-                            <select name="employee_id" required>
+                            <select name="employee_id" data-searchable-select="1" data-searchable-placeholder="Cari karyawan" data-searchable-summary="Cari karyawan berdasarkan nama, kode, atau homebase." required>
                                 {% for employee in attendance_employees %}
                                 <option value="{{ employee.id }}" {% if record.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
                                 {% endfor %}
@@ -914,7 +914,7 @@
 
 <form method="GET" class="top-bar products-filter-bar">
     <input type="text" name="q" value="{{ approval_filters.search }}" placeholder="Cari code, nama, alasan, atau catatan approval">
-    <select name="warehouse" {% if approval_scope_warehouse %}disabled{% endif %}>
+    <select name="warehouse" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang." {% if approval_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if approval_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -983,7 +983,7 @@
                         <strong>{{ leave.created_at or '-' }}</strong>
                     </div>
                 </div>
-                <div class="box" style="margin-bottom:12px; background:rgba(255,255,255,0.02);">
+                <div class="box leave-request-reason-box" style="margin-bottom:12px;">
                     <strong>Alasan</strong>
                     <p style="margin:8px 0 0;">{{ leave.reason or '-' }}</p>
                     {% if leave.note %}
@@ -1121,7 +1121,7 @@
 
 <form method="GET" class="top-bar products-filter-bar">
     <input type="text" name="q" value="{{ leave_filters.search }}" placeholder="Cari code, nama, alasan, atau catatan leave">
-    <select name="warehouse" {% if leave_scope_warehouse %}disabled{% endif %}>
+    <select name="warehouse" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang." {% if leave_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if leave_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -1173,7 +1173,7 @@
         <div class="form-grid">
             <div>
                 <label>Karyawan</label>
-                <select name="employee_id" required>
+                <select name="employee_id" data-searchable-select="1" data-searchable-placeholder="Cari karyawan" data-searchable-summary="Cari karyawan berdasarkan nama, kode, atau homebase." required>
                     <option value="">Pilih Karyawan</option>
                     {% for employee in leave_employees %}
                     <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
@@ -1254,7 +1254,7 @@
                     <div class="form-grid">
                         <div>
                             <label>Karyawan</label>
-                            <select name="employee_id" required>
+                            <select name="employee_id" data-searchable-select="1" data-searchable-placeholder="Cari karyawan" data-searchable-summary="Cari karyawan berdasarkan nama, kode, atau homebase." required>
                                 {% for employee in leave_employees %}
                                 <option value="{{ employee.id }}" {% if leave.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
                                 {% endfor %}
@@ -3467,7 +3467,7 @@
     <div class="section-title">
         <div>
             <h2>Detail Rekap Absensi Geotag</h2>
-            <p>Panel detail ini tetap fokus ke attendance harian per staff untuk validasi status, jam masuk-pulang, titik geotag, foto, dan lembur per hari.</p>
+            <p>Panel detail ini tetap fokus ke attendance harian per staff untuk validasi status, jam masuk-pulang, alamat atau tempat absensi, foto, dan lembur per hari.</p>
         </div>
     </div>
 
@@ -3487,8 +3487,8 @@
                 <th>Absensi</th>
                 <th>Geo Masuk</th>
                 <th>Geo Pulang</th>
-                <th>Titik</th>
-                <th>Koordinat</th>
+                <th>Alamat / Tempat</th>
+                <th>Alamat GMaps Terakhir</th>
                 <th>Foto Terakhir</th>
                 <th>Log</th>
                 <th>Status</th>
@@ -3617,7 +3617,7 @@
                 <td class="biometric-recap-geo-cell">{{ row.geo_check_in }}</td>
                 <td class="biometric-recap-geo-cell">{{ row.geo_check_out }}</td>
                 <td class="biometric-recap-location-cell">{{ row.location_text }}</td>
-                <td class="mono biometric-recap-coordinate-cell">{{ row.latest_coordinate }}{% if row.latest_accuracy != '-' %} | {{ row.latest_accuracy }}{% endif %}</td>
+                <td class="biometric-recap-location-cell">{{ row.latest_location }}</td>
                 <td class="biometric-recap-photo-cell">
                     {% if row.latest_photo_url %}
                     <a href="{{ row.latest_photo_url }}" target="_blank" rel="noopener noreferrer" class="biometric-photo-inline-link">Lihat Foto</a>

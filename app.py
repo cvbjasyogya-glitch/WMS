@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from uuid import uuid4
 from urllib.parse import urlsplit
 
@@ -58,6 +59,48 @@ from services.hris_catalog import (
 
 
 SESSION_TIMEOUT = int(getattr(Config, "PERMANENT_SESSION_LIFETIME").total_seconds())
+NON_WMS_HOMEBASE_EXCLUDED_PREFIXES = (
+    "/stock",
+    "/products",
+    "/inbound",
+    "/outbound",
+    "/transfers",
+    "/request",
+    "/approvals",
+    "/audit",
+    "/so",
+)
+ROLE_HOME_ENDPOINTS = {
+    "intern": "dashboard.workspace_gateway",
+    "staff_intern": "dashboard.workspace_gateway",
+    "free_lance": "attendance_portal.index",
+}
+RESTRICTED_ROLE_ENDPOINT_RULES = {
+    "intern": (
+        "dashboard.workspace_gateway",
+        "announcement_center.",
+        "attendance_portal.",
+        "leave_portal.",
+        "daily_report_portal.",
+        "schedule.",
+        "account.",
+        "notifications_center.",
+    ),
+    "staff_intern": (
+        "dashboard.workspace_gateway",
+        "announcement_center.",
+        "attendance_portal.",
+        "leave_portal.",
+        "daily_report_portal.",
+        "schedule.",
+        "account.",
+        "notifications_center.",
+    ),
+    "free_lance": (
+        "attendance_portal.",
+        "notifications_center.",
+    ),
+}
 
 
 def _normalized_restore_usernames(raw_value):
@@ -82,6 +125,33 @@ def _parse_local_iso_datetime(value):
         return None
 
 
+def _should_use_homebase_ui(path):
+    safe_path = str(path or "").strip() or "/"
+    if safe_path == "/":
+        return False
+    return not any(safe_path.startswith(prefix) for prefix in NON_WMS_HOMEBASE_EXCLUDED_PREFIXES)
+
+
+def _replace_scope_label_with_homebase(value):
+    if value is None:
+        return value
+
+    def _match_case(source, replacement):
+        if source.isupper():
+            return replacement.upper()
+        if source.islower():
+            return replacement.lower()
+        if source[:1].isupper() and source[1:].islower():
+            return replacement.capitalize()
+        return replacement
+
+    return re.sub(
+        r"\b[Gg][Uu][Dd][Aa][Nn][Gg]\b",
+        lambda match: _match_case(match.group(0), "Homebase"),
+        str(value),
+    )
+
+
 def _format_shell_timer_clock(total_seconds):
     safe_seconds = int(max(0, total_seconds or 0))
     hours, remainder = divmod(safe_seconds, 3600)
@@ -89,6 +159,30 @@ def _format_shell_timer_clock(total_seconds):
     if hours:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _endpoint_matches_role_rule(endpoint, rule):
+    safe_endpoint = str(endpoint or "").strip()
+    safe_rule = str(rule or "").strip()
+    if not safe_endpoint or not safe_rule:
+        return False
+    if safe_rule.endswith("."):
+        return safe_endpoint.startswith(safe_rule)
+    return safe_endpoint == safe_rule
+
+
+def _role_default_redirect_target(role):
+    endpoint_name = ROLE_HOME_ENDPOINTS.get(normalize_role(role))
+    if not endpoint_name:
+        return url_for("dashboard.workspace_gateway")
+    return url_for(endpoint_name)
+
+
+def _role_can_open_endpoint(role, endpoint):
+    rules = RESTRICTED_ROLE_ENDPOINT_RULES.get(normalize_role(role))
+    if not rules:
+        return True
+    return any(_endpoint_matches_role_rule(endpoint, rule) for rule in rules)
 
 
 def _build_shell_break_timer_state():
@@ -428,7 +522,7 @@ def repair_restored_data(app):
                 """
                 SELECT id, warehouse_id
                 FROM users
-                WHERE role IN ('leader', 'admin', 'staff', 'staff_intern')
+                WHERE role IN ('leader', 'admin', 'staff', 'staff_intern', 'intern', 'free_lance')
                 """
             ).fetchall()
 
@@ -917,6 +1011,7 @@ def create_app():
     def inject_permissions():
         role = session.get("role")
         shell_break_timer = _build_shell_break_timer_state() if session.get("user_id") else {"active": False}
+        use_homebase_ui = _should_use_homebase_ui(request.path)
         return {
             "can": lambda permission: has_permission(role, permission),
             "can_access_pos_terminal": lambda: can_access_pos_terminal(role),
@@ -930,6 +1025,12 @@ def create_app():
             "asset_url": build_asset_url,
             "app_version": app.config.get("APP_VERSION"),
             "shell_break_timer": shell_break_timer,
+            "use_homebase_ui": use_homebase_ui,
+            "ui_scope_label": (
+                lambda value: _replace_scope_label_with_homebase(value)
+                if use_homebase_ui
+                else value
+            ),
         }
 
     # ==========================
@@ -992,6 +1093,21 @@ def create_app():
                 "SELECT id FROM warehouses ORDER BY id LIMIT 1"
             ).fetchone()
             session["warehouse_id"] = warehouse["id"] if warehouse else 1
+
+        if not _role_can_open_endpoint(normalized_role, request.endpoint):
+            redirect_target = _role_default_redirect_target(normalized_role)
+            if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+                return jsonify(
+                    {
+                        "status": "error",
+                        "message": "Akses role ini dibatasi ke menu yang diizinkan.",
+                        "redirect": redirect_target,
+                    }
+                ), 403
+            if request.path != redirect_target:
+                flash("Akses role ini dibatasi ke menu yang diizinkan.", "error")
+                return redirect(redirect_target)
+            return "Akses ditolak", 403
 
         if "request_last_seen_id" not in session:
             seed_request_notification_cursor(db)

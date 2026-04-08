@@ -154,7 +154,7 @@
             <span class="status-pill">Tipis {{ summary.low_count }}</span>
             <span class="status-pill">Kosong {{ summary.zero_count }}</span>
         </div>
-        <small>Varian dari master produk yang sama akan digabung agar nama produk tetap bisa dikelola tanpa mencampur produk lain yang kebetulan bernama mirip.</small>
+        <small>Baris stok dengan nama produk yang sama akan digabung ke satu grup agar daftar lebih ringkas. Edit master hanya aktif kalau grup itu memang berasal dari satu master produk.</small>
     </aside>
 </div>
 
@@ -257,7 +257,7 @@
                 data-product-category="{{ group.category_name|e }}"
                 data-product-unit-label="{{ group.unit_label|e }}"
                 data-product-variant-mode="{{ group.variant_mode|e }}"
-                data-stock-editable-row="{% if can('manage_product_master') %}1{% else %}0{% endif %}"
+                data-stock-editable-row="{% if can('manage_product_master') and group.editable_master %}1{% else %}0{% endif %}"
             >
                 {% if can_bulk_adjust_ui %}
                 <td class="stock-group-check-cell">
@@ -283,7 +283,7 @@
                     {% else %}
                     <div class="stock-group-summary-meta">
                         <strong>{{ group.name }}</strong>
-                        <small>{{ group.variant_count }} varian terhubung - Satuan: {{ group.unit_summary }}</small>
+                        <small>{{ group.variant_count }} varian{% if group.multiple_products %} dari {{ group.product_count }} master{% endif %} - Satuan: {{ group.unit_summary }}</small>
                     </div>
                     {% endif %}
                 </td>
@@ -292,7 +292,7 @@
                         <summary class="stock-variant-summary">
                             <span class="stock-group-mobile-copy">
                                 <strong>{{ group.name }}</strong>
-                                <small>{{ group.sku_count }} SKU · {{ group.variant_count }} varian</small>
+                                <small>{{ group.sku_count }} SKU · {{ group.variant_count }} varian{% if group.multiple_products %} · {{ group.product_count }} master{% endif %}</small>
                             </span>
                             <span class="stock-variant-summary-copy">
                                 <strong data-stock-group-count>{{ group.variant_count }} varian</strong>

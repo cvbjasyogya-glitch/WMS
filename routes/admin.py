@@ -9,12 +9,12 @@ from services.event_notification_policy import (
     row_matches_notification_aliases,
     save_event_notification_policy,
 )
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import has_permission, is_scoped_role, normalize_role
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-ALLOWED_ROLES = ["super_admin", "owner", "hr", "leader", "admin", "staff"]
+ALLOWED_ROLES = ["super_admin", "owner", "hr", "leader", "admin", "staff", "intern", "free_lance"]
 ROLE_GUIDE = [
     {
         "role": "super_admin",
@@ -52,6 +52,18 @@ ROLE_GUIDE = [
         "scope": "1 Gudang",
         "summary": "Akses operasional terbatas untuk request, view schedule, dan alur kerja gudang harian.",
     },
+    {
+        "role": "intern",
+        "label": "Intern",
+        "scope": "1 Gudang",
+        "summary": "Fokus pada menu koordinasi tanpa akses WMS, CRM, chat, atau meeting live.",
+    },
+    {
+        "role": "free_lance",
+        "label": "Free Lance",
+        "scope": "1 Gudang",
+        "summary": "Hanya bisa mengakses portal absen operasional sesuai homebase penugasan.",
+    },
 ]
 
 NOTIFICATION_ROLE_LABELS = {
@@ -61,7 +73,16 @@ NOTIFICATION_ROLE_LABELS = {
     "leader": "Leader",
     "admin": "Admin",
     "staff": "Staff",
+    "intern": "Intern",
+    "free_lance": "Free Lance",
 }
+
+
+def _admin_role_bucket(role):
+    normalized = normalize_role(role)
+    if normalized == "staff_intern":
+        return "intern"
+    return normalized
 
 
 def require_admin():
@@ -250,7 +271,7 @@ def _load_admin_context():
             w.id,
             w.name,
             COUNT(DISTINCT u.id) AS assigned_users,
-            COUNT(DISTINCT CASE WHEN u.role IN ('leader', 'admin', 'staff') THEN u.id END) AS scoped_users,
+            COUNT(DISTINCT CASE WHEN u.role IN ('leader', 'admin', 'staff', 'staff_intern', 'intern', 'free_lance') THEN u.id END) AS scoped_users,
             COUNT(DISTINCT s.id) AS stock_rows,
             COUNT(DISTINCT e.id) AS employee_rows
         FROM warehouses w
@@ -268,7 +289,7 @@ def _load_admin_context():
         role_guide.append(
             {
                 **role_item,
-                "count": sum(1 for user in users if user["role"] == role_item["role"]),
+                "count": sum(1 for user in users if _admin_role_bucket(user["role"]) == role_item["role"]),
             }
         )
 
@@ -277,7 +298,7 @@ def _load_admin_context():
             """
             SELECT COUNT(*)
             FROM users
-            WHERE role IN ('leader', 'admin', 'staff') AND warehouse_id IS NULL
+            WHERE role IN ('leader', 'admin', 'staff', 'staff_intern', 'intern', 'free_lance') AND warehouse_id IS NULL
             """
         ).fetchone()[0],
         "pending_requests": db.execute(

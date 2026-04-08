@@ -1,0 +1,104 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [5 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 1770 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 40 800 Tm
+/F1 15 Tf
+(NOTA PENJUALAN POS) Tj
+/F1 11 Tf
+1 0 0 1 40 785 Tm
+() Tj
+1 0 0 1 40 770 Tm
+(Receipt : POS-20260408-0001) Tj
+1 0 0 1 40 755 Tm
+(Tanggal : 2026-04-08 03:13) Tj
+1 0 0 1 40 740 Tm
+(Gudang  : Gudang Mataram) Tj
+1 0 0 1 40 725 Tm
+(Kasir   : Rio Ganteng) Tj
+1 0 0 1 40 710 Tm
+(Customer: Walk-in Customer) Tj
+1 0 0 1 40 695 Tm
+(WA      : Tanpa nomor) Tj
+1 0 0 1 40 680 Tm
+(Status  : POSTED) Tj
+1 0 0 1 40 665 Tm
+(Bayar   : CASH) Tj
+1 0 0 1 40 650 Tm
+() Tj
+1 0 0 1 40 635 Tm
+(----------------------------------------------------------------------------) Tj
+1 0 0 1 40 620 Tm
+(ITEM) Tj
+1 0 0 1 40 605 Tm
+(----------------------------------------------------------------------------) Tj
+1 0 0 1 40 590 Tm
+(1. BED PP-BUTTERFLY-00001 | ADDOY 1000 | default) Tj
+1 0 0 1 40 575 Tm
+(Qty aktif 1 x Rp 50.000 = Rp 50.000) Tj
+1 0 0 1 40 560 Tm
+() Tj
+1 0 0 1 40 545 Tm
+(----------------------------------------------------------------------------) Tj
+1 0 0 1 40 530 Tm
+(Subtotal : Rp 50.000) Tj
+1 0 0 1 40 515 Tm
+(Potongan : Rp 0 \(-\)) Tj
+1 0 0 1 40 500 Tm
+(Pajak    : Rp 0 \(-\)) Tj
+1 0 0 1 40 485 Tm
+(Total    : Rp 50.000) Tj
+1 0 0 1 40 470 Tm
+(Bayar    : Rp 50.000) Tj
+1 0 0 1 40 455 Tm
+(Kembali  : Rp 0) Tj
+1 0 0 1 40 440 Tm
+() Tj
+1 0 0 1 40 425 Tm
+(----------------------------------------------------------------------------) Tj
+1 0 0 1 40 410 Tm
+(Update CRM Customer) Tj
+1 0 0 1 40 395 Tm
+(- Member: 001) Tj
+1 0 0 1 40 380 Tm
+(- Progress senar: 1/6) Tj
+1 0 0 1 40 365 Tm
+(- Sisa 5 lagi menuju free 1x) Tj
+1 0 0 1 40 350 Tm
+() Tj
+1 0 0 1 40 335 Tm
+(----------------------------------------------------------------------------) Tj
+1 0 0 1 40 320 Tm
+(Generated backend: 2026-04-08 10:13:21) Tj
+1 0 0 1 40 305 Tm
+(ERP Core Mataram Sports) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000002013 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+2139
+%%EOF

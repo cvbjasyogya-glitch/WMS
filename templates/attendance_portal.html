@@ -142,14 +142,20 @@
                             {% endif %}
                         </div>
                         <div>
-                            <label>Tipe Absen</label>
+                            <label>{{ "Absen Lanjutan" if portal_show_follow_up_punch_group else "Tipe Absen" }}</label>
                             {% if portal_punch_options %}
                             <select name="punch_type" data-punch-type-select {% if portal_punch_mode == "complete" %}disabled{% endif %}>
+                                {% if portal_show_follow_up_punch_group %}
+                                <optgroup label="Absen Lainnya">
+                                {% endif %}
                                 {% for option in portal_punch_options %}
                                 <option value="{{ option.value }}" {% if option.value == portal_punch_mode %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
+                                {% if portal_show_follow_up_punch_group %}
+                                </optgroup>
+                                {% endif %}
                             </select>
-                            <small class="helper-text">Urutan aman: Check In, Break Start, Break Finish, lalu Check Out.</small>
+                            <small class="helper-text" data-punch-type-helper>{{ portal_punch_helper_text }}</small>
                             {% else %}
                             <input type="text" value="{{ portal_punch_label }}" readonly>
                             {% endif %}
@@ -163,14 +169,14 @@
                             <input type="text" value="{{ portal_selected_shift_time_label }}" data-shift-time-display readonly>
                         </div>
                         <div class="span-full">
-                            <label>Titik Lokasi</label>
+                            <label>Lokasi Absen</label>
                             <input type="hidden" name="location_label" data-location-label-input>
                             <select name="location_scope" data-location-scope-select {% if portal_punch_mode == "complete" %}disabled{% endif %} required>
                                 {% for option in portal_location_scope_options %}
                                 <option value="{{ option.value }}" {% if option.value == portal_default_location_scope %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
                             </select>
-                            <small class="helper-text">Pilih titik kerja yang paling sesuai sebelum foto diambil.</small>
+                            <small class="helper-text">Pilih area kerja yang paling sesuai. Setelah GPS terbaca, portal akan mengisi alamat atau tempat absennya.</small>
                         </div>
                         <div class="span-full" data-location-other-wrap hidden>
                             <label>Jelaskan Lokasi Lainnya</label>
@@ -184,7 +190,7 @@
                             <button type="button" class="ghost-button" data-location-capture {% if portal_punch_mode == "complete" %}disabled{% endif %}>Refresh Lokasi</button>
                         </div>
                         <div class="span-full">
-                            <small class="helper-text" data-location-helper>Pastikan GPS aktif. Setelah foto diambil, portal akan otomatis membaca koordinat.</small>
+                            <small class="helper-text" data-location-helper>Pastikan GPS aktif. Setelah foto diambil, portal akan otomatis membaca alamat atau tempat absennya.</small>
                         </div>
                     </div>
                     <details class="attendance-optional-panel">
@@ -391,12 +397,42 @@
     let submitInProgress = false;
     let locationRequestPromise = null;
     let previewRefreshTimer = null;
+    let resolvedGpsAddress = "";
 
     const LOCATION_SCOPE_LABELS = {
         mataram: "Gudang Mataram",
         mega: "Gudang Mega",
         event: "Event",
         other: "Lainnya",
+    };
+
+    const normalizeLocationPart = (value) => String(value || "")
+        .replace(/\s+/g, " ")
+        .replace(/\s*,\s*/g, ", ")
+        .replace(/^[,| -]+|[,| -]+$/g, "")
+        .trim();
+
+    const uniqueLocationParts = (parts) => {
+        const seen = new Set();
+        return (parts || []).map((part) => normalizeLocationPart(part)).filter((part) => {
+            if (!part) {
+                return false;
+            }
+            const key = part.toLowerCase();
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    };
+
+    const shortenText = (value, maxLength = 120) => {
+        const safeValue = normalizeLocationPart(value);
+        if (!safeValue || safeValue.length <= maxLength) {
+            return safeValue;
+        }
+        return `${safeValue.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
     };
 
     const formatDateTimeLocal = (date) => {
@@ -518,20 +554,169 @@
         return `Akurasi ${rawValue} m`;
     };
 
-    const buildResolvedLocationLabel = () => {
-        const scopeValue = (locationScopeSelect?.value || "").trim().toLowerCase();
-        if (scopeValue === "other") {
-            const detail = (locationOtherInput?.value || "").trim();
-            if (!detail) {
-                return "Lainnya | Lokasi belum dijelaskan";
-            }
-            return `Lainnya - ${detail}`;
+    const getLocationScopeValue = () => (locationScopeSelect?.value || "").trim().toLowerCase();
+
+    const getLocationScopeLabel = () => {
+        const scopeValue = getLocationScopeValue();
+        return LOCATION_SCOPE_LABELS[scopeValue] || warehouseName || "Lokasi kerja";
+    };
+
+    const buildReverseGeocodeLabel = (payload) => {
+        if (!payload || typeof payload !== "object") {
+            return "";
         }
 
-        return LOCATION_SCOPE_LABELS[scopeValue]
-            || (locationLabelInput?.value || "").trim()
-            || warehouseName
-            || "Lokasi kerja";
+        const address = payload.address && typeof payload.address === "object" ? payload.address : {};
+        const roadLabel = uniqueLocationParts([
+            [address.road, address.house_number].filter(Boolean).join(" "),
+        ])[0] || "";
+        const localityLabel = uniqueLocationParts([
+            address.neighbourhood,
+            address.suburb,
+            address.village,
+            address.hamlet,
+            address.city_district,
+        ])[0] || "";
+        const cityLabel = uniqueLocationParts([
+            address.city,
+            address.town,
+            address.municipality,
+            address.county,
+        ])[0] || "";
+        const regionLabel = uniqueLocationParts([
+            address.state,
+            address.region,
+        ])[0] || "";
+        const placeLabel = uniqueLocationParts([
+            payload.name,
+            address.amenity,
+            address.shop,
+            address.building,
+            address.office,
+            address.tourism,
+            address.leisure,
+        ])[0] || "";
+        const compactAddress = uniqueLocationParts([
+            roadLabel,
+            localityLabel,
+            cityLabel,
+            regionLabel,
+        ]).join(", ");
+        const fallbackAddress = uniqueLocationParts(String(payload.display_name || "").split(", "))
+            .slice(0, 5)
+            .join(", ");
+        return uniqueLocationParts([placeLabel, compactAddress]).join(", ") || fallbackAddress;
+    };
+
+    const reverseGeocodeCurrentLocation = async (latitude, longitude) => {
+        const latitudeValue = Number(latitude);
+        const longitudeValue = Number(longitude);
+        if (!Number.isFinite(latitudeValue) || !Number.isFinite(longitudeValue)) {
+            return "";
+        }
+
+        const query = new URLSearchParams({
+            format: "jsonv2",
+            lat: latitudeValue.toFixed(6),
+            lon: longitudeValue.toFixed(6),
+            zoom: "18",
+            addressdetails: "1",
+            "accept-language": "id",
+        });
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
+        const timeoutId = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
+
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${query.toString()}`, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                },
+                cache: "no-store",
+                signal: controller ? controller.signal : undefined,
+            });
+            if (!response.ok) {
+                return "";
+            }
+            const payload = await response.json();
+            return buildReverseGeocodeLabel(payload);
+        } catch (error) {
+            return "";
+        } finally {
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+        }
+    };
+
+    const buildBaseLocationLabel = () => {
+        const scopeValue = getLocationScopeValue();
+        if (scopeValue === "other") {
+            const detail = normalizeLocationPart(locationOtherInput?.value || "");
+            return detail ? `Lainnya - ${detail}` : "";
+        }
+        return getLocationScopeLabel();
+    };
+
+    const buildResolvedLocationLabel = () => {
+        const scopeValue = getLocationScopeValue();
+        const detail = normalizeLocationPart(locationOtherInput?.value || "");
+        const scopeLabel = getLocationScopeLabel();
+        const gpsAddress = normalizeLocationPart(resolvedGpsAddress);
+
+        if (scopeValue === "other") {
+            if (detail && gpsAddress) {
+                return `Lainnya - ${detail} | ${gpsAddress}`;
+            }
+            if (detail) {
+                return `Lainnya - ${detail}`;
+            }
+            if (gpsAddress) {
+                return `Lainnya | ${gpsAddress}`;
+            }
+            return "";
+        }
+
+        if (gpsAddress) {
+            const gpsKey = gpsAddress.toLowerCase();
+            const scopeKey = scopeLabel.toLowerCase();
+            if (
+                gpsKey === scopeKey
+                || gpsKey.startsWith(`${scopeKey} |`)
+                || gpsKey.startsWith(`${scopeKey} -`)
+            ) {
+                return gpsAddress;
+            }
+            return `${scopeLabel} | ${gpsAddress}`;
+        }
+
+        return buildBaseLocationLabel();
+    };
+
+    const buildLocationDisplayLabel = () => {
+        const resolvedLabel = buildResolvedLocationLabel();
+        if (resolvedLabel) {
+            return resolvedLabel;
+        }
+        if (getLocationScopeValue() === "other") {
+            return "Lainnya | Lokasi belum dijelaskan";
+        }
+        return buildBaseLocationLabel() || `${warehouseName || "Lokasi kerja"} | Lokasi belum diisi`;
+    };
+
+    const syncLocationStatusDisplay = (fallbackStatus = "Belum diambil") => {
+        if (!locationStatus) {
+            return;
+        }
+        if (!latitudeInput.value || !longitudeInput.value) {
+            locationStatus.value = fallbackStatus;
+            locationStatus.title = fallbackStatus;
+            return;
+        }
+
+        const displayLabel = buildLocationDisplayLabel() || "Lokasi berhasil direkam";
+        locationStatus.value = shortenText(displayLabel, 140) || "Lokasi berhasil direkam";
+        locationStatus.title = displayLabel || "Lokasi berhasil direkam";
     };
 
     const syncLocationLabelInput = () => {
@@ -542,7 +727,7 @@
     };
 
     const syncLocationScopeUi = () => {
-        const isOtherScope = (locationScopeSelect?.value || "").trim().toLowerCase() === "other";
+        const isOtherScope = getLocationScopeValue() === "other";
         if (locationOtherWrap) {
             locationOtherWrap.hidden = !isOtherScope;
         }
@@ -550,16 +735,15 @@
             locationOtherInput.required = isOtherScope;
         }
         syncLocationLabelInput();
+        if (latitudeInput.value && longitudeInput.value) {
+            syncLocationStatusDisplay("Lokasi berhasil direkam");
+        }
     };
 
     const buildLocationLines = () => {
         const lines = [];
-        const locationLabel = buildResolvedLocationLabel();
+        const locationLabel = buildLocationDisplayLabel();
         lines.push(locationLabel || `${warehouseName || "Lokasi kerja"} | Lokasi belum diisi`);
-
-        if (latitudeInput.value && longitudeInput.value) {
-            lines.push(`Lat ${latitudeInput.value} | Lng ${longitudeInput.value}`);
-        }
 
         const shiftLabel = getShiftStampLabel();
         if (shiftLabel) {
@@ -616,7 +800,8 @@
     const buildMapPreviewSvg = () => {
         const lat = latitudeInput.value || "-8.583140";
         const lng = longitudeInput.value || "116.116798";
-        const label = escapeSvgText((buildResolvedLocationLabel() || warehouseName || "GPS Snapshot").trim().slice(0, 32));
+        const label = escapeSvgText(shortenText(buildLocationDisplayLabel() || warehouseName || "Lokasi Absen", 32));
+        const detailLabel = escapeSvgText(shortenText(getAccuracyLabel(), 38) || "Alamat otomatis");
         const codeSeed = `${lat}${lng}`.replace(/[^0-9]/g, "").slice(0, 8) || "24598134";
         const accentA = `#${(parseInt(codeSeed.slice(0, 6), 10) % 0xffffff).toString(16).padStart(6, "0")}`;
         const accentB = `#${(parseInt(codeSeed.slice(2, 8), 10) % 0xffffff).toString(16).padStart(6, "0")}`;
@@ -659,7 +844,7 @@
                 <text x="70" y="41" text-anchor="middle" fill="#0f172a" font-size="14" font-family="Segoe UI, Arial, sans-serif" font-weight="700">GeoTag</text>
                 <rect x="18" y="246" width="284" height="58" rx="18" fill="rgba(7,17,31,0.08)"/>
                 <text x="34" y="274" fill="#0f172a" font-size="18" font-family="Segoe UI, Arial, sans-serif" font-weight="700">${label}</text>
-                <text x="34" y="296" fill="#486581" font-size="14" font-family="Segoe UI, Arial, sans-serif">Lat ${escapeSvgText(lat)} | Lng ${escapeSvgText(lng)}</text>
+                <text x="34" y="296" fill="#486581" font-size="14" font-family="Segoe UI, Arial, sans-serif">${detailLabel}</text>
             </svg>
         `;
         return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
@@ -1373,23 +1558,43 @@
         syncLocationScopeUi();
         locationStatus.value = autoTriggered ? "Mengambil lokasi otomatis..." : "Mengambil lokasi...";
         locationHelper.textContent = autoTriggered
-            ? "Foto sudah diambil. Portal sedang membaca koordinat secara otomatis."
-            : "Tunggu sebentar sampai koordinat selesai dibaca dari browser.";
+            ? "Foto sudah diambil. Portal sedang membaca lokasi dan alamat tempat absen secara otomatis."
+            : "Tunggu sebentar sampai lokasi dan alamat tempat absen selesai dibaca dari browser.";
         if (locationButton) {
             locationButton.disabled = true;
         }
 
         locationRequestPromise = new Promise((resolve) => {
             navigator.geolocation.getCurrentPosition(
-                (position) => {
+                async (position) => {
                     latitudeInput.value = position.coords.latitude.toFixed(6);
                     longitudeInput.value = position.coords.longitude.toFixed(6);
                     accuracyInput.value = position.coords.accuracy ? position.coords.accuracy.toFixed(2) : "";
-                    syncLocationLabelInput();
-                    locationStatus.value = "Lokasi berhasil direkam";
+                    resolvedGpsAddress = "";
+                    locationStatus.value = "Mencari alamat lokasi...";
                     locationHelper.textContent = autoTriggered
-                        ? "Koordinat berhasil diambil otomatis. Kamu bisa langsung simpan absen."
-                        : "Koordinat dan akurasi sudah terisi. Kamu bisa langsung simpan absen.";
+                        ? "Lokasi GPS sudah terbaca. Portal sedang mencari alamat atau nama tempat absen."
+                        : "Lokasi GPS sudah terbaca. Portal sedang mencari alamat atau nama tempat absen di peta.";
+                    const resolvedAddress = await reverseGeocodeCurrentLocation(
+                        latitudeInput.value,
+                        longitudeInput.value,
+                    );
+                    if (resolvedAddress) {
+                        resolvedGpsAddress = resolvedAddress;
+                    }
+                    syncLocationLabelInput();
+                    syncLocationStatusDisplay("Lokasi berhasil direkam");
+                    locationHelper.textContent = resolvedGpsAddress
+                        ? (
+                            autoTriggered
+                                ? "Alamat atau tempat absen berhasil dibaca otomatis. Kamu bisa langsung simpan absen."
+                                : "Alamat atau tempat absen sudah terisi. Kamu bisa langsung simpan absen."
+                        )
+                        : (
+                            autoTriggered
+                                ? "Alamat belum terbaca dari peta, jadi portal memakai label lokasi kerja yang dipilih."
+                                : "Alamat belum terbaca dari peta, jadi portal memakai label lokasi kerja yang dipilih."
+                        );
                     if (rawPhotoDataUrl) {
                         scheduleStampedPreviewRefresh(autoTriggered ? 40 : 120);
                     }
@@ -1467,6 +1672,7 @@
     setCameraFrameOrientation(getViewportOrientation());
     syncShiftProfileUi();
     syncLocationScopeUi();
+    syncLocationStatusDisplay("Belum diambil");
     if (!portalLocked) {
         window.setInterval(() => {
             syncPunchTime();

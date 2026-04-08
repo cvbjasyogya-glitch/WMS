@@ -109,6 +109,8 @@
                 <select name="role">
                     <option value="admin">Admin</option>
                     <option value="staff">Staff</option>
+                    <option value="intern">Intern</option>
+                    <option value="free_lance">Free Lance</option>
                     <option value="leader">Leader</option>
                     <option value="hr">HR</option>
                     <option value="owner">Owner</option>
@@ -117,17 +119,17 @@
             </div>
             <div>
                 <label>Tugaskan Gudang</label>
-                <select name="warehouse_id">
+                <select name="warehouse_id" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang.">
                     <option value="">-- Tidak ada --</option>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}">{{ w.name }}</option>
                     {% endfor %}
                 </select>
-                <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff. Role HR, owner, dan super admin bersifat lintas gudang.</small>
+                <small class="helper-text">Wajib diisi untuk role leader, admin, staff, intern, dan free lance. Role HR, owner, dan super admin bersifat lintas gudang.</small>
             </div>
             <div>
                 <label>Tautkan Karyawan</label>
-                <select name="employee_id">
+                <select name="employee_id" data-searchable-select="1" data-searchable-placeholder="Cari karyawan" data-searchable-summary="Cari karyawan berdasarkan nama, kode, atau homebase.">
                     <option value="">-- Belum ditautkan --</option>
                     {% for employee in employees %}
                     <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
@@ -163,7 +165,7 @@
             <div>
                 <h2>Manajemen User</h2>
                 <p>Perbarui identitas akun, role, password baru, dan scope gudang dari satu workspace yang khusus untuk akses.</p>
-                <p class="muted-note">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, dan <strong>staff</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
+                <p class="muted-note">Catatan: Akun dengan role <strong>leader</strong>, <strong>admin</strong>, <strong>staff</strong>, <strong>intern</strong>, dan <strong>free_lance</strong> dibatasi hanya pada 1 gudang yang ditetapkan. Akun <strong>hr</strong>, <strong>super_admin</strong>, dan <strong>owner</strong> dapat mengakses lintas gudang.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
@@ -195,6 +197,8 @@
                         <select name="role">
                             <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
                             <option value="staff" {% if u.role == 'staff' %}selected{% endif %}>staff</option>
+                            <option value="intern" {% if u.role == 'intern' or u.role == 'staff_intern' %}selected{% endif %}>intern</option>
+                            <option value="free_lance" {% if u.role == 'free_lance' %}selected{% endif %}>free_lance</option>
                             <option value="leader" {% if u.role == 'leader' %}selected{% endif %}>leader</option>
                             <option value="hr" {% if u.role == 'hr' %}selected{% endif %}>hr</option>
                             <option value="owner" {% if u.role == 'owner' %}selected{% endif %}>owner</option>
@@ -203,17 +207,17 @@
                     </div>
                     <div>
                         <label>Tugaskan Gudang</label>
-                        <select name="warehouse_id">
+                        <select name="warehouse_id" data-searchable-select="1" data-searchable-placeholder="Cari homebase" data-searchable-summary="Search homebase lebih cepat tanpa scroll panjang.">
                             <option value="">-- Tidak ada --</option>
                             {% for w in warehouses %}
                             <option value="{{ w.id }}" {% if u.warehouse_id is defined and u.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
                             {% endfor %}
                         </select>
-                        <small class="helper-text">Wajib diisi untuk role leader, admin, dan staff. Role HR, owner, dan super admin tidak dikunci ke satu gudang.</small>
+                        <small class="helper-text">Wajib diisi untuk role leader, admin, staff, intern, dan free_lance. Role HR, owner, dan super admin tidak dikunci ke satu gudang.</small>
                     </div>
                     <div>
                         <label>Tautan Karyawan</label>
-                        <select name="employee_id">
+                        <select name="employee_id" data-searchable-select="1" data-searchable-placeholder="Cari karyawan" data-searchable-summary="Cari karyawan berdasarkan nama, kode, atau homebase.">
                             <option value="">-- Belum ditautkan --</option>
                             {% for employee in employees %}
                             <option value="{{ employee.id }}" {% if u.employee_id is defined and u.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>

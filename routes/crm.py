@@ -4,6 +4,22 @@ from datetime import date as date_cls
 from flask import Blueprint, flash, redirect, render_template, request, session
 
 from database import get_db
+from services.crm_loyalty import (
+    CRM_TRANSACTION_TYPES,
+    CRM_TRANSACTION_TYPE_LABELS,
+    DEFAULT_STRINGING_REWARD_AMOUNT,
+    MEMBER_RECORD_TYPES,
+    MEMBER_TYPE_LABELS,
+    MEMBER_TYPES,
+    MEMBERSHIP_STATUSES,
+    build_auto_member_record,
+    build_member_snapshot_from_row,
+    get_member_snapshot,
+    normalize_member_record_type,
+    normalize_member_type,
+    normalize_membership_status,
+    normalize_transaction_type,
+)
 from services.rbac import has_permission, is_scoped_role
 
 
@@ -12,9 +28,8 @@ crm_bp = Blueprint("crm", __name__, url_prefix="/crm")
 CUSTOMER_TYPES = {"retail", "member", "reseller", "vip", "wholesale"}
 PURCHASE_CHANNELS = {"store", "whatsapp", "marketplace", "live", "event", "other"}
 MEMBERSHIP_TIERS = {"regular", "silver", "gold", "platinum", "vip"}
-MEMBERSHIP_STATUSES = {"active", "inactive", "expired"}
-MEMBER_RECORD_TYPES = {"join", "purchase", "renewal", "tier_update", "point_adjustment", "note"}
 CRM_TABS = {"contacts", "purchases", "members"}
+MEMBER_STAFF_ROLES = {"leader", "admin", "staff"}
 
 
 def _to_int(value, default=0):
@@ -56,13 +71,19 @@ def _normalize_member_tier(value):
 
 
 def _normalize_member_status(value):
-    status = (value or "").strip().lower()
-    return status if status in MEMBERSHIP_STATUSES else "active"
+    return normalize_membership_status(value)
 
 
 def _normalize_member_record_type(value):
-    record_type = (value or "").strip().lower()
-    return record_type if record_type in MEMBER_RECORD_TYPES else "note"
+    return normalize_member_record_type(value)
+
+
+def _normalize_member_type(value):
+    return normalize_member_type(value)
+
+
+def _normalize_transaction_type(value):
+    return normalize_transaction_type(value)
 
 
 def _normalize_date(value):
@@ -205,10 +226,16 @@ def _get_member_by_id(db, member_id):
             m.*,
             c.customer_name,
             c.contact_person,
+            c.phone,
             w.name AS warehouse_name
+            ,
+            ru.username AS requested_by_staff_username,
+            COALESCE(NULLIF(TRIM(re.full_name), ''), NULLIF(TRIM(ru.username), ''), NULL) AS requested_by_staff_name
         FROM crm_memberships m
         JOIN crm_customers c ON c.id = m.customer_id
         LEFT JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN users ru ON ru.id = m.requested_by_staff_id
+        LEFT JOIN employees re ON re.id = ru.employee_id
         WHERE m.id=? {scope_clause}
         """,
         [member_id, *params],
@@ -251,6 +278,27 @@ def _get_member_record_by_id(db, record_id):
     ).fetchone()
 
 
+def _get_staff_by_id(db, staff_id):
+    if not staff_id:
+        return None
+    row = db.execute(
+        """
+        SELECT
+            u.id,
+            u.role,
+            u.warehouse_id,
+            u.username,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Staff') AS display_name
+        FROM users u
+        LEFT JOIN employees e ON e.id = u.employee_id
+        WHERE u.id=?
+        LIMIT 1
+        """,
+        (staff_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def _fetch_customer_options(db, selected_warehouse=None):
     params = []
     query = """
@@ -278,7 +326,9 @@ def _fetch_member_options(db, selected_warehouse=None):
         SELECT
             m.id,
             m.member_code,
+            m.member_type,
             m.status,
+            m.reward_unit_amount,
             c.id AS customer_id,
             c.customer_name,
             m.warehouse_id,
@@ -301,6 +351,34 @@ def _fetch_member_options(db, selected_warehouse=None):
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
+def _fetch_staff_options(db, selected_warehouse=None):
+    params = []
+    query = """
+        SELECT
+            u.id,
+            u.role,
+            u.warehouse_id,
+            u.username,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Staff') AS display_name,
+            w.name AS warehouse_name
+        FROM users u
+        LEFT JOIN employees e ON e.id = u.employee_id
+        LEFT JOIN warehouses w ON w.id = u.warehouse_id
+        WHERE u.role IN ('leader', 'admin', 'staff')
+    """
+
+    scope_warehouse = _crm_scope_warehouse()
+    if scope_warehouse:
+        query += " AND u.warehouse_id=?"
+        params.append(scope_warehouse)
+    elif selected_warehouse:
+        query += " AND u.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    query += " ORDER BY COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Staff') ASC"
+    return [dict(row) for row in db.execute(query, params).fetchall()]
+
+
 def _fetch_customers(db, search="", selected_warehouse=None):
     params = []
     query = """
@@ -312,6 +390,7 @@ def _fetch_customers(db, search="", selected_warehouse=None):
             p.last_purchase_date,
             COALESCE(mp.products_summary, '-') AS products_summary,
             m.member_code,
+            m.member_type,
             COALESCE(m.status, 'non_member') AS membership_status
         FROM crm_customers c
         LEFT JOIN warehouses w ON w.id = c.warehouse_id
@@ -377,6 +456,7 @@ def _fetch_purchase_records(db, search="", selected_warehouse=None):
             c.customer_name,
             c.contact_person,
             m.member_code,
+            m.member_type,
             w.name AS warehouse_name,
             u.username AS handled_by_name,
             COALESCE(pi.total_qty, 0) AS total_qty,
@@ -420,6 +500,7 @@ def _fetch_purchase_records(db, search="", selected_warehouse=None):
                 c.customer_name LIKE ?
                 OR COALESCE(pr.invoice_no, '') LIKE ?
                 OR COALESCE(pr.channel, '') LIKE ?
+                OR COALESCE(pr.transaction_type, '') LIKE ?
                 OR COALESCE(pr.note, '') LIKE ?
                 OR EXISTS (
                     SELECT 1
@@ -435,7 +516,7 @@ def _fetch_purchase_records(db, search="", selected_warehouse=None):
                 )
             )
         """
-        params.extend([like, like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like])
 
     query += " ORDER BY pr.purchase_date DESC, pr.id DESC"
     return [dict(row) for row in db.execute(query, params).fetchall()]
@@ -450,23 +531,40 @@ def _fetch_memberships(db, search="", selected_warehouse=None, member_status="")
             c.contact_person,
             c.phone,
             w.name AS warehouse_name,
+            ru.username AS requested_by_staff_username,
+            COALESCE(NULLIF(TRIM(re.full_name), ''), NULLIF(TRIM(ru.username), ''), NULL) AS requested_by_staff_name,
             COALESCE(stats.record_count, 0) AS record_count,
             stats.last_record_date,
-            COALESCE(stats.total_member_spend, 0) AS total_member_spend
+            COALESCE(purchase_stats.total_member_spend, 0) AS total_member_spend,
+            COALESCE(stats.points_delta_total, 0) AS points_delta_total,
+            COALESCE(stats.service_count_total, 0) AS service_count_total,
+            COALESCE(stats.reward_redeemed_total, 0) AS reward_redeemed_total,
+            COALESCE(stats.benefit_value_total, 0) AS benefit_value_total
         FROM crm_memberships m
         JOIN crm_customers c ON c.id = m.customer_id
         LEFT JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN users ru ON ru.id = m.requested_by_staff_id
+        LEFT JOIN employees re ON re.id = ru.employee_id
         LEFT JOIN (
             SELECT
-                m.id AS member_id,
-                COUNT(DISTINCT mr.id) AS record_count,
+                mr.member_id,
+                COUNT(*) AS record_count,
                 MAX(mr.record_date) AS last_record_date,
-                SUM(COALESCE(pr.total_amount, 0)) AS total_member_spend
-            FROM crm_memberships m
-            LEFT JOIN crm_member_records mr ON mr.member_id = m.id
-            LEFT JOIN crm_purchase_records pr ON pr.member_id = m.id
-            GROUP BY m.id
+                SUM(COALESCE(mr.points_delta, 0)) AS points_delta_total,
+                SUM(COALESCE(mr.service_count_delta, 0)) AS service_count_total,
+                SUM(COALESCE(mr.reward_redeemed_delta, 0)) AS reward_redeemed_total,
+                SUM(COALESCE(mr.benefit_value, 0)) AS benefit_value_total
+            FROM crm_member_records mr
+            GROUP BY mr.member_id
         ) stats ON stats.member_id = m.id
+        LEFT JOIN (
+            SELECT
+                pr.member_id,
+                SUM(COALESCE(pr.total_amount, 0)) AS total_member_spend
+            FROM crm_purchase_records pr
+            WHERE pr.member_id IS NOT NULL
+            GROUP BY pr.member_id
+        ) purchase_stats ON purchase_stats.member_id = m.id
         WHERE 1=1
     """
 
@@ -490,13 +588,17 @@ def _fetch_memberships(db, search="", selected_warehouse=None, member_status="")
                 OR c.customer_name LIKE ?
                 OR COALESCE(c.contact_person, '') LIKE ?
                 OR COALESCE(c.phone, '') LIKE ?
+                OR COALESCE(m.member_type, '') LIKE ?
                 OR COALESCE(m.note, '') LIKE ?
             )
         """
-        params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like, like, like])
 
     query += " ORDER BY m.join_date DESC, m.id DESC"
-    return [dict(row) for row in db.execute(query, params).fetchall()]
+    return [
+        build_member_snapshot_from_row(dict(row))
+        for row in db.execute(query, params).fetchall()
+    ]
 
 
 def _fetch_member_records(db, search="", selected_warehouse=None):
@@ -505,6 +607,8 @@ def _fetch_member_records(db, search="", selected_warehouse=None):
         SELECT
             mr.*,
             m.member_code,
+            m.member_type,
+            m.reward_unit_amount,
             c.customer_name,
             w.name AS warehouse_name,
             u.username AS handled_by_name
@@ -577,6 +681,7 @@ def crm_page():
     member_records = _fetch_member_records(db, search, selected_warehouse)
     customer_options = _fetch_customer_options(db, selected_warehouse)
     member_options = _fetch_member_options(db, selected_warehouse)
+    staff_options = _fetch_staff_options(db, selected_warehouse)
     summary = _build_crm_summary(customers, purchases, memberships, member_records)
 
     return render_template(
@@ -592,12 +697,18 @@ def crm_page():
         member_records=member_records,
         customer_options=customer_options,
         member_options=member_options,
+        staff_options=staff_options,
         summary=summary,
         customer_types=sorted(CUSTOMER_TYPES),
         purchase_channels=sorted(PURCHASE_CHANNELS),
+        member_types=sorted(MEMBER_TYPES),
+        member_type_labels=MEMBER_TYPE_LABELS,
         membership_tiers=sorted(MEMBERSHIP_TIERS),
         membership_statuses=sorted(MEMBERSHIP_STATUSES),
         member_record_types=sorted(MEMBER_RECORD_TYPES),
+        transaction_types=["purchase", "stringing_service", "stringing_reward_redemption"],
+        transaction_type_labels=CRM_TRANSACTION_TYPE_LABELS,
+        default_stringing_reward_amount=DEFAULT_STRINGING_REWARD_AMOUNT,
         scoped_crm_warehouse=_crm_scope_warehouse(),
         can_manage_crm=has_permission(session.get("role"), "manage_crm"),
     )
@@ -723,6 +834,7 @@ def add_purchase():
     purchase_date = _normalize_date(request.form.get("purchase_date"))
     invoice_no = (request.form.get("invoice_no") or "").strip()
     channel = _normalize_purchase_channel(request.form.get("channel"))
+    transaction_type = _normalize_transaction_type(request.form.get("transaction_type"))
     note = (request.form.get("note") or "").strip()
 
     customer = _get_customer_by_id(db, customer_id)
@@ -735,11 +847,21 @@ def add_purchase():
         return _crm_redirect("purchases")
 
     member = None
+    member_snapshot = None
     if member_id:
         member = _get_member_by_id(db, member_id)
         if not member or member["customer_id"] != customer_id:
             flash("Member tidak valid untuk customer yang dipilih.", "error")
             return _crm_redirect("purchases")
+        member_snapshot = get_member_snapshot(db, member_id)
+        member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
+        if member_type != "stringing" and transaction_type in {"stringing_service", "stringing_reward_redemption"}:
+            flash("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.", "error")
+            return _crm_redirect("purchases")
+
+    if transaction_type == "stringing_reward_redemption" and not member:
+        flash("Free reward senaran hanya bisa dicatat untuk member yang valid.", "error")
+        return _crm_redirect("purchases")
 
     if not purchase_date:
         flash("Tanggal pembelian wajib valid.", "error")
@@ -759,12 +881,13 @@ def add_purchase():
                 purchase_date,
                 invoice_no,
                 channel,
+                transaction_type,
                 items_count,
                 total_amount,
                 note,
                 handled_by
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 customer_id,
@@ -773,6 +896,7 @@ def add_purchase():
                 purchase_date,
                 invoice_no or None,
                 channel,
+                transaction_type,
                 total_qty,
                 total_amount,
                 note or None,
@@ -807,6 +931,19 @@ def add_purchase():
         )
 
         if member:
+            auto_record = build_auto_member_record(
+                member_snapshot or member,
+                member_snapshot or member,
+                purchase_id=purchase_id,
+                warehouse_id=warehouse_id,
+                record_date=purchase_date,
+                reference_no=invoice_no or None,
+                amount=total_amount,
+                transaction_type=transaction_type,
+                note=note,
+                handled_by=session.get("user_id"),
+                source_label="purchase CRM",
+            )
             db.execute(
                 """
                 INSERT INTO crm_member_records(
@@ -818,22 +955,28 @@ def add_purchase():
                     reference_no,
                     amount,
                     points_delta,
+                    service_count_delta,
+                    reward_redeemed_delta,
+                    benefit_value,
                     note,
                     handled_by
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    member_id,
-                    purchase_id,
-                    warehouse_id,
-                    purchase_date,
-                    "purchase",
-                    invoice_no or None,
-                    total_amount,
-                    0,
-                    note or "Auto-generated dari purchase CRM",
-                    session.get("user_id"),
+                    auto_record["member_id"],
+                    auto_record["purchase_id"],
+                    auto_record["warehouse_id"],
+                    auto_record["record_date"],
+                    auto_record["record_type"],
+                    auto_record["reference_no"],
+                    auto_record["amount"],
+                    auto_record["points_delta"],
+                    auto_record["service_count_delta"],
+                    auto_record["reward_redeemed_delta"],
+                    auto_record["benefit_value"],
+                    auto_record["note"],
+                    auto_record["handled_by"],
                 ),
             )
 
@@ -873,11 +1016,22 @@ def add_member():
     db = get_db()
     customer_id = _to_int(request.form.get("customer_id"), 0)
     member_code = (request.form.get("member_code") or "").strip().upper()
+    member_type = _normalize_member_type(request.form.get("member_type"))
     tier = _normalize_member_tier(request.form.get("tier"))
     status = _normalize_member_status(request.form.get("status"))
     join_date = _normalize_date(request.form.get("join_date"))
     expiry_date = _normalize_date(request.form.get("expiry_date"))
     points = _to_int(request.form.get("points"), 0)
+    requested_by_staff_id = _to_int(request.form.get("requested_by_staff_id"), 0)
+    reward_unit_amount = round(
+        _to_float(
+            request.form.get("reward_unit_amount"),
+            DEFAULT_STRINGING_REWARD_AMOUNT,
+        ),
+        2,
+    )
+    opening_stringing_visits = max(_to_int(request.form.get("opening_stringing_visits"), 0), 0)
+    opening_reward_redeemed = max(_to_int(request.form.get("opening_reward_redeemed"), 0), 0)
     benefit_note = (request.form.get("benefit_note") or "").strip()
     note = (request.form.get("note") or "").strip()
 
@@ -889,6 +1043,23 @@ def add_member():
     if not member_code or not join_date:
         flash("Kode member dan tanggal join wajib diisi.", "error")
         return _crm_redirect("members")
+
+    requesting_staff = None
+    if requested_by_staff_id:
+        requesting_staff = _get_staff_by_id(db, requested_by_staff_id)
+        if not requesting_staff or requesting_staff["role"] not in MEMBER_STAFF_ROLES:
+            flash("Staff pengusul member tidak valid.", "error")
+            return _crm_redirect("members")
+        if requesting_staff.get("warehouse_id") and requesting_staff["warehouse_id"] != customer["warehouse_id"]:
+            flash("Staff pengusul harus berasal dari gudang customer yang sama.", "error")
+            return _crm_redirect("members")
+
+    if reward_unit_amount <= 0:
+        reward_unit_amount = DEFAULT_STRINGING_REWARD_AMOUNT
+
+    if member_type != "stringing":
+        opening_stringing_visits = 0
+        opening_reward_redeemed = 0
 
     duplicate_code = db.execute(
         "SELECT id FROM crm_memberships WHERE member_code=?",
@@ -912,25 +1083,35 @@ def add_member():
             customer_id,
             warehouse_id,
             member_code,
+            member_type,
             tier,
             status,
             join_date,
             expiry_date,
             points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
             benefit_note,
             note
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             customer_id,
             customer["warehouse_id"],
             member_code,
+            member_type,
             tier,
             status,
             join_date,
             expiry_date,
             points,
+            requesting_staff["id"] if requesting_staff else None,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
             benefit_note or None,
             note or None,
         ),
@@ -978,16 +1159,44 @@ def add_member_record():
     if not member:
         flash("Member tidak valid.", "error")
         return _crm_redirect("members")
+    member_snapshot = get_member_snapshot(db, member_id) or build_member_snapshot_from_row(member)
 
     record_date = _normalize_date(request.form.get("record_date"))
     record_type = _normalize_member_record_type(request.form.get("record_type"))
     reference_no = (request.form.get("reference_no") or "").strip()
     amount = round(_to_float(request.form.get("amount"), 0), 2)
     points_delta = _to_int(request.form.get("points_delta"), 0)
+    service_count_delta = _to_int(request.form.get("service_count_delta"), 0)
+    reward_redeemed_delta = _to_int(request.form.get("reward_redeemed_delta"), 0)
+    benefit_value = round(_to_float(request.form.get("benefit_value"), 0), 2)
     note = (request.form.get("note") or "").strip()
 
     if not record_date:
         flash("Tanggal record member wajib valid.", "error")
+        return _crm_redirect("members")
+
+    if member_snapshot["member_type"] != "stringing" and (
+        record_type in {"stringing_service", "reward_redemption"}
+        or service_count_delta
+        or reward_redeemed_delta
+    ):
+        flash("Member pembelian tidak memakai progres senaran.", "error")
+        return _crm_redirect("members")
+
+    if record_type == "stringing_service" and service_count_delta <= 0:
+        service_count_delta = 1
+
+    if record_type == "reward_redemption":
+        reward_redeemed_delta = reward_redeemed_delta or 1
+        if benefit_value <= 0:
+            benefit_value = member_snapshot["reward_unit_amount"]
+
+    if benefit_value < 0:
+        flash("Nilai benefit tidak boleh negatif.", "error")
+        return _crm_redirect("members")
+
+    if reward_redeemed_delta > 0 and member_snapshot["available_reward_count"] < reward_redeemed_delta:
+        flash("Saldo free senar member ini tidak cukup untuk diredeem.", "error")
         return _crm_redirect("members")
 
     db.execute(
@@ -1000,10 +1209,13 @@ def add_member_record():
             reference_no,
             amount,
             points_delta,
+            service_count_delta,
+            reward_redeemed_delta,
+            benefit_value,
             note,
             handled_by
         )
-        VALUES (?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             member_id,
@@ -1013,6 +1225,9 @@ def add_member_record():
             reference_no or None,
             amount,
             points_delta,
+            service_count_delta,
+            reward_redeemed_delta,
+            benefit_value,
             note or None,
             session.get("user_id"),
         ),

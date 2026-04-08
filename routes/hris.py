@@ -1,6 +1,7 @@
 import base64
 import binascii
 import os
+import re
 import sqlite3
 from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta
@@ -431,6 +432,40 @@ def _normalize_accuracy(value):
     if accuracy is None or accuracy < 0:
         return None
     return round(accuracy, 2)
+
+
+_COORDINATE_LOCATION_PATTERN = re.compile(
+    r"^\s*(?:lat(?:itude)?\s*[:=]?\s*)?(-?\d{1,3}(?:\.\d+)?)\s*[,;/|]\s*(?:lon(?:gitude)?|lng)?\s*[:=]?\s*(-?\d{1,3}(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_biometric_location_text(value):
+    return " ".join(str(value or "").replace("|", " | ").split()).strip(" |-")
+
+
+def _looks_like_coordinate_location_label(value):
+    safe_value = _normalize_biometric_location_text(value)
+    if not safe_value:
+        return False
+
+    match = _COORDINATE_LOCATION_PATTERN.match(safe_value)
+    if not match:
+        return False
+
+    latitude = _normalize_latitude(match.group(1))
+    longitude = _normalize_longitude(match.group(2))
+    return latitude is not None and longitude is not None
+
+
+def _normalize_biometric_location_label(value, fallback_label=""):
+    safe_value = _normalize_biometric_location_text(value)
+    safe_fallback = _normalize_biometric_location_text(fallback_label)
+    if not safe_value:
+        return safe_fallback
+    if _looks_like_coordinate_location_label(safe_value):
+        return safe_fallback
+    return safe_value
 
 
 def _get_biometric_photo_upload_folder():
@@ -1430,7 +1465,11 @@ def _format_accuracy_label(accuracy_value):
 
 
 def _attach_biometric_display_meta(log):
-    log["location_display"] = (log.get("location_label") or "").strip() or (log.get("device_name") or "").strip() or "-"
+    log["location_display"] = (
+        _normalize_biometric_location_label(log.get("location_label"), log.get("warehouse_name"))
+        or _normalize_biometric_location_label(log.get("device_name"))
+        or "-"
+    )
     log["coordinate_display"] = _format_coordinate_pair(log.get("latitude"), log.get("longitude"))
     log["accuracy_display"] = _format_accuracy_label(log.get("accuracy_m"))
     log["sync_status_label"], log["status_badge_class"] = _build_biometric_status_meta(log["sync_status"])
@@ -4203,8 +4242,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "geo_check_in": (check_in_log["punch_time"][11:16] if check_in_log else "-"),
                 "geo_check_out": (check_out_log["punch_time"][11:16] if check_out_log else "-"),
                 "location_text": " | ".join(locations) if locations else "-",
-                "latest_coordinate": latest_log["coordinate_display"],
-                "latest_accuracy": latest_log["accuracy_display"],
+                "latest_location": latest_log["location_display"] or "-",
                 "latest_photo_url": latest_log.get("photo_url"),
                 "log_count": len(logs_sorted),
                 "recap_status_label": recap_status_label,
@@ -6988,7 +7026,7 @@ def add_biometric():
         return _portal_redirect_for_module("biometric") or redirect("/hris/biometric")
 
     db = get_db()
-    location_label = (request.form.get("location_label") or "").strip()
+    location_label = _normalize_biometric_location_label(request.form.get("location_label"))
     latitude = _normalize_latitude(request.form.get("latitude"))
     longitude = _normalize_longitude(request.form.get("longitude"))
     accuracy_m = _normalize_accuracy(request.form.get("accuracy_m"))
@@ -7005,7 +7043,7 @@ def add_biometric():
     employee_id = employee["id"]
 
     if not location_label or not punch_time:
-        flash("Titik lokasi dan waktu absen wajib diisi", "error")
+        flash("Alamat atau tempat absen dan waktu wajib diisi", "error")
         return redirect("/hris/biometric")
 
     if latitude is None or longitude is None:
@@ -7533,7 +7571,7 @@ def update_biometric(biometric_id):
     old_warehouse_id = biometric["warehouse_id"]
     old_punch_date = (biometric["punch_time"] or "")[:10]
 
-    location_label = (request.form.get("location_label") or "").strip()
+    location_label = _normalize_biometric_location_label(request.form.get("location_label"))
     latitude = _normalize_latitude(request.form.get("latitude"))
     longitude = _normalize_longitude(request.form.get("longitude"))
     accuracy_m = _normalize_accuracy(request.form.get("accuracy_m"))
@@ -7550,7 +7588,7 @@ def update_biometric(biometric_id):
     employee_id = employee["id"]
 
     if not location_label or not punch_time:
-        flash("Titik lokasi dan waktu absen wajib diisi", "error")
+        flash("Alamat atau tempat absen dan waktu wajib diisi", "error")
         return redirect("/hris/biometric")
 
     if latitude is None or longitude is None:

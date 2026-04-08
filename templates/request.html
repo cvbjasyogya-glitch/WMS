@@ -3,7 +3,7 @@
 {% block title %}Request | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Antrian Request{% endblock %}
 {% block page_title %}Request Antar Gudang{% endblock %}
-{% block page_subtitle %}Susun banyak item request lewat pola pilih item lalu tambah ke daftar kerja, sehingga permintaan antar gudang jauh lebih cepat saat SKU sudah banyak.{% endblock %}
+{% block page_subtitle %}Susun batch request antar gudang dari SKU WMS atau item custom yang belum masuk master, lalu kirim semuanya dalam satu alur kerja yang sama.{% endblock %}
 
 {% block content %}
 <div class="wms-page-stack">
@@ -16,7 +16,7 @@
     <article class="wms-step-card">
         <span>Step 02</span>
         <strong>Tambah Item yang Dibutuhkan</strong>
-        <p>Pilih SKU aktif, isi qty request, lalu kumpulkan semuanya dalam satu batch agar proses antar gudang lebih cepat.</p>
+        <p>Pilih SKU aktif atau ketik item custom non-WMS, isi qty request, lalu kumpulkan semuanya dalam satu batch agar proses antar gudang lebih cepat.</p>
     </article>
     <article class="wms-step-card">
         <span>Step 03</span>
@@ -101,7 +101,7 @@
             <div class="section-title">
                 <div>
                     <h3>Tambah Item Request</h3>
-                    <p>Model kerjanya mengikuti contoh yang kamu mau: isi item aktif di atas, klik <strong>Tambah</strong>, lalu item masuk ke daftar request.</p>
+                    <p>Model kerjanya mengikuti contoh yang kamu mau: isi item aktif dari WMS atau ketik item custom di bawah, klik <strong>Tambah</strong>, lalu item masuk ke daftar request.</p>
                 </div>
             </div>
 
@@ -137,6 +137,39 @@
 
                 <div class="ops-entry-actions">
                     <button type="button" onclick="addRequestItem()">Tambah</button>
+                </div>
+            </div>
+
+            <div class="request-custom-callout">
+                <strong>Butuh barang yang belum masuk WMS?</strong>
+                <p>Ketik item custom di sini. Jalur ini cocok untuk barang baru, barang titipan, atau kebutuhan dadakan yang master produknya belum dibuat.</p>
+            </div>
+
+            <div class="ops-entry-grid request-custom-entry-grid">
+                <div class="ops-entry-item">
+                    <label>Nama Barang Custom</label>
+                    <input type="text" id="requestCustomName" placeholder="Contoh: Grip Yonex batch lama">
+                    <small class="helper-text ops-item-meta">Wajib diisi untuk item non-WMS.</small>
+                </div>
+
+                <div>
+                    <label>Varian / Detail</label>
+                    <input type="text" id="requestCustomVariant" placeholder="Warna, ukuran, atau spesifikasi">
+                </div>
+
+                <div>
+                    <label>Catatan</label>
+                    <input type="text" id="requestCustomNote" placeholder="Opsional: referensi supplier, display, atau kebutuhan khusus">
+                </div>
+
+                <div>
+                    <label>Qty Request</label>
+                    <input type="number" id="requestCustomQty" min="1" step="1" placeholder="0">
+                    <small id="requestCustomFeedback" class="helper-text ops-row-feedback">Ketik nama barang custom lalu isi qty request.</small>
+                </div>
+
+                <div class="ops-entry-actions">
+                    <button type="button" class="ghost-button" onclick="addCustomRequestItem()">Tambah Custom</button>
                 </div>
             </div>
         </div>
@@ -190,8 +223,11 @@
             {% for r in requests %}
             <tr>
                 <td class="mono">#{{ r.id }}</td>
-                <td>{{ r.product_name }}</td>
-                <td>{{ r.variant }}</td>
+                <td>
+                    <strong>{{ r.item_title }}</strong>
+                    <small class="helper-text">{{ r.item_meta }}</small>
+                </td>
+                <td>{{ r.variant_label }}</td>
                 <td>{{ r.from_name }}</td>
                 <td>{{ r.to_name }}</td>
                 <td class="mono">{{ r.qty }}</td>
@@ -241,6 +277,11 @@ const requestDraftStockValue = document.getElementById("requestDraftStockValue")
 const requestDraftStockState = document.getElementById("requestDraftStockState");
 const requestDraftQty = document.getElementById("requestDraftQty");
 const requestDraftFeedback = document.getElementById("requestDraftFeedback");
+const requestCustomName = document.getElementById("requestCustomName");
+const requestCustomVariant = document.getElementById("requestCustomVariant");
+const requestCustomNote = document.getElementById("requestCustomNote");
+const requestCustomQty = document.getElementById("requestCustomQty");
+const requestCustomFeedback = document.getElementById("requestCustomFeedback");
 const requestSummaryLane = document.getElementById("requestSummaryLane");
 const requestSummaryCount = document.getElementById("requestSummaryCount");
 const requestSummaryQty = document.getElementById("requestSummaryQty");
@@ -261,10 +302,23 @@ const requestDraft = {
 
 const requestItems = [];
 
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function isCustomRequestItem(item) {
+    return String(item?.item_type || "").toLowerCase() === "custom";
+}
+
 function renderRequestWorkspaceSummary() {
     const count = requestItems.length;
     const totalQty = requestItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-    const riskCount = requestItems.filter((item) => Number(item.qty || 0) > Number(item.stock || 0)).length;
+    const riskCount = requestItems.filter((item) => !isCustomRequestItem(item) && Number(item.qty || 0) > Number(item.stock || 0)).length;
     const fromLabel = requestFrom?.options[requestFrom.selectedIndex]?.text || "-";
     const toLabel = requestTo?.options[requestTo.selectedIndex]?.text || "-";
 
@@ -381,6 +435,9 @@ async function refreshRequestQueueStocks() {
     if (!requestItems.length) return;
 
     await Promise.all(requestItems.map(async (item) => {
+        if (isCustomRequestItem(item) || !item.product_id || !item.variant_id) {
+            return;
+        }
         try {
             item.stock = await fetchRequestStock(item.product_id, item.variant_id);
         } catch (error) {
@@ -425,6 +482,49 @@ function validateRequestDraft() {
     return true;
 }
 
+function resetCustomRequestDraft() {
+    requestCustomName.value = "";
+    requestCustomVariant.value = "";
+    requestCustomNote.value = "";
+    requestCustomQty.value = "";
+    requestCustomFeedback.textContent = "Ketik nama barang custom lalu isi qty request.";
+    requestCustomFeedback.className = "helper-text ops-row-feedback";
+}
+
+function validateCustomRequestDraft() {
+    const warehouseValid = renderWarehouseValidation();
+    const customName = (requestCustomName.value || "").trim();
+    const qty = Number(requestCustomQty.value || 0);
+
+    if (!warehouseValid) {
+        requestCustomFeedback.textContent = "Perbaiki gudang asal dan tujuan terlebih dahulu.";
+        requestCustomFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+
+    if (!customName && !requestCustomQty.value) {
+        requestCustomFeedback.textContent = "Ketik nama barang custom lalu isi qty request.";
+        requestCustomFeedback.className = "helper-text ops-row-feedback";
+        return true;
+    }
+
+    if (!customName) {
+        requestCustomFeedback.textContent = "Nama barang custom wajib diisi.";
+        requestCustomFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+        requestCustomFeedback.textContent = "Qty request custom harus lebih dari 0.";
+        requestCustomFeedback.className = "helper-text ops-row-feedback stock-empty";
+        return false;
+    }
+
+    requestCustomFeedback.textContent = `Siap membuat request custom ${qty} item.`;
+    requestCustomFeedback.className = "helper-text ops-row-feedback stock-ok";
+    return true;
+}
+
 function renderRequestQueue() {
     if (!requestItems.length) {
         requestQueueBody.innerHTML = `
@@ -442,13 +542,19 @@ function renderRequestQueue() {
         <tr>
             <td class="mono">${index + 1}</td>
             <td>
-                <strong>${item.sku} - ${item.name}</strong>
-                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+                <strong>${isCustomRequestItem(item)
+                    ? escapeHtml(item.custom_name || "Item Custom")
+                    : `${escapeHtml(item.sku)} - ${escapeHtml(item.name)}`}</strong>
+                <small class="helper-text">${isCustomRequestItem(item)
+                    ? `${escapeHtml(item.custom_variant || "Custom Manual")} | Custom Non-WMS${item.custom_note ? ` | Catatan: ${escapeHtml(item.custom_note)}` : ""}`
+                    : `${escapeHtml(item.variant_label)} | ${escapeHtml(item.category || "-")} | GTIN ${escapeHtml(item.gtin || "-")}`}</small>
             </td>
-            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
+            <td>${isCustomRequestItem(item)
+                ? '<span class="badge">Manual</span><small class="helper-text">Tidak cek stok WMS.</small>'
+                : `<span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${escapeHtml(item.stock)}</span>`}</td>
             <td>
-                <span class="mono">${item.qty}</span>
-                ${item.qty > item.stock ? '<small class="helper-text stock-empty">Qty melebihi stok gudang asal saat ini.</small>' : ''}
+                <span class="mono">${escapeHtml(item.qty)}</span>
+                ${!isCustomRequestItem(item) && item.qty > item.stock ? '<small class="helper-text stock-empty">Qty melebihi stok gudang asal saat ini.</small>' : ''}
             </td>
             <td>
                 <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
@@ -464,12 +570,19 @@ function addRequestItem() {
         return;
     }
 
+    if (!requestDraftQty.value) {
+        validateRequestDraft();
+        alert("Isi qty request terlebih dahulu.");
+        return;
+    }
+
     if (!validateRequestDraft()) {
         alert("Qty request masih belum valid.");
         return;
     }
 
     requestItems.push({
+        item_type: "catalog",
         product_id: requestDraft.product_id,
         variant_id: requestDraft.variant_id,
         sku: requestDraft.sku,
@@ -485,6 +598,33 @@ function addRequestItem() {
     resetRequestDraft();
 }
 
+function addCustomRequestItem() {
+    if (!(requestCustomName.value || "").trim() || !requestCustomQty.value) {
+        validateCustomRequestDraft();
+        alert("Isi nama barang custom dan qty request terlebih dahulu.");
+        return;
+    }
+
+    if (!validateCustomRequestDraft()) {
+        alert("Data request custom masih belum valid.");
+        return;
+    }
+
+    requestItems.push({
+        item_type: "custom",
+        product_id: null,
+        variant_id: null,
+        custom_name: (requestCustomName.value || "").trim(),
+        custom_variant: (requestCustomVariant.value || "").trim(),
+        custom_note: (requestCustomNote.value || "").trim(),
+        stock: null,
+        qty: Number(requestCustomQty.value || 0),
+    });
+
+    renderRequestQueue();
+    resetCustomRequestDraft();
+}
+
 function handleRequestSubmit() {
     if (!renderWarehouseValidation()) {
         alert("Gudang asal dan tujuan tidak boleh sama.");
@@ -497,17 +637,23 @@ function handleRequestSubmit() {
     }
 
     for (const item of requestItems) {
-        if (Number(item.qty) > Number(item.stock || 0)) {
+        if (!isCustomRequestItem(item) && Number(item.qty) > Number(item.stock || 0)) {
             alert(`Qty request untuk ${item.sku} - ${item.name} melebihi stok gudang asal.`);
             return false;
         }
     }
 
     requestItemsJson.value = JSON.stringify(requestItems.map((item) => ({
+        item_type: item.item_type || "catalog",
         product_id: item.product_id,
         variant_id: item.variant_id,
         qty: item.qty,
-        display_name: `${item.sku} - ${item.name}`,
+        display_name: isCustomRequestItem(item)
+            ? item.custom_name
+            : `${item.sku} - ${item.name}`,
+        custom_name: isCustomRequestItem(item) ? item.custom_name : "",
+        custom_variant: isCustomRequestItem(item) ? item.custom_variant : "",
+        custom_note: isCustomRequestItem(item) ? item.custom_note : "",
     })));
     requestSubmitButton.textContent = "Memproses...";
     requestSubmitButton.disabled = true;
@@ -537,6 +683,10 @@ function openRequestPicker() {
 }
 
 requestDraftQty.addEventListener("input", validateRequestDraft);
+requestCustomName?.addEventListener("input", validateCustomRequestDraft);
+requestCustomVariant?.addEventListener("input", validateCustomRequestDraft);
+requestCustomNote?.addEventListener("input", validateCustomRequestDraft);
+requestCustomQty?.addEventListener("input", validateCustomRequestDraft);
 
 requestQueueBody.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-index]");
@@ -552,11 +702,13 @@ requestFrom?.addEventListener("change", async () => {
     await refreshRequestQueueStocks();
     requestPicker.refresh();
     renderRequestWorkspaceSummary();
+    validateCustomRequestDraft();
 });
 
 requestTo?.addEventListener("change", () => {
     renderWarehouseValidation();
     validateRequestDraft();
+    validateCustomRequestDraft();
     renderRequestWorkspaceSummary();
 });
 
@@ -569,6 +721,7 @@ if (requestTo.value === requestFrom.value) {
 
 renderWarehouseValidation();
 resetRequestDraft();
+resetCustomRequestDraft();
 renderRequestQueue();
 renderRequestWorkspaceSummary();
 </script>

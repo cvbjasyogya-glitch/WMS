@@ -7,6 +7,10 @@ from werkzeug.security import generate_password_hash
 # ==========================
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.db")
+LEGACY_LIVE_SCHEDULE_DEFAULT_BG = "#C6E5AB"
+LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT = "#17351A"
+SCHEDULE_DEFAULT_BG = "#D7E3F4"
+SCHEDULE_DEFAULT_TEXT = "#17304A"
 
 
 def _database_error_with_repair_hint(path, exc):
@@ -114,6 +118,15 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "crm_purchase_items", "voided_at", "TIMESTAMP")
     _ensure_column(cursor, "crm_purchase_items", "voided_by", "INTEGER")
     _ensure_column(cursor, "crm_purchase_items", "void_note", "TEXT")
+    _ensure_column(cursor, "crm_memberships", "member_type", "TEXT DEFAULT 'purchase'")
+    _ensure_column(cursor, "crm_memberships", "requested_by_staff_id", "INTEGER")
+    _ensure_column(cursor, "crm_memberships", "reward_unit_amount", "REAL DEFAULT 75000")
+    _ensure_column(cursor, "crm_memberships", "opening_stringing_visits", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "crm_memberships", "opening_reward_redeemed", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "crm_purchase_records", "transaction_type", "TEXT DEFAULT 'purchase'")
+    _ensure_column(cursor, "crm_member_records", "service_count_delta", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "crm_member_records", "reward_redeemed_delta", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "crm_member_records", "benefit_value", "REAL DEFAULT 0")
     _ensure_column(cursor, "pos_sales", "subtotal_amount", "REAL DEFAULT 0")
     _ensure_column(cursor, "pos_sales", "discount_type", "TEXT DEFAULT 'amount'")
     _ensure_column(cursor, "pos_sales", "discount_value", "REAL DEFAULT 0")
@@ -134,6 +147,10 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "requests", "approved_at", "TIMESTAMP")
     _ensure_column(cursor, "requests", "approved_by", "INTEGER")
     _ensure_column(cursor, "requests", "requested_by", "INTEGER")
+    _ensure_column(cursor, "requests", "item_type", "TEXT DEFAULT 'catalog'")
+    _ensure_column(cursor, "requests", "custom_name", "TEXT")
+    _ensure_column(cursor, "requests", "custom_variant", "TEXT")
+    _ensure_column(cursor, "requests", "custom_note", "TEXT")
     # add contact fields for user notifications
     _ensure_column(cursor, "users", "email", "TEXT")
     _ensure_column(cursor, "users", "phone", "TEXT")
@@ -172,6 +189,26 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "attendance_records", "status_override_at", "TIMESTAMP")
     _ensure_column(cursor, "attendance_records", "note", "TEXT")
     _ensure_column(cursor, "attendance_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "schedule_live_entries", "is_checked", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "schedule_live_entries", "checked_by", "INTEGER")
+    _ensure_column(cursor, "schedule_live_entries", "checked_at", "TIMESTAMP")
+    _ensure_column(cursor, "schedule_live_entries", "bg_color", f"TEXT DEFAULT '{SCHEDULE_DEFAULT_BG}'")
+    _ensure_column(cursor, "schedule_live_entries", "text_color", f"TEXT DEFAULT '{SCHEDULE_DEFAULT_TEXT}'")
+    if _table_exists(cursor, "schedule_live_entries"):
+        cursor.execute(
+            """
+            UPDATE schedule_live_entries
+            SET bg_color=?, text_color=?
+            WHERE UPPER(COALESCE(bg_color, ''))=?
+              AND UPPER(COALESCE(text_color, ''))=?
+            """,
+            (
+                SCHEDULE_DEFAULT_BG,
+                SCHEDULE_DEFAULT_TEXT,
+                LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
+                LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT,
+            ),
+        )
     _ensure_column(cursor, "leave_requests", "employee_id", "INTEGER")
     _ensure_column(cursor, "leave_requests", "warehouse_id", "INTEGER")
     _ensure_column(cursor, "leave_requests", "leave_type", "TEXT DEFAULT 'annual'")
@@ -521,6 +558,10 @@ def init_db(db_path=None, sqlite_options=None):
         from_warehouse INTEGER,
         to_warehouse INTEGER,
         qty INTEGER,
+        item_type TEXT DEFAULT 'catalog',
+        custom_name TEXT,
+        custom_variant TEXT,
+        custom_note TEXT,
         status TEXT DEFAULT 'pending',
         reason TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1018,17 +1059,23 @@ def init_db(db_path=None, sqlite_options=None):
         customer_id INTEGER NOT NULL UNIQUE,
         warehouse_id INTEGER NOT NULL,
         member_code TEXT NOT NULL UNIQUE,
+        member_type TEXT DEFAULT 'purchase',
         tier TEXT DEFAULT 'regular',
         status TEXT DEFAULT 'active',
         join_date TEXT NOT NULL,
         expiry_date TEXT,
         points INTEGER DEFAULT 0,
+        requested_by_staff_id INTEGER,
+        reward_unit_amount REAL DEFAULT 75000,
+        opening_stringing_visits INTEGER DEFAULT 0,
+        opening_reward_redeemed INTEGER DEFAULT 0,
         benefit_note TEXT,
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(customer_id) REFERENCES crm_customers(id),
-        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(requested_by_staff_id) REFERENCES users(id)
     )
     """)
 
@@ -1041,6 +1088,7 @@ def init_db(db_path=None, sqlite_options=None):
         purchase_date TEXT NOT NULL,
         invoice_no TEXT,
         channel TEXT DEFAULT 'store',
+        transaction_type TEXT DEFAULT 'purchase',
         items_count INTEGER DEFAULT 0,
         total_amount REAL DEFAULT 0,
         note TEXT,
@@ -1087,6 +1135,9 @@ def init_db(db_path=None, sqlite_options=None):
         reference_no TEXT,
         amount REAL DEFAULT 0,
         points_delta INTEGER DEFAULT 0,
+        service_count_delta INTEGER DEFAULT 0,
+        reward_redeemed_delta INTEGER DEFAULT 0,
+        benefit_value REAL DEFAULT 0,
         note TEXT,
         handled_by INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1247,8 +1298,8 @@ def init_db(db_path=None, sqlite_options=None):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         code TEXT NOT NULL UNIQUE,
         label TEXT NOT NULL,
-        bg_color TEXT DEFAULT '#C6E5AB',
-        text_color TEXT DEFAULT '#17351A',
+        bg_color TEXT DEFAULT '#D7E3F4',
+        text_color TEXT DEFAULT '#17304A',
         sort_order INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1
     )
@@ -1304,11 +1355,17 @@ def init_db(db_path=None, sqlite_options=None):
         employee_id INTEGER,
         channel_label TEXT,
         note TEXT,
+        bg_color TEXT DEFAULT '#D7E3F4',
+        text_color TEXT DEFAULT '#17304A',
+        is_checked INTEGER DEFAULT 0,
+        checked_by INTEGER,
+        checked_at TIMESTAMP,
         updated_by INTEGER,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(warehouse_id, schedule_date, slot_key),
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
         FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE SET NULL,
+        FOREIGN KEY(checked_by) REFERENCES users(id),
         FOREIGN KEY(updated_by) REFERENCES users(id)
     )
     """)

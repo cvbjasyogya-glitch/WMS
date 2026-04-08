@@ -1,14 +1,19 @@
-from datetime import date as date_cls, datetime
+from datetime import date as date_cls, datetime, timedelta
 
 from flask import Blueprint, flash, redirect, render_template, request, session
 
 from database import get_db
+from routes.schedule import (
+    resolve_employee_live_schedule_for_date,
+    resolve_employee_schedule_for_date,
+)
 from routes.hris import (
     _build_biometric_handling,
     _current_timestamp,
     _get_self_service_employee,
     _insert_biometric_log_record,
     _normalize_accuracy,
+    _normalize_biometric_location_label,
     _normalize_datetime_input,
     _normalize_latitude,
     _normalize_longitude,
@@ -18,7 +23,7 @@ from routes.hris import (
 from services.event_notification_policy import get_event_notification_policy
 from services.rbac import normalize_role
 from services.notification_service import notify_operational_event
-from services.whatsapp_service import send_role_based_notification
+from services.whatsapp_service import send_role_based_notification, send_user_whatsapp_notification
 
 
 attendance_portal_bp = Blueprint("attendance_portal", __name__, url_prefix="/absen")
@@ -82,6 +87,55 @@ ATTENDANCE_LOCATION_SCOPE_LABELS = {
     "event": "Event",
     "other": "Lainnya",
 }
+
+
+def _normalize_attendance_location_text(value):
+    return " ".join(str(value or "").replace("|", " | ").split()).strip(" |-")
+
+
+def _merge_attendance_location_label(scope_label, resolved_label):
+    safe_scope_label = _normalize_attendance_location_text(scope_label)
+    safe_resolved_label = _normalize_attendance_location_text(resolved_label)
+    if not safe_scope_label:
+        return safe_resolved_label
+    if not safe_resolved_label:
+        return safe_scope_label
+
+    safe_scope_key = safe_scope_label.lower()
+    safe_resolved_key = safe_resolved_label.lower()
+    if (
+        safe_resolved_key == safe_scope_key
+        or safe_resolved_key.startswith(f"{safe_scope_key} |")
+        or safe_resolved_key.startswith(f"{safe_scope_key} -")
+    ):
+        return safe_resolved_label
+    return f"{safe_scope_label} | {safe_resolved_label}"
+
+
+def _build_attendance_location_label(location_scope, location_other_detail, location_label):
+    safe_scope = (location_scope or "").strip().lower()
+    safe_other_detail = _normalize_attendance_location_text(location_other_detail)
+    safe_location_label = _normalize_attendance_location_text(
+        _normalize_biometric_location_label(location_label)
+    )
+    scope_label = ATTENDANCE_LOCATION_SCOPE_LABELS.get(safe_scope, "")
+
+    if safe_scope == "other":
+        if safe_other_detail and safe_location_label:
+            if safe_location_label.lower().startswith("lainnya - "):
+                return safe_location_label
+            return f"Lainnya - {safe_other_detail} | {safe_location_label}"
+        if safe_other_detail:
+            return f"Lainnya - {safe_other_detail}"
+        if safe_location_label:
+            if safe_location_label.lower().startswith("lainnya |"):
+                return safe_location_label
+            return f"Lainnya | {safe_location_label}"
+        return ""
+
+    if scope_label:
+        return _merge_attendance_location_label(scope_label, safe_location_label)
+    return safe_location_label
 
 
 def _normalize_identity_text(value):
@@ -333,6 +387,24 @@ def _get_attendance_punch_label(mode):
     return ATTENDANCE_PORTAL_PUNCH_LABELS.get(mode, "Check In")
 
 
+def _build_attendance_punch_helper_text(punch_options):
+    safe_options = [option for option in punch_options if option in ATTENDANCE_PORTAL_PUNCH_LABELS]
+    if not safe_options:
+        return "Check in dan check out hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari riwayat absen."
+    if safe_options == ["check_in"]:
+        return "Mulai dulu dengan Check In. Setelah itu dropdown ini otomatis menampilkan pilihan absen lainnya."
+
+    option_labels = [_get_attendance_punch_label(option) for option in safe_options]
+    if len(option_labels) == 1:
+        return f"Pilihan absen berikutnya: {option_labels[0]}."
+    if len(option_labels) == 2:
+        return f"Setelah Check In, dropdown ini menampilkan pilihan absen lainnya: {option_labels[0]} atau {option_labels[1]}."
+    return (
+        "Setelah Check In, dropdown ini menampilkan pilihan absen lainnya: "
+        f"{', '.join(option_labels[:-1])}, atau {option_labels[-1]}."
+    )
+
+
 def _build_attendance_status_badge(status):
     safe_status = (status or "absent").strip().lower()
     if safe_status == "present":
@@ -471,6 +543,70 @@ def _build_checkout_edit_value(punch_time, attendance_date, fallback_check_out):
     if attendance_date and fallback_check_out:
         return f"{attendance_date}T{fallback_check_out}"
     return ""
+
+
+def _build_next_day_schedule_whatsapp_payload(linked_employee, schedule_snapshot, live_schedule_entries=None):
+    if not linked_employee:
+        return None
+
+    schedule_snapshot = schedule_snapshot or {}
+    live_schedule_entries = [entry for entry in (live_schedule_entries or []) if entry]
+    employee_name = str(linked_employee.get("full_name") or schedule_snapshot.get("display_name") or "Karyawan").strip()
+    first_name = employee_name.split()[0] if employee_name else "Kamu"
+    warehouse_label = str(
+        schedule_snapshot.get("warehouse_name")
+        or (live_schedule_entries[0].get("warehouse_name") if live_schedule_entries else "")
+        or linked_employee.get("warehouse_name")
+        or "Gudang"
+    ).strip()
+    schedule_day_label = str(
+        schedule_snapshot.get("full_label")
+        or (live_schedule_entries[0].get("full_label") if live_schedule_entries else "")
+        or "besok"
+    ).strip()
+    schedule_label = str(schedule_snapshot.get("label") or schedule_snapshot.get("code") or "").strip()
+    schedule_note = str(schedule_snapshot.get("note") or "").strip()
+    schedule_code = str(schedule_snapshot.get("code") or "").strip().upper()
+    schedule_source = str(schedule_snapshot.get("source") or "").strip().lower()
+
+    subject = f"Pengingat Jadwal Besok: {employee_name}"
+    message_lines = [
+        f"Halo {first_name}, pengingat jadwal untuk {schedule_day_label} di {warehouse_label}.",
+        "",
+        "Shift utama:",
+    ]
+
+    if schedule_snapshot and schedule_snapshot.get("has_schedule"):
+        if schedule_source == "manual" and schedule_code and schedule_code != "OFF":
+            message_lines.append(f"- Besok kamu masuk {schedule_label}")
+        else:
+            message_lines.append(f"- {schedule_label}")
+        if schedule_note:
+            message_lines.append(f"- Catatan shift: {schedule_note}")
+    elif live_schedule_entries:
+        message_lines.append("- Jadwal shift utama besok belum diisi di board.")
+    else:
+        message_lines.append(
+            "- Jadwal besok belum diisi di board. Silakan cek ke HR atau atasan untuk konfirmasi shift."
+        )
+
+    if live_schedule_entries:
+        message_lines.extend(["", "Jadwal live kamu:"])
+        for entry in live_schedule_entries:
+            slot_label = str(entry.get("slot_label") or entry.get("slot_key") or "").strip()
+            channel_label = str(entry.get("channel_label") or "").strip()
+            note_label = str(entry.get("note") or "").strip()
+            if channel_label:
+                live_line = f"- {slot_label} | {channel_label}"
+            elif note_label:
+                live_line = f"- {slot_label} | {note_label}"
+            else:
+                live_line = f"- {slot_label}"
+            message_lines.append(live_line)
+
+    message_lines.extend(["", "Silakan cek board jadwal bila ada perubahan terbaru."])
+    message = "\n".join(line for line in message_lines if line is not None)
+    return {"subject": subject, "message": message}
 
 
 def _build_portal_log_correction_options(current_punch_type):
@@ -674,6 +810,7 @@ def _fetch_attendance_portal_state(db):
         "location_scope_options": _build_location_scope_options(linked_employee) if linked_employee else [],
         "default_location_scope": _resolve_default_location_scope(linked_employee) if linked_employee else "mataram",
         "attendance_history": attendance_history,
+        "show_follow_up_punch_group": len(punch_options) > 1 and punch_mode != "check_in",
     }
 
 
@@ -689,6 +826,7 @@ def index():
         today_date=portal_state["today_date"],
         portal_punch_mode=portal_state["punch_mode"],
         portal_punch_label=_get_attendance_punch_label(portal_state["punch_mode"]),
+        portal_punch_helper_text=_build_attendance_punch_helper_text(portal_state["punch_options"]),
         portal_punch_options=[
             {"value": option, "label": _get_attendance_punch_label(option)}
             for option in portal_state["punch_options"]
@@ -708,6 +846,7 @@ def index():
         portal_location_scope_options=portal_state["location_scope_options"],
         portal_default_location_scope=portal_state["default_location_scope"],
         attendance_history=portal_state["attendance_history"],
+        portal_show_follow_up_punch_group=portal_state["show_follow_up_punch_group"],
     )
 
 
@@ -770,14 +909,15 @@ def submit():
     note = (request.form.get("note") or "").strip()
     photo_data_url = request.form.get("photo_data_url")
 
-    if location_scope in ATTENDANCE_LOCATION_SCOPE_LABELS:
-        if location_scope == "other":
-            if not location_other_detail:
-                flash("Kalau pilih lokasi Lainnya, jelaskan dulu lokasinya secara singkat.", "error")
-                return redirect("/absen/")
-            location_label = f"Lainnya - {location_other_detail}"
-        else:
-            location_label = ATTENDANCE_LOCATION_SCOPE_LABELS[location_scope]
+    location_label = _build_attendance_location_label(
+        location_scope,
+        location_other_detail,
+        location_label,
+    )
+
+    if location_scope == "other" and not location_label:
+        flash("Kalau pilih lokasi Lainnya, isi alamat atau jelaskan dulu tempat absennya.", "error")
+        return redirect("/absen/")
 
     if punch_mode == "complete":
         flash("Absensi hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari HR atau Super Admin.", "error")
@@ -788,11 +928,11 @@ def submit():
         return redirect("/absen/")
 
     if not location_label:
-        flash("Titik lokasi wajib diisi sebelum absen.", "error")
+        flash("Alamat atau tempat absen wajib diisi sebelum absen.", "error")
         return redirect("/absen/")
 
     if latitude is None or longitude is None:
-        flash("Koordinat geotag belum valid. Ambil lokasi dulu sebelum absen.", "error")
+        flash("Lokasi GPS belum valid. Ambil lokasi dulu sebelum absen.", "error")
         return redirect("/absen/")
 
     latest_day_punch_time = _extract_latest_day_punch_time(day_logs)
@@ -852,7 +992,7 @@ def submit():
     try:
         attendance_message = (
             f"{employee_label} merekam {punch_label} di {warehouse_label}"
-            f" pada {punch_time[11:16]} dari titik {location_label}."
+            f" pada {punch_time[11:16]} di {location_label}."
         )
         if shift_label:
             attendance_message += f" Shift aktif: {shift_label}."
@@ -902,6 +1042,33 @@ def submit():
         )
     except Exception as exc:
         print("ATTENDANCE WHATSAPP ROLE NOTIFICATION ERROR:", exc)
+
+    if punch_type == "check_out" and session.get("user_id"):
+        try:
+            schedule_target_date = date_cls.fromisoformat(punch_time[:10]) + timedelta(days=1)
+            schedule_snapshot = resolve_employee_schedule_for_date(
+                db,
+                linked_employee["id"],
+                schedule_target_date,
+            )
+            live_schedule_entries = resolve_employee_live_schedule_for_date(
+                db,
+                linked_employee["id"],
+                schedule_target_date,
+            )
+            schedule_whatsapp_payload = _build_next_day_schedule_whatsapp_payload(
+                linked_employee,
+                schedule_snapshot,
+                live_schedule_entries,
+            )
+            if schedule_whatsapp_payload:
+                send_user_whatsapp_notification(
+                    session.get("user_id"),
+                    schedule_whatsapp_payload["subject"],
+                    schedule_whatsapp_payload["message"],
+                )
+        except Exception as exc:
+            print("ATTENDANCE NEXT DAY SCHEDULE WHATSAPP ERROR:", exc)
 
     flash(f"{_get_attendance_punch_label(punch_type)} berhasil direkam.", "success")
     return redirect("/absen/")

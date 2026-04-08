@@ -36,6 +36,7 @@
                     <summary class="pos-ipos-menu-trigger" aria-haspopup="menu" aria-label="Buka menu POS">
                         Menu POS
                     </summary>
+                    <button type="button" class="pos-ipos-menu-backdrop" data-pos-header-menu-close aria-label="Tutup menu POS"></button>
                     <div class="pos-ipos-menu-panel" role="menu" aria-label="Menu POS cepat">
                         <a
                             href="/kasir/log?warehouse={{ selected_warehouse }}&date_from={{ sale_date }}&date_to={{ sale_date }}"
@@ -54,6 +55,15 @@
                         >
                             <strong>Rekap Penjualan Staff</strong>
                             <small>Buka ringkasan mingguan dan bulanan dari penjualan POS.</small>
+                        </a>
+                        <a
+                            href="/kasir/printer-drivers"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Driver Printer iPOS</strong>
+                            <small>Buka daftar link driver resmi printer thermal untuk Windows/iPOS.</small>
                         </a>
                     </div>
                 </details>
@@ -111,12 +121,30 @@
                         </div>
                         <div class="pos-ipos-field">
                             <label for="posCustomerId">Pelanggan CRM</label>
-                            <select id="posCustomerId">
-                                <option value="">UMUM / walk-in</option>
-                                {% for customer in customer_options %}
-                                <option value="{{ customer.id }}" data-phone="{{ customer.phone or '' }}">{{ customer.customer_name }}{% if customer.phone %} | {{ customer.phone }}{% endif %}</option>
-                                {% endfor %}
-                            </select>
+                            <div class="pos-ipos-select-search">
+                                <input
+                                    type="search"
+                                    id="posCustomerSearch"
+                                    placeholder="Cari nama, no HP, atau kode member"
+                                    spellcheck="false"
+                                    autocomplete="off"
+                                >
+                                <select id="posCustomerId">
+                                    <option value="">UMUM / walk-in</option>
+                                    {% for customer in customer_options %}
+                                    <option
+                                        value="{{ customer.id }}"
+                                        data-phone="{{ customer.phone or '' }}"
+                                        data-member-code="{{ customer.member_code or '' }}"
+                                        data-member-type="{{ customer.member_type or '' }}"
+                                        data-reward-unit-amount="{{ customer.reward_unit_amount or default_stringing_reward_amount }}"
+                                    >
+                                        {{ customer.customer_name }}{% if customer.phone %} | {{ customer.phone }}{% endif %}{% if customer.member_code %} | {{ customer.member_code }}{% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <small id="posCustomerSearchSummary" class="helper-text">Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.</small>
                         </div>
                         <div class="pos-ipos-field">
                             <label for="posCustomerName">Nama Customer</label>
@@ -127,18 +155,40 @@
                             <input type="text" id="posCustomerPhone" placeholder="No HP customer">
                         </div>
                         <div class="pos-ipos-field">
-                            <label for="posCashierUserId">Kasir / Sales</label>
-                            <select id="posCashierUserId">
-                                {% for staff in pos_staff_options %}
-                                <option
-                                    value="{{ staff.id }}"
-                                    data-display-name="{{ staff.display_name }}"
-                                    {% if staff.id == selected_pos_staff_id %}selected{% endif %}
-                                >
-                                    {{ staff.label }}
-                                </option>
+                            <label for="posTransactionType">Jenis Transaksi Loyalty</label>
+                            <select id="posTransactionType">
+                                {% for transaction_type, transaction_label in transaction_type_labels.items() %}
+                                <option value="{{ transaction_type }}">{{ transaction_label }}</option>
                                 {% endfor %}
                             </select>
+                        </div>
+                        <div class="pos-ipos-field" style="grid-column: span 2;">
+                            <label>Status Member</label>
+                            <small id="posCustomerLoyaltyHint" class="helper-text">Pilih customer untuk melihat jenis member dan panduan transaksi loyalty.</small>
+                        </div>
+                        <div class="pos-ipos-field">
+                            <label for="posCashierUserId">Kasir / Sales</label>
+                            <div class="pos-ipos-select-search">
+                                <input
+                                    type="search"
+                                    id="posCashierSearch"
+                                    placeholder="Cari kasir atau sales"
+                                    spellcheck="false"
+                                    autocomplete="off"
+                                >
+                                <select id="posCashierUserId">
+                                    {% for staff in pos_staff_options %}
+                                    <option
+                                        value="{{ staff.id }}"
+                                        data-display-name="{{ staff.display_name }}"
+                                        {% if staff.id == selected_pos_staff_id %}selected{% endif %}
+                                    >
+                                        {{ staff.label }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <small id="posCashierSearchSummary" class="helper-text">Cari kasir/sales lebih cepat tanpa scroll panjang.</small>
                         </div>
                     </div>
                 </section>
@@ -177,6 +227,25 @@
                         <div class="pos-ipos-draft-actions">
                             <button type="button" class="pos-vintage-button is-primary" id="posAddItemButton">Tambah Item</button>
                         </div>
+                    </div>
+
+                    <div class="pos-ipos-quicksearch">
+                        <form class="pos-ipos-quicksearch-form" id="posQuickSearchForm" autocomplete="off">
+                            <div class="pos-ipos-quicksearch-copy">
+                                <span class="pos-ipos-kicker">Quick Search Barang</span>
+                                <small id="posQuickSearchSummary">Smart search aktif. Ketik nama, SKU, warna, atau kata gabungan. Beda spasi tetap bisa dibaca.</small>
+                            </div>
+                            <div class="pos-ipos-quicksearch-controls">
+                                <input
+                                    type="search"
+                                    id="posQuickSearch"
+                                    placeholder="Contoh: shuttlecock yonex, powerspin, atau bedpppowerspin"
+                                    spellcheck="false"
+                                >
+                                <button type="submit" class="pos-vintage-button is-primary">Cari Cepat</button>
+                            </div>
+                        </form>
+                        <div class="pos-ipos-quicksearch-results" id="posQuickSearchResults" hidden></div>
                     </div>
                 </section>
 
@@ -322,13 +391,6 @@
                         <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, kategori, atau gabungan kata">
                         <button type="submit" class="pos-vintage-button is-primary">Cari</button>
                     </form>
-
-                    <div class="pos-category-strip pos-ipos-categorystrip" id="posCategoryStrip">
-                        <button type="button" class="is-active" data-pos-category="all">Semua</button>
-                        {% for category in catalog_categories %}
-                        <button type="button" data-pos-category="{{ category }}">{{ category }}</button>
-                        {% endfor %}
-                    </div>
                 </div>
 
                 <div class="table-box pos-vintage-pickertablebox pos-ipos-pickertablebox" data-scrollable-table="1">

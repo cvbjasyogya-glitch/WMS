@@ -8,6 +8,21 @@ def _get_user():
     return None
 
 
+def _normalize_request_item_type(value, *, product_id=0, variant_id=0):
+    normalized = str(value or "").strip().lower()
+    if normalized == "custom":
+        return "custom"
+    if normalized in {"catalog", "wms", "product"}:
+        return "catalog"
+    return "catalog" if int(product_id or 0) > 0 and int(variant_id or 0) > 0 else "custom"
+
+
+def _validate_request_route(db, from_wh, to_wh):
+    wh1 = db.execute("SELECT id FROM warehouses WHERE id=?", (from_wh,)).fetchone()
+    wh2 = db.execute("SELECT id FROM warehouses WHERE id=?", (to_wh,)).fetchone()
+    return wh1 and wh2
+
+
 def _validate_entities(db, product_id, variant_id, from_wh, to_wh):
     product = db.execute("SELECT id FROM products WHERE id=?", (product_id,)).fetchone()
     variant = db.execute(
@@ -138,6 +153,32 @@ def approve_request(request_id):
         from_wh = req["from_warehouse"]
         to_wh = req["to_warehouse"]
         qty_needed = req["qty"]
+        item_type = _normalize_request_item_type(
+            req["item_type"] if "item_type" in req.keys() else None,
+            product_id=product_id,
+            variant_id=variant_id,
+        )
+
+        if not _validate_request_route(db, from_wh, to_wh):
+            if started:
+                db.rollback()
+            return False
+
+        if item_type == "custom":
+            db.execute(
+                """
+                UPDATE requests
+                SET status='approved',
+                    reason=NULL,
+                    approved_at=datetime('now'),
+                    approved_by=?
+                WHERE id=?
+                """,
+                (user_id, request_id),
+            )
+            if started:
+                db.commit()
+            return True
 
         if not _validate_entities(db, product_id, variant_id, from_wh, to_wh):
             if started:

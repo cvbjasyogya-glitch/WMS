@@ -5,7 +5,7 @@ import json
 import importlib
 from datetime import date as date_cls, datetime, timedelta, timezone
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 import zipfile
@@ -21,6 +21,13 @@ from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
 from routes.chat import _format_timestamp_label
+from routes.schedule import (
+    LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
+    LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT,
+    LIVE_SCHEDULE_DEFAULT_BG,
+    LIVE_SCHEDULE_DEFAULT_TEXT,
+)
+from services.crm_loyalty import get_member_snapshot
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -455,6 +462,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('aria-label="Approvals"', html)
         self.assertIn('href="/request"', html)
 
+    def test_non_wms_pages_enable_homebase_ui_overlay_but_wms_pages_do_not(self):
+        self.login()
+
+        workspace_response = self.client.get("/workspace/")
+        self.assertEqual(workspace_response.status_code, 200)
+        workspace_html = workspace_response.get_data(as_text=True)
+        self.assertIn('data-ui-homebase="1"', workspace_html)
+        self.assertIn('replace(/\\bGudang\\b/g, "Homebase")', workspace_html)
+
+        stock_response = self.client.get("/stock/")
+        self.assertEqual(stock_response.status_code, 200)
+        stock_html = stock_response.get_data(as_text=True)
+        self.assertIn('data-ui-homebase="0"', stock_html)
+
     def test_pos_page_is_limited_to_owner_super_admin_and_leader(self):
         self.create_user("staff_sales_mataram", "pass1234", "staff", warehouse_id=1)
         self.create_user("staff_sales_mega", "pass1234", "staff", warehouse_id=2)
@@ -474,6 +495,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Menu POS", owner_html)
         self.assertIn("/kasir/log?warehouse=1", owner_html)
         self.assertIn("/kasir/staff-sales?warehouse=1", owner_html)
+        self.assertIn('id="posQuickSearch"', owner_html)
+        self.assertIn('id="posCustomerSearch"', owner_html)
+        self.assertIn('id="posCashierSearch"', owner_html)
+        self.assertIn("Quick Search Barang", owner_html)
+        self.assertIn("Smart search member aktif", owner_html)
+        self.assertIn("Cari kasir/sales lebih cepat", owner_html)
+        self.assertNotIn('id="posCategoryStrip"', owner_html)
 
         self.logout()
         self.login_pos_user("leader_pos_access", "leader", warehouse_id=2)
@@ -498,6 +526,187 @@ class WmsRoutesTestCase(unittest.TestCase):
         hr_response = self.client.get("/kasir/", follow_redirects=False)
         self.assertEqual(hr_response.status_code, 302)
         self.assertIn("/workspace/", hr_response.headers.get("Location", ""))
+
+    def test_pos_page_uses_lightweight_inline_cart_updates_for_price_editing(self):
+        self.login_pos_user("owner_pos_inline_edit", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('function syncPosCartLineDisplay(index, options = {})', html)
+        self.assertIn('updatePriceFromCart(index, getPosCurrencyValue(priceInput), { renderFull: false });', html)
+        self.assertIn('updatePriceFromCart(index, getPosCurrencyValue(priceInput), { renderFull: false, syncInput: true });', html)
+        self.assertIn('posCartBody.addEventListener("change", (event) => {', html)
+
+    def test_pos_page_includes_customer_dropdown_smart_search(self):
+        self.login_pos_user("owner_pos_customer_search", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('function normalizePosCustomerSearchValue(value)', html)
+        self.assertIn('function filterPosCustomerOptions(query = "")', html)
+        self.assertIn('function filterPosCashierOptions(query = "")', html)
+        self.assertIn('posCustomerSearch?.addEventListener("input", () => {', html)
+        self.assertIn('posCashierSearch?.addEventListener("input", () => {', html)
+        self.assertIn('id="posCustomerSearchSummary"', html)
+
+    def test_pos_page_keeps_catalog_picker_centered_with_body_lock(self):
+        self.login_pos_user("owner_pos_catalog_modal", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="posCatalogPicker"', html)
+        self.assertIn('document.body.classList.add("pos-ipos-picker-open");', html)
+        self.assertIn('document.body.classList.remove("pos-ipos-picker-open");', html)
+
+    def test_pos_page_uses_centered_header_menu_overlay_modal(self):
+        self.login_pos_user("owner_pos_menu_modal", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-pos-header-menu-close', html)
+        self.assertIn('function syncPosHeaderMenuBodyState()', html)
+        self.assertIn('"pos-ipos-menu-open"', html)
+
+    def test_pos_page_menu_includes_printer_driver_center_link(self):
+        self.login_pos_user("owner_pos_driver_menu", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Driver Printer iPOS", html)
+        self.assertIn('href="/kasir/printer-drivers"', html)
+
+    def test_pos_printer_driver_center_lists_official_driver_links(self):
+        self.login_pos_user("owner_pos_driver_center", "owner")
+
+        response = self.client.get("/kasir/printer-drivers")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Driver Printer iPOS", html)
+        self.assertIn("Epson", html)
+        self.assertIn("Star Micronics", html)
+        self.assertIn("BIXOLON", html)
+        self.assertIn("XPrinter", html)
+        self.assertIn("Rongta", html)
+        self.assertIn("HPRT", html)
+        self.assertIn("SUNMI", html)
+        self.assertIn("Zebra", html)
+        self.assertIn("Add or install a printer in Windows", html)
+        self.assertIn("https://epson.com/Support/Point-of-Sale/OmniLink-Printers/Epson-TM-T88VI-Series", html)
+        self.assertIn("https://starmicronics.com/support/download/tsp100-futureprnt-software-full/", html)
+        self.assertIn("bixolon.com/download_view.php", html)
+        self.assertIn("xprintertech.com/download.html", html)
+        self.assertIn("rongtatech.com/category/downloads/30", html)
+        self.assertIn("download.hprt.com/Downloads/", html)
+        self.assertIn("developer.sunmi.com/docs/en-US", html)
+        self.assertIn("https://qac-downloads.zebra.com/us/en/software/printer-software/zebra-setup-utility.html", html)
+        self.assertIn('id="posDriverSearch"', html)
+
+    def test_pos_printer_driver_center_denies_non_pos_roles(self):
+        self.login_hr_user("hr_driver_center_denied", "pass1234")
+
+        response = self.client.get("/kasir/printer-drivers", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/workspace/", response.headers.get("Location", ""))
+
+    def test_crm_page_includes_searchable_dropdowns_for_customer_member_and_staff(self):
+        self.login()
+
+        purchase_response = self.client.get("/crm/?tab=purchases")
+        self.assertEqual(purchase_response.status_code, 200)
+        purchase_html = purchase_response.get_data(as_text=True)
+        self.assertIn('id="crmPurchaseCustomerSearch"', purchase_html)
+        self.assertIn('id="crmPurchaseMemberSearch"', purchase_html)
+        self.assertIn('function createCrmSmartSelectController(config)', purchase_html)
+        self.assertIn('crmPurchaseMemberSelectController?.sync();', purchase_html)
+
+        member_response = self.client.get("/crm/?tab=members")
+        self.assertEqual(member_response.status_code, 200)
+        member_html = member_response.get_data(as_text=True)
+        self.assertIn('id="crmMemberCustomerSearch"', member_html)
+        self.assertIn('id="crmMemberStaffSearch"', member_html)
+        self.assertIn('id="crmMemberRecordMemberSearch"', member_html)
+
+    def test_admin_and_hris_pages_include_reusable_searchable_select_component(self):
+        self.create_user("role_admin_searchable_select", "pass1234", "super_admin")
+        self.login("role_admin_searchable_select", "pass1234")
+
+        admin_response = self.client.get("/admin/")
+        self.assertEqual(admin_response.status_code, 200)
+        admin_html = admin_response.get_data(as_text=True)
+        self.assertIn("searchable_select.js", admin_html)
+        self.assertIn('data-searchable-select="1"', admin_html)
+        self.assertIn('data-searchable-placeholder="Cari homebase"', admin_html)
+        self.assertIn('data-searchable-placeholder="Cari karyawan"', admin_html)
+
+        self.logout()
+        self.login_hr_user("hr_searchable_select", "pass1234")
+        hris_response = self.client.get("/hris/employee")
+        self.assertEqual(hris_response.status_code, 200)
+        hris_html = hris_response.get_data(as_text=True)
+        self.assertIn("searchable_select.js", hris_html)
+        self.assertIn('data-searchable-select="1"', hris_html)
+        self.assertIn('data-searchable-placeholder="Cari homebase"', hris_html)
+
+        script_path = os.path.join(self.app.root_path, "static", "js", "searchable_select.js")
+        with open(script_path, "r", encoding="utf-8") as script_file:
+            script = script_file.read()
+
+        self.assertIn("window.WmsSearchableSelect", script)
+        self.assertIn('select[data-searchable-select="1"]', script)
+
+    def test_ipos_dark_theme_css_includes_cart_surface_overrides(self):
+        css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
+        with open(css_path, "r", encoding="utf-8") as css_file:
+            css = css_file.read()
+
+        self.assertIn("--ipos-cart-table-bg:", css)
+        self.assertIn(
+            "html[data-theme] body .pos-terminal-clean.pos-ipos-refactor .pos-vintage-cart-row td",
+            css,
+        )
+        self.assertIn(
+            "html[data-theme] body .pos-terminal-clean.pos-ipos-refactor .ops-queue-empty",
+            css,
+        )
+
+    def test_ipos_dark_theme_css_includes_picker_surface_overrides(self):
+        css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
+        with open(css_path, "r", encoding="utf-8") as css_file:
+            css = css_file.read()
+
+        self.assertIn("--ipos-picker-window-bg:", css)
+        self.assertIn("body.pos-ipos-picker-open", css)
+        self.assertIn(
+            "html[data-theme] body .pos-terminal-clean.pos-ipos-refactor .pos-ipos-picker-window",
+            css,
+        )
+        self.assertIn(
+            "html[data-theme] body .pos-terminal-clean.pos-ipos-refactor .pos-ipos-pickertable tbody tr td",
+            css,
+        )
+        self.assertIn("body.pos-ipos-menu-open", css)
+        self.assertIn(".pos-ipos-menu-backdrop", css)
+
+    def test_currency_input_script_treats_dotted_rupiah_values_as_grouped_nominal(self):
+        script_path = os.path.join(self.app.root_path, "static", "js", "currency_inputs.js")
+        with open(script_path, "r", encoding="utf-8") as script_file:
+            script = script_file.read()
+
+        self.assertIn('if (/^\\d+$/.test(originalValue)) {', script)
+        self.assertNotIn('/^\\d+(\\.\\d+)?$/.test(originalValue)', script)
+        self.assertIn("trailingDigits.length <= 2", script)
 
     def test_pos_sales_log_page_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
         self.login_pos_user("super_pos_log", "super_admin")
@@ -556,6 +765,71 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/workspace/", response.headers.get("Location", ""))
 
+    def test_admin_access_page_lists_intern_and_free_lance_roles(self):
+        self.create_user("role_admin_super", "pass1234", "super_admin")
+        self.login("role_admin_super", "pass1234")
+
+        response = self.client.get("/admin/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('option value="intern"', html)
+        self.assertIn('option value="free_lance"', html)
+        self.assertIn("Fokus pada menu koordinasi tanpa akses WMS", html)
+        self.assertIn("Hanya bisa mengakses portal absen operasional", html)
+
+    def test_intern_role_only_gets_coordination_without_meeting_live_or_wms(self):
+        self.create_user("intern_coord_only", "pass1234", "intern", warehouse_id=1)
+        self.login("intern_coord_only", "pass1234")
+
+        workspace_response = self.client.get("/workspace/")
+        self.assertEqual(workspace_response.status_code, 200)
+        workspace_html = workspace_response.get_data(as_text=True)
+        self.assertIn("Koordinasi Harian", workspace_html)
+        self.assertIn("Pengumuman", workspace_html)
+        self.assertIn("Absen Foto", workspace_html)
+        self.assertIn("Libur", workspace_html)
+        self.assertIn("Report Harian", workspace_html)
+        self.assertIn("Jadwal", workspace_html)
+        self.assertNotIn("Meeting Live", workspace_html)
+        self.assertNotIn("Chat Operasional", workspace_html)
+        self.assertNotIn("Operasional Gudang", workspace_html)
+        self.assertNotIn('data-sidebar-main-trigger="wms"', workspace_html)
+        self.assertNotIn('href="/info-produk/" class="sidebar-subtile', workspace_html)
+
+        meeting_response = self.client.get("/meetings/", follow_redirects=False)
+        self.assertEqual(meeting_response.status_code, 302)
+        self.assertIn("/workspace/", meeting_response.headers.get("Location", ""))
+
+        dashboard_response = self.client.get("/", follow_redirects=False)
+        self.assertEqual(dashboard_response.status_code, 302)
+        self.assertIn("/workspace/", dashboard_response.headers.get("Location", ""))
+
+    def test_free_lance_role_only_can_access_attendance_portal(self):
+        self.create_user("freelance_absen_only", "pass1234", "free_lance", warehouse_id=1)
+        self.login("freelance_absen_only", "pass1234")
+
+        attendance_response = self.client.get("/absen/")
+        self.assertEqual(attendance_response.status_code, 200)
+        attendance_html = attendance_response.get_data(as_text=True)
+        self.assertIn('aria-label="Absen"', attendance_html)
+        self.assertNotIn('aria-label="Pengumuman"', attendance_html)
+        self.assertNotIn('aria-label="Meeting Live"', attendance_html)
+        self.assertNotIn('aria-label="Libur"', attendance_html)
+        self.assertNotIn('aria-label="Report Harian"', attendance_html)
+        self.assertNotIn('aria-label="Jadwal"', attendance_html)
+        self.assertNotIn('data-sidebar-main-trigger="workspace"', attendance_html)
+        self.assertNotIn('data-sidebar-main-trigger="wms"', attendance_html)
+        self.assertNotIn('aria-label="Pengaturan Akun"', attendance_html)
+
+        workspace_response = self.client.get("/workspace/", follow_redirects=False)
+        self.assertEqual(workspace_response.status_code, 302)
+        self.assertIn("/absen/", workspace_response.headers.get("Location", ""))
+
+        leave_response = self.client.get("/libur/", follow_redirects=False)
+        self.assertEqual(leave_response.status_code, 302)
+        self.assertIn("/absen/", leave_response.headers.get("Location", ""))
+
     def test_pos_checkout_syncs_to_stock_and_crm_purchase_records(self):
         self.create_user("staff_sales_checkout", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_checkout")
@@ -598,6 +872,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["total_amount"], 250000.0)
         self.assertIn("receipt_no", payload)
         self.assertIn("receipt_print_url", payload)
+        self.assertIn("layout=thermal", payload["receipt_print_url"])
 
         with self.app.app_context():
             db = get_db()
@@ -815,8 +1090,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print?autoprint=1")
         self.assertEqual(print_response.status_code, 200)
         print_html = print_response.get_data(as_text=True)
-        self.assertIn("Nota Pembelian", print_html)
-        self.assertIn("CV BERKAH JAYA ABADI SPORTS", print_html)
+        self.assertIn("Nota Pembelian iPOS", print_html)
+        self.assertIn("Mataram Sports", print_html)
+        self.assertIn("/static/brand/receipt-logo-mataram.jpg", print_html)
+        self.assertIn("iPOS Kasir Homebase Mataram", print_html)
+        self.assertIn("Homebase Mataram", print_html)
         self.assertIn(receipt_no, print_html)
         self.assertIn("Customer Nota", print_html)
         self.assertIn("POS-NOTA-001", print_html)
@@ -912,12 +1190,661 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("kirimi_http_500", sale["receipt_whatsapp_error"])
         self.assertTrue(os.path.exists(os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"])))
         with open(os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"]), "rb") as file_handle:
-            self.assertTrue(file_handle.read(8).startswith(b"%PDF-1."))
+            pdf_bytes = file_handle.read()
+        self.assertTrue(pdf_bytes[:8].startswith(b"%PDF-1."))
+        pdf_text = pdf_bytes.decode("latin-1", errors="ignore")
         self.assertIsNotNone(notification)
         self.assertEqual(notification["channel"], "wa_document")
         self.assertEqual(notification["recipient"], "628120008888")
         self.assertEqual(notification["status"], "failed")
         self.assertIn("kirimi_http_500", notification["message"])
+        self.assertIn("Mataram Sports", pdf_text)
+        self.assertIn("Homebase Mataram", pdf_text)
+        self.assertIn("/Subtype /Image", pdf_text)
+        self.assertIn("/DCTDecode", pdf_text)
+
+    def test_pos_receipt_print_thermal_layout_renders_footer_style_for_ipos(self):
+        self.app.config.update(
+            POS_RECEIPT_RETURN_POLICY_MATARAM="Barang yang telah dibayarkan tidak dapat dikembalikan, kecuali produk tertentu sesuai perjanjian.",
+            POS_RECEIPT_THANK_YOU_TEXT_MATARAM="Terimakasih atas kunjungan anda",
+            POS_RECEIPT_FEEDBACK_LINE_MATARAM="Kritik & Saran : 0898-2664-2000",
+            POS_RECEIPT_SOCIAL_LABEL_MATARAM="Social Media Kami di:",
+            POS_RECEIPT_SOCIAL_URL_MATARAM="https://instagram.com/mataramsports",
+        )
+        self.create_user("staff_sales_thermal_print", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_thermal_print")
+        self.login_pos_user("pos_thermal_print_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-THERMAL-001",
+            qty=7,
+            variants="44",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-06",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Thermal",
+                "customer_phone": "628120001451",
+                "payment_method": "debit",
+                "paid_amount": 151000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 150000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertIn("layout=thermal", payload["receipt_print_url"])
+
+        thermal_response = self.client.get(payload["receipt_print_url"])
+        self.assertEqual(thermal_response.status_code, 200)
+        thermal_html = thermal_response.get_data(as_text=True)
+        self.assertIn('class="thermal-layout"', thermal_html)
+        self.assertIn("Cetak Nota", thermal_html)
+        self.assertIn("Grand Total", thermal_html)
+        self.assertIn("Barang yang telah dibayarkan tidak dapat dikembalikan", thermal_html)
+        self.assertIn("Terimakasih atas kunjungan anda", thermal_html)
+        self.assertIn("Kritik &amp; Saran : 0898-2664-2000", thermal_html)
+        self.assertIn("Social Media Kami di:", thermal_html)
+        self.assertIn("https://instagram.com/mataramsports", thermal_html)
+
+    def test_pos_checkout_receipt_whatsapp_passes_sale_warehouse_to_sender(self):
+        self.create_user("staff_sales_mega_receipt", "pass1234", "staff", warehouse_id=2)
+        selected_cashier_user_id = self.get_user_id("staff_sales_mega_receipt")
+        self.login_pos_user("pos_mega_receipt_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-MEGA-WA-001",
+            qty=5,
+            variants="42",
+            warehouse_id="2",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "628120007777",
+                "error": "",
+            },
+        ) as mocked_send:
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 2,
+                    "sale_date": "2026-04-04",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Mega",
+                    "customer_phone": "08120007777",
+                    "payment_method": "cash",
+                    "paid_amount": 151000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        mocked_send.assert_called_once()
+        self.assertEqual(mocked_send.call_args.kwargs["warehouse_id"], 2)
+        self.assertEqual(mocked_send.call_args.kwargs["warehouse_name"], "Gudang Mega")
+
+    def test_pos_receipt_print_uses_mega_homebase_branding(self):
+        self.create_user("staff_sales_print_mega", "pass1234", "staff", warehouse_id=2)
+        selected_cashier_user_id = self.get_user_id("staff_sales_print_mega")
+        self.login_pos_user("pos_print_mega_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-PRINT-MEGA-001",
+            qty=6,
+            variants="44",
+            warehouse_id="2",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 2,
+                "sale_date": "2026-04-05",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Print Mega",
+                "customer_phone": "628120009999",
+                "payment_method": "cash",
+                "paid_amount": 201000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 200000,
+                    }
+                ],
+                "note": "Nota homebase mega",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+
+        self.assertIn("Mega Sports", print_html)
+        self.assertIn("/static/brand/receipt-logo-mega.jpg", print_html)
+        self.assertIn("iPOS Kasir Homebase Mega", print_html)
+        self.assertIn("Homebase Mega", print_html)
+        self.assertIn("Customer Print Mega", print_html)
+
+    def test_pos_receipt_print_and_pdf_support_homebase_specific_identity_metadata(self):
+        self.app.config.update(
+            POS_RECEIPT_ADDRESS_MATARAM="Jl. Homebase Mataram No. 1, Cakranegara",
+            POS_RECEIPT_CUSTOMER_SERVICE_MATARAM="6281319466464",
+            POS_RECEIPT_FOOTER_IDENTITY_MATARAM="Mataram Sports | Homebase Mataram | iPOS Kasir",
+            POS_RECEIPT_FOOTER_NOTE_MATARAM="Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.",
+        )
+        self.create_user("staff_sales_receipt_identity", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_receipt_identity")
+        self.login_pos_user("pos_receipt_identity_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-RECEIPT-ID-001",
+            qty=4,
+            variants="39",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-07",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Receipt Identity",
+                "customer_phone": "628120001234",
+                "payment_method": "cash",
+                "paid_amount": 161000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 160000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+        self.assertIn("Alamat Homebase", print_html)
+        self.assertIn("Jl. Homebase Mataram No. 1, Cakranegara", print_html)
+        self.assertIn("6281319466464", print_html)
+        self.assertIn("Mataram Sports | Homebase Mataram | iPOS Kasir", print_html)
+        self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", print_html)
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                "SELECT receipt_pdf_path FROM pos_sales WHERE receipt_no=?",
+                (receipt_no,),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        pdf_path = os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"])
+        with open(pdf_path, "rb") as file_handle:
+            pdf_text = file_handle.read().decode("latin-1", errors="ignore")
+
+        self.assertIn("Alamat   : Jl. Homebase Mataram No. 1, Cakranegara", pdf_text)
+        self.assertIn("Customer Service: 6281319466464", pdf_text)
+        self.assertIn("Identitas: Mataram Sports | Homebase Mataram | iPOS Kasir", pdf_text)
+        self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", pdf_text)
+
+    def test_send_whatsapp_document_uses_warehouse_specific_kirimi_device(self):
+        self.app.config.update(
+            KIRIMI_USER_CODE="kirimi-global-user",
+            KIRIMI_SECRET="kirimi-global-secret",
+            KIRIMI_DEVICE_ID="D-GLOBAL",
+            KIRIMI_DEVICE_ID_MATARAM="D-0JFRZ",
+            KIRIMI_DEVICE_ID_MEGA="D-6QPE2",
+        )
+
+        class DummyKirimiResponse:
+            ok = True
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"success": True, "message_id": "MSG-001"}
+
+        mock_http = Mock()
+        mock_http.post.return_value = DummyKirimiResponse()
+
+        with self.app.app_context(), patch.object(whatsapp_service, "http_requests", mock_http):
+            mataram_result = whatsapp_service.send_whatsapp_document(
+                "081230003333",
+                "Halo Mataram",
+                "https://erp.test/static/test-pos-receipts/mataram.pdf",
+                warehouse_id=1,
+                warehouse_name="Gudang Mataram",
+            )
+            mega_result = whatsapp_service.send_whatsapp_document(
+                "081230004444",
+                "Halo Mega",
+                "https://erp.test/static/test-pos-receipts/mega.pdf",
+                warehouse_id=2,
+                warehouse_name="Gudang Mega",
+            )
+
+        self.assertTrue(mataram_result["ok"])
+        self.assertTrue(mega_result["ok"])
+        self.assertEqual(mock_http.post.call_count, 2)
+        mataram_payload = mock_http.post.call_args_list[0].kwargs["json"]
+        mega_payload = mock_http.post.call_args_list[1].kwargs["json"]
+        self.assertEqual(mataram_payload["user_code"], "kirimi-global-user")
+        self.assertEqual(mataram_payload["secret"], "kirimi-global-secret")
+        self.assertEqual(mataram_payload["device_id"], "D-0JFRZ")
+        self.assertEqual(mataram_payload["receiver"], "6281230003333")
+        self.assertEqual(mega_payload["user_code"], "kirimi-global-user")
+        self.assertEqual(mega_payload["secret"], "kirimi-global-secret")
+        self.assertEqual(mega_payload["device_id"], "D-6QPE2")
+        self.assertEqual(mega_payload["receiver"], "6281230004444")
+
+    def test_pos_checkout_receipt_whatsapp_includes_purchase_points_summary(self):
+        self.create_user("staff_sales_loyalty_wa", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_loyalty_wa")
+        self.login_pos_user("pos_loyalty_wa_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-WA-POINT-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer_cursor = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer WA Poin', '081230001111', 'member')
+                """
+            )
+            customer_id = customer_cursor.lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (customer_id, 1, "WA-POINT-001", "purchase", "active", "2026-04-01", 20),
+            )
+            db.commit()
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "6281230001111",
+                "error": "",
+            },
+        ) as mocked_send:
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_id": customer_id,
+                    "payment_method": "cash",
+                    "paid_amount": 121000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 120000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        mocked_send.assert_called_once()
+        message = mocked_send.call_args.args[1]
+        self.assertIn("Update CRM Customer:", message)
+        self.assertIn("Member: WA-POINT-001", message)
+        self.assertIn("Poin transaksi ini: +12 poin", message)
+        self.assertIn("Total poin aktif: 32 poin", message)
+
+    def test_pos_checkout_receipt_whatsapp_includes_stringing_progress_summary(self):
+        self.create_user("staff_sales_stringing_wa", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_stringing_wa")
+        self.login_pos_user("pos_stringing_wa_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-WA-SENAR-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer_cursor = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer WA Senar', '081230002222', 'member')
+                """
+            )
+            customer_id = customer_cursor.lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date,
+                    reward_unit_amount, opening_stringing_visits
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (customer_id, 1, "WA-SENAR-001", "stringing", "active", "2026-04-01", 75000, 4),
+            )
+            db.commit()
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "6281230002222",
+                "error": "",
+            },
+        ) as mocked_send:
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_id": customer_id,
+                    "transaction_type": "stringing_service",
+                    "payment_method": "cash",
+                    "paid_amount": 76000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 75000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        mocked_send.assert_called_once()
+        message = mocked_send.call_args.args[1]
+        self.assertIn("Update CRM Customer:", message)
+        self.assertIn("Member: WA-SENAR-001", message)
+        self.assertIn("Progress senar: 5/6", message)
+        self.assertIn("Sisa 1 lagi menuju free 1x", message)
+
+    def test_pos_receipt_print_includes_purchase_loyalty_summary(self):
+        self.create_user("staff_sales_print_loyalty", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_print_loyalty")
+        self.login_pos_user("pos_print_loyalty_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-PRINT-POINT-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer_cursor = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Print Poin', '081230003333', 'member')
+                """
+            )
+            customer_id = customer_cursor.lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (customer_id, 1, "PRINT-POINT-001", "purchase", "active", "2026-04-01", 15),
+            )
+            db.commit()
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "6281230003333",
+                "error": "",
+            },
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_id": customer_id,
+                    "payment_method": "cash",
+                    "paid_amount": 121000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 120000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+
+        self.assertIn("Update CRM Customer", print_html)
+        self.assertIn("PRINT-POINT-001", print_html)
+        self.assertIn("Poin transaksi ini: +12 poin", print_html)
+        self.assertIn("Total poin aktif: 27 poin", print_html)
+        self.assertIn('class="receipt-loyalty-box"', print_html)
+
+    def test_pos_receipt_pdf_includes_stringing_loyalty_summary(self):
+        self.create_user("staff_sales_pdf_loyalty", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_pdf_loyalty")
+        self.login_pos_user("pos_pdf_loyalty_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-PDF-SENAR-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer_cursor = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer PDF Senar', '081230004444', 'member')
+                """
+            )
+            customer_id = customer_cursor.lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date,
+                    reward_unit_amount, opening_stringing_visits
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (customer_id, 1, "PDF-SENAR-001", "stringing", "active", "2026-04-01", 75000, 5),
+            )
+            db.commit()
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "6281230004444",
+                "error": "",
+            },
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_id": customer_id,
+                    "transaction_type": "stringing_service",
+                    "payment_method": "cash",
+                    "paid_amount": 76000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 75000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                """
+                SELECT receipt_pdf_path
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (receipt_no,),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        self.assertTrue(sale["receipt_pdf_path"])
+        pdf_path = os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"])
+        self.assertTrue(os.path.exists(pdf_path))
+        with open(pdf_path, "rb") as file_handle:
+            pdf_text = file_handle.read().decode("latin-1", errors="ignore")
+
+        self.assertIn("Update CRM Customer", pdf_text)
+        self.assertIn("- Member: PDF-SENAR-001", pdf_text)
+        self.assertIn("- Progress senar: 6/6", pdf_text)
+        self.assertIn("- Free senar siap dipakai: 1x", pdf_text)
+        self.assertIn("Rp 75.000", pdf_text)
+
+    def test_pos_receipt_pdf_uses_mega_homebase_branding(self):
+        self.create_user("staff_sales_pdf_mega", "pass1234", "staff", warehouse_id=2)
+        selected_cashier_user_id = self.get_user_id("staff_sales_pdf_mega")
+        self.login_pos_user("pos_pdf_mega_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-PDF-MEGA-001",
+            qty=4,
+            variants="40",
+            warehouse_id="2",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 2,
+                "sale_date": "2026-04-05",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer PDF Mega",
+                "customer_phone": "628120006666",
+                "payment_method": "cash",
+                "paid_amount": 211000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 210000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                """
+                SELECT receipt_pdf_path
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (receipt_no,),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        pdf_path = os.path.join(self.receipt_pdf_root, sale["receipt_pdf_path"])
+        self.assertTrue(os.path.exists(pdf_path))
+        with open(pdf_path, "rb") as file_handle:
+            pdf_text = file_handle.read().decode("latin-1", errors="ignore")
+
+        self.assertIn("Mega Sports", pdf_text)
+        self.assertIn("Homebase Mega", pdf_text)
+        self.assertIn("/Subtype /Image", pdf_text)
 
     def test_pos_void_item_restores_stock_and_recalculates_sale_totals(self):
         self.create_user("staff_sales_void", "pass1234", "staff", warehouse_id=1)
@@ -1181,6 +2108,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(mocked_send.call_count, 2)
         sent_recipients = {call.args[0] for call in mocked_send.call_args_list}
         self.assertEqual(sent_recipients, {"6281234567890", "6281299900011"})
+        self.assertTrue(all("Lokasi: Gudang Mataram - Gerbang Timur." in call.args[1] for call in mocked_send.call_args_list))
+        self.assertFalse(any("Titik:" in call.args[1] for call in mocked_send.call_args_list))
         self.assertEqual(
             {(row["role"], row["recipient"], row["status"]) for row in rows},
             {
@@ -2416,6 +3345,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "slot_key": "13:00",
                 "employee_id": str(employee_id),
                 "channel_label": "Shopee Mega + IG",
+                "bg_color": "#ffe8a2",
+                "text_color": "#4b3500",
                 "note": "Host takeover promo",
                 "start": "2026-03-30",
                 "days": "7",
@@ -2429,7 +3360,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             live_entry = db.execute(
                 """
-                SELECT warehouse_id, schedule_date, slot_key, employee_id, channel_label, note
+                SELECT warehouse_id, schedule_date, slot_key, employee_id, channel_label, note, bg_color, text_color, is_checked
                 FROM schedule_live_entries
                 WHERE warehouse_id=1 AND schedule_date='2026-03-31' AND slot_key='13:00'
                 """
@@ -2439,6 +3370,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(live_entry["employee_id"], employee_id)
         self.assertEqual(live_entry["channel_label"], "Shopee Mega + IG")
         self.assertEqual(live_entry["note"], "Host takeover promo")
+        self.assertEqual(live_entry["bg_color"], "#FFE8A2")
+        self.assertEqual(live_entry["text_color"], "#4B3500")
+        self.assertEqual(live_entry["is_checked"], 0)
 
         board_response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
         self.assertEqual(board_response.status_code, 200)
@@ -2446,6 +3380,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Jadwal Live Gudang Mataram", board_html)
         self.assertIn("Shopee Mega + IG", board_html)
         self.assertIn("Caca", board_html)
+        self.assertIn('data-live-bg-color="#FFE8A2"', board_html)
+        self.assertIn('data-live-text-color="#4B3500"', board_html)
+        self.assertIn('data-schedule-live-check-toggle="1"', board_html)
+        self.assertNotIn("schedule-live-check-button is-checked", board_html)
 
     def test_hr_can_save_live_schedule_entry_for_date_range(self):
         self.create_user("hr_live_range", "pass1234", "hr")
@@ -2493,6 +3431,386 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual([row["schedule_date"] for row in rows], ["2026-03-31", "2026-04-01", "2026-04-02"])
         self.assertTrue(all(row["employee_id"] == employee_id for row in rows))
         self.assertTrue(all(row["channel_label"] == "TikTok Live" for row in rows))
+
+    def test_schedule_page_renders_day_focus_markup_and_context_actions(self):
+        self.create_user("hr_schedule_ui", "pass1234", "hr")
+        manual_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-UI-MNL",
+            full_name="Rara Manual",
+            warehouse_id=1,
+            position="Admin Gudang",
+        )
+        live_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-UI-LIVE",
+            full_name="Nia Live",
+            warehouse_id=1,
+            position="Host Live",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                (manual_employee_id, "2026-03-31", "P", "Shift pembuka", 1),
+            )
+            db.execute(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    is_checked,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (1, "2026-03-31", "13:00", live_employee_id, "Shopee + IG", "Takeover siang", 1, 1),
+            )
+            db.commit()
+
+        self.login("hr_schedule_ui", "pass1234")
+        response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Kolom ini tetap terkunci saat board digeser.", html)
+        self.assertIn("schedule-matrix-date-day", html)
+        self.assertIn("schedule-live-date-day", html)
+        self.assertIn('id="scheduleContextMenu"', html)
+        self.assertIn('id="scheduleEntryQuickDeleteForm"', html)
+        self.assertIn('id="scheduleLiveQuickDeleteForm"', html)
+        self.assertIn('data-schedule-entry-cell="1"', html)
+        self.assertIn('data-schedule-live-cell="1"', html)
+        self.assertIn('id="scheduleLiveCheckToggleForm"', html)
+        self.assertIn('id="scheduleLiveCheckSaveButton"', html)
+        self.assertIn('id="scheduleLiveCheckResetButton"', html)
+        self.assertIn('name="changes_json"', html)
+        self.assertIn('data-schedule-live-check-toggle="1"', html)
+        self.assertIn("schedule-live-check-button is-checked", html)
+        self.assertIn("Klik kanan di desktop atau tekan tahan di mobile", html)
+        self.assertIn('document.addEventListener("touchstart", beginTouchMenu', html)
+
+    def test_schedule_page_builds_theme_safe_colors_for_extreme_custom_values(self):
+        self.create_user("hr_schedule_theme", "pass1234", "hr")
+        manual_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-THEME-MNL",
+            full_name="Mila Shift",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        live_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-THEME-LIVE",
+            full_name="Nopal Live",
+            warehouse_id=1,
+            position="Host Live",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO schedule_shift_codes(code, label, bg_color, text_color, sort_order, is_active)
+                VALUES (?,?,?,?,?,?)
+                """,
+                ("BLK", "Black Shift", "#000000", "#000000", 99, 1),
+            )
+            db.execute(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                (manual_employee_id, "2026-03-31", "BLK", "Extreme palette", 1),
+            )
+            db.execute(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    bg_color,
+                    text_color,
+                    is_checked,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "2026-03-31", "09:00", live_employee_id, "Shopee", "Extreme palette", "#000000", "#000000", 0, 1),
+            )
+            db.commit()
+
+        self.login("hr_schedule_theme", "pass1234")
+        response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("--schedule-chip-bg-light:", html)
+        self.assertIn("--schedule-live-cell-bg-light:", html)
+        self.assertIn('data-live-bg-color="#000000"', html)
+        self.assertNotIn("--schedule-chip-bg-light: #000000", html)
+        self.assertNotIn("--schedule-live-cell-bg-light: #000000", html)
+        self.assertNotIn("--schedule-live-person-color-dark: #000000", html)
+
+    def test_schedule_page_uses_neutral_default_color_pickers(self):
+        self.create_user("hr_schedule_defaults", "pass1234", "hr")
+        self.login("hr_schedule_defaults", "pass1234")
+
+        response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn(f'name="bg_color" value="{LIVE_SCHEDULE_DEFAULT_BG}"', html)
+        self.assertIn(f'name="text_color" value="{LIVE_SCHEDULE_DEFAULT_TEXT}"', html)
+
+    def test_init_db_migrates_legacy_live_default_colors_to_neutral_palette(self):
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    channel_label,
+                    note,
+                    bg_color,
+                    text_color,
+                    is_checked,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "2026-03-31",
+                    "09:00",
+                    "Shopee",
+                    "Legacy default palette",
+                    LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
+                    LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT,
+                    0,
+                    1,
+                ),
+            )
+            db.commit()
+
+        init_db_module.init_db(self.db_path)
+
+        with self.app.app_context():
+            db = get_db()
+            live_entry = db.execute(
+                """
+                SELECT bg_color, text_color
+                FROM schedule_live_entries
+                WHERE warehouse_id=1 AND schedule_date='2026-03-31' AND slot_key='09:00'
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(live_entry)
+        self.assertEqual(live_entry["bg_color"], LIVE_SCHEDULE_DEFAULT_BG)
+        self.assertEqual(live_entry["text_color"], LIVE_SCHEDULE_DEFAULT_TEXT)
+
+    def test_hr_can_clear_single_schedule_entry_for_context_delete_flow(self):
+        self.create_user("hr_schedule_clear", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-CLEAR",
+            full_name="Tono Clear",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                [
+                    (employee_id, "2026-03-31", "P", "Shift awal", 1),
+                    (employee_id, "2026-04-01", "S", "Shift lanjutan", 1),
+                ],
+            )
+            db.commit()
+
+        self.login("hr_schedule_clear", "pass1234")
+        response = self.client.post(
+            "/schedule/entry/save",
+            data={
+                "employee_id": str(employee_id),
+                "shift_code": "",
+                "entry_start_date": "2026-03-31",
+                "entry_end_date": "2026-03-31",
+                "note": "",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Jadwal manual pada rentang tersebut berhasil dibersihkan.", response.get_data(as_text=True))
+
+        with self.app.app_context():
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT schedule_date, shift_code
+                FROM schedule_entries
+                WHERE employee_id=?
+                ORDER BY schedule_date
+                """,
+                (employee_id,),
+            ).fetchall()
+
+        self.assertEqual([(row["schedule_date"], row["shift_code"]) for row in rows], [("2026-04-01", "S")])
+
+    def test_hr_can_clear_single_live_schedule_slot_for_context_delete_flow(self):
+        self.create_user("hr_live_clear", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-LIVE-CLEAR",
+            full_name="Vina Live",
+            warehouse_id=1,
+            position="Live Host",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                [
+                    (1, "2026-03-31", "13:00", employee_id, "TikTok Live", "Sesi pertama", 1),
+                    (1, "2026-04-01", "13:00", employee_id, "TikTok Live", "Sesi kedua", 1),
+                ],
+            )
+            db.commit()
+
+        self.login("hr_live_clear", "pass1234")
+        response = self.client.post(
+            "/schedule/live/save",
+            data={
+                "live_warehouse_id": "1",
+                "live_schedule_start": "2026-03-31",
+                "live_schedule_end": "2026-03-31",
+                "slot_key": "13:00",
+                "employee_id": "",
+                "channel_label": "",
+                "note": "",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Slot jadwal live berhasil dibersihkan.", response.get_data(as_text=True))
+
+        with self.app.app_context():
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT schedule_date, employee_id, channel_label
+                FROM schedule_live_entries
+                WHERE warehouse_id=1
+                  AND slot_key='13:00'
+                ORDER BY schedule_date
+                """
+            ).fetchall()
+
+        self.assertEqual(
+            [(row["schedule_date"], row["employee_id"], row["channel_label"]) for row in rows],
+            [("2026-04-01", employee_id, "TikTok Live")],
+        )
+
+    def test_hr_can_batch_save_live_schedule_check_status(self):
+        self.create_user("hr_live_check", "pass1234", "hr")
+        hr_user_id = self.get_user_id("hr_live_check")
+        first_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-LIVE-CHECK-1",
+            full_name="Lala Check",
+            warehouse_id=1,
+            position="Live Host",
+        )
+        second_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-LIVE-CHECK-2",
+            full_name="Nala Check",
+            warehouse_id=1,
+            position="Live Host",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    is_checked,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (1, "2026-03-31", "13:00", first_employee_id, "Shopee Live", "Checklist awal", 0, 1),
+                    (1, "2026-03-31", "15:00", second_employee_id, "TikTok Live", "Checklist kedua", 0, 1),
+                ],
+            )
+            db.commit()
+
+        self.login("hr_live_check", "pass1234")
+        response = self.client.post(
+            "/schedule/live/check",
+            data={
+                "changes_json": json.dumps(
+                    [
+                        {"warehouse_id": 1, "schedule_date": "2026-03-31", "slot_key": "13:00", "is_checked": 1},
+                        {"warehouse_id": 1, "schedule_date": "2026-03-31", "slot_key": "15:00", "is_checked": 1},
+                    ]
+                ),
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("2 checklist jadwal live berhasil disimpan.", response.get_data(as_text=True))
+
+        with self.app.app_context():
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT slot_key, is_checked, checked_by, checked_at
+                FROM schedule_live_entries
+                WHERE warehouse_id=1 AND schedule_date='2026-03-31'
+                ORDER BY slot_key
+                """
+            ).fetchall()
+
+        self.assertEqual([row["slot_key"] for row in rows], ["13:00", "15:00"])
+        self.assertTrue(all(row["is_checked"] == 1 for row in rows))
+        self.assertTrue(all(row["checked_by"] == hr_user_id for row in rows))
+        self.assertTrue(all(row["checked_at"] for row in rows))
 
     def test_hr_can_save_schedule_entry_for_ninety_day_range(self):
         self.create_user("hr_schedule_90", "pass1234", "hr")
@@ -2683,6 +4001,499 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Toko CRM", crm_html)
         self.assertIn("MBR-CRM-001", crm_html)
         self.assertIn("Produk Uji / 40", crm_html)
+
+    def test_crm_membership_programs_track_points_stringing_reward_and_requesting_staff(self):
+        self.login()
+        self.create_user("crm_staff_ref", "pass1234", "staff", warehouse_id=1)
+        staff_id = self.get_user_id("crm_staff_ref")
+
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-LOYAL-001",
+            qty=20,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        add_purchase_customer = self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer Poin CRM",
+                "phone": "628100000001",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_purchase_customer.status_code, 302)
+
+        add_stringing_customer = self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer Senar CRM",
+                "phone": "628100000002",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_stringing_customer.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Poin CRM'"
+            ).fetchone()
+            stringing_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Senar CRM'"
+            ).fetchone()
+
+        add_purchase_member = self.client.post(
+            "/crm/members/add",
+            data={
+                "customer_id": str(purchase_customer["id"]),
+                "member_code": "MBR-POINT-001",
+                "member_type": "purchase",
+                "status": "active",
+                "join_date": "2026-04-01",
+                "points": "0",
+                "requested_by_staff_id": str(staff_id),
+                "note": "Program poin pembelian",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_purchase_member.status_code, 302)
+
+        add_stringing_member = self.client.post(
+            "/crm/members/add",
+            data={
+                "customer_id": str(stringing_customer["id"]),
+                "member_code": "MBR-SENAR-001",
+                "member_type": "stringing",
+                "status": "active",
+                "join_date": "2026-04-01",
+                "requested_by_staff_id": str(staff_id),
+                "reward_unit_amount": "75000",
+                "opening_stringing_visits": "5",
+                "note": "Program senaran 6x free 1x",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_stringing_member.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_member = db.execute(
+                "SELECT id, member_type, requested_by_staff_id FROM crm_memberships WHERE member_code='MBR-POINT-001'"
+            ).fetchone()
+            stringing_member = db.execute(
+                """
+                SELECT id, member_type, requested_by_staff_id, reward_unit_amount
+                FROM crm_memberships
+                WHERE member_code='MBR-SENAR-001'
+                """
+            ).fetchone()
+
+        self.assertEqual(purchase_member["member_type"], "purchase")
+        self.assertEqual(purchase_member["requested_by_staff_id"], staff_id)
+        self.assertEqual(stringing_member["member_type"], "stringing")
+        self.assertEqual(stringing_member["requested_by_staff_id"], staff_id)
+        self.assertAlmostEqual(float(stringing_member["reward_unit_amount"]), 75000.0)
+
+        add_purchase_history = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(purchase_customer["id"]),
+                "member_id": str(purchase_member["id"]),
+                "purchase_date": "2026-04-02",
+                "invoice_no": "INV-POINT-001",
+                "channel": "store",
+                "transaction_type": "purchase",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 2,
+                            "unit_price": 125000,
+                            "display_name": "CRM-LOYAL-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_purchase_history.status_code, 302)
+
+        add_stringing_visit = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(stringing_customer["id"]),
+                "member_id": str(stringing_member["id"]),
+                "purchase_date": "2026-04-03",
+                "invoice_no": "INV-SENAR-001",
+                "channel": "store",
+                "transaction_type": "stringing_service",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 75000,
+                            "display_name": "CRM-LOYAL-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_stringing_visit.status_code, 302)
+
+        add_stringing_reward = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(stringing_customer["id"]),
+                "member_id": str(stringing_member["id"]),
+                "purchase_date": "2026-04-04",
+                "invoice_no": "INV-SENAR-REWARD-001",
+                "channel": "store",
+                "transaction_type": "stringing_reward_redemption",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 0,
+                            "display_name": "CRM-LOYAL-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_stringing_reward.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_snapshot = get_member_snapshot(db, purchase_member["id"])
+            stringing_snapshot = get_member_snapshot(db, stringing_member["id"])
+            purchase_record = db.execute(
+                """
+                SELECT record_type, points_delta
+                FROM crm_member_records
+                WHERE member_id=? AND purchase_id IS NOT NULL
+                ORDER BY id ASC
+                """,
+                (purchase_member["id"],),
+            ).fetchone()
+            stringing_records = db.execute(
+                """
+                SELECT record_type, service_count_delta, reward_redeemed_delta, benefit_value
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id ASC
+                """,
+                (stringing_member["id"],),
+            ).fetchall()
+
+        self.assertEqual(purchase_snapshot["current_points"], 25)
+        self.assertEqual(purchase_record["record_type"], "purchase")
+        self.assertEqual(purchase_record["points_delta"], 25)
+        self.assertEqual(stringing_snapshot["total_stringing_visits"], 6)
+        self.assertEqual(stringing_snapshot["total_reward_earned"], 1)
+        self.assertEqual(stringing_snapshot["total_reward_redeemed"], 1)
+        self.assertEqual(stringing_snapshot["available_reward_count"], 0)
+        self.assertEqual(stringing_records[0]["record_type"], "stringing_service")
+        self.assertEqual(stringing_records[0]["service_count_delta"], 1)
+        self.assertEqual(stringing_records[1]["record_type"], "reward_redemption")
+        self.assertEqual(stringing_records[1]["reward_redeemed_delta"], 1)
+        self.assertAlmostEqual(float(stringing_records[1]["benefit_value"]), 75000.0)
+
+    def test_crm_purchase_rejects_stringing_transaction_for_purchase_member(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-INVALID-TRANSACTION-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer Invalid CRM",
+                "phone": "628100000099",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Invalid CRM'"
+            ).fetchone()
+
+        self.client.post(
+            "/crm/members/add",
+            data={
+                "customer_id": str(purchase_customer["id"]),
+                "member_code": "MBR-INVALID-CRM-001",
+                "member_type": "purchase",
+                "status": "active",
+                "join_date": "2026-04-01",
+                "points": "0",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='MBR-INVALID-CRM-001'"
+            ).fetchone()
+
+        invalid_response = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(purchase_customer["id"]),
+                "member_id": str(purchase_member["id"]),
+                "purchase_date": "2026-04-02",
+                "invoice_no": "INV-INVALID-CRM-001",
+                "channel": "store",
+                "transaction_type": "stringing_service",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 75000,
+                            "display_name": "CRM-INVALID-TRANSACTION-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(invalid_response.status_code, 200)
+        self.assertIn(
+            "Jenis transaksi senaran hanya bisa dipakai untuk member senaran.",
+            invalid_response.get_data(as_text=True),
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_count = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM crm_purchase_records
+                WHERE invoice_no='INV-INVALID-CRM-001'
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(purchase_count, 0)
+
+    def test_crm_purchase_page_uses_explicit_transaction_option_rules(self):
+        self.login()
+        response = self.client.get("/crm/?tab=purchases")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("const crmPurchaseTransactionRules =", html)
+        self.assertIn("function syncCrmPurchaseTransactionOptions()", html)
+        self.assertNotIn('crmPurchaseTransactionType.value = "purchase";', html)
+        self.assertNotIn('crmPurchaseTransactionType.value = "stringing_service";', html)
+
+    def test_pos_checkout_updates_purchase_points_and_stringing_rewards(self):
+        self.create_user("staff_sales_loyalty", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_loyalty")
+        self.login_pos_user("pos_loyalty_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-LOYAL-001",
+            qty=12,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'POS Member Poin', '628130000001', 'member')
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'POS Member Senar', '628130000002', 'member')
+                """
+            )
+            purchase_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='POS Member Poin'"
+            ).fetchone()
+            stringing_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='POS Member Senar'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (purchase_customer["id"], 1, "POS-POINT-001", "purchase", "active", "2026-04-01", 0),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date,
+                    reward_unit_amount, opening_stringing_visits
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (stringing_customer["id"], 1, "POS-SENAR-001", "stringing", "active", "2026-04-01", 75000, 5),
+            )
+            purchase_member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='POS-POINT-001'"
+            ).fetchone()
+            stringing_member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='POS-SENAR-001'"
+            ).fetchone()
+            db.commit()
+
+        purchase_checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-05",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": purchase_customer["id"],
+                "customer_name": "POS Member Poin",
+                "customer_phone": "628130000001",
+                "transaction_type": "purchase",
+                "payment_method": "cash",
+                "paid_amount": 120000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 120000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(purchase_checkout.status_code, 200)
+
+        stringing_checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-05",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": stringing_customer["id"],
+                "customer_name": "POS Member Senar",
+                "customer_phone": "628130000002",
+                "transaction_type": "stringing_service",
+                "payment_method": "cash",
+                "paid_amount": 75000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 75000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(stringing_checkout.status_code, 200)
+
+        reward_checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-05",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": stringing_customer["id"],
+                "customer_name": "POS Member Senar",
+                "customer_phone": "628130000002",
+                "transaction_type": "stringing_reward_redemption",
+                "payment_method": "cash",
+                "paid_amount": 0,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 0,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(reward_checkout.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            purchase_snapshot = get_member_snapshot(db, purchase_member["id"])
+            stringing_snapshot = get_member_snapshot(db, stringing_member["id"])
+            purchase_record = db.execute(
+                """
+                SELECT points_delta
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (purchase_member["id"],),
+            ).fetchone()
+            stringing_records = db.execute(
+                """
+                SELECT record_type, service_count_delta, reward_redeemed_delta, benefit_value
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id ASC
+                """,
+                (stringing_member["id"],),
+            ).fetchall()
+            stringing_purchase_types = db.execute(
+                """
+                SELECT transaction_type
+                FROM crm_purchase_records
+                WHERE member_id=?
+                ORDER BY id ASC
+                """,
+                (stringing_member["id"],),
+            ).fetchall()
+
+        self.assertEqual(purchase_snapshot["current_points"], 12)
+        self.assertEqual(purchase_record["points_delta"], 12)
+        self.assertEqual(stringing_snapshot["total_stringing_visits"], 6)
+        self.assertEqual(stringing_snapshot["total_reward_earned"], 1)
+        self.assertEqual(stringing_snapshot["total_reward_redeemed"], 1)
+        self.assertEqual(stringing_snapshot["available_reward_count"], 0)
+        self.assertEqual(stringing_records[0]["record_type"], "stringing_service")
+        self.assertEqual(stringing_records[0]["service_count_delta"], 1)
+        self.assertEqual(stringing_records[1]["record_type"], "reward_redemption")
+        self.assertEqual(stringing_records[1]["reward_redeemed_delta"], 1)
+        self.assertAlmostEqual(float(stringing_records[1]["benefit_value"]), 75000.0)
+        self.assertEqual(
+            [row["transaction_type"] for row in stringing_purchase_types],
+            ["stringing_service", "stringing_reward_redemption"],
+        )
 
     def test_chat_module_supports_direct_messages_and_realtime_unread(self):
         self.create_user("leader_chat", "pass1234", "leader", warehouse_id=1)
@@ -3917,6 +5728,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             "HR dan Super Admin bisa mengubah status Present/Late dan jam masuk/pulang langsung dari rekap ini.",
             html,
         )
+        self.assertIn("alamat atau tempat absensi", html)
+        self.assertNotIn("titik geotag", html.lower())
         self.assertNotIn("Log Geotag Absensi", html)
         self.assertNotIn("Tambah Absen Geotag", html)
         self.assertNotIn('href="/hris/attendance"', html)
@@ -3980,6 +5793,64 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("requestSubmit", html)
         self.assertIn("Present", html)
         self.assertIn("Late", html)
+
+    def test_hris_biometric_recap_uses_latest_gmaps_address_instead_of_coordinates(self):
+        self.login_hr_user("hr_bio_location_view", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-LOC-001",
+            full_name="Biometric Location View",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Attendance Photo Portal",
+                    "2026-09-04T08:10",
+                    "check_in",
+                    "synced",
+                    "Jl. Pejanggik No. 12, Cakranegara, Kota Mataram",
+                    -8.58314,
+                    116.116798,
+                    12.0,
+                    "Masuk tepat waktu",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, status, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-04",
+                    "08:10",
+                    "present",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-04&date_to=2026-09-04")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Alamat GMaps Terakhir", html)
+        self.assertIn("Jl. Pejanggik No. 12, Cakranegara, Kota Mataram", html)
+        self.assertNotIn("Akurasi GPS", html)
 
     def test_hris_biometric_recap_shows_shift_and_inline_shift_editor_for_hr(self):
         self.login_hr_user("hr_bio_shift_view", "pass1234")
@@ -4988,6 +6859,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Gudang Mega", html)
         self.assertIn("Event", html)
         self.assertIn("Lainnya", html)
+        self.assertIn("dropdown ini otomatis menampilkan pilihan absen lainnya", html)
+        self.assertIn("portal akan mengisi alamat atau tempat absennya", html)
 
     def test_attendance_portal_redirects_back_when_photo_payload_too_large(self):
         employee_id = self.create_employee_record(
@@ -6425,6 +8298,99 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
 
+    def test_attendance_portal_keeps_human_readable_location_label_for_selected_scope(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-ADDR-001",
+            full_name="Portal Address Label",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_address", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_address", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "mataram",
+                "location_label": "Jl. Pejanggik No. 12, Cakranegara, Kota Mataram",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.1",
+                "punch_time": f"{today}T08:01",
+                "punch_type": "check_in",
+                "note": "Alamat dari maps",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT location_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(
+            biometric["location_label"],
+            "Gudang Mataram | Jl. Pejanggik No. 12, Cakranegara, Kota Mataram",
+        )
+
+    def test_attendance_portal_discards_coordinate_only_location_label_for_scope_display(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-ADDR-COORD",
+            full_name="Portal Coordinate Label",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_address_coord", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_address_coord", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "mataram",
+                "location_label": "-8.583140, 116.116798",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.1",
+                "punch_time": f"{today}T08:01",
+                "punch_type": "check_in",
+                "note": "Lokasi hanya koordinat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT location_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["location_label"], "Gudang Mataram")
+
     def test_attendance_portal_submission_appears_in_notification_center(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-NOTIFY",
@@ -7314,6 +9280,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         portal_page = self.client.get("/absen/")
         portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("Absen Lanjutan", portal_html)
+        self.assertIn('<optgroup label="Absen Lainnya">', portal_html)
         self.assertIn("Break Start", portal_html)
         self.assertIn("Check Out", portal_html)
 
@@ -7334,6 +9302,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         break_page = self.client.get("/absen/")
         break_html = break_page.get_data(as_text=True)
+        self.assertIn('<optgroup label="Absen Lainnya">', break_html)
         self.assertIn("Break Finish", break_html)
         self.assertIn("Check Out", break_html)
 
@@ -7474,6 +9443,164 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["duration_kind"], "work")
         self.assertEqual(payload["duration_label"], "8 jam 50 menit")
         self.assertIn("Durasi kerja efektif: 8 jam 50 menit.", payload["duration_text"])
+
+    def test_attendance_check_out_sends_next_day_schedule_whatsapp_to_linked_user(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-NEXT-SHIFT",
+            full_name="Portal Next Shift",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user(
+            "portal_next_shift",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            employee_id=employee_id,
+            phone="081234560099",
+            notify_whatsapp=1,
+        )
+        self.login("portal_next_shift", "pass1234")
+        today_value = date_cls.today()
+        today = today_value.isoformat()
+        tomorrow = (today_value + timedelta(days=1)).isoformat()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                (employee_id, tomorrow, "S", "Closing shift besok", 1),
+            )
+            db.commit()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T08:00",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with patch("routes.attendance_portal.notify_operational_event"), patch(
+            "routes.attendance_portal.send_role_based_notification"
+        ), patch("routes.attendance_portal.send_user_whatsapp_notification") as mocked_staff_whatsapp:
+            submit_response = self.client.post(
+                "/absen/submit",
+                data={
+                    "punch_type": "check_out",
+                    "location_label": "Gudang Mataram - Pulang",
+                    "latitude": "-8.583140",
+                    "longitude": "116.116798",
+                    "accuracy_m": "5.4",
+                    "punch_time": f"{today}T17:05",
+                    "photo_data_url": self.build_camera_photo_data_url(),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        mocked_staff_whatsapp.assert_called_once()
+        message = mocked_staff_whatsapp.call_args.args[2]
+        self.assertEqual(mocked_staff_whatsapp.call_args.args[0], self.get_user_id("portal_next_shift"))
+        self.assertIn("Pengingat Jadwal Besok", mocked_staff_whatsapp.call_args.args[1])
+        self.assertIn("Shift utama:", message)
+        self.assertIn("- Besok kamu masuk Siang", message)
+        self.assertIn("- Catatan shift: Closing shift besok", message)
+        self.assertIn("besok kamu masuk", message.lower())
+
+    def test_attendance_check_out_whatsapp_includes_next_day_live_slots(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-NEXT-LIVE",
+            full_name="Portal Next Live",
+            warehouse_id=1,
+            position="Live Host",
+        )
+        self.create_user(
+            "portal_next_live",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            employee_id=employee_id,
+            phone="081234560199",
+            notify_whatsapp=1,
+        )
+        self.login("portal_next_live", "pass1234")
+        today_value = date_cls.today()
+        today = today_value.isoformat()
+        tomorrow = (today_value + timedelta(days=1)).isoformat()
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO schedule_live_entries(
+                    warehouse_id,
+                    schedule_date,
+                    slot_key,
+                    employee_id,
+                    channel_label,
+                    note,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                [
+                    (1, tomorrow, "13:00", employee_id, "Shopee Live", "Promo siang", 1),
+                    (1, tomorrow, "15:00", employee_id, "TikTok + IG", "Takeover host", 1),
+                    (1, tomorrow, "17:00", employee_id, "Marketplace Flash Sale", "Closing push", 1),
+                ],
+            )
+            db.commit()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T08:00",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        with patch("routes.attendance_portal.notify_operational_event"), patch(
+            "routes.attendance_portal.send_role_based_notification"
+        ), patch("routes.attendance_portal.send_user_whatsapp_notification") as mocked_staff_whatsapp:
+            submit_response = self.client.post(
+                "/absen/submit",
+                data={
+                    "punch_type": "check_out",
+                    "location_label": "Gudang Mataram - Pulang",
+                    "latitude": "-8.583140",
+                    "longitude": "116.116798",
+                    "accuracy_m": "5.4",
+                    "punch_time": f"{today}T17:15",
+                    "photo_data_url": self.build_camera_photo_data_url(),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        mocked_staff_whatsapp.assert_called_once()
+        message = mocked_staff_whatsapp.call_args.args[2]
+        self.assertIn("Shift utama:", message)
+        self.assertIn("jadwal shift utama besok belum diisi", message.lower())
+        self.assertIn("Jadwal live kamu:", message)
+        self.assertIn("- 13:00 | Shopee Live", message)
+        self.assertIn("- 15:00 | TikTok + IG", message)
+        self.assertIn("- 17:00 | Marketplace Flash Sale", message)
 
     def test_attendance_portal_treats_exactly_ten_minutes_after_shift_start_as_present(self):
         employee_id = self.create_employee_record(
@@ -9295,6 +11422,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["items"][0]["product_id"], product_id)
         self.assertEqual(payload["items"][0]["variant_label"], "NAVY RED")
 
+    def test_product_picker_smart_search_supports_compact_query_without_matching_spaces(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku=f"SMART-COMPACT-{uuid4().hex[:4].upper()}",
+            qty=7,
+            variants="PRO MATCH",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id=?",
+                ("Shuttle Cock Champion", product_id),
+            )
+            db.execute(
+                "UPDATE product_variants SET color=?, variant_code=?, gtin=? WHERE id=?",
+                ("Pearl White", "SC-PRO-01", "899930001111", variants_rows[0]["id"]),
+            )
+            db.commit()
+
+        response = self.client.get("/products/picker?warehouse_id=1&q=shuttlecock champion")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+
+        self.assertGreaterEqual(payload["total_items"], 1)
+        self.assertEqual(payload["items"][0]["product_id"], product_id)
+        self.assertEqual(payload["items"][0]["variant_label"], "PRO MATCH")
+
     def test_stock_page_uses_10_item_pagination(self):
         self.login()
         for index in range(12):
@@ -9406,7 +11562,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("data-stock-group-edit-trigger", html)
         self.assertEqual(html.count('value="AERO COMFORT 4"'), 1)
 
-    def test_stock_page_keeps_same_name_products_separate_so_master_name_stays_editable(self):
+    def test_stock_page_groups_same_name_products_even_when_they_come_from_different_masters(self):
         self.login()
         response_one, product_one_id, _ = self.create_product(
             sku="AERO-33",
@@ -9433,11 +11589,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
 
-        self.assertNotIn("2 record produk digabung", html)
-        self.assertIn('value="AERO-33"', html)
-        self.assertIn('value="AERO-34"', html)
-        self.assertIn(f'data-product="{product_one_id}" value="AERO COMFORT 4"', html)
-        self.assertIn(f'data-product="{product_two_id}" value="AERO COMFORT 4"', html)
+        self.assertIn('class="stock-variant-disclosure"', html)
+        self.assertIn("2 varian", html)
+        self.assertIn("2 SKU", html)
+        self.assertIn("2 master", html)
+        self.assertIn("AERO-33", html)
+        self.assertIn("AERO-34", html)
+        self.assertIn("black red-33", html)
+        self.assertIn("black red-34", html)
+        self.assertNotIn('aria-label="Edit master produk AERO COMFORT 4"', html)
+        self.assertIn('data-stock-editable-row="0"', html)
+        self.assertNotIn(f'data-product="{product_one_id}" value="AERO COMFORT 4"', html)
+        self.assertNotIn(f'data-product="{product_two_id}" value="AERO COMFORT 4"', html)
 
     def test_stock_page_renders_master_search_replace_modal_for_manage_role(self):
         self.login()
@@ -9778,6 +11941,171 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(request_rows[1]["to_warehouse"], 1)
         self.assertEqual(request_rows[1]["qty"], 3)
         self.assertEqual(request_rows[1]["status"], "pending")
+
+    def test_super_admin_can_create_custom_non_wms_request_batch(self):
+        self.create_user("super_req_custom", "pass1234", "super_admin")
+        self.login("super_req_custom", "pass1234")
+
+        request_response = self.client.post(
+            "/request/",
+            data={
+                "from_warehouse": "2",
+                "to_warehouse": "1",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "item_type": "custom",
+                            "custom_name": "Grip Yonex Batch Lama",
+                            "custom_variant": "Kuning",
+                            "custom_note": "Belum masuk master WMS",
+                            "qty": 4,
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                """
+                SELECT
+                    product_id,
+                    variant_id,
+                    item_type,
+                    custom_name,
+                    custom_variant,
+                    custom_note,
+                    from_warehouse,
+                    to_warehouse,
+                    qty,
+                    status
+                FROM requests
+                WHERE item_type='custom'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(request_row)
+        self.assertIsNone(request_row["product_id"])
+        self.assertIsNone(request_row["variant_id"])
+        self.assertEqual(request_row["item_type"], "custom")
+        self.assertEqual(request_row["custom_name"], "Grip Yonex Batch Lama")
+        self.assertEqual(request_row["custom_variant"], "Kuning")
+        self.assertEqual(request_row["custom_note"], "Belum masuk master WMS")
+        self.assertEqual(request_row["from_warehouse"], 2)
+        self.assertEqual(request_row["to_warehouse"], 1)
+        self.assertEqual(request_row["qty"], 4)
+        self.assertEqual(request_row["status"], "pending")
+
+    def test_request_page_supports_custom_non_wms_inputs_and_rows(self):
+        self.create_user("super_req_custom_page", "pass1234", "super_admin")
+        self.login("super_req_custom_page", "pass1234")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO requests(
+                    from_warehouse,
+                    to_warehouse,
+                    qty,
+                    item_type,
+                    custom_name,
+                    custom_variant,
+                    custom_note,
+                    status,
+                    created_at,
+                    requested_by
+                )
+                VALUES (?,?,?,?,?,?,?,'pending',datetime('now'),?)
+                """,
+                (
+                    2,
+                    1,
+                    3,
+                    "custom",
+                    "Raket Trial Display",
+                    "Frame Sample",
+                    "Masih menunggu master WMS",
+                    self.get_user_id("super_req_custom_page"),
+                ),
+            )
+            db.commit()
+
+        request_page = self.client.get("/request/")
+        self.assertEqual(request_page.status_code, 200)
+        html = request_page.get_data(as_text=True)
+        self.assertIn('id="requestCustomName"', html)
+        self.assertIn('id="requestCustomVariant"', html)
+        self.assertIn('id="requestCustomNote"', html)
+        self.assertIn('id="requestCustomQty"', html)
+        self.assertIn("Custom Non-WMS", html)
+        self.assertIn("Raket Trial Display", html)
+        self.assertIn("Masih menunggu master WMS", html)
+
+    def test_source_leader_can_approve_custom_request_without_wms_stock_sync(self):
+        self.create_user("leader_request_custom", "pass1234", "leader", warehouse_id=2)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO requests(
+                    from_warehouse,
+                    to_warehouse,
+                    qty,
+                    item_type,
+                    custom_name,
+                    custom_variant,
+                    custom_note,
+                    status,
+                    created_at,
+                    requested_by
+                )
+                VALUES (?,?,?,?,?,?,?,'pending',datetime('now'),?)
+                """,
+                (
+                    2,
+                    1,
+                    5,
+                    "custom",
+                    "Tas Shuttlecock Promo",
+                    "Isi campur",
+                    "Proses manual karena belum ada di WMS",
+                    self.get_user_id("leader_request_custom"),
+                ),
+            )
+            request_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+            db.commit()
+
+        self.login("leader_request_custom", "pass1234")
+        approve_response = self.client.post(
+            f"/request/approve/{request_id}",
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_after = db.execute(
+                "SELECT status, approved_by FROM requests WHERE id=?",
+                (request_id,),
+            ).fetchone()
+            stock_history_count = db.execute(
+                "SELECT COUNT(*) FROM stock_history WHERE note IN ('Transfer keluar', 'Transfer masuk')"
+            ).fetchone()[0]
+            stock_movement_count = db.execute(
+                "SELECT COUNT(*) FROM stock_movements"
+            ).fetchone()[0]
+
+        self.assertEqual(request_after["status"], "approved")
+        self.assertEqual(request_after["approved_by"], self.get_user_id("leader_request_custom"))
+        self.assertEqual(stock_history_count, 0)
+        self.assertEqual(stock_movement_count, 0)
 
     def test_source_leader_can_reject_request_and_notify_requester(self):
         self.create_user("leader_request_reject", "pass1234", "leader", warehouse_id=2)
@@ -11191,6 +13519,57 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(result["deliveries"]), 1)
         self.assertEqual(result["deliveries"][0]["user_id"], watcher_id)
         self.assertEqual(result["deliveries"][0]["phone"], "628123450001")
+
+    def test_send_user_whatsapp_notification_targets_specific_linked_user(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-WA-USER",
+            full_name="User WA Target",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user(
+            "staff_wa_direct",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            employee_id=employee_id,
+            phone="081234560001",
+            notify_whatsapp=1,
+        )
+        target_user_id = self.get_user_id("staff_wa_direct")
+
+        with self.app.app_context():
+            with patch(
+                "services.whatsapp_service.send_whatsapp_text",
+                return_value={
+                    "ok": True,
+                    "provider": "kirimi",
+                    "receiver": "6281234560001",
+                    "error": "",
+                },
+            ) as mocked_send:
+                result = whatsapp_service.send_user_whatsapp_notification(
+                    target_user_id,
+                    "Pengingat Jadwal Besok: User WA Target",
+                    "Besok kamu masuk Siang.",
+                )
+                rows = get_db().execute(
+                    """
+                    SELECT user_id, role, recipient, status
+                    FROM notifications
+                    WHERE channel='wa_user_event'
+                    ORDER BY id ASC
+                    """
+                ).fetchall()
+
+        self.assertEqual(len(result["deliveries"]), 1)
+        self.assertEqual(result["deliveries"][0]["user_id"], target_user_id)
+        self.assertEqual(result["deliveries"][0]["phone"], "6281234560001")
+        mocked_send.assert_called_once()
+        self.assertEqual(
+            [(row["user_id"], row["role"], row["recipient"], row["status"]) for row in rows],
+            [(target_user_id, "staff", "6281234560001", "sent")],
+        )
 
     def test_leader_bulk_adjust_rejects_zero_qty(self):
         self.create_user("leader_zero", "pass1234", "leader", warehouse_id=1)
@@ -12671,6 +15050,48 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["processed"], 0)
         self.assertIn("stok sudah sinkron", payload["message"].lower())
+
+    def test_stock_opname_adjustment_allows_null_actor_for_stale_session_mapping(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="SOFK")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            from routes.stock_opname import _apply_so_adjustment, _resolve_so_actor_user_id
+
+            db = get_db()
+            self.assertIsNone(_resolve_so_actor_user_id(db, 999999))
+
+            db.execute("BEGIN IMMEDIATE")
+            _apply_so_adjustment(
+                db,
+                product_id,
+                variant_id,
+                1,
+                5,
+                3,
+                -2,
+                None,
+                "Stock Opname Display",
+            )
+            db.commit()
+
+            so_row = db.execute(
+                """
+                SELECT user_id, warehouse_id, physical_qty, diff_qty
+                FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertIsNotNone(so_row)
+        self.assertIsNone(so_row["user_id"])
+        self.assertEqual(so_row["warehouse_id"], 1)
+        self.assertEqual(so_row["physical_qty"], 3)
+        self.assertEqual(so_row["diff_qty"], -2)
 
 
 if __name__ == "__main__":

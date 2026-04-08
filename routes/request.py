@@ -28,6 +28,84 @@ def _to_int(value, default=0):
         return default
 
 
+def _normalize_request_item_type(value, *, product_id=0, variant_id=0):
+    normalized = str(value or "").strip().lower()
+    if normalized == "custom":
+        return "custom"
+    if normalized in {"catalog", "wms", "product"}:
+        return "catalog"
+    return "catalog" if product_id > 0 and variant_id > 0 else "custom"
+
+
+def _request_variant_label(value, fallback="Default"):
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return fallback
+    return "Default" if raw_value.lower() == "default" else raw_value
+
+
+def _format_custom_request_label(name, variant=None):
+    label = str(name or "").strip() or "Item Custom"
+    variant_label = str(variant or "").strip()
+    return f"{label} / {variant_label}" if variant_label else label
+
+
+def _hydrate_request_row(row):
+    if not row:
+        return None
+
+    item = dict(row)
+    product_id = _to_int(item.get("product_id"), 0)
+    variant_id = _to_int(item.get("variant_id"), 0)
+    item_type = _normalize_request_item_type(
+        item.get("item_type"),
+        product_id=product_id,
+        variant_id=variant_id,
+    )
+    is_custom = item_type == "custom"
+    custom_name = str(item.get("custom_name") or "").strip()
+    custom_variant = str(item.get("custom_variant") or "").strip()
+    custom_note = str(item.get("custom_note") or "").strip()
+    product_name = (
+        custom_name
+        if is_custom
+        else str(item.get("product_name") or "").strip()
+    ) or "Item Request"
+    variant_label = _request_variant_label(
+        custom_variant if is_custom else item.get("variant"),
+        fallback="Custom Manual" if is_custom else "Default",
+    )
+    sku_value = "" if is_custom else str(item.get("sku") or "").strip()
+    item_title = product_name if is_custom or not sku_value else f"{sku_value} - {product_name}"
+    item_transfer_label = (
+        _format_custom_request_label(product_name, custom_variant)
+        if is_custom
+        else f"{item_title} / {variant_label}"
+    )
+    meta_parts = [("Custom Non-WMS" if is_custom else "Barang WMS"), variant_label]
+    if custom_note:
+        meta_parts.append(f"Catatan: {custom_note}")
+
+    item.update(
+        {
+            "item_type": item_type,
+            "is_custom": is_custom,
+            "custom_name": custom_name,
+            "custom_variant": custom_variant,
+            "custom_note": custom_note,
+            "product_name": product_name,
+            "variant": variant_label,
+            "variant_label": variant_label,
+            "sku": sku_value,
+            "sku_label": sku_value or "CUSTOM",
+            "item_title": item_title,
+            "item_transfer_label": item_transfer_label,
+            "item_meta": " | ".join(part for part in meta_parts if part),
+        }
+    )
+    return item
+
+
 def _parse_request_items(form):
     raw_payload = (form.get("items_json") or "").strip()
     if raw_payload:
@@ -48,19 +126,53 @@ def _parse_request_items(form):
             variant_id = _to_int(item.get("variant_id"), 0)
             qty = _to_int(item.get("qty"), 0)
             display_name = (item.get("display_name") or "").strip()
+            item_type = _normalize_request_item_type(
+                item.get("item_type"),
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+            custom_name = (item.get("custom_name") or "").strip()
+            custom_variant = (item.get("custom_variant") or "").strip()
+            custom_note = (item.get("custom_note") or "").strip()
 
-            if not any([product_id, variant_id, qty, display_name]):
+            if not any([product_id, variant_id, qty, display_name, custom_name, custom_variant, custom_note]):
                 continue
 
-            if product_id <= 0 or variant_id <= 0 or qty <= 0:
+            if qty <= 0:
                 raise ValueError("Ada item request yang belum lengkap atau qty tidak valid")
 
-            items.append({
-                "product_id": product_id,
-                "variant_id": variant_id,
-                "qty": qty,
-                "display_name": display_name,
-            })
+            if item_type == "custom":
+                if not custom_name:
+                    raise ValueError("Nama barang custom wajib diisi")
+                items.append(
+                    {
+                        "item_type": "custom",
+                        "product_id": None,
+                        "variant_id": None,
+                        "qty": qty,
+                        "display_name": display_name or custom_name,
+                        "custom_name": custom_name,
+                        "custom_variant": custom_variant,
+                        "custom_note": custom_note,
+                    }
+                )
+                continue
+
+            if product_id <= 0 or variant_id <= 0:
+                raise ValueError("Ada item request yang belum lengkap atau qty tidak valid")
+
+            items.append(
+                {
+                    "item_type": "catalog",
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "qty": qty,
+                    "display_name": display_name,
+                    "custom_name": "",
+                    "custom_variant": "",
+                    "custom_note": "",
+                }
+            )
 
         if not items:
             raise ValueError("Minimal tambahkan satu item request")
@@ -75,10 +187,14 @@ def _parse_request_items(form):
         raise ValueError("Input tidak valid")
 
     return [{
+        "item_type": "catalog",
         "product_id": product_id,
         "variant_id": variant_id,
         "qty": qty,
         "display_name": "",
+        "custom_name": "",
+        "custom_variant": "",
+        "custom_note": "",
     }]
 
 
@@ -170,12 +286,12 @@ def _get_request_available_stock(db, product_id, variant_id, warehouse_id):
 
 
 def _fetch_request_row(db, request_id):
-    return db.execute("""
+    row = db.execute("""
         SELECT
             r.*,
-            p.sku,
-            p.name AS product_name,
-            COALESCE(v.variant, 'default') AS variant,
+            COALESCE(NULLIF(TRIM(p.sku), ''), '') AS sku,
+            COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(r.custom_name), ''), '') AS product_name,
+            COALESCE(NULLIF(TRIM(v.variant), ''), NULLIF(TRIM(r.custom_variant), ''), '') AS variant,
             w1.name AS from_name,
             w2.name AS to_name
         FROM requests r
@@ -185,24 +301,50 @@ def _fetch_request_row(db, request_id):
         LEFT JOIN warehouses w2 ON r.to_warehouse = w2.id
         WHERE r.id=?
     """, (request_id,)).fetchone()
+    return _hydrate_request_row(row)
+
+
+def _fetch_request_rows(db, warehouse_scope=None):
+    params = []
+    query = """
+        SELECT
+            r.*,
+            COALESCE(NULLIF(TRIM(p.sku), ''), '') AS sku,
+            COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(r.custom_name), ''), '') AS product_name,
+            COALESCE(NULLIF(TRIM(v.variant), ''), NULLIF(TRIM(r.custom_variant), ''), '') AS variant,
+            w1.name AS from_name,
+            w2.name AS to_name
+        FROM requests r
+        LEFT JOIN products p ON r.product_id = p.id
+        LEFT JOIN product_variants v ON r.variant_id = v.id
+        LEFT JOIN warehouses w1 ON r.from_warehouse = w1.id
+        LEFT JOIN warehouses w2 ON r.to_warehouse = w2.id
+    """
+
+    if warehouse_scope:
+        query += " WHERE (r.from_warehouse=? OR r.to_warehouse=?)"
+        params.extend([warehouse_scope, warehouse_scope])
+
+    query += " ORDER BY r.id DESC"
+    return [_hydrate_request_row(row) for row in db.execute(query, params).fetchall()]
 
 
 def _notify_request_requester(request_row, verb):
     if not request_row or not request_row["requested_by"]:
         return
 
-    variant = request_row["variant"] or "default"
-    variant_label = "Default" if str(variant).lower() == "default" else variant
+    request_item = _hydrate_request_row(request_row)
     reason = (request_row["reason"] or "").strip()
     reason_line = f"\nAlasan: {reason}" if reason else ""
+    note_line = f"\nCatatan item: {request_item['custom_note']}" if request_item.get("custom_note") else ""
 
     notify_user(
         request_row["requested_by"],
         f"Request antar gudang #{request_row['id']} {verb}",
         (
-            f"Request {request_row['sku']} - {request_row['product_name']} / {variant_label} "
+            f"Request {request_item['item_transfer_label']} "
             f"sebanyak {request_row['qty']} item dari {request_row['from_name']} ke {request_row['to_name']} "
-            f"telah {verb}.{reason_line}"
+            f"telah {verb}.{note_line}{reason_line}"
         ),
         category="request",
         link_url="/request/",
@@ -431,6 +573,9 @@ def request_barang():
         labels = {}
 
         for item in items:
+            if item["item_type"] == "custom":
+                continue
+
             record = _fetch_request_item_record(
                 db,
                 item["product_id"],
@@ -466,17 +611,25 @@ def request_barang():
                         from_warehouse,
                         to_warehouse,
                         qty,
+                        item_type,
+                        custom_name,
+                        custom_variant,
+                        custom_note,
                         status,
                         created_at,
                         requested_by
                     )
-                    VALUES (?,?,?,?,?,'pending',datetime('now'),?)
+                    VALUES (?,?,?,?,?,?,?,?,?,'pending',datetime('now'),?)
                 """, (
                     item["product_id"],
                     item["variant_id"],
                     from_wh,
                     to_wh,
                     item["qty"],
+                    item["item_type"],
+                    item["custom_name"] or None,
+                    item["custom_variant"] or None,
+                    item["custom_note"] or None,
                     session.get("user_id"),
                 ))
 
@@ -535,41 +688,8 @@ def request_barang():
     warehouse_scope = get_request_scope()
     locked_from, locked_to = _get_locked_request_direction(db)
 
-    if warehouse_scope:
-        rows = db.execute("""
-        SELECT 
-            r.*,
-            p.name as product_name,
-            v.variant,
-            w1.name as from_name,
-            w2.name as to_name
-        FROM requests r
-        JOIN products p ON r.product_id = p.id
-        JOIN product_variants v ON r.variant_id = v.id
-        JOIN warehouses w1 ON r.from_warehouse = w1.id
-        JOIN warehouses w2 ON r.to_warehouse = w2.id
-        WHERE (r.from_warehouse=? OR r.to_warehouse=?)
-        ORDER BY r.id DESC
-        """, (warehouse_scope, warehouse_scope)).fetchall()
-    else:
-        rows = db.execute("""
-        SELECT 
-            r.*,
-            p.name as product_name,
-            v.variant,
-            w1.name as from_name,
-            w2.name as to_name
-        FROM requests r
-        JOIN products p ON r.product_id = p.id
-        JOIN product_variants v ON r.variant_id = v.id
-        JOIN warehouses w1 ON r.from_warehouse = w1.id
-        JOIN warehouses w2 ON r.to_warehouse = w2.id
-        ORDER BY r.id DESC
-        """).fetchall()
-
     requests_data = []
-    for row in rows:
-        item = dict(row)
+    for item in _fetch_request_rows(db, warehouse_scope):
         item["can_approve"] = can_approve_request() and (
             not warehouse_scope or item["from_warehouse"] == warehouse_scope
         )
@@ -809,17 +929,22 @@ def approve_request_route(id):
     if success:
         try:
             if updated_request:
-                variant_label = (
-                    "Default"
-                    if str(updated_request["variant"]).lower() == "default"
-                    else updated_request["variant"]
+                note_line = (
+                    f" Catatan item: {updated_request['custom_note']}."
+                    if updated_request.get("custom_note")
+                    else ""
+                )
+                transfer_phrase = (
+                    "siap diproses manual dari"
+                    if updated_request.get("is_custom")
+                    else "dipindahkan dari"
                 )
                 notify_operational_event(
-                    f"Transfer antar gudang diproses: {updated_request['sku']}",
+                    f"Transfer antar gudang diproses: {updated_request['item_title']}",
                     (
-                        f"{updated_request['sku']} - {updated_request['product_name']} / {variant_label} "
-                        f"sebanyak {updated_request['qty']} item dipindahkan dari "
-                        f"{updated_request['from_name']} ke {updated_request['to_name']}."
+                        f"{updated_request['item_transfer_label']} "
+                        f"sebanyak {updated_request['qty']} item {transfer_phrase} "
+                        f"{updated_request['from_name']} ke {updated_request['to_name']}.{note_line}"
                     ),
                     warehouse_id=updated_request["from_warehouse"],
                     category="inventory",
@@ -831,7 +956,7 @@ def approve_request_route(id):
                     source_id=str(updated_request["id"]),
                     push_title="Transfer antar gudang",
                     push_body=(
-                        f"{updated_request['sku']} | "
+                        f"{updated_request['sku_label']} | "
                         f"{updated_request['from_name']} -> {updated_request['to_name']}"
                     ),
                 )

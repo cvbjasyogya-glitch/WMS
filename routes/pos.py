@@ -4,8 +4,21 @@ from decimal import Decimal, ROUND_HALF_UP
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session
 
 from database import get_db
+from services.crm_loyalty import (
+    CRM_TRANSACTION_TYPE_LABELS,
+    DEFAULT_STRINGING_REWARD_AMOUNT,
+    STRINGING_REWARD_THRESHOLD,
+    build_auto_member_record,
+    calculate_loyalty_fields,
+    get_member_snapshot,
+    normalize_transaction_type,
+)
 from services.notification_service import notify_operational_event
-from services.receipt_pdf_service import generate_pos_receipt_pdf
+from services.receipt_pdf_service import (
+    build_pos_receipt_branding,
+    format_receipt_homebase_label,
+    generate_pos_receipt_pdf,
+)
 from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role
 from services.stock_service import add_stock, remove_stock
 from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_document
@@ -14,6 +27,113 @@ from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_do
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
 
 PAYMENT_METHODS = ("cash", "qris", "transfer", "debit", "credit")
+
+POS_PRINTER_DRIVER_RESOURCES = [
+    {
+        "vendor": "Windows / Microsoft",
+        "driver_name": "Add or install a printer in Windows",
+        "category": "System Driver",
+        "supported_os": "Windows 10 / Windows 11",
+        "download_url": "https://support.microsoft.com/en-us/windows/add-or-install-a-printer-in-windows-cc0724cf-793e-3542-d1ff-727e4978638b",
+        "note": "Langkah paling aman untuk mendeteksi printer thermal sebelum install driver vendor.",
+    },
+    {
+        "vendor": "Windows / Microsoft",
+        "driver_name": "Download and install latest printer drivers",
+        "category": "Driver Update",
+        "supported_os": "Windows 10 / Windows 11",
+        "download_url": "https://support.microsoft.com/en-us/windows/how-to-download-and-install-the-latest-printer-drivers-4ff66446-a2ab-b77f-46f4-a6d3fe4bf661",
+        "note": "Panduan update driver via Windows Update jika printer sudah terdeteksi.",
+    },
+    {
+        "vendor": "Epson",
+        "driver_name": "TM-T88VI Support (APD Driver)",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows / Windows Server",
+        "download_url": "https://epson.com/Support/Point-of-Sale/OmniLink-Printers/Epson-TM-T88VI-Series/s/SPT_C31CE94061?review-filter=Windows+10+64-bit",
+        "note": "Halaman support resmi Epson berisi APD, Virtual Port Driver, dan utilitas model TM-T88VI.",
+    },
+    {
+        "vendor": "Star Micronics",
+        "driver_name": "TSP100 futurePRNT Software Full",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows / Linux / macOS",
+        "download_url": "https://starmicronics.com/support/download/tsp100-futureprnt-software-full/",
+        "note": "Paket driver resmi untuk seri TSP100 termasuk tools setup, OPOS, dan JavaPOS.",
+    },
+    {
+        "vendor": "Star Micronics",
+        "driver_name": "USB Printer Setup Guide (Windows)",
+        "category": "Setup Guide",
+        "supported_os": "Windows 11 / Windows 10",
+        "download_url": "https://starmicronics.com/help-center/knowledge-base/how-to-install-a-usb-printer-using-star-windows-software/",
+        "note": "Panduan resmi instalasi driver Star USB di Windows sebelum test print iPOS.",
+    },
+    {
+        "vendor": "BIXOLON",
+        "driver_name": "BIXOLON Supports & Downloads (Driver)",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows / POS Middleware",
+        "download_url": "https://www.bixolon.com/download_view.php?idx=133&s_key=Driver",
+        "note": "Pusat unduhan driver resmi BIXOLON termasuk Windows Driver dan OPOS/JPOS.",
+    },
+    {
+        "vendor": "Citizen",
+        "driver_name": "Citizen Drivers & Tools (CT Series)",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows 11 / Windows 10 / Linux / macOS",
+        "download_url": "https://www.citizen-systems.com/us/support/drivers-and-tools/CT-E301?cHash=01ea71ebf46ed57708417dee29fc301a",
+        "note": "Portal resmi Citizen untuk Windows Driver, OPOS, JavaPOS, dan utilitas printer receipt.",
+    },
+    {
+        "vendor": "XPrinter",
+        "driver_name": "XPrinter Download Center",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows / Android / iOS / Linux",
+        "download_url": "https://www.xprintertech.com/download.html",
+        "note": "Halaman resmi XPrinter untuk driver bill product, SDK, user manual, dan test tool.",
+    },
+    {
+        "vendor": "Rongta",
+        "driver_name": "Rongta Driver Download Center",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows / macOS / Chrome",
+        "download_url": "https://www.rongtatech.com/category/downloads/30",
+        "note": "Pusat driver resmi Rongta untuk seri RP58/RP80/RP33x dan model thermal lainnya.",
+    },
+    {
+        "vendor": "HPRT",
+        "driver_name": "HPRT Printer Driver Download",
+        "category": "Thermal Receipt Driver",
+        "supported_os": "Windows / macOS",
+        "download_url": "https://download.hprt.com/Downloads/",
+        "note": "Portal resmi HPRT untuk driver printer POS, utility, dan model thermal receipt.",
+    },
+    {
+        "vendor": "SUNMI",
+        "driver_name": "SUNMI Windows Bluetooth Printer Driver Doc",
+        "category": "Integration Guide",
+        "supported_os": "Windows",
+        "download_url": "https://developer.sunmi.com/docs/en-US/xeghjk491/zzzeghjk557/",
+        "note": "Dokumentasi resmi SUNMI untuk koneksi printer dari Windows (khusus skenario Bluetooth/TCP).",
+    },
+    {
+        "vendor": "SUNMI",
+        "driver_name": "SUNMI TCP Printing with Windows Driver",
+        "category": "Integration Guide",
+        "supported_os": "Windows",
+        "download_url": "https://developer.sunmi.com/docs/en-US/cdixeghjk491/xfzzeghjk557",
+        "note": "Panduan resmi SUNMI untuk cetak TCP dari Windows ke perangkat printer yang kompatibel.",
+    },
+    {
+        "vendor": "Zebra",
+        "driver_name": "Printer Setup Utilities",
+        "category": "Utility + Driver",
+        "supported_os": "Windows / Android / iOS",
+        "download_url": "https://qac-downloads.zebra.com/us/en/software/printer-software/zebra-setup-utility.html",
+        "note": "Utility resmi Zebra untuk konfigurasi printer, pairing, dan initial setup.",
+    },
+]
 
 
 def _to_int(value, default=0):
@@ -77,10 +197,22 @@ def _record_pos_receipt_delivery_state(
     )
 
 
+def _prepare_pos_receipt_sale(sale):
+    prepared_sale = dict(sale or {})
+    receipt_brand = build_pos_receipt_branding(prepared_sale)
+    prepared_sale["receipt_brand"] = receipt_brand
+    prepared_sale["warehouse_receipt_label"] = (
+        receipt_brand.get("homebase_label")
+        or format_receipt_homebase_label(prepared_sale.get("warehouse_name"))
+    )
+    return prepared_sale
+
+
 def _generate_backend_pos_receipt_pdf(db, receipt_no):
     sale = _fetch_pos_sale_detail_by_receipt(db, receipt_no)
     if sale is None:
         raise ValueError("Data nota POS tidak ditemukan untuk generate PDF backend.")
+    sale = _prepare_pos_receipt_sale(sale)
 
     pdf_meta = generate_pos_receipt_pdf(sale)
     _record_pos_receipt_delivery_state(
@@ -104,10 +236,22 @@ def _send_pos_receipt_to_customer(db, sale):
     customer_name = (sale.get("customer_name") or "Pelanggan").strip()
     total_amount_label = sale.get("total_amount_label") or _format_pos_currency_label(sale.get("total_amount") or 0)
     subject = f"Nota POS {receipt_no}"
-    message = (
-        f"Nota transaksi {receipt_no} untuk {customer_name}. "
-        f"Total {total_amount_label}. Dokumen PDF terlampir dari ERP Core Mataram Sports."
-    )
+    loyalty_lines = list(sale.get("loyalty_summary_lines") or [])
+    if not loyalty_lines:
+        loyalty_lines = _build_pos_receipt_loyalty_lines(db, sale)
+    receipt_brand = sale.get("receipt_brand") or build_pos_receipt_branding(sale)
+    receipt_brand_name = receipt_brand.get("business_name") or "ERP Core POS"
+    message_lines = [
+        f"Halo {customer_name},",
+        f"Nota transaksi {receipt_no} sudah siap.",
+        f"Total transaksi: {total_amount_label}.",
+        f"Dokumen PDF terlampir dari {receipt_brand_name}.",
+    ]
+    if loyalty_lines:
+        message_lines.append("")
+        message_lines.append(f"{sale.get('loyalty_summary_title') or 'Update CRM Customer'}:")
+        message_lines.extend(loyalty_lines)
+    message = "\n".join(message_lines).strip()
 
     if sale_id <= 0:
         return {"ok": None, "error": "missing_sale_id"}
@@ -136,7 +280,13 @@ def _send_pos_receipt_to_customer(db, sale):
         db.commit()
         return result
 
-    delivery = send_whatsapp_document(target_phone, message, receipt_url)
+    delivery = send_whatsapp_document(
+        target_phone,
+        message,
+        receipt_url,
+        warehouse_id=sale.get("warehouse_id"),
+        warehouse_name=sale.get("warehouse_name"),
+    )
     status_value = "sent" if delivery.get("ok") else ("skipped" if delivery.get("ok") is None else "failed")
     _record_pos_receipt_delivery_state(
         db,
@@ -148,6 +298,97 @@ def _send_pos_receipt_to_customer(db, sale):
     record_whatsapp_delivery(None, None, target_phone, subject, message, delivery, channel="wa_document")
     db.commit()
     return delivery
+
+
+def _fetch_pos_loyalty_record(db, purchase_id, member_id):
+    safe_purchase_id = _to_int(purchase_id, 0)
+    safe_member_id = _to_int(member_id, 0)
+    if safe_purchase_id <= 0 or safe_member_id <= 0:
+        return None
+
+    row = db.execute(
+        """
+        SELECT
+            record_type,
+            points_delta,
+            service_count_delta,
+            reward_redeemed_delta,
+            benefit_value
+        FROM crm_member_records
+        WHERE purchase_id=? AND member_id=?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (safe_purchase_id, safe_member_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_record):
+    progress_count = max(_to_int((snapshot or {}).get("stringing_progress_count"), 0), 0)
+    if (
+        normalize_transaction_type(transaction_type) == "stringing_service"
+        and _to_int((loyalty_record or {}).get("service_count_delta"), 0) > 0
+        and progress_count == 0
+    ):
+        progress_count = STRINGING_REWARD_THRESHOLD
+    return f"{progress_count}/{STRINGING_REWARD_THRESHOLD}"
+
+
+def _build_pos_receipt_loyalty_lines(db, sale):
+    safe_sale = sale or {}
+    member_id = _to_int(safe_sale.get("member_id"), 0)
+    purchase_id = _to_int(safe_sale.get("purchase_id"), 0)
+    if member_id <= 0 or purchase_id <= 0:
+        return []
+
+    snapshot = get_member_snapshot(db, member_id)
+    if not snapshot:
+        return []
+
+    loyalty_record = _fetch_pos_loyalty_record(db, purchase_id, member_id) or {}
+    member_type = str(safe_sale.get("member_type") or snapshot.get("member_type") or "").strip().lower()
+    member_code = str(safe_sale.get("member_code") or snapshot.get("member_code") or "").strip()
+    transaction_type = normalize_transaction_type(safe_sale.get("transaction_type"))
+    lines = []
+    if member_code:
+        lines.append(f"- Member: {member_code}")
+
+    if member_type == "purchase":
+        earned_points = max(_to_int(loyalty_record.get("points_delta"), 0), 0)
+        current_points = max(_to_int(snapshot.get("current_points"), 0), 0)
+        lines.append(f"- Poin transaksi ini: +{earned_points} poin")
+        lines.append(f"- Total poin aktif: {current_points} poin")
+        return lines
+
+    progress_label = _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_record)
+    available_reward_count = max(_to_int(snapshot.get("available_reward_count"), 0), 0)
+    reward_value_label = _format_pos_currency_label(snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
+
+    if transaction_type == "stringing_reward_redemption":
+        benefit_value = _currency(loyalty_record.get("benefit_value") or snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
+        lines.append(f"- Free senar terpakai: 1x ({_format_pos_currency_label(benefit_value)})")
+        lines.append(f"- Progress senar berikutnya: {progress_label}")
+        if available_reward_count > 0:
+            lines.append(f"- Free senar tersisa: {available_reward_count}x")
+        return lines
+
+    lines.append(f"- Progress senar: {progress_label}")
+    if available_reward_count > 0:
+        lines.append(f"- Free senar siap dipakai: {available_reward_count}x ({reward_value_label})")
+    else:
+        remaining_visits = max(_to_int(snapshot.get("stringing_remaining_visits"), STRINGING_REWARD_THRESHOLD), 0)
+        lines.append(f"- Sisa {remaining_visits} lagi menuju free 1x")
+    return lines
+
+
+def _attach_pos_loyalty_summary(db, sale):
+    safe_sale = dict(sale or {})
+    loyalty_lines = _build_pos_receipt_loyalty_lines(db, safe_sale)
+    safe_sale["loyalty_summary_title"] = "Update CRM Customer"
+    safe_sale["loyalty_summary_lines"] = loyalty_lines
+    safe_sale["has_loyalty_summary"] = bool(loyalty_lines)
+    return safe_sale
 
 
 def _normalize_sale_date(raw_value):
@@ -297,10 +538,20 @@ def _fetch_pos_customers(db, warehouse_id):
         dict(row)
         for row in db.execute(
             """
-            SELECT id, customer_name, contact_person, phone
-            FROM crm_customers
-            WHERE warehouse_id=?
-            ORDER BY customer_name ASC
+            SELECT
+                c.id,
+                c.customer_name,
+                c.contact_person,
+                c.phone,
+                m.member_code,
+                m.member_type,
+                m.reward_unit_amount
+            FROM crm_customers c
+            LEFT JOIN crm_memberships m
+                ON m.customer_id = c.id
+               AND m.status='active'
+            WHERE c.warehouse_id=?
+            ORDER BY c.customer_name ASC
             LIMIT 300
             """,
             (warehouse_id,),
@@ -734,7 +985,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
     change_amount = _currency(sale.get("change_amount") or 0)
     created_time_label = _format_pos_time_label(sale.get("created_at"))
 
-    return {
+    sale_detail = {
         **sale,
         "items": items,
         "total_items": int(sale.get("total_items") or 0),
@@ -997,7 +1248,7 @@ def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, cu
     return created
 
 
-def _validate_and_build_items(db, warehouse_id, raw_items):
+def _validate_and_build_items(db, warehouse_id, raw_items, *, free_reward_mode=False):
     if not isinstance(raw_items, list) or not raw_items:
         raise ValueError("Keranjang kasir masih kosong.")
 
@@ -1051,7 +1302,9 @@ def _validate_and_build_items(db, warehouse_id, raw_items):
                 f"Stok tidak cukup untuk {product['sku']} / {label_variant}. Tersedia {available_qty}, diminta {qty}."
             )
 
-        if unit_price <= 0:
+        if free_reward_mode:
+            unit_price = Decimal("0.00")
+        elif unit_price <= 0:
             unit_price = _to_decimal(
                 product["price_nett"] or product["price_discount"] or product["price_retail"] or 0,
                 "0",
@@ -1212,6 +1465,10 @@ def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashie
             ps.receipt_whatsapp_sent_at,
             ps.note,
             ps.created_at,
+            pr.member_id,
+            pr.transaction_type,
+            COALESCE(NULLIF(TRIM(m.member_code), ''), '') AS member_code,
+            COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
             COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
@@ -1219,6 +1476,8 @@ def _fetch_pos_sale_logs(db, date_from, date_to, selected_warehouse=None, cashie
             COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
+        LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
+        LEFT JOIN crm_memberships m ON m.id = pr.member_id
         JOIN crm_customers c ON c.id = ps.customer_id
         LEFT JOIN users u ON u.id = ps.cashier_user_id
         LEFT JOIN employees e ON e.id = u.employee_id
@@ -1345,6 +1604,10 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.receipt_whatsapp_sent_at,
             ps.note,
             ps.created_at,
+            pr.member_id,
+            pr.transaction_type,
+            COALESCE(NULLIF(TRIM(m.member_code), ''), '') AS member_code,
+            COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
             COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
@@ -1352,6 +1615,8 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
+        LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
+        LEFT JOIN crm_memberships m ON m.id = pr.member_id
         JOIN crm_customers c ON c.id = ps.customer_id
         LEFT JOIN users u ON u.id = ps.cashier_user_id
         LEFT JOIN employees e ON e.id = u.employee_id
@@ -1379,7 +1644,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
     tax_amount = _currency(sale.get("tax_amount") or 0)
     created_time_label = _format_pos_time_label(sale.get("created_at"))
 
-    return {
+    sale_detail = {
         **sale,
         "items": items,
         "total_items": int(sale.get("total_items") or 0),
@@ -1408,6 +1673,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         "receipt_whatsapp_sent_at": sale.get("receipt_whatsapp_sent_at"),
         **_build_pos_sale_status_payload(sale.get("status")),
     }
+    return _attach_pos_loyalty_summary(db, sale_detail)
 
 
 def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None):
@@ -1497,11 +1763,14 @@ def _fetch_pos_voidable_sale_item(db, item_id):
             ps.discount_value,
             ps.tax_type,
             ps.tax_value,
+            pr.member_id,
+            pr.transaction_type,
             COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
             COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
             COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name
         FROM crm_purchase_items cpi
         JOIN pos_sales ps ON ps.purchase_id = cpi.purchase_id
+        JOIN crm_purchase_records pr ON pr.id = cpi.purchase_id
         LEFT JOIN products p ON p.id = cpi.product_id
         LEFT JOIN product_variants pv ON pv.id = cpi.variant_id
         WHERE cpi.id=?
@@ -1646,19 +1915,36 @@ def _apply_pos_sale_rollup_updates(db, sale_row, acting_user_id):
         ),
     )
 
-    db.execute(
-        """
-        UPDATE crm_member_records
-        SET
-            amount=?,
-            updated_at=CURRENT_TIMESTAMP
-        WHERE purchase_id=? AND record_type='purchase'
-        """,
-        (
-            _currency(financials["total_amount"]),
-            sale_row["purchase_id"],
-        ),
-    )
+    if _to_int(sale_row.get("member_id"), 0) > 0:
+        member_snapshot = get_member_snapshot(db, sale_row["member_id"])
+        if member_snapshot:
+            loyalty_fields = calculate_loyalty_fields(
+                member_snapshot,
+                _currency(financials["total_amount"]),
+                sale_row.get("transaction_type"),
+                active=financials["total_items"] > 0,
+            )
+            db.execute(
+                """
+                UPDATE crm_member_records
+                SET
+                    amount=?,
+                    points_delta=?,
+                    service_count_delta=?,
+                    reward_redeemed_delta=?,
+                    benefit_value=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE purchase_id=?
+                """,
+                (
+                    _currency(financials["total_amount"]),
+                    loyalty_fields["points_delta"],
+                    loyalty_fields["service_count_delta"],
+                    loyalty_fields["reward_redeemed_delta"],
+                    loyalty_fields["benefit_value"],
+                    sale_row["purchase_id"],
+                ),
+            )
 
     return {
         **financials,
@@ -1718,13 +2004,15 @@ def pos_page():
     return render_template(
         "pos.html",
         payment_methods=PAYMENT_METHODS,
+        printer_driver_resources=POS_PRINTER_DRIVER_RESOURCES,
         warehouses=warehouses,
         selected_warehouse=selected_warehouse,
         selected_warehouse_name=selected_warehouse_name,
         scoped_warehouse=scoped_warehouse,
         sale_date=sale_date,
-        catalog_categories=_fetch_pos_categories(db, selected_warehouse),
         customer_options=_fetch_pos_customers(db, selected_warehouse),
+        transaction_type_labels=CRM_TRANSACTION_TYPE_LABELS,
+        default_stringing_reward_amount=DEFAULT_STRINGING_REWARD_AMOUNT,
         pos_staff_options=pos_staff_options,
         selected_pos_staff_id=selected_pos_staff_option["id"],
         selected_pos_staff_label=selected_pos_staff_option["display_name"],
@@ -1732,6 +2020,18 @@ def pos_page():
         recent_sales=_fetch_recent_sales(db, selected_warehouse, sale_date),
         sales_log_rows=sales_log_rows,
         sales_log_summary=_build_pos_sale_log_summary(sales_log_rows, sale_date),
+    )
+
+
+@pos_bp.get("/printer-drivers")
+def pos_printer_driver_center():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    return render_template(
+        "pos_printer_drivers.html",
+        driver_resources=POS_PRINTER_DRIVER_RESOURCES,
     )
 
 
@@ -1847,12 +2147,21 @@ def pos_receipt_print(receipt_no):
     if sale is None:
         flash("Nota penjualan tidak ditemukan atau tidak bisa diakses.", "error")
         return redirect("/kasir/log")
+    sale = _prepare_pos_receipt_sale(sale)
+    receipt_brand = sale["receipt_brand"]
+    default_store_name = str(current_app.config.get("STORE_NAME") or "CV BERKAH JAYA ABADI SPORTS").strip()
+    store_name = str(receipt_brand.get("business_name") or default_store_name).strip()
+    store_phone = str(receipt_brand.get("customer_service_phone") or current_app.config.get("STORE_PHONE") or "").strip()
+    requested_layout = str(request.args.get("layout") or "").strip().lower()
+    receipt_layout = "thermal" if requested_layout == "thermal" else "a4"
 
     return render_template(
         "pos_receipt_print.html",
         sale=sale,
-        store_name=str(current_app.config.get("STORE_NAME") or "CV BERKAH JAYA ABADI SPORTS").strip(),
-        store_phone=str(current_app.config.get("STORE_PHONE") or "").strip(),
+        receipt_brand=receipt_brand,
+        store_name=store_name,
+        store_phone=store_phone,
+        receipt_layout=receipt_layout,
         auto_print=request.args.get("autoprint") == "1",
     )
 
@@ -1995,6 +2304,7 @@ def pos_checkout():
     tax_type = _normalize_adjustment_type(payload.get("tax_type"))
     tax_value = _to_decimal(payload.get("tax_value"), "0")
     note = (payload.get("note") or "").strip() or None
+    transaction_type = normalize_transaction_type(payload.get("transaction_type"))
     customer_id = _to_int(payload.get("customer_id"), 0)
     customer_name = (payload.get("customer_name") or "").strip()
     customer_phone = (payload.get("customer_phone") or "").strip()
@@ -2004,7 +2314,12 @@ def pos_checkout():
         return _json_error(str(exc), 400)
 
     try:
-        items = _validate_and_build_items(db, warehouse_id, payload.get("items"))
+        items = _validate_and_build_items(
+            db,
+            warehouse_id,
+            payload.get("items"),
+            free_reward_mode=transaction_type == "stringing_reward_redemption",
+        )
     except ValueError as exc:
         return _json_error(str(exc), 400)
 
@@ -2023,6 +2338,7 @@ def pos_checkout():
     change_amount = (paid_amount - financials["total_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     member_id = None
+    member_snapshot = None
     receipt_no = (payload.get("receipt_no") or "").strip()
 
     try:
@@ -2037,7 +2353,7 @@ def pos_checkout():
 
         active_member = db.execute(
             """
-            SELECT id
+            SELECT *
             FROM crm_memberships
             WHERE customer_id=? AND status='active'
             ORDER BY id DESC
@@ -2047,6 +2363,10 @@ def pos_checkout():
         ).fetchone()
         if active_member:
             member_id = active_member["id"]
+            member_snapshot = get_member_snapshot(db, member_id)
+
+        if transaction_type == "stringing_reward_redemption" and not member_id:
+            raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
 
         if not receipt_no:
             receipt_no = _build_next_receipt_no(db, sale_date)
@@ -2067,12 +2387,13 @@ def pos_checkout():
                 purchase_date,
                 invoice_no,
                 channel,
+                transaction_type,
                 items_count,
                 total_amount,
                 note,
                 handled_by
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 customer["id"],
@@ -2081,6 +2402,7 @@ def pos_checkout():
                 sale_date,
                 receipt_no,
                 "pos",
+                transaction_type,
                 financials["total_items"],
                 _currency(financials["total_amount"]),
                 note,
@@ -2117,6 +2439,19 @@ def pos_checkout():
         )
 
         if member_id:
+            auto_record = build_auto_member_record(
+                member_snapshot or dict(active_member),
+                member_snapshot or dict(active_member),
+                purchase_id=purchase_id,
+                warehouse_id=warehouse_id,
+                record_date=sale_date,
+                reference_no=receipt_no,
+                amount=_currency(financials["total_amount"]),
+                transaction_type=transaction_type,
+                note=note or "",
+                handled_by=session.get("user_id"),
+                source_label="POS / iPos",
+            )
             db.execute(
                 """
                 INSERT INTO crm_member_records(
@@ -2128,22 +2463,28 @@ def pos_checkout():
                     reference_no,
                     amount,
                     points_delta,
+                    service_count_delta,
+                    reward_redeemed_delta,
+                    benefit_value,
                     note,
                     handled_by
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    member_id,
-                    purchase_id,
-                    warehouse_id,
-                    sale_date,
-                    "purchase",
-                    receipt_no,
-                    _currency(financials["total_amount"]),
-                    0,
-                    "Auto-generated dari POS checkout",
-                    session.get("user_id"),
+                    auto_record["member_id"],
+                    auto_record["purchase_id"],
+                    auto_record["warehouse_id"],
+                    auto_record["record_date"],
+                    auto_record["record_type"],
+                    auto_record["reference_no"],
+                    auto_record["amount"],
+                    auto_record["points_delta"],
+                    auto_record["service_count_delta"],
+                    auto_record["reward_redeemed_delta"],
+                    auto_record["benefit_value"],
+                    auto_record["note"],
+                    auto_record["handled_by"],
                 ),
             )
 
@@ -2268,7 +2609,7 @@ def pos_checkout():
             "total_amount": _currency(financials["total_amount"]),
             "paid_amount": _currency(paid_amount),
             "change_amount": _currency(change_amount),
-            "receipt_print_url": f"/kasir/receipt/{receipt_no}/print?autoprint=1",
+            "receipt_print_url": f"/kasir/receipt/{receipt_no}/print?layout=thermal&autoprint=1",
             "receipt_pdf_public_url": (receipt_pdf_meta or {}).get("public_url") or "",
             "receipt_whatsapp_status": (
                 "sent"

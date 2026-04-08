@@ -254,21 +254,35 @@
                 </div>
                 <div>
                     <label>Customer</label>
-                    <select id="crmPurchaseCustomer" name="customer_id" required>
-                        <option value="">Pilih customer</option>
-                        {% for customer in customer_options %}
-                        <option value="{{ customer.id }}">{{ customer.customer_name }}{% if customer.contact_person %} | {{ customer.contact_person }}{% endif %} | {{ customer.warehouse_name }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="crm-smart-select">
+                        <input type="search" id="crmPurchaseCustomerSearch" placeholder="Cari customer, kontak, atau gudang" spellcheck="false" autocomplete="off">
+                        <select id="crmPurchaseCustomer" name="customer_id" required>
+                            <option value="">Pilih customer</option>
+                            {% for customer in customer_options %}
+                            <option value="{{ customer.id }}">{{ customer.customer_name }}{% if customer.contact_person %} | {{ customer.contact_person }}{% endif %} | {{ customer.warehouse_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <small id="crmPurchaseCustomerSearchSummary" class="helper-text">Search customer aktif. Nama, kontak, dan gudang ikut terbaca.</small>
                 </div>
                 <div>
                     <label>Member (opsional)</label>
-                    <select id="crmPurchaseMember" name="member_id">
-                        <option value="">Tanpa member</option>
-                        {% for member in member_options %}
-                        <option value="{{ member.id }}" data-customer-id="{{ member.customer_id if member.customer_id is defined else '' }}">{{ member.member_code }} | {{ member.customer_name }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="crm-smart-select">
+                        <input type="search" id="crmPurchaseMemberSearch" placeholder="Cari kode member atau nama customer" spellcheck="false" autocomplete="off">
+                        <select id="crmPurchaseMember" name="member_id">
+                            <option value="">Tanpa member</option>
+                            {% for member in member_options %}
+                            <option
+                                value="{{ member.id }}"
+                                data-customer-id="{{ member.customer_id if member.customer_id is defined else '' }}"
+                                data-member-type="{{ member.member_type or 'purchase' }}"
+                            >
+                                {{ member.member_code }} | {{ member.customer_name }} | {{ member_type_labels.get(member.member_type or 'purchase', 'Member Pembelian') }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <small id="crmPurchaseMemberSearchSummary" class="helper-text">Search member aktif. Filter customer tetap berlaku otomatis.</small>
                 </div>
                 <div>
                     <label>Tanggal Pembelian</label>
@@ -285,6 +299,15 @@
                         <option value="{{ channel }}">{{ channel|replace('_', ' ')|title }}</option>
                         {% endfor %}
                     </select>
+                </div>
+                <div>
+                    <label>Jenis Transaksi Loyalty</label>
+                    <select id="crmPurchaseTransactionType" name="transaction_type">
+                        {% for transaction_type in transaction_types %}
+                        <option value="{{ transaction_type }}">{{ transaction_type_labels.get(transaction_type, transaction_type|replace('_', ' ')|title) }}</option>
+                        {% endfor %}
+                    </select>
+                    <small id="crmPurchaseTransactionHint" class="helper-text">Pilih "Senaran Berbayar" kalau transaksi ini menghitung 1 kunjungan senar.</small>
                 </div>
                 <div style="grid-column: 1 / -1;">
                     <label>Catatan Transaksi</label>
@@ -379,6 +402,7 @@
                     <th>Customer</th>
                     <th>Item</th>
                     <th>Channel</th>
+                    <th>Tipe Loyalty</th>
                     <th>Total</th>
                     <th>Member</th>
                     <th>Catatan</th>
@@ -401,10 +425,14 @@
                         <div class="helper-text">{{ purchase.total_qty }} pcs / item units</div>
                     </td>
                     <td><span class="badge">{{ purchase.channel|replace('_', ' ')|title }}</span></td>
+                    <td><span class="badge">{{ transaction_type_labels.get(purchase.transaction_type or 'purchase', (purchase.transaction_type or 'purchase')|replace('_', ' ')|title) }}</span></td>
                     <td>Rp {{ "{:,.0f}".format(purchase.total_amount or 0).replace(",", ".") }}</td>
                     <td>
                         {% if purchase.member_code %}
                         <span class="badge green">{{ purchase.member_code }}</span>
+                        {% if purchase.member_type %}
+                        <div class="helper-text">{{ member_type_labels.get(purchase.member_type, purchase.member_type|replace('_', ' ')|title) }}</div>
+                        {% endif %}
                         {% else %}
                         <span class="badge">Non Member</span>
                         {% endif %}
@@ -432,17 +460,29 @@
             <div class="section-title">
                 <div>
                     <h2>Tambah Member</h2>
-                    <p>Hubungkan member ke contact customer agar seluruh histori belanja dan aktivitas loyalty tetap terbaca dalam satu relasi.</p>
+                    <p>Buat program member pembelian atau member senaran, lalu simpan staff pengusulnya supaya histori loyalty tetap rapi dan bisa ditelusuri.</p>
                 </div>
             </div>
             <form method="POST" action="/crm/members/add">
                 <div class="form-grid">
                     <div>
                         <label>Customer</label>
-                        <select name="customer_id" required>
-                            <option value="">Pilih customer</option>
-                            {% for customer in customer_options %}
-                            <option value="{{ customer.id }}">{{ customer.customer_name }} | {{ customer.warehouse_name }}</option>
+                        <div class="crm-smart-select">
+                            <input type="search" id="crmMemberCustomerSearch" placeholder="Cari customer untuk dibuatkan member" spellcheck="false" autocomplete="off">
+                            <select id="crmMemberCustomer" name="customer_id" required>
+                                <option value="">Pilih customer</option>
+                                {% for customer in customer_options %}
+                                <option value="{{ customer.id }}">{{ customer.customer_name }} | {{ customer.warehouse_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <small id="crmMemberCustomerSearchSummary" class="helper-text">Cari customer lebih cepat saat daftar member sudah banyak.</small>
+                    </div>
+                    <div>
+                        <label>Jenis Member</label>
+                        <select id="crmMemberType" name="member_type">
+                            {% for member_type in member_types %}
+                            <option value="{{ member_type }}">{{ member_type_labels.get(member_type, member_type|replace('_', ' ')|title) }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -475,8 +515,33 @@
                         <input type="date" name="expiry_date">
                     </div>
                     <div>
-                        <label>Poin</label>
+                        <label>Poin Awal</label>
                         <input type="number" name="points" value="0">
+                    </div>
+                    <div>
+                        <label>Staff Pengusul</label>
+                        <div class="crm-smart-select">
+                            <input type="search" id="crmMemberStaffSearch" placeholder="Cari nama staff pengusul" spellcheck="false" autocomplete="off">
+                            <select id="crmMemberStaff" name="requested_by_staff_id">
+                                <option value="">Tanpa staff pengusul</option>
+                                {% for staff in staff_options %}
+                                <option value="{{ staff.id }}">{{ staff.display_name }}{% if staff.warehouse_name %} | {{ staff.warehouse_name }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <small id="crmMemberStaffSearchSummary" class="helper-text">Cari staff pengusul lebih cepat berdasarkan nama atau gudang.</small>
+                    </div>
+                    <div id="crmStringingRewardAmountField">
+                        <label>Nilai Free Senar</label>
+                        <input type="number" name="reward_unit_amount" min="0" step="0.01" value="{{ default_stringing_reward_amount }}">
+                    </div>
+                    <div id="crmStringingVisitsField">
+                        <label>Progress Senaran Awal</label>
+                        <input type="number" name="opening_stringing_visits" min="0" value="0">
+                    </div>
+                    <div id="crmStringingRewardUsedField">
+                        <label>Free Sudah Dipakai</label>
+                        <input type="number" name="opening_reward_redeemed" min="0" value="0">
                     </div>
                     <div>
                         <label>Benefit</label>
@@ -497,19 +562,29 @@
             <div class="section-title">
                 <div>
                     <h2>Tambah Member Record</h2>
-                    <p>Record manual dipakai untuk join, renewal, point adjustment, atau catatan loyalty di luar transaksi pembelian.</p>
+                    <p>Record manual dipakai untuk koreksi poin, catat kunjungan senaran, redeem free, atau simpan catatan loyalty di luar transaksi otomatis.</p>
                 </div>
             </div>
             <form method="POST" action="/crm/member-records/add">
                 <div class="form-grid">
                     <div>
                         <label>Member</label>
-                        <select name="member_id" required>
-                            <option value="">Pilih member</option>
-                            {% for member in member_options %}
-                            <option value="{{ member.id }}">{{ member.member_code }} | {{ member.customer_name }}</option>
-                            {% endfor %}
-                        </select>
+                        <div class="crm-smart-select">
+                            <input type="search" id="crmMemberRecordMemberSearch" placeholder="Cari member untuk dicatat" spellcheck="false" autocomplete="off">
+                            <select id="crmMemberRecordMember" name="member_id" required>
+                                <option value="">Pilih member</option>
+                                {% for member in member_options %}
+                                <option
+                                    value="{{ member.id }}"
+                                    data-member-type="{{ member.member_type or 'purchase' }}"
+                                    data-reward-unit-amount="{{ member.reward_unit_amount or default_stringing_reward_amount }}"
+                                >
+                                    {{ member.member_code }} | {{ member.customer_name }} | {{ member_type_labels.get(member.member_type or 'purchase', 'Member Pembelian') }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <small id="crmMemberRecordMemberSearchSummary" class="helper-text">Search member aktif. Kode member dan nama customer ikut terbaca.</small>
                     </div>
                     <div>
                         <label>Tanggal Record</label>
@@ -534,6 +609,18 @@
                     <div>
                         <label>Delta Poin</label>
                         <input type="number" name="points_delta" value="0">
+                    </div>
+                    <div id="crmMemberRecordServiceField">
+                        <label>Delta Kunjungan Senaran</label>
+                        <input type="number" name="service_count_delta" value="0">
+                    </div>
+                    <div id="crmMemberRecordRewardField">
+                        <label>Free Senar Dipakai</label>
+                        <input type="number" name="reward_redeemed_delta" value="0">
+                    </div>
+                    <div id="crmMemberRecordBenefitField">
+                        <label>Nilai Benefit</label>
+                        <input type="number" name="benefit_value" min="0" step="0.01" value="0">
                     </div>
                     <div style="grid-column: 1 / -1;">
                         <label>Catatan Record</label>
@@ -562,10 +649,12 @@
                     <th>Member</th>
                     <th>Customer</th>
                     <th>Status</th>
-                    <th>Poin</th>
+                    <th>Program</th>
+                    <th>Loyalty</th>
                     <th>Join / Expiry</th>
                     <th>Record</th>
                     <th>Total Spend</th>
+                    <th>Staff Pengusul</th>
                     {% if can_manage_crm %}<th>Aksi</th>{% endif %}
                 </tr>
             </thead>
@@ -584,10 +673,31 @@
                         <span class="badge {% if member.status == 'active' %}green{% elif member.status == 'expired' %}red{% else %}orange{% endif %}">{{ member.status|replace('_', ' ')|title }}</span>
                         <div class="helper-text">{{ member.warehouse_name or "-" }}</div>
                     </td>
-                    <td>{{ member.points }}</td>
+                    <td>
+                        <span class="badge">{{ member_type_labels.get(member.member_type, member.member_type|replace('_', ' ')|title) }}</span>
+                        {% if member.member_type == 'stringing' %}
+                        <div class="helper-text">Free Rp {{ "{:,.0f}".format(member.reward_unit_amount or 0).replace(",", ".") }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if member.member_type == 'stringing' %}
+                        <strong>{{ member.stringing_progress_label }}</strong>
+                        <div class="helper-text">
+                            Free tersedia {{ member.available_reward_count }}x
+                            {% if member.available_reward_count %}
+                            / Rp {{ "{:,.0f}".format(member.available_reward_value or 0).replace(",", ".") }}
+                            {% endif %}
+                            <br>Total senaran {{ member.total_stringing_visits }}x
+                        </div>
+                        {% else %}
+                        <strong>{{ member.current_points }} poin</strong>
+                        <div class="helper-text">Awal {{ member.opening_points }} / Delta {{ member.points_delta_total }}</div>
+                        {% endif %}
+                    </td>
                     <td>{{ member.join_date }}<div class="helper-text">{{ member.expiry_date or "-" }}</div></td>
                     <td>{{ member.record_count }}<div class="helper-text">{{ member.last_record_date or "-" }}</div></td>
                     <td>Rp {{ "{:,.0f}".format(member.total_member_spend or 0).replace(",", ".") }}</td>
+                    <td>{{ member.requested_by_staff_name or member.requested_by_staff_username or "-" }}</td>
                     {% if can_manage_crm %}
                     <td>
                         <form method="POST" action="/crm/members/delete/{{ member.id }}">
@@ -620,7 +730,7 @@
                     <th>Tipe</th>
                     <th>Referensi</th>
                     <th>Nominal</th>
-                    <th>Poin</th>
+                    <th>Loyalty</th>
                     <th>Catatan</th>
                     {% if can_manage_crm %}<th>Aksi</th>{% endif %}
                 </tr>
@@ -636,7 +746,22 @@
                     <td><span class="badge">{{ record.record_type|replace('_', ' ')|title }}</span></td>
                     <td>{{ record.reference_no or "-" }}</td>
                     <td>Rp {{ "{:,.0f}".format(record.amount or 0).replace(",", ".") }}</td>
-                    <td>{{ record.points_delta }}</td>
+                    <td>
+                        {% if record.member_type == 'stringing' %}
+                        Kunjungan {{ record.service_count_delta or 0 }}
+                        <div class="helper-text">
+                            Free dipakai {{ record.reward_redeemed_delta or 0 }}x
+                            {% if record.benefit_value %}
+                            / Benefit Rp {{ "{:,.0f}".format(record.benefit_value or 0).replace(",", ".") }}
+                            {% endif %}
+                            {% if record.points_delta %}
+                            <br>Poin {{ record.points_delta }}
+                            {% endif %}
+                        </div>
+                        {% else %}
+                        {{ record.points_delta }} poin
+                        {% endif %}
+                    </td>
                     <td class="crm-long-text">{{ record.note or "-" }}</td>
                     {% if can_manage_crm %}
                     <td>
@@ -667,7 +792,13 @@
 <script>
 const crmPurchaseWarehouse = document.getElementById("crmPurchaseWarehouse");
 const crmPurchaseCustomer = document.getElementById("crmPurchaseCustomer");
+const crmPurchaseCustomerSearch = document.getElementById("crmPurchaseCustomerSearch");
+const crmPurchaseCustomerSearchSummary = document.getElementById("crmPurchaseCustomerSearchSummary");
 const crmPurchaseMember = document.getElementById("crmPurchaseMember");
+const crmPurchaseMemberSearch = document.getElementById("crmPurchaseMemberSearch");
+const crmPurchaseMemberSearchSummary = document.getElementById("crmPurchaseMemberSearchSummary");
+const crmPurchaseTransactionType = document.getElementById("crmPurchaseTransactionType");
+const crmPurchaseTransactionHint = document.getElementById("crmPurchaseTransactionHint");
 const crmPurchaseDate = document.getElementById("crmPurchaseDate");
 const crmPurchaseItemsJson = document.getElementById("crmPurchaseItemsJson");
 const crmPurchaseSubmitButton = document.getElementById("crmPurchaseSubmitButton");
@@ -679,12 +810,238 @@ const crmPurchaseDraftStockState = document.getElementById("crmPurchaseDraftStoc
 const crmPurchaseDraftQty = document.getElementById("crmPurchaseDraftQty");
 const crmPurchaseDraftUnitPrice = document.getElementById("crmPurchaseDraftUnitPrice");
 const crmPurchaseDraftFeedback = document.getElementById("crmPurchaseDraftFeedback");
+const crmMemberCustomer = document.getElementById("crmMemberCustomer");
+const crmMemberCustomerSearch = document.getElementById("crmMemberCustomerSearch");
+const crmMemberCustomerSearchSummary = document.getElementById("crmMemberCustomerSearchSummary");
+const crmMemberType = document.getElementById("crmMemberType");
+const crmMemberStaff = document.getElementById("crmMemberStaff");
+const crmMemberStaffSearch = document.getElementById("crmMemberStaffSearch");
+const crmMemberStaffSearchSummary = document.getElementById("crmMemberStaffSearchSummary");
+const crmStringingRewardAmountField = document.getElementById("crmStringingRewardAmountField");
+const crmStringingVisitsField = document.getElementById("crmStringingVisitsField");
+const crmStringingRewardUsedField = document.getElementById("crmStringingRewardUsedField");
+const crmMemberRecordMember = document.getElementById("crmMemberRecordMember");
+const crmMemberRecordMemberSearch = document.getElementById("crmMemberRecordMemberSearch");
+const crmMemberRecordMemberSearchSummary = document.getElementById("crmMemberRecordMemberSearchSummary");
+const crmMemberRecordServiceField = document.getElementById("crmMemberRecordServiceField");
+const crmMemberRecordRewardField = document.getElementById("crmMemberRecordRewardField");
+const crmMemberRecordBenefitField = document.getElementById("crmMemberRecordBenefitField");
 
 const crmPurchaseDraft = { product_id: 0, variant_id: 0, sku: "", name: "", variant_label: "", category: "", gtin: "", stock: 0 };
 const crmPurchaseItems = [];
+const crmPurchaseTransactionRules = {
+    default: {
+        allowed: ["purchase", "stringing_service"],
+        fallback: "purchase",
+    },
+    purchase: {
+        allowed: ["purchase"],
+        fallback: "purchase",
+    },
+    stringing: {
+        allowed: ["purchase", "stringing_service", "stringing_reward_redemption"],
+        fallback: "stringing_service",
+    },
+};
+const CRM_SMART_SELECT_DEFAULT_SUMMARIES = {
+    purchaseCustomer: "Search customer aktif. Nama, kontak, dan gudang ikut terbaca.",
+    purchaseMember: "Search member aktif. Filter customer tetap berlaku otomatis.",
+    memberCustomer: "Cari customer lebih cepat saat daftar member sudah banyak.",
+    memberStaff: "Cari staff pengusul lebih cepat berdasarkan nama atau gudang.",
+    memberRecord: "Search member aktif. Kode member dan nama customer ikut terbaca.",
+};
+
+function normalizeCrmSmartSelectValue(value) {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "");
+}
+
+function buildCrmSmartSelectOptionState(option) {
+    const label = String(option?.textContent || "").trim();
+    const dataset = Object.fromEntries(Object.entries(option?.dataset || {}).map(([key, value]) => [key, String(value || "")]));
+    const searchBlob = [label, ...Object.values(dataset)].join(" ");
+    return {
+        value: String(option?.value || ""),
+        label,
+        dataset,
+        plainSearch: searchBlob.toLowerCase(),
+        compactSearch: normalizeCrmSmartSelectValue(searchBlob),
+    };
+}
+
+function createCrmSmartSelectOptionNode(optionState) {
+    const option = document.createElement("option");
+    option.value = optionState.value;
+    option.textContent = optionState.label;
+    Object.entries(optionState.dataset || {}).forEach(([key, value]) => {
+        option.dataset[key] = value;
+    });
+    return option;
+}
+
+function matchCrmSmartSelectOption(optionState, query) {
+    const safeQuery = String(query || "").trim().toLowerCase();
+    if (!safeQuery) {
+        return true;
+    }
+    const compactQuery = normalizeCrmSmartSelectValue(safeQuery);
+    return optionState.plainSearch.includes(safeQuery) || (!!compactQuery && optionState.compactSearch.includes(compactQuery));
+}
+
+function setCrmSmartSelectSummary(node, message, fallback) {
+    if (!node) {
+        return;
+    }
+    node.textContent = message || fallback || "";
+}
+
+function createCrmSmartSelectController(config) {
+    const select = config?.select;
+    const searchInput = config?.searchInput;
+    if (!select) {
+        return null;
+    }
+
+    const controller = {
+        ...config,
+        state: {
+            all: Array.from(select.options).map(buildCrmSmartSelectOptionState),
+        },
+        sync(queryOverride = null) {
+            const query = queryOverride === null ? String(searchInput?.value || "") : String(queryOverride || "");
+            const currentValue = String(select.value || "");
+            const options = Array.isArray(controller.state.all) ? controller.state.all : [];
+            if (!options.length) {
+                return;
+            }
+
+            const defaultOption = options[0];
+            const defaultValue = defaultOption?.value ?? "";
+            const currentState = options.find((option) => option.value === currentValue) || null;
+            const visibleOptions = options.filter((option, index) => {
+                if (index === 0) {
+                    return false;
+                }
+                const extraMatch = typeof controller.extraFilter === "function" ? controller.extraFilter(option) : true;
+                return extraMatch && matchCrmSmartSelectOption(option, query);
+            });
+
+            select.replaceChildren(createCrmSmartSelectOptionNode(defaultOption));
+            visibleOptions.forEach((option) => {
+                select.appendChild(createCrmSmartSelectOptionNode(option));
+            });
+
+            const canPreserveSelection = Boolean(
+                currentState
+                && currentState.value !== defaultValue
+                && (typeof controller.canPreserveSelection !== "function" || controller.canPreserveSelection(currentState))
+                && !visibleOptions.some((option) => option.value === currentState.value)
+            );
+            if (canPreserveSelection) {
+                select.appendChild(createCrmSmartSelectOptionNode(currentState));
+            }
+
+            const nextValue = Array.from(select.options).some((option) => option.value === currentValue) ? currentValue : defaultValue;
+            select.value = nextValue;
+
+            if (!query.trim()) {
+                setCrmSmartSelectSummary(controller.summaryNode, controller.defaultSummary, controller.defaultSummary);
+                return;
+            }
+
+            if (!visibleOptions.length) {
+                setCrmSmartSelectSummary(
+                    controller.summaryNode,
+                    `Tidak ada hasil yang cocok untuk "${query.trim()}".`,
+                    controller.defaultSummary,
+                );
+                return;
+            }
+
+            setCrmSmartSelectSummary(
+                controller.summaryNode,
+                `${visibleOptions.length} opsi cocok untuk "${query.trim()}".`,
+                controller.defaultSummary,
+            );
+        },
+    };
+
+    searchInput?.addEventListener("input", () => {
+        controller.sync();
+    });
+
+    return controller;
+}
 
 function formatCrmCurrency(value) {
     return `Rp ${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Number(value || 0))}`;
+}
+
+function syncCrmPurchaseLoyaltyHint() {
+    if (!crmPurchaseTransactionHint) return;
+    const selectedMember = crmPurchaseMember?.selectedOptions?.[0];
+    const memberType = selectedMember?.dataset?.memberType || "";
+    const transactionType = crmPurchaseTransactionType?.value || "purchase";
+
+    if (memberType === "stringing") {
+        if (transactionType === "stringing_reward_redemption") {
+            crmPurchaseTransactionHint.textContent = "Member senaran akan memakai 1 free reward pada transaksi ini.";
+        } else if (transactionType === "stringing_service") {
+            crmPurchaseTransactionHint.textContent = "Member senaran akan dihitung 1 kunjungan. Setiap 6 kali otomatis membuka free 1x.";
+        } else {
+            crmPurchaseTransactionHint.textContent = "Member senaran ini tetap tercatat, tapi transaksi normal tidak menambah kunjungan senaran.";
+        }
+        return;
+    }
+
+    if (memberType === "purchase") {
+        crmPurchaseTransactionHint.textContent = "Member pembelian akan otomatis dapat 1 poin per total Rp 10.000 dari transaksi ini.";
+        return;
+    }
+
+    if (transactionType === "stringing_reward_redemption") {
+        crmPurchaseTransactionHint.textContent = "Pilih member valid dulu kalau ingin mencatat pemakaian free senaran.";
+        return;
+    }
+
+    crmPurchaseTransactionHint.textContent = "Pilih \"Senaran Berbayar\" kalau transaksi ini menghitung 1 kunjungan senar.";
+}
+
+function syncCrmPurchaseTransactionOptions() {
+    if (!crmPurchaseTransactionType) return;
+    const selectedMember = crmPurchaseMember?.selectedOptions?.[0];
+    const memberType = selectedMember?.dataset?.memberType || "";
+    const rule = crmPurchaseTransactionRules[memberType] || crmPurchaseTransactionRules.default;
+    const allowed = new Set(rule.allowed);
+
+    Array.from(crmPurchaseTransactionType.options).forEach((option) => {
+        option.disabled = !allowed.has(option.value);
+    });
+
+    const currentValue = crmPurchaseTransactionType.value || "";
+    if (!allowed.has(currentValue)) {
+        const fallbackValue = allowed.has(rule.fallback) ? rule.fallback : rule.allowed[0];
+        crmPurchaseTransactionType.value = fallbackValue || "purchase";
+    }
+}
+
+function syncCrmMemberFormFields() {
+    const isStringing = crmMemberType?.value === "stringing";
+    [crmStringingRewardAmountField, crmStringingVisitsField, crmStringingRewardUsedField].forEach((field) => {
+        if (!field) return;
+        field.style.display = isStringing ? "" : "none";
+    });
+}
+
+function syncCrmMemberRecordFormFields() {
+    const selectedMember = crmMemberRecordMember?.selectedOptions?.[0];
+    const memberType = selectedMember?.dataset?.memberType || "";
+    const isStringing = memberType === "stringing";
+    [crmMemberRecordServiceField, crmMemberRecordRewardField, crmMemberRecordBenefitField].forEach((field) => {
+        if (!field) return;
+        field.style.display = isStringing ? "" : "none";
+    });
 }
 
 function resetCrmPurchaseDraft() {
@@ -811,19 +1168,55 @@ function handleCrmPurchaseSubmit() {
 
 function syncCrmMemberOptions() {
     if (!crmPurchaseCustomer || !crmPurchaseMember) return;
-    const selectedCustomer = crmPurchaseCustomer.value;
-    Array.from(crmPurchaseMember.options).forEach((option, index) => {
-        if (index === 0) {
-            option.hidden = false;
-            return;
-        }
-        const matchCustomerId = option.dataset.customerId;
-        option.hidden = Boolean(selectedCustomer) && matchCustomerId && matchCustomerId !== selectedCustomer;
-    });
-    if (crmPurchaseMember.selectedOptions[0]?.hidden) {
-        crmPurchaseMember.value = "";
-    }
+    crmPurchaseMemberSelectController?.sync();
+    syncCrmPurchaseTransactionOptions();
+    syncCrmPurchaseLoyaltyHint();
 }
+
+const crmPurchaseCustomerSelectController = createCrmSmartSelectController({
+    select: crmPurchaseCustomer,
+    searchInput: crmPurchaseCustomerSearch,
+    summaryNode: crmPurchaseCustomerSearchSummary,
+    defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.purchaseCustomer,
+});
+
+const crmPurchaseMemberSelectController = createCrmSmartSelectController({
+    select: crmPurchaseMember,
+    searchInput: crmPurchaseMemberSearch,
+    summaryNode: crmPurchaseMemberSearchSummary,
+    defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.purchaseMember,
+    extraFilter(optionState) {
+        const selectedCustomer = String(crmPurchaseCustomer?.value || "");
+        const optionCustomerId = String(optionState?.dataset?.customerId || "");
+        return !selectedCustomer || !optionCustomerId || optionCustomerId === selectedCustomer;
+    },
+    canPreserveSelection(optionState) {
+        const selectedCustomer = String(crmPurchaseCustomer?.value || "");
+        const optionCustomerId = String(optionState?.dataset?.customerId || "");
+        return !selectedCustomer || !optionCustomerId || optionCustomerId === selectedCustomer;
+    },
+});
+
+const crmMemberCustomerSelectController = createCrmSmartSelectController({
+    select: crmMemberCustomer,
+    searchInput: crmMemberCustomerSearch,
+    summaryNode: crmMemberCustomerSearchSummary,
+    defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.memberCustomer,
+});
+
+const crmMemberStaffSelectController = createCrmSmartSelectController({
+    select: crmMemberStaff,
+    searchInput: crmMemberStaffSearch,
+    summaryNode: crmMemberStaffSearchSummary,
+    defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.memberStaff,
+});
+
+const crmMemberRecordSelectController = createCrmSmartSelectController({
+    select: crmMemberRecordMember,
+    searchInput: crmMemberRecordMemberSearch,
+    summaryNode: crmMemberRecordMemberSearchSummary,
+    defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.memberRecord,
+});
 
 const crmPurchasePicker = (document.getElementById("itemPickerModal") && crmPurchaseWarehouse)
     ? createItemPicker({
@@ -862,6 +1255,16 @@ function openCrmPurchasePicker() {
 crmPurchaseDraftQty?.addEventListener("input", validateCrmPurchaseDraft);
 crmPurchaseDraftUnitPrice?.addEventListener("input", validateCrmPurchaseDraft);
 crmPurchaseCustomer?.addEventListener("change", syncCrmMemberOptions);
+crmPurchaseMember?.addEventListener("change", () => {
+    syncCrmPurchaseTransactionOptions();
+    syncCrmPurchaseLoyaltyHint();
+});
+crmPurchaseTransactionType?.addEventListener("change", () => {
+    syncCrmPurchaseTransactionOptions();
+    syncCrmPurchaseLoyaltyHint();
+});
+crmMemberType?.addEventListener("change", syncCrmMemberFormFields);
+crmMemberRecordMember?.addEventListener("change", syncCrmMemberRecordFormFields);
 crmPurchaseWarehouse?.addEventListener("change", () => {
     crmPurchaseItems.length = 0;
     renderCrmPurchaseQueue();
@@ -875,7 +1278,15 @@ crmPurchaseQueueBody?.addEventListener("click", (event) => {
     renderCrmPurchaseQueue();
 });
 
+crmPurchaseCustomerSelectController?.sync("");
 syncCrmMemberOptions();
+crmMemberCustomerSelectController?.sync("");
+crmMemberStaffSelectController?.sync("");
+crmMemberRecordSelectController?.sync("");
+syncCrmPurchaseTransactionOptions();
+syncCrmMemberFormFields();
+syncCrmMemberRecordFormFields();
+syncCrmPurchaseLoyaltyHint();
 renderCrmPurchaseQueue();
 resetCrmPurchaseDraft();
 </script>

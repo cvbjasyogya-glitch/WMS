@@ -36,7 +36,10 @@
             return "";
         }
 
-        if (/^\d+(\.\d+)?$/.test(originalValue)) {
+        // Digit-only input can skip the heavier separator parsing path.
+        // We intentionally do not treat `50.000` as a ready-made decimal value here,
+        // because in ID locale that usually means fifty thousand, not fifty point zero.
+        if (/^\d+$/.test(originalValue)) {
             return trimCurrencyLeadingZeros(originalValue);
         }
 

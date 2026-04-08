@@ -484,16 +484,27 @@ def _build_stock_group(rows):
     }
 
 
+def _normalize_stock_group_name(name):
+    return " ".join(str(name or "").split()).strip().casefold()
+
+
+def _resolve_stock_group_key(row):
+    normalized_name = _normalize_stock_group_name(row.get("name"))
+    if normalized_name:
+        return f"name:{normalized_name}"
+    return f"product:{int(row['product_id'])}"
+
+
 def _group_stock_rows(rows):
     grouped_rows = []
-    groups_by_product = {}
+    groups_by_key = {}
 
     for row in rows:
-        group_key = int(row["product_id"])
-        if group_key not in groups_by_product:
-            groups_by_product[group_key] = []
-            grouped_rows.append(groups_by_product[group_key])
-        groups_by_product[group_key].append(row)
+        group_key = _resolve_stock_group_key(row)
+        if group_key not in groups_by_key:
+            groups_by_key[group_key] = []
+            grouped_rows.append(groups_by_key[group_key])
+        groups_by_key[group_key].append(row)
 
     return [_build_stock_group(group_rows) for group_rows in grouped_rows]
 

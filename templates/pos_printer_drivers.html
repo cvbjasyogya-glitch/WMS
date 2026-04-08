@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Driver Printer iPOS | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}iPOS Utility{% endblock %}
+{% block page_title %}Driver Printer iPOS{% endblock %}
+{% block page_subtitle %}Kumpulan link driver resmi untuk setup printer nota{% endblock %}
+
+{% block page_actions %}
+<a class="button ghost-button" href="/kasir/">Kembali ke iPOS</a>
+{% endblock %}
+
+{% block content %}
+<section class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Driver Center</h2>
+            <p>Halaman ini khusus untuk membantu tim kasir install driver printer thermal dari sumber resmi vendor.</p>
+        </div>
+    </div>
+
+    <div class="form-grid" style="margin-bottom: 14px;">
+        <label style="display:grid; gap:6px;">
+            <span style="font-weight:700;">Cari Driver</span>
+            <input
+                type="search"
+                id="posDriverSearch"
+                placeholder="Cari vendor, nama driver, OS, atau kategori"
+                spellcheck="false"
+                autocomplete="off"
+            >
+        </label>
+    </div>
+
+    <div class="table-box" data-scrollable-table="1">
+        <table id="posDriverTable">
+            <thead>
+                <tr>
+                    <th>Vendor</th>
+                    <th>Paket Driver</th>
+                    <th>Kategori</th>
+                    <th>OS</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for driver in driver_resources %}
+                <tr data-driver-row data-driver-search="{{ (driver.vendor ~ ' ' ~ driver.driver_name ~ ' ' ~ driver.category ~ ' ' ~ driver.supported_os ~ ' ' ~ driver.note)|lower }}">
+                    <td><strong>{{ driver.vendor }}</strong></td>
+                    <td>
+                        <div style="display:grid; gap:4px;">
+                            <span style="font-weight:700;">{{ driver.driver_name }}</span>
+                            <small class="helper-text">{{ driver.note }}</small>
+                        </div>
+                    </td>
+                    <td>{{ driver.category }}</td>
+                    <td>{{ driver.supported_os }}</td>
+                    <td>
+                        <a
+                            class="button ghost-button"
+                            href="{{ driver.download_url }}"
+                            target="_blank"
+                            rel="noopener"
+                        >
+                            Buka Link Resmi
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="helper-text" id="posDriverSearchSummary" style="margin-top:10px;">
+        Menampilkan {{ driver_resources|length }} referensi driver resmi. Untuk printer yang tidak ada di daftar, gunakan laman support resmi vendor tersebut.
+    </p>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(() => {
+    const searchInput = document.getElementById("posDriverSearch");
+    const rows = Array.from(document.querySelectorAll("[data-driver-row]"));
+    const summary = document.getElementById("posDriverSearchSummary");
+    if (!searchInput || !rows.length || !summary) {
+        return;
+    }
+
+    const normalize = (value) => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const updateRows = () => {
+        const query = normalize(searchInput.value);
+        let visibleCount = 0;
+        rows.forEach((row) => {
+            const searchable = normalize(row.dataset.driverSearch || "");
+            const visible = !query || searchable.includes(query);
+            row.hidden = !visible;
+            if (visible) {
+                visibleCount += 1;
+            }
+        });
+        summary.textContent = query
+            ? `Menampilkan ${visibleCount} driver dari ${rows.length} referensi untuk pencarian "${query}".`
+            : `Menampilkan ${rows.length} referensi driver resmi. Untuk printer yang tidak ada di daftar, gunakan laman support resmi vendor tersebut.`;
+    };
+
+    searchInput.addEventListener("input", updateRows);
+})();
+</script>
+{% endblock %}

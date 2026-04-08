@@ -1,4 +1,5 @@
-from datetime import date as date_cls, timedelta
+import json
+from datetime import date as date_cls, datetime, timedelta
 
 from flask import Blueprint, flash, redirect, render_template, request, session
 
@@ -40,6 +41,18 @@ LIVE_SCHEDULE_SLOTS = (
     ("20:00-20:45", "20:00 - 20:45"),
 )
 LIVE_SCHEDULE_SLOT_KEYS = {slot_key for slot_key, _ in LIVE_SCHEDULE_SLOTS}
+LEGACY_LIVE_SCHEDULE_DEFAULT_BG = "#C6E5AB"
+LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT = "#17351A"
+SCHEDULE_DEFAULT_BG = "#D7E3F4"
+SCHEDULE_DEFAULT_TEXT = "#17304A"
+LIVE_SCHEDULE_DEFAULT_BG = SCHEDULE_DEFAULT_BG
+LIVE_SCHEDULE_DEFAULT_TEXT = SCHEDULE_DEFAULT_TEXT
+SCHEDULE_LIGHT_SURFACE = "#F6FAFE"
+SCHEDULE_DARK_SURFACE = "#132033"
+LIVE_SCHEDULE_LIGHT_SURFACE = "#F7FAFD"
+LIVE_SCHEDULE_DARK_SURFACE = "#0F1928"
+SCHEDULE_LIGHT_TEXT = "#17304A"
+SCHEDULE_DARK_TEXT = "#F6FBFF"
 
 LEAVE_OVERRIDE_STYLES = {
     "annual": ("CUTI", "Cuti Tahunan", "#f8d77f", "#5c3b00"),
@@ -63,6 +76,29 @@ EMPLOYMENT_OVERRIDE_STYLES = {
 OFFBOARDING_STYLE = ("OFFBD", "Offboarding", "#f49797", "#6d1616")
 SCHEDULE_DAY_OPTIONS = (7, 14, 30, 60, 90)
 MAX_SCHEDULE_DAY_RANGE = max(SCHEDULE_DAY_OPTIONS)
+SCHEDULE_DAY_NAMES = (
+    "Senin",
+    "Selasa",
+    "Rabu",
+    "Kamis",
+    "Jumat",
+    "Sabtu",
+    "Minggu",
+)
+SCHEDULE_MONTH_NAMES = (
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
+    "Mei",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
+)
 
 
 def _to_int(value, default=None):
@@ -91,6 +127,155 @@ def _normalize_hex_color(value, fallback):
     return fallback
 
 
+def _hex_to_rgb_components(value, fallback):
+    safe_color = _normalize_hex_color(value, fallback)
+    return tuple(int(safe_color[index:index + 2], 16) for index in (1, 3, 5))
+
+
+def _rgba_from_hex(value, alpha, fallback):
+    red, green, blue = _hex_to_rgb_components(value, fallback)
+    return f"rgba({red}, {green}, {blue}, {alpha})"
+
+
+def _blend_hex_colors(primary, secondary, ratio, fallback):
+    safe_ratio = max(0.0, min(float(ratio or 0), 1.0))
+    first = _hex_to_rgb_components(primary, fallback)
+    second = _hex_to_rgb_components(secondary, fallback)
+    mixed = tuple(round((left * (1 - safe_ratio)) + (right * safe_ratio)) for left, right in zip(first, second))
+    return "#{:02X}{:02X}{:02X}".format(*mixed)
+
+
+def _relative_luminance(value, fallback):
+    red, green, blue = _hex_to_rgb_components(value, fallback)
+
+    def _srgb_to_linear(channel):
+        normalized = channel / 255
+        if normalized <= 0.04045:
+            return normalized / 12.92
+        return ((normalized + 0.055) / 1.055) ** 2.4
+
+    return (
+        (0.2126 * _srgb_to_linear(red))
+        + (0.7152 * _srgb_to_linear(green))
+        + (0.0722 * _srgb_to_linear(blue))
+    )
+
+
+def _contrast_ratio(color_a, color_b, fallback):
+    luminance_a = _relative_luminance(color_a, fallback)
+    luminance_b = _relative_luminance(color_b, fallback)
+    lighter = max(luminance_a, luminance_b)
+    darker = min(luminance_a, luminance_b)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _pick_accessible_text(background_color, preferred_color, dark_fallback, light_fallback):
+    safe_background = _normalize_hex_color(background_color, dark_fallback)
+    safe_preferred = _normalize_hex_color(preferred_color, dark_fallback)
+    safe_dark = _normalize_hex_color(dark_fallback, dark_fallback)
+    safe_light = _normalize_hex_color(light_fallback, light_fallback)
+
+    preferred_ratio = _contrast_ratio(safe_background, safe_preferred, safe_dark)
+    if preferred_ratio >= 4.25:
+        return safe_preferred
+
+    candidates = [safe_dark, safe_light]
+    return max(
+        candidates,
+        key=lambda candidate: _contrast_ratio(safe_background, candidate, safe_dark),
+    )
+
+
+def _build_schedule_chip_color_tokens(bg_color=None, text_color=None):
+    safe_bg = _normalize_hex_color(bg_color, SCHEDULE_DEFAULT_BG)
+    safe_text = _normalize_hex_color(text_color, SCHEDULE_DEFAULT_TEXT)
+    light_bg = _blend_hex_colors(SCHEDULE_LIGHT_SURFACE, safe_bg, 0.34, SCHEDULE_LIGHT_SURFACE)
+    dark_bg = _blend_hex_colors(SCHEDULE_DARK_SURFACE, safe_bg, 0.32, SCHEDULE_DARK_SURFACE)
+    light_text = _pick_accessible_text(light_bg, safe_text, SCHEDULE_LIGHT_TEXT, SCHEDULE_DARK_TEXT)
+    dark_text = _pick_accessible_text(dark_bg, safe_text, SCHEDULE_LIGHT_TEXT, SCHEDULE_DARK_TEXT)
+    return {
+        "bg_color": safe_bg,
+        "text_color": safe_text,
+        "light_bg_color": light_bg,
+        "dark_bg_color": dark_bg,
+        "light_text_color": light_text,
+        "dark_text_color": dark_text,
+        "light_border_color": _rgba_from_hex(safe_bg, 0.18, SCHEDULE_DEFAULT_BG),
+        "dark_border_color": _rgba_from_hex(safe_bg, 0.24, SCHEDULE_DEFAULT_BG),
+    }
+
+
+def _build_live_schedule_color_tokens(bg_color=None, text_color=None):
+    safe_bg = _normalize_hex_color(bg_color, LIVE_SCHEDULE_DEFAULT_BG)
+    safe_text = _normalize_hex_color(text_color, LIVE_SCHEDULE_DEFAULT_TEXT)
+    light_bg = _blend_hex_colors(LIVE_SCHEDULE_LIGHT_SURFACE, safe_bg, 0.24, LIVE_SCHEDULE_LIGHT_SURFACE)
+    dark_bg = _blend_hex_colors(LIVE_SCHEDULE_DARK_SURFACE, safe_bg, 0.32, LIVE_SCHEDULE_DARK_SURFACE)
+    light_text = _pick_accessible_text(light_bg, safe_text, SCHEDULE_LIGHT_TEXT, SCHEDULE_DARK_TEXT)
+    dark_text = _pick_accessible_text(dark_bg, safe_text, SCHEDULE_LIGHT_TEXT, SCHEDULE_DARK_TEXT)
+    return {
+        "bg_color": safe_bg,
+        "text_color": safe_text,
+        "light_bg_color": light_bg,
+        "dark_bg_color": dark_bg,
+        "light_text_color": light_text,
+        "dark_text_color": dark_text,
+        "light_channel_color": _rgba_from_hex(light_text, 0.72, SCHEDULE_LIGHT_TEXT),
+        "dark_channel_color": _rgba_from_hex(dark_text, 0.78, SCHEDULE_DARK_TEXT),
+        "light_note_color": _rgba_from_hex(light_text, 0.84, SCHEDULE_LIGHT_TEXT),
+        "dark_note_color": _rgba_from_hex(dark_text, 0.88, SCHEDULE_DARK_TEXT),
+        "light_border_color": _rgba_from_hex(safe_bg, 0.18, LIVE_SCHEDULE_DEFAULT_BG),
+        "dark_border_color": _rgba_from_hex(safe_bg, 0.28, LIVE_SCHEDULE_DEFAULT_BG),
+        "light_shadow_color": _rgba_from_hex(safe_bg, 0.12, LIVE_SCHEDULE_DEFAULT_BG),
+        "dark_shadow_color": _rgba_from_hex(safe_bg, 0.22, LIVE_SCHEDULE_DEFAULT_BG),
+        "light_check_bg_color": _blend_hex_colors(light_bg, "#FFFFFF", 0.42, light_bg),
+        "dark_check_bg_color": _blend_hex_colors(dark_bg, "#FFFFFF", 0.08, dark_bg),
+        "light_check_border_color": _rgba_from_hex(light_text, 0.18, SCHEDULE_LIGHT_TEXT),
+        "dark_check_border_color": _rgba_from_hex(dark_text, 0.22, SCHEDULE_DARK_TEXT),
+        "light_check_color": light_text,
+        "dark_check_color": dark_text,
+    }
+
+
+def _parse_live_check_updates_json(raw_value):
+    payload = (raw_value or "").strip()
+    if not payload:
+        return []
+
+    try:
+        loaded = json.loads(payload)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(loaded, list):
+        return []
+
+    updates = []
+    seen_keys = set()
+    for item in loaded:
+        if not isinstance(item, dict):
+            continue
+
+        warehouse_id = _to_int(item.get("warehouse_id"))
+        schedule_date = _parse_iso_date(item.get("schedule_date"))
+        slot_key = (item.get("slot_key") or "").strip()
+        if not warehouse_id or not schedule_date or slot_key not in LIVE_SCHEDULE_SLOT_KEYS:
+            continue
+
+        unique_key = (warehouse_id, schedule_date.isoformat(), slot_key)
+        if unique_key in seen_keys:
+            continue
+        seen_keys.add(unique_key)
+        updates.append(
+            {
+                "warehouse_id": warehouse_id,
+                "schedule_date": schedule_date,
+                "slot_key": slot_key,
+                "is_checked": _is_checked_form_value(item.get("is_checked")),
+            }
+        )
+    return updates
+
+
 def _default_schedule_start():
     today = date_cls.today()
     return today - timedelta(days=today.weekday())
@@ -110,30 +295,35 @@ def _daterange(start_date, end_date):
 
 
 def _format_schedule_day(value):
-    day_names = [
-        "Senin",
-        "Selasa",
-        "Rabu",
-        "Kamis",
-        "Jumat",
-        "Sabtu",
-        "Minggu",
-    ]
-    month_names = [
-        "Januari",
-        "Februari",
-        "Maret",
-        "April",
-        "Mei",
-        "Juni",
-        "Juli",
-        "Agustus",
-        "September",
-        "Oktober",
-        "November",
-        "Desember",
-    ]
-    return f"{day_names[value.weekday()]}, {value.day:02d} {month_names[value.month - 1]} {value.year}"
+    parts = _build_schedule_day_parts(value)
+    return parts["full_label"]
+
+
+def _default_shift_code_map():
+    shift_code_map = {}
+    for code, label, bg_color, text_color, sort_order in DEFAULT_SHIFT_CODES:
+        shift_code_map[code] = {
+            "code": code,
+            "label": label,
+            "sort_order": sort_order,
+            "is_active": True,
+            **_build_schedule_chip_color_tokens(bg_color, text_color),
+        }
+    return shift_code_map
+
+
+def _build_schedule_day_parts(value):
+    day_name = SCHEDULE_DAY_NAMES[value.weekday()]
+    date_label = f"{value.day:02d} {SCHEDULE_MONTH_NAMES[value.month - 1]} {value.year}"
+    return {
+        "day_name": day_name,
+        "date_label": date_label,
+        "full_label": f"{day_name}, {date_label}",
+    }
+
+
+def _is_checked_form_value(value):
+    return 1 if str(value or "").strip().lower() in {"1", "true", "on", "yes"} else 0
 
 
 def _schedule_redirect():
@@ -264,6 +454,7 @@ def _fetch_shift_codes(db):
 
     for shift_code in shift_codes:
         shift_code["is_active"] = bool(shift_code["is_active"])
+        shift_code.update(_build_schedule_chip_color_tokens(shift_code["bg_color"], shift_code["text_color"]))
 
     active_shift_codes = [shift_code for shift_code in shift_codes if shift_code["is_active"]]
     shift_code_map = {shift_code["code"]: shift_code for shift_code in shift_codes}
@@ -392,14 +583,18 @@ def _build_entry_map(db, employee_ids, start_date, end_date, shift_code_map):
         title = f"{label} (manual)"
         if note:
             title = f"{title} - {note}"
+        color_tokens = _build_schedule_chip_color_tokens(
+            shift_meta.get("bg_color"),
+            shift_meta.get("text_color"),
+        )
         entry_map[(row["employee_id"], row["schedule_date"])] = {
             "code": code,
+            "shift_code": row["shift_code"] or code,
             "label": label,
             "note": note,
-            "bg_color": shift_meta.get("bg_color") or "#d9e4ef",
-            "text_color": shift_meta.get("text_color") or "#25384c",
             "source": "manual",
             "title": title,
+            **color_tokens,
         }
     return entry_map
 
@@ -414,11 +609,10 @@ def _set_override(override_map, employee_id, schedule_date, payload, priority):
         "code": payload["code"],
         "label": payload["label"],
         "note": payload.get("note", ""),
-        "bg_color": payload["bg_color"],
-        "text_color": payload["text_color"],
         "source": payload["source"],
         "title": payload["title"],
         "priority": priority,
+        **_build_schedule_chip_color_tokens(payload["bg_color"], payload["text_color"]),
     }
 
 
@@ -602,8 +796,10 @@ def _build_board_rows(schedule_members, start_date, end_date, entry_map, overrid
         "Sab",
         "Min",
     ]
+    today_value = date_cls.today()
     for current_day in _daterange(start_date, end_date):
         iso_date = current_day.isoformat()
+        day_parts = _build_schedule_day_parts(current_day)
         cells = []
         for member in schedule_members:
             cell = override_map.get((member["employee_id"], iso_date)) or entry_map.get(
@@ -614,16 +810,137 @@ def _build_board_rows(schedule_members, start_date, end_date, entry_map, overrid
         board_rows.append(
             {
                 "iso_date": iso_date,
-                "label": _format_schedule_day(current_day),
+                "label": day_parts["full_label"],
+                "day_name": day_parts["day_name"],
+                "date_label": day_parts["date_label"],
                 "day_short": short_day_names[current_day.weekday()],
                 "day_number": f"{current_day.day:02d}",
                 "month_number": f"{current_day.month:02d}",
                 "is_weekend": current_day.weekday() >= 5,
+                "is_today": current_day == today_value,
                 "cells": cells,
                 "note": day_notes.get(iso_date, ""),
             }
         )
     return board_rows
+
+
+def resolve_employee_schedule_for_date(db, employee_id, target_date):
+    target_day = target_date if isinstance(target_date, date_cls) else _parse_iso_date(target_date)
+    if not target_day:
+        return None
+
+    try:
+        safe_employee_id = int(employee_id or 0)
+    except (TypeError, ValueError):
+        safe_employee_id = 0
+    if safe_employee_id <= 0:
+        return None
+
+    employee = next(
+        (
+            row
+            for row in _fetch_employees_for_schedule(db)
+            if int(row.get("employee_id") or 0) == safe_employee_id
+        ),
+        None,
+    )
+    if not employee:
+        return None
+
+    _, _, stored_shift_code_map = _fetch_shift_codes(db)
+    shift_code_map = _default_shift_code_map()
+    shift_code_map.update(stored_shift_code_map)
+    iso_date = target_day.isoformat()
+    entry_map = _build_entry_map(
+        db,
+        [safe_employee_id],
+        target_day,
+        target_day,
+        shift_code_map,
+    )
+    override_map = _build_override_map(db, [employee], target_day, target_day)
+    cell = override_map.get((safe_employee_id, iso_date)) or entry_map.get((safe_employee_id, iso_date))
+    day_parts = _build_schedule_day_parts(target_day)
+    return {
+        "employee_id": safe_employee_id,
+        "iso_date": iso_date,
+        "day_name": day_parts["day_name"],
+        "date_label": day_parts["date_label"],
+        "full_label": day_parts["full_label"],
+        "warehouse_name": employee.get("warehouse_name") or "",
+        "display_name": employee.get("display_name") or employee.get("full_name") or "Staf",
+        "has_schedule": bool(cell),
+        "code": (cell or {}).get("code") or "",
+        "shift_code": (cell or {}).get("shift_code") or (cell or {}).get("code") or "",
+        "label": (cell or {}).get("label") or "",
+        "note": (cell or {}).get("note") or "",
+        "source": (cell or {}).get("source") or "",
+        "title": (cell or {}).get("title") or "",
+    }
+
+
+def resolve_employee_live_schedule_for_date(db, employee_id, target_date):
+    target_day = target_date if isinstance(target_date, date_cls) else _parse_iso_date(target_date)
+    if not target_day:
+        return []
+
+    try:
+        safe_employee_id = int(employee_id or 0)
+    except (TypeError, ValueError):
+        safe_employee_id = 0
+    if safe_employee_id <= 0:
+        return []
+
+    slot_label_map = dict(LIVE_SCHEDULE_SLOTS)
+    slot_order_map = {slot_key: index for index, (slot_key, _) in enumerate(LIVE_SCHEDULE_SLOTS)}
+    day_parts = _build_schedule_day_parts(target_day)
+    rows = db.execute(
+        """
+        SELECT
+            l.warehouse_id,
+            l.schedule_date,
+            l.slot_key,
+            l.channel_label,
+            l.note,
+            l.bg_color,
+            l.text_color,
+            COALESCE(l.is_checked, 0) AS is_checked,
+            w.name AS warehouse_name
+        FROM schedule_live_entries l
+        LEFT JOIN warehouses w ON w.id = l.warehouse_id
+        WHERE l.employee_id=?
+          AND l.schedule_date=?
+        ORDER BY l.schedule_date ASC, l.slot_key ASC, l.id ASC
+        """,
+        (safe_employee_id, target_day.isoformat()),
+    ).fetchall()
+
+    live_entries = []
+    for row in rows:
+        slot_key = str(row["slot_key"] or "").strip()
+        live_entries.append(
+            {
+                "employee_id": safe_employee_id,
+                "warehouse_id": row["warehouse_id"],
+                "warehouse_name": (row["warehouse_name"] or "").strip(),
+                "iso_date": target_day.isoformat(),
+                "day_name": day_parts["day_name"],
+                "date_label": day_parts["date_label"],
+                "full_label": day_parts["full_label"],
+                "slot_key": slot_key,
+                "slot_label": slot_label_map.get(slot_key, slot_key),
+                "slot_order": slot_order_map.get(slot_key, 999),
+                "channel_label": (row["channel_label"] or "").strip(),
+                "note": (row["note"] or "").strip(),
+                "is_checked": bool(row["is_checked"]),
+                "bg_color": _normalize_hex_color(row["bg_color"], LIVE_SCHEDULE_DEFAULT_BG),
+                "text_color": _normalize_hex_color(row["text_color"], LIVE_SCHEDULE_DEFAULT_TEXT),
+            }
+        )
+
+    live_entries.sort(key=lambda item: (item["slot_order"], item["slot_key"]))
+    return live_entries
 
 
 def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date, end_date):
@@ -633,6 +950,7 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
         target_warehouses = list(warehouses)
 
     sections = []
+    today_value = date_cls.today()
     for warehouse in target_warehouses:
         rows = db.execute(
             """
@@ -641,6 +959,9 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
                 l.slot_key,
                 l.channel_label,
                 l.note,
+                l.bg_color,
+                l.text_color,
+                COALESCE(l.is_checked, 0) AS is_checked,
                 l.employee_id,
                 e.full_name,
                 e.employee_code,
@@ -662,13 +983,18 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
         entry_map = {}
         total_assignments = 0
         for row in rows:
+            color_tokens = _build_live_schedule_color_tokens(row["bg_color"], row["text_color"])
             entry_map[(row["schedule_date"], row["slot_key"])] = {
                 "employee_id": row["employee_id"],
+                "warehouse_id": warehouse["id"],
+                "schedule_date": row["schedule_date"],
+                "slot_key": row["slot_key"],
                 "display_name": _resolve_schedule_display_name(
                     row["full_name"],
                     row["custom_name"],
                     row["employee_code"],
                 ),
+                "is_checked": bool(row["is_checked"]),
                 "channel_label": (row["channel_label"] or "").strip(),
                 "note": (row["note"] or "").strip(),
                 "location_label_display": _resolve_schedule_location_label(
@@ -676,17 +1002,22 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
                     row["warehouse_name"],
                     row["work_location"],
                 ),
+                **color_tokens,
             }
             total_assignments += 1
 
         section_rows = []
         for current_day in _daterange(start_date, end_date):
             iso_date = current_day.isoformat()
+            day_parts = _build_schedule_day_parts(current_day)
             section_rows.append(
                 {
                     "iso_date": iso_date,
-                    "label": _format_schedule_day(current_day),
+                    "label": day_parts["full_label"],
+                    "day_name": day_parts["day_name"],
+                    "date_label": day_parts["date_label"],
                     "is_weekend": current_day.weekday() >= 5,
+                    "is_today": current_day == today_value,
                     "cells": [
                         entry_map.get((iso_date, slot_key))
                         for slot_key, _ in LIVE_SCHEDULE_SLOTS
@@ -755,10 +1086,17 @@ def schedule_page():
     )
 
     legend_items = [
-        {"code": "CUTI", "label": "Approved leave dari HRIS", "bg_color": "#f8d77f", "text_color": "#5c3b00"},
-        {"code": "SAKIT", "label": "Cuti sakit otomatis", "bg_color": "#f3a58f", "text_color": "#6d2117"},
-        {"code": "OFFBD", "label": "Offboarding aktif", "bg_color": "#f49797", "text_color": "#6d1616"},
-        {"code": "ABSEN", "label": "Absensi tidak hadir", "bg_color": "#f28a8a", "text_color": "#6e1717"},
+        {
+            "code": code,
+            "label": label,
+            **_build_schedule_chip_color_tokens(bg_color, text_color),
+        }
+        for code, label, bg_color, text_color in (
+            ("CUTI", "Approved leave dari HRIS", "#f8d77f", "#5c3b00"),
+            ("SAKIT", "Cuti sakit otomatis", "#f3a58f", "#6d2117"),
+            ("OFFBD", "Offboarding aktif", "#f49797", "#6d1616"),
+            ("ABSEN", "Absensi tidak hadir", "#f28a8a", "#6e1717"),
+        )
     ]
 
     summary = {
@@ -793,6 +1131,14 @@ def schedule_page():
         can_manage_schedule=_can_manage_schedule(),
         scoped_schedule_warehouse=_schedule_scope_warehouse(),
         legend_items=legend_items,
+        schedule_color_defaults={
+            "bg_color": SCHEDULE_DEFAULT_BG,
+            "text_color": SCHEDULE_DEFAULT_TEXT,
+        },
+        live_schedule_defaults={
+            "bg_color": LIVE_SCHEDULE_DEFAULT_BG,
+            "text_color": LIVE_SCHEDULE_DEFAULT_TEXT,
+        },
         range_end=end_date.isoformat(),
     )
 
@@ -812,6 +1158,9 @@ def save_live_schedule_entry():
     employee_id = _to_int(request.form.get("employee_id"))
     channel_label = (request.form.get("channel_label") or "").strip()
     note = (request.form.get("note") or "").strip()
+    is_checked = _is_checked_form_value(request.form.get("is_checked"))
+    bg_color = _normalize_hex_color(request.form.get("bg_color"), LIVE_SCHEDULE_DEFAULT_BG)
+    text_color = _normalize_hex_color(request.form.get("text_color"), LIVE_SCHEDULE_DEFAULT_TEXT)
 
     if not warehouse_id or not schedule_start or not schedule_end or slot_key not in LIVE_SCHEDULE_SLOT_KEYS:
         flash("Gudang, rentang tanggal, dan slot live wajib diisi.", "error")
@@ -865,13 +1214,23 @@ def save_live_schedule_entry():
                         employee_id,
                         channel_label,
                         note,
+                        bg_color,
+                        text_color,
+                        is_checked,
+                        checked_by,
+                        checked_at,
                         updated_by
                     )
-                    VALUES (?,?,?,?,?,?,?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(warehouse_id, schedule_date, slot_key) DO UPDATE SET
                         employee_id=excluded.employee_id,
                         channel_label=excluded.channel_label,
                         note=excluded.note,
+                        bg_color=excluded.bg_color,
+                        text_color=excluded.text_color,
+                        is_checked=excluded.is_checked,
+                        checked_by=excluded.checked_by,
+                        checked_at=excluded.checked_at,
                         updated_by=excluded.updated_by,
                         updated_at=CURRENT_TIMESTAMP
                     """,
@@ -882,6 +1241,11 @@ def save_live_schedule_entry():
                         employee_id,
                         channel_label or None,
                         note or None,
+                        bg_color,
+                        text_color,
+                        is_checked,
+                        session.get("user_id") if is_checked else None,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_checked else None,
                         session.get("user_id"),
                     ),
                 )
@@ -964,6 +1328,134 @@ def save_live_schedule_entry():
     return _schedule_redirect()
 
 
+@schedule_bp.route("/live/check", methods=["POST"])
+def update_live_schedule_check_status():
+    if not _require_schedule_manage():
+        return _schedule_redirect()
+
+    db = get_db()
+    scoped_warehouse = _schedule_scope_warehouse()
+    batch_updates = _parse_live_check_updates_json(request.form.get("changes_json"))
+
+    if batch_updates:
+        if scoped_warehouse:
+            batch_updates = [item for item in batch_updates if item["warehouse_id"] == scoped_warehouse]
+        if not batch_updates:
+            flash("Belum ada perubahan checklist live yang valid untuk disimpan.", "error")
+            return _schedule_redirect()
+
+        updated_count = 0
+        current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            for item in batch_updates:
+                live_entry = db.execute(
+                    """
+                    SELECT id, employee_id
+                    FROM schedule_live_entries
+                    WHERE warehouse_id=?
+                      AND schedule_date=?
+                      AND slot_key=?
+                    LIMIT 1
+                    """,
+                    (item["warehouse_id"], item["schedule_date"].isoformat(), item["slot_key"]),
+                ).fetchone()
+                if not live_entry or not live_entry["employee_id"]:
+                    continue
+
+                is_checked = item["is_checked"]
+                db.execute(
+                    """
+                    UPDATE schedule_live_entries
+                    SET is_checked=?,
+                        checked_by=?,
+                        checked_at=?,
+                        updated_by=?,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                    """,
+                    (
+                        is_checked,
+                        session.get("user_id") if is_checked else None,
+                        current_timestamp if is_checked else None,
+                        session.get("user_id"),
+                        live_entry["id"],
+                    ),
+                )
+                updated_count += 1
+            db.commit()
+        except Exception:
+            db.rollback()
+            flash("Checklist jadwal live gagal disimpan.", "error")
+            return _schedule_redirect()
+
+        if not updated_count:
+            flash("Belum ada checklist live yang bisa diperbarui.", "error")
+            return _schedule_redirect()
+
+        flash(
+            "Checklist jadwal live berhasil disimpan."
+            if updated_count == 1
+            else f"{updated_count} checklist jadwal live berhasil disimpan.",
+            "success",
+        )
+        return _schedule_redirect()
+
+    warehouse_id = scoped_warehouse or _to_int(request.form.get("live_warehouse_id"))
+    schedule_date = _parse_iso_date(request.form.get("live_schedule_date"))
+    slot_key = (request.form.get("slot_key") or "").strip()
+    is_checked = _is_checked_form_value(request.form.get("is_checked"))
+
+    if not warehouse_id or not schedule_date or slot_key not in LIVE_SCHEDULE_SLOT_KEYS:
+        flash("Slot live yang dipilih belum valid untuk di-check.", "error")
+        return _schedule_redirect()
+
+    live_entry = db.execute(
+        """
+        SELECT id, employee_id
+        FROM schedule_live_entries
+        WHERE warehouse_id=?
+          AND schedule_date=?
+          AND slot_key=?
+        LIMIT 1
+        """,
+        (warehouse_id, schedule_date.isoformat(), slot_key),
+    ).fetchone()
+    if not live_entry or not live_entry["employee_id"]:
+        flash("Checklist live hanya bisa diubah pada slot yang sudah terisi staf.", "error")
+        return _schedule_redirect()
+
+    try:
+        db.execute(
+            """
+            UPDATE schedule_live_entries
+            SET is_checked=?,
+                checked_by=?,
+                checked_at=?,
+                updated_by=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                is_checked,
+                session.get("user_id") if is_checked else None,
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_checked else None,
+                session.get("user_id"),
+                live_entry["id"],
+            ),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        flash("Checklist jadwal live gagal diperbarui.", "error")
+        return _schedule_redirect()
+
+    flash(
+        "Checklist jadwal live ditandai." if is_checked else "Checklist jadwal live dibatalkan.",
+        "success",
+    )
+    return _schedule_redirect()
+
+
 @schedule_bp.route("/shift-code/save", methods=["POST"])
 def save_shift_code():
     if not _require_schedule_manage():
@@ -974,8 +1466,8 @@ def save_shift_code():
     original_code = (request.form.get("original_code") or "").strip().upper()
     code = (request.form.get("code") or "").strip().upper()
     label = (request.form.get("label") or "").strip() or code
-    bg_color = _normalize_hex_color(request.form.get("bg_color"), "#C6E5AB")
-    text_color = _normalize_hex_color(request.form.get("text_color"), "#17351A")
+    bg_color = _normalize_hex_color(request.form.get("bg_color"), SCHEDULE_DEFAULT_BG)
+    text_color = _normalize_hex_color(request.form.get("text_color"), SCHEDULE_DEFAULT_TEXT)
     sort_order = _to_int(request.form.get("sort_order"), 0)
     is_active = 1 if request.form.get("is_active") == "on" else 0
 

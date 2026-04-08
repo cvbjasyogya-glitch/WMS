@@ -3,18 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nota {{ sale.receipt_no }} | ERP-CV.BJAS</title>
+<title>Nota {{ sale.receipt_no }} | {{ receipt_brand.business_name or store_name }}</title>
 <style>
     :root {
         color-scheme: light;
-        --receipt-bg: #e9f0f7;
+        --receipt-bg: #e9eff6;
         --receipt-paper: #ffffff;
         --receipt-ink: #14273a;
         --receipt-muted: #64748b;
         --receipt-border: #d7e2ec;
         --receipt-line: #b8c9da;
-        --receipt-accent: #153e75;
-        --receipt-accent-soft: #eef4fb;
+        --receipt-accent: {{ receipt_brand.accent or '#153e75' }};
+        --receipt-accent-dark: {{ receipt_brand.accent_dark or '#0f3a6a' }};
+        --receipt-accent-soft: {{ receipt_brand.accent_soft or '#eef4fb' }};
+        --receipt-ambient: {{ receipt_brand.ambient_tint or 'rgba(21, 62, 117, 0.08)' }};
     }
 
     * {
@@ -23,19 +25,19 @@
 
     body {
         margin: 0;
-        padding: 24px;
+        padding: 22px;
         background:
-            radial-gradient(circle at top left, rgba(29, 121, 199, 0.08), transparent 28%),
-            linear-gradient(180deg, #edf3f9 0%, #e6edf5 100%);
+            radial-gradient(circle at top left, var(--receipt-ambient), transparent 31%),
+            linear-gradient(180deg, #eff4fa 0%, #e6edf5 100%);
         color: var(--receipt-ink);
-        font: 14px/1.55 "Segoe UI", Tahoma, sans-serif;
+        font: 13.6px/1.48 "Segoe UI", Tahoma, sans-serif;
     }
 
     .receipt-shell {
-        max-width: 840px;
+        max-width: 900px;
         margin: 0 auto;
         display: grid;
-        gap: 16px;
+        gap: 14px;
     }
 
     .receipt-actions {
@@ -46,7 +48,7 @@
     }
 
     .receipt-button {
-        min-height: 42px;
+        min-height: 40px;
         padding: 0 16px;
         border-radius: 999px;
         border: 1px solid var(--receipt-border);
@@ -59,99 +61,185 @@
     }
 
     .receipt-button.is-primary {
-        border-color: #c5d7eb;
-        background: linear-gradient(180deg, #ffffff 0%, #eef6ff 100%);
-        color: var(--receipt-accent);
+        border-color: var(--receipt-border);
+        background: linear-gradient(180deg, #ffffff 0%, var(--receipt-accent-soft) 100%);
+        color: var(--receipt-accent-dark);
     }
 
     .receipt-paper {
         background: var(--receipt-paper);
         border: 1px solid var(--receipt-border);
         border-radius: 28px;
-        padding: 30px;
+        padding: 20px 22px 18px;
         box-shadow: 0 22px 54px rgba(20, 39, 58, 0.08);
+        page-break-inside: avoid;
     }
 
     .receipt-top {
         display: grid;
-        gap: 10px;
-        text-align: center;
+        gap: 12px;
+    }
+
+    .receipt-brand-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+    }
+
+    .receipt-brand-lockup {
+        display: grid;
+        grid-template-columns: 198px minmax(0, 1fr);
+        gap: 16px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .receipt-brand-logo-wrap {
+        min-height: 94px;
+        padding: 10px 14px;
+        border-radius: 22px;
+        border: 1px solid var(--receipt-border);
+        background: linear-gradient(180deg, #ffffff 0%, var(--receipt-accent-soft) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .receipt-brand-logo {
+        width: 100%;
+        max-height: 76px;
+        object-fit: contain;
+        display: block;
+    }
+
+    .receipt-brand-copy {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+    }
+
+    .receipt-eyebrow {
+        margin: 0;
+        color: var(--receipt-accent);
+        font-size: 0.75rem;
+        font-weight: 900;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
     }
 
     .receipt-brand {
         display: grid;
         gap: 4px;
+        min-width: 0;
     }
 
     .receipt-brand strong {
-        font-size: 1.95rem;
-        line-height: 1.05;
+        font-size: 1.78rem;
+        line-height: 1.03;
         letter-spacing: 0.01em;
+        word-break: break-word;
     }
 
     .receipt-brand span,
     .receipt-brand small,
+    .receipt-status-meta,
     .receipt-footer-note,
     .receipt-item-meta,
     .receipt-note {
         color: var(--receipt-muted);
     }
 
+    .receipt-brand span {
+        color: var(--receipt-accent-dark);
+        font-weight: 800;
+    }
+
+    .receipt-status-stack {
+        display: grid;
+        justify-items: end;
+        gap: 8px;
+        min-width: 180px;
+    }
+
     .receipt-status-row {
         display: flex;
         flex-wrap: wrap;
-        justify-content: center;
-        gap: 10px;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .receipt-status-meta {
+        display: grid;
+        gap: 3px;
+        text-align: right;
+        font-size: 0.9rem;
+        font-weight: 700;
     }
 
     .receipt-chip {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 34px;
+        min-height: 33px;
         padding: 0 14px;
         border-radius: 999px;
-        border: 1px solid #cddcec;
+        border: 1px solid var(--receipt-border);
         background: var(--receipt-accent-soft);
-        color: var(--receipt-accent);
-        font-weight: 800;
-        font-size: 0.84rem;
-        letter-spacing: 0.04em;
+        color: var(--receipt-accent-dark);
+        font-weight: 900;
+        font-size: 0.81rem;
+        letter-spacing: 0.05em;
         text-transform: uppercase;
     }
 
     .receipt-divider {
-        margin: 18px 0;
+        margin: 14px 0;
         border-top: 1px dashed var(--receipt-line);
     }
 
     .receipt-info {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px 18px;
-        margin-bottom: 16px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px 12px;
+        margin-bottom: 14px;
     }
 
     .receipt-info-row {
         display: grid;
-        grid-template-columns: 116px minmax(0, 1fr);
-        gap: 10px;
-        align-items: start;
+        gap: 4px;
+        align-content: start;
+        min-height: 78px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        border: 1px solid var(--receipt-border);
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
     }
 
     .receipt-info-row span {
         color: var(--receipt-muted);
-        font-weight: 700;
+        font-weight: 800;
+        font-size: 0.79rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
     }
 
     .receipt-info-row strong {
-        font-size: 1rem;
+        font-size: 0.98rem;
         font-weight: 800;
         word-break: break-word;
     }
 
+    .receipt-items,
+    .receipt-total-box,
+    .receipt-note-box,
+    .receipt-loyalty-box,
+    .receipt-footer {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
     .receipt-items {
-        margin-top: 10px;
         border: 1px solid var(--receipt-border);
         border-radius: 20px;
         overflow: hidden;
@@ -160,28 +248,28 @@
     .receipt-items-head,
     .receipt-item-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 86px 160px;
+        grid-template-columns: minmax(0, 1fr) 72px 140px;
         gap: 12px;
         align-items: start;
     }
 
     .receipt-items-head {
-        padding: 12px 16px;
-        background: #f5f8fc;
+        padding: 10px 14px;
+        background: linear-gradient(180deg, #f7fbff 0%, var(--receipt-accent-soft) 100%);
         border-bottom: 1px solid var(--receipt-border);
-        font-size: 0.8rem;
-        font-weight: 800;
-        letter-spacing: 0.08em;
+        font-size: 0.76rem;
+        font-weight: 900;
+        letter-spacing: 0.09em;
         text-transform: uppercase;
         color: var(--receipt-muted);
     }
 
     .receipt-items-body {
-        padding: 8px 16px 10px;
+        padding: 4px 14px 6px;
     }
 
     .receipt-item-row {
-        padding: 14px 0;
+        padding: 11px 0;
         border-bottom: 1px dashed #dbe5ef;
     }
 
@@ -190,14 +278,14 @@
     }
 
     .receipt-item-name {
-        font-size: 1rem;
+        font-size: 0.99rem;
         font-weight: 800;
-        line-height: 1.35;
+        line-height: 1.34;
     }
 
     .receipt-item-meta {
         margin-top: 4px;
-        font-size: 0.9rem;
+        font-size: 0.88rem;
     }
 
     .receipt-item-qty,
@@ -214,18 +302,30 @@
     }
 
     .receipt-item-void {
-        font-size: 0.82rem;
+        font-size: 0.79rem;
         color: #b45309;
+    }
+
+    .receipt-bottom-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.12fr) minmax(292px, 0.88fr);
+        gap: 14px;
+        margin-top: 14px;
+        align-items: start;
+    }
+
+    .receipt-side-stack {
+        display: grid;
+        gap: 12px;
     }
 
     .receipt-total-box {
         display: grid;
         gap: 10px;
-        margin-top: 18px;
-        padding: 18px 20px;
+        padding: 16px 18px;
         border-radius: 22px;
         border: 1px solid var(--receipt-border);
-        background: linear-gradient(180deg, #ffffff 0%, #f7fafd 100%);
+        background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
     }
 
     .receipt-total-row {
@@ -233,16 +333,16 @@
         grid-template-columns: minmax(0, 1fr) auto;
         gap: 16px;
         align-items: center;
-        font-size: 0.97rem;
+        font-size: 0.94rem;
     }
 
     .receipt-total-row span:first-child {
         color: var(--receipt-muted);
-        font-weight: 700;
+        font-weight: 800;
     }
 
     .receipt-total-row strong {
-        font-size: 1rem;
+        font-size: 0.98rem;
         text-align: right;
     }
 
@@ -253,41 +353,126 @@
 
     .receipt-total-row.is-total span:first-child,
     .receipt-total-row.is-total strong {
-        color: var(--receipt-accent);
-        font-size: 1.1rem;
+        color: var(--receipt-accent-dark);
+        font-size: 1.08rem;
         font-weight: 900;
     }
 
-    .receipt-note-box {
-        margin-top: 18px;
+    .receipt-note-box,
+    .receipt-loyalty-box {
         padding: 14px 16px;
-        border-radius: 16px;
+        border-radius: 18px;
         border: 1px solid var(--receipt-border);
-        background: #fafcff;
+        background: linear-gradient(180deg, #ffffff 0%, #fafcff 100%);
     }
 
-    .receipt-note-box strong {
+    .receipt-loyalty-box {
+        border-color: var(--receipt-border);
+        background: linear-gradient(180deg, #f8fbff 0%, var(--receipt-accent-soft) 100%);
+    }
+
+    .receipt-identity-box {
+        display: grid;
+        gap: 8px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--receipt-border);
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    }
+
+    .receipt-identity-box strong {
         display: block;
-        margin-bottom: 6px;
-        font-size: 0.82rem;
-        letter-spacing: 0.08em;
+        font-size: 0.78rem;
+        letter-spacing: 0.09em;
         text-transform: uppercase;
         color: var(--receipt-muted);
     }
 
-    .receipt-footer {
-        margin-top: 18px;
+    .receipt-identity-row {
         display: grid;
-        gap: 8px;
-        text-align: center;
+        gap: 4px;
+    }
+
+    .receipt-identity-row span {
+        color: var(--receipt-muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .receipt-identity-row p {
+        margin: 0;
+        font-size: 0.94rem;
+        line-height: 1.45;
+        word-break: break-word;
+    }
+
+    .receipt-note-box strong,
+    .receipt-loyalty-box strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.78rem;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--receipt-muted);
+    }
+
+    .receipt-note {
+        margin: 0;
+    }
+
+    .receipt-loyalty-list {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 5px;
+        color: var(--receipt-accent-dark);
+        font-weight: 700;
+    }
+
+    .receipt-loyalty-list li::marker {
+        color: var(--receipt-accent);
+    }
+
+    .receipt-footer {
+        display: grid;
+        gap: 5px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px dashed var(--receipt-line);
+        text-align: left;
+        background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
     }
 
     .receipt-footer strong {
-        font-size: 1rem;
+        font-size: 0.98rem;
+        color: var(--receipt-accent-dark);
     }
 
     .receipt-footer-note {
         margin: 0;
+        font-size: 0.9rem;
+    }
+
+    @media (max-width: 900px) {
+        .receipt-brand-panel,
+        .receipt-bottom-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .receipt-status-stack {
+            justify-items: start;
+            min-width: 0;
+        }
+
+        .receipt-status-row {
+            justify-content: flex-start;
+        }
+
+        .receipt-status-meta {
+            text-align: left;
+        }
     }
 
     @media (max-width: 760px) {
@@ -296,24 +481,29 @@
         }
 
         .receipt-paper {
-            padding: 18px;
+            padding: 16px;
             border-radius: 20px;
         }
 
-        .receipt-info,
-        .receipt-items-head,
-        .receipt-item-row {
+        .receipt-brand-lockup {
             grid-template-columns: 1fr;
         }
 
-        .receipt-info-row {
-            grid-template-columns: 98px minmax(0, 1fr);
+        .receipt-brand-logo-wrap {
+            min-height: 74px;
         }
 
-        .receipt-item-qty,
-        .receipt-item-subtotal {
-            text-align: left;
-            justify-items: start;
+        .receipt-brand-logo {
+            max-height: 58px;
+        }
+
+        .receipt-info {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .receipt-items-head,
+        .receipt-item-row {
+            grid-template-columns: 1fr;
         }
 
         .receipt-items-head {
@@ -323,17 +513,29 @@
         .receipt-item-row {
             gap: 6px;
         }
+
+        .receipt-item-qty,
+        .receipt-item-subtotal {
+            text-align: left;
+            justify-items: start;
+        }
     }
 
     @media print {
         @page {
-            size: A5 portrait;
-            margin: 9mm;
+            size: A4 portrait;
+            margin: 7mm;
         }
 
         body {
             padding: 0;
             background: #ffffff;
+            font-size: 12.2px;
+        }
+
+        .receipt-shell {
+            max-width: none;
+            gap: 0;
         }
 
         .receipt-actions {
@@ -341,31 +543,408 @@
         }
 
         .receipt-paper {
-            padding: 0;
+            padding: 14px 16px 12px;
             border: 0;
             border-radius: 0;
             box-shadow: none;
         }
+
+        .receipt-brand-lockup {
+            grid-template-columns: 180px minmax(0, 1fr);
+            gap: 12px;
+        }
+
+        .receipt-brand-logo-wrap {
+            min-height: 74px;
+            padding: 8px 12px;
+        }
+
+        .receipt-brand-logo {
+            max-height: 56px;
+        }
+
+        .receipt-info {
+            gap: 8px 10px;
+            margin-bottom: 12px;
+        }
+
+        .receipt-info-row {
+            min-height: 70px;
+            padding: 10px 12px;
+        }
+
+        .receipt-divider {
+            margin: 12px 0;
+        }
+
+        .receipt-items-head {
+            padding: 8px 12px;
+        }
+
+        .receipt-items-body {
+            padding: 2px 12px 4px;
+        }
+
+        .receipt-item-row {
+            padding: 8px 0;
+        }
+
+        .receipt-bottom-grid {
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .receipt-total-box,
+        .receipt-note-box,
+        .receipt-loyalty-box,
+        .receipt-footer {
+            padding: 12px 14px;
+        }
+    }
+
+    body.thermal-layout {
+        padding: 10px;
+        background: #f3f5f8;
+        color: #121212;
+        font: 13px/1.38 "Consolas", "Courier New", monospace;
+    }
+
+    body.thermal-layout .receipt-shell {
+        max-width: 92mm;
+        gap: 10px;
+    }
+
+    body.thermal-layout .receipt-actions {
+        justify-content: center;
+    }
+
+    body.thermal-layout .receipt-button {
+        min-height: 36px;
+        border-radius: 14px;
+        font-size: 0.86rem;
+        font-weight: 800;
+    }
+
+    body.thermal-layout .receipt-paper {
+        border-radius: 10px;
+        border-color: #d3d7df;
+        padding: 10px 10px 12px;
+        box-shadow: 0 8px 24px rgba(18, 18, 18, 0.12);
+    }
+
+    .thermal-header {
+        display: grid;
+        justify-items: center;
+        text-align: center;
+        gap: 4px;
+    }
+
+    .thermal-logo {
+        width: 94px;
+        max-height: 80px;
+        object-fit: contain;
+    }
+
+    .thermal-brand {
+        font-size: 1.02rem;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .thermal-address {
+        margin: 0;
+        color: #2f2f2f;
+        font-size: 0.84rem;
+        line-height: 1.3;
+    }
+
+    .thermal-divider {
+        margin: 8px 0;
+        border-top: 1px dashed #303030;
+    }
+
+    .thermal-meta {
+        display: grid;
+        gap: 2px;
+        font-size: 0.9rem;
+    }
+
+    .thermal-meta-row {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px;
+        align-items: baseline;
+    }
+
+    .thermal-meta-row .value {
+        justify-self: end;
+        text-align: right;
+    }
+
+    .thermal-items {
+        display: grid;
+        gap: 8px;
+    }
+
+    .thermal-item {
+        display: grid;
+        gap: 3px;
+    }
+
+    .thermal-item-name {
+        font-size: 0.95rem;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .thermal-item-variant {
+        font-size: 0.78rem;
+        color: #575757;
+    }
+
+    .thermal-item-calc {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        font-size: 0.88rem;
+    }
+
+    .thermal-summary {
+        display: grid;
+        gap: 3px;
+        font-size: 0.94rem;
+    }
+
+    .thermal-summary-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+    }
+
+    .thermal-summary-row.is-grand {
+        margin-top: 2px;
+        padding-top: 6px;
+        border-top: 1px dashed #1d1d1d;
+        font-size: 1.06rem;
+        font-weight: 900;
+    }
+
+    .thermal-footer {
+        margin-top: 8px;
+        display: grid;
+        gap: 5px;
+        text-align: center;
+        font-size: 0.83rem;
+        line-height: 1.32;
+    }
+
+    .thermal-footer strong {
+        font-size: 0.98rem;
+    }
+
+    .thermal-qr-wrap {
+        margin-top: 4px;
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+    }
+
+    .thermal-qr {
+        width: 108px;
+        height: 108px;
+        object-fit: contain;
+        border: 1px solid #2a2a2a;
+        padding: 4px;
+        background: #fff;
+    }
+
+    .thermal-link {
+        color: #202020;
+        text-decoration: none;
+        font-weight: 700;
+        word-break: break-all;
+    }
+
+    @media print {
+        body.thermal-layout {
+            padding: 0;
+            background: #ffffff;
+            font-size: 11.6px;
+            line-height: 1.28;
+        }
+
+        body.thermal-layout .receipt-shell {
+            max-width: 80mm;
+            gap: 0;
+        }
+
+        body.thermal-layout .receipt-actions {
+            display: none;
+        }
+
+        body.thermal-layout .receipt-paper {
+            margin: 0;
+            padding: 0 0.8mm 1mm;
+            border: 0;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        body.thermal-layout .thermal-logo {
+            width: 80px;
+            max-height: 66px;
+        }
+
+        body.thermal-layout .thermal-qr {
+            width: 95px;
+            height: 95px;
+            border-width: 0.6px;
+            padding: 3px;
+        }
+
+        @page {
+            size: 80mm auto;
+            margin: 2mm;
+        }
     }
 </style>
 </head>
-<body>
+<body class="{% if receipt_layout == 'thermal' %}thermal-layout{% endif %}">
 <div class="receipt-shell">
     <div class="receipt-actions">
         <a href="/kasir/log" class="receipt-button">Kembali ke Log</a>
+        {% if receipt_layout == "thermal" %}
+        <a href="/kasir/receipt/{{ sale.receipt_no }}/print" class="receipt-button">Buka Versi A4</a>
+        <button type="button" class="receipt-button is-primary" onclick="window.print()">Cetak Nota</button>
+        {% else %}
+        <a href="/kasir/receipt/{{ sale.receipt_no }}/print?layout=thermal" class="receipt-button">Buka Nota Print</a>
         <button type="button" class="receipt-button is-primary" onclick="window.print()">Simpan sebagai PDF</button>
+        {% endif %}
     </div>
 
+    {% if receipt_layout == "thermal" %}
+    {% set payment_code = (sale.payment_method or "").lower() %}
+    {% set paid_cash = sale.paid_amount_label if payment_code == "cash" else "Rp 0" %}
+    {% set paid_credit = sale.paid_amount_label if payment_code == "credit" else "Rp 0" %}
+    {% set paid_debit = sale.paid_amount_label if payment_code == "debit" else "Rp 0" %}
+    {% set paid_qris = sale.paid_amount_label if payment_code == "qris" else "Rp 0" %}
+    {% set social_qr_source = receipt_brand.social_qr_image_url or "" %}
+    {% if (not social_qr_source) and receipt_brand.social_media_url %}
+    {% set social_qr_source = "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" ~ (receipt_brand.social_media_url | urlencode) %}
+    {% endif %}
+    <article class="receipt-paper">
+        <header class="thermal-header">
+            {% if receipt_brand.logo_url %}
+            <img src="{{ receipt_brand.logo_url }}" alt="Logo {{ receipt_brand.business_name or store_name }}" class="thermal-logo">
+            {% endif %}
+            <div class="thermal-brand">{{ receipt_brand.business_name or store_name }}</div>
+            <p class="thermal-address">{{ receipt_brand.business_address or sale.warehouse_receipt_label }}</p>
+        </header>
+
+        <div class="thermal-divider"></div>
+
+        <section class="thermal-meta">
+            <div class="thermal-meta-row"><span>No.</span><span class="value">{{ sale.receipt_no }}</span></div>
+            <div class="thermal-meta-row"><span>Kasir</span><span class="value">{{ sale.cashier_name or sale.cashier_identity_label }}</span></div>
+            <div class="thermal-meta-row"><span>Pel.</span><span class="value">{{ sale.customer_name }}</span></div>
+            <div class="thermal-meta-row"><span>Staff</span><span class="value">{{ sale.cashier_username or "-" }}</span></div>
+            <div class="thermal-meta-row"><span>Tanggal</span><span class="value">{{ sale.sale_date }} {{ sale.created_time_label }}</span></div>
+            <div class="thermal-meta-row"><span>Homebase</span><span class="value">{{ sale.warehouse_receipt_label }}</span></div>
+        </section>
+
+        <div class="thermal-divider"></div>
+
+        <section class="thermal-items">
+            {% for item in sale["items"] %}
+            <div class="thermal-item">
+                <div class="thermal-item-name">{{ item.product_name }}</div>
+                <div class="thermal-item-variant">{{ item.variant_name }}{% if item.sku %} / {{ item.sku }}{% endif %}</div>
+                <div class="thermal-item-calc">
+                    <span>{{ item.active_qty }} x {{ item.unit_price_label }}</span>
+                    <span>{{ item.active_line_total_label }}</span>
+                </div>
+                {% if item.void_qty %}
+                <div class="thermal-item-variant">Void {{ item.void_qty }} | {{ item.void_amount_label }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+
+        <div class="thermal-divider"></div>
+
+        <section class="thermal-summary">
+            <div class="thermal-summary-row"><span>Qty</span><span>{{ sale.total_items }}</span></div>
+            <div class="thermal-summary-row"><span>Subtotal</span><span>{{ sale.subtotal_amount_label }}</span></div>
+            <div class="thermal-summary-row"><span>Potongan</span><span>{{ sale.discount_amount_label }}</span></div>
+            <div class="thermal-summary-row"><span>Pajak</span><span>{{ sale.tax_amount_label }}</span></div>
+            <div class="thermal-summary-row is-grand"><span>Grand Total</span><span>{{ sale.total_amount_label }}</span></div>
+            <div class="thermal-summary-row"><span>Tunai</span><span>{{ paid_cash }}</span></div>
+            <div class="thermal-summary-row"><span>Kartu Kredit</span><span>{{ paid_credit }}</span></div>
+            <div class="thermal-summary-row"><span>Kartu Debit</span><span>{{ paid_debit }}</span></div>
+            <div class="thermal-summary-row"><span>QRIS</span><span>{{ paid_qris }}</span></div>
+            <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>
+        </section>
+
+        {% if sale.has_loyalty_summary %}
+        <div class="thermal-divider"></div>
+        <section class="thermal-summary">
+            <div class="thermal-summary-row"><span>{{ sale.loyalty_summary_title }}</span><span></span></div>
+            {% for line in sale.loyalty_summary_lines %}
+            <div class="thermal-item-variant">{{ line.lstrip('- ').strip() }}</div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <div class="thermal-divider"></div>
+
+        <footer class="thermal-footer">
+            <p>{{ receipt_brand.return_policy or "Barang yang telah dibayarkan tidak dapat dikembalikan, kecuali produk tertentu sesuai perjanjian." }}</p>
+            <strong>{{ receipt_brand.thank_you_text or ("Terima kasih atas kunjungan Anda di " ~ (receipt_brand.business_name or store_name) ~ ".") }}</strong>
+            <p>{{ receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-")) }}</p>
+            <p>{{ receipt_brand.social_label or "Social Media Kami di:" }}</p>
+            {% if social_qr_source %}
+            <div class="thermal-qr-wrap">
+                <img src="{{ social_qr_source }}" alt="QR Social Media {{ receipt_brand.business_name or store_name }}" class="thermal-qr">
+                {% if receipt_brand.social_media_url %}
+                <a href="{{ receipt_brand.social_media_url }}" target="_blank" rel="noopener" class="thermal-link">{{ receipt_brand.social_media_url }}</a>
+                {% endif %}
+            </div>
+            {% elif receipt_brand.social_media_url %}
+            <a href="{{ receipt_brand.social_media_url }}" target="_blank" rel="noopener" class="thermal-link">{{ receipt_brand.social_media_url }}</a>
+            {% endif %}
+            <p>{{ receipt_brand.footer_identity or sale.warehouse_receipt_label }}</p>
+        </footer>
+    </article>
+    {% else %}
     <article class="receipt-paper">
         <header class="receipt-top">
-            <div class="receipt-brand">
-                <strong>{{ store_name }}</strong>
-                <span>Nota Pembelian</span>
-                <small>{{ sale.warehouse_name }} | {{ sale.sale_date }} | {{ sale.created_time_label }}</small>
-            </div>
-            <div class="receipt-status-row">
-                <span class="receipt-chip">{{ sale.receipt_no }}</span>
-                <span class="receipt-chip">{{ sale.status_label }}</span>
+            <div class="receipt-brand-panel">
+                <div class="receipt-brand-lockup">
+                    {% if receipt_brand.logo_url %}
+                    <div class="receipt-brand-logo-wrap">
+                        <img src="{{ receipt_brand.logo_url }}" alt="Logo {{ receipt_brand.business_name or store_name }}" class="receipt-brand-logo">
+                    </div>
+                    {% endif %}
+                    <div class="receipt-brand-copy">
+                        <p class="receipt-eyebrow">{{ receipt_brand.counter_label }}</p>
+                        <div class="receipt-brand">
+                            <strong>{{ receipt_brand.business_name or store_name }}</strong>
+                            <span>{{ receipt_brand.receipt_title or "Nota Pembelian iPOS" }}</span>
+                            <small>{{ sale.warehouse_receipt_label }} | {{ sale.sale_date }} | {{ sale.created_time_label }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="receipt-status-stack">
+                    <div class="receipt-status-row">
+                        <span class="receipt-chip">{{ sale.receipt_no }}</span>
+                        <span class="receipt-chip">{{ sale.status_label }}</span>
+                    </div>
+                    <div class="receipt-status-meta">
+                        <span>{{ sale.payment_method_label }}</span>
+                        <span>{{ sale.cashier_identity_label }}</span>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -381,6 +960,10 @@
                 <strong>{{ sale.sale_date }} {{ sale.created_time_label }}</strong>
             </div>
             <div class="receipt-info-row">
+                <span>Homebase</span>
+                <strong>{{ sale.warehouse_receipt_label }}</strong>
+            </div>
+            <div class="receipt-info-row">
                 <span>Pelanggan</span>
                 <strong>{{ sale.customer_name }}</strong>
             </div>
@@ -389,16 +972,10 @@
                 <strong>{{ sale.customer_phone_label }}</strong>
             </div>
             <div class="receipt-info-row">
-                <span>Bayar Via</span>
-                <strong>{{ sale.payment_method_label }}</strong>
-            </div>
-            <div class="receipt-info-row">
                 <span>Kasir / Sales</span>
                 <strong>{{ sale.cashier_identity_label }}</strong>
             </div>
         </section>
-
-        <div class="receipt-divider"></div>
 
         <section class="receipt-items" aria-label="Daftar barang nota">
             <div class="receipt-items-head">
@@ -428,50 +1005,77 @@
             </div>
         </section>
 
-        <section class="receipt-total-box">
-            <div class="receipt-total-row">
-                <span>Subtotal</span>
-                <strong>{{ sale.subtotal_amount_label }}</strong>
-            </div>
-            <div class="receipt-total-row">
-                <span>Diskon</span>
-                <strong>{{ sale.discount_amount_label }}</strong>
-            </div>
-            <div class="receipt-total-row">
-                <span>Pajak</span>
-                <strong>{{ sale.tax_amount_label }}</strong>
-            </div>
-            <div class="receipt-total-row is-total">
-                <span>Total</span>
-                <strong>{{ sale.total_amount_label }}</strong>
-            </div>
-            <div class="receipt-total-row">
-                <span>Bayar</span>
-                <strong>{{ sale.paid_amount_label }}</strong>
-            </div>
-            <div class="receipt-total-row">
-                <span>Kembalian</span>
-                <strong>{{ sale.change_amount_label }}</strong>
-            </div>
-        </section>
+        <div class="receipt-bottom-grid">
+            <section class="receipt-total-box">
+                <div class="receipt-total-row">
+                    <span>Subtotal</span>
+                    <strong>{{ sale.subtotal_amount_label }}</strong>
+                </div>
+                <div class="receipt-total-row">
+                    <span>Diskon</span>
+                    <strong>{{ sale.discount_amount_label }}</strong>
+                </div>
+                <div class="receipt-total-row">
+                    <span>Pajak</span>
+                    <strong>{{ sale.tax_amount_label }}</strong>
+                </div>
+                <div class="receipt-total-row is-total">
+                    <span>Total</span>
+                    <strong>{{ sale.total_amount_label }}</strong>
+                </div>
+                <div class="receipt-total-row">
+                    <span>Bayar</span>
+                    <strong>{{ sale.paid_amount_label }}</strong>
+                </div>
+                <div class="receipt-total-row">
+                    <span>Kembalian</span>
+                    <strong>{{ sale.change_amount_label }}</strong>
+                </div>
+            </section>
 
-        <section class="receipt-note-box">
-            <strong>Catatan</strong>
-            <p class="receipt-note">{{ sale.note or "Terima kasih sudah berbelanja. Simpan nota ini sebagai bukti pembelian." }}</p>
-        </section>
+            <div class="receipt-side-stack">
+                {% if sale.has_loyalty_summary %}
+                <section class="receipt-loyalty-box">
+                    <strong>{{ sale.loyalty_summary_title }}</strong>
+                    <ul class="receipt-loyalty-list">
+                        {% for line in sale.loyalty_summary_lines %}
+                        <li>{{ line.lstrip('- ').strip() }}</li>
+                        {% endfor %}
+                    </ul>
+                </section>
+                {% endif %}
 
-        <div class="receipt-divider"></div>
+                <section class="receipt-note-box">
+                    <strong>Catatan</strong>
+                    <p class="receipt-note">{{ sale.note or "Terima kasih sudah berbelanja. Simpan nota ini sebagai bukti pembelian." }}</p>
+                </section>
 
-        <footer class="receipt-footer">
-            <strong>Terima kasih sudah berbelanja.</strong>
-            <p class="receipt-footer-note">Simpan nota ini sebagai bukti pembelian.</p>
-            <p class="receipt-footer-note">Customer Service:</p>
-            {% if store_phone %}
-            <p class="receipt-footer-note">{{ store_phone }}</p>
-            {% endif %}
-            <p class="receipt-footer-note">{{ store_name }}</p>
-        </footer>
+                <section class="receipt-identity-box">
+                    <strong>Identitas Homebase</strong>
+                    <div class="receipt-identity-row">
+                        <span>Alamat Homebase</span>
+                        <p>{{ receipt_brand.business_address or sale.warehouse_receipt_label }}</p>
+                    </div>
+                    <div class="receipt-identity-row">
+                        <span>Customer Service</span>
+                        <p>{{ receipt_brand.customer_service_phone or store_phone or (receipt_brand.business_name or store_name) }}</p>
+                    </div>
+                    <div class="receipt-identity-row">
+                        <span>Footer Identitas</span>
+                        <p>{{ receipt_brand.footer_identity or (receipt_brand.business_name or store_name) }}</p>
+                    </div>
+                </section>
+
+                <footer class="receipt-footer">
+                    <strong>{{ receipt_brand.footer_note or ("Terima kasih sudah berbelanja di " ~ (receipt_brand.business_name or store_name) ~ ".") }}</strong>
+                    <p class="receipt-footer-note">{{ receipt_brand.footer_identity or sale.warehouse_receipt_label }}</p>
+                    <p class="receipt-footer-note">{{ receipt_brand.business_address or sale.warehouse_receipt_label }}</p>
+                    <p class="receipt-footer-note">Customer Service: {{ receipt_brand.customer_service_phone or store_phone or (receipt_brand.business_name or store_name) }}</p>
+                </footer>
+            </div>
+        </div>
     </article>
+    {% endif %}
 </div>
 
 {% if auto_print %}

@@ -31,6 +31,22 @@ def _warehouse_exists(db, warehouse_id):
     ).fetchone() is not None
 
 
+def _resolve_so_actor_user_id(db, user_id):
+    try:
+        safe_user_id = int(user_id or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+
+    if safe_user_id <= 0:
+        return None
+
+    row = db.execute(
+        "SELECT id FROM users WHERE id=?",
+        (safe_user_id,),
+    ).fetchone()
+    return safe_user_id if row else None
+
+
 def _resolve_so_warehouses(db, display_id=None, gudang_id=None):
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY id").fetchall()
     if not warehouses:
@@ -334,7 +350,7 @@ def submit_so():
         data.get("gudang_id"),
     )
     items = data.get("items", []) if isinstance(data.get("items", []), list) else []
-    user_id = session.get("user_id")
+    user_id = _resolve_so_actor_user_id(db, session.get("user_id"))
 
     if not items:
         return jsonify({"error": "Tidak ada item yang dikirim"}), 400

@@ -116,18 +116,65 @@ def record_whatsapp_delivery(user_id, role, recipient, subject, message, result,
         return False
 
 
-def _kirimi_credentials():
-    return {
+def _kirimi_config_value(name):
+    return str(current_app.config.get(name) or os.getenv(name) or "").strip()
+
+
+def _kirimi_warehouse_aliases(*, warehouse_id=None, warehouse_name=None):
+    aliases = []
+
+    def _push(alias):
+        normalized = str(alias or "").strip().upper()
+        if normalized and normalized not in aliases:
+            aliases.append(normalized)
+
+    normalized_name = re.sub(r"[^a-z0-9]+", " ", str(warehouse_name or "").lower()).strip()
+    if "mataram" in normalized_name:
+        _push("MATARAM")
+    if "mega" in normalized_name:
+        _push("MEGA")
+
+    try:
+        safe_warehouse_id = int(warehouse_id)
+    except (TypeError, ValueError):
+        safe_warehouse_id = 0
+
+    if safe_warehouse_id == 1:
+        _push("MATARAM")
+    elif safe_warehouse_id == 2:
+        _push("MEGA")
+
+    return aliases
+
+
+def _kirimi_credentials(*, warehouse_id=None, warehouse_name=None):
+    credentials = {
         "base_url": str(current_app.config.get("KIRIMI_BASE_URL") or "https://api.kirimi.id").strip().rstrip("/"),
-        "user_code": str(current_app.config.get("KIRIMI_USER_CODE") or os.getenv("KIRIMI_USER_CODE") or "").strip(),
-        "device_id": str(current_app.config.get("KIRIMI_DEVICE_ID") or os.getenv("KIRIMI_DEVICE_ID") or "").strip(),
-        "secret": str(current_app.config.get("KIRIMI_SECRET") or os.getenv("KIRIMI_SECRET") or "").strip(),
+        "user_code": _kirimi_config_value("KIRIMI_USER_CODE"),
+        "device_id": _kirimi_config_value("KIRIMI_DEVICE_ID"),
+        "secret": _kirimi_config_value("KIRIMI_SECRET"),
         "timeout": max(3, int(current_app.config.get("KIRIMI_TIMEOUT_SECONDS") or os.getenv("KIRIMI_TIMEOUT_SECONDS") or 15)),
     }
 
+    for alias in _kirimi_warehouse_aliases(warehouse_id=warehouse_id, warehouse_name=warehouse_name):
+        alias_user_code = _kirimi_config_value(f"KIRIMI_USER_CODE_{alias}")
+        alias_device_id = _kirimi_config_value(f"KIRIMI_DEVICE_ID_{alias}")
+        alias_secret = _kirimi_config_value(f"KIRIMI_SECRET_{alias}")
+        if alias_user_code:
+            credentials["user_code"] = alias_user_code
+        if alias_device_id:
+            credentials["device_id"] = alias_device_id
+        if alias_secret:
+            credentials["secret"] = alias_secret
+        if alias_user_code or alias_device_id or alias_secret:
+            credentials["warehouse_alias"] = alias.lower()
+            break
 
-def _send_via_kirimi(receiver, message, *, media_url=None):
-    credentials = _kirimi_credentials()
+    return credentials
+
+
+def _send_via_kirimi(receiver, message, *, media_url=None, warehouse_id=None, warehouse_name=None):
+    credentials = _kirimi_credentials(warehouse_id=warehouse_id, warehouse_name=warehouse_name)
     if http_requests is None:
         return {
             "ok": None,
@@ -272,7 +319,7 @@ def _send_text_fallback_fonnte(receiver, message):
     }
 
 
-def send_whatsapp_text(target, message):
+def send_whatsapp_text(target, message, *, warehouse_id=None, warehouse_name=None):
     receiver = _normalize_phone_number(target)
     if not receiver:
         return {
@@ -282,13 +329,18 @@ def send_whatsapp_text(target, message):
             "error": "missing_target",
         }
 
-    result = _send_via_kirimi(receiver, message)
+    result = _send_via_kirimi(
+        receiver,
+        message,
+        warehouse_id=warehouse_id,
+        warehouse_name=warehouse_name,
+    )
     if result.get("ok") is None and result.get("error") == "kirimi_not_configured":
         return _send_text_fallback_fonnte(receiver, message)
     return result
 
 
-def send_whatsapp_document(target, message, document_url):
+def send_whatsapp_document(target, message, document_url, *, warehouse_id=None, warehouse_name=None):
     receiver = _normalize_phone_number(target)
     safe_url = str(document_url or "").strip()
     if not receiver:
@@ -305,7 +357,13 @@ def send_whatsapp_document(target, message, document_url):
             "receiver": receiver,
             "error": "missing_document_url",
         }
-    return _send_via_kirimi(receiver, message, media_url=safe_url)
+    return _send_via_kirimi(
+        receiver,
+        message,
+        media_url=safe_url,
+        warehouse_id=warehouse_id,
+        warehouse_name=warehouse_name,
+    )
 
 
 def _event_recipients_for_audience(roles, usernames=None, user_ids=None, warehouse_id=None, exclude_user_ids=None):
@@ -431,7 +489,7 @@ def _build_event_subject_message(event_type, payload):
         subject = explicit_subject or f"Absensi {punch_label}: {employee_name}"
         message = explicit_message or (
             f"{employee_name} melakukan {punch_label} di {warehouse_name}"
-            f"{f' pukul {time_label}' if time_label else ''}. Titik: {location_label}."
+            f"{f' pukul {time_label}' if time_label else ''}. Lokasi: {location_label}."
         )
         if duration_text:
             message = f"{message} {duration_text}".strip()
@@ -681,6 +739,70 @@ def send_role_based_notification(event_type, payload):
                 "error": delivery.get("error"),
                 "provider": delivery.get("provider"),
                 "link_url": link_url,
+            }
+        )
+
+    return results
+
+
+def send_user_whatsapp_notification(user_id, subject, message, *, warehouse_id=None, channel="wa_user_event"):
+    try:
+        safe_user_id = int(user_id or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    normalized_subject = str(subject or "").strip()
+    normalized_message = str(message or "").strip()
+    if safe_user_id <= 0 or not normalized_subject or not normalized_message:
+        return {
+            "user_id": safe_user_id,
+            "subject": normalized_subject,
+            "message": normalized_message,
+            "deliveries": [],
+        }
+
+    recipients = _event_recipients_for_audience(
+        (),
+        user_ids=(safe_user_id,),
+        warehouse_id=warehouse_id,
+    )
+    results = {
+        "user_id": safe_user_id,
+        "subject": normalized_subject,
+        "message": normalized_message,
+        "deliveries": [],
+    }
+
+    for recipient in recipients:
+        if _notification_exists_recent(
+            get_db(),
+            recipient["phone"],
+            channel,
+            normalized_subject,
+            normalized_message,
+        ):
+            continue
+
+        delivery = send_whatsapp_text(
+            recipient["phone"],
+            f"*{normalized_subject}*\n\n{normalized_message}",
+        )
+        record_whatsapp_delivery(
+            recipient["user_id"],
+            recipient["role"],
+            recipient["phone"],
+            normalized_subject,
+            normalized_message,
+            delivery,
+            channel=channel,
+        )
+        results["deliveries"].append(
+            {
+                "user_id": recipient["user_id"],
+                "role": recipient["role"],
+                "phone": recipient["phone"],
+                "ok": delivery.get("ok"),
+                "error": delivery.get("error"),
+                "provider": delivery.get("provider"),
             }
         )
 

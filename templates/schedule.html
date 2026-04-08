@@ -93,14 +93,18 @@
     </div>
     <div class="schedule-legend-list">
         {% for item in legend_items %}
-        <span class="schedule-chip" style="--schedule-chip-bg: {{ item.bg_color }}; --schedule-chip-color: {{ item.text_color }};" title="{{ item.label }}">{{ item.code }}</span>
+        <span
+            class="schedule-chip"
+            style="--schedule-chip-bg-light: {{ item.light_bg_color }}; --schedule-chip-bg-dark: {{ item.dark_bg_color }}; --schedule-chip-color-light: {{ item.light_text_color }}; --schedule-chip-color-dark: {{ item.dark_text_color }}; --schedule-chip-border-light: {{ item.light_border_color }}; --schedule-chip-border-dark: {{ item.dark_border_color }};"
+            title="{{ item.label }}"
+        >{{ item.code }}</span>
         {% endfor %}
     </div>
 </div>
 
 {% if can_manage_schedule %}
 <div class="cards schedule-control-grid">
-    <details class="form-box schedule-panel-disclosure">
+    <details class="form-box schedule-panel-disclosure" id="scheduleEntryDisclosure">
         <summary class="schedule-panel-summary">
             <div class="schedule-panel-summary-copy">
                 <h2>Atur Jadwal Manual</h2>
@@ -111,7 +115,7 @@
             </div>
         </summary>
         <div class="schedule-panel-content">
-        <form method="POST" action="/schedule/entry/save">
+        <form method="POST" action="/schedule/entry/save" id="scheduleEntryForm">
             {{ filter_hidden_inputs() }}
             <div class="form-grid">
                 <div>
@@ -183,7 +187,7 @@
     </details>
 </div>
 
-<details class="form-box schedule-panel-disclosure">
+<details class="form-box schedule-panel-disclosure" id="scheduleLiveDisclosure">
     <summary class="schedule-panel-summary">
         <div class="schedule-panel-summary-copy">
             <h2>Master Shift</h2>
@@ -208,11 +212,11 @@
                 </div>
                 <div>
                     <label>Warna Latar</label>
-                    <input type="color" name="bg_color" value="#c6e5ab">
+                    <input type="color" name="bg_color" value="{{ schedule_color_defaults.bg_color }}">
                 </div>
                 <div>
                     <label>Warna Teks</label>
-                    <input type="color" name="text_color" value="#17351a">
+                    <input type="color" name="text_color" value="{{ schedule_color_defaults.text_color }}">
                 </div>
                 <div>
                     <label>Urutan</label>
@@ -237,7 +241,10 @@
                 {{ filter_hidden_inputs() }}
                 <input type="hidden" name="original_code" value="{{ shift.code }}">
                 <div class="schedule-shift-card-top">
-                    <span class="schedule-chip" style="--schedule-chip-bg: {{ shift.bg_color }}; --schedule-chip-color: {{ shift.text_color }};">{{ shift.code }}</span>
+                    <span
+                        class="schedule-chip"
+                        style="--schedule-chip-bg-light: {{ shift.light_bg_color }}; --schedule-chip-bg-dark: {{ shift.dark_bg_color }}; --schedule-chip-color-light: {{ shift.light_text_color }}; --schedule-chip-color-dark: {{ shift.dark_text_color }}; --schedule-chip-border-light: {{ shift.light_border_color }}; --schedule-chip-border-dark: {{ shift.dark_border_color }};"
+                    >{{ shift.code }}</span>
                     <span class="badge">{{ "Aktif" if shift.is_active else "Nonaktif" }}</span>
                 </div>
                 <div class="form-grid">
@@ -358,7 +365,7 @@
         </div>
     </summary>
     <div class="schedule-panel-content">
-        <form method="POST" action="/schedule/live/save">
+        <form method="POST" action="/schedule/live/save" id="scheduleLiveForm">
             {{ filter_hidden_inputs() }}
             <div class="form-grid">
                 <div>
@@ -401,6 +408,21 @@
                     <label>Label Channel</label>
                     <input name="channel_label" placeholder="Contoh: Shopee Mega + IG">
                 </div>
+                <div>
+                    <label>Warna Background</label>
+                    <input type="color" name="bg_color" value="{{ live_schedule_defaults.bg_color }}">
+                </div>
+                <div>
+                    <label>Warna Teks</label>
+                    <input type="color" name="text_color" value="{{ live_schedule_defaults.text_color }}">
+                </div>
+                <div class="schedule-checkbox-field">
+                    <label>Status Checklist</label>
+                    <label class="schedule-checkline">
+                        <input type="checkbox" name="is_checked" value="1">
+                        <span>Ditandai HR / Super Admin</span>
+                    </label>
+                </div>
                 <div class="span-full">
                     <label>Catatan Live</label>
                     <textarea name="note" rows="3" placeholder="Contoh: takeover promo, live kolaborasi, backup admin chat, atau briefing host."></textarea>
@@ -417,6 +439,42 @@
 <div class="alert info">Mode lihat aktif. HR dan Super Admin bisa menambah shift, mengatur header staf, dan menulis catatan harian langsung dari halaman ini.</div>
 {% endif %}
 
+{% if can_manage_schedule %}
+<form method="POST" action="/schedule/entry/save" id="scheduleEntryQuickDeleteForm" hidden>
+    {{ filter_hidden_inputs() }}
+    <input type="hidden" name="employee_id">
+    <input type="hidden" name="shift_code" value="">
+    <input type="hidden" name="entry_start_date">
+    <input type="hidden" name="entry_end_date">
+    <input type="hidden" name="note" value="">
+</form>
+
+<form method="POST" action="/schedule/live/save" id="scheduleLiveQuickDeleteForm" hidden>
+    {{ filter_hidden_inputs() }}
+    <input type="hidden" name="live_warehouse_id">
+    <input type="hidden" name="live_schedule_start">
+    <input type="hidden" name="live_schedule_end">
+    <input type="hidden" name="slot_key">
+    <input type="hidden" name="employee_id" value="">
+    <input type="hidden" name="channel_label" value="">
+    <input type="hidden" name="note" value="">
+</form>
+
+<form method="POST" action="/schedule/live/check" id="scheduleLiveCheckToggleForm" hidden>
+    {{ filter_hidden_inputs() }}
+    <input type="hidden" name="live_warehouse_id">
+    <input type="hidden" name="live_schedule_date">
+    <input type="hidden" name="slot_key">
+    <input type="hidden" name="is_checked">
+    <input type="hidden" name="changes_json" value="">
+</form>
+
+<div class="schedule-context-menu" id="scheduleContextMenu" hidden>
+    <button type="button" data-schedule-context-action="edit">Edit Jadwal</button>
+    <button type="button" data-schedule-context-action="delete">Hapus Jadwal</button>
+</div>
+{% endif %}
+
 <div class="table-box schedule-board-shell">
     <div class="section-title">
         <div>
@@ -431,6 +489,9 @@
             <span class="badge">Board {{ filters.days }} Hari</span>
             <h3>Jadwal tampil {{ filters.days }} hari dengan header staf tetap dan area yang bisa digeser saat kolom karyawan atau detail board makin banyak.</h3>
             <p>Geser ke kanan untuk melihat staf lain. Format ini dijaga supaya nyaman dibaca di laptop, tablet, dan mobile tanpa ada kolom penting yang terpotong.</p>
+            {% if can_manage_schedule %}
+            <p class="schedule-board-action-hint">Klik kanan di desktop atau tekan tahan di mobile untuk edit dan hapus jadwal yang sudah terisi.</p>
+            {% endif %}
         </div>
         <div class="schedule-matrix-meta">
             <span>{{ filters.days }} hari</span>
@@ -443,7 +504,10 @@
         <table class="schedule-matrix">
             <thead>
                 <tr>
-                    <th class="schedule-matrix-date-head">Tanggal</th>
+                    <th class="schedule-matrix-date-head">
+                        <span class="schedule-matrix-date-head-label">Tanggal</span>
+                        <small>Kolom ini tetap terkunci saat board digeser.</small>
+                    </th>
                     {% for member in schedule_members %}
                     <th class="schedule-matrix-member-head">
                         <strong>{{ member.display_name }}</strong>
@@ -456,21 +520,40 @@
                 {% for row in board_rows %}
                 <tr class="{% if row.is_weekend %}is-weekend{% endif %}">
                     <th class="schedule-matrix-date-cell" title="{% if row.note %}{{ row.note }}{% else %}{{ row.label }}{% endif %}">
-                        <div class="schedule-matrix-date-main">{{ row.label }}</div>
-                        {% if row.note %}
-                        <div class="schedule-matrix-date-note">{{ row.note }}</div>
-                        {% endif %}
+                        <div class="schedule-matrix-date-main">
+                            <span class="schedule-matrix-date-day">{{ row.day_name }}</span>
+                            <span class="schedule-matrix-date-value">{{ row.date_label }}</span>
+                        </div>
+                        <div class="schedule-matrix-date-meta">
+                            {% if row.is_today %}
+                            <span class="schedule-date-badge">Hari Ini</span>
+                            {% endif %}
+                            {% if row.note %}
+                            <div class="schedule-matrix-date-note">{{ row.note }}</div>
+                            {% endif %}
+                        </div>
                     </th>
                     {% for member in schedule_members %}
                     {% set cell = row.cells[member.board_index] %}
                     <td
                         class="schedule-matrix-cell {% if cell and cell.source != 'manual' %}is-auto{% endif %}"
                         title="{% if cell %}{{ cell.title }}{% else %}Belum ada shift{% endif %}"
+                        {% if can_manage_schedule and cell and cell.source == 'manual' %}
+                        data-schedule-context-kind="entry"
+                        data-schedule-entry-cell="1"
+                        data-schedule-employee-id="{{ member.employee_id }}"
+                        data-schedule-employee-name="{{ member.display_name }}"
+                        data-schedule-date="{{ row.iso_date }}"
+                        data-schedule-day-label="{{ row.label }}"
+                        data-schedule-shift-code="{{ cell.shift_code or cell.code }}"
+                        data-schedule-shift-label="{{ cell.label }}"
+                        data-schedule-note="{{ cell.note or '' }}"
+                        {% endif %}
                     >
                         {% if cell %}
                         <span
                             class="schedule-matrix-pill"
-                            style="--schedule-chip-bg: {{ cell.bg_color }}; --schedule-chip-color: {{ cell.text_color }};"
+                            style="--schedule-chip-bg-light: {{ cell.light_bg_color }}; --schedule-chip-bg-dark: {{ cell.dark_bg_color }}; --schedule-chip-color-light: {{ cell.light_text_color }}; --schedule-chip-color-dark: {{ cell.dark_text_color }}; --schedule-chip-border-light: {{ cell.light_border_color }}; --schedule-chip-border-dark: {{ cell.dark_border_color }};"
                         >{{ cell.code }}</span>
                         <small class="schedule-matrix-cell-label">{{ cell.label }}</small>
                         {% else %}
@@ -495,6 +578,18 @@
             <p>Board live ini fokus ke slot jam-per-jam supaya tim cepat melihat siapa yang pegang kanal promo, marketplace, atau live session di setiap jam operasional.</p>
         </div>
     </div>
+    {% if can_manage_schedule %}
+    <div class="schedule-live-batch-toolbar" id="scheduleLiveBatchToolbar" data-live-check-dirty="0">
+        <div>
+            <strong>Checklist Live</strong>
+            <p id="scheduleLiveCheckStatus">Klik centang dulu, lalu simpan sekaligus saat semua perubahan checklist sudah benar.</p>
+        </div>
+        <div class="schedule-live-batch-actions">
+            <button type="button" class="schedule-live-batch-button is-secondary" id="scheduleLiveCheckResetButton" disabled>Reset Perubahan</button>
+            <button type="button" class="schedule-live-batch-button" id="scheduleLiveCheckSaveButton" disabled>Simpan Perubahan</button>
+        </div>
+    </div>
+    {% endif %}
 
     {% if live_sections %}
         {% for live_section in live_sections %}
@@ -523,9 +618,41 @@
                     <tbody>
                         {% for row in live_section.rows %}
                         <tr class="{% if row.is_weekend %}is-weekend{% endif %}">
-                            <th class="schedule-live-date-cell">{{ row.label }}</th>
+                            <th class="schedule-live-date-cell">
+                                <div class="schedule-live-date-main">
+                                    <span class="schedule-live-date-day">{{ row.day_name }}</span>
+                                    <span class="schedule-live-date-value">{{ row.date_label }}</span>
+                                </div>
+                                {% if row.is_today %}
+                                <span class="schedule-date-badge">Hari Ini</span>
+                                {% endif %}
+                            </th>
                             {% for cell in row.cells %}
-                            <td class="schedule-live-cell {% if cell %}is-filled{% endif %}">
+                            {% set live_slot = live_slots[loop.index0] %}
+                            <td
+                                class="schedule-live-cell {% if cell %}is-filled{% endif %} {% if cell and cell.is_checked %}is-checked{% endif %}"
+                                {% if cell %}
+                                style="--schedule-live-cell-bg-light: {{ cell.light_bg_color }}; --schedule-live-cell-bg-dark: {{ cell.dark_bg_color }}; --schedule-live-person-color-light: {{ cell.light_text_color }}; --schedule-live-person-color-dark: {{ cell.dark_text_color }}; --schedule-live-channel-color-light: {{ cell.light_channel_color }}; --schedule-live-channel-color-dark: {{ cell.dark_channel_color }}; --schedule-live-note-color-light: {{ cell.light_note_color }}; --schedule-live-note-color-dark: {{ cell.dark_note_color }}; --schedule-live-check-bg-light: {{ cell.light_check_bg_color }}; --schedule-live-check-bg-dark: {{ cell.dark_check_bg_color }}; --schedule-live-check-border-light: {{ cell.light_check_border_color }}; --schedule-live-check-border-dark: {{ cell.dark_check_border_color }}; --schedule-live-check-color-light: {{ cell.light_check_color }}; --schedule-live-check-color-dark: {{ cell.dark_check_color }}; --schedule-live-cell-border-light: {{ cell.light_border_color }}; --schedule-live-cell-border-dark: {{ cell.dark_border_color }}; --schedule-live-cell-shadow-light: {{ cell.light_shadow_color }}; --schedule-live-cell-shadow-dark: {{ cell.dark_shadow_color }};"
+                                {% endif %}
+                                {% if can_manage_schedule and cell %}
+                                data-schedule-context-kind="live"
+                                data-schedule-live-cell="1"
+                                data-live-warehouse-id="{{ live_section.warehouse_id }}"
+                                data-live-warehouse-name="{{ live_section.warehouse_name }}"
+                                data-live-schedule-date="{{ row.iso_date }}"
+                                data-live-day-label="{{ row.label }}"
+                                data-live-slot-key="{{ live_slot.key }}"
+                                data-live-slot-label="{{ live_slot.label }}"
+                                data-live-employee-id="{{ cell.employee_id }}"
+                                data-live-employee-name="{{ cell.display_name }}"
+                                data-live-is-checked="{{ 1 if cell.is_checked else 0 }}"
+                                data-live-original-checked="{{ 1 if cell.is_checked else 0 }}"
+                                data-live-channel-label="{{ cell.channel_label or '' }}"
+                                data-live-note="{{ cell.note or '' }}"
+                                data-live-bg-color="{{ cell.bg_color }}"
+                                data-live-text-color="{{ cell.text_color }}"
+                                {% endif %}
+                            >
                                 {% if cell %}
                                 <strong class="schedule-live-person">{{ cell.display_name }}</strong>
                                 {% if cell.channel_label %}
@@ -537,6 +664,34 @@
                                 {% else %}
                                 <span class="schedule-live-empty">-</span>
                                 {% endif %}
+                                <div class="schedule-live-status" aria-hidden="true">
+                                    {% if cell and can_manage_schedule %}
+                                    <button
+                                        type="button"
+                                        class="schedule-live-check schedule-live-check-button {% if cell.is_checked %}is-checked{% endif %}"
+                                        data-schedule-live-check-toggle="1"
+                                        data-schedule-live-check-control="1"
+                                        data-live-warehouse-id="{{ live_section.warehouse_id }}"
+                                        data-live-schedule-date="{{ row.iso_date }}"
+                                        data-live-slot-key="{{ live_slot.key }}"
+                                        data-live-is-checked="{{ 1 if cell.is_checked else 0 }}"
+                                        data-live-original-checked="{{ 1 if cell.is_checked else 0 }}"
+                                        aria-pressed="{{ 'true' if cell.is_checked else 'false' }}"
+                                        aria-label="{{ 'Batalkan checklist' if cell.is_checked else 'Tandai checklist' }} untuk {{ live_section.warehouse_name }} {{ row.label }} slot {{ live_slot.label }}"
+                                        title="{{ 'Batalkan checklist' if cell.is_checked else 'Tandai checklist' }}"
+                                    >
+                                        {% if cell.is_checked %}
+                                        <span class="schedule-live-check-mark">&#10003;</span>
+                                        {% endif %}
+                                    </button>
+                                    {% elif cell %}
+                                    <span class="schedule-live-check {% if cell.is_checked %}is-checked{% endif %}">
+                                        {% if cell.is_checked %}
+                                        <span class="schedule-live-check-mark">&#10003;</span>
+                                        {% endif %}
+                                    </span>
+                                    {% endif %}
+                                </div>
                             </td>
                             {% endfor %}
                         </tr>
@@ -547,8 +702,415 @@
         </div>
         {% endfor %}
     {% else %}
-    <div class="alert info">Belum ada board live pada rentang yang dipilih. HR atau Super Admin bisa mulai isi slot live dari panel di atas.</div>
+<div class="alert info">Belum ada board live pada rentang yang dipilih. HR atau Super Admin bisa mulai isi slot live dari panel di atas.</div>
     {% endif %}
 </div>
+{% if can_manage_schedule %}
+<script>
+(() => {
+    const contextMenu = document.getElementById("scheduleContextMenu");
+    if (!contextMenu) {
+        return;
+    }
+
+    const editButton = contextMenu.querySelector('[data-schedule-context-action="edit"]');
+    const deleteButton = contextMenu.querySelector('[data-schedule-context-action="delete"]');
+    const scheduleEntryDisclosure = document.getElementById("scheduleEntryDisclosure");
+    const scheduleEntryForm = document.getElementById("scheduleEntryForm");
+    const scheduleEntryDeleteForm = document.getElementById("scheduleEntryQuickDeleteForm");
+    const scheduleLiveDisclosure = document.getElementById("scheduleLiveDisclosure");
+    const scheduleLiveForm = document.getElementById("scheduleLiveForm");
+    const scheduleLiveDeleteForm = document.getElementById("scheduleLiveQuickDeleteForm");
+    const scheduleLiveCheckToggleForm = document.getElementById("scheduleLiveCheckToggleForm");
+    const scheduleLiveCheckSaveButton = document.getElementById("scheduleLiveCheckSaveButton");
+    const scheduleLiveCheckResetButton = document.getElementById("scheduleLiveCheckResetButton");
+    const scheduleLiveCheckStatus = document.getElementById("scheduleLiveCheckStatus");
+    const liveCheckPendingUpdates = new Map();
+    const touchMenuDelayMs = 420;
+    const touchMenuMoveTolerance = 14;
+    let activeContextSource = null;
+    let touchMenuTimer = null;
+    let touchMenuSource = null;
+    let touchMenuPoint = null;
+    let ignoreNextDocumentClick = false;
+    let longPressMenuOpened = false;
+
+    function closeScheduleContextMenu() {
+        contextMenu.hidden = true;
+        activeContextSource = null;
+    }
+
+    function setFormValue(form, fieldName, value) {
+        if (!form) {
+            return;
+        }
+        const field = form.elements.namedItem(fieldName);
+        if (!field) {
+            return;
+        }
+        if (typeof field.length === "number" && !field.tagName) {
+            Array.from(field).forEach((item) => {
+                item.value = value ?? "";
+            });
+            return;
+        }
+        field.value = value ?? "";
+    }
+
+    function setFormChecked(form, fieldName, isChecked) {
+        if (!form) {
+            return;
+        }
+        const field = form.elements.namedItem(fieldName);
+        if (!field) {
+            return;
+        }
+        field.checked = Boolean(isChecked);
+    }
+
+    function getLiveCheckKey(warehouseId, scheduleDate, slotKey) {
+        return [warehouseId || "", scheduleDate || "", slotKey || ""].join("::");
+    }
+
+    function setLiveCheckButtonState(button, isChecked) {
+        if (!button) {
+            return;
+        }
+        button.dataset.liveIsChecked = isChecked ? "1" : "0";
+        button.classList.toggle("is-checked", Boolean(isChecked));
+        button.setAttribute("aria-pressed", isChecked ? "true" : "false");
+        button.setAttribute("title", isChecked ? "Batalkan checklist" : "Tandai checklist");
+        button.setAttribute("aria-label", isChecked ? "Batalkan checklist" : "Tandai checklist");
+        button.innerHTML = isChecked ? '<span class="schedule-live-check-mark">&#10003;</span>' : "";
+    }
+
+    function setLiveCellCheckState(cell, isChecked, hasPendingChange) {
+        if (!cell) {
+            return;
+        }
+        cell.dataset.liveIsChecked = isChecked ? "1" : "0";
+        cell.classList.toggle("is-checked", Boolean(isChecked));
+        cell.classList.toggle("has-pending-check-change", Boolean(hasPendingChange));
+        const button = cell.querySelector('[data-schedule-live-check-toggle="1"]');
+        if (button) {
+            setLiveCheckButtonState(button, isChecked);
+        }
+    }
+
+    function syncLiveCheckToolbar() {
+        const pendingCount = liveCheckPendingUpdates.size;
+        if (scheduleLiveCheckSaveButton) {
+            scheduleLiveCheckSaveButton.disabled = pendingCount === 0;
+        }
+        if (scheduleLiveCheckResetButton) {
+            scheduleLiveCheckResetButton.disabled = pendingCount === 0;
+        }
+        if (scheduleLiveCheckStatus) {
+            scheduleLiveCheckStatus.textContent = pendingCount
+                ? `${pendingCount} perubahan checklist belum disimpan. Klik Simpan Perubahan saat semua centang sudah benar.`
+                : "Klik centang dulu, lalu simpan sekaligus saat semua perubahan checklist sudah benar.";
+        }
+    }
+
+    function resetPendingLiveChecks() {
+        liveCheckPendingUpdates.clear();
+        document.querySelectorAll('[data-schedule-live-cell="1"]').forEach((cell) => {
+            setLiveCellCheckState(cell, cell.dataset.liveOriginalChecked === "1", false);
+        });
+        syncLiveCheckToolbar();
+    }
+
+    function queueLiveCheckChange(toggleButton) {
+        const liveCell = toggleButton?.closest('[data-schedule-live-cell="1"]');
+        if (!liveCell) {
+            return;
+        }
+
+        const warehouseId = toggleButton.dataset.liveWarehouseId || liveCell.dataset.liveWarehouseId || "";
+        const scheduleDate = toggleButton.dataset.liveScheduleDate || liveCell.dataset.liveScheduleDate || "";
+        const slotKey = toggleButton.dataset.liveSlotKey || liveCell.dataset.liveSlotKey || "";
+        const currentChecked = toggleButton.dataset.liveIsChecked === "1";
+        const nextChecked = !currentChecked;
+        const originalChecked = liveCell.dataset.liveOriginalChecked === "1";
+        const updateKey = getLiveCheckKey(warehouseId, scheduleDate, slotKey);
+
+        if (nextChecked === originalChecked) {
+            liveCheckPendingUpdates.delete(updateKey);
+        } else {
+            liveCheckPendingUpdates.set(updateKey, {
+                warehouse_id: warehouseId,
+                schedule_date: scheduleDate,
+                slot_key: slotKey,
+                is_checked: nextChecked ? 1 : 0,
+            });
+        }
+
+        setLiveCellCheckState(liveCell, nextChecked, liveCheckPendingUpdates.has(updateKey));
+        syncLiveCheckToolbar();
+    }
+
+    function toggleTouchSourceState(source, isActive) {
+        if (!source) {
+            return;
+        }
+        source.classList.toggle("is-touch-armed", Boolean(isActive));
+    }
+
+    function clearTouchMenuState(options = {}) {
+        const keepIgnoreClick = Boolean(options.keepIgnoreClick);
+        window.clearTimeout(touchMenuTimer);
+        touchMenuTimer = null;
+        toggleTouchSourceState(touchMenuSource, false);
+        touchMenuSource = null;
+        touchMenuPoint = null;
+        longPressMenuOpened = false;
+        if (!keepIgnoreClick) {
+            ignoreNextDocumentClick = false;
+        }
+    }
+
+    function openScheduleContextMenu(event, source) {
+        activeContextSource = source;
+        const kind = source?.dataset.scheduleContextKind || "entry";
+        if (editButton) {
+            editButton.textContent = kind === "live" ? "Edit Jadwal Live" : "Edit Jadwal";
+        }
+        if (deleteButton) {
+            deleteButton.textContent = kind === "live" ? "Hapus Jadwal Live" : "Hapus Jadwal";
+        }
+
+        contextMenu.hidden = false;
+        const menuRect = contextMenu.getBoundingClientRect();
+        const maxTop = window.innerHeight - menuRect.height - 12;
+        const maxLeft = window.innerWidth - menuRect.width - 12;
+        contextMenu.style.top = `${Math.max(12, Math.min(event.clientY, maxTop))}px`;
+        contextMenu.style.left = `${Math.max(12, Math.min(event.clientX, maxLeft))}px`;
+    }
+
+    function scheduleTouchContextMenu(source, point) {
+        if (!source || !point) {
+            return;
+        }
+        ignoreNextDocumentClick = true;
+        longPressMenuOpened = true;
+        openScheduleContextMenu(
+            {
+                clientX: point.clientX,
+                clientY: point.clientY,
+            },
+            source,
+        );
+    }
+
+    function beginTouchMenu(event) {
+        if (event.target.closest('[data-schedule-live-check-control="1"]')) {
+            clearTouchMenuState();
+            return;
+        }
+        const source = event.target.closest('[data-schedule-entry-cell="1"], [data-schedule-live-cell="1"]');
+        if (!source || event.touches.length !== 1) {
+            clearTouchMenuState();
+            return;
+        }
+        const touch = event.touches[0];
+        clearTouchMenuState();
+        touchMenuSource = source;
+        touchMenuPoint = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            startX: touch.clientX,
+            startY: touch.clientY,
+        };
+        toggleTouchSourceState(source, true);
+        touchMenuTimer = window.setTimeout(() => {
+            scheduleTouchContextMenu(source, touchMenuPoint);
+            toggleTouchSourceState(source, false);
+            touchMenuTimer = null;
+        }, touchMenuDelayMs);
+    }
+
+    function updateTouchMenu(event) {
+        if (!touchMenuSource || !touchMenuPoint || !event.touches.length) {
+            return;
+        }
+        const touch = event.touches[0];
+        const deltaX = Math.abs(touch.clientX - touchMenuPoint.startX);
+        const deltaY = Math.abs(touch.clientY - touchMenuPoint.startY);
+        if (deltaX > touchMenuMoveTolerance || deltaY > touchMenuMoveTolerance) {
+            clearTouchMenuState();
+            return;
+        }
+        touchMenuPoint.clientX = touch.clientX;
+        touchMenuPoint.clientY = touch.clientY;
+    }
+
+    function endTouchMenu() {
+        if (!touchMenuSource && !touchMenuTimer) {
+            return;
+        }
+        clearTouchMenuState({ keepIgnoreClick: longPressMenuOpened });
+    }
+
+    function focusField(field) {
+        window.requestAnimationFrame(() => {
+            field?.focus();
+            field?.select?.();
+        });
+    }
+
+    function openScheduleEntryEditor(source) {
+        if (!scheduleEntryForm || !source) {
+            return;
+        }
+        scheduleEntryDisclosure?.setAttribute("open", "open");
+        setFormValue(scheduleEntryForm, "employee_id", source.dataset.scheduleEmployeeId || "");
+        setFormValue(scheduleEntryForm, "shift_code", source.dataset.scheduleShiftCode || "");
+        setFormValue(scheduleEntryForm, "entry_start_date", source.dataset.scheduleDate || "");
+        setFormValue(scheduleEntryForm, "entry_end_date", source.dataset.scheduleDate || "");
+        setFormValue(scheduleEntryForm, "note", source.dataset.scheduleNote || "");
+        scheduleEntryDisclosure?.scrollIntoView({ behavior: "smooth", block: "start" });
+        focusField(scheduleEntryForm.elements.namedItem("shift_code"));
+    }
+
+    function openScheduleLiveEditor(source) {
+        if (!scheduleLiveForm || !source) {
+            return;
+        }
+        scheduleLiveDisclosure?.setAttribute("open", "open");
+        setFormValue(scheduleLiveForm, "live_warehouse_id", source.dataset.liveWarehouseId || "");
+        setFormValue(scheduleLiveForm, "live_schedule_start", source.dataset.liveScheduleDate || "");
+        setFormValue(scheduleLiveForm, "live_schedule_end", source.dataset.liveScheduleDate || "");
+        setFormValue(scheduleLiveForm, "slot_key", source.dataset.liveSlotKey || "");
+        setFormValue(scheduleLiveForm, "employee_id", source.dataset.liveEmployeeId || "");
+        setFormValue(scheduleLiveForm, "channel_label", source.dataset.liveChannelLabel || "");
+        setFormValue(scheduleLiveForm, "note", source.dataset.liveNote || "");
+        setFormValue(scheduleLiveForm, "bg_color", source.dataset.liveBgColor || "{{ live_schedule_defaults.bg_color }}");
+        setFormValue(scheduleLiveForm, "text_color", source.dataset.liveTextColor || "{{ live_schedule_defaults.text_color }}");
+        setFormChecked(scheduleLiveForm, "is_checked", source.dataset.liveIsChecked === "1");
+        scheduleLiveDisclosure?.scrollIntoView({ behavior: "smooth", block: "start" });
+        focusField(scheduleLiveForm.elements.namedItem("channel_label"));
+    }
+
+    function submitScheduleEntryDelete(source) {
+        if (!scheduleEntryDeleteForm || !source) {
+            return;
+        }
+        const label = `${source.dataset.scheduleEmployeeName || "Staf"} - ${source.dataset.scheduleDayLabel || ""}`.trim();
+        if (!window.confirm(`Hapus jadwal untuk ${label}?`)) {
+            return;
+        }
+        setFormValue(scheduleEntryDeleteForm, "employee_id", source.dataset.scheduleEmployeeId || "");
+        setFormValue(scheduleEntryDeleteForm, "entry_start_date", source.dataset.scheduleDate || "");
+        setFormValue(scheduleEntryDeleteForm, "entry_end_date", source.dataset.scheduleDate || "");
+        scheduleEntryDeleteForm.requestSubmit ? scheduleEntryDeleteForm.requestSubmit() : scheduleEntryDeleteForm.submit();
+    }
+
+    function submitScheduleLiveDelete(source) {
+        if (!scheduleLiveDeleteForm || !source) {
+            return;
+        }
+        const slotLabel = source.dataset.liveSlotLabel || "slot live";
+        const dateLabel = source.dataset.liveDayLabel || "";
+        if (!window.confirm(`Kosongkan jadwal live ${slotLabel} pada ${dateLabel}?`)) {
+            return;
+        }
+        setFormValue(scheduleLiveDeleteForm, "live_warehouse_id", source.dataset.liveWarehouseId || "");
+        setFormValue(scheduleLiveDeleteForm, "live_schedule_start", source.dataset.liveScheduleDate || "");
+        setFormValue(scheduleLiveDeleteForm, "live_schedule_end", source.dataset.liveScheduleDate || "");
+        setFormValue(scheduleLiveDeleteForm, "slot_key", source.dataset.liveSlotKey || "");
+        scheduleLiveDeleteForm.requestSubmit ? scheduleLiveDeleteForm.requestSubmit() : scheduleLiveDeleteForm.submit();
+    }
+
+    document.addEventListener("contextmenu", (event) => {
+        const source = event.target.closest('[data-schedule-entry-cell="1"], [data-schedule-live-cell="1"]');
+        if (!source) {
+            closeScheduleContextMenu();
+            return;
+        }
+        event.preventDefault();
+        openScheduleContextMenu(event, source);
+    });
+
+    document.addEventListener("touchstart", beginTouchMenu, { passive: true });
+    document.addEventListener("touchmove", updateTouchMenu, { passive: true });
+    document.addEventListener("touchend", endTouchMenu);
+    document.addEventListener("touchcancel", () => {
+        clearTouchMenuState();
+    });
+
+    document.addEventListener("click", (event) => {
+        const toggleButton = event.target.closest('[data-schedule-live-check-toggle="1"]');
+        if (toggleButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            queueLiveCheckChange(toggleButton);
+            return;
+        }
+        if (ignoreNextDocumentClick) {
+            ignoreNextDocumentClick = false;
+            return;
+        }
+        if (!contextMenu.hidden && !contextMenu.contains(event.target)) {
+            closeScheduleContextMenu();
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeScheduleContextMenu();
+        }
+    });
+
+    scheduleLiveCheckSaveButton?.addEventListener("click", () => {
+        if (!scheduleLiveCheckToggleForm || liveCheckPendingUpdates.size === 0) {
+            return;
+        }
+        setFormValue(scheduleLiveCheckToggleForm, "changes_json", JSON.stringify(Array.from(liveCheckPendingUpdates.values())));
+        scheduleLiveCheckToggleForm.requestSubmit
+            ? scheduleLiveCheckToggleForm.requestSubmit()
+            : scheduleLiveCheckToggleForm.submit();
+    });
+
+    scheduleLiveCheckResetButton?.addEventListener("click", () => {
+        resetPendingLiveChecks();
+    });
+
+    window.addEventListener("scroll", closeScheduleContextMenu, true);
+    window.addEventListener("resize", closeScheduleContextMenu);
+    window.addEventListener("scroll", clearTouchMenuState, true);
+    window.addEventListener("resize", clearTouchMenuState);
+    syncLiveCheckToolbar();
+
+    contextMenu.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-schedule-context-action]");
+        if (!button || !activeContextSource) {
+            return;
+        }
+
+        const source = activeContextSource;
+        const action = button.dataset.scheduleContextAction;
+        const kind = source.dataset.scheduleContextKind || "entry";
+        closeScheduleContextMenu();
+
+        if (action === "edit") {
+            if (kind === "live") {
+                openScheduleLiveEditor(source);
+            } else {
+                openScheduleEntryEditor(source);
+            }
+            return;
+        }
+
+        if (action === "delete") {
+            if (kind === "live") {
+                submitScheduleLiveDelete(source);
+            } else {
+                submitScheduleEntryDelete(source);
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}
 
