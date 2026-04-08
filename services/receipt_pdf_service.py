@@ -203,7 +203,7 @@ def build_pos_receipt_branding(sale=None):
         "",
     )
     social_qr_image_url = (
-        f"/{social_qr_image_value.lstrip('/\\')}"
+        "/" + social_qr_image_value.lstrip("/\\")
         if social_qr_image_value and not social_qr_image_value.startswith(("http://", "https://", "/"))
         else social_qr_image_value
     )
