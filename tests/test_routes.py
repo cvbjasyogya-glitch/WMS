@@ -12,6 +12,7 @@ import zipfile
 
 import init_db as init_db_module
 import services.notification_service as notification_service
+import services.receipt_pdf_service as receipt_pdf_service
 import services.whatsapp_service as whatsapp_service
 from services.event_notification_policy import (
     get_event_notification_policy,
@@ -1188,8 +1189,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Nota Pembelian iPOS", print_html)
         self.assertIn("Mataram Sports", print_html)
         self.assertIn("/static/brand/receipt-logo-mataram.jpg", print_html)
-        self.assertIn("iPOS Kasir Homebase Mataram", print_html)
-        self.assertIn("Homebase Mataram", print_html)
+        self.assertIn("iPOS Kasir", print_html)
+        self.assertIn("staff_sales_receipt", print_html)
         self.assertIn(receipt_no, print_html)
         self.assertIn("Customer Nota", print_html)
         self.assertIn("POS-NOTA-001", print_html)
@@ -1294,9 +1295,87 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(notification["status"], "failed")
         self.assertIn("kirimi_http_500", notification["message"])
         self.assertIn("Mataram Sports", pdf_text)
-        self.assertIn("Homebase Mataram", pdf_text)
+        self.assertIn("Kasir    : staff_sales_kirimi", pdf_text)
         self.assertIn("/Subtype /Image", pdf_text)
         self.assertIn("/DCTDecode", pdf_text)
+
+    def test_pos_checkout_receipt_whatsapp_falls_back_to_text_link_when_document_send_fails(self):
+        self.create_user("staff_sales_receipt_fallback", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_receipt_fallback")
+        self.login_pos_user("pos_receipt_fallback_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-WA-FALLBACK-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": False,
+                "provider": "kirimi",
+                "receiver": "628120006666",
+                "error": "kirimi_http_500",
+            },
+        ) as mocked_document, patch(
+            "routes.pos.send_whatsapp_text",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "628120006666",
+                "error": "",
+            },
+        ) as mocked_text:
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-03",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Fallback",
+                    "customer_phone": "08120006666",
+                    "payment_method": "cash",
+                    "paid_amount": 151000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["receipt_whatsapp_status"], "sent")
+        mocked_document.assert_called_once()
+        mocked_text.assert_called_once()
+        fallback_message = mocked_text.call_args.args[1]
+        self.assertIn("Jika PDF belum terlampir otomatis", fallback_message)
+        self.assertIn(payload["receipt_pdf_public_url"], fallback_message)
+        self.assertIn(f"/kasir/receipt/{payload['receipt_no']}/print", fallback_message)
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                """
+                SELECT receipt_whatsapp_status, receipt_whatsapp_error, receipt_whatsapp_sent_at
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertEqual(sale["receipt_whatsapp_status"], "sent")
+        self.assertFalse(sale["receipt_whatsapp_error"])
+        self.assertIsNotNone(sale["receipt_whatsapp_sent_at"])
 
     def test_pos_sales_log_supports_resend_receipt_whatsapp_action(self):
         self.create_user("staff_sales_resend", "pass1234", "staff", warehouse_id=1)
@@ -1396,6 +1475,24 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(sale_after["receipt_whatsapp_status"], "sent")
         self.assertFalse(sale_after["receipt_whatsapp_error"])
         self.assertIsNotNone(sale_after["receipt_whatsapp_sent_at"])
+
+    def test_receipt_public_file_url_prefers_canonical_host_in_request_context(self):
+        self.app.config.update(
+            PUBLIC_BASE_URL="",
+            CANONICAL_HOST="erp.cvbjasyogya.cloud",
+            CANONICAL_SCHEME="https",
+        )
+
+        with self.app.app_context():
+            with self.app.test_request_context("/kasir/", base_url="http://127.0.0.1:5000"):
+                public_url = receipt_pdf_service.build_public_file_url(
+                    "/static/uploads/pos_receipts/test-receipt.pdf"
+                )
+
+        self.assertEqual(
+            public_url,
+            "https://erp.cvbjasyogya.cloud/static/uploads/pos_receipts/test-receipt.pdf",
+        )
 
     def test_pos_receipt_print_thermal_layout_renders_footer_style_for_ipos(self):
         self.app.config.update(
@@ -1547,8 +1644,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIn("Mega Sports", print_html)
         self.assertIn("/static/brand/receipt-logo-mega.jpg", print_html)
-        self.assertIn("iPOS Kasir Homebase Mega", print_html)
-        self.assertIn("Homebase Mega", print_html)
+        self.assertIn("iPOS Kasir", print_html)
+        self.assertIn("staff_sales_print_mega", print_html)
         self.assertIn("Customer Print Mega", print_html)
 
     def test_pos_receipt_print_and_pdf_support_homebase_specific_identity_metadata(self):
@@ -1597,10 +1694,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print")
         self.assertEqual(print_response.status_code, 200)
         print_html = print_response.get_data(as_text=True)
-        self.assertIn("Alamat Homebase", print_html)
-        self.assertIn("Jl. Homebase Mataram No. 1, Cakranegara", print_html)
+        self.assertNotIn("Identitas Homebase", print_html)
+        self.assertIn("Jl. Mataram No. 1, Cakranegara", print_html)
         self.assertIn("6281319466464", print_html)
-        self.assertIn("Mataram Sports | Homebase Mataram | iPOS Kasir", print_html)
+        self.assertNotIn("Footer Identitas", print_html)
         self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", print_html)
 
         with self.app.app_context():
@@ -1615,9 +1712,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         with open(pdf_path, "rb") as file_handle:
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
-        self.assertIn("Alamat   : Jl. Homebase Mataram No. 1, Cakranegara", pdf_text)
+        self.assertIn("Alamat   : Jl. Mataram No. 1, Cakranegara", pdf_text)
         self.assertIn("Customer Service: 6281319466464", pdf_text)
-        self.assertIn("Identitas: Mataram Sports | Homebase Mataram | iPOS Kasir", pdf_text)
+        self.assertNotIn("Identitas:", pdf_text)
         self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", pdf_text)
 
     def test_send_whatsapp_document_uses_warehouse_specific_kirimi_device(self):
@@ -2037,7 +2134,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
         self.assertIn("Mega Sports", pdf_text)
-        self.assertIn("Homebase Mega", pdf_text)
+        self.assertIn("Kasir    : staff_sales_pdf_mega", pdf_text)
         self.assertIn("/Subtype /Image", pdf_text)
 
     def test_pos_void_item_restores_stock_and_recalculates_sale_totals(self):

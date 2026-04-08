@@ -76,6 +76,7 @@ body .searchable-select-input {
 
 body .searchable-select-input::placeholder {
     color: var(--theme-input-placeholder, #7f96b0);
+    opacity: 0.58;
 }
 
 body .searchable-select-input:focus {
@@ -2614,6 +2615,7 @@ body input[type="file"]::file-selector-button {
 body input::placeholder,
 body textarea::placeholder {
     color: #7b8ea5;
+    opacity: 0.58;
 }
 
 body input:focus,
@@ -5293,7 +5295,7 @@ body .stock-adjust-actions .adjust-input {
 
 body .stock-adjust-actions .adjust-input::placeholder {
     color: rgba(203, 218, 240, 0.7);
-    opacity: 1;
+    opacity: 0.58;
 }
 
 body .stock-adjust-button {
@@ -5940,6 +5942,7 @@ body .variant-builder input[type="number"] {
 body .variant-builder input[type="text"]::placeholder,
 body .variant-builder input[type="number"]::placeholder {
     color: #b0bac8;
+    opacity: 0.58;
 }
 
 body .variant-builder input:focus {
@@ -10328,6 +10331,7 @@ html[data-theme] body input[readonly] {
 html[data-theme] body input::placeholder,
 html[data-theme] body textarea::placeholder {
     color: var(--theme-input-placeholder);
+    opacity: 0.58;
 }
 
 html[data-theme] body input:focus,
@@ -11237,6 +11241,7 @@ html[data-theme] body .variant-builder input[type="number"] {
 html[data-theme] body .variant-builder input[type="text"]::placeholder,
 html[data-theme] body .variant-builder input[type="number"]::placeholder {
     color: var(--theme-input-placeholder);
+    opacity: 0.58;
 }
 
 html[data-theme] body .variant-price-summary,
@@ -20657,7 +20662,7 @@ body .pos-terminal-clean.pos-ipos-refactor textarea {
 body .pos-terminal-clean.pos-ipos-refactor input::placeholder,
 body .pos-terminal-clean.pos-ipos-refactor textarea::placeholder {
     color: var(--ipos-muted);
-    opacity: 1;
+    opacity: 0.58;
 }
 
 body .pos-terminal-clean.pos-ipos-refactor select option {
@@ -20832,7 +20837,7 @@ html[data-theme] body :is(.pos-vintage-shell, .pos-classic-shell) :is(select, op
 html[data-theme] body :is(.pos-vintage-shell, .pos-classic-shell, .hris-document-sign-form) input::placeholder,
 html[data-theme] body :is(.pos-vintage-shell, .pos-classic-shell, .hris-document-sign-form) textarea::placeholder {
     color: var(--theme-input-placeholder);
-    opacity: 1;
+    opacity: 0.58;
 }
 
 html[data-theme] body .pos-classic-shell {
@@ -21023,7 +21028,7 @@ html[data-theme] body .pos-terminal-clean.pos-ipos-refactor input[readonly] {
 html[data-theme] body .pos-terminal-clean.pos-ipos-refactor input::placeholder,
 html[data-theme] body .pos-terminal-clean.pos-ipos-refactor textarea::placeholder {
     color: var(--ipos-muted);
-    opacity: 1;
+    opacity: 0.58;
 }
 
 html[data-theme] body .pos-terminal-clean.pos-ipos-refactor select option {

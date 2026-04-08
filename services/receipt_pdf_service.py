@@ -62,13 +62,13 @@ def _resolve_public_base_url():
     if configured:
         return configured
 
-    if has_request_context():
-        return str(request.host_url or "").strip().rstrip("/")
-
     canonical_host = str(current_app.config.get("CANONICAL_HOST") or "").strip()
     if canonical_host:
         scheme = str(current_app.config.get("CANONICAL_SCHEME") or current_app.config.get("PREFERRED_URL_SCHEME") or "https").strip()
         return f"{scheme}://{canonical_host}".rstrip("/")
+
+    if has_request_context():
+        return str(request.host_url or "").strip().rstrip("/")
 
     return ""
 
@@ -118,7 +118,7 @@ def format_receipt_homebase_label(warehouse_name):
     text = str(warehouse_name or "").strip()
     if not text:
         return "-"
-    text = re.sub(r"\bgudang\b", "Homebase", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(homebase|gudang)\b", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip()
     return text or "-"
 
@@ -152,10 +152,17 @@ def build_pos_receipt_branding(sale=None):
 
     homebase_label = format_receipt_homebase_label(sale.get("warehouse_name"))
     business_name = str(brand.get("business_name") or "ERP Core POS").strip()
-    business_address = _resolve_receipt_brand_config(
-        "POS_RECEIPT_ADDRESS",
-        brand_key,
-        homebase_label if homebase_label != "-" else business_name,
+    business_address = str(
+        _resolve_receipt_brand_config(
+            "POS_RECEIPT_ADDRESS",
+            brand_key,
+            "",
+        )
+    ).strip()
+    business_address = (
+        format_receipt_homebase_label(business_address)
+        if business_address
+        else ""
     )
     customer_service_phone = _resolve_receipt_brand_config(
         "POS_RECEIPT_CUSTOMER_SERVICE",
@@ -212,7 +219,7 @@ def build_pos_receipt_branding(sale=None):
         "key": brand_key,
         "homebase_label": homebase_label,
         "receipt_title": "Nota Pembelian iPOS",
-        "counter_label": f"iPOS Kasir {homebase_label}" if homebase_label != "-" else "iPOS Kasir",
+        "counter_label": "iPOS Kasir",
         "logo_url": logo_url,
         "logo_pdf_path": logo_pdf_path,
         "business_address": business_address,
@@ -315,15 +322,13 @@ def _build_receipt_lines(sale):
     homebase_label = branding.get("homebase_label") or format_receipt_homebase_label(sale.get("warehouse_name"))
     business_address = branding.get("business_address") or sale.get("store_address") or ""
     customer_service_phone = branding.get("customer_service_phone") or sale.get("store_phone") or current_app.config.get("STORE_PHONE") or ""
-    footer_identity = branding.get("footer_identity") or ""
     footer_note = branding.get("footer_note") or f"Terima kasih sudah berbelanja di {branding.get('business_name') or 'ERP Core POS'}."
     separator = "-" * 68
     lines = [
         f"Receipt  : {_normalize_ascii_text(sale.get('receipt_no') or '-')}",
         f"Tanggal  : {_normalize_ascii_text(sale.get('created_datetime_label') or sale.get('sale_date') or '-')}",
-        f"Homebase : {_normalize_ascii_text(homebase_label)}",
         *( [f"Alamat   : {_normalize_ascii_text(business_address)}"] if business_address else [] ),
-        f"Kasir    : {_normalize_ascii_text(sale.get('cashier_identity_label') or sale.get('cashier_name') or sale.get('cashier_username') or '-')}",
+        f"Kasir    : {_normalize_ascii_text(sale.get('cashier_receipt_label') or sale.get('cashier_username') or sale.get('cashier_name') or '-')}",
         f"Customer : {_normalize_ascii_text(sale.get('customer_name') or 'Walk-in Customer')}",
         f"WhatsApp : {_normalize_ascii_text(sale.get('customer_phone_label') or sale.get('customer_phone') or '-')}",
         (
@@ -390,7 +395,6 @@ def _build_receipt_lines(sale):
         [
             separator,
             *( [f"Customer Service: {_normalize_ascii_text(customer_service_phone)}"] if customer_service_phone else [] ),
-            *( [f"Identitas: {_normalize_ascii_text(footer_identity)}"] if footer_identity else [] ),
             _normalize_ascii_text(footer_note),
         ]
     )

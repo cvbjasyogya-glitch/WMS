@@ -839,18 +839,18 @@
             <img src="{{ receipt_brand.logo_url }}" alt="Logo {{ receipt_brand.business_name or store_name }}" class="thermal-logo">
             {% endif %}
             <div class="thermal-brand">{{ receipt_brand.business_name or store_name }}</div>
-            <p class="thermal-address">{{ receipt_brand.business_address or sale.warehouse_receipt_label }}</p>
+            {% if receipt_brand.business_address %}
+            <p class="thermal-address">{{ receipt_brand.business_address }}</p>
+            {% endif %}
         </header>
 
         <div class="thermal-divider"></div>
 
         <section class="thermal-meta">
             <div class="thermal-meta-row"><span>No.</span><span class="value">{{ sale.receipt_no }}</span></div>
-            <div class="thermal-meta-row"><span>Kasir</span><span class="value">{{ sale.cashier_name or sale.cashier_identity_label }}</span></div>
+            <div class="thermal-meta-row"><span>Kasir</span><span class="value">{{ sale.cashier_receipt_label }}</span></div>
             <div class="thermal-meta-row"><span>Pel.</span><span class="value">{{ sale.customer_name }}</span></div>
-            <div class="thermal-meta-row"><span>Staff</span><span class="value">{{ sale.cashier_username or "-" }}</span></div>
             <div class="thermal-meta-row"><span>Tanggal</span><span class="value">{{ sale.sale_date }} {{ sale.created_time_label }}</span></div>
-            <div class="thermal-meta-row"><span>Homebase</span><span class="value">{{ sale.warehouse_receipt_label }}</span></div>
         </section>
 
         <div class="thermal-divider"></div>
@@ -913,7 +913,6 @@
             {% elif receipt_brand.social_media_url %}
             <a href="{{ receipt_brand.social_media_url }}" target="_blank" rel="noopener" class="thermal-link">{{ receipt_brand.social_media_url }}</a>
             {% endif %}
-            <p>{{ receipt_brand.footer_identity or sale.warehouse_receipt_label }}</p>
         </footer>
     </article>
     {% else %}
@@ -931,7 +930,7 @@
                         <div class="receipt-brand">
                             <strong>{{ receipt_brand.business_name or store_name }}</strong>
                             <span>{{ receipt_brand.receipt_title or "Nota Pembelian iPOS" }}</span>
-                            <small>{{ sale.warehouse_receipt_label }} | {{ sale.sale_date }} | {{ sale.created_time_label }}</small>
+                            <small>{{ sale.sale_date }} | {{ sale.created_time_label }}</small>
                         </div>
                     </div>
                 </div>
@@ -942,7 +941,7 @@
                     </div>
                     <div class="receipt-status-meta">
                         <span>{{ sale.payment_method_label }}</span>
-                        <span>{{ sale.cashier_identity_label }}</span>
+                        <span>{{ sale.cashier_receipt_label }}</span>
                     </div>
                 </div>
             </div>
@@ -960,10 +959,6 @@
                 <strong>{{ sale.sale_date }} {{ sale.created_time_label }}</strong>
             </div>
             <div class="receipt-info-row">
-                <span>Homebase</span>
-                <strong>{{ sale.warehouse_receipt_label }}</strong>
-            </div>
-            <div class="receipt-info-row">
                 <span>Pelanggan</span>
                 <strong>{{ sale.customer_name }}</strong>
             </div>
@@ -973,7 +968,7 @@
             </div>
             <div class="receipt-info-row">
                 <span>Kasir / Sales</span>
-                <strong>{{ sale.cashier_identity_label }}</strong>
+                <strong>{{ sale.cashier_receipt_label }}</strong>
             </div>
         </section>
 
@@ -1050,26 +1045,11 @@
                     <p class="receipt-note">{{ sale.note or "Terima kasih sudah berbelanja. Simpan nota ini sebagai bukti pembelian." }}</p>
                 </section>
 
-                <section class="receipt-identity-box">
-                    <strong>Identitas Homebase</strong>
-                    <div class="receipt-identity-row">
-                        <span>Alamat Homebase</span>
-                        <p>{{ receipt_brand.business_address or sale.warehouse_receipt_label }}</p>
-                    </div>
-                    <div class="receipt-identity-row">
-                        <span>Customer Service</span>
-                        <p>{{ receipt_brand.customer_service_phone or store_phone or (receipt_brand.business_name or store_name) }}</p>
-                    </div>
-                    <div class="receipt-identity-row">
-                        <span>Footer Identitas</span>
-                        <p>{{ receipt_brand.footer_identity or (receipt_brand.business_name or store_name) }}</p>
-                    </div>
-                </section>
-
                 <footer class="receipt-footer">
                     <strong>{{ receipt_brand.footer_note or ("Terima kasih sudah berbelanja di " ~ (receipt_brand.business_name or store_name) ~ ".") }}</strong>
-                    <p class="receipt-footer-note">{{ receipt_brand.footer_identity or sale.warehouse_receipt_label }}</p>
-                    <p class="receipt-footer-note">{{ receipt_brand.business_address or sale.warehouse_receipt_label }}</p>
+                    {% if receipt_brand.business_address %}
+                    <p class="receipt-footer-note">{{ receipt_brand.business_address }}</p>
+                    {% endif %}
                     <p class="receipt-footer-note">Customer Service: {{ receipt_brand.customer_service_phone or store_phone or (receipt_brand.business_name or store_name) }}</p>
                 </footer>
             </div>

@@ -15,13 +15,14 @@ from services.crm_loyalty import (
 )
 from services.notification_service import notify_operational_event
 from services.receipt_pdf_service import (
+    build_public_file_url,
     build_pos_receipt_branding,
     format_receipt_homebase_label,
     generate_pos_receipt_pdf,
 )
 from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role
 from services.stock_service import add_stock, remove_stock
-from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_document
+from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_document, send_whatsapp_text
 
 
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
@@ -218,6 +219,15 @@ def _prepare_pos_receipt_sale(sale):
         receipt_brand.get("homebase_label")
         or format_receipt_homebase_label(prepared_sale.get("warehouse_name"))
     )
+    prepared_sale["cashier_receipt_label"] = (
+        str(
+            prepared_sale.get("cashier_username")
+            or prepared_sale.get("cashier_name")
+            or prepared_sale.get("cashier_identity_label")
+            or "-"
+        ).strip()
+        or "-"
+    )
     return prepared_sale
 
 
@@ -300,6 +310,28 @@ def _send_pos_receipt_to_customer(db, sale):
         warehouse_id=sale.get("warehouse_id"),
         warehouse_name=sale.get("warehouse_name"),
     )
+    if delivery.get("ok") is not True:
+        fallback_links = [receipt_url]
+        receipt_print_url = build_public_file_url(f"/kasir/receipt/{receipt_no}/print")
+        if receipt_print_url and receipt_print_url not in fallback_links:
+            fallback_links.append(receipt_print_url)
+        fallback_message = "\n".join(
+            [
+                message,
+                "",
+                "Jika PDF belum terlampir otomatis, buka nota dari link berikut:",
+                *fallback_links,
+            ]
+        ).strip()
+        fallback_delivery = send_whatsapp_text(
+            target_phone,
+            fallback_message,
+            warehouse_id=sale.get("warehouse_id"),
+            warehouse_name=sale.get("warehouse_name"),
+        )
+        if fallback_delivery.get("ok") is True:
+            delivery = dict(fallback_delivery)
+            delivery["error"] = ""
     delivery_error = str(delivery.get("error") or "").strip()
     if delivery_error == "missing_target":
         delivery_error = "customer_phone_missing"
