@@ -468,6 +468,9 @@ let posCatalogRequestId = 0;
 let posQuickSearchActiveIndex = -1;
 let posGrandTotalFitFrame = 0;
 let posGrandTotalResizeObserver = null;
+let posGrandTotalLastFitWidth = 0;
+let posGrandTotalLastFitValue = "";
+let posGrandTotalObservedWidth = 0;
 const posCustomerOptionsState = {
     all: [],
 };
@@ -1142,12 +1145,12 @@ function renderPosQuickSearchResults() {
         return `
             <button type="button" class="pos-ipos-quicksearch-result" data-pos-quick-search-index="${index}" role="option" aria-selected="false" tabindex="-1">
                 <span class="pos-ipos-quicksearch-result-copy">
-                    <strong>${escapeHtml(item.sku)} - ${escapeHtml(item.name)}</strong>
-                    <small>${escapeHtml(item.variant_label || "Default")} | ${escapeHtml(item.category || "Tanpa kategori")} | GTIN ${escapeHtml(item.gtin || "-")}</small>
+                    <strong class="pos-ipos-quicksearch-result-title">${escapeHtml(item.sku)} - ${escapeHtml(item.name)}</strong>
+                    <small class="pos-ipos-quicksearch-result-detail">${escapeHtml(item.variant_label || "Default")} | ${escapeHtml(item.category || "Tanpa kategori")} | GTIN ${escapeHtml(item.gtin || "-")}</small>
                 </span>
                 <span class="pos-ipos-quicksearch-result-meta">
                     <span class="badge ${stockBadgeClass}">Stok ${escapeHtml(stockQty)}</span>
-                    <span>${formatPosCurrency(item.price_retail || 0)}</span>
+                    <strong class="pos-ipos-quicksearch-result-price">${formatPosCurrency(item.price_retail || 0)}</strong>
                 </span>
             </button>
         `;
@@ -1223,13 +1226,18 @@ function setPosPaymentMethod(method) {
     });
 }
 
-function fitPosGrandTotalText() {
+function fitPosGrandTotalText(force = false) {
     if (!posGrandTotal || !posGrandTotalBox) {
         return;
     }
 
     const valueText = String(posGrandTotal.textContent || "").trim() || "Rp 0";
     const availableWidth = Math.max(Math.floor((posGrandTotalBox.clientWidth || 0) - 32), 120);
+
+    if (!force && valueText === posGrandTotalLastFitValue && availableWidth === posGrandTotalLastFitWidth) {
+        return;
+    }
+
     const maxFontSizePx = 78;
     const minFontSizePx = 12;
 
@@ -1243,15 +1251,18 @@ function fitPosGrandTotalText() {
         posGrandTotal.style.fontSize = `${fontSizePx}px`;
         guard += 1;
     }
+
+    posGrandTotalLastFitValue = valueText;
+    posGrandTotalLastFitWidth = availableWidth;
 }
 
-function scheduleFitPosGrandTotalText() {
+function scheduleFitPosGrandTotalText(force = false) {
     if (posGrandTotalFitFrame) {
         window.cancelAnimationFrame(posGrandTotalFitFrame);
     }
     posGrandTotalFitFrame = window.requestAnimationFrame(() => {
         posGrandTotalFitFrame = 0;
-        fitPosGrandTotalText();
+        fitPosGrandTotalText(force);
     });
 }
 
@@ -2173,10 +2184,16 @@ syncPosCashierSelectionState();
 syncPosCustomerSelectionState();
 updatePosClock();
 window.setInterval(updatePosClock, 1000);
-window.addEventListener("resize", scheduleFitPosGrandTotalText);
+window.addEventListener("resize", () => scheduleFitPosGrandTotalText(true));
 if (window.ResizeObserver && posGrandTotalBox) {
-    posGrandTotalResizeObserver = new ResizeObserver(() => {
-        scheduleFitPosGrandTotalText();
+    posGrandTotalObservedWidth = Math.round(posGrandTotalBox.clientWidth || 0);
+    posGrandTotalResizeObserver = new ResizeObserver((entries) => {
+        const nextWidth = Math.round(entries[0]?.contentRect?.width || posGrandTotalBox.clientWidth || 0);
+        if (!nextWidth || nextWidth === posGrandTotalObservedWidth) {
+            return;
+        }
+        posGrandTotalObservedWidth = nextWidth;
+        scheduleFitPosGrandTotalText(true);
     });
     posGrandTotalResizeObserver.observe(posGrandTotalBox);
 }

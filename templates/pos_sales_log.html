@@ -290,7 +290,7 @@
                         <div class="helper-text">{{ sale.receipt_whatsapp_error }}</div>
                         {% endif %}
                         <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button">Preview Nota</a>
-                        <a href="{{ sale.receipt_pdf_public_url or sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
+                        <a href="/kasir/receipt/{{ sale.receipt_no }}/pdf" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
                         <button
                             type="button"
                             class="ghost-button"

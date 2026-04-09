@@ -1,6 +1,6 @@
 from datetime import date as date_cls, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 
 from database import get_db
 from services.crm_loyalty import (
@@ -2808,6 +2808,35 @@ def pos_receipt_print(receipt_no):
     )
 
 
+@pos_bp.get("/receipt/<receipt_no>/pdf")
+def pos_receipt_pdf(receipt_no):
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    try:
+        sale, pdf_meta = _generate_backend_pos_receipt_pdf(db, receipt_no)
+    except ValueError:
+        flash("PDF nota penjualan tidak ditemukan atau tidak bisa diakses.", "error")
+        return redirect("/kasir/log")
+    except Exception as exc:
+        print("POS RECEIPT VIEW PDF ERROR:", exc)
+        flash("PDF nota gagal disiapkan. Coba lagi beberapa detik.", "error")
+        return redirect("/kasir/log")
+
+    response = send_file(
+        pdf_meta["absolute_path"],
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=f"{sale['receipt_no']}.pdf",
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @pos_bp.post("/sale/<int:sale_id>/resend-receipt")
 def pos_resend_receipt_to_customer(sale_id):
     denied = _require_pos_access(json_mode=True)
@@ -2823,10 +2852,9 @@ def pos_resend_receipt_to_customer(sale_id):
         return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
 
     try:
-        if not str(sale_detail.get("receipt_pdf_public_url") or "").strip():
-            regenerated_sale, regenerated_pdf = _generate_backend_pos_receipt_pdf(db, sale_detail["receipt_no"])
-            sale_detail = regenerated_sale
-            sale_detail["receipt_pdf_public_url"] = regenerated_pdf.get("public_url") or ""
+        regenerated_sale, regenerated_pdf = _generate_backend_pos_receipt_pdf(db, sale_detail["receipt_no"])
+        sale_detail = regenerated_sale
+        sale_detail["receipt_pdf_public_url"] = regenerated_pdf.get("public_url") or ""
     except Exception as exc:
         print("POS RECEIPT RESEND PDF ERROR:", exc)
         return _json_error("Gagal menyiapkan PDF nota untuk kirim ulang. Coba lagi beberapa detik.", 500)

@@ -661,88 +661,595 @@ def _build_receipt_lines(sale):
     return lines
 
 
-def _paginate_lines(lines, max_lines=54):
-    pages = []
-    current_page = []
-    for line in lines:
-        current_page.append(line)
-        if len(current_page) >= max_lines:
-            pages.append(current_page)
-            current_page = []
-    if current_page:
-        pages.append(current_page)
-    return pages or [["NOTA PEMBELIAN IPOS"]]
+def _estimate_pdf_text_width(value, font_size=10.0, bold=False):
+    text = _normalize_ascii_text(value)
+    if not text:
+        return 0.0
+    average_width = 0.58 if bold else 0.54
+    return float(len(text)) * float(font_size) * average_width
 
 
-def _build_page_stream(lines, branding=None, logo_resource_name=None, logo_spec=None):
-    branding = branding or {}
-    accent_red, accent_green, accent_blue = _hex_to_pdf_rgb(branding.get("accent") or "#153e75")
-    brand_name = branding.get("business_name") or "ERP Core POS"
-    counter_label = branding.get("counter_label") or "iPOS Kasir"
-    homebase_label = branding.get("homebase_label") or "-"
-    brand_text_x = 168 if (logo_resource_name and logo_spec) else 40
-
-    commands = [
-        f"{accent_red} {accent_green} {accent_blue} rg",
-        "36 808 523 4 re f",
-    ]
-
-    if logo_resource_name and logo_spec:
-        logo_box_width = 116
-        logo_box_height = 74
-        logo_scale = min(logo_box_width / float(logo_spec["width"]), logo_box_height / float(logo_spec["height"]))
-        logo_draw_width = logo_spec["width"] * logo_scale
-        logo_draw_height = logo_spec["height"] * logo_scale
-        logo_draw_x = 40 + ((logo_box_width - logo_draw_width) / 2)
-        logo_draw_y = 736 + ((logo_box_height - logo_draw_height) / 2)
-        commands.extend(
-            [
-                "q",
-                f"{logo_draw_width:.2f} 0 0 {logo_draw_height:.2f} {logo_draw_x:.2f} {logo_draw_y:.2f} cm",
-                f"/{logo_resource_name} Do",
-                "Q",
-            ]
-        )
-
+def _append_pdf_rect(commands, x, y, width, height, *, fill_hex="#ffffff", stroke_hex="#d7e2ec", line_width=1.0):
+    fill_red, fill_green, fill_blue = _hex_to_pdf_rgb(fill_hex)
+    stroke_red, stroke_green, stroke_blue = _hex_to_pdf_rgb(stroke_hex)
     commands.extend(
         [
-            "BT",
-            f"{accent_red} {accent_green} {accent_blue} rg",
-            "/F1 16 Tf",
-            f"1 0 0 1 {brand_text_x} 790 Tm",
-            f"({_escape_pdf_text(brand_name)}) Tj",
-            "/F1 10.5 Tf",
-            f"1 0 0 1 {brand_text_x} 773 Tm",
-            f"({_escape_pdf_text(counter_label)}) Tj",
-            "0.1059 0.1529 0.2275 rg",
-            "/F1 10 Tf",
-            f"1 0 0 1 {brand_text_x} 758 Tm",
-            f"({_escape_pdf_text(homebase_label)}) Tj",
-            "/F1 10.4 Tf",
-            "1 0 0 1 40 714 Tm",
+            f"{line_width:.2f} w",
+            f"{stroke_red} {stroke_green} {stroke_blue} RG",
+            f"{fill_red} {fill_green} {fill_blue} rg",
+            f"{x:.2f} {y:.2f} {width:.2f} {height:.2f} re B",
         ]
     )
 
-    y_position = 714
-    line_height = 12.2
-    for index, line in enumerate(lines):
-        if index > 0:
-            y_position -= line_height
-            commands.append(f"1 0 0 1 40 {y_position:.1f} Tm")
+
+def _append_pdf_line(commands, x1, y1, x2, y2, *, stroke_hex="#d7e2ec", line_width=0.8, dashed=False):
+    stroke_red, stroke_green, stroke_blue = _hex_to_pdf_rgb(stroke_hex)
+    commands.extend(
+        [
+            f"{line_width:.2f} w",
+            f"{stroke_red} {stroke_green} {stroke_blue} RG",
+            "[3 3] 0 d" if dashed else "[] 0 d",
+            f"{x1:.2f} {y1:.2f} m {x2:.2f} {y2:.2f} l S",
+            "[] 0 d",
+        ]
+    )
+
+
+def _append_pdf_text(
+    commands,
+    x,
+    y,
+    lines,
+    *,
+    font_name="F1",
+    font_size=10.0,
+    color_hex="#14273a",
+    leading=None,
+    align="left",
+    box_width=None,
+):
+    safe_lines = [_normalize_ascii_text(line) for line in (lines or [])]
+    if not safe_lines:
+        return
+
+    leading = float(leading or (font_size + 2.0))
+    red, green, blue = _hex_to_pdf_rgb(color_hex)
+    commands.extend(
+        [
+            "BT",
+            f"{red} {green} {blue} rg",
+            f"/{font_name} {float(font_size):.2f} Tf",
+        ]
+    )
+
+    baseline = float(y)
+    is_bold = font_name == "F2"
+    for line in safe_lines:
+        draw_x = float(x)
+        if box_width is not None and align != "left":
+            estimated_width = _estimate_pdf_text_width(line, font_size=font_size, bold=is_bold)
+            if align == "right":
+                draw_x = float(x) + max(float(box_width) - estimated_width, 0.0)
+            elif align == "center":
+                draw_x = float(x) + max((float(box_width) - estimated_width) / 2.0, 0.0)
+        commands.append(f"1 0 0 1 {draw_x:.2f} {baseline:.2f} Tm")
         commands.append(f"({_escape_pdf_text(line)}) Tj")
+        baseline -= leading
 
     commands.append("ET")
+
+
+def _append_pdf_chip(
+    commands,
+    x,
+    top,
+    text,
+    *,
+    fill_hex,
+    stroke_hex,
+    text_hex,
+    font_name="F2",
+    font_size=9.3,
+    padding_x=12.0,
+    height=26.0,
+):
+    safe_text = _normalize_ascii_text(text) or "-"
+    chip_width = max(88.0, _estimate_pdf_text_width(safe_text, font_size=font_size, bold=(font_name == "F2")) + (padding_x * 2.0))
+    _append_pdf_rect(
+        commands,
+        x,
+        top - height,
+        chip_width,
+        height,
+        fill_hex=fill_hex,
+        stroke_hex=stroke_hex,
+        line_width=0.9,
+    )
+    _append_pdf_text(
+        commands,
+        x + padding_x,
+        top - 16.8,
+        [safe_text],
+        font_name=font_name,
+        font_size=font_size,
+        color_hex=text_hex,
+    )
+    return chip_width
+
+
+def _build_receipt_pdf_info_rows(sale):
+    sale = sale or {}
+    created_stamp = " ".join(
+        part
+        for part in [
+            str(sale.get("sale_date") or "").strip(),
+            str(sale.get("created_time_label") or "").strip(),
+        ]
+        if part
+    ).strip() or "-"
+    return [
+        [
+            {"label": "NO NOTA", "value": sale.get("receipt_no") or "-", "span": 1},
+            {"label": "TANGGAL", "value": created_stamp, "span": 1},
+        ],
+        [
+            {"label": "PELANGGAN", "value": sale.get("customer_name") or "Walk-in Customer", "span": 1},
+            {"label": "WHATSAPP", "value": sale.get("customer_phone_label") or sale.get("customer_phone") or "-", "span": 1},
+        ],
+        [
+            {
+                "label": "KASIR / SALES",
+                "value": sale.get("cashier_receipt_label") or sale.get("cashier_username") or sale.get("cashier_name") or "-",
+                "span": 2,
+            }
+        ],
+    ]
+
+
+def _measure_receipt_pdf_info_row_height(row):
+    max_height = 52.0
+    for card in row:
+        wrap_width = 34 if int(card.get("span") or 1) == 1 else 78
+        value_lines = _wrap_receipt_line(card.get("value"), width=wrap_width) or ["-"]
+        max_height = max(max_height, 32.0 + (len(value_lines) * 12.0))
+    return max_height
+
+
+def _estimate_receipt_pdf_first_page_item_top(sale):
+    current_top = 610.0
+    row_gap = 10.0
+    for row in _build_receipt_pdf_info_rows(sale):
+        current_top -= _measure_receipt_pdf_info_row_height(row) + row_gap
+    return current_top - 6.0
+
+
+def _build_receipt_pdf_item_blocks(sale):
+    blocks = []
+    for item in sale.get("items") or []:
+        product_name = item.get("product_name") or item.get("name") or item.get("sku") or "Produk"
+        variant_name = item.get("variant_name") or "Default"
+        sku = item.get("sku") or "-"
+        active_qty = int(item.get("active_qty") or item.get("qty") or 0)
+        unit_price_label = item.get("unit_price_label") or "Rp 0"
+        total_label = item.get("active_line_total_label") or item.get("line_total_label") or "Rp 0"
+
+        title_lines = _wrap_receipt_line(product_name, width=54) or ["Produk"]
+        meta_lines = _wrap_receipt_line(f"{variant_name} / {sku}", width=62) or ["-"]
+        detail_lines = []
+        if active_qty > 1:
+            detail_lines.extend(_wrap_receipt_line(f"{active_qty} x {unit_price_label}", width=42))
+        if int(item.get("void_qty") or 0) > 0:
+            detail_lines.extend(
+                _wrap_receipt_line(
+                    f"Void {int(item.get('void_qty') or 0)} | {item.get('void_amount_label') or 'Rp 0'}",
+                    width=54,
+                )
+            )
+        if item.get("void_note"):
+            detail_lines.extend(_wrap_receipt_line(f"Catatan void: {item.get('void_note')}", width=54))
+
+        block_height = max(
+            78.0,
+            24.0 + (len(title_lines) * 13.0) + (len(meta_lines) * 10.6) + (len(detail_lines) * 10.0) + 24.0,
+        )
+        blocks.append(
+            {
+                "title_lines": title_lines,
+                "meta_lines": meta_lines,
+                "detail_lines": detail_lines,
+                "qty_text": str(active_qty),
+                "price_text": total_label,
+                "height": block_height,
+            }
+        )
+    return blocks
+
+
+def _build_receipt_pdf_summary_model(sale, branding):
+    sale = sale or {}
+    branding = branding or {}
+    note_lines = _wrap_receipt_line(
+        sale.get("note") or "Terima kasih sudah berbelanja. Simpan nota ini sebagai bukti pembelian.",
+        width=80,
+    ) or ["-"]
+    footer_title_lines = _wrap_receipt_line(
+        branding.get("footer_note") or f"Simpan nota ini untuk klaim garansi dan layanan {branding.get('business_name') or 'ERP Core POS'}.",
+        width=78,
+    ) or ["-"]
+    footer_detail_lines = []
+    business_address = branding.get("business_address") or sale.get("store_address") or ""
+    if business_address:
+        footer_detail_lines.extend(_wrap_receipt_line(business_address, width=80))
+    customer_service = branding.get("customer_service_phone") or sale.get("store_phone") or current_app.config.get("STORE_PHONE") or ""
+    if customer_service:
+        footer_detail_lines.extend(_wrap_receipt_line(f"Customer Service: {customer_service}", width=80))
+
+    loyalty_lines = [
+        str(line or "").strip().lstrip("- ").strip()
+        for line in (sale.get("loyalty_summary_lines") or [])
+        if str(line or "").strip()
+    ]
+    total_rows = [
+        ("Subtotal", sale.get("subtotal_amount_label") or "Rp 0"),
+        ("Diskon", sale.get("discount_amount_label") or "Rp 0"),
+        ("Pajak", sale.get("tax_amount_label") or "Rp 0"),
+        ("Total", sale.get("total_amount_label") or "Rp 0"),
+        ("Bayar", sale.get("paid_amount_label") or "Rp 0"),
+        ("Kembalian", sale.get("change_amount_label") or "Rp 0"),
+    ]
+
+    totals_height = 26.0 + (len(total_rows) * 19.0) + 18.0
+    loyalty_height = 0.0
+    if loyalty_lines:
+        loyalty_height = 24.0 + 16.0 + (len(loyalty_lines) * 11.5) + 16.0
+    note_height = 24.0 + 14.0 + (len(note_lines) * 11.6) + 16.0
+    footer_height = 24.0 + (len(footer_title_lines) * 12.4) + (len(footer_detail_lines) * 11.2) + 18.0
+
+    reserved_height = totals_height + note_height + footer_height + 20.0
+    if loyalty_height:
+        reserved_height += loyalty_height + 10.0
+
+    return {
+        "total_rows": total_rows,
+        "totals_height": totals_height,
+        "note_lines": note_lines,
+        "note_height": note_height,
+        "loyalty_lines": loyalty_lines,
+        "loyalty_height": loyalty_height,
+        "footer_title_lines": footer_title_lines,
+        "footer_detail_lines": footer_detail_lines,
+        "footer_height": footer_height,
+        "reserved_height": reserved_height,
+    }
+
+
+def _build_receipt_pdf_pages(sale, summary_model):
+    first_page_item_top = _estimate_receipt_pdf_first_page_item_top(sale)
+    continuation_item_top = 706.0
+    vertical_gap = 10.0
+    bottom_limit = 40.0 + max(180.0, float(summary_model.get("reserved_height") or 0.0))
+    item_blocks = _build_receipt_pdf_item_blocks(sale)
+
+    pages = [
+        {
+            "is_first": True,
+            "items": [],
+            "cursor_top": first_page_item_top,
+            "show_summary": False,
+        }
+    ]
+    current_page = pages[0]
+
+    for block in item_blocks:
+        if current_page["cursor_top"] - float(block["height"]) < bottom_limit:
+            current_page = {
+                "is_first": False,
+                "items": [],
+                "cursor_top": continuation_item_top,
+                "show_summary": False,
+            }
+            pages.append(current_page)
+        placed_block = dict(block)
+        placed_block["top"] = current_page["cursor_top"]
+        current_page["items"].append(placed_block)
+        current_page["cursor_top"] -= float(block["height"]) + vertical_gap
+
+    pages[-1]["show_summary"] = True
+    return pages
+
+
+def _draw_receipt_pdf_logo(commands, logo_resource_name, logo_spec, x, y, width, height):
+    if not (logo_resource_name and logo_spec):
+        return
+    logo_scale = min(width / float(logo_spec["width"]), height / float(logo_spec["height"]))
+    logo_draw_width = float(logo_spec["width"]) * logo_scale
+    logo_draw_height = float(logo_spec["height"]) * logo_scale
+    logo_draw_x = float(x) + ((float(width) - logo_draw_width) / 2.0)
+    logo_draw_y = float(y) + ((float(height) - logo_draw_height) / 2.0)
+    commands.extend(
+        [
+            "q",
+            f"{logo_draw_width:.2f} 0 0 {logo_draw_height:.2f} {logo_draw_x:.2f} {logo_draw_y:.2f} cm",
+            f"/{logo_resource_name} Do",
+            "Q",
+        ]
+    )
+
+
+def _draw_receipt_pdf_first_page(commands, sale, branding, logo_resource_name=None, logo_spec=None):
+    content_left = 40.0
+    content_width = 515.0
+    accent = branding.get("accent") or "#153e75"
+    accent_dark = branding.get("accent_dark") or accent
+    border = "#d7e2ec"
+    ink = "#13263c"
+    muted = "#6d7d8e"
+
+    _append_pdf_rect(commands, 40.0, 804.0, 515.0, 4.0, fill_hex=accent, stroke_hex=accent, line_width=0.0)
+    _append_pdf_rect(commands, 40.0, 708.0, 102.0, 86.0, fill_hex="#ffffff", stroke_hex=border, line_width=1.0)
+    _draw_receipt_pdf_logo(commands, logo_resource_name, logo_spec, 52.0, 720.0, 78.0, 62.0)
+
+    _append_pdf_text(commands, 164.0, 780.0, [branding.get("counter_label") or "iPOS Kasir"], font_name="F2", font_size=10.2, color_hex=accent, leading=12.0)
+    _append_pdf_text(commands, 164.0, 758.0, [branding.get("business_name") or "ERP Core POS"], font_name="F2", font_size=22.0, color_hex=accent_dark, leading=24.0)
+    _append_pdf_text(commands, 164.0, 736.0, [branding.get("receipt_title") or "Nota Pembelian iPOS"], font_name="F2", font_size=11.4, color_hex=accent, leading=13.0)
+    _append_pdf_text(
+        commands,
+        164.0,
+        719.0,
+        [" | ".join(part for part in [str(sale.get("sale_date") or "").strip(), str(sale.get("created_time_label") or "").strip()] if part) or "-"],
+        font_name="F1",
+        font_size=9.6,
+        color_hex=muted,
+        leading=11.0,
+    )
+
+    chip_top = 685.0
+    first_chip_width = _append_pdf_chip(
+        commands,
+        40.0,
+        chip_top,
+        sale.get("receipt_no") or "-",
+        fill_hex=branding.get("accent_soft") or "#eef4fb",
+        stroke_hex=border,
+        text_hex=accent_dark,
+    )
+    _append_pdf_chip(
+        commands,
+        52.0 + first_chip_width,
+        chip_top,
+        sale.get("status_label") or sale.get("status") or "POSTED",
+        fill_hex="#ffffff",
+        stroke_hex=border,
+        text_hex=accent_dark,
+    )
+    _append_pdf_text(commands, 40.0, 649.0, [sale.get("payment_method_label") or sale.get("payment_method") or "CASH"], font_name="F2", font_size=11.0, color_hex=ink)
+    _append_pdf_text(commands, 40.0, 631.0, [sale.get("cashier_receipt_label") or sale.get("cashier_name") or "-"], font_name="F1", font_size=10.0, color_hex=ink)
+    _append_pdf_line(commands, 40.0, 615.0, 555.0, 615.0, stroke_hex="#c4d3e0", line_width=0.9, dashed=True)
+
+    grid_gap = 12.0
+    row_gap = 10.0
+    current_top = 602.0
+    half_width = (content_width - grid_gap) / 2.0
+
+    for row in _build_receipt_pdf_info_rows(sale):
+        row_height = _measure_receipt_pdf_info_row_height(row)
+        cursor_x = content_left
+        for card in row:
+            span = int(card.get("span") or 1)
+            card_width = content_width if span >= 2 else half_width
+            card_bottom = current_top - row_height
+            _append_pdf_rect(
+                commands,
+                cursor_x,
+                card_bottom,
+                card_width,
+                row_height,
+                fill_hex="#ffffff",
+                stroke_hex=border,
+                line_width=0.95,
+            )
+            _append_pdf_text(commands, cursor_x + 14.0, current_top - 17.0, [card.get("label") or "-"], font_name="F2", font_size=8.2, color_hex=ink, leading=10.0)
+            wrap_width = 34 if span == 1 else 78
+            value_lines = _wrap_receipt_line(card.get("value"), width=wrap_width) or ["-"]
+            _append_pdf_text(
+                commands,
+                cursor_x + 14.0,
+                current_top - 35.0,
+                value_lines,
+                font_name="F2",
+                font_size=10.8,
+                color_hex=ink,
+                leading=12.0,
+            )
+            cursor_x += card_width + grid_gap
+        current_top -= row_height + row_gap
+
+
+def _draw_receipt_pdf_continuation_page(commands, sale, branding, page_number, page_count, logo_resource_name=None, logo_spec=None):
+    accent = branding.get("accent") or "#153e75"
+    accent_dark = branding.get("accent_dark") or accent
+    border = "#d7e2ec"
+    muted = "#6d7d8e"
+
+    _append_pdf_rect(commands, 40.0, 804.0, 515.0, 4.0, fill_hex=accent, stroke_hex=accent, line_width=0.0)
+    _append_pdf_rect(commands, 40.0, 728.0, 76.0, 56.0, fill_hex="#ffffff", stroke_hex=border, line_width=0.95)
+    _draw_receipt_pdf_logo(commands, logo_resource_name, logo_spec, 48.0, 736.0, 60.0, 40.0)
+    _append_pdf_text(commands, 130.0, 777.0, [branding.get("business_name") or "ERP Core POS"], font_name="F2", font_size=17.0, color_hex=accent_dark, leading=19.0)
+    _append_pdf_text(commands, 130.0, 757.0, [branding.get("receipt_title") or "Nota Pembelian iPOS"], font_name="F1", font_size=10.4, color_hex=accent, leading=12.0)
+    _append_pdf_text(commands, 130.0, 742.0, [f"Receipt {sale.get('receipt_no') or '-'}"], font_name="F2", font_size=10.0, color_hex="#13263c", leading=12.0)
+    _append_pdf_text(commands, 430.0, 776.0, [f"Halaman {page_number}/{page_count}"], font_name="F2", font_size=9.6, color_hex=muted, align="right", box_width=125.0)
+    _append_pdf_line(commands, 40.0, 718.0, 555.0, 718.0, stroke_hex="#c4d3e0", line_width=0.9, dashed=True)
+
+
+def _draw_receipt_pdf_items(commands, page):
+    content_left = 40.0
+    content_width = 515.0
+    border = "#d7e2ec"
+    ink = "#13263c"
+    muted = "#6d7d8e"
+
+    for item in page.get("items") or []:
+        top = float(item.get("top") or 0.0)
+        height = float(item.get("height") or 78.0)
+        bottom = top - height
+        _append_pdf_rect(commands, content_left, bottom, content_width, height, fill_hex="#fbfdff", stroke_hex=border, line_width=0.95)
+
+        text_top = top - 18.0
+        _append_pdf_text(commands, 56.0, text_top, item.get("title_lines") or ["Produk"], font_name="F2", font_size=11.2, color_hex=ink, leading=13.0)
+        text_top -= (len(item.get("title_lines") or ["Produk"]) * 13.0) + 4.0
+        _append_pdf_text(commands, 56.0, text_top, item.get("meta_lines") or ["-"], font_name="F1", font_size=9.6, color_hex=muted, leading=10.8)
+        text_top -= (len(item.get("meta_lines") or ["-"]) * 10.8) + 4.0
+        if item.get("detail_lines"):
+            _append_pdf_text(commands, 56.0, text_top, item.get("detail_lines"), font_name="F1", font_size=9.0, color_hex=ink, leading=10.0)
+
+        _append_pdf_text(commands, 56.0, bottom + 17.0, [item.get("qty_text") or "0"], font_name="F2", font_size=10.6, color_hex=ink)
+        _append_pdf_text(
+            commands,
+            56.0,
+            bottom + 17.0,
+            [item.get("price_text") or "Rp 0"],
+            font_name="F2",
+            font_size=11.0,
+            color_hex=ink,
+            align="right",
+            box_width=483.0,
+        )
+
+
+def _draw_receipt_pdf_summary(commands, sale, branding, page, summary_model):
+    accent = branding.get("accent") or "#153e75"
+    border = "#d7e2ec"
+    ink = "#13263c"
+    content_left = 40.0
+    content_width = 515.0
+    section_gap = 10.0
+    section_top = float(page.get("cursor_top") or 300.0)
+
+    totals_height = float(summary_model.get("totals_height") or 160.0)
+    totals_bottom = section_top - totals_height
+    _append_pdf_rect(commands, content_left, totals_bottom, content_width, totals_height, fill_hex="#ffffff", stroke_hex=border, line_width=0.95)
+
+    row_y = section_top - 24.0
+    for label, value in summary_model.get("total_rows") or []:
+        is_total = str(label).strip().lower() == "total"
+        row_color = accent if is_total else ink
+        font_name = "F2" if is_total else "F1"
+        font_size = 12.4 if is_total else 10.8
+        _append_pdf_text(commands, 56.0, row_y, [label], font_name=font_name, font_size=font_size, color_hex=row_color)
+        _append_pdf_text(commands, 56.0, row_y, [value], font_name="F2", font_size=font_size, color_hex=row_color, align="right", box_width=483.0)
+        row_y -= 19.0
+
+    section_top = totals_bottom - section_gap
+
+    if summary_model.get("loyalty_lines"):
+        loyalty_height = float(summary_model.get("loyalty_height") or 0.0)
+        loyalty_bottom = section_top - loyalty_height
+        _append_pdf_rect(commands, content_left, loyalty_bottom, content_width, loyalty_height, fill_hex="#ffffff", stroke_hex=border, line_width=0.95)
+        _append_pdf_text(
+            commands,
+            56.0,
+            section_top - 18.0,
+            [sale.get("loyalty_summary_title") or "UPDATE CRM CUSTOMER"],
+            font_name="F2",
+            font_size=10.2,
+            color_hex=ink,
+            leading=12.0,
+        )
+        _append_pdf_text(
+            commands,
+            56.0,
+            section_top - 38.0,
+            summary_model.get("loyalty_lines"),
+            font_name="F1",
+            font_size=9.4,
+            color_hex="#6d7d8e",
+            leading=11.2,
+        )
+        section_top = loyalty_bottom - section_gap
+
+    note_height = float(summary_model.get("note_height") or 0.0)
+    note_bottom = section_top - note_height
+    _append_pdf_rect(commands, content_left, note_bottom, content_width, note_height, fill_hex="#ffffff", stroke_hex=border, line_width=0.95)
+    _append_pdf_text(commands, 56.0, section_top - 17.0, ["CATATAN"], font_name="F2", font_size=8.8, color_hex=ink, leading=10.0)
+    _append_pdf_text(commands, 56.0, section_top - 34.0, summary_model.get("note_lines") or ["-"], font_name="F1", font_size=9.6, color_hex=ink, leading=11.2)
+    section_top = note_bottom - section_gap
+
+    footer_height = float(summary_model.get("footer_height") or 0.0)
+    footer_bottom = section_top - footer_height
+    _append_pdf_rect(commands, content_left, footer_bottom, content_width, footer_height, fill_hex="#ffffff", stroke_hex=border, line_width=0.95)
+    _append_pdf_text(
+        commands,
+        56.0,
+        section_top - 18.0,
+        summary_model.get("footer_title_lines") or ["-"],
+        font_name="F2",
+        font_size=10.6,
+        color_hex=accent,
+        leading=12.4,
+    )
+    _append_pdf_text(
+        commands,
+        56.0,
+        section_top - (22.0 + (len(summary_model.get("footer_title_lines") or ["-"]) * 12.4)),
+        summary_model.get("footer_detail_lines") or [],
+        font_name="F1",
+        font_size=9.6,
+        color_hex=ink,
+        leading=11.2,
+    )
+
+
+def _build_page_stream(page, sale=None, branding=None, logo_resource_name=None, logo_spec=None, page_number=1, page_count=1):
+    sale = sale or {}
+    branding = branding or {}
+    summary_model = _build_receipt_pdf_summary_model(sale, branding)
+    commands = []
+
+    if page.get("is_first"):
+        _draw_receipt_pdf_first_page(commands, sale, branding, logo_resource_name=logo_resource_name, logo_spec=logo_spec)
+    else:
+        _draw_receipt_pdf_continuation_page(
+            commands,
+            sale,
+            branding,
+            page_number,
+            page_count,
+            logo_resource_name=logo_resource_name,
+            logo_spec=logo_spec,
+        )
+
+    _draw_receipt_pdf_items(commands, page)
+    if page.get("show_summary"):
+        _draw_receipt_pdf_summary(commands, sale, branding, page, summary_model)
+
+    _append_pdf_text(
+        commands,
+        430.0,
+        24.0,
+        [f"Halaman {page_number}/{page_count}"],
+        font_name="F1",
+        font_size=8.6,
+        color_hex="#8191a2",
+        align="right",
+        box_width=125.0,
+    )
     return "\n".join(commands).encode("latin-1", "replace")
 
 
-def _build_pdf_document(lines, sale=None):
-    pages = _paginate_lines(lines)
+def _build_pdf_document(sale=None):
     sale = sale or {}
     branding = sale.get("receipt_brand") or build_pos_receipt_branding(sale)
+    summary_model = _build_receipt_pdf_summary_model(sale, branding)
+    pages = _build_receipt_pdf_pages(sale, summary_model)
     logo_spec = _load_pdf_logo_spec(branding)
     logo_object_number = None
 
-    objects = [b"", b"", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    objects = [
+        b"",
+        b"",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+    ]
     if logo_spec:
         logo_object_number = len(objects) + 1
         objects.append(
@@ -755,20 +1262,22 @@ def _build_pdf_document(lines, sale=None):
             + b"\nendstream"
         )
     page_object_numbers = []
+    page_count = len(pages)
 
-    for page_lines in pages:
+    for page_index, page in enumerate(pages, start=1):
         stream_bytes = _build_page_stream(
-            page_lines,
+            page,
+            sale=sale,
             branding=branding,
             logo_resource_name="ImBrand" if logo_spec else None,
             logo_spec=logo_spec,
+            page_number=page_index,
+            page_count=page_count,
         )
         content_object_number = len(objects) + 1
-        objects.append(
-            b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream_bytes), stream_bytes)
-        )
+        objects.append(b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream_bytes), stream_bytes))
         page_object_number = len(objects) + 1
-        resources = "/Font << /F1 3 0 R >>"
+        resources = "/Font << /F1 3 0 R /F2 4 0 R >>"
         if logo_object_number:
             resources += f" /XObject << /ImBrand {logo_object_number} 0 R >>"
         objects.append(
@@ -839,7 +1348,7 @@ def generate_pos_receipt_pdf(sale):
             render_error,
         )
 
-    pdf_bytes = _build_pdf_document(_build_receipt_lines(sale), sale=sale)
+    pdf_bytes = _build_pdf_document(sale=sale)
     with open(absolute_path, "wb") as file_handle:
         file_handle.write(pdf_bytes)
 

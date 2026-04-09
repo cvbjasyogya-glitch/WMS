@@ -1322,6 +1322,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("POS-NOTA-001", log_html)
         self.assertIn("POSTED", log_html)
         self.assertIn("Void Barang", log_html)
+        self.assertIn(f"/kasir/receipt/{receipt_no}/pdf", log_html)
 
         print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print?autoprint=1")
         self.assertEqual(print_response.status_code, 200)
@@ -1340,6 +1341,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Customer Service:", print_html)
         self.assertIn("Simpan sebagai PDF", print_html)
         self.assertIn("window.print()", print_html)
+
+        pdf_response = self.client.get(f"/kasir/receipt/{receipt_no}/pdf")
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response.mimetype, "application/pdf")
+        self.assertTrue(pdf_response.data.startswith(b"%PDF-1."))
+        pdf_response.close()
 
     def test_pos_checkout_generates_public_receipt_pdf_and_logs_failed_whatsapp_without_blocking_sale(self):
         self.create_user("staff_sales_kirimi", "pass1234", "staff", warehouse_id=1)
@@ -1435,7 +1442,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(notification["status"], "failed")
         self.assertIn("kirimi_http_500", notification["message"])
         self.assertIn("Mataram Sports", pdf_text)
-        self.assertIn("Kasir    : staff_sales_kirimi", pdf_text)
+        self.assertIn("KASIR / SALES", pdf_text)
+        self.assertIn("staff_sales_kirimi", pdf_text)
         self.assertIn("/Subtype /Image", pdf_text)
         self.assertIn("/DCTDecode", pdf_text)
 
@@ -1870,7 +1878,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         with open(pdf_path, "rb") as file_handle:
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
-        self.assertIn("Alamat   : Jl. Mataram No. 1, Cakranegara", pdf_text)
+        self.assertIn("Jl. Mataram No. 1, Cakranegara", pdf_text)
         self.assertIn("Customer Service: 6281319466464", pdf_text)
         self.assertNotIn("Identitas:", pdf_text)
         self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", pdf_text)
@@ -2545,7 +2553,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
         self.assertIn("Mega Sports", pdf_text)
-        self.assertIn("Kasir    : staff_sales_pdf_mega", pdf_text)
+        self.assertIn("KASIR / SALES", pdf_text)
+        self.assertIn("staff_sales_pdf_mega", pdf_text)
         self.assertIn("/Subtype /Image", pdf_text)
 
     def test_pos_receipt_pdf_wraps_long_mega_address_in_legacy_lines(self):
