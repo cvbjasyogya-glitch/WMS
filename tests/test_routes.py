@@ -856,6 +856,117 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn(sent_receipt, failed_only_html)
         self.assertIn('name="wa_failed" value="1" checked', failed_only_html)
 
+    def test_pos_sales_log_renders_cash_closing_panel(self):
+        self.create_user("staff_cash_closing_panel", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_cash_closing_panel")
+        self.login_pos_user("super_cash_closing_panel", "super_admin")
+
+        response = self.client.get(
+            f"/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08&cashier_user_id={selected_cashier_user_id}"
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Tutup Kasir", html)
+        self.assertIn('data-cash-closing-preview', html)
+        self.assertIn('name="cash_amount"', html)
+        self.assertIn("Simpan &amp; Kirim WA Leader", html)
+
+    def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_leader_whatsapp(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-POS-CLOSE-001",
+            full_name="Rio Kasir",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("staff_cash_closing_submit", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        cashier_user_id = self.get_user_id("staff_cash_closing_submit")
+        self.create_user(
+            "leader_cash_closing_receive",
+            "pass1234",
+            "leader",
+            warehouse_id=1,
+            phone="628111111111",
+            notify_whatsapp=1,
+        )
+        self.login_pos_user("super_cash_closing_submit", "super_admin")
+
+        with patch("routes.pos.send_role_based_notification") as mocked_role_notify:
+            mocked_role_notify.return_value = {
+                "deliveries": [
+                    {"ok": True, "error": "", "phone": "628111111111"},
+                ]
+            }
+            response = self.client.post(
+                "/kasir/cash-closing/submit",
+                data={
+                    "warehouse_id": "1",
+                    "cashier_user_id": str(cashier_user_id),
+                    "return_url": "/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08",
+                    "closing_date": "2026-04-08",
+                    "cash_amount": "754000",
+                    "debit_amount": "5380000",
+                    "mb_amount": "",
+                    "cv_amount": "",
+                    "expense_amount": "",
+                    "cash_on_hand_amount": "750000",
+                    "combined_total_amount": "10919760",
+                    "note": "Setoran cocok",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08#tutup-kasir", response.headers["Location"])
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(mocked_role_notify.call_args.args[0], "attendance.cash_closing")
+        payload = mocked_role_notify.call_args.args[1]
+        self.assertEqual(payload["roles"], ("leader",))
+        self.assertEqual(payload["warehouse_id"], 1)
+        self.assertIn("/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08#tutup-kasir", payload["link_url"])
+        self.assertIn('Laporan "Mataram" 08/04/2026', payload["message"])
+        self.assertIn("Total Mataram dan Mega = 10.919.760", payload["message"])
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                """
+                SELECT
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    closing_date,
+                    cash_amount,
+                    debit_amount,
+                    reported_total_amount,
+                    cash_on_hand_amount,
+                    combined_total_amount,
+                    summary_message,
+                    wa_status,
+                    wa_delivery_count,
+                    wa_success_count
+                FROM cash_closing_reports
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cashier_user_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(report)
+        self.assertEqual(report["employee_id"], employee_id)
+        self.assertEqual(report["warehouse_id"], 1)
+        self.assertEqual(report["closing_date"], "2026-04-08")
+        self.assertEqual(report["cash_amount"], 754000)
+        self.assertEqual(report["debit_amount"], 5380000)
+        self.assertEqual(report["reported_total_amount"], 6134000)
+        self.assertEqual(report["cash_on_hand_amount"], 750000)
+        self.assertEqual(report["combined_total_amount"], 10919760)
+        self.assertIn('Laporan "Mataram" 08/04/2026', report["summary_message"])
+        self.assertIn("5.380.000", report["summary_message"])
+        self.assertEqual(report["wa_status"], "sent")
+        self.assertEqual(report["wa_delivery_count"], 1)
+        self.assertEqual(report["wa_success_count"], 1)
+
     def test_pos_staff_sales_report_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
         self.login_pos_user("owner_sales_report", "owner")
 
@@ -1693,6 +1804,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("iPOS Kasir", print_html)
         self.assertIn("staff_sales_print_mega", print_html)
         self.assertIn("Customer Print Mega", print_html)
+        self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mega Sports.", print_html)
 
     def test_pos_receipt_print_and_pdf_support_homebase_specific_identity_metadata(self):
         self.app.config.update(
@@ -1983,6 +2095,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("receipt-paper", inspected_html["payload"])
         self.assertIn("POS-HTML-20260409-0001", inspected_html["payload"])
         self.assertIn("Antonio", inspected_html["payload"])
+        self.assertIn("Kasir / Sales", inspected_html["payload"])
+        self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", inspected_html["payload"])
         self.assertNotIn("Kembali ke Log", inspected_html["payload"])
         self.assertNotIn("Simpan sebagai PDF", inspected_html["payload"])
 

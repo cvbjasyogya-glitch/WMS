@@ -1,6 +1,5 @@
-from datetime import date as date_cls, timedelta
+from datetime import date as date_cls, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session
 
 from database import get_db
@@ -23,7 +22,12 @@ from services.receipt_pdf_service import (
 )
 from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role
 from services.stock_service import add_stock, remove_stock
-from services.whatsapp_service import record_whatsapp_delivery, send_whatsapp_document, send_whatsapp_text
+from services.whatsapp_service import (
+    record_whatsapp_delivery,
+    send_role_based_notification,
+    send_whatsapp_document,
+    send_whatsapp_text,
+)
 
 
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
@@ -851,6 +855,289 @@ def _format_pos_time_label(raw_value):
     if len(safe_value) >= 16:
         return safe_value[11:16]
     return "-"
+
+
+def _normalize_pos_cash_closing_date(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return date_cls.today().isoformat()
+    try:
+        return date_cls.fromisoformat(safe_value).isoformat()
+    except ValueError:
+        return date_cls.today().isoformat()
+
+
+def _parse_pos_cash_closing_amount(value):
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return 0
+    normalized = (
+        raw_value.replace("Rp", "")
+        .replace("rp", "")
+        .replace(".", "")
+        .replace(",", "")
+        .replace(" ", "")
+    )
+    digits = []
+    for index, char in enumerate(normalized):
+        if char.isdigit():
+            digits.append(char)
+        elif char == "-" and index == 0:
+            digits.append(char)
+    try:
+        parsed = int("".join(digits))
+    except ValueError:
+        return 0
+    return max(parsed, 0)
+
+
+def _format_pos_cash_closing_amount(value, zero_label="-"):
+    try:
+        amount = int(round(float(value or 0)))
+    except (TypeError, ValueError):
+        amount = 0
+    amount = max(amount, 0)
+    if amount <= 0:
+        return zero_label
+    return f"{amount:,}".replace(",", ".")
+
+
+def _format_pos_cash_closing_date_label(value):
+    safe_value = _normalize_pos_cash_closing_date(value)
+    try:
+        return date_cls.fromisoformat(safe_value).strftime("%d/%m/%Y")
+    except ValueError:
+        return safe_value
+
+
+def _build_pos_cash_closing_summary_line(label, amount, zero_label="-"):
+    return f"{label:<11} = {_format_pos_cash_closing_amount(amount, zero_label=zero_label)}"
+
+
+def _build_pos_cash_closing_summary_message(
+    warehouse_name,
+    closing_date,
+    *,
+    cash_amount=0,
+    debit_amount=0,
+    mb_amount=0,
+    cv_amount=0,
+    expense_amount=0,
+    cash_on_hand_amount=0,
+    combined_total_amount=0,
+    note="",
+):
+    warehouse_label = format_receipt_homebase_label(warehouse_name)
+    if warehouse_label == "-":
+        warehouse_label = "Mataram"
+    total_amount = max(
+        int(cash_amount or 0) + int(debit_amount or 0) + int(mb_amount or 0) + int(cv_amount or 0),
+        0,
+    )
+    message_lines = [
+        f'Laporan "{warehouse_label}" {_format_pos_cash_closing_date_label(closing_date)}',
+        "",
+        _build_pos_cash_closing_summary_line("Tunai", cash_amount),
+        _build_pos_cash_closing_summary_line("Debet", debit_amount),
+        _build_pos_cash_closing_summary_line("Mb", mb_amount),
+        _build_pos_cash_closing_summary_line("CV", cv_amount),
+        "------------------------------",
+        _build_pos_cash_closing_summary_line("Tot.", total_amount, zero_label="0"),
+        _build_pos_cash_closing_summary_line("Pengeluaran", expense_amount),
+        _build_pos_cash_closing_summary_line("T.Uang", cash_on_hand_amount),
+        "",
+        f"Total Mataram dan Mega = {_format_pos_cash_closing_amount(combined_total_amount)}",
+    ]
+    safe_note = str(note or "").strip()
+    if safe_note:
+        message_lines.extend(["", f"Catatan: {safe_note}"])
+    message_lines.extend(["", "Alhamdulillah"])
+    return "\n".join(message_lines)
+
+
+def _build_pos_cash_closing_preview_seed(warehouse_name, closing_date=None):
+    return _build_pos_cash_closing_summary_message(
+        warehouse_name,
+        closing_date or date_cls.today().isoformat(),
+        cash_amount=0,
+        debit_amount=0,
+        mb_amount=0,
+        cv_amount=0,
+        expense_amount=0,
+        cash_on_hand_amount=0,
+        combined_total_amount=0,
+        note="",
+    )
+
+
+def _build_pos_cash_closing_wa_status_meta(status):
+    safe_status = str(status or "").strip().lower()
+    status_map = {
+        "sent": {"label": "WA Terkirim", "badge_class": "green"},
+        "partial": {"label": "WA Sebagian", "badge_class": "orange"},
+        "failed": {"label": "WA Gagal", "badge_class": "red"},
+        "skipped": {"label": "WA Belum Terkirim", "badge_class": ""},
+        "pending": {"label": "WA Pending", "badge_class": ""},
+    }
+    return status_map.get(safe_status, status_map["pending"])
+
+
+def _fetch_pos_cash_closing_actor(db, warehouse_id, raw_user_id=None):
+    candidate_ids = []
+    selected_user_id = _to_int(raw_user_id, 0)
+    session_user_id = _to_int(session.get("user_id"), 0)
+    if selected_user_id > 0:
+        candidate_ids.append(selected_user_id)
+    if session_user_id > 0 and session_user_id not in candidate_ids:
+        candidate_ids.append(session_user_id)
+
+    for candidate_id in candidate_ids:
+        row = db.execute(
+            """
+            SELECT
+                u.id,
+                u.username,
+                u.role,
+                u.warehouse_id AS user_warehouse_id,
+                u.employee_id,
+                e.full_name,
+                e.position,
+                e.warehouse_id AS employee_warehouse_id,
+                e.employment_status,
+                w.name AS warehouse_name
+            FROM users u
+            LEFT JOIN employees e ON e.id = u.employee_id
+            LEFT JOIN warehouses w ON w.id = COALESCE(e.warehouse_id, u.warehouse_id)
+            WHERE u.id=?
+            LIMIT 1
+            """,
+            (candidate_id,),
+        ).fetchone()
+        if not row:
+            continue
+        option = _build_pos_staff_option(row, warehouse_id)
+        if option:
+            return {
+                "user_id": option["id"],
+                "employee_id": _to_int(row["employee_id"], 0) or None,
+                "display_name": option["display_name"],
+                "label": option["label"],
+                "position": str(row["position"] or "").strip(),
+                "warehouse_name": str(row["warehouse_name"] or "").strip(),
+                "username": str(row["username"] or "").strip(),
+            }
+        if candidate_id == session_user_id:
+            display_name = str(row["full_name"] or row["username"] or session.get("username") or "Kasir").strip() or "Kasir"
+            return {
+                "user_id": candidate_id,
+                "employee_id": _to_int(row["employee_id"], 0) or None,
+                "display_name": display_name,
+                "label": display_name,
+                "position": str(row["position"] or "").strip(),
+                "warehouse_name": str(row["warehouse_name"] or "").strip(),
+                "username": str(row["username"] or "").strip(),
+            }
+
+    fallback_name = str(session.get("username") or "Kasir").strip() or "Kasir"
+    return {
+        "user_id": session_user_id or None,
+        "employee_id": None,
+        "display_name": fallback_name,
+        "label": fallback_name,
+        "position": "",
+        "warehouse_name": "",
+        "username": fallback_name,
+    }
+
+
+def _build_pos_cash_closing_return_url():
+    query_string = request.query_string.decode("utf-8", errors="ignore").strip()
+    if query_string:
+        return f"/kasir/log?{query_string}"
+    return "/kasir/log"
+
+
+def _sanitize_pos_cash_closing_return_url(raw_value):
+    safe_value = str(raw_value or "").strip()
+    if not safe_value.startswith("/kasir/log"):
+        return "/kasir/log"
+    return safe_value
+
+
+def _fetch_pos_cash_closing_reports(db, warehouse_id=None, cashier_user_id=None, limit=8):
+    safe_limit = max(1, min(_to_int(limit, 8), 40))
+    params = []
+    query = """
+        SELECT
+            ccr.id,
+            ccr.user_id,
+            ccr.employee_id,
+            ccr.warehouse_id,
+            ccr.closing_date,
+            ccr.cash_amount,
+            ccr.debit_amount,
+            ccr.mb_amount,
+            ccr.cv_amount,
+            ccr.reported_total_amount,
+            ccr.expense_amount,
+            ccr.cash_on_hand_amount,
+            ccr.combined_total_amount,
+            ccr.note,
+            ccr.summary_message,
+            ccr.wa_status,
+            ccr.wa_error,
+            ccr.wa_delivery_count,
+            ccr.wa_success_count,
+            ccr.created_at,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
+            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
+        FROM cash_closing_reports ccr
+        LEFT JOIN users u ON u.id = ccr.user_id
+        LEFT JOIN employees e ON e.id = COALESCE(ccr.employee_id, u.employee_id)
+        LEFT JOIN warehouses w ON w.id = ccr.warehouse_id
+        WHERE 1=1
+    """
+
+    if warehouse_id:
+        query += " AND ccr.warehouse_id=?"
+        params.append(int(warehouse_id))
+
+    if cashier_user_id:
+        query += " AND ccr.user_id=?"
+        params.append(int(cashier_user_id))
+
+    query += """
+        ORDER BY ccr.closing_date DESC, ccr.id DESC
+        LIMIT ?
+    """
+    params.append(safe_limit)
+
+    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    report_items = []
+    for row in rows:
+        wa_meta = _build_pos_cash_closing_wa_status_meta(row.get("wa_status"))
+        report_items.append(
+            {
+                "id": row["id"],
+                "cashier_name": row["cashier_name"],
+                "cashier_position": row["cashier_position"],
+                "warehouse_name": row["warehouse_name"],
+                "warehouse_label": format_receipt_homebase_label(row.get("warehouse_name")),
+                "closing_date_label": _format_pos_cash_closing_date_label(row.get("closing_date")),
+                "created_at_label": _format_pos_time_label(row.get("created_at")),
+                "summary_message": (row.get("summary_message") or "").strip(),
+                "wa_status": str(row.get("wa_status") or "pending").strip().lower() or "pending",
+                "wa_status_label": wa_meta["label"],
+                "wa_status_badge": wa_meta["badge_class"],
+                "wa_error": str(row.get("wa_error") or "").strip(),
+                "wa_delivery_count": int(row.get("wa_delivery_count") or 0),
+                "wa_success_count": int(row.get("wa_success_count") or 0),
+                "summary_total_label": _format_pos_cash_closing_amount(row.get("reported_total_amount"), zero_label="0"),
+                "combined_total_label": _format_pos_cash_closing_amount(row.get("combined_total_amount")),
+            }
+        )
+    return report_items
 
 
 def _fetch_pos_sale_item_map(db, purchase_ids):
@@ -1687,7 +1974,7 @@ def _fetch_pos_sale_logs(
                 "item_preview_more": max(len(items) - len(item_preview_lines), 0),
                 "has_voidable_items": any(item.get("can_void") for item in items),
                 "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
-                "receipt_pdf_url": f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
+                "receipt_pdf_url": row.get("receipt_pdf_url") or f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
                 "receipt_pdf_public_url": row.get("receipt_pdf_url") or "",
                 "receipt_whatsapp_status": str(row.get("receipt_whatsapp_status") or "pending").strip().lower(),
                 "receipt_whatsapp_error": row.get("receipt_whatsapp_error") or "",
@@ -2275,6 +2562,13 @@ def pos_sales_log_page():
         limit=120,
         receipt_wa_status="failed" if wa_failed_only else "",
     )
+    cash_closing_actor = _fetch_pos_cash_closing_actor(db, selected_warehouse, selected_cashier_user_id)
+    cash_closing_reports = _fetch_pos_cash_closing_reports(
+        db,
+        warehouse_id=selected_warehouse,
+        cashier_user_id=selected_cashier_user_id,
+        limit=8,
+    )
 
     return render_template(
         "pos_sales_log.html",
@@ -2289,7 +2583,189 @@ def pos_sales_log_page():
         date_range=date_range,
         sales_log_rows=sales_log_rows,
         sales_log_summary=_build_pos_sale_log_summary(sales_log_rows, date_range["label"]),
+        cash_closing_actor=cash_closing_actor,
+        cash_closing_reports=cash_closing_reports,
+        cash_closing_default_date=date_cls.today().isoformat(),
+        cash_closing_preview_text=_build_pos_cash_closing_preview_seed(selected_warehouse_name, date_cls.today().isoformat()),
+        cash_closing_return_url=_build_pos_cash_closing_return_url(),
     )
+
+
+@pos_bp.post("/cash-closing/submit")
+def pos_cash_closing_submit():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    warehouse_id = _resolve_pos_warehouse(db, request.form.get("warehouse_id"))
+    warehouse = db.execute(
+        "SELECT name FROM warehouses WHERE id=? LIMIT 1",
+        (warehouse_id,),
+    ).fetchone()
+    warehouse_name = warehouse["name"] if warehouse else f"WH {warehouse_id}"
+    cashier_actor = _fetch_pos_cash_closing_actor(db, warehouse_id, request.form.get("cashier_user_id"))
+    closing_date = _normalize_pos_cash_closing_date(request.form.get("closing_date"))
+    cash_amount = _parse_pos_cash_closing_amount(request.form.get("cash_amount"))
+    debit_amount = _parse_pos_cash_closing_amount(request.form.get("debit_amount"))
+    mb_amount = _parse_pos_cash_closing_amount(request.form.get("mb_amount"))
+    cv_amount = _parse_pos_cash_closing_amount(request.form.get("cv_amount"))
+    expense_amount = _parse_pos_cash_closing_amount(request.form.get("expense_amount"))
+    cash_on_hand_amount = _parse_pos_cash_closing_amount(request.form.get("cash_on_hand_amount"))
+    combined_total_amount = _parse_pos_cash_closing_amount(request.form.get("combined_total_amount"))
+    note = (request.form.get("note") or "").strip()
+    return_url = _sanitize_pos_cash_closing_return_url(request.form.get("return_url"))
+
+    if not any(
+        (
+            cash_amount,
+            debit_amount,
+            mb_amount,
+            cv_amount,
+            expense_amount,
+            cash_on_hand_amount,
+            combined_total_amount,
+        )
+    ):
+        flash("Isi minimal satu nominal sebelum mengirim tutup kasir.", "error")
+        return redirect(f"{return_url}#tutup-kasir")
+
+    reported_total_amount = cash_amount + debit_amount + mb_amount + cv_amount
+    summary_message = _build_pos_cash_closing_summary_message(
+        warehouse_name,
+        closing_date,
+        cash_amount=cash_amount,
+        debit_amount=debit_amount,
+        mb_amount=mb_amount,
+        cv_amount=cv_amount,
+        expense_amount=expense_amount,
+        cash_on_hand_amount=cash_on_hand_amount,
+        combined_total_amount=combined_total_amount,
+        note=note,
+    )
+    warehouse_label = format_receipt_homebase_label(warehouse_name)
+    if warehouse_label == "-":
+        warehouse_label = warehouse_name or "Gudang"
+    submitted_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = (
+        f"Tutup Kasir {warehouse_label} "
+        f"{_format_pos_cash_closing_date_label(closing_date)} | {cashier_actor['display_name']}"
+    )
+
+    cursor = db.execute(
+        """
+        INSERT INTO cash_closing_reports(
+            user_id,
+            employee_id,
+            warehouse_id,
+            closing_date,
+            cash_amount,
+            debit_amount,
+            mb_amount,
+            cv_amount,
+            reported_total_amount,
+            expense_amount,
+            cash_on_hand_amount,
+            combined_total_amount,
+            note,
+            summary_message,
+            wa_status,
+            created_at,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            cashier_actor.get("user_id"),
+            cashier_actor.get("employee_id"),
+            warehouse_id,
+            closing_date,
+            cash_amount,
+            debit_amount,
+            mb_amount,
+            cv_amount,
+            reported_total_amount,
+            expense_amount,
+            cash_on_hand_amount,
+            combined_total_amount,
+            note,
+            summary_message,
+            "pending",
+            submitted_at,
+            submitted_at,
+        ),
+    )
+    report_id = cursor.lastrowid
+    db.commit()
+
+    wa_status = "pending"
+    wa_error = ""
+    delivery_count = 0
+    success_count = 0
+
+    try:
+        wa_result = send_role_based_notification(
+            "attendance.cash_closing",
+            {
+                "roles": ("leader",),
+                "warehouse_id": warehouse_id,
+                "employee_name": cashier_actor["display_name"],
+                "warehouse_name": warehouse_name,
+                "subject": subject,
+                "message": summary_message,
+                "link_url": f"{return_url}#tutup-kasir",
+            },
+        )
+        deliveries = wa_result.get("deliveries") or []
+        delivery_count = len(deliveries)
+        success_count = sum(1 for item in deliveries if item.get("ok"))
+        error_messages = []
+        for item in deliveries:
+            error_text = str(item.get("error") or "").strip()
+            if error_text and error_text not in error_messages:
+                error_messages.append(error_text)
+        wa_error = " | ".join(error_messages)
+        if delivery_count <= 0:
+            wa_status = "skipped"
+        elif success_count >= delivery_count:
+            wa_status = "sent"
+        elif success_count > 0:
+            wa_status = "partial"
+        else:
+            wa_status = "failed"
+    except Exception as exc:
+        wa_status = "failed"
+        wa_error = str(exc).strip()
+
+    db.execute(
+        """
+        UPDATE cash_closing_reports
+        SET wa_status=?,
+            wa_error=?,
+            wa_delivery_count=?,
+            wa_success_count=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            wa_status,
+            wa_error,
+            delivery_count,
+            success_count,
+            report_id,
+        ),
+    )
+    db.commit()
+
+    if wa_status == "sent":
+        flash("Tutup kasir tersimpan dan WA leader berhasil dikirim.", "success")
+    elif wa_status == "partial":
+        flash("Tutup kasir tersimpan, tapi WA leader hanya terkirim sebagian.", "warning")
+    elif wa_status == "failed":
+        flash("Tutup kasir tersimpan, tapi kirim WA leader gagal. Cek nomor atau gateway WA.", "error")
+    else:
+        flash("Tutup kasir tersimpan. Belum ada leader tujuan yang menerima WA untuk gudang ini.", "warning")
+    return redirect(f"{return_url}#tutup-kasir")
 
 
 @pos_bp.get("/receipt/<receipt_no>/print")

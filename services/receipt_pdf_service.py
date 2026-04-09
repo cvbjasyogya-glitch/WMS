@@ -422,7 +422,7 @@ def build_pos_receipt_branding(sale=None):
     footer_note = _resolve_receipt_brand_config(
         "POS_RECEIPT_FOOTER_NOTE",
         brand_key,
-        f"Terima kasih sudah berbelanja di {business_name}.",
+        f"Simpan nota ini untuk klaim garansi dan layanan {business_name}.",
     )
     return_policy = _resolve_receipt_brand_config(
         "POS_RECEIPT_RETURN_POLICY",

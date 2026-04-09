@@ -189,6 +189,25 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "attendance_records", "status_override_at", "TIMESTAMP")
     _ensure_column(cursor, "attendance_records", "note", "TEXT")
     _ensure_column(cursor, "attendance_records", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "cash_closing_reports", "user_id", "INTEGER")
+    _ensure_column(cursor, "cash_closing_reports", "employee_id", "INTEGER")
+    _ensure_column(cursor, "cash_closing_reports", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "cash_closing_reports", "closing_date", "TEXT")
+    _ensure_column(cursor, "cash_closing_reports", "cash_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "debit_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "mb_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "cv_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "reported_total_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "expense_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "cash_on_hand_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "combined_total_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "note", "TEXT")
+    _ensure_column(cursor, "cash_closing_reports", "summary_message", "TEXT")
+    _ensure_column(cursor, "cash_closing_reports", "wa_status", "TEXT DEFAULT 'pending'")
+    _ensure_column(cursor, "cash_closing_reports", "wa_error", "TEXT")
+    _ensure_column(cursor, "cash_closing_reports", "wa_delivery_count", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "wa_success_count", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "schedule_live_entries", "is_checked", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "schedule_live_entries", "checked_by", "INTEGER")
     _ensure_column(cursor, "schedule_live_entries", "checked_at", "TIMESTAMP")
@@ -674,6 +693,35 @@ def init_db(db_path=None, sqlite_options=None):
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(employee_id, attendance_date),
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS cash_closing_reports(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        employee_id INTEGER NOT NULL,
+        warehouse_id INTEGER,
+        closing_date TEXT NOT NULL,
+        cash_amount REAL DEFAULT 0,
+        debit_amount REAL DEFAULT 0,
+        mb_amount REAL DEFAULT 0,
+        cv_amount REAL DEFAULT 0,
+        reported_total_amount REAL DEFAULT 0,
+        expense_amount REAL DEFAULT 0,
+        cash_on_hand_amount REAL DEFAULT 0,
+        combined_total_amount REAL DEFAULT 0,
+        note TEXT,
+        summary_message TEXT,
+        wa_status TEXT DEFAULT 'pending',
+        wa_error TEXT,
+        wa_delivery_count INTEGER DEFAULT 0,
+        wa_success_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
         FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
     )
@@ -1439,6 +1487,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_owner_requests_main ON owner_requests(warehouse_id, status, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_employees_main ON employees(warehouse_id, employment_status, full_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_main ON attendance_records(warehouse_id, attendance_date, status, employee_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_cash_closing_reports_main ON cash_closing_reports(employee_id, closing_date, id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_leave_requests_main ON leave_requests(warehouse_id, start_date, end_date, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_payroll_runs_main ON payroll_runs(warehouse_id, period_year, period_month, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_overtime_usage_main ON overtime_usage_records(warehouse_id, usage_date, employee_id)")

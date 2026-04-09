@@ -709,6 +709,202 @@ def _fetch_attendance_history(db, linked_employee, limit=8):
     return history_items
 
 
+def _normalize_cash_closing_date(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return date_cls.today().isoformat()
+    try:
+        return date_cls.fromisoformat(safe_value).isoformat()
+    except ValueError:
+        return date_cls.today().isoformat()
+
+
+def _parse_cash_closing_amount(value):
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return 0
+    normalized = (
+        raw_value.replace("Rp", "")
+        .replace("rp", "")
+        .replace(".", "")
+        .replace(",", "")
+        .replace(" ", "")
+    )
+    digits = []
+    for index, char in enumerate(normalized):
+        if char.isdigit():
+            digits.append(char)
+        elif char == "-" and index == 0:
+            digits.append(char)
+    try:
+        parsed = int("".join(digits))
+    except ValueError:
+        return 0
+    return max(parsed, 0)
+
+
+def _format_cash_closing_amount(value, zero_label="-"):
+    try:
+        amount = int(round(float(value or 0)))
+    except (TypeError, ValueError):
+        amount = 0
+    amount = max(amount, 0)
+    if amount <= 0:
+        return zero_label
+    return f"{amount:,}".replace(",", ".")
+
+
+def _format_cash_closing_date_label(value):
+    safe_value = _normalize_cash_closing_date(value)
+    try:
+        return date_cls.fromisoformat(safe_value).strftime("%d/%m/%Y")
+    except ValueError:
+        return safe_value
+
+
+def _build_cash_closing_warehouse_label(linked_employee):
+    warehouse_name = str((linked_employee or {}).get("warehouse_name") or "").strip()
+    warehouse_key = warehouse_name.lower()
+    if "mega" in warehouse_key:
+        return "Mega"
+    if "mataram" in warehouse_key:
+        return "Mataram"
+    if warehouse_name.lower().startswith("gudang "):
+        warehouse_name = warehouse_name[7:].strip()
+    return warehouse_name or "Mataram"
+
+
+def _build_cash_closing_summary_line(label, amount, zero_label="-"):
+    return f"{label:<11} = {_format_cash_closing_amount(amount, zero_label=zero_label)}"
+
+
+def _build_cash_closing_summary_message(
+    linked_employee,
+    closing_date,
+    *,
+    cash_amount=0,
+    debit_amount=0,
+    mb_amount=0,
+    cv_amount=0,
+    expense_amount=0,
+    cash_on_hand_amount=0,
+    combined_total_amount=0,
+    note="",
+):
+    warehouse_label = _build_cash_closing_warehouse_label(linked_employee)
+    summary_total_amount = max(
+        int(cash_amount or 0) + int(debit_amount or 0) + int(mb_amount or 0) + int(cv_amount or 0),
+        0,
+    )
+    message_lines = [
+        f'Laporan "{warehouse_label}" {_format_cash_closing_date_label(closing_date)}',
+        "",
+        _build_cash_closing_summary_line("Tunai", cash_amount),
+        _build_cash_closing_summary_line("Debet", debit_amount),
+        _build_cash_closing_summary_line("Mb", mb_amount),
+        _build_cash_closing_summary_line("CV", cv_amount),
+        "------------------------------",
+        _build_cash_closing_summary_line("Tot.", summary_total_amount, zero_label="0"),
+        _build_cash_closing_summary_line("Pengeluaran", expense_amount),
+        _build_cash_closing_summary_line("T.Uang", cash_on_hand_amount),
+        "",
+        f"Total Mataram dan Mega = {_format_cash_closing_amount(combined_total_amount)}",
+    ]
+    safe_note = str(note or "").strip()
+    if safe_note:
+        message_lines.extend(["", f"Catatan: {safe_note}"])
+    message_lines.extend(["", "Alhamdulillah"])
+    return "\n".join(message_lines)
+
+
+def _build_cash_closing_preview_seed(linked_employee, closing_date=None):
+    return _build_cash_closing_summary_message(
+        linked_employee,
+        closing_date or date_cls.today().isoformat(),
+        cash_amount=0,
+        debit_amount=0,
+        mb_amount=0,
+        cv_amount=0,
+        expense_amount=0,
+        cash_on_hand_amount=0,
+        combined_total_amount=0,
+        note="",
+    )
+
+
+def _build_cash_closing_wa_status_meta(status):
+    safe_status = str(status or "").strip().lower()
+    status_map = {
+        "sent": {"label": "WA Terkirim", "badge_class": "green"},
+        "partial": {"label": "WA Sebagian", "badge_class": "orange"},
+        "failed": {"label": "WA Gagal", "badge_class": "red"},
+        "skipped": {"label": "WA Belum Terkirim", "badge_class": ""},
+        "pending": {"label": "WA Pending", "badge_class": ""},
+    }
+    return status_map.get(safe_status, status_map["pending"])
+
+
+def _fetch_cash_closing_reports(db, linked_employee, limit=6):
+    if not linked_employee:
+        return []
+
+    rows = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT
+                id,
+                closing_date,
+                cash_amount,
+                debit_amount,
+                mb_amount,
+                cv_amount,
+                reported_total_amount,
+                expense_amount,
+                cash_on_hand_amount,
+                combined_total_amount,
+                note,
+                summary_message,
+                wa_status,
+                wa_error,
+                wa_delivery_count,
+                wa_success_count,
+                created_at
+            FROM cash_closing_reports
+            WHERE employee_id=?
+            ORDER BY closing_date DESC, id DESC
+            LIMIT ?
+            """,
+            (linked_employee["id"], limit),
+        ).fetchall()
+    ]
+    report_items = []
+    for row in rows:
+        wa_meta = _build_cash_closing_wa_status_meta(row.get("wa_status"))
+        delivery_count = int(row.get("wa_delivery_count") or 0)
+        success_count = int(row.get("wa_success_count") or 0)
+        report_items.append(
+            {
+                "id": row["id"],
+                "closing_date_label": _format_cash_closing_date_label(row.get("closing_date")),
+                "created_at_label": _format_portal_datetime_display(row.get("created_at"), include_date=True),
+                "summary_message": (row.get("summary_message") or "").strip() or _build_cash_closing_preview_seed(
+                    linked_employee,
+                    row.get("closing_date"),
+                ),
+                "note": (row.get("note") or "").strip(),
+                "wa_status": (row.get("wa_status") or "pending").strip().lower() or "pending",
+                "wa_status_label": wa_meta["label"],
+                "wa_status_badge": wa_meta["badge_class"],
+                "wa_error": (row.get("wa_error") or "").strip(),
+                "wa_delivery_count": delivery_count,
+                "wa_success_count": success_count,
+                "summary_total_label": _format_cash_closing_amount(row.get("reported_total_amount"), zero_label="0"),
+            }
+        )
+    return report_items
+
+
 def _resolve_selected_shift(attendance_today, day_logs):
     if attendance_today and attendance_today.get("shift_code"):
         return {
@@ -783,6 +979,7 @@ def _fetch_attendance_portal_state(db):
         shift_options[0] if shift_options else None,
     )
     attendance_history = _fetch_attendance_history(db, linked_employee)
+    cash_closing_reports = _fetch_cash_closing_reports(db, linked_employee)
 
     return {
         "linked_employee": linked_employee,
@@ -810,6 +1007,10 @@ def _fetch_attendance_portal_state(db):
         "location_scope_options": _build_location_scope_options(linked_employee) if linked_employee else [],
         "default_location_scope": _resolve_default_location_scope(linked_employee) if linked_employee else "mataram",
         "attendance_history": attendance_history,
+        "cash_closing_reports": cash_closing_reports,
+        "cash_closing_preview_text": _build_cash_closing_preview_seed(linked_employee, today_date) if linked_employee else "",
+        "cash_closing_default_date": today_date,
+        "cash_closing_warehouse_label": _build_cash_closing_warehouse_label(linked_employee) if linked_employee else "Mataram",
         "show_follow_up_punch_group": len(punch_options) > 1 and punch_mode != "check_in",
     }
 
@@ -846,6 +1047,10 @@ def index():
         portal_location_scope_options=portal_state["location_scope_options"],
         portal_default_location_scope=portal_state["default_location_scope"],
         attendance_history=portal_state["attendance_history"],
+        cash_closing_reports=portal_state["cash_closing_reports"],
+        cash_closing_preview_text=portal_state["cash_closing_preview_text"],
+        cash_closing_default_date=portal_state["cash_closing_default_date"],
+        cash_closing_warehouse_label=portal_state["cash_closing_warehouse_label"],
         portal_show_follow_up_punch_group=portal_state["show_follow_up_punch_group"],
     )
 
@@ -1072,6 +1277,177 @@ def submit():
 
     flash(f"{_get_attendance_punch_label(punch_type)} berhasil direkam.", "success")
     return redirect("/absen/")
+
+
+@attendance_portal_bp.route("/cash-closing/submit", methods=["POST"])
+def submit_cash_closing():
+    db = get_db()
+    linked_employee = _get_self_service_employee(db)
+    if linked_employee is None:
+        flash("Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin.", "error")
+        return redirect("/absen/#tutup-kasir")
+    linked_employee = dict(linked_employee)
+
+    closing_date = _normalize_cash_closing_date(request.form.get("closing_date"))
+    cash_amount = _parse_cash_closing_amount(request.form.get("cash_amount"))
+    debit_amount = _parse_cash_closing_amount(request.form.get("debit_amount"))
+    mb_amount = _parse_cash_closing_amount(request.form.get("mb_amount"))
+    cv_amount = _parse_cash_closing_amount(request.form.get("cv_amount"))
+    expense_amount = _parse_cash_closing_amount(request.form.get("expense_amount"))
+    cash_on_hand_amount = _parse_cash_closing_amount(request.form.get("cash_on_hand_amount"))
+    combined_total_amount = _parse_cash_closing_amount(request.form.get("combined_total_amount"))
+    note = (request.form.get("note") or "").strip()
+
+    if not any(
+        (
+            cash_amount,
+            debit_amount,
+            mb_amount,
+            cv_amount,
+            expense_amount,
+            cash_on_hand_amount,
+            combined_total_amount,
+        )
+    ):
+        flash("Isi minimal satu nominal sebelum mengirim tutup kasir.", "error")
+        return redirect("/absen/#tutup-kasir")
+
+    reported_total_amount = cash_amount + debit_amount + mb_amount + cv_amount
+    summary_message = _build_cash_closing_summary_message(
+        linked_employee,
+        closing_date,
+        cash_amount=cash_amount,
+        debit_amount=debit_amount,
+        mb_amount=mb_amount,
+        cv_amount=cv_amount,
+        expense_amount=expense_amount,
+        cash_on_hand_amount=cash_on_hand_amount,
+        combined_total_amount=combined_total_amount,
+        note=note,
+    )
+    warehouse_label = _build_cash_closing_warehouse_label(linked_employee)
+    employee_label = (linked_employee.get("full_name") or session.get("username") or "Staff").strip()
+    submitted_at = _current_timestamp()
+    submitted_time_label = submitted_at[11:16] if len(submitted_at) >= 16 else datetime.now().strftime("%H:%M")
+    subject = (
+        f"Tutup Kasir {warehouse_label} "
+        f"{_format_cash_closing_date_label(closing_date)} | {employee_label} | {submitted_time_label}"
+    )
+
+    cursor = db.execute(
+        """
+        INSERT INTO cash_closing_reports(
+            user_id,
+            employee_id,
+            warehouse_id,
+            closing_date,
+            cash_amount,
+            debit_amount,
+            mb_amount,
+            cv_amount,
+            reported_total_amount,
+            expense_amount,
+            cash_on_hand_amount,
+            combined_total_amount,
+            note,
+            summary_message,
+            wa_status,
+            created_at,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            session.get("user_id"),
+            linked_employee["id"],
+            linked_employee.get("warehouse_id"),
+            closing_date,
+            cash_amount,
+            debit_amount,
+            mb_amount,
+            cv_amount,
+            reported_total_amount,
+            expense_amount,
+            cash_on_hand_amount,
+            combined_total_amount,
+            note,
+            summary_message,
+            "pending",
+            submitted_at,
+            submitted_at,
+        ),
+    )
+    report_id = cursor.lastrowid
+    db.commit()
+
+    wa_status = "pending"
+    wa_error = ""
+    delivery_count = 0
+    success_count = 0
+
+    try:
+        wa_result = send_role_based_notification(
+            "attendance.cash_closing",
+            {
+                "roles": ("leader",),
+                "warehouse_id": linked_employee.get("warehouse_id"),
+                "employee_name": employee_label,
+                "warehouse_name": linked_employee.get("warehouse_name") or warehouse_label,
+                "subject": subject,
+                "message": summary_message,
+                "link_url": "/absen/#tutup-kasir",
+            },
+        )
+        deliveries = wa_result.get("deliveries") or []
+        delivery_count = len(deliveries)
+        success_count = sum(1 for item in deliveries if item.get("ok"))
+        error_messages = []
+        for item in deliveries:
+            error_text = str(item.get("error") or "").strip()
+            if error_text and error_text not in error_messages:
+                error_messages.append(error_text)
+        wa_error = " | ".join(error_messages)
+        if delivery_count <= 0:
+            wa_status = "skipped"
+        elif success_count >= delivery_count:
+            wa_status = "sent"
+        elif success_count > 0:
+            wa_status = "partial"
+        else:
+            wa_status = "failed"
+    except Exception as exc:
+        wa_status = "failed"
+        wa_error = str(exc).strip()
+
+    db.execute(
+        """
+        UPDATE cash_closing_reports
+        SET wa_status=?,
+            wa_error=?,
+            wa_delivery_count=?,
+            wa_success_count=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            wa_status,
+            wa_error,
+            delivery_count,
+            success_count,
+            report_id,
+        ),
+    )
+    db.commit()
+
+    if wa_status == "sent":
+        flash("Tutup kasir tersimpan dan WA leader berhasil dikirim.", "success")
+    elif wa_status == "partial":
+        flash("Tutup kasir tersimpan, tapi WA leader hanya terkirim sebagian.", "warning")
+    elif wa_status == "failed":
+        flash("Tutup kasir tersimpan, tapi kirim WA leader gagal. Cek nomor atau gateway WA.", "error")
+    else:
+        flash("Tutup kasir tersimpan. Belum ada leader tujuan yang menerima WA untuk gudang ini.", "warning")
+    return redirect("/absen/#tutup-kasir")
 
 
 @attendance_portal_bp.route("/log/<int:biometric_id>/edit", methods=["POST"])

@@ -77,6 +77,120 @@
         </div>
     </div>
 
+    <section
+        id="tutup-kasir"
+        class="form-box attendance-cash-closing-card"
+        data-cash-closing-panel
+        data-cash-closing-warehouse="{{ selected_warehouse_name }}"
+    >
+        <div class="section-title">
+            <div>
+                <h2>Tutup Kasir</h2>
+                <p>Rekap penutupan kasir per gudang langsung dari log penjualan, lalu kirim otomatis ke leader gudang terkait.</p>
+            </div>
+            <div class="attendance-overview-badges">
+                <span class="badge">{{ selected_warehouse_name }}</span>
+                <span class="badge">{{ cash_closing_default_date }}</span>
+            </div>
+        </div>
+
+        <form method="POST" action="/kasir/cash-closing/submit" class="attendance-cash-closing-form">
+            <input type="hidden" name="warehouse_id" value="{{ selected_warehouse }}">
+            <input type="hidden" name="cashier_user_id" value="{{ cash_closing_actor.user_id or '' }}">
+            <input type="hidden" name="return_url" value="{{ cash_closing_return_url }}">
+
+            <div class="attendance-cash-closing-grid">
+                <div class="attendance-cash-closing-fields">
+                    <div class="attendance-form-quick-grid">
+                        <div class="meta-card">
+                            <span>Kasir / Sales</span>
+                            <strong>{{ cash_closing_actor.display_name }}</strong>
+                        </div>
+                        <div class="meta-card">
+                            <span>Gudang</span>
+                            <strong>{{ selected_warehouse_name }}</strong>
+                        </div>
+                    </div>
+
+                    <div class="form-grid">
+                        <div>
+                            <label>Tanggal Tutup Kasir</label>
+                            <input type="date" name="closing_date" value="{{ cash_closing_default_date }}" required>
+                        </div>
+                        <div>
+                            <label>Total Mataram dan Mega</label>
+                            <input type="text" name="combined_total_amount" inputmode="numeric" placeholder="10919760" data-cash-amount autocomplete="off">
+                        </div>
+                        <div>
+                            <label>Tunai</label>
+                            <input type="text" name="cash_amount" inputmode="numeric" placeholder="754000" data-cash-amount autocomplete="off">
+                        </div>
+                        <div>
+                            <label>Debet</label>
+                            <input type="text" name="debit_amount" inputmode="numeric" placeholder="5380000" data-cash-amount autocomplete="off">
+                        </div>
+                        <div>
+                            <label>MB</label>
+                            <input type="text" name="mb_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off">
+                        </div>
+                        <div>
+                            <label>CV</label>
+                            <input type="text" name="cv_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off">
+                        </div>
+                        <div>
+                            <label>Pengeluaran</label>
+                            <input type="text" name="expense_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off">
+                        </div>
+                        <div>
+                            <label>T.Uang</label>
+                            <input type="text" name="cash_on_hand_amount" inputmode="numeric" placeholder="750000" data-cash-amount autocomplete="off">
+                        </div>
+                        <div class="span-full">
+                            <label>Catatan Opsional</label>
+                            <textarea name="note" rows="3" placeholder="Contoh: setoran cocok, ada pengeluaran parkir, atau catatan penutupan kasir lainnya."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="split-actions attendance-submit-row">
+                        <button type="submit">Simpan &amp; Kirim WA Leader</button>
+                    </div>
+                    <small class="helper-text">Preview WA di kanan akan ikut berubah otomatis saat nominal diisi.</small>
+                </div>
+
+                <div class="attendance-cash-closing-preview-panel">
+                    <p class="attendance-cash-closing-preview-label">Preview pesan WA leader</p>
+                    <pre class="attendance-cash-closing-preview" data-cash-closing-preview>{{ cash_closing_preview_text }}</pre>
+                </div>
+            </div>
+        </form>
+
+        <div class="attendance-cash-closing-list">
+            {% if cash_closing_reports %}
+                {% for item in cash_closing_reports %}
+                <article class="attendance-cash-closing-item">
+                    <div class="attendance-cash-closing-item-head">
+                        <div>
+                            <h3>{{ item.cashier_name }} · {{ item.warehouse_label }}</h3>
+                            <p>{{ item.closing_date_label }} · {{ item.cashier_position }}</p>
+                        </div>
+                        <div class="attendance-log-badges">
+                            <span class="badge {{ item.wa_status_badge }}">{{ item.wa_status_label }}</span>
+                            <span class="badge">Tot. {{ item.summary_total_label }}</span>
+                            <span class="badge">{{ item.wa_success_count }}/{{ item.wa_delivery_count }} WA</span>
+                        </div>
+                    </div>
+                    <pre class="attendance-cash-closing-sheet">{{ item.summary_message }}</pre>
+                    {% if item.wa_error %}
+                    <p class="attendance-cash-closing-error">WA: {{ item.wa_error }}</p>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            {% else %}
+            <div class="empty-state">Belum ada riwayat tutup kasir pada filter gudang ini.</div>
+            {% endif %}
+        </div>
+    </section>
+
     <div class="table-box" data-scrollable-table="1" data-pos-sales-log="1">
         <div class="section-title">
             <div>
@@ -176,7 +290,7 @@
                         <div class="helper-text">{{ sale.receipt_whatsapp_error }}</div>
                         {% endif %}
                         <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button">Preview Nota</a>
-                        <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
+                        <a href="{{ sale.receipt_pdf_public_url or sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
                         <button
                             type="button"
                             class="ghost-button"
@@ -313,5 +427,105 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     submitPosReceiptResendFromLog(resendButton);
 });
+
+(() => {
+    const cashClosingPanel = document.querySelector("[data-cash-closing-panel]");
+    if (!cashClosingPanel) {
+        return;
+    }
+
+    const preview = cashClosingPanel.querySelector("[data-cash-closing-preview]");
+    const dateInput = cashClosingPanel.querySelector("[name='closing_date']");
+    const noteInput = cashClosingPanel.querySelector("[name='note']");
+    const amountInputs = Array.from(cashClosingPanel.querySelectorAll("[data-cash-amount]"));
+    const warehouseLabel = String(cashClosingPanel.dataset.cashClosingWarehouse || "Mataram")
+        .replace(/^Gudang\s+/i, "")
+        .trim() || "Mataram";
+
+    const parseAmount = (value) => {
+        const normalized = String(value || "")
+            .replace(/rp/gi, "")
+            .replace(/[.,\s]/g, "")
+            .replace(/[^\d-]/g, "");
+        const parsed = Number.parseInt(normalized, 10);
+        if (!Number.isFinite(parsed)) {
+            return 0;
+        }
+        return Math.max(parsed, 0);
+    };
+
+    const formatAmount = (value, zeroLabel = "-") => {
+        const amount = Math.max(Number(value) || 0, 0);
+        if (amount <= 0) {
+            return zeroLabel;
+        }
+        return new Intl.NumberFormat("id-ID").format(amount).replace(/,/g, ".");
+    };
+
+    const formatInputAmount = (value) => {
+        const amount = parseAmount(value);
+        return amount > 0 ? formatAmount(amount, "0") : "";
+    };
+
+    const formatDateLabel = (value) => {
+        const rawValue = String(value || "").trim();
+        const parts = rawValue.split("-");
+        if (parts.length !== 3) {
+            return rawValue;
+        }
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    };
+
+    const buildLine = (label, amount, zeroLabel = "-") => `${label.padEnd(11, " ")} = ${formatAmount(amount, zeroLabel)}`;
+
+    const renderPreview = () => {
+        if (!preview) {
+            return;
+        }
+        const amounts = {
+            cash: parseAmount(cashClosingPanel.querySelector("[name='cash_amount']")?.value),
+            debit: parseAmount(cashClosingPanel.querySelector("[name='debit_amount']")?.value),
+            mb: parseAmount(cashClosingPanel.querySelector("[name='mb_amount']")?.value),
+            cv: parseAmount(cashClosingPanel.querySelector("[name='cv_amount']")?.value),
+            expense: parseAmount(cashClosingPanel.querySelector("[name='expense_amount']")?.value),
+            cashOnHand: parseAmount(cashClosingPanel.querySelector("[name='cash_on_hand_amount']")?.value),
+            combined: parseAmount(cashClosingPanel.querySelector("[name='combined_total_amount']")?.value),
+        };
+        const totalAmount = amounts.cash + amounts.debit + amounts.mb + amounts.cv;
+        const lines = [
+            `Laporan "${warehouseLabel}" ${formatDateLabel(dateInput?.value)}`,
+            "",
+            buildLine("Tunai", amounts.cash),
+            buildLine("Debet", amounts.debit),
+            buildLine("Mb", amounts.mb),
+            buildLine("CV", amounts.cv),
+            "------------------------------",
+            buildLine("Tot.", totalAmount, "0"),
+            buildLine("Pengeluaran", amounts.expense),
+            buildLine("T.Uang", amounts.cashOnHand),
+            "",
+            `Total Mataram dan Mega = ${formatAmount(amounts.combined)}`,
+        ];
+        const safeNote = String(noteInput?.value || "").trim();
+        if (safeNote) {
+            lines.push("");
+            lines.push(`Catatan: ${safeNote}`);
+        }
+        lines.push("");
+        lines.push("Alhamdulillah");
+        preview.textContent = lines.join("\n");
+    };
+
+    amountInputs.forEach((input) => {
+        input.addEventListener("input", renderPreview);
+        input.addEventListener("blur", () => {
+            input.value = formatInputAmount(input.value);
+            renderPreview();
+        });
+    });
+    dateInput?.addEventListener("input", renderPreview);
+    noteInput?.addEventListener("input", renderPreview);
+    renderPreview();
+})();
 </script>
 {% endblock %}
