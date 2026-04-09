@@ -120,6 +120,41 @@ def _kirimi_config_value(name):
     return str(current_app.config.get(name) or os.getenv(name) or "").strip()
 
 
+def _kirimi_first_config_value(*names, default=""):
+    for name in names:
+        value = _kirimi_config_value(name)
+        if value:
+            return value
+    return str(default or "").strip()
+
+
+def _kirimi_send_endpoints(base_url):
+    safe_base_url = str(base_url or "https://api.kirimi.id").strip().rstrip("/")
+    configured_path = _kirimi_first_config_value(
+        "KIRIMI_SEND_MESSAGE_PATH",
+        "KIRIMI_SEND_PATH",
+        default="/v1/send-message-fast",
+    )
+    fallback_paths = [
+        configured_path,
+        "/v1/send-message-fast",
+        "/v1/send-message",
+    ]
+    endpoints = []
+    for candidate in fallback_paths:
+        safe_candidate = str(candidate or "").strip()
+        if not safe_candidate:
+            continue
+        if safe_candidate.startswith(("http://", "https://")):
+            endpoint_url = safe_candidate.rstrip("/")
+        else:
+            normalized_path = f"/{safe_candidate.lstrip('/')}"
+            endpoint_url = f"{safe_base_url}{normalized_path}"
+        if endpoint_url not in endpoints:
+            endpoints.append(endpoint_url)
+    return endpoints
+
+
 def _kirimi_warehouse_aliases(*, warehouse_id=None, warehouse_name=None):
     aliases = []
 
@@ -201,70 +236,90 @@ def _send_via_kirimi(receiver, message, *, media_url=None, warehouse_id=None, wa
     if media_url:
         payload["media_url"] = str(media_url).strip()
 
-    try:
-        response = http_requests.post(
-            f"{credentials['base_url']}/v1/send-message",
-            json=payload,
-            timeout=credentials["timeout"],
-        )
-    except Exception as exc:
-        return {
-            "ok": False,
-            "provider": "kirimi",
-            "receiver": receiver,
-            "error": f"kirimi_request_error: {exc}",
-        }
+    last_failure = None
+    endpoint_urls = _kirimi_send_endpoints(credentials["base_url"])
 
-    raw_payload = None
-    try:
-        raw_payload = response.json()
-    except ValueError:
+    for endpoint_url in endpoint_urls:
+        try:
+            response = http_requests.post(
+                endpoint_url,
+                json=payload,
+                timeout=credentials["timeout"],
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "provider": "kirimi",
+                "receiver": receiver,
+                "endpoint_url": endpoint_url,
+                "error": f"kirimi_request_error: {exc}",
+            }
+
         raw_payload = None
+        try:
+            raw_payload = response.json()
+        except ValueError:
+            raw_payload = None
 
-    if not getattr(response, "ok", False):
+        if not getattr(response, "ok", False):
+            failure = {
+                "ok": False,
+                "provider": "kirimi",
+                "receiver": receiver,
+                "endpoint_url": endpoint_url,
+                "status_code": getattr(response, "status_code", None),
+                "response": raw_payload,
+                "error": f"kirimi_http_{getattr(response, 'status_code', 'error')}",
+            }
+            last_failure = failure
+            if getattr(response, "status_code", None) == 404:
+                continue
+            return failure
+
+        if isinstance(raw_payload, dict):
+            success_flag = raw_payload.get("success")
+            status_value = raw_payload.get("status")
+            if success_flag is False:
+                return {
+                    "ok": False,
+                    "provider": "kirimi",
+                    "receiver": receiver,
+                    "endpoint_url": endpoint_url,
+                    "status_code": getattr(response, "status_code", None),
+                    "response": raw_payload,
+                    "error": str(raw_payload.get("message") or "kirimi_send_failed"),
+                }
+            normalized_status = str(status_value or "").strip().lower()
+            if normalized_status in {"failed", "error", "false", "0"}:
+                return {
+                    "ok": False,
+                    "provider": "kirimi",
+                    "receiver": receiver,
+                    "endpoint_url": endpoint_url,
+                    "status_code": getattr(response, "status_code", None),
+                    "response": raw_payload,
+                    "error": str(raw_payload.get("message") or normalized_status or "kirimi_send_failed"),
+                }
+
         return {
-            "ok": False,
+            "ok": True,
             "provider": "kirimi",
             "receiver": receiver,
+            "endpoint_url": endpoint_url,
             "status_code": getattr(response, "status_code", None),
             "response": raw_payload,
-            "error": f"kirimi_http_{getattr(response, 'status_code', 'error')}",
+            "message_id": (
+                (raw_payload.get("message_id") if isinstance(raw_payload, dict) else None)
+                or ((raw_payload.get("data") or {}).get("id") if isinstance(raw_payload, dict) and isinstance(raw_payload.get("data"), dict) else None)
+            ),
+            "error": "",
         }
 
-    if isinstance(raw_payload, dict):
-        success_flag = raw_payload.get("success")
-        status_value = raw_payload.get("status")
-        if success_flag is False:
-            return {
-                "ok": False,
-                "provider": "kirimi",
-                "receiver": receiver,
-                "status_code": getattr(response, "status_code", None),
-                "response": raw_payload,
-                "error": str(raw_payload.get("message") or "kirimi_send_failed"),
-            }
-        normalized_status = str(status_value or "").strip().lower()
-        if normalized_status in {"failed", "error", "false", "0"}:
-            return {
-                "ok": False,
-                "provider": "kirimi",
-                "receiver": receiver,
-                "status_code": getattr(response, "status_code", None),
-                "response": raw_payload,
-                "error": str(raw_payload.get("message") or normalized_status or "kirimi_send_failed"),
-            }
-
-    return {
-        "ok": True,
+    return last_failure or {
+        "ok": False,
         "provider": "kirimi",
         "receiver": receiver,
-        "status_code": getattr(response, "status_code", None),
-        "response": raw_payload,
-        "message_id": (
-            (raw_payload.get("message_id") if isinstance(raw_payload, dict) else None)
-            or ((raw_payload.get("data") or {}).get("id") if isinstance(raw_payload, dict) and isinstance(raw_payload.get("data"), dict) else None)
-        ),
-        "error": "",
+        "error": "kirimi_http_404",
     }
 
 

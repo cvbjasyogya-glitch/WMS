@@ -1767,6 +1767,92 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(mega_payload["device_id"], "D-6QPE2")
         self.assertEqual(mega_payload["receiver"], "6281230004444")
 
+    def test_send_whatsapp_document_defaults_to_send_message_fast_endpoint(self):
+        self.app.config.update(
+            KIRIMI_BASE_URL="https://api.kirimi.id",
+            KIRIMI_USER_CODE="kirimi-global-user",
+            KIRIMI_SECRET="kirimi-global-secret",
+            KIRIMI_DEVICE_ID="D-GLOBAL",
+        )
+
+        class DummyKirimiResponse:
+            ok = True
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"success": True, "message_id": "MSG-FAST-001"}
+
+        mock_http = Mock()
+        mock_http.post.return_value = DummyKirimiResponse()
+
+        with self.app.app_context(), patch.object(whatsapp_service, "http_requests", mock_http):
+            result = whatsapp_service.send_whatsapp_document(
+                "081230003333",
+                "Halo Fast",
+                "https://erp.test/static/test-pos-receipts/fast.pdf",
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_http.post.call_count, 1)
+        self.assertEqual(
+            mock_http.post.call_args.kwargs["json"]["device_id"],
+            "D-GLOBAL",
+        )
+        self.assertEqual(
+            mock_http.post.call_args.args[0],
+            "https://api.kirimi.id/v1/send-message-fast",
+        )
+
+    def test_send_whatsapp_document_retries_legacy_endpoint_after_404(self):
+        self.app.config.update(
+            KIRIMI_BASE_URL="https://api.kirimi.id",
+            KIRIMI_USER_CODE="kirimi-global-user",
+            KIRIMI_SECRET="kirimi-global-secret",
+            KIRIMI_DEVICE_ID="D-GLOBAL",
+            KIRIMI_SEND_MESSAGE_PATH="/v1/send-message-fast",
+        )
+
+        class MissingEndpointResponse:
+            ok = False
+            status_code = 404
+
+            @staticmethod
+            def json():
+                return {"success": False, "message": "not found"}
+
+        class LegacyEndpointResponse:
+            ok = True
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"success": True, "message_id": "MSG-LEGACY-001"}
+
+        mock_http = Mock()
+        mock_http.post.side_effect = [
+            MissingEndpointResponse(),
+            LegacyEndpointResponse(),
+        ]
+
+        with self.app.app_context(), patch.object(whatsapp_service, "http_requests", mock_http):
+            result = whatsapp_service.send_whatsapp_document(
+                "081230003333",
+                "Halo Legacy",
+                "https://erp.test/static/test-pos-receipts/legacy.pdf",
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_http.post.call_count, 2)
+        self.assertEqual(
+            mock_http.post.call_args_list[0].args[0],
+            "https://api.kirimi.id/v1/send-message-fast",
+        )
+        self.assertEqual(
+            mock_http.post.call_args_list[1].args[0],
+            "https://api.kirimi.id/v1/send-message",
+        )
+
     def test_pos_checkout_receipt_whatsapp_includes_purchase_points_summary(self):
         self.create_user("staff_sales_loyalty_wa", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_loyalty_wa")

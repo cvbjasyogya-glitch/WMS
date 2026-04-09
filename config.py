@@ -230,6 +230,11 @@ class Config:
     KIRIMI_USER_CODE_MEGA = _first_env_value("KIRIMI_USER_CODE_MEGA")
     KIRIMI_DEVICE_ID_MEGA = _first_env_value("KIRIMI_DEVICE_ID_MEGA")
     KIRIMI_SECRET_MEGA = _first_env_value("KIRIMI_SECRET_MEGA")
+    KIRIMI_SEND_MESSAGE_PATH = _first_env_value(
+        "KIRIMI_SEND_MESSAGE_PATH",
+        "KIRIMI_SEND_PATH",
+        default="/v1/send-message-fast",
+    )
     KIRIMI_TIMEOUT_SECONDS = _int_env("KIRIMI_TIMEOUT_SECONDS", 15)
     CHAT_WEBRTC_ICE_SERVERS = [
         {
