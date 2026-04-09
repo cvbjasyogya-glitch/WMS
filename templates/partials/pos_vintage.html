@@ -144,6 +144,8 @@
                                     placeholder="Cari nama, no HP, atau kode member"
                                     spellcheck="false"
                                     autocomplete="off"
+                                    autocapitalize="off"
+                                    enterkeyhint="search"
                                 >
                                 <select id="posCustomerId">
                                     <option value="">UMUM / walk-in</option>
@@ -174,6 +176,8 @@
                                     placeholder="Cari kasir atau sales"
                                     spellcheck="false"
                                     autocomplete="off"
+                                    autocapitalize="off"
+                                    enterkeyhint="search"
                                 >
                                 <select id="posCashierUserId">
                                     {% for staff in pos_staff_options %}
@@ -240,11 +244,15 @@
                                     id="posQuickSearch"
                                     placeholder="Contoh: shuttlecock yonex, powerspin, atau bedpppowerspin"
                                     spellcheck="false"
+                                    autocomplete="off"
+                                    autocapitalize="off"
+                                    enterkeyhint="search"
+                                    aria-controls="posQuickSearchResults"
                                 >
                                 <button type="submit" class="pos-vintage-button is-primary">Cari Cepat</button>
                             </div>
                         </form>
-                        <div class="pos-ipos-quicksearch-results" id="posQuickSearchResults" hidden></div>
+                        <div class="pos-ipos-quicksearch-results" id="posQuickSearchResults" hidden role="listbox" aria-live="polite"></div>
                     </div>
                 </section>
 
@@ -358,7 +366,7 @@
                     </div>
 
                     <div class="pos-ipos-shortcuts" id="posPaidQuickActions">
-                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="exact">Uang Pas</button>
+                        <button type="button" class="pos-vintage-mini pos-ipos-shortcut-exact" data-pos-paid-shortcut="exact">Uang Pas</button>
                         <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="10000">+10rb</button>
                         <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="20000">+20rb</button>
                         <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="50000">+50rb</button>
@@ -387,7 +395,7 @@
 
                 <div class="pos-ipos-pickerbrowsertools">
                     <form class="pos-catalog-search pos-ipos-search" id="posCatalogSearchForm">
-                        <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, kategori, atau gabungan kata">
+                        <input type="search" id="posCatalogSearch" placeholder="Cari kode item, nama barang, warna, GTIN, kategori, atau gabungan kata" spellcheck="false" autocomplete="off" autocapitalize="off" enterkeyhint="search">
                         <button type="submit" class="pos-vintage-button is-primary">Cari</button>
                     </form>
                 </div>

@@ -1,9 +1,14 @@
+import base64
+import mimetypes
 import os
+from pathlib import Path
 import re
+import shutil
+import subprocess
 import textwrap
 from uuid import uuid4
 
-from flask import current_app, has_request_context, request
+from flask import current_app, has_request_context, render_template, request
 
 
 _POS_RECEIPT_BRANDS = {
@@ -107,11 +112,251 @@ def build_pos_receipt_pdf_public_url(file_name):
     return build_public_file_url(f"{get_pos_receipt_pdf_url_prefix()}/{safe_name}")
 
 
+def _normalize_receipt_layout(value, default="a4"):
+    normalized = str(value or "").strip().lower()
+    if normalized == "thermal":
+        return "thermal"
+    default_value = str(default or "a4").strip().lower()
+    return "thermal" if default_value == "thermal" else "a4"
+
+
+def _normalize_receipt_copy(value, default="customer"):
+    normalized = str(value or "").strip().lower()
+    if normalized == "store":
+        return "store"
+    default_value = str(default or "customer").strip().lower()
+    return "store" if default_value == "store" else "customer"
+
+
+def _encode_asset_as_data_uri(path):
+    safe_path = str(path or "").strip()
+    if not safe_path or not os.path.exists(safe_path):
+        return ""
+    mime_type, _ = mimetypes.guess_type(safe_path)
+    safe_mime = mime_type or "application/octet-stream"
+    with open(safe_path, "rb") as file_handle:
+        encoded = base64.b64encode(file_handle.read()).decode("ascii")
+    return f"data:{safe_mime};base64,{encoded}"
+
+
+def _resolve_receipt_brand_html_assets(receipt_brand):
+    brand = dict(receipt_brand or {})
+    logo_pdf_path = str(brand.get("logo_pdf_path") or "").strip()
+    if logo_pdf_path:
+        embedded_logo = _encode_asset_as_data_uri(logo_pdf_path)
+        if embedded_logo:
+            brand["logo_url"] = embedded_logo
+
+    social_qr_value = str(brand.get("social_qr_image_url") or "").strip()
+    if social_qr_value and not social_qr_value.startswith(("data:", "http://", "https://")):
+        local_candidate = social_qr_value
+        if social_qr_value.startswith("/"):
+            local_candidate = os.path.join(current_app.root_path, social_qr_value.lstrip("/\\").replace("/", os.sep))
+        embedded_qr = _encode_asset_as_data_uri(local_candidate)
+        if embedded_qr:
+            brand["social_qr_image_url"] = embedded_qr
+    return brand
+
+
+def build_pos_receipt_render_context(
+    sale=None,
+    *,
+    receipt_layout="a4",
+    receipt_copy="customer",
+    receipt_followup_copy="",
+    auto_print=False,
+    auto_close=False,
+    pdf_mode=False,
+    embed_assets=False,
+):
+    safe_sale = dict(sale or {})
+    receipt_brand = dict(safe_sale.get("receipt_brand") or build_pos_receipt_branding(safe_sale))
+    if embed_assets:
+        receipt_brand = _resolve_receipt_brand_html_assets(receipt_brand)
+
+    default_store_name = str(current_app.config.get("STORE_NAME") or "CV BERKAH JAYA ABADI SPORTS").strip()
+    store_name = str(receipt_brand.get("business_name") or default_store_name).strip()
+    store_phone = str(receipt_brand.get("customer_service_phone") or current_app.config.get("STORE_PHONE") or "").strip()
+    normalized_receipt_layout = _normalize_receipt_layout(receipt_layout, default="a4")
+    normalized_receipt_copy = _normalize_receipt_copy(receipt_copy, default="customer")
+    normalized_followup_copy = ""
+    requested_followup_copy = str(receipt_followup_copy or "").strip().lower()
+    if normalized_receipt_layout == "thermal" and requested_followup_copy in {"customer", "store"}:
+        normalized_followup_copy = _normalize_receipt_copy(requested_followup_copy, default="customer")
+        if normalized_followup_copy == normalized_receipt_copy:
+            normalized_followup_copy = ""
+
+    return {
+        "sale": safe_sale,
+        "receipt_brand": receipt_brand,
+        "store_name": store_name,
+        "store_phone": store_phone,
+        "receipt_layout": normalized_receipt_layout,
+        "receipt_copy": normalized_receipt_copy,
+        "receipt_copy_label": "Copy Toko" if normalized_receipt_copy == "store" else "Copy Customer",
+        "receipt_followup_copy": normalized_followup_copy,
+        "auto_print": bool(auto_print),
+        "auto_close": bool(auto_close),
+        "pdf_mode": bool(pdf_mode),
+    }
+
+
+def _find_pos_receipt_pdf_browser():
+    configured_browser = str(
+        current_app.config.get("POS_RECEIPT_PDF_BROWSER")
+        or os.getenv("POS_RECEIPT_PDF_BROWSER")
+        or ""
+    ).strip()
+    candidates = []
+    if configured_browser:
+        candidates.append(configured_browser)
+
+    for executable_name in (
+        "msedge",
+        "microsoft-edge",
+        "google-chrome",
+        "chrome",
+        "chromium-browser",
+        "chromium",
+    ):
+        detected = shutil.which(executable_name)
+        if detected:
+            candidates.append(detected)
+
+    for env_name, relative_path in (
+        ("ProgramFiles(x86)", os.path.join("Microsoft", "Edge", "Application", "msedge.exe")),
+        ("ProgramFiles", os.path.join("Microsoft", "Edge", "Application", "msedge.exe")),
+        ("ProgramFiles(x86)", os.path.join("Google", "Chrome", "Application", "chrome.exe")),
+        ("ProgramFiles", os.path.join("Google", "Chrome", "Application", "chrome.exe")),
+    ):
+        base_path = str(os.getenv(env_name) or "").strip()
+        if not base_path:
+            continue
+        candidates.append(os.path.join(base_path, relative_path))
+
+    seen_paths = set()
+    for candidate in candidates:
+        safe_candidate = str(candidate or "").strip().strip('"')
+        if not safe_candidate or safe_candidate in seen_paths:
+            continue
+        seen_paths.add(safe_candidate)
+        resolved = shutil.which(safe_candidate)
+        if resolved:
+            return resolved
+        if os.path.exists(safe_candidate):
+            return safe_candidate
+    return ""
+
+
+def _render_pos_receipt_pdf_via_browser(sale, absolute_path):
+    browser_executable = _find_pos_receipt_pdf_browser()
+    if not browser_executable:
+        return False, "browser_not_found"
+
+    renderer_layout = _normalize_receipt_layout(
+        current_app.config.get("POS_RECEIPT_PDF_LAYOUT") or os.getenv("POS_RECEIPT_PDF_LAYOUT") or "a4",
+        default="a4",
+    )
+    browser_timeout = max(
+        10,
+        int(
+            current_app.config.get("POS_RECEIPT_PDF_BROWSER_TIMEOUT_SECONDS")
+            or os.getenv("POS_RECEIPT_PDF_BROWSER_TIMEOUT_SECONDS")
+            or 25
+        ),
+    )
+    public_base_url = _resolve_public_base_url() or "http://localhost"
+    if not public_base_url.endswith("/"):
+        public_base_url = f"{public_base_url}/"
+
+    with current_app.test_request_context("/kasir/receipt/__pdf__", base_url=public_base_url):
+        html_payload = render_template(
+            "pos_receipt_print.html",
+            **build_pos_receipt_render_context(
+                sale,
+                receipt_layout=renderer_layout,
+                auto_print=False,
+                auto_close=False,
+                pdf_mode=True,
+                embed_assets=True,
+            ),
+        )
+
+    last_error = "browser_render_failed"
+    temp_root = get_pos_receipt_pdf_folder()
+    temp_dir = os.path.join(temp_root, f".tmp-html-render-{uuid4().hex}")
+    os.makedirs(temp_dir, exist_ok=True)
+    try:
+        html_path = os.path.join(temp_dir, "receipt.html")
+        with open(html_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(html_payload)
+
+        html_uri = Path(html_path).resolve().as_uri()
+        command_variants = (
+            ["--print-to-pdf-no-header"],
+            ["--no-pdf-header-footer"],
+            [],
+        )
+        for extra_flags in command_variants:
+            if os.path.exists(absolute_path):
+                os.remove(absolute_path)
+            command = [
+                browser_executable,
+                "--headless",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                f"--print-to-pdf={absolute_path}",
+                *extra_flags,
+                html_uri,
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=browser_timeout,
+                    check=False,
+                )
+            except Exception as exc:
+                last_error = f"browser_render_error: {exc}"
+                continue
+
+            if completed.returncode == 0 and os.path.exists(absolute_path) and os.path.getsize(absolute_path) > 0:
+                return True, ""
+
+            stderr = str(completed.stderr or "").strip()
+            stdout = str(completed.stdout or "").strip()
+            last_error = stderr or stdout or f"browser_exit_{completed.returncode}"
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return False, last_error
+
+
 def _wrap_receipt_line(value, width=74):
     text = _normalize_ascii_text(value)
     if not text:
         return [""]
     return textwrap.wrap(text, width=width, break_long_words=False, break_on_hyphens=False) or [text]
+
+
+def _append_receipt_label_lines(lines, label, value, width=68, label_width=9):
+    safe_lines = lines if isinstance(lines, list) else []
+    prefix = f"{str(label or '').strip():<{label_width}}: "
+    wrapped = _wrap_receipt_line(value, width=max(12, width - len(prefix)))
+    for index, part in enumerate(wrapped):
+        safe_lines.append(f"{prefix if index == 0 else ' ' * len(prefix)}{part}")
+    return safe_lines
+
+
+def _append_receipt_prefixed_lines(lines, prefix, value, width=68):
+    safe_lines = lines if isinstance(lines, list) else []
+    safe_prefix = str(prefix or "")
+    wrapped = _wrap_receipt_line(value, width=max(12, width - len(safe_prefix)))
+    for index, part in enumerate(wrapped):
+        safe_lines.append(f"{safe_prefix if index == 0 else ' ' * len(safe_prefix)}{part}")
+    return safe_lines
 
 
 def format_receipt_homebase_label(warehouse_name):
@@ -324,21 +569,39 @@ def _build_receipt_lines(sale):
     customer_service_phone = branding.get("customer_service_phone") or sale.get("store_phone") or current_app.config.get("STORE_PHONE") or ""
     footer_note = branding.get("footer_note") or f"Terima kasih sudah berbelanja di {branding.get('business_name') or 'ERP Core POS'}."
     separator = "-" * 68
-    lines = [
-        f"Receipt  : {_normalize_ascii_text(sale.get('receipt_no') or '-')}",
-        f"Tanggal  : {_normalize_ascii_text(sale.get('created_datetime_label') or sale.get('sale_date') or '-')}",
-        *( [f"Alamat   : {_normalize_ascii_text(business_address)}"] if business_address else [] ),
-        f"Kasir    : {_normalize_ascii_text(sale.get('cashier_receipt_label') or sale.get('cashier_username') or sale.get('cashier_name') or '-')}",
-        f"Customer : {_normalize_ascii_text(sale.get('customer_name') or 'Walk-in Customer')}",
-        f"WhatsApp : {_normalize_ascii_text(sale.get('customer_phone_label') or sale.get('customer_phone') or '-')}",
+    lines = []
+    _append_receipt_label_lines(lines, "Receipt", sale.get("receipt_no") or "-", width=68)
+    _append_receipt_label_lines(
+        lines,
+        "Tanggal",
+        sale.get("created_datetime_label") or sale.get("sale_date") or "-",
+        width=68,
+    )
+    if business_address:
+        _append_receipt_label_lines(lines, "Alamat", business_address, width=68)
+    _append_receipt_label_lines(
+        lines,
+        "Kasir",
+        sale.get("cashier_receipt_label") or sale.get("cashier_username") or sale.get("cashier_name") or "-",
+        width=68,
+    )
+    _append_receipt_label_lines(lines, "Customer", sale.get("customer_name") or "Walk-in Customer", width=68)
+    _append_receipt_label_lines(
+        lines,
+        "WhatsApp",
+        sale.get("customer_phone_label") or sale.get("customer_phone") or "-",
+        width=68,
+    )
+    _append_receipt_label_lines(
+        lines,
+        "Bayar",
         (
-            f"Bayar    : {_normalize_ascii_text(sale.get('payment_method_label') or sale.get('payment_method') or 'CASH')}"
-            f" | Status {_normalize_ascii_text(sale.get('status_label') or sale.get('status') or 'POSTED')}"
+            f"{sale.get('payment_method_label') or sale.get('payment_method') or 'CASH'}"
+            f" | Status {sale.get('status_label') or sale.get('status') or 'POSTED'}"
         ),
-        separator,
-        "ITEM",
-        separator,
-    ]
+        width=68,
+    )
+    lines.extend([separator, "ITEM", separator])
 
     for index, item in enumerate(sale.get("items") or [], start=1):
         product_name = item.get("product_name") or "Produk"
@@ -389,15 +652,12 @@ def _build_receipt_lines(sale):
 
     if sale.get("note"):
         lines.append(separator)
-        lines.extend(_wrap_receipt_line(f"Catatan : {sale.get('note')}", width=66))
+        _append_receipt_label_lines(lines, "Catatan", sale.get("note"), width=68)
 
-    lines.extend(
-        [
-            separator,
-            *( [f"Customer Service: {_normalize_ascii_text(customer_service_phone)}"] if customer_service_phone else [] ),
-            _normalize_ascii_text(footer_note),
-        ]
-    )
+    lines.append(separator)
+    if customer_service_phone:
+        _append_receipt_prefixed_lines(lines, "Customer Service: ", customer_service_phone, width=68)
+    _append_receipt_prefixed_lines(lines, "", footer_note, width=68)
     return lines
 
 
@@ -557,6 +817,27 @@ def generate_pos_receipt_pdf(sale):
     file_name = f"receipt-{safe_receipt}-{uuid4().hex[:8]}.pdf"
     folder = get_pos_receipt_pdf_folder()
     absolute_path = os.path.join(folder, file_name)
+    renderer_mode = str(
+        current_app.config.get("POS_RECEIPT_PDF_RENDERER")
+        or os.getenv("POS_RECEIPT_PDF_RENDERER")
+        or "auto"
+    ).strip().lower()
+
+    if renderer_mode != "legacy":
+        rendered, render_error = _render_pos_receipt_pdf_via_browser(sale, absolute_path)
+        if rendered:
+            return {
+                "file_name": file_name,
+                "absolute_path": absolute_path,
+                "relative_path": file_name,
+                "public_url": build_pos_receipt_pdf_public_url(file_name),
+                "size_bytes": os.path.getsize(absolute_path),
+            }
+        current_app.logger.warning(
+            "POS receipt HTML PDF render fallback triggered for %s: %s",
+            receipt_no,
+            render_error,
+        )
 
     pdf_bytes = _build_pdf_document(_build_receipt_lines(sale), sale=sale)
     with open(absolute_path, "wb") as file_handle:

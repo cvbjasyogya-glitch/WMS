@@ -6,7 +6,7 @@ import importlib
 from datetime import date as date_cls, datetime, timedelta, timezone
 from io import BytesIO
 from unittest.mock import Mock, patch
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 import zipfile
 
@@ -64,6 +64,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             DOCUMENT_RECORD_SIGNATURE_MAX_BYTES=2 * 1024 * 1024,
             POS_RECEIPT_PDF_FOLDER=self.receipt_pdf_root,
             POS_RECEIPT_PDF_URL_PREFIX="/static/test-pos-receipts",
+            POS_RECEIPT_PDF_RENDERER="legacy",
+            POS_AUTO_PRINT_AFTER_CHECKOUT=False,
             PUBLIC_BASE_URL="https://erp.test",
             SECRET_KEY="test-secret-key",
             LOGIN_THROTTLE_LIMIT=3,
@@ -557,6 +559,32 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('posCashierSearch?.addEventListener("input", () => {', html)
         self.assertIn('id="posCustomerSearchSummary"', html)
 
+    def test_pos_page_includes_hardened_search_helpers_and_exact_cash_shortcut(self):
+        self.login_pos_user("owner_pos_search_hardened", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("let posCatalogRequestId = 0;", html)
+        self.assertIn("let posQuickSearchActiveIndex = -1;", html)
+        self.assertIn("function syncPosCustomerSelectionState()", html)
+        self.assertIn("function setPosQuickSearchActiveIndex(index, options = {})", html)
+        self.assertIn("function isPosSearchForwardKey(event)", html)
+        self.assertIn("function forwardPosSelectKeyToSearch(event, searchInput, filterFn)", html)
+        self.assertIn('posQuickSearch?.addEventListener("keydown", (event) => {', html)
+        self.assertIn('posCatalogSearch?.addEventListener("keydown", (event) => {', html)
+        self.assertIn('posCustomerId?.addEventListener("keydown", (event) => {', html)
+        self.assertIn('posCashierUserId?.addEventListener("keydown", (event) => {', html)
+        self.assertIn('class="pos-vintage-mini pos-ipos-shortcut-exact" data-pos-paid-shortcut="exact"', html)
+
+        css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
+        with open(css_path, "r", encoding="utf-8") as css_file:
+            css_text = css_file.read()
+
+        self.assertIn(".pos-ipos-shortcuts .pos-ipos-shortcut-exact", css_text)
+        self.assertIn(".pos-ipos-quicksearch-result.is-active", css_text)
+
     def test_pos_page_keeps_catalog_picker_centered_with_body_lock(self):
         self.login_pos_user("owner_pos_catalog_modal", "owner")
 
@@ -969,6 +997,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("receipt_no", payload)
         self.assertIn("receipt_print_url", payload)
         self.assertIn("layout=thermal", payload["receipt_print_url"])
+        self.assertIn("autoclose=1", payload["receipt_print_url"])
 
         with self.app.app_context():
             db = get_db()
@@ -1358,7 +1387,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         mocked_document.assert_called_once()
         mocked_text.assert_called_once()
         fallback_message = mocked_text.call_args.args[1]
-        self.assertIn("Jika PDF belum terlampir otomatis", fallback_message)
+        self.assertIn("Jika file PDF belum muncul otomatis", fallback_message)
         self.assertIn(payload["receipt_pdf_public_url"], fallback_message)
         self.assertIn(f"/kasir/receipt/{payload['receipt_no']}/print", fallback_message)
 
@@ -1538,18 +1567,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(checkout.status_code, 200)
         payload = checkout.get_json()
         self.assertIn("layout=thermal", payload["receipt_print_url"])
+        self.assertIn("copy=customer", payload["receipt_print_url"])
+        self.assertIn("followup_copy=store", payload["receipt_print_url"])
+        self.assertIn("autoclose=1", payload["receipt_print_url"])
 
         thermal_response = self.client.get(payload["receipt_print_url"])
         self.assertEqual(thermal_response.status_code, 200)
         thermal_html = thermal_response.get_data(as_text=True)
         self.assertIn('class="thermal-layout"', thermal_html)
+        self.assertIn("Copy Customer", thermal_html)
         self.assertIn("Cetak Nota", thermal_html)
         self.assertIn("Grand Total", thermal_html)
         self.assertIn("Barang yang telah dibayarkan tidak dapat dikembalikan", thermal_html)
         self.assertIn("Terimakasih atas kunjungan anda", thermal_html)
         self.assertIn("Kritik &amp; Saran : 0898-2664-2000", thermal_html)
         self.assertIn("Social Media Kami di:", thermal_html)
+        self.assertIn("window.location.replace", thermal_html)
+        self.assertIn("window.close()", thermal_html)
+        self.assertIn("--thermal-printable-width: 72mm", thermal_html)
         self.assertIn("https://instagram.com/mataramsports", thermal_html)
+
+        store_response = self.client.get(
+            f"/kasir/receipt/{payload['receipt_no']}/print?layout=thermal&copy=store&autoprint=1&autoclose=1"
+        )
+        self.assertEqual(store_response.status_code, 200)
+        store_html = store_response.get_data(as_text=True)
+        self.assertIn("Copy Toko", store_html)
+        self.assertNotIn("Social Media Kami di:", store_html)
+        self.assertNotIn("Terimakasih atas kunjungan anda", store_html)
+        self.assertNotIn("https://instagram.com/mataramsports", store_html)
 
     def test_pos_checkout_receipt_whatsapp_passes_sale_warehouse_to_sender(self):
         self.create_user("staff_sales_mega_receipt", "pass1234", "staff", warehouse_id=2)
@@ -1852,6 +1898,171 @@ class WmsRoutesTestCase(unittest.TestCase):
             mock_http.post.call_args_list[1].args[0],
             "https://api.kirimi.id/v1/send-message",
         )
+
+    def test_generate_pos_receipt_pdf_can_render_using_html_receipt_template(self):
+        self.app.config.update(
+            POS_RECEIPT_PDF_RENDERER="html",
+            POS_RECEIPT_PDF_BROWSER="/mock/browser",
+        )
+
+        sale = {
+            "id": 77,
+            "receipt_no": "POS-HTML-20260409-0001",
+            "warehouse_id": 1,
+            "warehouse_name": "Gudang Mataram",
+            "sale_date": "2026-04-09",
+            "created_time_label": "01:51",
+            "created_datetime_label": "2026-04-09 01:51",
+            "customer_name": "Antonio",
+            "customer_phone": "62895383313591",
+            "customer_phone_label": "62895383313591",
+            "cashier_receipt_label": "Rio",
+            "payment_method": "cash",
+            "payment_method_label": "CASH",
+            "status": "posted",
+            "status_label": "POSTED",
+            "total_items": 1,
+            "subtotal_amount": 80000,
+            "subtotal_amount_label": "Rp 80.000",
+            "discount_amount": 0,
+            "discount_amount_label": "Rp 0",
+            "tax_amount": 0,
+            "tax_amount_label": "Rp 0",
+            "total_amount": 80000,
+            "total_amount_label": "Rp 80.000",
+            "paid_amount": 80000,
+            "paid_amount_label": "Rp 80.000",
+            "change_amount": 0,
+            "change_amount_label": "Rp 0",
+            "has_loyalty_summary": False,
+            "loyalty_summary_lines": [],
+            "loyalty_summary_title": "Update CRM Customer",
+            "note": "Terima kasih sudah berbelanja. Simpan nota ini sebagai bukti pembelian.",
+            "items": [
+                {
+                    "product_name": "ISO 66 TITANIUM",
+                    "variant_name": "SILVER",
+                    "sku": "S/B-HQ-001",
+                    "qty": 1,
+                    "active_qty": 1,
+                    "unit_price_label": "Rp 80.000",
+                    "active_line_total_label": "Rp 80.000",
+                    "void_qty": 0,
+                    "void_amount_label": "Rp 0",
+                }
+            ],
+        }
+
+        inspected_html = {}
+
+        def fake_browser_run(command, capture_output, text, timeout, check):
+            pdf_arg = next(argument for argument in command if argument.startswith("--print-to-pdf="))
+            pdf_path = pdf_arg.split("=", 1)[1]
+            html_uri = command[-1]
+            html_path = unquote(urlsplit(html_uri).path)
+            if os.name == "nt" and html_path.startswith("/") and len(html_path) > 3 and html_path[2] == ":":
+                html_path = html_path.lstrip("/")
+            with open(html_path, "r", encoding="utf-8") as file_handle:
+                inspected_html["payload"] = file_handle.read()
+            with open(pdf_path, "wb") as file_handle:
+                file_handle.write(b"%PDF-1.4\n%HTML render test\n")
+            return Mock(returncode=0, stdout="", stderr="")
+
+        with self.app.app_context(), patch.object(
+            receipt_pdf_service,
+            "_find_pos_receipt_pdf_browser",
+            return_value="/mock/browser",
+        ), patch.object(receipt_pdf_service.subprocess, "run", side_effect=fake_browser_run):
+            pdf_meta = receipt_pdf_service.generate_pos_receipt_pdf(sale)
+
+        self.assertTrue(os.path.exists(pdf_meta["absolute_path"]))
+        with open(pdf_meta["absolute_path"], "rb") as file_handle:
+            pdf_bytes = file_handle.read()
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
+        self.assertIn("receipt-paper", inspected_html["payload"])
+        self.assertIn("POS-HTML-20260409-0001", inspected_html["payload"])
+        self.assertIn("Antonio", inspected_html["payload"])
+        self.assertNotIn("Kembali ke Log", inspected_html["payload"])
+        self.assertNotIn("Simpan sebagai PDF", inspected_html["payload"])
+
+    def test_generate_pos_receipt_pdf_html_renderer_falls_back_to_legacy_pdf(self):
+        self.app.config.update(
+            POS_RECEIPT_PDF_RENDERER="html",
+            POS_RECEIPT_PDF_BROWSER="",
+        )
+
+        sale = {
+            "id": 78,
+            "receipt_no": "POS-HTML-FALLBACK-0001",
+            "warehouse_id": 1,
+            "warehouse_name": "Gudang Mataram",
+            "sale_date": "2026-04-09",
+            "created_time_label": "01:51",
+            "created_datetime_label": "2026-04-09 01:51",
+            "customer_name": "Antonio",
+            "customer_phone": "62895383313591",
+            "customer_phone_label": "62895383313591",
+            "cashier_receipt_label": "Rio",
+            "payment_method": "cash",
+            "payment_method_label": "CASH",
+            "status": "posted",
+            "status_label": "POSTED",
+            "total_items": 1,
+            "subtotal_amount_label": "Rp 80.000",
+            "discount_amount_label": "Rp 0",
+            "discount_rule_label": "-",
+            "tax_amount_label": "Rp 0",
+            "tax_rule_label": "-",
+            "total_amount_label": "Rp 80.000",
+            "paid_amount_label": "Rp 80.000",
+            "change_amount_label": "Rp 0",
+            "items": [
+                {
+                    "product_name": "ISO 66 TITANIUM",
+                    "variant_name": "SILVER",
+                    "sku": "S/B-HQ-001",
+                    "qty": 1,
+                    "active_qty": 1,
+                    "unit_price_label": "Rp 80.000",
+                    "active_line_total_label": "Rp 80.000",
+                    "void_qty": 0,
+                    "void_amount_label": "Rp 0",
+                }
+            ],
+        }
+
+        with self.app.app_context(), patch.object(receipt_pdf_service, "_find_pos_receipt_pdf_browser", return_value=""):
+            pdf_meta = receipt_pdf_service.generate_pos_receipt_pdf(sale)
+
+        with open(pdf_meta["absolute_path"], "rb") as file_handle:
+            pdf_text = file_handle.read().decode("latin-1", errors="ignore")
+
+        self.assertIn("Receipt  : POS-HTML-FALLBACK-0001", pdf_text)
+        self.assertIn("Kasir    : Rio", pdf_text)
+
+    def test_pos_page_exposes_auto_print_flag_when_enabled(self):
+        self.app.config.update(POS_AUTO_PRINT_AFTER_CHECKOUT=True)
+        self.login_pos_user("pos_auto_print_super", "super_admin")
+
+        response = self.client.get("/kasir/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn("const posAutoPrintAfterCheckout = true;", html)
+
+    def test_pos_page_includes_desktop_printer_bridge_helpers(self):
+        self.login_pos_user("pos_desktop_bridge_super", "super_admin")
+
+        response = self.client.get("/kasir/?source=desktop-kasir&desktop_bridge=http://127.0.0.1:17844")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('const posDesktopSource = String(posRuntimeUrl.searchParams.get("source") || "");', html)
+        self.assertIn('const posDesktopBridge = String(', html)
+        self.assertIn('await preparePosDesktopPrinterForReceipt();', html)
+        self.assertIn('/printer/activate-preferred', html)
+        self.assertIn('buildPosRuntimeUrl(data.receipt_print_url)', html)
 
     def test_pos_checkout_receipt_whatsapp_includes_purchase_points_summary(self):
         self.create_user("staff_sales_loyalty_wa", "pass1234", "staff", warehouse_id=1)
@@ -2222,6 +2433,56 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Mega Sports", pdf_text)
         self.assertIn("Kasir    : staff_sales_pdf_mega", pdf_text)
         self.assertIn("/Subtype /Image", pdf_text)
+
+    def test_pos_receipt_pdf_wraps_long_mega_address_in_legacy_lines(self):
+        self.app.config.update(
+            POS_RECEIPT_ADDRESS_MEGA=(
+                "6CJ5+2V5, Ruko Villa Indah, Kledokan, "
+                "Jl. Seturan Raya Blok C1, Kledokan, Caturtunggal, "
+                "Kec. Depok, Kabupaten Sleman, Daerah Istimewa Yogyakarta 55281"
+            )
+        )
+
+        sale = {
+            "receipt_no": "POS-MEGA-WRAP-0001",
+            "warehouse_id": 2,
+            "warehouse_name": "Gudang Mega",
+            "created_datetime_label": "2026-04-09 03:00",
+            "cashier_receipt_label": "Apip",
+            "customer_name": "Walk-in Customer",
+            "customer_phone_label": "62895383313591",
+            "payment_method_label": "CASH",
+            "status_label": "POSTED",
+            "subtotal_amount_label": "Rp 15.000",
+            "discount_amount_label": "Rp 0",
+            "discount_rule_label": "-",
+            "tax_amount_label": "Rp 0",
+            "tax_rule_label": "-",
+            "total_amount_label": "Rp 15.000",
+            "paid_amount_label": "Rp 15.000",
+            "change_amount_label": "Rp 0",
+            "items": [
+                {
+                    "product_name": "B/T ZIEGER",
+                    "variant_name": "default",
+                    "sku": "B/T-ZIEGER-00001",
+                    "active_qty": 1,
+                    "qty": 1,
+                    "unit_price_label": "Rp 15.000",
+                    "active_line_total_label": "Rp 15.000",
+                    "void_qty": 0,
+                    "void_amount_label": "Rp 0",
+                }
+            ],
+        }
+
+        with self.app.app_context():
+            sale["receipt_brand"] = receipt_pdf_service.build_pos_receipt_branding(sale)
+            lines = receipt_pdf_service._build_receipt_lines(sale)
+
+        self.assertTrue(any(line.startswith("Alamat   : 6CJ5+2V5, Ruko Villa Indah") for line in lines))
+        self.assertTrue(any(line.startswith("           ") and "Kabupaten" in line for line in lines))
+        self.assertTrue(any(line.startswith("           ") and "Yogyakarta 55281" in line for line in lines))
 
     def test_pos_void_item_restores_stock_and_recalculates_sale_totals(self):
         self.create_user("staff_sales_void", "pass1234", "staff", warehouse_id=1)

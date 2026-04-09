@@ -17,6 +17,8 @@
         --receipt-accent-dark: {{ receipt_brand.accent_dark or '#0f3a6a' }};
         --receipt-accent-soft: {{ receipt_brand.accent_soft or '#eef4fb' }};
         --receipt-ambient: {{ receipt_brand.ambient_tint or 'rgba(21, 62, 117, 0.08)' }};
+        --thermal-screen-width: 74mm;
+        --thermal-printable-width: 72mm;
     }
 
     * {
@@ -610,7 +612,8 @@
     }
 
     body.thermal-layout .receipt-shell {
-        max-width: 92mm;
+        width: 100%;
+        max-width: var(--thermal-screen-width);
         gap: 10px;
     }
 
@@ -626,10 +629,24 @@
     }
 
     body.thermal-layout .receipt-paper {
+        width: 100%;
         border-radius: 10px;
         border-color: #d3d7df;
         padding: 10px 10px 12px;
         box-shadow: 0 8px 24px rgba(18, 18, 18, 0.12);
+    }
+
+    .thermal-copy-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3px 10px;
+        border: 1px dashed #2c2c2c;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
     }
 
     .thermal-header {
@@ -766,16 +783,22 @@
         word-break: break-all;
     }
 
+    .thermal-store-note {
+        margin: 0;
+        color: #3a3a3a;
+    }
+
     @media print {
         body.thermal-layout {
             padding: 0;
             background: #ffffff;
-            font-size: 11.6px;
+            font-size: 12px;
             line-height: 1.28;
         }
 
         body.thermal-layout .receipt-shell {
-            max-width: 80mm;
+            width: var(--thermal-printable-width);
+            max-width: var(--thermal-printable-width);
             gap: 0;
         }
 
@@ -785,7 +808,7 @@
 
         body.thermal-layout .receipt-paper {
             margin: 0;
-            padding: 0 0.8mm 1mm;
+            padding: 0 1mm 1.2mm;
             border: 0;
             border-radius: 0;
             box-shadow: none;
@@ -805,23 +828,26 @@
 
         @page {
             size: 80mm auto;
-            margin: 2mm;
+            margin: 0;
         }
     }
 </style>
 </head>
 <body class="{% if receipt_layout == 'thermal' %}thermal-layout{% endif %}">
 <div class="receipt-shell">
+    {% if not pdf_mode %}
     <div class="receipt-actions">
-        <a href="/kasir/log" class="receipt-button">Kembali ke Log</a>
+        <a href="/kasir/log" class="receipt-button" data-receipt-runtime-link="1">Kembali ke Log</a>
         {% if receipt_layout == "thermal" %}
-        <a href="/kasir/receipt/{{ sale.receipt_no }}/print" class="receipt-button">Buka Versi A4</a>
-        <button type="button" class="receipt-button is-primary" onclick="window.print()">Cetak Nota</button>
+        <a href="/kasir/receipt/{{ sale.receipt_no }}/print" class="receipt-button" data-receipt-runtime-link="1">Buka Versi A4</a>
+        <a href="/kasir/receipt/{{ sale.receipt_no }}/print?layout=thermal&copy={% if receipt_copy == 'store' %}customer{% else %}store{% endif %}" class="receipt-button" data-receipt-runtime-link="1">{% if receipt_copy == 'store' %}Buka Copy Customer{% else %}Buka Copy Toko{% endif %}</a>
+        <button type="button" class="receipt-button is-primary" onclick="window.posReceiptPrintCurrentPage ? window.posReceiptPrintCurrentPage() : window.print()">Cetak Nota</button>
         {% else %}
-        <a href="/kasir/receipt/{{ sale.receipt_no }}/print?layout=thermal" class="receipt-button">Buka Nota Print</a>
-        <button type="button" class="receipt-button is-primary" onclick="window.print()">Simpan sebagai PDF</button>
+        <a href="/kasir/receipt/{{ sale.receipt_no }}/print?layout=thermal" class="receipt-button" data-receipt-runtime-link="1">Buka Nota Print</a>
+        <button type="button" class="receipt-button is-primary" onclick="window.posReceiptPrintCurrentPage ? window.posReceiptPrintCurrentPage() : window.print()">Simpan sebagai PDF</button>
         {% endif %}
     </div>
+    {% endif %}
 
     {% if receipt_layout == "thermal" %}
     {% set payment_code = (sale.payment_method or "").lower() %}
@@ -835,6 +861,7 @@
     {% endif %}
     <article class="receipt-paper">
         <header class="thermal-header">
+            <div class="thermal-copy-chip">{{ receipt_copy_label }}</div>
             {% if receipt_brand.logo_url %}
             <img src="{{ receipt_brand.logo_url }}" alt="Logo {{ receipt_brand.business_name or store_name }}" class="thermal-logo">
             {% endif %}
@@ -886,7 +913,7 @@
             <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>
         </section>
 
-        {% if sale.has_loyalty_summary %}
+        {% if sale.has_loyalty_summary and receipt_copy != "store" %}
         <div class="thermal-divider"></div>
         <section class="thermal-summary">
             <div class="thermal-summary-row"><span>{{ sale.loyalty_summary_title }}</span><span></span></div>
@@ -899,6 +926,11 @@
         <div class="thermal-divider"></div>
 
         <footer class="thermal-footer">
+            {% if receipt_copy == "store" %}
+            <strong>{{ receipt_copy_label }}</strong>
+            <p class="thermal-store-note">Arsip kasir {{ receipt_brand.business_name or store_name }}.</p>
+            <p class="thermal-store-note">{{ sale.payment_method_label }} | {{ sale.total_items }} item</p>
+            {% else %}
             <p>{{ receipt_brand.return_policy or "Barang yang telah dibayarkan tidak dapat dikembalikan, kecuali produk tertentu sesuai perjanjian." }}</p>
             <strong>{{ receipt_brand.thank_you_text or ("Terima kasih atas kunjungan Anda di " ~ (receipt_brand.business_name or store_name) ~ ".") }}</strong>
             <p>{{ receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-")) }}</p>
@@ -912,6 +944,7 @@
             </div>
             {% elif receipt_brand.social_media_url %}
             <a href="{{ receipt_brand.social_media_url }}" target="_blank" rel="noopener" class="thermal-link">{{ receipt_brand.social_media_url }}</a>
+            {% endif %}
             {% endif %}
         </footer>
     </article>
@@ -1058,14 +1091,119 @@
     {% endif %}
 </div>
 
-{% if auto_print %}
 <script>
+const receiptRuntimeUrl = new URL(window.location.href);
+const receiptDesktopSource = String(receiptRuntimeUrl.searchParams.get("source") || "");
+const receiptCopy = {{ receipt_copy | tojson }};
+const receiptFollowupCopy = {{ receipt_followup_copy | tojson }};
+const receiptDesktopBridge = String(
+    receiptRuntimeUrl.searchParams.get("desktop_bridge")
+    || (receiptDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
+).replace(/\/+$/, "");
+
+function buildReceiptRuntimeUrl(url) {
+    const resolved = new URL(String(url || "/"), window.location.origin);
+    if (receiptDesktopSource) {
+        resolved.searchParams.set("source", receiptDesktopSource);
+    }
+    if (receiptDesktopBridge) {
+        resolved.searchParams.set("desktop_bridge", receiptDesktopBridge);
+    }
+    const normalized = `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    return resolved.origin === window.location.origin ? normalized : resolved.toString();
+}
+
+function buildReceiptFollowupUrl(copyValue) {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("copy", String(copyValue || "customer"));
+    nextUrl.searchParams.delete("followup_copy");
+    nextUrl.searchParams.set("autoprint", "1");
+    nextUrl.searchParams.set("autoclose", "1");
+    return buildReceiptRuntimeUrl(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+}
+
+async function callReceiptDesktopBridge(path, payload = null) {
+    if (!receiptDesktopBridge) {
+        return { ok: false, error: "desktop_bridge_missing" };
+    }
+
+    try {
+        const response = await fetch(`${receiptDesktopBridge}${path}`, {
+            method: payload ? "POST" : "GET",
+            headers: payload ? { "Content-Type": "application/json" } : {},
+            body: payload ? JSON.stringify(payload) : undefined,
+        });
+        const data = await response.json().catch(() => ({ ok: false, error: "invalid_bridge_response" }));
+        if (!response.ok) {
+            return {
+                ok: false,
+                error: data.error || `desktop_bridge_http_${response.status}`,
+            };
+        }
+        return data;
+    } catch (error) {
+        return {
+            ok: false,
+            error: error?.message || "desktop_bridge_unreachable",
+        };
+    }
+}
+
+async function prepareReceiptDesktopPrinter() {
+    if (receiptDesktopSource !== "desktop-kasir") {
+        return { ok: false, skipped: true, error: "desktop_source_inactive" };
+    }
+    const result = await callReceiptDesktopBridge("/printer/activate-preferred", {});
+    if (!result.ok) {
+        console.warn("Receipt desktop printer activate failed:", result.error || result);
+    }
+    return result;
+}
+
+async function restoreReceiptDesktopPrinter() {
+    if (receiptDesktopSource !== "desktop-kasir") {
+        return { ok: false, skipped: true, error: "desktop_source_inactive" };
+    }
+    const result = await callReceiptDesktopBridge("/printer/restore-default", {});
+    if (!result.ok) {
+        console.warn("Receipt desktop printer restore failed:", result.error || result);
+    }
+    return result;
+}
+
+window.posReceiptPrintCurrentPage = async function posReceiptPrintCurrentPage() {
+    await prepareReceiptDesktopPrinter();
+    window.print();
+};
+
+document.querySelectorAll("[data-receipt-runtime-link]").forEach((node) => {
+    if (!(node instanceof HTMLAnchorElement)) {
+        return;
+    }
+    node.href = buildReceiptRuntimeUrl(node.getAttribute("href") || "/");
+});
+
+{% if auto_print and not pdf_mode %}
 window.addEventListener("load", () => {
     window.setTimeout(() => {
-        window.print();
+        window.posReceiptPrintCurrentPage();
     }, 120);
 });
-</script>
 {% endif %}
+
+window.addEventListener("afterprint", () => {
+    window.setTimeout(() => {
+        restoreReceiptDesktopPrinter().finally(() => {
+            if (receiptFollowupCopy) {
+                window.location.replace(buildReceiptFollowupUrl(receiptFollowupCopy));
+                return;
+            }
+{% if auto_close %}
+            window.close();
+{% endif %}
+        });
+    }, 180);
+});
+</script>
 </body>
 </html>

@@ -15,6 +15,7 @@ from services.crm_loyalty import (
 )
 from services.notification_service import notify_operational_event
 from services.receipt_pdf_service import (
+    build_pos_receipt_render_context,
     build_public_file_url,
     build_pos_receipt_branding,
     format_receipt_homebase_label,
@@ -266,9 +267,10 @@ def _send_pos_receipt_to_customer(db, sale):
     receipt_brand_name = receipt_brand.get("business_name") or "ERP Core POS"
     message_lines = [
         f"Halo {customer_name},",
-        f"Nota transaksi {receipt_no} sudah siap.",
-        f"Total transaksi: {total_amount_label}.",
-        f"Dokumen PDF terlampir dari {receipt_brand_name}.",
+        f"Terima kasih sudah berbelanja di {receipt_brand_name}.",
+        f"Nota pembelian Anda dengan nomor {receipt_no} sudah kami siapkan.",
+        f"Total belanja: {total_amount_label}.",
+        "File nota PDF kami lampirkan di pesan ini.",
     ]
     if loyalty_lines:
         message_lines.append("")
@@ -319,7 +321,7 @@ def _send_pos_receipt_to_customer(db, sale):
             [
                 message,
                 "",
-                "Jika PDF belum terlampir otomatis, buka nota dari link berikut:",
+                "Jika file PDF belum muncul otomatis, Anda bisa membuka nota melalui link berikut:",
                 *fallback_links,
             ]
         ).strip()
@@ -2166,6 +2168,7 @@ def pos_page():
         pos_staff_options=pos_staff_options,
         selected_pos_staff_id=selected_pos_staff_option["id"],
         selected_pos_staff_label=selected_pos_staff_option["display_name"],
+        pos_auto_print_after_checkout=bool(current_app.config.get("POS_AUTO_PRINT_AFTER_CHECKOUT")),
         summary=_fetch_pos_summary(db, selected_warehouse, sale_date),
         recent_sales=_fetch_recent_sales(db, selected_warehouse, sale_date),
         sales_log_rows=sales_log_rows,
@@ -2301,21 +2304,31 @@ def pos_receipt_print(receipt_no):
         flash("Nota penjualan tidak ditemukan atau tidak bisa diakses.", "error")
         return redirect("/kasir/log")
     sale = _prepare_pos_receipt_sale(sale)
-    receipt_brand = sale["receipt_brand"]
-    default_store_name = str(current_app.config.get("STORE_NAME") or "CV BERKAH JAYA ABADI SPORTS").strip()
-    store_name = str(receipt_brand.get("business_name") or default_store_name).strip()
-    store_phone = str(receipt_brand.get("customer_service_phone") or current_app.config.get("STORE_PHONE") or "").strip()
     requested_layout = str(request.args.get("layout") or "").strip().lower()
     receipt_layout = "thermal" if requested_layout == "thermal" else "a4"
+    requested_copy = str(request.args.get("copy") or "").strip().lower()
+    receipt_copy = "store" if receipt_layout == "thermal" and requested_copy == "store" else "customer"
+    requested_followup_copy = str(request.args.get("followup_copy") or "").strip().lower()
+    receipt_followup_copy = (
+        requested_followup_copy
+        if receipt_layout == "thermal"
+        and requested_followup_copy in {"customer", "store"}
+        and requested_followup_copy != receipt_copy
+        else ""
+    )
 
     return render_template(
         "pos_receipt_print.html",
-        sale=sale,
-        receipt_brand=receipt_brand,
-        store_name=store_name,
-        store_phone=store_phone,
-        receipt_layout=receipt_layout,
-        auto_print=request.args.get("autoprint") == "1",
+        **build_pos_receipt_render_context(
+            sale,
+            receipt_layout=receipt_layout,
+            receipt_copy=receipt_copy,
+            receipt_followup_copy=receipt_followup_copy,
+            auto_print=request.args.get("autoprint") == "1",
+            auto_close=request.args.get("autoclose") == "1",
+            pdf_mode=False,
+            embed_assets=False,
+        ),
     )
 
 
@@ -2810,7 +2823,10 @@ def pos_checkout():
             "total_amount": _currency(financials["total_amount"]),
             "paid_amount": _currency(paid_amount),
             "change_amount": _currency(change_amount),
-            "receipt_print_url": f"/kasir/receipt/{receipt_no}/print?layout=thermal&autoprint=1",
+            "receipt_print_url": (
+                f"/kasir/receipt/{receipt_no}/print"
+                f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+            ),
             "receipt_pdf_public_url": (receipt_pdf_meta or {}).get("public_url") or "",
             "receipt_whatsapp_status": _resolve_pos_receipt_whatsapp_status(receipt_delivery),
             "receipt_whatsapp_error": str((receipt_delivery or {}).get("error") or "").strip(),

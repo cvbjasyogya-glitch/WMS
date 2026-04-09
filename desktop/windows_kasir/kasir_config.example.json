@@ -1,0 +1,48 @@
+{
+  "app_name": "Kasir ERP Desktop",
+  "base_url": "https://erp.cvbjasyogya.cloud",
+  "modules": {
+    "login": "/login?source=desktop-kasir",
+    "workspace": "/workspace/?source=desktop-kasir",
+    "kasir": "/kasir/?source=desktop-kasir",
+    "gudang": "/stock/?source=desktop-kasir",
+    "notifications": "/notifications/?source=desktop-kasir"
+  },
+  "window": {
+    "width": 1440,
+    "height": 920,
+    "resizable": true,
+    "fullscreen": false,
+    "confirm_close": true,
+    "text_select": true
+  },
+  "webview": {
+    "debug": false,
+    "private_mode": false,
+    "storage_subdir": "webview-data"
+  },
+  "browser": {
+    "mode": "auto",
+    "preferred": "edge",
+    "edge_path": "",
+    "chrome_path": "",
+    "app_mode": true,
+    "kiosk_printing": true,
+    "user_data_subdir": "browser-profile",
+    "extra_args": []
+  },
+  "bridge": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 17844,
+    "cors_origin": "*"
+  },
+  "network": {
+    "healthcheck_path": "/login",
+    "timeout_seconds": 8
+  },
+  "printer": {
+    "preferred_printer_name": "Xprinter",
+    "note": "Printer native bridge bisa dikembangkan dari pondasi desktop ini."
+  }
+}

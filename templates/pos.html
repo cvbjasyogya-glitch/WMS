@@ -315,6 +315,13 @@
 
 {% block extra_scripts %}
 <script>
+const posAutoPrintAfterCheckout = {{ "true" if pos_auto_print_after_checkout else "false" }};
+const posRuntimeUrl = new URL(window.location.href);
+const posDesktopSource = String(posRuntimeUrl.searchParams.get("source") || "");
+const posDesktopBridge = String(
+    posRuntimeUrl.searchParams.get("desktop_bridge")
+    || (posDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
+).replace(/\/+$/, "");
 const posCheckoutRoot = document.getElementById("posCheckoutRoot");
 const posWarehouseId = Number(posCheckoutRoot?.dataset?.warehouseId || 0);
 const posWarehouseName = String(posCheckoutRoot?.dataset?.warehouseName || "");
@@ -339,6 +346,56 @@ const posCatalog = {
     category: "all",
     items: [],
 };
+
+function buildPosRuntimeUrl(url) {
+    const resolved = new URL(String(url || "/"), window.location.origin);
+    if (posDesktopSource) {
+        resolved.searchParams.set("source", posDesktopSource);
+    }
+    if (posDesktopBridge) {
+        resolved.searchParams.set("desktop_bridge", posDesktopBridge);
+    }
+    const normalized = `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    return resolved.origin === window.location.origin ? normalized : resolved.toString();
+}
+
+async function callPosDesktopBridge(path, payload = null) {
+    if (!posDesktopBridge) {
+        return { ok: false, error: "desktop_bridge_missing" };
+    }
+
+    try {
+        const response = await fetch(`${posDesktopBridge}${path}`, {
+            method: payload ? "POST" : "GET",
+            headers: payload ? { "Content-Type": "application/json" } : {},
+            body: payload ? JSON.stringify(payload) : undefined,
+        });
+        const data = await response.json().catch(() => ({ ok: false, error: "invalid_bridge_response" }));
+        if (!response.ok) {
+            return {
+                ok: false,
+                error: data.error || `desktop_bridge_http_${response.status}`,
+            };
+        }
+        return data;
+    } catch (error) {
+        return {
+            ok: false,
+            error: error?.message || "desktop_bridge_unreachable",
+        };
+    }
+}
+
+async function preparePosDesktopPrinterForReceipt() {
+    if (posDesktopSource !== "desktop-kasir") {
+        return { ok: false, skipped: true, error: "desktop_source_inactive" };
+    }
+    const result = await callPosDesktopBridge("/printer/activate-preferred", {});
+    if (!result.ok) {
+        console.warn("Desktop printer bridge activate failed:", result.error || result);
+    }
+    return result;
+}
 
 const posCustomerId = document.getElementById("posCustomerId");
 const posCustomerSearch = document.getElementById("posCustomerSearch");
@@ -407,6 +464,8 @@ let posQuickSearchTimer = null;
 let posKeypadTarget = "qty";
 let posCartFocusedIndex = -1;
 let posQuickSearchRequestId = 0;
+let posCatalogRequestId = 0;
+let posQuickSearchActiveIndex = -1;
 let posGrandTotalFitFrame = 0;
 let posGrandTotalResizeObserver = null;
 const posCustomerOptionsState = {
@@ -448,6 +507,43 @@ function setPosCustomerSearchSummary(message) {
         return;
     }
     posCustomerSearchSummary.textContent = message || POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY;
+}
+
+function isPosSearchForwardKey(event) {
+    if (!event || event.ctrlKey || event.metaKey || event.altKey) {
+        return false;
+    }
+    if (event.key === "Backspace" || event.key === "Delete" || event.key === "Escape") {
+        return true;
+    }
+    return typeof event.key === "string" && event.key.length === 1 && !/\s/.test(event.key);
+}
+
+function forwardPosSelectKeyToSearch(event, searchInput, filterFn) {
+    if (!searchInput || typeof filterFn !== "function" || !isPosSearchForwardKey(event)) {
+        return false;
+    }
+
+    event.preventDefault();
+    const currentValue = String(searchInput.value || "");
+    let nextValue = currentValue;
+
+    if (event.key === "Backspace") {
+        nextValue = currentValue.slice(0, -1);
+    } else if (event.key === "Delete" || event.key === "Escape") {
+        nextValue = "";
+    } else {
+        nextValue = `${currentValue}${event.key}`;
+    }
+
+    searchInput.value = nextValue;
+    filterFn(nextValue);
+    searchInput.focus();
+    const caret = nextValue.length;
+    if (typeof searchInput.setSelectionRange === "function") {
+        searchInput.setSelectionRange(caret, caret);
+    }
+    return true;
 }
 
 function buildPosCustomerOptionState(option) {
@@ -497,6 +593,23 @@ function createPosCustomerOptionNode(optionState) {
     return option;
 }
 
+function syncPosCustomerSelectionState() {
+    if (!posCustomerId) {
+        return;
+    }
+    const option = posCustomerId.selectedOptions[0];
+    if (!option || !posCustomerId.value) {
+        posCustomerName.value = "Walk-in Customer";
+        posCustomerPhone.value = "";
+        syncPosCustomerLoyaltyHint();
+        return;
+    }
+
+    posCustomerName.value = option.textContent.split("|")[0].trim();
+    posCustomerPhone.value = option.dataset.phone || "";
+    syncPosCustomerLoyaltyHint();
+}
+
 function filterPosCustomerOptions(query = "") {
     if (!posCustomerId) {
         return;
@@ -533,6 +646,7 @@ function filterPosCustomerOptions(query = "") {
 
     const canPreserveSelection = currentSelectedOption && Array.from(posCustomerId.options).some((option) => option.value === currentSelectedOption.value);
     posCustomerId.value = canPreserveSelection ? currentSelectedOption.value : "";
+    syncPosCustomerSelectionState();
 
     if (!safeQuery) {
         setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
@@ -559,6 +673,16 @@ function collectPosCashierOptions() {
         return;
     }
     posCashierOptionsState.all = Array.from(posCashierUserId.options).map(buildPosCustomerOptionState);
+}
+
+function syncPosCashierSelectionState() {
+    if (!posCashierUserId) {
+        return;
+    }
+    if (!posCashierUserId.value && posCashierUserId.options.length) {
+        posCashierUserId.selectedIndex = 0;
+    }
+    syncPosCashierDisplay();
 }
 
 function filterPosCashierOptions(query = "") {
@@ -588,6 +712,7 @@ function filterPosCashierOptions(query = "") {
     if (canPreserveSelection) {
         posCashierUserId.value = currentSelectedOption.value;
     }
+    syncPosCashierSelectionState();
 
     if (!safeQuery) {
         setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
@@ -962,6 +1087,7 @@ function resetPosQuickSearch(options = {}) {
     posQuickSearchState.items = [];
     posQuickSearchState.totalItems = 0;
     posQuickSearchState.query = keepQuery ? String(posQuickSearch?.value || "").trim() : "";
+    posQuickSearchActiveIndex = -1;
     if (posQuickSearchResults) {
         posQuickSearchResults.hidden = true;
         posQuickSearchResults.innerHTML = "";
@@ -969,11 +1095,41 @@ function resetPosQuickSearch(options = {}) {
     setPosQuickSearchSummary(summary);
 }
 
+function getPosQuickSearchResultButtons() {
+    if (!posQuickSearchResults) {
+        return [];
+    }
+    return Array.from(posQuickSearchResults.querySelectorAll("[data-pos-quick-search-index]"));
+}
+
+function setPosQuickSearchActiveIndex(index, options = {}) {
+    const buttons = getPosQuickSearchResultButtons();
+    if (!buttons.length) {
+        posQuickSearchActiveIndex = -1;
+        return;
+    }
+
+    const normalizedIndex = Math.min(Math.max(Number(index) || 0, 0), buttons.length - 1);
+    const shouldScroll = options.scrollIntoView !== false;
+    posQuickSearchActiveIndex = normalizedIndex;
+
+    buttons.forEach((button, buttonIndex) => {
+        const isActive = buttonIndex === normalizedIndex;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+        button.tabIndex = isActive ? 0 : -1;
+        if (isActive && shouldScroll) {
+            button.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+    });
+}
+
 function renderPosQuickSearchResults() {
     if (!posQuickSearchResults) {
         return;
     }
     if (!posQuickSearchState.items.length) {
+        posQuickSearchActiveIndex = -1;
         posQuickSearchResults.hidden = false;
         posQuickSearchResults.innerHTML = `<div class="pos-ipos-quicksearch-empty">Barang tidak ditemukan untuk kata kunci ini.</div>`;
         return;
@@ -984,7 +1140,7 @@ function renderPosQuickSearchResults() {
         const stockQty = Number(item.qty || 0);
         const stockBadgeClass = stockQty <= 0 ? "red" : stockQty < 5 ? "orange" : "green";
         return `
-            <button type="button" class="pos-ipos-quicksearch-result" data-pos-quick-search-index="${index}">
+            <button type="button" class="pos-ipos-quicksearch-result" data-pos-quick-search-index="${index}" role="option" aria-selected="false" tabindex="-1">
                 <span class="pos-ipos-quicksearch-result-copy">
                     <strong>${escapeHtml(item.sku)} - ${escapeHtml(item.name)}</strong>
                     <small>${escapeHtml(item.variant_label || "Default")} | ${escapeHtml(item.category || "Tanpa kategori")} | GTIN ${escapeHtml(item.gtin || "-")}</small>
@@ -996,6 +1152,7 @@ function renderPosQuickSearchResults() {
             </button>
         `;
     }).join("");
+    setPosQuickSearchActiveIndex(posQuickSearchActiveIndex >= 0 ? posQuickSearchActiveIndex : 0, { scrollIntoView: false });
 }
 
 function applyPosQuickSearchItem(index) {
@@ -1050,6 +1207,7 @@ async function loadPosQuickSearchResults(query) {
         }
         posQuickSearchState.items = [];
         posQuickSearchState.totalItems = 0;
+        posQuickSearchActiveIndex = -1;
         if (posQuickSearchResults) {
             posQuickSearchResults.hidden = false;
             posQuickSearchResults.innerHTML = `<div class="pos-ipos-quicksearch-empty">${escapeHtml(error.message || "Gagal memuat quick search.")}</div>`;
@@ -1312,6 +1470,7 @@ function renderPosCatalog() {
 }
 
 async function loadPosCatalog(page = 1) {
+    const requestId = ++posCatalogRequestId;
     posCatalog.page = page;
     posCatalogGrid.innerHTML = `<tr><td colspan="6"><div class="empty-state">Memuat katalog produk...</div></td></tr>`;
     posCatalogSummary.textContent = "Memuat katalog produk...";
@@ -1321,6 +1480,9 @@ async function loadPosCatalog(page = 1) {
 
     try {
         const data = await fetchPosCatalogData(page, 24, posCatalog.query, posCatalog.category);
+        if (requestId !== posCatalogRequestId) {
+            return;
+        }
 
         posCatalog.items = Array.isArray(data.items) ? data.items : [];
         posCatalog.totalPages = Number(data.total_pages || 1);
@@ -1336,6 +1498,9 @@ async function loadPosCatalog(page = 1) {
         posCatalogPrev.disabled = posCatalog.page <= 1;
         posCatalogNext.disabled = posCatalog.page >= posCatalog.totalPages;
     } catch (error) {
+        if (requestId !== posCatalogRequestId) {
+            return;
+        }
         posCatalog.items = [];
         posCatalogGrid.innerHTML = `<tr><td colspan="6"><div class="empty-state">${escapeHtml(error.message || "Gagal memuat katalog produk.")}</div></td></tr>`;
         posCatalogSummary.textContent = error.message || "Gagal memuat katalog produk.";
@@ -1403,13 +1568,18 @@ function checkoutPosTransaction() {
         } else if (waStatus === "failed") {
             waInfoLine = `Status WA nota customer: gagal (${waError || "error tidak diketahui"}).`;
         }
-        const shouldPrintReceipt = window.confirm(
-            `${data.message}\nReceipt: ${data.receipt_no}\n${waInfoLine}\n\nBuka nota print sekarang?`
-        );
+        const shouldPrintReceipt = posAutoPrintAfterCheckout
+            ? true
+            : window.confirm(
+                `${data.message}\nNo. Nota: ${data.receipt_no}\n${waInfoLine}\n\nCustomer minta nota cetak sekarang?`
+            );
         if (shouldPrintReceipt && data.receipt_print_url) {
-            window.open(data.receipt_print_url, "_blank", "noopener");
+            await preparePosDesktopPrinterForReceipt();
+            window.open(buildPosRuntimeUrl(data.receipt_print_url), "_blank", "noopener");
         }
-        window.location.href = `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(posSaleDate)}`;
+        window.location.href = buildPosRuntimeUrl(
+            `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(posSaleDate)}`
+        );
     })
     .catch((error) => {
         alert(error.message || "Checkout gagal diproses.");
@@ -1627,7 +1797,7 @@ posQuickSearchForm?.addEventListener("submit", async (event) => {
         await loadPosQuickSearchResults(query);
     }
     if (posQuickSearchState.items.length) {
-        applyPosQuickSearchItem(0);
+        applyPosQuickSearchItem(posQuickSearchActiveIndex >= 0 ? posQuickSearchActiveIndex : 0);
     }
 });
 
@@ -1643,12 +1813,54 @@ posQuickSearch?.addEventListener("input", () => {
     }, 220);
 });
 
+posQuickSearch?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        event.preventDefault();
+        resetPosQuickSearch();
+        posQuickSearch.focus();
+        return;
+    }
+
+    if (!posQuickSearchState.items.length) {
+        return;
+    }
+
+    if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setPosQuickSearchActiveIndex(
+            posQuickSearchActiveIndex < 0
+                ? 0
+                : Math.min(posQuickSearchActiveIndex + 1, posQuickSearchState.items.length - 1)
+        );
+        return;
+    }
+
+    if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setPosQuickSearchActiveIndex(posQuickSearchActiveIndex <= 0 ? 0 : posQuickSearchActiveIndex - 1);
+        return;
+    }
+
+    if ((event.key === "Enter" || event.key === "NumpadEnter") && posQuickSearchActiveIndex >= 0) {
+        event.preventDefault();
+        applyPosQuickSearchItem(posQuickSearchActiveIndex);
+    }
+});
+
 posQuickSearchResults?.addEventListener("click", (event) => {
     const resultButton = event.target.closest("[data-pos-quick-search-index]");
     if (!resultButton) {
         return;
     }
     applyPosQuickSearchItem(Number(resultButton.dataset.posQuickSearchIndex));
+});
+
+posQuickSearchResults?.addEventListener("mousemove", (event) => {
+    const resultButton = event.target.closest("[data-pos-quick-search-index]");
+    if (!resultButton) {
+        return;
+    }
+    setPosQuickSearchActiveIndex(Number(resultButton.dataset.posQuickSearchIndex), { scrollIntoView: false });
 });
 
 posCategoryStrip?.addEventListener("click", (event) => {
@@ -1675,6 +1887,19 @@ posCatalogSearch?.addEventListener("input", () => {
         posCatalog.query = String(posCatalogSearch.value || "").trim();
         loadPosCatalog(1);
     }, 260);
+});
+
+posCatalogSearch?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+        return;
+    }
+    if (!String(posCatalogSearch.value || "").trim()) {
+        return;
+    }
+    event.preventDefault();
+    posCatalogSearch.value = "";
+    posCatalog.query = "";
+    loadPosCatalog(1);
 });
 
 posCatalogGrid?.addEventListener("click", (event) => {
@@ -1708,7 +1933,7 @@ posCatalogNext?.addEventListener("click", () => {
 posCatalogOpenButton?.addEventListener("click", openPosCatalogPicker);
 posCatalogOpenButtonSecondary?.addEventListener("click", openPosCatalogPicker);
 posCatalogCloseButton?.addEventListener("click", closePosCatalogPicker);
-posCashierUserId?.addEventListener("change", syncPosCashierDisplay);
+posCashierUserId?.addEventListener("change", syncPosCashierSelectionState);
 posHeaderMenus.forEach((menu) => {
     menu.addEventListener("toggle", () => {
         if (menu.open) {
@@ -1801,26 +2026,60 @@ posKeypadGrid?.addEventListener("click", (event) => {
     applyPosKey(button.dataset.posKey || "");
 });
 
-posCustomerId.addEventListener("change", () => {
-    const option = posCustomerId.selectedOptions[0];
-    if (!option) return;
-    if (!posCustomerId.value) {
-        posCustomerName.value = "Walk-in Customer";
-        posCustomerPhone.value = "";
-        syncPosCustomerLoyaltyHint();
-        return;
-    }
-    posCustomerName.value = option.textContent.split("|")[0].trim();
-    posCustomerPhone.value = option.dataset.phone || "";
-    syncPosCustomerLoyaltyHint();
-});
+posCustomerId.addEventListener("change", syncPosCustomerSelectionState);
 
 posCustomerSearch?.addEventListener("input", () => {
     filterPosCustomerOptions(posCustomerSearch.value || "");
 });
 
+posCustomerSearch?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        event.preventDefault();
+        posCustomerSearch.value = "";
+        filterPosCustomerOptions("");
+        return;
+    }
+    if (event.key !== "Enter" && event.key !== "NumpadEnter") {
+        return;
+    }
+    const candidateOptions = Array.from(posCustomerId?.options || []).filter((option) => option.value);
+    if (candidateOptions.length !== 1) {
+        return;
+    }
+    event.preventDefault();
+    posCustomerId.value = candidateOptions[0].value;
+    syncPosCustomerSelectionState();
+});
+
+posCustomerId?.addEventListener("keydown", (event) => {
+    forwardPosSelectKeyToSearch(event, posCustomerSearch, filterPosCustomerOptions);
+});
+
 posCashierSearch?.addEventListener("input", () => {
     filterPosCashierOptions(posCashierSearch.value || "");
+});
+
+posCashierSearch?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        event.preventDefault();
+        posCashierSearch.value = "";
+        filterPosCashierOptions("");
+        return;
+    }
+    if (event.key !== "Enter" && event.key !== "NumpadEnter") {
+        return;
+    }
+    const candidateOptions = Array.from(posCashierUserId?.options || []).filter((option) => option.value);
+    if (candidateOptions.length !== 1) {
+        return;
+    }
+    event.preventDefault();
+    posCashierUserId.value = candidateOptions[0].value;
+    syncPosCashierSelectionState();
+});
+
+posCashierUserId?.addEventListener("keydown", (event) => {
+    forwardPosSelectKeyToSearch(event, posCashierSearch, filterPosCashierOptions);
 });
 
 posTransactionType?.addEventListener("change", () => {
@@ -1906,12 +2165,12 @@ posCartBody.addEventListener("focusin", (event) => {
 });
 
 setPosPaymentMethod(posPaymentMethod.value || "cash");
-syncPosCashierDisplay();
 collectPosCustomerOptions();
 collectPosCashierOptions();
 setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
 setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
-syncPosCustomerLoyaltyHint();
+syncPosCashierSelectionState();
+syncPosCustomerSelectionState();
 updatePosClock();
 window.setInterval(updatePosClock, 1000);
 window.addEventListener("resize", scheduleFitPosGrandTotalText);
