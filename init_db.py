@@ -413,6 +413,18 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "daily_live_reports", "handled_by", "INTEGER")
     _ensure_column(cursor, "daily_live_reports", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "daily_live_reports", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "attendance_action_requests", "request_type", "TEXT")
+    _ensure_column(cursor, "attendance_action_requests", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "attendance_action_requests", "employee_id", "INTEGER")
+    _ensure_column(cursor, "attendance_action_requests", "summary_title", "TEXT")
+    _ensure_column(cursor, "attendance_action_requests", "summary_note", "TEXT")
+    _ensure_column(cursor, "attendance_action_requests", "payload", "TEXT")
+    _ensure_column(cursor, "attendance_action_requests", "status", "TEXT DEFAULT 'pending'")
+    _ensure_column(cursor, "attendance_action_requests", "requested_by", "INTEGER")
+    _ensure_column(cursor, "attendance_action_requests", "handled_by", "INTEGER")
+    _ensure_column(cursor, "attendance_action_requests", "handled_at", "TIMESTAMP")
+    _ensure_column(cursor, "attendance_action_requests", "decision_note", "TEXT")
+    _ensure_column(cursor, "attendance_action_requests", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "chat_threads", "thread_type", "TEXT DEFAULT 'direct'")
     _ensure_column(cursor, "chat_threads", "group_name", "TEXT")
     _ensure_column(cursor, "chat_threads", "group_description", "TEXT")
@@ -1064,6 +1076,29 @@ def init_db(db_path=None, sqlite_options=None):
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS attendance_action_requests(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_type TEXT NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        employee_id INTEGER,
+        summary_title TEXT NOT NULL,
+        summary_note TEXT,
+        payload TEXT,
+        status TEXT DEFAULT 'pending',
+        requested_by INTEGER,
+        handled_by INTEGER,
+        handled_at TIMESTAMP,
+        decision_note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE SET NULL,
+        FOREIGN KEY(requested_by) REFERENCES users(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS dashboard_reminders(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         warehouse_id INTEGER,
@@ -1534,6 +1569,8 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_scope_role ON users(role, warehouse_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_requests_flow ON requests(status, from_warehouse, to_warehouse, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requested_by, status, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_action_requests_main ON attendance_action_requests(status, warehouse_id, request_type, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_action_requests_employee ON attendance_action_requests(employee_id, status, created_at)")
 
     # ==========================
     # APPROVALS (for inbound/outbound/adjust requests)

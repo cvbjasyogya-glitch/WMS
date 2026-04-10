@@ -1,7 +1,9 @@
 import re
 from urllib.parse import urlencode
+from pathlib import Path
+from types import SimpleNamespace
 
-from flask import Blueprint, request, redirect, jsonify, flash, session
+from flask import Blueprint, request, redirect, jsonify, flash, session, current_app, g
 from database import get_db
 from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_operational_event, notify_roles
@@ -26,6 +28,74 @@ products_bp = Blueprint("products", __name__, url_prefix="/products")
 
 IMPORT_PROGRESS = {}
 PRODUCT_STUDIO_REDIRECT_PATH = "/stock/"
+PRODUCT_DELETE_BATCH_SIZE = 400
+IPOS4_IMPORT_UI_MODES = {
+    "products_only": {
+        "label": "Produk + SKU iPOS",
+        "skip_mirror": True,
+        "replace_mirror": False,
+        "products_only": True,
+        "sync_sku_only": False,
+        "skip_users": True,
+        "skip_warehouses": True,
+        "skip_stock": True,
+        "skip_customers": True,
+        "skip_sales": True,
+        "result_copy": "Sinkron master produk dan SKU iPOS selesai tanpa mengubah stok, user, customer, atau histori sales.",
+    },
+    "sync_sku_only": {
+        "label": "Sinkron SKU saja",
+        "skip_mirror": True,
+        "replace_mirror": False,
+        "products_only": False,
+        "sync_sku_only": True,
+        "skip_users": True,
+        "skip_warehouses": True,
+        "skip_stock": True,
+        "skip_customers": True,
+        "skip_sales": True,
+        "result_copy": "Sinkron SKU produk yang sudah terhubung ke iPOS selesai tanpa mengubah stok, user, customer, atau histori sales.",
+    },
+    "products_with_mirror": {
+        "label": "Produk + SKU + Mirror iPOS",
+        "skip_mirror": False,
+        "replace_mirror": True,
+        "products_only": True,
+        "sync_sku_only": False,
+        "skip_users": True,
+        "skip_warehouses": True,
+        "skip_stock": True,
+        "skip_customers": True,
+        "skip_sales": True,
+        "result_copy": "Sinkron produk dan SKU iPOS selesai, plus mirror iPOS berhasil diperbarui tanpa mengubah stok, user, customer, atau histori sales.",
+    },
+    "products_with_sales": {
+        "label": "Produk + Customer + Penjualan ERP",
+        "skip_mirror": True,
+        "replace_mirror": False,
+        "products_only": False,
+        "sync_sku_only": False,
+        "skip_users": True,
+        "skip_warehouses": True,
+        "skip_stock": True,
+        "skip_customers": False,
+        "skip_sales": False,
+        "result_copy": "Sinkron produk, customer, dan histori penjualan iPOS ke tabel ERP selesai tanpa mengubah stok atau user.",
+    },
+    "full_except_stock": {
+        "label": "Full ERP kecuali Stock",
+        "skip_mirror": True,
+        "replace_mirror": False,
+        "products_only": False,
+        "sync_sku_only": False,
+        "skip_users": False,
+        "skip_warehouses": False,
+        "skip_stock": True,
+        "skip_customers": False,
+        "skip_sales": False,
+        "result_copy": "Sinkron warehouse, user, produk, customer, dan histori penjualan iPOS ke ERP selesai tanpa mengubah stok.",
+    },
+}
 
 
 def _can_manage_product_master():
@@ -137,6 +207,20 @@ def _to_float(value):
         return float(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _iter_product_id_batches(product_ids, batch_size=PRODUCT_DELETE_BATCH_SIZE):
+    cleaned_ids = []
+    for raw_product_id in product_ids or []:
+        try:
+            normalized = int(raw_product_id or 0)
+        except (TypeError, ValueError):
+            normalized = 0
+        if normalized:
+            cleaned_ids.append(normalized)
+
+    for index in range(0, len(cleaned_ids), batch_size):
+        yield cleaned_ids[index:index + batch_size]
 
 
 def _normalize_picker_query(raw_query):
@@ -306,6 +390,84 @@ def _to_bool(value):
 def _normalize_unit_label(value):
     cleaned = " ".join(str(value or "").strip().split())
     return cleaned or "pcs"
+
+
+def _normalize_product_identity_name(value):
+    compact = re.sub(r"[^a-z0-9]+", "", " ".join(str(value or "").strip().split()).casefold())
+    return compact
+
+
+def _build_product_match_caches(rows):
+    product_cache_by_sku = {}
+    product_cache_by_name = {}
+
+    for raw_row in rows:
+        row = dict(raw_row)
+        sku_key = str(row.get("sku") or "").strip()
+        if sku_key:
+            product_cache_by_sku[sku_key] = row
+
+        name_key = _normalize_product_identity_name(row.get("name"))
+        if name_key:
+            product_cache_by_name.setdefault(name_key, []).append(row)
+
+    return product_cache_by_sku, product_cache_by_name
+
+
+def _remember_product_cache_row(product_cache_by_sku, product_cache_by_name, row):
+    row = dict(row)
+    target_id = int(row["id"])
+
+    stale_skus = [
+        sku_key
+        for sku_key, current_row in product_cache_by_sku.items()
+        if int(current_row["id"]) == target_id
+    ]
+    for sku_key in stale_skus:
+        product_cache_by_sku.pop(sku_key, None)
+
+    for name_key, current_rows in list(product_cache_by_name.items()):
+        filtered_rows = [current_row for current_row in current_rows if int(current_row["id"]) != target_id]
+        if filtered_rows:
+            product_cache_by_name[name_key] = filtered_rows
+        else:
+            product_cache_by_name.pop(name_key, None)
+
+    sku_key = str(row.get("sku") or "").strip()
+    if sku_key:
+        product_cache_by_sku[sku_key] = row
+
+    name_key = _normalize_product_identity_name(row.get("name"))
+    if name_key:
+        product_cache_by_name.setdefault(name_key, []).append(row)
+
+    return row
+
+
+def _pick_canonical_product_match(name_matches):
+    if not name_matches:
+        return None
+    return min(
+        name_matches,
+        key=lambda row: (
+            int(row["id"]),
+            str(row.get("sku") or "").strip().casefold(),
+            str(row.get("name") or "").strip().casefold(),
+        ),
+    )
+
+
+def _resolve_existing_product_match(product_cache_by_sku, product_cache_by_name, sku, name):
+    safe_sku = str(sku or "").strip()
+    if safe_sku and safe_sku in product_cache_by_sku:
+        return product_cache_by_sku[safe_sku], "sku", False
+
+    name_key = _normalize_product_identity_name(name)
+    name_matches = list(product_cache_by_name.get(name_key, []))
+    if not name_matches:
+        return None, None, False
+
+    return _pick_canonical_product_match(name_matches), "name", len(name_matches) > 1
 
 
 def _normalize_variant_mode(value):
@@ -885,17 +1047,20 @@ def _delete_product_bundle(db, product_ids):
     if not product_ids:
         return 0
 
-    placeholders = ",".join(["?"] * len(product_ids))
+    total_deleted = 0
+    for batch_ids in _iter_product_id_batches(product_ids):
+        placeholders = ",".join(["?"] * len(batch_ids))
 
-    db.execute(f"DELETE FROM requests WHERE product_id IN ({placeholders})", product_ids)
-    db.execute(f"DELETE FROM approvals WHERE product_id IN ({placeholders})", product_ids)
-    db.execute(f"DELETE FROM stock_movements WHERE product_id IN ({placeholders})", product_ids)
-    db.execute(f"DELETE FROM stock_history WHERE product_id IN ({placeholders})", product_ids)
-    db.execute(f"DELETE FROM stock_batches WHERE product_id IN ({placeholders})", product_ids)
-    db.execute(f"DELETE FROM stock WHERE product_id IN ({placeholders})", product_ids)
-    db.execute(f"DELETE FROM product_variants WHERE product_id IN ({placeholders})", product_ids)
-    result = db.execute(f"DELETE FROM products WHERE id IN ({placeholders})", product_ids)
-    return result.rowcount if result.rowcount is not None else 0
+        db.execute(f"DELETE FROM requests WHERE product_id IN ({placeholders})", batch_ids)
+        db.execute(f"DELETE FROM approvals WHERE product_id IN ({placeholders})", batch_ids)
+        db.execute(f"DELETE FROM stock_movements WHERE product_id IN ({placeholders})", batch_ids)
+        db.execute(f"DELETE FROM stock_history WHERE product_id IN ({placeholders})", batch_ids)
+        db.execute(f"DELETE FROM stock_batches WHERE product_id IN ({placeholders})", batch_ids)
+        db.execute(f"DELETE FROM stock WHERE product_id IN ({placeholders})", batch_ids)
+        db.execute(f"DELETE FROM product_variants WHERE product_id IN ({placeholders})", batch_ids)
+        result = db.execute(f"DELETE FROM products WHERE id IN ({placeholders})", batch_ids)
+        total_deleted += result.rowcount if result.rowcount is not None else 0
+    return total_deleted
 
 
 @products_bp.route("/get_variants/<int:product_id>")
@@ -1093,6 +1258,78 @@ def bulk_delete():
         return _products_json_error("Gagal menghapus produk.", 500)
 
 
+@products_bp.route("/delete-all", methods=["POST"])
+def delete_all_products():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
+
+    db = get_db()
+    payload = request.get_json(silent=True) or {}
+    confirmation_text = " ".join(str(payload.get("confirmation_text") or "").strip().upper().split())
+
+    if confirmation_text != "HAPUS SEMUA PRODUK":
+        return _products_json_error("Ketik HAPUS SEMUA PRODUK untuk melanjutkan.", 400)
+
+    product_rows = db.execute("SELECT id FROM products ORDER BY id").fetchall()
+    ids = [int(row["id"]) for row in product_rows if row["id"]]
+
+    if not ids:
+        return jsonify({
+            "status": "success",
+            "message": "Tidak ada produk untuk dihapus.",
+            "deleted_count": 0,
+        })
+
+    try:
+        if can_queue_product_master_approval(session.get("role")):
+            pending_map = find_pending_product_delete_approvals(db, ids)
+            queue_ids = [product_id for product_id in ids if product_id not in pending_map]
+
+            if not queue_ids:
+                existing_ids = [pending_map[product_id]["id"] for product_id in ids if product_id in pending_map]
+                return jsonify({
+                    "status": "success",
+                    "approval_status": "pending",
+                    "approval_existing": True,
+                    "message": "Semua produk sudah menunggu approval hapus sebelumnya.",
+                    "approval_ids": existing_ids,
+                })
+
+            db.execute("BEGIN")
+            approval_ids = _queue_product_delete_requests(db, queue_ids)
+            db.commit()
+            existing_count = len(pending_map)
+            total_pending_ids = [pending_map[product_id]["id"] for product_id in ids if product_id in pending_map] + approval_ids
+            message = f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin."
+            if existing_count:
+                message = (
+                    f"{len(approval_ids)} permintaan hapus baru dikirim. "
+                    f"{existing_count} produk lain sudah punya approval pending."
+                )
+            return jsonify({
+                "status": "success",
+                "approval_status": "pending",
+                "approval_existing": existing_count > 0,
+                "message": message,
+                "approval_ids": total_pending_ids,
+            })
+
+        db.execute("BEGIN")
+        deleted_count = _delete_product_bundle(db, ids)
+        db.commit()
+        return jsonify({
+            "status": "success",
+            "message": f"{deleted_count} produk berhasil dihapus.",
+            "deleted_count": deleted_count,
+        })
+
+    except Exception as e:
+        db.rollback()
+        print("DELETE ALL PRODUCTS ERROR:", e)
+        return _products_json_error("Gagal menghapus semua produk.", 500)
+
+
 @products_bp.route("/import/preview", methods=["POST"])
 def preview_import():
     denied = _require_product_master_access(json_mode=True)
@@ -1112,6 +1349,81 @@ def preview_import():
         return _products_json_error("Format tidak valid", 400)
 
     return jsonify({"status": "success", "rows": rows[:10]})
+
+
+@products_bp.route("/import/ipos4", methods=["POST"])
+def import_ipos4_products():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
+
+    file = request.files.get("file")
+    if not file or not (file.filename or "").strip():
+        return _products_json_error("File iPOS4 belum dipilih.", 400)
+
+    filename = str(file.filename or "").strip()
+    if not filename.lower().endswith(".i4bu"):
+        return _products_json_error("Format file harus .i4bu dari iPOS4.", 400)
+
+    selected_mode = str(request.form.get("mode") or "products_only").strip().lower()
+    mode_config = IPOS4_IMPORT_UI_MODES.get(selected_mode)
+    if not mode_config:
+        return _products_json_error("Mode import iPOS4 tidak dikenal.", 400)
+
+    upload_dir = Path(current_app.root_path).resolve() / "scripts" / ".tmp" / "ipos4_uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = upload_dir / f"ipos4-{uuid.uuid4().hex}.i4bu"
+
+    try:
+        file.save(temp_path)
+
+        db = g.pop("db", None)
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+        import_module_ref = import_module("scripts.import_ipos4_dump")
+        args = SimpleNamespace(
+            source_dump=str(temp_path),
+            target_db=str(Path(current_app.config["DATABASE"]).expanduser().resolve()),
+            mirror_db=str((Path(current_app.root_path).resolve() / "instance" / "ipos4_mirror.db")),
+            preview=False,
+            skip_mirror=mode_config["skip_mirror"],
+            skip_users=mode_config["skip_users"],
+            skip_warehouses=mode_config["skip_warehouses"],
+            skip_sales=mode_config["skip_sales"],
+            skip_stock=mode_config["skip_stock"],
+            skip_customers=mode_config["skip_customers"],
+            replace_mirror=mode_config["replace_mirror"],
+            update_existing_users=False,
+            no_backup=False,
+            limit_sales=0,
+            products_only=mode_config["products_only"],
+            sync_sku_only=mode_config["sync_sku_only"],
+        )
+        summary = import_module_ref.run_import(args)
+    except Exception as exc:
+        return _products_json_error(f"Import iPOS4 gagal: {exc}", 500)
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": (
+                f"Import iPOS4 mode {mode_config['label']} selesai. "
+                f"{mode_config['result_copy']}"
+            ),
+            "selected_mode": selected_mode,
+            "selected_mode_label": mode_config["label"],
+            "summary": summary,
+        }
+    )
 
 
 @products_bp.route("/add", methods=["POST"])
@@ -1146,12 +1458,16 @@ def add_product():
 
     try:
         db.execute("BEGIN")
-
-        exist = db.execute("SELECT id FROM products WHERE sku=?", (sku,)).fetchone()
-
-        if exist:
-            db.rollback()
-            return _products_error_response("SKU sudah ada", 409)
+        product_rows = db.execute(
+            "SELECT id, sku, name, category_id, unit_label, variant_mode FROM products"
+        ).fetchall()
+        product_cache_by_sku, product_cache_by_name = _build_product_match_caches(product_rows)
+        existing_product, match_type, has_multiple_name_matches = _resolve_existing_product_match(
+            product_cache_by_sku,
+            product_cache_by_name,
+            sku,
+            name,
+        )
 
         category = db.execute("SELECT id FROM categories WHERE name=?", (category_name,)).fetchone()
 
@@ -1161,11 +1477,50 @@ def add_product():
             cur = db.execute("INSERT INTO categories(name) VALUES (?)", (category_name,))
             category_id = cur.lastrowid
 
-        cur = db.execute(
-            "INSERT INTO products (sku,name,category_id,unit_label,variant_mode) VALUES (?,?,?,?,?)",
-            (sku, name, category_id, unit_label, variant_mode),
-        )
-        product_id = cur.lastrowid
+        merged_existing = existing_product is not None
+        if existing_product:
+            current_sku = str(existing_product.get("sku") or "").strip()
+            target_sku = current_sku or sku
+            db.execute(
+                """
+                UPDATE products
+                SET sku=?, name=?, category_id=?, unit_label=?, variant_mode=?
+                WHERE id=?
+                """,
+                (target_sku, name, category_id, unit_label, variant_mode, existing_product["id"]),
+            )
+            product_id = int(existing_product["id"])
+            sku = target_sku
+            _remember_product_cache_row(
+                product_cache_by_sku,
+                product_cache_by_name,
+                {
+                    "id": product_id,
+                    "sku": sku,
+                    "name": name,
+                    "category_id": category_id,
+                    "unit_label": unit_label,
+                    "variant_mode": variant_mode,
+                },
+            )
+        else:
+            cur = db.execute(
+                "INSERT INTO products (sku,name,category_id,unit_label,variant_mode) VALUES (?,?,?,?,?)",
+                (sku, name, category_id, unit_label, variant_mode),
+            )
+            product_id = cur.lastrowid
+            _remember_product_cache_row(
+                product_cache_by_sku,
+                product_cache_by_name,
+                {
+                    "id": product_id,
+                    "sku": sku,
+                    "name": name,
+                    "category_id": category_id,
+                    "unit_label": unit_label,
+                    "variant_mode": variant_mode,
+                },
+            )
 
         for row in variant_rows:
             variant_id = _upsert_variant(
@@ -1191,11 +1546,19 @@ def add_product():
 
         db.commit()
         return _products_success_response(
-            "Produk berhasil ditambahkan",
+            (
+                "Produk digabung ke master yang sudah ada."
+                if merged_existing
+                else "Produk berhasil ditambahkan"
+            ),
             product_id=product_id,
             sku=sku,
             unit_label=unit_label,
             variant_mode=variant_mode,
+            merged_existing=merged_existing,
+            merge_reason=match_type,
+            name_match_collapsed=bool(merged_existing and match_type == "name"),
+            multiple_name_matches=bool(has_multiple_name_matches),
         )
 
     except Exception as e:
@@ -1311,9 +1674,15 @@ def import_products():
     imported_variant_count = 0
     imported_total_qty = 0
     affected_warehouse_ids = set()
+    merged_by_sku_count = 0
+    merged_by_name_count = 0
+    created_product_count = 0
 
     category_cache = {r["name"]: r["id"] for r in db.execute("SELECT id,name FROM categories")}
-    product_cache = {r["sku"]: r["id"] for r in db.execute("SELECT id,sku FROM products")}
+    product_rows = db.execute(
+        "SELECT id, sku, name, category_id, unit_label, variant_mode FROM products"
+    ).fetchall()
+    product_cache_by_sku, product_cache_by_name = _build_product_match_caches(product_rows)
 
     for start in range(0, len(rows), CHUNK_SIZE):
 
@@ -1332,6 +1701,7 @@ def import_products():
                     sku = str(row.get("sku")).strip()
                     name = str(row.get("name")).strip()
                     category_name = str(row.get("category") or "").strip() or "Uncategorized"
+                    raw_unit_label = str(row.get("unit_label") or "").strip()
                     variant = _normalize_variant_name(str(row.get("variant") or "default"))
                     color = _normalize_variant_color(row.get("color"))
 
@@ -1358,17 +1728,68 @@ def import_products():
                         category_id = cur.lastrowid
                         category_cache[category_name] = category_id
 
-                    if sku in product_cache:
-                        product_id = product_cache[sku]
-                        db.execute("""
+                    existing_product, match_type, _has_multiple_name_matches = _resolve_existing_product_match(
+                        product_cache_by_sku,
+                        product_cache_by_name,
+                        sku,
+                        name,
+                    )
+                    unit_label = _normalize_unit_label(raw_unit_label) if raw_unit_label else None
+                    variant_mode = "variant" if variant != "default" or color else "non_variant"
+
+                    if existing_product:
+                        product_id = int(existing_product["id"])
+                        target_sku = str(existing_product.get("sku") or "").strip() or sku
+                        target_unit_label = unit_label or str(existing_product.get("unit_label") or "").strip() or "pcs"
+                        target_variant_mode = (
+                            "variant"
+                            if str(existing_product.get("variant_mode") or "").strip().lower() == "variant" or variant_mode == "variant"
+                            else "non_variant"
+                        )
+                        db.execute(
+                            """
                             UPDATE products
-                            SET name=?, category_id=?
+                            SET sku=?, name=?, category_id=?, unit_label=?, variant_mode=?
                             WHERE id=?
-                        """, (name, category_id, product_id))
+                            """,
+                            (target_sku, name, category_id, target_unit_label, target_variant_mode, product_id),
+                        )
+                        _remember_product_cache_row(
+                            product_cache_by_sku,
+                            product_cache_by_name,
+                            {
+                                "id": product_id,
+                                "sku": target_sku,
+                                "name": name,
+                                "category_id": category_id,
+                                "unit_label": target_unit_label,
+                                "variant_mode": target_variant_mode,
+                            },
+                        )
+                        if match_type == "sku":
+                            merged_by_sku_count += 1
+                        else:
+                            merged_by_name_count += 1
                     else:
-                        cur = db.execute("INSERT INTO products(sku,name,category_id) VALUES (?,?,?)", (sku, name, category_id))
+                        target_unit_label = unit_label or "pcs"
+                        cur = db.execute(
+                            "INSERT INTO products(sku,name,category_id,unit_label,variant_mode) VALUES (?,?,?,?,?)",
+                            (sku, name, category_id, target_unit_label, variant_mode),
+                        )
                         product_id = cur.lastrowid
-                        product_cache[sku] = product_id
+                        _remember_product_cache_row(
+                            product_cache_by_sku,
+                            product_cache_by_name,
+                            {
+                                "id": product_id,
+                                "sku": sku,
+                                "name": name,
+                                "category_id": category_id,
+                                "unit_label": target_unit_label,
+                                "variant_mode": variant_mode,
+                            },
+                        )
+                        created_product_count += 1
 
                     variant_id = _upsert_variant(
                         db,
@@ -1434,6 +1855,13 @@ def import_products():
             print("CHUNK ERROR:", e)
 
     IMPORT_PROGRESS[job_id]["status"] = "done"
+    IMPORT_PROGRESS[job_id]["summary"] = {
+        "created_products": created_product_count,
+        "merged_by_sku": merged_by_sku_count,
+        "merged_by_name": merged_by_name_count,
+        "imported_variants": imported_variant_count,
+        "imported_total_qty": imported_total_qty,
+    }
     if imported_total_qty > 0:
         try:
             warehouse_id = next(iter(affected_warehouse_ids)) if len(affected_warehouse_ids) == 1 else None
@@ -1458,4 +1886,12 @@ def import_products():
         except Exception as exc:
             print("PRODUCT IMPORT NOTIFICATION ERROR:", exc)
 
-    return jsonify({"job_id": job_id})
+    return jsonify(
+        {
+            "job_id": job_id,
+            "merge_policy": "sku_then_name",
+            "created_products": created_product_count,
+            "merged_by_sku": merged_by_sku_count,
+            "merged_by_name": merged_by_name_count,
+        }
+    )

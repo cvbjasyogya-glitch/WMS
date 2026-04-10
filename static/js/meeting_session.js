@@ -18,8 +18,13 @@
     const participantPill = document.getElementById("meetingStageParticipantPill");
     const stageLoader = document.getElementById("meetingStageLoader");
     const stageHints = document.getElementById("meetingStageHints");
+    const MEETING_STATE_KEY_PREFIX = "wms-meeting-state:";
+    const MEETING_STATE_TTL_MS = 12 * 60 * 60 * 1000;
 
     let participantCount = 1;
+    let meetingApi = null;
+    let meetingStateKey = "";
+    let meetingJoined = false;
 
     function setStageStatus(title, description) {
         if (stageTitle) {
@@ -46,6 +51,18 @@
         setPillState(participantPill, `Peserta: ${participantCount}`, tone);
     }
 
+    function refreshConnectivityUi() {
+        if (navigator.onLine === false) {
+            setPillState(networkPill, "Status: Offline", "danger");
+            return;
+        }
+        if (meetingJoined) {
+            setPillState(networkPill, "Status: Live", "success");
+            return;
+        }
+        setPillState(networkPill, "Status: Menyiapkan room", "warning");
+    }
+
     function showError(message) {
         if (stageError) {
             stageError.hidden = false;
@@ -61,10 +78,11 @@
         if (!stateId) {
             throw new Error("Data meeting tidak ditemukan. Buka lagi dari portal meeting.");
         }
+        meetingStateKey = `${MEETING_STATE_KEY_PREFIX}${stateId}`;
 
         let rawValue = "";
         try {
-            rawValue = sessionStorage.getItem(`wms-meeting-state:${stateId}`) || "";
+            rawValue = sessionStorage.getItem(meetingStateKey) || "";
         } catch (error) {
             throw new Error("Browser menolak membaca data sesi meeting. Coba ulangi dari portal.");
         }
@@ -74,9 +92,31 @@
         }
 
         try {
-            return JSON.parse(rawValue);
+            const parsed = JSON.parse(rawValue);
+            const createdAt = Number(parsed.storageCreatedAt || parsed.createdAt || 0) || 0;
+            if (createdAt && Date.now() - createdAt > MEETING_STATE_TTL_MS) {
+                try {
+                    sessionStorage.removeItem(meetingStateKey);
+                } catch (error) {
+                }
+                throw new Error("Sesi meeting browser sudah kedaluwarsa. Silakan masuk lagi dari portal meeting.");
+            }
+            return parsed;
         } catch (error) {
+            if (String(error.message || "").includes("kedaluwarsa")) {
+                throw error;
+            }
             throw new Error("Data sesi meeting rusak. Silakan ulangi dari portal meeting.");
+        }
+    }
+
+    function clearMeetingState() {
+        if (!meetingStateKey) {
+            return;
+        }
+        try {
+            sessionStorage.removeItem(meetingStateKey);
+        } catch (error) {
         }
     }
 
@@ -93,6 +133,17 @@
         if (stageBox) {
             stageBox.classList.add("is-live");
         }
+    }
+
+    function disposeMeetingApi() {
+        if (!meetingApi || typeof meetingApi.dispose !== "function") {
+            return;
+        }
+        try {
+            meetingApi.dispose();
+        } catch (error) {
+        }
+        meetingApi = null;
     }
 
     function buildJitsiOptions(meetingState) {
@@ -166,10 +217,12 @@
         setStageStatus("Menyiapkan Browser Room...", "Menghubungkan user ke stage meeting ringan dan menyalakan ruang meeting yang sudah diproteksi server.");
 
         const api = new window.JitsiMeetExternalAPI(meetingState.domain || meetingDomain, buildJitsiOptions(meetingState));
+        meetingApi = api;
 
         api.addListener("videoConferenceJoined", function () {
+            meetingJoined = true;
             revealMeetingStage();
-            setPillState(networkPill, "Status: Live", "success");
+            refreshConnectivityUi();
             setStageStatus("Meeting berhasil dibuka", "Room browser sudah aktif. Kalau audio sudah masuk, meeting siap dipakai.");
         });
 
@@ -184,10 +237,12 @@
         });
 
         api.addListener("readyToClose", function () {
+            clearMeetingState();
             window.location.href = leaveUrl;
         });
 
         api.addListener("videoConferenceLeft", function () {
+            clearMeetingState();
             window.location.href = leaveUrl;
         });
     }
@@ -196,6 +251,32 @@
         const meetingState = readMeetingState();
         initBrowserMeeting(meetingState);
     } catch (error) {
+        clearMeetingState();
         showError(error.message || "Meeting tidak bisa dibuka.");
     }
+
+    window.addEventListener("online", () => {
+        refreshConnectivityUi();
+        if (meetingJoined) {
+            setStageStatus("Meeting kembali online", "Koneksi internet kembali tersedia. Lanjutkan meeting seperti biasa.");
+        }
+    });
+
+    window.addEventListener("offline", () => {
+        refreshConnectivityUi();
+        if (meetingJoined) {
+            setStageStatus("Jaringan meeting terputus", "Internet sedang offline. Browser akan mencoba mempertahankan sesi sampai koneksi kembali.");
+        }
+    });
+
+    window.addEventListener("pagehide", (event) => {
+        if (event && event.persisted) {
+            return;
+        }
+        disposeMeetingApi();
+    });
+
+    window.addEventListener("beforeunload", () => {
+        disposeMeetingApi();
+    });
 })();

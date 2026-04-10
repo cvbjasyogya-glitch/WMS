@@ -7,9 +7,12 @@
     const STORAGE_PREFIX = "wms-table-layout-v1:";
     const MIN_COL_WIDTH = 72;
     const MIN_ROW_HEIGHT = 44;
+    const HYDRATE_ROOT_MARGIN = "280px 0px";
 
     let resizeState = null;
     let initFrame = 0;
+    let managedTableObserver = null;
+    const pendingInitRoots = new Set();
 
     function normalizeKeyPart(value) {
         return String(value || "")
@@ -33,7 +36,18 @@
     }
 
     function getManagedTables(root = document) {
-        return Array.from(root.querySelectorAll(TABLE_SELECTOR)).filter(shouldManageTable);
+        const scopedTables = [];
+        if (root instanceof HTMLTableElement) {
+            scopedTables.push(root);
+        } else if (root instanceof Element) {
+            const directTable = root.matches(TABLE_SELECTOR) ? [root] : [];
+            scopedTables.push(...directTable);
+        }
+
+        const nestedTables = typeof root?.querySelectorAll === "function"
+            ? Array.from(root.querySelectorAll(TABLE_SELECTOR))
+            : [];
+        return [...scopedTables, ...nestedTables].filter(shouldManageTable);
     }
 
     function getReferenceRow(table) {
@@ -356,6 +370,7 @@
             return;
         }
 
+        table.dataset.tableLayoutReady = "1";
         table.classList.add(TABLE_CLASS);
         getLayoutId(table);
         restoreStoredWidths(table);
@@ -384,17 +399,50 @@
         rebuildRowHandles(table);
     }
 
-    function initManagedTables(root = document) {
-        getManagedTables(root).forEach(hydrateTable);
+    function observeManagedTable(table) {
+        if (!shouldManageTable(table)) {
+            return;
+        }
+
+        if (table.dataset.tableLayoutObserved === "1" || table.dataset.tableLayoutReady === "1") {
+            return;
+        }
+
+        table.dataset.tableLayoutObserved = "1";
+        if (managedTableObserver) {
+            managedTableObserver.observe(table);
+            return;
+        }
+
+        hydrateTable(table);
     }
 
-    function queueInitManagedTables() {
+    function initManagedTables(root = document) {
+        getManagedTables(root).forEach(observeManagedTable);
+    }
+
+    function queueInitManagedTables(root = document) {
+        pendingInitRoots.add(root);
         if (initFrame) {
             return;
         }
         initFrame = window.requestAnimationFrame(() => {
             initFrame = 0;
-            initManagedTables(document);
+            const roots = Array.from(pendingInitRoots);
+            pendingInitRoots.clear();
+            roots.forEach((currentRoot) => {
+                initManagedTables(currentRoot);
+            });
+        });
+    }
+
+    function queueRefreshHydratedTables() {
+        if (initFrame) {
+            return;
+        }
+        initFrame = window.requestAnimationFrame(() => {
+            initFrame = 0;
+            document.querySelectorAll(`${TABLE_SELECTOR}[data-table-layout-ready="1"]`).forEach(hydrateTable);
         });
     }
 
@@ -452,10 +500,40 @@
     }
 
     function bootstrap() {
+        if ("IntersectionObserver" in window) {
+            managedTableObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) {
+                        return;
+                    }
+                    const table = entry.target;
+                    if (!(table instanceof HTMLTableElement)) {
+                        return;
+                    }
+                    managedTableObserver.unobserve(table);
+                    hydrateTable(table);
+                });
+            }, {
+                rootMargin: HYDRATE_ROOT_MARGIN,
+            });
+        }
+
         initManagedTables(document);
 
-        const observer = new MutationObserver(() => {
-            queueInitManagedTables();
+        const observer = new MutationObserver((mutations) => {
+            let hasQueuedRoot = false;
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node instanceof Element || node instanceof HTMLTableElement) {
+                        queueInitManagedTables(node);
+                        hasQueuedRoot = true;
+                    }
+                });
+            });
+
+            if (!hasQueuedRoot) {
+                queueInitManagedTables(document);
+            }
         });
         observer.observe(document.body, {
             childList: true,
@@ -471,7 +549,7 @@
                 stopResize();
             }
         });
-        window.addEventListener("resize", queueInitManagedTables);
+        window.addEventListener("resize", queueRefreshHydratedTables);
     }
 
     if (document.readyState === "loading") {

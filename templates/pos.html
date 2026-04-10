@@ -449,6 +449,56 @@ const posQuickSearchForm = document.getElementById("posQuickSearchForm");
 const posQuickSearch = document.getElementById("posQuickSearch");
 const posQuickSearchSummary = document.getElementById("posQuickSearchSummary");
 const posQuickSearchResults = document.getElementById("posQuickSearchResults");
+
+function normalizePosPhoneValue(value) {
+    let digits = String(value || "").replace(/\D+/g, "");
+    if (!digits) {
+        return "";
+    }
+    if (digits.startsWith("00")) {
+        digits = digits.slice(2);
+    }
+    if (digits.startsWith("0")) {
+        digits = `62${digits.slice(1)}`;
+    } else if (!digits.startsWith("62") && digits.length >= 8) {
+        digits = `62${digits.replace(/^0+/, "")}`;
+    }
+    return digits;
+}
+
+function clearPosCustomerIdentityValidity() {
+    [posCustomerName, posCustomerPhone].forEach((input) => {
+        input?.setCustomValidity("");
+    });
+}
+
+function validateRequiredPosCustomerFields() {
+    clearPosCustomerIdentityValidity();
+
+    const safeName = String(posCustomerName?.value || "").trim();
+    if (posCustomerName) {
+        posCustomerName.value = safeName;
+    }
+    if (!safeName && posCustomerName) {
+        posCustomerName.setCustomValidity("Nama customer wajib diisi.");
+        posCustomerName.reportValidity();
+        posCustomerName.focus();
+        return false;
+    }
+
+    const safePhone = normalizePosPhoneValue(posCustomerPhone?.value || "");
+    if (posCustomerPhone) {
+        posCustomerPhone.value = safePhone;
+    }
+    if (!safePhone && posCustomerPhone) {
+        posCustomerPhone.setCustomValidity("No HP customer wajib diisi dengan angka yang valid.");
+        posCustomerPhone.reportValidity();
+        posCustomerPhone.focus();
+        return false;
+    }
+
+    return true;
+}
 const posPaidQuickActions = document.getElementById("posPaidQuickActions");
 const posKeypadTargets = document.getElementById("posKeypadTargets");
 const posKeypadGrid = document.getElementById("posKeypadGrid");
@@ -596,20 +646,27 @@ function createPosCustomerOptionNode(optionState) {
     return option;
 }
 
-function syncPosCustomerSelectionState() {
+function syncPosCustomerSelectionState(options = {}) {
     if (!posCustomerId) {
         return;
     }
+    const shouldClearGeneralCustomer = options.clearWhenGeneral === true;
     const option = posCustomerId.selectedOptions[0];
     if (!option || !posCustomerId.value) {
-        posCustomerName.value = "Walk-in Customer";
-        posCustomerPhone.value = "";
+        if (shouldClearGeneralCustomer || !String(posCustomerName?.value || "").trim()) {
+            posCustomerName.value = "";
+        }
+        if (shouldClearGeneralCustomer || !String(posCustomerPhone?.value || "").trim()) {
+            posCustomerPhone.value = "";
+        }
+        clearPosCustomerIdentityValidity();
         syncPosCustomerLoyaltyHint();
         return;
     }
 
     posCustomerName.value = option.textContent.split("|")[0].trim();
     posCustomerPhone.value = option.dataset.phone || "";
+    clearPosCustomerIdentityValidity();
     syncPosCustomerLoyaltyHint();
 }
 
@@ -883,12 +940,13 @@ function syncPosCashierDisplay() {
     posCashierDisplay.textContent = selectedOption?.dataset.displayName || selectedOption?.textContent || "-";
 }
 
-function syncPosCustomerLoyaltyHint() {
+function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     if (!posCustomerLoyaltyHint || !posCustomerId) return;
+    const shouldAutoSelectTransactionType = autoSelectTransactionType !== false;
     const selectedOption = posCustomerId.options[posCustomerId.selectedIndex];
     if (!selectedOption || !posCustomerId.value) {
-        posCustomerLoyaltyHint.textContent = "Customer umum bisa langsung checkout. Pilih customer member kalau transaksi perlu update loyalty.";
-        if (posTransactionType) {
+        posCustomerLoyaltyHint.textContent = "Customer umum tetap wajib isi nama dan no HP sebelum checkout. Pilih customer member kalau transaksi perlu update loyalty.";
+        if (shouldAutoSelectTransactionType && posTransactionType) {
             posTransactionType.value = "purchase";
         }
         syncPosTransactionPricing();
@@ -899,7 +957,7 @@ function syncPosCustomerLoyaltyHint() {
     const memberType = selectedOption.dataset.memberType || "";
     if (!memberCode || !memberType) {
         posCustomerLoyaltyHint.textContent = "Customer ini belum punya member aktif. Transaksi tetap tersimpan ke CRM customer.";
-        if (posTransactionType) {
+        if (shouldAutoSelectTransactionType && posTransactionType) {
             posTransactionType.value = "purchase";
         }
         syncPosTransactionPricing();
@@ -908,7 +966,7 @@ function syncPosCustomerLoyaltyHint() {
 
     if (memberType === "stringing") {
         posCustomerLoyaltyHint.textContent = `${memberCode} • Member Senaran. Pilih "Senaran Berbayar" untuk hitung kunjungan atau "Senaran Free Reward" saat free dipakai.`;
-        if (posTransactionType && posTransactionType.value === "purchase") {
+        if (shouldAutoSelectTransactionType && posTransactionType && posTransactionType.value === "purchase") {
             posTransactionType.value = "stringing_service";
         }
         syncPosTransactionPricing();
@@ -916,7 +974,7 @@ function syncPosCustomerLoyaltyHint() {
     }
 
     posCustomerLoyaltyHint.textContent = `${memberCode} • Member Pembelian. Setiap total Rp 10.000 otomatis menambah 1 poin dari checkout ini.`;
-    if (posTransactionType) {
+    if (shouldAutoSelectTransactionType && posTransactionType) {
         posTransactionType.value = "purchase";
     }
     syncPosTransactionPricing();
@@ -1142,11 +1200,23 @@ function renderPosQuickSearchResults() {
     posQuickSearchResults.innerHTML = posQuickSearchState.items.map((item, index) => {
         const stockQty = Number(item.qty || 0);
         const stockBadgeClass = stockQty <= 0 ? "red" : stockQty < 5 ? "orange" : "green";
+        const skuLabel = escapeHtml(item.sku || "-");
+        const nameLabel = escapeHtml(item.name || "Tanpa nama");
+        const variantLabel = escapeHtml(item.variant_label || "Default");
+        const categoryLabel = escapeHtml(item.category || "Tanpa kategori");
+        const gtinLabel = escapeHtml(item.gtin || "-");
         return `
             <button type="button" class="pos-ipos-quicksearch-result" data-pos-quick-search-index="${index}" role="option" aria-selected="false" tabindex="-1">
                 <span class="pos-ipos-quicksearch-result-copy">
-                    <strong class="pos-ipos-quicksearch-result-title">${escapeHtml(item.sku)} - ${escapeHtml(item.name)}</strong>
-                    <small class="pos-ipos-quicksearch-result-detail">${escapeHtml(item.variant_label || "Default")} | ${escapeHtml(item.category || "Tanpa kategori")} | GTIN ${escapeHtml(item.gtin || "-")}</small>
+                    <span class="pos-ipos-quicksearch-result-head">
+                        <span class="pos-ipos-quicksearch-result-code">${skuLabel}</span>
+                        <strong class="pos-ipos-quicksearch-result-title">${nameLabel}</strong>
+                    </span>
+                    <span class="pos-ipos-quicksearch-result-tags">
+                        <small class="pos-ipos-quicksearch-result-chip">${variantLabel}</small>
+                        <small class="pos-ipos-quicksearch-result-chip">${categoryLabel}</small>
+                        <small class="pos-ipos-quicksearch-result-chip">GTIN ${gtinLabel}</small>
+                    </span>
                 </span>
                 <span class="pos-ipos-quicksearch-result-meta">
                     <span class="badge ${stockBadgeClass}">Stok ${escapeHtml(stockQty)}</span>
@@ -1522,6 +1592,10 @@ async function loadPosCatalog(page = 1) {
 function checkoutPosTransaction() {
     if (!posCart.length) {
         alert("Keranjang masih kosong.");
+        return;
+    }
+
+    if (!validateRequiredPosCustomerFields()) {
         return;
     }
 
@@ -2014,6 +2088,8 @@ posPaidAmount.addEventListener("input", updatePosChangePreview);
 posPaidAmount.addEventListener("focus", () => setPosKeypadTarget("paid"));
 posDraftQty.addEventListener("focus", () => setPosKeypadTarget("qty"));
 posCheckoutButton.addEventListener("click", checkoutPosTransaction);
+posCustomerName?.addEventListener("input", clearPosCustomerIdentityValidity);
+posCustomerPhone?.addEventListener("input", clearPosCustomerIdentityValidity);
 posDiscountInput?.addEventListener("input", renderPosCart);
 posDiscountType?.addEventListener("change", renderPosCart);
 posTaxInput?.addEventListener("input", renderPosCart);
@@ -2037,7 +2113,7 @@ posKeypadGrid?.addEventListener("click", (event) => {
     applyPosKey(button.dataset.posKey || "");
 });
 
-posCustomerId.addEventListener("change", syncPosCustomerSelectionState);
+posCustomerId.addEventListener("change", () => syncPosCustomerSelectionState({ clearWhenGeneral: true }));
 
 posCustomerSearch?.addEventListener("input", () => {
     filterPosCustomerOptions(posCustomerSearch.value || "");
@@ -2094,8 +2170,7 @@ posCashierUserId?.addEventListener("keydown", (event) => {
 });
 
 posTransactionType?.addEventListener("change", () => {
-    syncPosCustomerLoyaltyHint();
-    syncPosTransactionPricing();
+    syncPosCustomerLoyaltyHint(false);
 });
 
 posCartBody.addEventListener("click", (event) => {

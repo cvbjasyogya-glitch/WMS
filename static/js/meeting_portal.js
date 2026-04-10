@@ -18,6 +18,9 @@
 
     const RECENT_ROOMS_KEY = "erp-browser-meeting-rooms";
     const MAX_RECENT_ROOMS = 8;
+    const MEETING_STATE_KEY_PREFIX = "wms-meeting-state:";
+    const MEETING_STATE_TTL_MS = 12 * 60 * 60 * 1000;
+    const MEETING_STATE_CACHE_LIMIT = 12;
 
     function showPortalMessage(text, type) {
         if (portalState) {
@@ -236,10 +239,44 @@
         return `meeting-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
     }
 
+    function purgeMeetingStateCache() {
+        try {
+            const now = Date.now();
+            const stateEntries = [];
+            for (let index = 0; index < sessionStorage.length; index += 1) {
+                const key = sessionStorage.key(index);
+                if (!key || !key.startsWith(MEETING_STATE_KEY_PREFIX)) {
+                    continue;
+                }
+                const rawValue = sessionStorage.getItem(key) || "";
+                const parsed = safeJsonParse(rawValue, {});
+                const createdAt = Number(parsed.storageCreatedAt || parsed.createdAt || 0) || 0;
+                if (!createdAt || now - createdAt > MEETING_STATE_TTL_MS) {
+                    sessionStorage.removeItem(key);
+                    continue;
+                }
+                stateEntries.push({ key, createdAt });
+            }
+
+            stateEntries
+                .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))
+                .slice(MEETING_STATE_CACHE_LIMIT)
+                .forEach((item) => {
+                    sessionStorage.removeItem(item.key);
+                });
+        } catch (error) {
+        }
+    }
+
     function openMeetingSession(meetingPayload) {
         const stateId = createMeetingStateId();
         try {
-            sessionStorage.setItem(`wms-meeting-state:${stateId}`, JSON.stringify(meetingPayload));
+            purgeMeetingStateCache();
+            sessionStorage.setItem(`${MEETING_STATE_KEY_PREFIX}${stateId}`, JSON.stringify({
+                ...meetingPayload,
+                storageCreatedAt: Date.now(),
+                storageStateId: stateId,
+            }));
         } catch (error) {
             throw new Error("Browser menolak menyimpan data sesi meeting. Coba tutup tab lama lalu ulangi.");
         }

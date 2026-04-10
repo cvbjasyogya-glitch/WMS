@@ -206,14 +206,14 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
         return employee["id"]
 
-    def create_product(self, sku=None, qty=5, variants="M,L", warehouse_id="1"):
+    def create_product(self, sku=None, qty=5, variants="M,L", warehouse_id="1", name="Produk Uji"):
         sku = sku or ("AUTO-" + uuid4().hex[:8].upper())
 
         response = self.client.post(
             "/products/add",
             data={
                 "sku": sku,
-                "name": "Produk Uji",
+                "name": name,
                 "category_name": "Testing",
                 "variants": variants,
                 "qty": str(qty),
@@ -505,9 +505,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Smart search member aktif", owner_html)
         self.assertIn("Cari kasir/sales lebih cepat", owner_html)
         self.assertNotIn('id="posCategoryStrip"', owner_html)
-        self.assertIn('class="pos-ipos-field pos-ipos-field-customer"', owner_html)
-        self.assertIn('class="pos-ipos-field pos-ipos-field-cashier"', owner_html)
-        self.assertIn('class="pos-ipos-field pos-ipos-field-member-status"', owner_html)
+        self.assertIn("pos-ipos-field-customer", owner_html)
+        self.assertIn("pos-ipos-field-cashier", owner_html)
+        self.assertIn("pos-ipos-field-member-status", owner_html)
 
         self.logout()
         self.login_pos_user("leader_pos_access", "leader", warehouse_id=2)
@@ -558,6 +558,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('posCustomerSearch?.addEventListener("input", () => {', html)
         self.assertIn('posCashierSearch?.addEventListener("input", () => {', html)
         self.assertIn('id="posCustomerSearchSummary"', html)
+        self.assertIn('id="posCustomerName" placeholder="Nama customer" autocomplete="off" required', html)
+        self.assertIn('id="posCustomerPhone" placeholder="No HP customer" inputmode="tel" autocomplete="off" required', html)
+        self.assertIn("function validateRequiredPosCustomerFields()", html)
+        self.assertIn("Customer umum tetap wajib isi nama dan no HP sebelum checkout.", html)
 
     def test_pos_page_includes_hardened_search_helpers_and_exact_cash_shortcut(self):
         self.login_pos_user("owner_pos_search_hardened", "owner")
@@ -584,6 +588,26 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIn(".pos-ipos-shortcuts .pos-ipos-shortcut-exact", css_text)
         self.assertIn(".pos-ipos-quicksearch-result.is-active", css_text)
+
+    def test_pos_page_hides_sales_revenue_preview_for_leader_but_shows_for_owner(self):
+        self.create_user("owner_pos_revenue", "pass1234", "owner")
+        self.login("owner_pos_revenue", "pass1234")
+
+        owner_response = self.client.get("/kasir/?warehouse=1")
+        self.assertEqual(owner_response.status_code, 200)
+        owner_html = owner_response.get_data(as_text=True)
+        self.assertIn(">Omzet<", owner_html)
+        self.assertIn(">Rata-rata<", owner_html)
+        self.logout()
+
+        self.create_user("leader_pos_revenue", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_pos_revenue", "pass1234")
+
+        leader_response = self.client.get("/kasir/?warehouse=1")
+        self.assertEqual(leader_response.status_code, 200)
+        leader_html = leader_response.get_data(as_text=True)
+        self.assertNotIn(">Omzet<", leader_html)
+        self.assertNotIn(">Rata-rata<", leader_html)
 
     def test_pos_page_keeps_catalog_picker_centered_with_body_lock(self):
         self.login_pos_user("owner_pos_catalog_modal", "owner")
@@ -661,7 +685,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="crmPurchaseCustomerSearch"', purchase_html)
         self.assertIn('id="crmPurchaseMemberSearch"', purchase_html)
         self.assertIn('function createCrmSmartSelectController(config)', purchase_html)
-        self.assertIn('crmPurchaseMemberSelectController?.sync();', purchase_html)
+        self.assertIn('crmPurchaseMemberSelectController?.sync("", { forceRemote: true, replaceInitial: true });', purchase_html)
+        self.assertIn('remoteUrl: "/crm/options/customers"', purchase_html)
+        self.assertIn('remoteUrl: "/crm/options/members"', purchase_html)
 
         member_response = self.client.get("/crm/?tab=members")
         self.assertEqual(member_response.status_code, 200)
@@ -669,6 +695,132 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="crmMemberCustomerSearch"', member_html)
         self.assertIn('id="crmMemberStaffSearch"', member_html)
         self.assertIn('id="crmMemberRecordMemberSearch"', member_html)
+        self.assertIn('remoteUrl: "/crm/options/staff"', member_html)
+
+    def test_crm_customer_options_endpoint_returns_limited_search_results(self):
+        self.login()
+
+        with self.app.app_context():
+            db = get_db()
+            for index in range(3):
+                db.execute(
+                    """
+                    INSERT INTO crm_customers(
+                        warehouse_id,
+                        customer_name,
+                        contact_person,
+                        phone,
+                        customer_type
+                    )
+                    VALUES (?,?,?,?,?)
+                    """,
+                    (
+                        1,
+                        f"Alpha Search {index}",
+                        f"Kontak Alpha {index}",
+                        f"08123000{index}",
+                        "retail",
+                    ),
+                )
+            db.execute(
+                """
+                INSERT INTO crm_customers(
+                    warehouse_id,
+                    customer_name,
+                    contact_person,
+                    phone,
+                    customer_type
+                )
+                VALUES (?,?,?,?,?)
+                """,
+                (1, "Beta Search", "Kontak Beta", "0812399999", "retail"),
+            )
+            db.commit()
+
+        response = self.client.get("/crm/options/customers?q=Alpha Search&limit=2&warehouse=1")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["option_type"], "customers")
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(len(payload["options"]), 2)
+        self.assertTrue(all("Alpha Search" in option["label"] for option in payload["options"]))
+        self.assertTrue(all("Beta Search" not in option["label"] for option in payload["options"]))
+
+    def test_crm_member_options_endpoint_honors_customer_filter_and_scope(self):
+        self.create_user("leader_crm_options", "pass1234", "leader", warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            customer_one_id = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Scope One', '081230010001', 'member')
+                """
+            ).lastrowid
+            customer_two_id = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Scope Two', '081230010002', 'member')
+                """
+            ).lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (2, 'Customer Scope Other Warehouse', '081230010003', 'member')
+                """
+            )
+            customer_three_id = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Scope Other Warehouse'"
+            ).fetchone()["id"]
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (customer_one_id, 1, "CRM-OPT-001", "purchase", "active", "2026-04-01"),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (customer_two_id, 1, "CRM-OPT-002", "purchase", "active", "2026-04-01"),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (customer_three_id, 2, "CRM-OPT-999", "purchase", "active", "2026-04-01"),
+            )
+            db.commit()
+
+        self.login("leader_crm_options", "pass1234")
+
+        filtered_response = self.client.get(
+            f"/crm/options/members?q=CRM-OPT&customer_id={customer_one_id}&warehouse=1"
+        )
+        self.assertEqual(filtered_response.status_code, 200)
+        filtered_payload = filtered_response.get_json()
+        self.assertEqual(filtered_payload["status"], "success")
+        self.assertEqual(len(filtered_payload["options"]), 1)
+        self.assertIn("CRM-OPT-001", filtered_payload["options"][0]["label"])
+
+        scoped_response = self.client.get("/crm/options/members?q=CRM-OPT&warehouse=2")
+        self.assertEqual(scoped_response.status_code, 200)
+        scoped_payload = scoped_response.get_json()
+        scoped_labels = [option["label"] for option in scoped_payload["options"]]
+        self.assertTrue(any("CRM-OPT-001" in label for label in scoped_labels))
+        self.assertTrue(any("CRM-OPT-002" in label for label in scoped_labels))
+        self.assertTrue(all("CRM-OPT-999" not in label for label in scoped_labels))
 
     def test_admin_and_hris_pages_include_reusable_searchable_select_component(self):
         self.create_user("role_admin_searchable_select", "pass1234", "super_admin")
@@ -763,6 +915,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         admin_response = self.client.get("/kasir/log", follow_redirects=False)
         self.assertEqual(admin_response.status_code, 302)
         self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
+
+    def test_pos_sales_log_hides_revenue_for_leader_but_shows_for_super_admin(self):
+        self.create_user("super_pos_log_revenue", "pass1234", "super_admin")
+        self.login("super_pos_log_revenue", "pass1234")
+
+        super_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03")
+        self.assertEqual(super_response.status_code, 200)
+        super_html = super_response.get_data(as_text=True)
+        self.assertIn(">Omzet<", super_html)
+        self.assertIn("Rata-rata Ticket", super_html)
+        self.logout()
+
+        self.create_user("leader_pos_log_revenue", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_pos_log_revenue", "pass1234")
+
+        leader_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03")
+        self.assertEqual(leader_response.status_code, 200)
+        leader_html = leader_response.get_data(as_text=True)
+        self.assertNotIn(">Omzet<", leader_html)
+        self.assertNotIn("Rata-rata Ticket", leader_html)
 
     def test_pos_sales_log_supports_quick_filter_for_failed_whatsapp_transactions(self):
         self.create_user("staff_sales_log_filter", "pass1234", "staff", warehouse_id=1)
@@ -869,9 +1041,119 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tutup Kasir", html)
         self.assertIn('data-cash-closing-preview', html)
         self.assertIn('name="cash_amount"', html)
-        self.assertIn("Simpan &amp; Kirim WA Leader", html)
+        self.assertIn("Simpan &amp; Kirim WA Owner", html)
+        self.assertIn('data-cash-closing-defaults-url="/kasir/cash-closing/defaults"', html)
 
-    def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_leader_whatsapp(self):
+    def test_pos_cash_closing_defaults_endpoint_returns_auto_totals(self):
+        self.create_user("staff_cash_closing_defaults", "pass1234", "staff", warehouse_id=1)
+        cashier_user_id = self.get_user_id("staff_cash_closing_defaults")
+        self.create_user("staff_cash_closing_defaults_mega", "pass1234", "staff", warehouse_id=2)
+        cashier_user_id_mega = self.get_user_id("staff_cash_closing_defaults_mega")
+        self.login_pos_user("super_cash_closing_defaults", "super_admin")
+
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-CLOSE-AUTO-001",
+            qty=20,
+            variants="42",
+            warehouse_id="1",
+            name="Produk Auto Closing Mataram",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        response_mega, product_id_mega, variants_rows_mega = self.create_product(
+            sku="POS-CLOSE-AUTO-002",
+            qty=10,
+            variants="43",
+            warehouse_id="2",
+            name="Produk Auto Closing Mega",
+        )
+        self.assertEqual(response_mega.status_code, 302)
+        variant_id_mega = variants_rows_mega[0]["id"]
+
+        def checkout_sale(*, warehouse_id, cashier_id, product_id, variant_id, payment_method, paid_amount):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": warehouse_id,
+                    "sale_date": "2026-04-08",
+                    "cashier_user_id": cashier_id,
+                    "customer_name": f"Customer {payment_method}",
+                    "customer_phone": f"62812000{paid_amount}",
+                    "payment_method": payment_method,
+                    "paid_amount": paid_amount,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": paid_amount,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+            self.assertEqual(checkout.status_code, 200)
+            self.assertEqual(checkout.get_json()["status"], "success")
+
+        checkout_sale(
+            warehouse_id=1,
+            cashier_id=cashier_user_id,
+            product_id=product_id,
+            variant_id=variant_id,
+            payment_method="cash",
+            paid_amount=150000,
+        )
+        checkout_sale(
+            warehouse_id=1,
+            cashier_id=cashier_user_id,
+            product_id=product_id,
+            variant_id=variant_id,
+            payment_method="debit",
+            paid_amount=200000,
+        )
+        checkout_sale(
+            warehouse_id=1,
+            cashier_id=cashier_user_id,
+            product_id=product_id,
+            variant_id=variant_id,
+            payment_method="transfer",
+            paid_amount=300000,
+        )
+        checkout_sale(
+            warehouse_id=1,
+            cashier_id=cashier_user_id,
+            product_id=product_id,
+            variant_id=variant_id,
+            payment_method="qris",
+            paid_amount=400000,
+        )
+        checkout_sale(
+            warehouse_id=2,
+            cashier_id=cashier_user_id_mega,
+            product_id=product_id_mega,
+            variant_id=variant_id_mega,
+            payment_method="cash",
+            paid_amount=500000,
+        )
+
+        response = self.client.get(
+            f"/kasir/cash-closing/defaults?warehouse_id=1&cashier_user_id={cashier_user_id}&closing_date=2026-04-08"
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        defaults = payload["defaults"]
+        self.assertEqual(defaults["cash_amount"], 150000)
+        self.assertEqual(defaults["debit_amount"], 200000)
+        self.assertEqual(defaults["mb_amount"], 300000)
+        self.assertEqual(defaults["cv_amount"], 400000)
+        self.assertEqual(defaults["cash_on_hand_amount"], 150000)
+        self.assertEqual(defaults["combined_total_amount"], 1550000)
+        self.assertIn('Laporan "Mataram" 08/04/2026', defaults["preview_text"])
+        self.assertEqual(defaults["combined_total_amount_label"], "1.550.000")
+
+    def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_owner_whatsapp(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-POS-CLOSE-001",
             full_name="Rio Kasir",
@@ -880,14 +1162,6 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.create_user("staff_cash_closing_submit", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
         cashier_user_id = self.get_user_id("staff_cash_closing_submit")
-        self.create_user(
-            "leader_cash_closing_receive",
-            "pass1234",
-            "leader",
-            warehouse_id=1,
-            phone="628111111111",
-            notify_whatsapp=1,
-        )
         self.login_pos_user("super_cash_closing_submit", "super_admin")
 
         with patch("routes.pos.send_role_based_notification") as mocked_role_notify:
@@ -920,7 +1194,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         mocked_role_notify.assert_called_once()
         self.assertEqual(mocked_role_notify.call_args.args[0], "attendance.cash_closing")
         payload = mocked_role_notify.call_args.args[1]
-        self.assertEqual(payload["roles"], ("leader",))
+        self.assertEqual(payload["roles"], ("owner",))
+        self.assertEqual(payload["usernames"], ("edi", "akmal"))
         self.assertEqual(payload["warehouse_id"], 1)
         self.assertIn("/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08#tutup-kasir", payload["link_url"])
         self.assertIn('Laporan "Mataram" 08/04/2026', payload["message"])
@@ -959,7 +1234,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(report["cash_amount"], 754000)
         self.assertEqual(report["debit_amount"], 5380000)
         self.assertEqual(report["reported_total_amount"], 6134000)
-        self.assertEqual(report["cash_on_hand_amount"], 750000)
+        self.assertEqual(report["cash_on_hand_amount"], 754000)
         self.assertEqual(report["combined_total_amount"], 10919760)
         self.assertIn('Laporan "Mataram" 08/04/2026', report["summary_message"])
         self.assertIn("5.380.000", report["summary_message"])
@@ -991,6 +1266,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         admin_response = self.client.get("/kasir/staff-sales", follow_redirects=False)
         self.assertEqual(admin_response.status_code, 302)
         self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
+
+    def test_pos_staff_sales_report_hides_revenue_for_leader_but_shows_for_owner(self):
+        self.create_user("owner_sales_report_revenue", "pass1234", "owner")
+        self.login("owner_sales_report_revenue", "pass1234")
+
+        owner_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-16&month=2026-04")
+        self.assertEqual(owner_response.status_code, 200)
+        owner_html = owner_response.get_data(as_text=True)
+        self.assertIn("Omzet Mingguan", owner_html)
+        self.assertIn("Omzet Bulanan", owner_html)
+        self.logout()
+
+        self.create_user("leader_sales_report_revenue", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_sales_report_revenue", "pass1234")
+
+        leader_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-16&month=2026-04")
+        self.assertEqual(leader_response.status_code, 200)
+        leader_html = leader_response.get_data(as_text=True)
+        self.assertNotIn("Omzet Mingguan", leader_html)
+        self.assertNotIn("Omzet Bulanan", leader_html)
 
     def test_staff_intern_cannot_access_pos_page(self):
         self.create_user("intern_pos_denied", "pass1234", "staff_intern", warehouse_id=1)
@@ -1183,6 +1478,65 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(pos_sale["change_amount"]), 10000.0)
         self.assertEqual(pos_sale["payment_method"], "cash")
         self.assertEqual(pos_sale["cashier_user_id"], selected_cashier_user_id)
+
+    def test_pos_checkout_requires_customer_name_and_phone(self):
+        self.create_user("staff_sales_required_identity", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_required_identity")
+        self.login_pos_user("pos_required_identity_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-REQ-001",
+            qty=4,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        base_payload = {
+            "warehouse_id": 1,
+            "sale_date": "2026-04-03",
+            "cashier_user_id": selected_cashier_user_id,
+            "payment_method": "cash",
+            "paid_amount": 150000,
+            "items": [
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "qty": 1,
+                    "unit_price": 125000,
+                }
+            ],
+        }
+
+        missing_name = self.client.post(
+            "/kasir/checkout",
+            json={
+                **base_payload,
+                "customer_name": "   ",
+                "customer_phone": "08120001111",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(missing_name.status_code, 400)
+        self.assertEqual(
+            missing_name.get_json(),
+            {"status": "error", "message": "Nama customer wajib diisi."},
+        )
+
+        missing_phone = self.client.post(
+            "/kasir/checkout",
+            json={
+                **base_payload,
+                "customer_name": "Customer Wajib Isi",
+                "customer_phone": "   ",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(missing_phone.status_code, 400)
+        self.assertEqual(
+            missing_phone.get_json(),
+            {"status": "error", "message": "No HP customer wajib diisi dengan angka yang valid."},
+        )
 
     def test_pos_checkout_supports_custom_discount_and_tax_rules(self):
         self.create_user("staff_sales_discount", "pass1234", "staff", warehouse_id=1)
@@ -5071,6 +5425,170 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("function syncCrmPurchaseTransactionOptions()", html)
         self.assertNotIn('crmPurchaseTransactionType.value = "purchase";', html)
         self.assertNotIn('crmPurchaseTransactionType.value = "stringing_service";', html)
+
+    def test_crm_purchase_history_uses_pagination(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku=f"CRM-PAGINATION-{uuid4().hex[:6].upper()}",
+            qty=40,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        invoice_prefix = f"INV-CRM-PAG-{uuid4().hex[:6].upper()}"
+        customer_name = f"Customer Pagination CRM {uuid4().hex[:6].upper()}"
+        handled_by_user_id = self.get_user_id("admin")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, ?, '628123450000', 'retail')
+                """,
+                (customer_name,),
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name=?",
+                (customer_name,),
+            ).fetchone()
+
+            for index in range(26):
+                purchase_cursor = db.execute(
+                    """
+                    INSERT INTO crm_purchase_records(
+                        customer_id,
+                        member_id,
+                        warehouse_id,
+                        purchase_date,
+                        invoice_no,
+                        channel,
+                        transaction_type,
+                        items_count,
+                        total_amount,
+                        note,
+                        handled_by
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        customer["id"],
+                        None,
+                        1,
+                        "2026-04-10",
+                        f"{invoice_prefix}-{index:03d}",
+                        "store",
+                        "purchase",
+                        1,
+                        150000 + index,
+                        f"Catatan pagination {index}",
+                        handled_by_user_id,
+                    ),
+                )
+                purchase_id = purchase_cursor.lastrowid
+                db.execute(
+                    """
+                    INSERT INTO crm_purchase_items(
+                        purchase_id,
+                        product_id,
+                        variant_id,
+                        qty,
+                        unit_price,
+                        line_total
+                    )
+                    VALUES (?,?,?,?,?,?)
+                    """,
+                    (
+                        purchase_id,
+                        product_id,
+                        variant_id,
+                        1,
+                        150000 + index,
+                        150000 + index,
+                    ),
+                )
+            db.commit()
+
+        page_one = self.client.get("/crm/?tab=purchases&page_size=10")
+        self.assertEqual(page_one.status_code, 200)
+        page_one_html = page_one.get_data(as_text=True)
+        self.assertIn("Page 1 / 3", page_one_html)
+        self.assertIn("Menampilkan 1-10 dari 26 transaksi.", page_one_html)
+        self.assertEqual(page_one_html.count('action="/crm/purchases/delete/'), 10)
+
+        page_two = self.client.get("/crm/?tab=purchases&page=2&page_size=10")
+        self.assertEqual(page_two.status_code, 200)
+        page_two_html = page_two.get_data(as_text=True)
+        self.assertIn("Page 2 / 3", page_two_html)
+        self.assertIn("Menampilkan 11-20 dari 26 transaksi.", page_two_html)
+        self.assertEqual(page_two_html.count('action="/crm/purchases/delete/'), 10)
+
+        page_three = self.client.get("/crm/?tab=purchases&page=3&page_size=10")
+        self.assertEqual(page_three.status_code, 200)
+        page_three_html = page_three.get_data(as_text=True)
+        self.assertIn("Page 3 / 3", page_three_html)
+        self.assertIn("Menampilkan 21-26 dari 26 transaksi.", page_three_html)
+        self.assertEqual(page_three_html.count('action="/crm/purchases/delete/'), 6)
+
+    def test_crm_contacts_page_handles_large_purchase_history(self):
+        self.login()
+        customer_name = f"Customer CRM Large {uuid4().hex[:6].upper()}"
+        handled_by_user_id = self.get_user_id("admin")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, ?, '628123459999', 'retail')
+                """,
+                (customer_name,),
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name=?",
+                (customer_name,),
+            ).fetchone()
+
+            for index in range(1005):
+                db.execute(
+                    """
+                    INSERT INTO crm_purchase_records(
+                        customer_id,
+                        member_id,
+                        warehouse_id,
+                        purchase_date,
+                        invoice_no,
+                        channel,
+                        transaction_type,
+                        items_count,
+                        total_amount,
+                        note,
+                        handled_by
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        customer["id"],
+                        None,
+                        1,
+                        "2026-04-10",
+                        f"INV-CRM-LARGE-{index:04d}",
+                        "store",
+                        "purchase",
+                        1,
+                        10000 + index,
+                        None,
+                        handled_by_user_id,
+                    ),
+                )
+            db.commit()
+
+        response = self.client.get("/crm/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("CRM Customer Hub", html)
+        self.assertIn(customer_name, html)
 
     def test_pos_checkout_updates_purchase_points_and_stringing_rewards(self):
         self.create_user("staff_sales_loyalty", "pass1234", "staff", warehouse_id=1)
@@ -12391,6 +12909,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="stockSearchReplacePreviewList"', html)
         self.assertIn("Edit Master", html)
 
+    def test_stock_page_renders_full_except_stock_ipos4_mode_option(self):
+        self.login()
+
+        response = self.client.get("/stock/", follow_redirects=False)
+        self.assertEqual(response.status_code, 200)
+
+        html = response.get_data(as_text=True)
+        self.assertIn('<option value="full_except_stock">Full ERP kecuali Stock</option>', html)
+        self.assertIn("Warehouse iPOS", html)
+
+    def test_import_ipos4_full_except_stock_mode_passes_full_flags_without_stock(self):
+        self.login()
+
+        captured = {}
+        mocked_import_module = Mock()
+
+        def _capture_run_import(args):
+            captured["args"] = args
+            return {
+                "products_created": 0,
+                "products_updated": 0,
+                "products_merged_by_name": 0,
+            }
+
+        mocked_import_module.run_import.side_effect = _capture_run_import
+
+        with patch("routes.products.import_module", return_value=mocked_import_module):
+            response = self.client.post(
+                "/products/import/ipos4",
+                data={
+                    "mode": "full_except_stock",
+                    "file": (BytesIO(b"ipos4-backup"), "sample.i4bu"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["selected_mode"], "full_except_stock")
+        self.assertEqual(payload["selected_mode_label"], "Full ERP kecuali Stock")
+
+        args = captured["args"]
+        self.assertFalse(args.skip_users)
+        self.assertFalse(args.skip_warehouses)
+        self.assertFalse(args.skip_customers)
+        self.assertFalse(args.skip_sales)
+        self.assertTrue(args.skip_stock)
+
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
         self.login()
@@ -13285,6 +13852,116 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(approval_rows[0]["approval_count"], 1)
         self.assertEqual(approval_rows[1]["product_id"], second_product_id)
         self.assertEqual(approval_rows[1]["approval_count"], 1)
+
+    def test_delete_all_products_requires_confirmation_phrase(self):
+        self.create_user("leader_delete_all_guard", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        _, first_product_id, _ = self.create_product(sku="DEL-ALL-GUARD-001", variants="GA", name="Produk Guard A")
+        _, second_product_id, _ = self.create_product(sku="DEL-ALL-GUARD-002", variants="GB", name="Produk Guard B")
+        self.logout()
+
+        self.login("leader_delete_all_guard", "pass1234")
+        response = self.client.post(
+            "/products/delete-all",
+            json={"confirmation_text": "hapus dulu"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("HAPUS SEMUA PRODUK", payload["message"])
+
+        with self.app.app_context():
+            db = get_db()
+            product_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id IN (?, ?)",
+                (first_product_id, second_product_id),
+            ).fetchone()[0]
+
+        self.assertEqual(product_count, 2)
+
+    def test_delete_all_products_removes_every_product_for_direct_role(self):
+        self.create_user("leader_delete_all_direct", "pass1234", "leader", warehouse_id=1)
+        self.login()
+        _, first_product_id, _ = self.create_product(sku="DEL-ALL-DIRECT-001", qty=3, variants="DA", name="Produk Direct A")
+        _, second_product_id, _ = self.create_product(sku="DEL-ALL-DIRECT-002", qty=4, variants="DB", name="Produk Direct B")
+        self.logout()
+
+        self.login("leader_delete_all_direct", "pass1234")
+        response = self.client.post(
+            "/products/delete-all",
+            json={"confirmation_text": "HAPUS SEMUA PRODUK"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["deleted_count"], 2)
+
+        with self.app.app_context():
+            db = get_db()
+            product_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id IN (?, ?)",
+                (first_product_id, second_product_id),
+            ).fetchone()[0]
+            variant_count = db.execute(
+                "SELECT COUNT(*) FROM product_variants WHERE product_id IN (?, ?)",
+                (first_product_id, second_product_id),
+            ).fetchone()[0]
+            stock_count = db.execute(
+                "SELECT COUNT(*) FROM stock WHERE product_id IN (?, ?)",
+                (first_product_id, second_product_id),
+            ).fetchone()[0]
+
+        self.assertEqual(product_count, 0)
+        self.assertEqual(variant_count, 0)
+        self.assertEqual(stock_count, 0)
+
+    def test_delete_all_products_queues_approval_for_admin_role(self):
+        self.create_user("admin_delete_all_queue", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        _, first_product_id, _ = self.create_product(sku="DEL-ALL-QUEUE-001", variants="QA", name="Produk Queue A")
+        _, second_product_id, _ = self.create_product(sku="DEL-ALL-QUEUE-002", variants="QB", name="Produk Queue B")
+        self.logout()
+
+        self.login("admin_delete_all_queue", "pass1234")
+        with patch("routes.products.send_role_based_notification") as mocked_role_notify:
+            response = self.client.post(
+                "/products/delete-all",
+                json={"confirmation_text": "HAPUS SEMUA PRODUK"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["approval_status"], "pending")
+        self.assertEqual(len(payload["approval_ids"]), 2)
+        mocked_role_notify.assert_called_once()
+        self.assertEqual(
+            mocked_role_notify.call_args.args[0],
+            "inventory.product_delete_approval_requested",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            product_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id IN (?, ?)",
+                (first_product_id, second_product_id),
+            ).fetchone()[0]
+            approval_count = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM approvals
+                WHERE type='PRODUCT_DELETE' AND product_id IN (?, ?)
+                """,
+                (first_product_id, second_product_id),
+            ).fetchone()[0]
+
+        self.assertEqual(product_count, 2)
+        self.assertEqual(approval_count, 2)
 
     def test_owner_can_update_owner_request_status_and_notify_requester(self):
         self.create_user("owner_manager", "pass1234", "owner")

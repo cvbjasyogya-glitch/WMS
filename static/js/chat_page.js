@@ -1089,6 +1089,21 @@
         stopTypingLoop();
     });
 
+    window.addEventListener("pageshow", () => {
+        if (!pollTimer) {
+            pollNow(false);
+            pollTimer = window.setInterval(() => pollNow(false), pollIntervalMs);
+        }
+    });
+
+    window.addEventListener("pagehide", () => {
+        if (pollTimer) {
+            window.clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        stopTypingLoop();
+    });
+
     window.WmsChatPage = {
         getCurrentThreadId() {
             return currentThreadId;
@@ -1117,6 +1132,7 @@
     window.addEventListener("beforeunload", () => {
         if (pollTimer) {
             window.clearInterval(pollTimer);
+            pollTimer = null;
         }
         stopTypingLoop();
     });

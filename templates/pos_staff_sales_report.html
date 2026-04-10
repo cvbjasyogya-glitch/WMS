@@ -48,10 +48,12 @@
     </form>
 
     <div class="summary">
+        {% if can_view_pos_revenue %}
         <div class="card-mini {% if weekly_summary.total_revenue %}success{% endif %}">
             <p>Omzet Mingguan</p>
             <h3>{{ weekly_summary.total_revenue_label }}</h3>
         </div>
+        {% endif %}
         <div class="card-mini">
             <p>Transaksi Mingguan</p>
             <h3>{{ weekly_summary.total_transactions }}</h3>
@@ -71,7 +73,9 @@
             <div>
                 <h2>Rekap Penjualan Staff Mingguan</h2>
             </div>
+            {% if can_view_pos_revenue %}
             <span class="status-pill">{{ weekly_summary.total_revenue_label }}</span>
+            {% endif %}
         </div>
 
         {% if weekly_rows %}
@@ -85,8 +89,10 @@
                     <th>Transaksi</th>
                     <th>Item</th>
                     <th>Customer</th>
+                    {% if can_view_pos_revenue %}
                     <th>Rata-rata</th>
                     <th>Omzet</th>
+                    {% endif %}
                     <th>Aktivitas</th>
                 </tr>
             </thead>
@@ -103,8 +109,10 @@
                     <td>{{ row.total_transactions }}</td>
                     <td>{{ row.total_items }}</td>
                     <td>{{ row.total_customers }}</td>
+                    {% if can_view_pos_revenue %}
                     <td>{{ row.average_ticket_label }}</td>
                     <td><strong>{{ row.total_revenue_label }}</strong></td>
+                    {% endif %}
                     <td>{{ row.activity_label }}</td>
                 </tr>
                 {% endfor %}
@@ -116,10 +124,12 @@
     </div>
 
     <div class="summary">
+        {% if can_view_pos_revenue %}
         <div class="card-mini {% if monthly_summary.total_revenue %}success{% endif %}">
             <p>Omzet Bulanan</p>
             <h3>{{ monthly_summary.total_revenue_label }}</h3>
         </div>
+        {% endif %}
         <div class="card-mini">
             <p>Transaksi Bulanan</p>
             <h3>{{ monthly_summary.total_transactions }}</h3>
@@ -139,7 +149,9 @@
             <div>
                 <h2>Rekap Penjualan Staff Bulanan</h2>
             </div>
+            {% if can_view_pos_revenue %}
             <span class="status-pill">{{ monthly_summary.total_revenue_label }}</span>
+            {% endif %}
         </div>
 
         {% if monthly_rows %}
@@ -153,8 +165,10 @@
                     <th>Transaksi</th>
                     <th>Item</th>
                     <th>Customer</th>
+                    {% if can_view_pos_revenue %}
                     <th>Rata-rata</th>
                     <th>Omzet</th>
+                    {% endif %}
                     <th>Aktivitas</th>
                 </tr>
             </thead>
@@ -171,8 +185,10 @@
                     <td>{{ row.total_transactions }}</td>
                     <td>{{ row.total_items }}</td>
                     <td>{{ row.total_customers }}</td>
+                    {% if can_view_pos_revenue %}
                     <td>{{ row.average_ticket_label }}</td>
                     <td><strong>{{ row.total_revenue_label }}</strong></td>
+                    {% endif %}
                     <td>{{ row.activity_label }}</td>
                 </tr>
                 {% endfor %}

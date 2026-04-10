@@ -27,10 +27,12 @@
             <span>Transaksi</span>
             <strong>{{ sales_log_summary.transaction_total }}</strong>
         </div>
+        {% if can_view_pos_revenue %}
         <div class="meta-card">
             <span>Omzet</span>
             <strong>{{ sales_log_summary.total_revenue_label }}</strong>
         </div>
+        {% endif %}
     </div>
 
     <form method="GET" class="top-bar">
@@ -71,10 +73,12 @@
             <p>Customer</p>
             <h3>{{ sales_log_summary.customer_total }}</h3>
         </div>
+        {% if can_view_pos_revenue %}
         <div class="card-mini">
             <p>Rata-rata Ticket</p>
             <h3>{{ sales_log_summary.average_ticket_label }}</h3>
         </div>
+        {% endif %}
     </div>
 
     <section
@@ -82,11 +86,14 @@
         class="form-box attendance-cash-closing-card"
         data-cash-closing-panel
         data-cash-closing-warehouse="{{ selected_warehouse_name }}"
+        data-cash-closing-warehouse-id="{{ selected_warehouse }}"
+        data-cash-closing-cashier-user-id="{{ cash_closing_actor.user_id or '' }}"
+        data-cash-closing-defaults-url="/kasir/cash-closing/defaults"
     >
         <div class="section-title">
             <div>
                 <h2>Tutup Kasir</h2>
-                <p>Rekap penutupan kasir per gudang langsung dari log penjualan, lalu kirim otomatis ke leader gudang terkait.</p>
+                <p>Rekap penutupan kasir diambil otomatis dari log penjualan. Hanya kolom pengeluaran yang perlu diisi manual, lalu laporan dikirim ke owner dan super admin tujuan.</p>
             </div>
             <div class="attendance-overview-badges">
                 <span class="badge">{{ selected_warehouse_name }}</span>
@@ -119,23 +126,23 @@
                         </div>
                         <div>
                             <label>Total Mataram dan Mega</label>
-                            <input type="text" name="combined_total_amount" inputmode="numeric" placeholder="10919760" data-cash-amount autocomplete="off">
+                            <input type="text" name="combined_total_amount" inputmode="numeric" placeholder="10919760" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.combined_total_amount_label }}">
                         </div>
                         <div>
                             <label>Tunai</label>
-                            <input type="text" name="cash_amount" inputmode="numeric" placeholder="754000" data-cash-amount autocomplete="off">
+                            <input type="text" name="cash_amount" inputmode="numeric" placeholder="754000" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.cash_amount_label }}">
                         </div>
                         <div>
                             <label>Debet</label>
-                            <input type="text" name="debit_amount" inputmode="numeric" placeholder="5380000" data-cash-amount autocomplete="off">
+                            <input type="text" name="debit_amount" inputmode="numeric" placeholder="5380000" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.debit_amount_label }}">
                         </div>
                         <div>
                             <label>MB</label>
-                            <input type="text" name="mb_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off">
+                            <input type="text" name="mb_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.mb_amount_label }}">
                         </div>
                         <div>
                             <label>CV</label>
-                            <input type="text" name="cv_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off">
+                            <input type="text" name="cv_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.cv_amount_label }}">
                         </div>
                         <div>
                             <label>Pengeluaran</label>
@@ -143,7 +150,7 @@
                         </div>
                         <div>
                             <label>T.Uang</label>
-                            <input type="text" name="cash_on_hand_amount" inputmode="numeric" placeholder="750000" data-cash-amount autocomplete="off">
+                            <input type="text" name="cash_on_hand_amount" inputmode="numeric" placeholder="750000" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.cash_on_hand_amount_label }}">
                         </div>
                         <div class="span-full">
                             <label>Catatan Opsional</label>
@@ -152,13 +159,13 @@
                     </div>
 
                     <div class="split-actions attendance-submit-row">
-                        <button type="submit">Simpan &amp; Kirim WA Leader</button>
+                        <button type="submit">Simpan &amp; Kirim WA Owner</button>
                     </div>
-                    <small class="helper-text">Preview WA di kanan akan ikut berubah otomatis saat nominal diisi.</small>
+                    <small class="helper-text" data-cash-closing-sync-status>Nominal otomatis mengikuti log penjualan pada tanggal yang dipilih.</small>
                 </div>
 
                 <div class="attendance-cash-closing-preview-panel">
-                    <p class="attendance-cash-closing-preview-label">Preview pesan WA leader</p>
+                    <p class="attendance-cash-closing-preview-label">Preview pesan WA owner / super admin</p>
                     <pre class="attendance-cash-closing-preview" data-cash-closing-preview>{{ cash_closing_preview_text }}</pre>
                 </div>
             </div>
@@ -175,11 +182,17 @@
                         </div>
                         <div class="attendance-log-badges">
                             <span class="badge {{ item.wa_status_badge }}">{{ item.wa_status_label }}</span>
+                            {% if can_view_pos_revenue %}
                             <span class="badge">Tot. {{ item.summary_total_label }}</span>
+                            {% endif %}
                             <span class="badge">{{ item.wa_success_count }}/{{ item.wa_delivery_count }} WA</span>
                         </div>
                     </div>
+                    {% if can_view_pos_revenue %}
                     <pre class="attendance-cash-closing-sheet">{{ item.summary_message }}</pre>
+                    {% else %}
+                    <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk owner dan super admin.</p>
+                    {% endif %}
                     {% if item.wa_error %}
                     <p class="attendance-cash-closing-error">WA: {{ item.wa_error }}</p>
                     {% endif %}
@@ -196,7 +209,9 @@
             <div>
                 <h2>Log Penjualan</h2>
             </div>
+            {% if can_view_pos_revenue %}
             <span class="status-pill">{{ sales_log_summary.total_revenue_label }}</span>
+            {% endif %}
         </div>
 
         {% if sales_log_rows %}
@@ -209,8 +224,10 @@
                     <th>Staff</th>
                     <th>Item</th>
                     <th>Metode</th>
+                    {% if can_view_pos_revenue %}
                     <th>Total</th>
                     <th>Bayar</th>
+                    {% endif %}
                     <th>Catatan</th>
                     <th>Aksi</th>
                 </tr>
@@ -265,6 +282,7 @@
                         <strong>{{ sale.payment_method_label }}</strong>
                         <div class="helper-text">{{ sale.total_items }} item</div>
                     </td>
+                    {% if can_view_pos_revenue %}
                     <td>
                         <strong>{{ sale.total_amount_label }}</strong>
                         <div class="helper-text">Subtotal {{ sale.subtotal_amount_label }}</div>
@@ -274,6 +292,7 @@
                         <strong>{{ sale.paid_amount_label }}</strong>
                         <div class="helper-text">Kembali {{ sale.change_amount_label }}</div>
                     </td>
+                    {% endif %}
                     <td>{{ sale.note or "-" }}</td>
                     <td class="pos-sales-log-actions">
                         <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
@@ -438,9 +457,21 @@ document.addEventListener("click", (event) => {
     const dateInput = cashClosingPanel.querySelector("[name='closing_date']");
     const noteInput = cashClosingPanel.querySelector("[name='note']");
     const amountInputs = Array.from(cashClosingPanel.querySelectorAll("[data-cash-amount]"));
+    const editableAmountInputs = amountInputs.filter((input) => !input.hasAttribute("readonly"));
+    const syncStatus = cashClosingPanel.querySelector("[data-cash-closing-sync-status]");
+    const defaultsUrl = String(cashClosingPanel.dataset.cashClosingDefaultsUrl || "").trim();
+    const warehouseId = String(cashClosingPanel.dataset.cashClosingWarehouseId || "").trim();
+    const cashierUserId = String(cashClosingPanel.dataset.cashClosingCashierUserId || "").trim();
     const warehouseLabel = String(cashClosingPanel.dataset.cashClosingWarehouse || "Mataram")
         .replace(/^Gudang\s+/i, "")
         .trim() || "Mataram";
+    const cashInput = cashClosingPanel.querySelector("[name='cash_amount']");
+    const debitInput = cashClosingPanel.querySelector("[name='debit_amount']");
+    const mbInput = cashClosingPanel.querySelector("[name='mb_amount']");
+    const cvInput = cashClosingPanel.querySelector("[name='cv_amount']");
+    const combinedInput = cashClosingPanel.querySelector("[name='combined_total_amount']");
+    const expenseInput = cashClosingPanel.querySelector("[name='expense_amount']");
+    const cashOnHandInput = cashClosingPanel.querySelector("[name='cash_on_hand_amount']");
 
     const parseAmount = (value) => {
         const normalized = String(value || "")
@@ -477,6 +508,41 @@ document.addEventListener("click", (event) => {
     };
 
     const buildLine = (label, amount, zeroLabel = "-") => `${label.padEnd(11, " ")} = ${formatAmount(amount, zeroLabel)}`;
+
+    const syncCashOnHand = () => {
+        if (!(cashOnHandInput instanceof HTMLInputElement)) {
+            return;
+        }
+        const cashAmount = parseAmount(cashInput?.value);
+        const expenseAmount = parseAmount(expenseInput?.value);
+        cashOnHandInput.value = formatAmount(Math.max(cashAmount - expenseAmount, 0), "0");
+    };
+
+    const applyDefaults = (defaults) => {
+        if (!defaults || typeof defaults !== "object") {
+            return;
+        }
+        if (combinedInput instanceof HTMLInputElement) {
+            combinedInput.value = formatAmount(defaults.combined_total_amount, "0");
+        }
+        if (cashInput instanceof HTMLInputElement) {
+            cashInput.value = formatAmount(defaults.cash_amount, "0");
+        }
+        if (debitInput instanceof HTMLInputElement) {
+            debitInput.value = formatAmount(defaults.debit_amount, "0");
+        }
+        if (mbInput instanceof HTMLInputElement) {
+            mbInput.value = formatAmount(defaults.mb_amount, "0");
+        }
+        if (cvInput instanceof HTMLInputElement) {
+            cvInput.value = formatAmount(defaults.cv_amount, "0");
+        }
+        if (expenseInput instanceof HTMLInputElement) {
+            expenseInput.value = "";
+        }
+        syncCashOnHand();
+        renderPreview();
+    };
 
     const renderPreview = () => {
         if (!preview) {
@@ -516,15 +582,60 @@ document.addEventListener("click", (event) => {
         preview.textContent = lines.join("\n");
     };
 
-    amountInputs.forEach((input) => {
+    const loadDefaults = async () => {
+        if (!defaultsUrl || !(dateInput instanceof HTMLInputElement)) {
+            syncCashOnHand();
+            renderPreview();
+            return;
+        }
+        const currentDate = String(dateInput.value || "").trim();
+        if (syncStatus) {
+            syncStatus.textContent = "Mengambil rekap otomatis dari log penjualan...";
+        }
+        try {
+            const url = new URL(defaultsUrl, window.location.origin);
+            url.searchParams.set("warehouse_id", warehouseId);
+            url.searchParams.set("closing_date", currentDate);
+            if (cashierUserId) {
+                url.searchParams.set("cashier_user_id", cashierUserId);
+            }
+            const response = await fetch(url.toString(), {
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.status !== "success") {
+                throw new Error(data.message || "Rekap otomatis tidak bisa diambil.");
+            }
+            applyDefaults(data.defaults || {});
+            if (syncStatus) {
+                syncStatus.textContent = `Nominal otomatis mengikuti log penjualan tanggal ${formatDateLabel(currentDate)}.`;
+            }
+        } catch (error) {
+            syncCashOnHand();
+            renderPreview();
+            if (syncStatus) {
+                syncStatus.textContent = error.message || "Rekap otomatis tidak bisa diambil. Cek lagi tanggal atau data penjualannya.";
+            }
+        }
+    };
+
+    editableAmountInputs.forEach((input) => {
         input.addEventListener("input", renderPreview);
         input.addEventListener("blur", () => {
             input.value = formatInputAmount(input.value);
+            syncCashOnHand();
             renderPreview();
         });
     });
-    dateInput?.addEventListener("input", renderPreview);
+    expenseInput?.addEventListener("input", () => {
+        syncCashOnHand();
+        renderPreview();
+    });
+    dateInput?.addEventListener("change", loadDefaults);
     noteInput?.addEventListener("input", renderPreview);
+    syncCashOnHand();
     renderPreview();
 })();
 </script>

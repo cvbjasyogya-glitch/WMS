@@ -70,7 +70,7 @@
         <div class="section-title">
             <div>
                 <h2>Foto Absen</h2>
-                <p>Alur cepat: aktifkan kamera, ambil foto, cek lokasi, lalu simpan.</p>
+                <p>Alur cepat: aktifkan kamera, ambil foto, cek lokasi, lalu simpan check in, absen bebas, break, atau check out.</p>
             </div>
         </div>
 
@@ -191,6 +191,7 @@
                         </div>
                         <div class="span-full">
                             <small class="helper-text" data-location-helper>Pastikan GPS aktif. Setelah foto diambil, portal akan otomatis membaca alamat atau tempat absennya.</small>
+                            <a href="#" class="helper-text" data-location-gmaps-link target="_blank" rel="noopener noreferrer" hidden>Lihat titik berdiri di Google Maps</a>
                         </div>
                     </div>
                     <details class="attendance-optional-panel">
@@ -277,6 +278,9 @@
                                         <div>
                                             <strong>{{ log.punch_label }}</strong>
                                             <p>{{ log.location_label }}</p>
+                                            {% if log.gmaps_url %}
+                                            <a href="{{ log.gmaps_url }}" class="helper-text" target="_blank" rel="noopener noreferrer">Buka di Google Maps</a>
+                                            {% endif %}
                                         </div>
                                         <div class="attendance-log-event-meta">
                                             <span class="badge{% if log.sync_status == 'manual' %} orange{% elif log.sync_status == 'synced' %} green{% elif log.sync_status == 'failed' %} red{% endif %}">{{ log.sync_status|replace('_', ' ')|title }}</span>
@@ -305,7 +309,7 @@
                                             <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
                                             {% endfor %}
                                         </select>
-                                        <small class="helper-text">Pakai `Break Start` kalau tadi harusnya absen istirahat, bukan pulang.</small>
+                                        <small class="helper-text">Pakai `Break Start` atau `Absen Bebas` kalau tadi harusnya belum benar-benar pulang.</small>
                                     </div>
                                     <div>
                                         <label>Jam Log Baru</label>
@@ -364,6 +368,7 @@
     const locationButton = portal.querySelector("[data-location-capture]");
     const locationStatus = portal.querySelector("[data-location-status]");
     const locationHelper = portal.querySelector("[data-location-helper]");
+    const locationGmapsLink = portal.querySelector("[data-location-gmaps-link]");
     const locationScopeSelect = portal.querySelector("[data-location-scope-select]");
     const locationOtherWrap = portal.querySelector("[data-location-other-wrap]");
     const locationOtherInput = portal.querySelector("[data-location-other-input]");
@@ -522,6 +527,7 @@
         const value = punchTypeSelect ? (punchTypeSelect.value || "check_in") : "check_in";
         return {
             check_in: "Masuk",
+            free_attendance: "Absen Bebas",
             break_start: "Break Start",
             break_finish: "Break Finish",
             check_out: "Pulang",
@@ -532,6 +538,7 @@
         const value = punchTypeSelect ? (punchTypeSelect.value || "check_in") : "check_in";
         return {
             check_in: "Check In",
+            free_attendance: "Absen Bebas",
             break_start: "Istirahat Mulai",
             break_finish: "Istirahat Selesai",
             check_out: "Check Out",
@@ -552,6 +559,15 @@
             return "Akurasi GPS belum dibaca";
         }
         return `Akurasi ${rawValue} m`;
+    };
+
+    const buildGoogleMapsUrl = (latitude, longitude) => {
+        const latitudeValue = Number(latitude);
+        const longitudeValue = Number(longitude);
+        if (!Number.isFinite(latitudeValue) || !Number.isFinite(longitudeValue)) {
+            return "";
+        }
+        return `https://www.google.com/maps?q=${latitudeValue.toFixed(6)},${longitudeValue.toFixed(6)}`;
     };
 
     const getLocationScopeValue = () => (locationScopeSelect?.value || "").trim().toLowerCase();
@@ -719,6 +735,20 @@
         locationStatus.title = displayLabel || "Lokasi berhasil direkam";
     };
 
+    const syncLocationMapsLink = () => {
+        if (!locationGmapsLink) {
+            return;
+        }
+        const mapsUrl = buildGoogleMapsUrl(latitudeInput?.value, longitudeInput?.value);
+        if (!mapsUrl) {
+            locationGmapsLink.hidden = true;
+            locationGmapsLink.removeAttribute("href");
+            return;
+        }
+        locationGmapsLink.href = mapsUrl;
+        locationGmapsLink.hidden = false;
+    };
+
     const syncLocationLabelInput = () => {
         if (!locationLabelInput) {
             return;
@@ -735,6 +765,7 @@
             locationOtherInput.required = isOtherScope;
         }
         syncLocationLabelInput();
+        syncLocationMapsLink();
         if (latitudeInput.value && longitudeInput.value) {
             syncLocationStatusDisplay("Lokasi berhasil direkam");
         }
@@ -1154,6 +1185,7 @@
             "Pulang": "#2563eb",
             "Break Start": "#f59e0b",
             "Break Finish": "#14b8a6",
+            "Absen Bebas": "#7c3aed",
         };
         const punchDate = parsePunchDate();
         const timeLabel = punchDate.toLocaleTimeString("id-ID", {
@@ -1584,6 +1616,7 @@
                     }
                     syncLocationLabelInput();
                     syncLocationStatusDisplay("Lokasi berhasil direkam");
+                    syncLocationMapsLink();
                     locationHelper.textContent = resolvedGpsAddress
                         ? (
                             autoTriggered
@@ -1601,6 +1634,7 @@
                     resolve(true);
                 },
                 (error) => {
+                    syncLocationMapsLink();
                     locationStatus.value = "Lokasi gagal";
                     locationHelper.textContent = error && error.message
                         ? `GPS gagal dibaca: ${error.message}`

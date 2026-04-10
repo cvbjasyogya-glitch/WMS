@@ -46,6 +46,7 @@
         {% if can('manage_product_master') %}
         <button type="button" class="ghost-button" onclick="requestManualProductForm()">Tambah Produk</button>
         <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
+        <button type="button" class="ghost-button danger" onclick="deleteAllProducts()">Hapus Semua Produk</button>
         {% endif %}
     </form>
 
@@ -54,7 +55,7 @@
     {% endif %}
 
     {% if can('manage_product_master') %}
-    <div class="import-box product-studio-import-box">
+    <div class="import-box product-studio-import-box" id="productStudioImportBox">
         <div class="section-title">
             <div>
                 <h3>Bulk Import Produk</h3>

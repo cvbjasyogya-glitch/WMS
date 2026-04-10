@@ -94,6 +94,9 @@
     }
 
     function defaultHint(call) {
+        if (navigator.onLine === false) {
+            return "Koneksi internet sedang offline. Sambungkan lagi jaringan supaya chat call bisa lanjut stabil.";
+        }
         if (!secureMediaContext) {
             return "Mic dan kamera browser butuh HTTPS atau localhost supaya panggilan bisa berjalan.";
         }
@@ -134,6 +137,11 @@
         if (!networkBadge) {
             return;
         }
+        if (navigator.onLine === false) {
+            networkBadge.textContent = "Offline";
+            networkBadge.className = "badge red";
+            return;
+        }
         if (!supportsWebRtc) {
             networkBadge.textContent = "Browser Tidak Mendukung";
             networkBadge.className = "badge";
@@ -146,6 +154,25 @@
         }
         networkBadge.textContent = "WebRTC Ready";
         networkBadge.className = "badge green";
+    }
+
+    function refreshNetworkUi() {
+        setNetworkBadge();
+        if (!hintText || !state.call) {
+            return;
+        }
+        const currentStatus = String(state.call.status || "").toLowerCase();
+        if (navigator.onLine === false) {
+            hintText.textContent = "Koneksi internet terputus. Browser akan lanjut mencoba menjaga sesi sampai jaringan kembali.";
+            if (currentStatus === "active" || currentStatus === "connecting") {
+                statusText.textContent = "Jaringan terputus";
+            }
+            return;
+        }
+        if (currentStatus === "active" || currentStatus === "connecting") {
+            hintText.textContent = defaultHint(state.call);
+            statusText.textContent = defaultStatus(state.call);
+        }
     }
 
     function updateToggleButtons() {
@@ -697,7 +724,8 @@
     }
 
     async function pollCalls() {
-        if (state.pollInFlight || document.visibilityState === "hidden") {
+        const keepPollingWhileHidden = Boolean(state.call && isOpenCall(state.call));
+        if (state.pollInFlight || (document.visibilityState === "hidden" && !keepPollingWhileHidden)) {
             return;
         }
 
@@ -873,6 +901,48 @@
         window.history.replaceState({}, "", url.toString());
     }
 
+    function sendEndBeacon(callId) {
+        const safeCallId = Number(callId || 0);
+        if (!safeCallId || !isOpenCall(state.call)) {
+            return;
+        }
+        const targetUrl = `/chat/call/${safeCallId}/end`;
+        if (navigator.sendBeacon) {
+            try {
+                navigator.sendBeacon(
+                    targetUrl,
+                    new Blob([JSON.stringify({})], { type: "application/json" }),
+                );
+                return;
+            } catch (error) {
+            }
+        }
+        try {
+            fetch(targetUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: JSON.stringify({}),
+                keepalive: true,
+            }).catch(() => {});
+        } catch (error) {
+        }
+    }
+
+    function cleanupRuntime(options) {
+        const settings = options || {};
+        if (state.pollTimer) {
+            window.clearInterval(state.pollTimer);
+            state.pollTimer = null;
+        }
+        stopIncomingRingtone();
+        if (settings.endOpenCall) {
+            sendEndBeacon(state.call?.id);
+        }
+    }
+
     acceptButton?.addEventListener("click", () => {
         acceptCall();
     });
@@ -898,6 +968,25 @@
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
             pollCalls();
+            refreshNetworkUi();
+        }
+    });
+
+    window.addEventListener("online", () => {
+        refreshNetworkUi();
+        pollCalls();
+    });
+
+    window.addEventListener("offline", () => {
+        refreshNetworkUi();
+    });
+
+    window.addEventListener("pageshow", () => {
+        if (!state.pollTimer) {
+            pollCalls();
+            state.pollTimer = window.setInterval(() => {
+                pollCalls();
+            }, 1800);
         }
     });
 
@@ -923,20 +1012,12 @@
         }, 160);
     }
 
+    window.addEventListener("pagehide", () => {
+        cleanupRuntime({ endOpenCall: true });
+    });
+
     window.addEventListener("beforeunload", () => {
-        if (state.pollTimer) {
-            window.clearInterval(state.pollTimer);
-        }
-        stopIncomingRingtone();
-        if (state.call?.id && isOpenCall(state.call) && navigator.sendBeacon) {
-            try {
-                navigator.sendBeacon(
-                    `/chat/call/${state.call.id}/end`,
-                    new Blob([JSON.stringify({})], { type: "application/json" }),
-                );
-            } catch (error) {
-            }
-        }
+        cleanupRuntime({ endOpenCall: true });
     });
 })();
 

@@ -885,6 +885,14 @@
         <p>Ditolak + Batal</p>
         <h3>{{ approval_summary.rejected + approval_summary.cancelled }}</h3>
     </div>
+    <div class="card-mini {% if attendance_action_summary and attendance_action_summary.pending %}warning{% endif %}">
+        <p>Request Attendance</p>
+        <h3>{{ attendance_action_summary.total if attendance_action_summary else 0 }}</h3>
+    </div>
+    <div class="card-mini {% if attendance_action_summary and attendance_action_summary.pending %}warning{% else %}success{% endif %}">
+        <p>Attendance Pending</p>
+        <h3>{{ attendance_action_summary.pending if attendance_action_summary else 0 }}</h3>
+    </div>
 </div>
 
 <div class="meta-grid">
@@ -939,6 +947,7 @@
 {% if approval_scope_warehouse %}
 <small class="helper-text">Approval HR pada akun berscope gudang akan tetap fokus ke karyawan gudang sendiri agar keputusan lebih aman dan cepat.</small>
 {% endif %}
+<small class="helper-text">Leave request tetap diproses di sini, dan sekarang request perubahan shift serta transaksi lembur juga masuk ke meja approval HR / Super Admin.</small>
 
 <details class="table-box stack-scroll-shell panel-disclosure" open>
     <summary class="panel-summary">
@@ -1021,6 +1030,85 @@
     </div>
 </details>
 
+<details class="table-box stack-scroll-shell panel-disclosure" {% if attendance_action_pending_requests %}open{% endif %}>
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Antrian Approval Attendance & Koordinasi</h2>
+                <p>Request pergantian shift jadwal, pengurangan saldo lembur, dan pembatalan lembur dikumpulkan di panel ini supaya HR dan Super Admin bisa memutuskan dari satu meja kerja.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ attendance_action_pending_requests|length }} pending</span>
+            <span class="panel-summary-state">Buka Queue</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+    {% if attendance_action_pending_requests %}
+        <div class="stack-scroll-list">
+            {% for item in attendance_action_pending_requests %}
+            <div class="box stack-scroll-card" style="margin-bottom:0;">
+                <div class="section-title" style="margin-bottom:12px;">
+                    <div>
+                        <h3>{{ item.summary_title }}</h3>
+                        <p>{{ item.full_name or item.requested_by_name or '-' }}{% if item.employee_code %} | {{ item.employee_code }}{% endif %}{% if item.warehouse_name %} | {{ item.warehouse_name }}{% endif %}</p>
+                    </div>
+                    <span class="badge orange">{{ item.request_type_label }}</span>
+                </div>
+                <div class="meta-grid" style="margin-bottom:12px;">
+                    <div class="meta-card">
+                        <span>Tipe</span>
+                        <strong>{{ item.request_type_label }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Dibuat Oleh</span>
+                        <strong>{{ item.requested_by_name or '-' }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Dibuat</span>
+                        <strong>{{ item.created_at or '-' }}</strong>
+                    </div>
+                    <div class="meta-card">
+                        <span>Scope</span>
+                        <strong>{{ item.warehouse_name or '-' }}</strong>
+                    </div>
+                </div>
+                <div class="box leave-request-reason-box" style="margin-bottom:12px;">
+                    <strong>Ringkasan Request</strong>
+                    <p style="margin:8px 0 0;">{{ item.summary_note or '-' }}</p>
+                    {% if item.request_type == 'schedule_entry' %}
+                    <p class="helper-text" style="margin-top:10px;">
+                        Rentang: {{ item.payload_map.start_date or '-' }} s/d {{ item.payload_map.end_date or '-' }}
+                        {% if item.payload_map.shift_label %} | Shift: {{ item.payload_map.shift_label }}{% endif %}
+                    </p>
+                    {% elif item.request_type == 'overtime_use' %}
+                    <p class="helper-text" style="margin-top:10px;">Tanggal: {{ item.payload_map.usage_date or '-' }} | Durasi: {{ item.payload_map.duration_label or '-' }}</p>
+                    {% elif item.request_type == 'overtime_usage_delete' %}
+                    <p class="helper-text" style="margin-top:10px;">Membatalkan transaksi lembur pada {{ item.payload_map.usage_date or '-' }} | Durasi: {{ item.payload_map.duration_label or '-' }}</p>
+                    {% endif %}
+                </div>
+                {% if can_manage_attendance_approval %}
+                <div class="split-actions">
+                    <form method="POST" action="/hris/approval/attendance-request/{{ item.id }}/process">
+                        <input type="hidden" name="decision" value="approved">
+                        <button type="submit" onclick="return confirm('Setujui request attendance ini?')">Setujui</button>
+                    </form>
+                    <form method="POST" action="/hris/approval/attendance-request/{{ item.id }}/process" class="table-action-row" style="flex:1 1 360px;">
+                        <input type="hidden" name="decision" value="rejected">
+                        <input type="text" name="decision_note" placeholder="Catatan penolakan / revisi attendance">
+                        <button type="submit" class="danger-button" onclick="return confirm('Tolak request attendance ini?')">Tolak</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+    <div class="empty-state">Tidak ada request attendance yang menunggu approval saat ini.</div>
+    {% endif %}
+    </div>
+</details>
+
 <details class="table-box stack-scroll-shell panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
@@ -1071,6 +1159,58 @@
         </table>
     {% else %}
     <div class="empty-state">Belum ada keputusan approval pada filter saat ini.</div>
+    {% endif %}
+    </div>
+</details>
+
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Riwayat Approval Attendance</h2>
+                <p>Semua keputusan untuk request attendance dan koordinasi disimpan di sini agar mudah ditelusuri saat audit shift atau saldo lembur.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ attendance_action_recent_requests|length }} keputusan</span>
+            <span class="panel-summary-state">Buka Riwayat</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+    {% if attendance_action_recent_requests %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Request</th>
+                    <th>Nama</th>
+                    <th>Gudang</th>
+                    <th>Status</th>
+                    <th>Dibuat Oleh</th>
+                    <th>Diproses Oleh</th>
+                    <th>Catatan</th>
+                    <th>Waktu</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in attendance_action_recent_requests %}
+                <tr>
+                    <td>
+                        <strong>{{ item.request_type_label }}</strong>
+                        <div class="helper-text">{{ item.summary_title }}</div>
+                    </td>
+                    <td>{{ item.full_name or '-' }}</td>
+                    <td>{{ item.warehouse_name or '-' }}</td>
+                    <td><span class="badge {{ 'green' if item.status == 'approved' else 'red' if item.status == 'rejected' else 'orange' }}">{{ item.status_label }}</span></td>
+                    <td>{{ item.requested_by_name or '-' }}</td>
+                    <td>{{ item.handled_by_name or '-' }}</td>
+                    <td>{{ item.decision_note or item.summary_note or '-' }}</td>
+                    <td>{{ item.handled_at or item.updated_at or item.created_at or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+    <div class="empty-state">Belum ada keputusan approval attendance pada filter saat ini.</div>
     {% endif %}
     </div>
 </details>

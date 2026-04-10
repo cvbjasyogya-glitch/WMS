@@ -1064,6 +1064,10 @@
         stopTypingLoop();
     });
 
+    window.addEventListener("pagehide", () => {
+        stopTypingLoop();
+    });
+
     window.addEventListener("beforeunload", () => {
         stopTypingLoop();
     });

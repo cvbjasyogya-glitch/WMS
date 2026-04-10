@@ -1,9 +1,11 @@
 import json
+from urllib.parse import urlencode
 from datetime import date as date_cls
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
 
 from database import get_db
+from services.pagination import build_pagination_state
 from services.crm_loyalty import (
     CRM_TRANSACTION_TYPES,
     CRM_TRANSACTION_TYPE_LABELS,
@@ -30,6 +32,11 @@ PURCHASE_CHANNELS = {"store", "whatsapp", "marketplace", "live", "event", "other
 MEMBERSHIP_TIERS = {"regular", "silver", "gold", "platinum", "vip"}
 CRM_TABS = {"contacts", "purchases", "members"}
 MEMBER_STAFF_ROLES = {"leader", "admin", "staff"}
+CRM_SMART_SELECT_LIMIT = 60
+CRM_SMART_SELECT_MAX_LIMIT = 100
+CRM_PURCHASE_PAGE_SIZE = 25
+CRM_PURCHASE_MAX_PAGE_SIZE = 100
+CRM_PURCHASE_PAGE_SIZE_OPTIONS = (10, 25, 50, 100)
 
 
 def _to_int(value, default=0):
@@ -125,7 +132,14 @@ def _resolve_crm_warehouse(db, raw_warehouse_id, allow_empty=False):
 
 def _crm_redirect(tab=None):
     selected_tab = _normalize_tab(tab or request.form.get("tab") or request.args.get("tab"))
-    return redirect(f"/crm/?tab={selected_tab}")
+    params = {"tab": selected_tab}
+    for key in ("search", "warehouse", "member_status", "page", "page_size"):
+        value = request.form.get(key)
+        if value in (None, ""):
+            value = request.args.get(key)
+        if value not in (None, ""):
+            params[key] = value
+    return redirect(f"/crm/?{urlencode(params)}")
 
 
 def _crm_access_denied_redirect():
@@ -153,6 +167,88 @@ def _build_scope_clause(alias):
     if not scope_warehouse:
         return "", []
     return f" AND {alias}.warehouse_id=?", [scope_warehouse]
+
+
+def _coerce_crm_smart_select_limit(value, default=CRM_SMART_SELECT_LIMIT):
+    limit = _to_int(value, default)
+    if limit <= 0:
+        return default
+    return min(limit, CRM_SMART_SELECT_MAX_LIMIT)
+
+
+def _coerce_crm_purchase_page_size(value, default=CRM_PURCHASE_PAGE_SIZE):
+    page_size = _to_int(value, default)
+    if page_size <= 0:
+        return default
+    if page_size not in CRM_PURCHASE_PAGE_SIZE_OPTIONS:
+        page_size = default
+    return min(page_size, CRM_PURCHASE_MAX_PAGE_SIZE)
+
+
+def _serialize_customer_option(customer):
+    warehouse_name = (customer.get("warehouse_name") or "").strip()
+    contact_person = (customer.get("contact_person") or "").strip()
+    label_parts = [(customer.get("customer_name") or "Customer").strip()]
+    if contact_person:
+        label_parts.append(contact_person)
+    if warehouse_name:
+        label_parts.append(warehouse_name)
+    return {
+        "value": str(customer.get("id") or ""),
+        "label": " | ".join(part for part in label_parts if part),
+        "dataset": {
+            "warehouseId": str(customer.get("warehouse_id") or ""),
+            "warehouseName": warehouse_name,
+            "contactPerson": contact_person,
+            "phone": str(customer.get("phone") or ""),
+            "email": str(customer.get("email") or ""),
+            "customerType": str(customer.get("customer_type") or ""),
+        },
+    }
+
+
+def _serialize_member_option(member):
+    member_type = (member.get("member_type") or "purchase").strip() or "purchase"
+    reward_unit_amount = member.get("reward_unit_amount")
+    return {
+        "value": str(member.get("id") or ""),
+        "label": " | ".join(
+            part
+            for part in [
+                (member.get("member_code") or "Member").strip(),
+                (member.get("customer_name") or "Customer").strip(),
+                MEMBER_TYPE_LABELS.get(member_type, member_type.replace("_", " ").title()),
+            ]
+            if part
+        ),
+        "dataset": {
+            "customerId": str(member.get("customer_id") or ""),
+            "memberType": member_type,
+            "rewardUnitAmount": str(
+                reward_unit_amount if reward_unit_amount not in (None, "") else DEFAULT_STRINGING_REWARD_AMOUNT
+            ),
+            "status": str(member.get("status") or ""),
+            "warehouseId": str(member.get("warehouse_id") or ""),
+            "warehouseName": str(member.get("warehouse_name") or ""),
+        },
+    }
+
+
+def _serialize_staff_option(staff):
+    warehouse_name = (staff.get("warehouse_name") or "").strip()
+    label_parts = [(staff.get("display_name") or staff.get("username") or "Staff").strip()]
+    if warehouse_name:
+        label_parts.append(warehouse_name)
+    return {
+        "value": str(staff.get("id") or ""),
+        "label": " | ".join(part for part in label_parts if part),
+        "dataset": {
+            "role": str(staff.get("role") or ""),
+            "warehouseId": str(staff.get("warehouse_id") or ""),
+            "warehouseName": warehouse_name,
+            "username": str(staff.get("username") or ""),
+        },
+    }
 
 
 def _parse_purchase_items(form):
@@ -299,10 +395,18 @@ def _get_staff_by_id(db, staff_id):
     return dict(row) if row else None
 
 
-def _fetch_customer_options(db, selected_warehouse=None):
+def _fetch_customer_options(db, selected_warehouse=None, search="", limit=CRM_SMART_SELECT_LIMIT):
     params = []
     query = """
-        SELECT c.id, c.customer_name, c.contact_person, c.warehouse_id, w.name AS warehouse_name
+        SELECT
+            c.id,
+            c.customer_name,
+            c.contact_person,
+            c.phone,
+            c.email,
+            c.customer_type,
+            c.warehouse_id,
+            w.name AS warehouse_name
         FROM crm_customers c
         LEFT JOIN warehouses w ON w.id = c.warehouse_id
         WHERE 1=1
@@ -316,11 +420,28 @@ def _fetch_customer_options(db, selected_warehouse=None):
         query += " AND c.warehouse_id=?"
         params.append(selected_warehouse)
 
+    search_term = (search or "").strip()
+    if search_term:
+        like_term = f"%{search_term}%"
+        query += """
+            AND (
+                c.customer_name LIKE ?
+                OR COALESCE(c.contact_person, '') LIKE ?
+                OR COALESCE(c.phone, '') LIKE ?
+                OR COALESCE(c.email, '') LIKE ?
+                OR COALESCE(w.name, '') LIKE ?
+            )
+        """
+        params.extend([like_term] * 5)
+
     query += " ORDER BY c.customer_name ASC, c.id DESC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(_coerce_crm_smart_select_limit(limit))
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
-def _fetch_member_options(db, selected_warehouse=None):
+def _fetch_member_options(db, selected_warehouse=None, search="", limit=CRM_SMART_SELECT_LIMIT, customer_id=None):
     params = []
     query = """
         SELECT
@@ -347,11 +468,32 @@ def _fetch_member_options(db, selected_warehouse=None):
         query += " AND m.warehouse_id=?"
         params.append(selected_warehouse)
 
+    if customer_id:
+        query += " AND m.customer_id=?"
+        params.append(customer_id)
+
+    search_term = (search or "").strip()
+    if search_term:
+        like_term = f"%{search_term}%"
+        query += """
+            AND (
+                m.member_code LIKE ?
+                OR COALESCE(c.customer_name, '') LIKE ?
+                OR COALESCE(m.member_type, '') LIKE ?
+                OR COALESCE(m.status, '') LIKE ?
+                OR COALESCE(w.name, '') LIKE ?
+            )
+        """
+        params.extend([like_term] * 5)
+
     query += " ORDER BY m.status='active' DESC, c.customer_name ASC, m.id DESC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(_coerce_crm_smart_select_limit(limit))
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
-def _fetch_staff_options(db, selected_warehouse=None):
+def _fetch_staff_options(db, selected_warehouse=None, search="", limit=CRM_SMART_SELECT_LIMIT):
     params = []
     query = """
         SELECT
@@ -375,7 +517,23 @@ def _fetch_staff_options(db, selected_warehouse=None):
         query += " AND u.warehouse_id=?"
         params.append(selected_warehouse)
 
+    search_term = (search or "").strip()
+    if search_term:
+        like_term = f"%{search_term}%"
+        query += """
+            AND (
+                COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Staff') LIKE ?
+                OR COALESCE(u.username, '') LIKE ?
+                OR COALESCE(w.name, '') LIKE ?
+                OR COALESCE(u.role, '') LIKE ?
+            )
+        """
+        params.extend([like_term] * 4)
+
     query += " ORDER BY COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Staff') ASC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(_coerce_crm_smart_select_limit(limit))
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
@@ -448,42 +606,9 @@ def _fetch_customers(db, search="", selected_warehouse=None):
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
-def _fetch_purchase_records(db, search="", selected_warehouse=None):
+def _build_purchase_record_filters(search="", selected_warehouse=None):
     params = []
-    query = """
-        SELECT
-            pr.*,
-            c.customer_name,
-            c.contact_person,
-            m.member_code,
-            m.member_type,
-            w.name AS warehouse_name,
-            u.username AS handled_by_name,
-            COALESCE(pi.total_qty, 0) AS total_qty,
-            COALESCE(pi.items_summary, '-') AS items_summary
-        FROM crm_purchase_records pr
-        JOIN crm_customers c ON c.id = pr.customer_id
-        LEFT JOIN crm_memberships m ON m.id = pr.member_id
-        LEFT JOIN warehouses w ON w.id = pr.warehouse_id
-        LEFT JOIN users u ON u.id = pr.handled_by
-        LEFT JOIN (
-            SELECT
-                pi.purchase_id,
-                SUM(pi.qty) AS total_qty,
-                GROUP_CONCAT(
-                    p.sku || ' - ' || p.name || CASE
-                        WHEN LOWER(COALESCE(v.variant, 'default')) = 'default' THEN ''
-                        ELSE ' / ' || v.variant
-                    END || ' x' || pi.qty,
-                    ' | '
-                ) AS items_summary
-            FROM crm_purchase_items pi
-            JOIN products p ON p.id = pi.product_id
-            JOIN product_variants v ON v.id = pi.variant_id
-            GROUP BY pi.purchase_id
-        ) pi ON pi.purchase_id = pr.id
-        WHERE 1=1
-    """
+    query = ""
 
     scope_clause, scope_params = _build_scope_clause("pr")
     query += scope_clause
@@ -518,8 +643,233 @@ def _fetch_purchase_records(db, search="", selected_warehouse=None):
         """
         params.extend([like, like, like, like, like, like, like, like])
 
-    query += " ORDER BY pr.purchase_date DESC, pr.id DESC"
-    return [dict(row) for row in db.execute(query, params).fetchall()]
+    return query, params
+
+
+def _fetch_purchase_records(db, search="", selected_warehouse=None, limit=None, offset=None):
+    filter_query, params = _build_purchase_record_filters(search, selected_warehouse)
+    query = f"""
+        SELECT
+            pr.*,
+            c.customer_name,
+            c.contact_person,
+            m.member_code,
+            m.member_type,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM crm_purchase_records pr
+        JOIN crm_customers c ON c.id = pr.customer_id
+        LEFT JOIN crm_memberships m ON m.id = pr.member_id
+        LEFT JOIN warehouses w ON w.id = pr.warehouse_id
+        LEFT JOIN users u ON u.id = pr.handled_by
+        WHERE 1=1
+        {filter_query}
+        ORDER BY pr.purchase_date DESC, pr.id DESC
+    """
+
+    query_params = list(params)
+    if limit is not None:
+        query += " LIMIT ?"
+        query_params.append(max(1, int(limit)))
+        if offset is not None:
+            query += " OFFSET ?"
+            query_params.append(max(0, int(offset)))
+
+    rows = [dict(row) for row in db.execute(query, query_params).fetchall()]
+    if not rows:
+        return rows
+
+    purchase_ids = [row["id"] for row in rows]
+    item_map = {}
+    chunk_size = 400
+    for chunk_start in range(0, len(purchase_ids), chunk_size):
+        chunk_ids = purchase_ids[chunk_start:chunk_start + chunk_size]
+        chunk_placeholders = ",".join("?" for _ in chunk_ids)
+        item_rows = db.execute(
+            f"""
+            SELECT
+                pi.purchase_id,
+                SUM(pi.qty) AS total_qty,
+                GROUP_CONCAT(
+                    p.sku || ' - ' || p.name || CASE
+                        WHEN LOWER(COALESCE(v.variant, 'default')) = 'default' THEN ''
+                        ELSE ' / ' || v.variant
+                    END || ' x' || pi.qty,
+                    ' | '
+                ) AS items_summary
+            FROM crm_purchase_items pi
+            JOIN products p ON p.id = pi.product_id
+            JOIN product_variants v ON v.id = pi.variant_id
+            WHERE pi.purchase_id IN ({chunk_placeholders})
+            GROUP BY pi.purchase_id
+            """,
+            chunk_ids,
+        ).fetchall()
+        item_map.update({row["purchase_id"]: dict(row) for row in item_rows})
+
+    for row in rows:
+        item_snapshot = item_map.get(row["id"], {})
+        row["total_qty"] = item_snapshot.get("total_qty") or 0
+        row["items_summary"] = item_snapshot.get("items_summary") or "-"
+
+    return rows
+
+
+def _count_purchase_records(db, search="", selected_warehouse=None):
+    filter_query, params = _build_purchase_record_filters(search, selected_warehouse)
+    row = db.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM crm_purchase_records pr
+        JOIN crm_customers c ON c.id = pr.customer_id
+        LEFT JOIN crm_memberships m ON m.id = pr.member_id
+        WHERE 1=1
+        {filter_query}
+        """,
+        params,
+    ).fetchone()
+    return int(row[0] if row else 0)
+
+
+def _fetch_crm_summary_snapshot(db, search="", selected_warehouse=None, member_status=""):
+    customer_params = []
+    customer_query = """
+        SELECT
+            COUNT(*) AS customers,
+            SUM(CASE WHEN COALESCE(p.purchase_count, 0) > 0 THEN 1 ELSE 0 END) AS customers_with_purchase,
+            SUM(
+                CASE
+                    WHEN TRIM(COALESCE(c.phone, '')) <> '' OR TRIM(COALESCE(c.email, '')) <> '' THEN 1
+                    ELSE 0
+                END
+            ) AS contact_ready
+        FROM crm_customers c
+        LEFT JOIN (
+            SELECT
+                customer_id,
+                COUNT(*) AS purchase_count
+            FROM crm_purchase_records
+            GROUP BY customer_id
+        ) p ON p.customer_id = c.id
+        WHERE 1=1
+    """
+    scope_clause, scope_params = _build_scope_clause("c")
+    customer_query += scope_clause
+    customer_params.extend(scope_params)
+
+    if selected_warehouse:
+        customer_query += " AND c.warehouse_id=?"
+        customer_params.append(selected_warehouse)
+
+    if search:
+        like = f"%{search}%"
+        customer_query += """
+            AND (
+                c.customer_name LIKE ?
+                OR COALESCE(c.contact_person, '') LIKE ?
+                OR COALESCE(c.phone, '') LIKE ?
+                OR COALESCE(c.email, '') LIKE ?
+                OR COALESCE(c.instagram_handle, '') LIKE ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM crm_memberships cm
+                    WHERE cm.customer_id = c.id
+                      AND COALESCE(cm.member_code, '') LIKE ?
+                )
+            )
+        """
+        customer_params.extend([like, like, like, like, like, like])
+
+    purchase_filter_query, purchase_filter_params = _build_purchase_record_filters(search, selected_warehouse)
+    purchase_row = db.execute(
+        f"""
+        SELECT
+            COALESCE(SUM(pr.total_amount), 0) AS total_revenue,
+            MAX(pr.purchase_date) AS latest_purchase
+        FROM crm_purchase_records pr
+        JOIN crm_customers c ON c.id = pr.customer_id
+        LEFT JOIN crm_memberships m ON m.id = pr.member_id
+        WHERE 1=1
+        {purchase_filter_query}
+        """,
+        purchase_filter_params,
+    ).fetchone()
+
+    membership_params = []
+    membership_query = """
+        SELECT
+            SUM(CASE WHEN m.status='active' THEN 1 ELSE 0 END) AS active_members
+        FROM crm_memberships m
+        JOIN crm_customers c ON c.id = m.customer_id
+        WHERE 1=1
+    """
+    scope_clause, scope_params = _build_scope_clause("m")
+    membership_query += scope_clause
+    membership_params.extend(scope_params)
+
+    if selected_warehouse:
+        membership_query += " AND m.warehouse_id=?"
+        membership_params.append(selected_warehouse)
+
+    if member_status in MEMBERSHIP_STATUSES:
+        membership_query += " AND m.status=?"
+        membership_params.append(member_status)
+
+    if search:
+        like = f"%{search}%"
+        membership_query += """
+            AND (
+                m.member_code LIKE ?
+                OR c.customer_name LIKE ?
+                OR COALESCE(c.contact_person, '') LIKE ?
+                OR COALESCE(c.phone, '') LIKE ?
+                OR COALESCE(m.member_type, '') LIKE ?
+                OR COALESCE(m.note, '') LIKE ?
+            )
+        """
+        membership_params.extend([like, like, like, like, like, like])
+
+    member_record_params = []
+    member_record_query = """
+        SELECT COUNT(*) AS member_records
+        FROM crm_member_records mr
+        JOIN crm_memberships m ON m.id = mr.member_id
+        JOIN crm_customers c ON c.id = m.customer_id
+        WHERE 1=1
+    """
+    scope_clause, scope_params = _build_scope_clause("mr")
+    member_record_query += scope_clause
+    member_record_params.extend(scope_params)
+
+    if selected_warehouse:
+        member_record_query += " AND mr.warehouse_id=?"
+        member_record_params.append(selected_warehouse)
+
+    if search:
+        like = f"%{search}%"
+        member_record_query += """
+            AND (
+                m.member_code LIKE ?
+                OR c.customer_name LIKE ?
+                OR COALESCE(mr.reference_no, '') LIKE ?
+                OR COALESCE(mr.note, '') LIKE ?
+            )
+        """
+        member_record_params.extend([like, like, like, like])
+
+    customer_row = db.execute(customer_query, customer_params).fetchone()
+    membership_row = db.execute(membership_query, membership_params).fetchone()
+    member_record_row = db.execute(member_record_query, member_record_params).fetchone()
+
+    return {
+        "customers": int((customer_row["customers"] if customer_row else 0) or 0),
+        "customers_with_purchase": int((customer_row["customers_with_purchase"] if customer_row else 0) or 0),
+        "active_members": int((membership_row["active_members"] if membership_row else 0) or 0),
+        "total_revenue": round(float((purchase_row["total_revenue"] if purchase_row else 0) or 0), 2),
+        "contact_ready": int((customer_row["contact_ready"] if customer_row else 0) or 0),
+        "member_records": int((member_record_row["member_records"] if member_record_row else 0) or 0),
+        "latest_purchase": (purchase_row["latest_purchase"] if purchase_row else None) or "-",
+    }
 
 
 def _fetch_memberships(db, search="", selected_warehouse=None, member_status=""):
@@ -673,16 +1023,58 @@ def crm_page():
         request.args.get("warehouse"),
         allow_empty=not is_scoped_role(session.get("role")),
     )
+    purchase_page_size = _coerce_crm_purchase_page_size(request.args.get("page_size"), CRM_PURCHASE_PAGE_SIZE)
+    purchase_page = max(1, _to_int(request.args.get("page"), 1))
+    purchase_total = 0
+    purchase_page_start = 0
+    purchase_page_end = 0
+    purchase_pagination = None
 
     warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
-    customers = _fetch_customers(db, search, selected_warehouse)
-    purchases = _fetch_purchase_records(db, search, selected_warehouse)
-    memberships = _fetch_memberships(db, search, selected_warehouse, member_status)
-    member_records = _fetch_member_records(db, search, selected_warehouse)
-    customer_options = _fetch_customer_options(db, selected_warehouse)
-    member_options = _fetch_member_options(db, selected_warehouse)
-    staff_options = _fetch_staff_options(db, selected_warehouse)
-    summary = _build_crm_summary(customers, purchases, memberships, member_records)
+    customers = []
+    purchases = []
+    memberships = []
+    member_records = []
+
+    if selected_tab == "contacts":
+        customers = _fetch_customers(db, search, selected_warehouse)
+        summary = _fetch_crm_summary_snapshot(db, search, selected_warehouse, member_status)
+    elif selected_tab == "purchases":
+        purchase_total = _count_purchase_records(db, search, selected_warehouse)
+        purchase_total_pages = max(1, (purchase_total + purchase_page_size - 1) // purchase_page_size)
+        purchase_page = max(1, min(purchase_page, purchase_total_pages))
+        purchase_offset = (purchase_page - 1) * purchase_page_size
+        purchases = _fetch_purchase_records(
+            db,
+            search,
+            selected_warehouse,
+            limit=purchase_page_size,
+            offset=purchase_offset,
+        )
+        purchase_page_start = purchase_offset + 1 if purchase_total else 0
+        purchase_page_end = purchase_offset + len(purchases)
+        purchase_pagination = build_pagination_state(
+            "/crm/",
+            purchase_page,
+            purchase_total_pages,
+            {
+                "tab": selected_tab,
+                "search": search,
+                "warehouse": selected_warehouse,
+                "page_size": purchase_page_size,
+            },
+            group_size=5,
+            page_param="page",
+        )
+        summary = _fetch_crm_summary_snapshot(db, search, selected_warehouse, member_status)
+    else:
+        memberships = _fetch_memberships(db, search, selected_warehouse, member_status)
+        member_records = _fetch_member_records(db, search, selected_warehouse)
+        summary = _fetch_crm_summary_snapshot(db, search, selected_warehouse, member_status)
+
+    customer_options = _fetch_customer_options(db, selected_warehouse, limit=CRM_SMART_SELECT_LIMIT)
+    member_options = _fetch_member_options(db, selected_warehouse, limit=CRM_SMART_SELECT_LIMIT)
+    staff_options = _fetch_staff_options(db, selected_warehouse, limit=CRM_SMART_SELECT_LIMIT)
 
     return render_template(
         "crm.html",
@@ -699,6 +1091,12 @@ def crm_page():
         member_options=member_options,
         staff_options=staff_options,
         summary=summary,
+        purchase_pagination=purchase_pagination,
+        purchase_total=purchase_total,
+        purchase_page_size=purchase_page_size,
+        purchase_page_start=purchase_page_start,
+        purchase_page_end=purchase_page_end,
+        purchase_page_size_options=CRM_PURCHASE_PAGE_SIZE_OPTIONS,
         customer_types=sorted(CUSTOMER_TYPES),
         purchase_channels=sorted(PURCHASE_CHANNELS),
         member_types=sorted(MEMBER_TYPES),
@@ -708,9 +1106,61 @@ def crm_page():
         member_record_types=sorted(MEMBER_RECORD_TYPES),
         transaction_types=["purchase", "stringing_service", "stringing_reward_redemption"],
         transaction_type_labels=CRM_TRANSACTION_TYPE_LABELS,
+        crm_smart_select_limit=CRM_SMART_SELECT_LIMIT,
         default_stringing_reward_amount=DEFAULT_STRINGING_REWARD_AMOUNT,
         scoped_crm_warehouse=_crm_scope_warehouse(),
         can_manage_crm=has_permission(session.get("role"), "manage_crm"),
+    )
+
+
+@crm_bp.get("/options/<option_type>")
+def crm_smart_select_options(option_type):
+    if not has_permission(session.get("role"), "view_crm"):
+        return jsonify({"status": "error", "message": "Tidak punya akses ke CRM"}), 403
+
+    db = get_db()
+    normalized_option_type = (option_type or "").strip().lower()
+    selected_warehouse = _resolve_crm_warehouse(
+        db,
+        request.args.get("warehouse"),
+        allow_empty=not is_scoped_role(session.get("role")),
+    )
+    search = (request.args.get("q") or "").strip()
+    limit = _coerce_crm_smart_select_limit(request.args.get("limit"), CRM_SMART_SELECT_LIMIT)
+
+    if normalized_option_type == "customers":
+        options = [
+            _serialize_customer_option(customer)
+            for customer in _fetch_customer_options(db, selected_warehouse, search=search, limit=limit)
+        ]
+    elif normalized_option_type == "members":
+        customer_id = _to_int(request.args.get("customer_id"), None)
+        options = [
+            _serialize_member_option(member)
+            for member in _fetch_member_options(
+                db,
+                selected_warehouse,
+                search=search,
+                limit=limit,
+                customer_id=customer_id,
+            )
+        ]
+    elif normalized_option_type == "staff":
+        options = [
+            _serialize_staff_option(staff)
+            for staff in _fetch_staff_options(db, selected_warehouse, search=search, limit=limit)
+        ]
+    else:
+        return jsonify({"status": "error", "message": "Jenis opsi CRM tidak dikenali."}), 404
+
+    return jsonify(
+        {
+            "status": "success",
+            "option_type": normalized_option_type,
+            "query": search,
+            "count": len(options),
+            "options": options,
+        }
     )
 
 

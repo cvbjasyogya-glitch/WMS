@@ -209,6 +209,23 @@ def _get_sort_clause(sort):
     return SORT_DEFINITIONS[_normalize_sort(sort)]["clause"]
 
 
+def _get_stock_result_sort_clause(sort):
+    clause = _get_sort_clause(sort)
+    replacements = (
+        ("COALESCE(s.qty, 0)", "qty"),
+        ("p.sku", "sku"),
+        ("p.name", "name"),
+        ("v.variant", "variant"),
+        ("v.price_retail", "price_retail"),
+        ("v.price_discount", "price_discount"),
+        ("v.price_nett", "price_nett"),
+        ("s.qty", "qty"),
+    )
+    for source, target in replacements:
+        clause = clause.replace(source, target)
+    return clause
+
+
 def _get_sort_state(sort):
     normalized = _normalize_sort(sort)
     config = SORT_DEFINITIONS[normalized]
@@ -239,6 +256,7 @@ def _build_sort_links():
 
 
 def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
+    group_key_expression = _build_stock_group_key_expression("p.name", "p.id")
     query = """
     SELECT
         p.id as product_id,
@@ -269,7 +287,8 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
             CASE
                 WHEN COALESCE(b.remaining_qty, 0) > 0 AND b.expiry_date IS NOT NULL THEN b.expiry_date
             END
-        ) as expiry_date
+        ) as expiry_date,
+        """ + group_key_expression + """ as group_key
     FROM products p
     JOIN product_variants v ON v.product_id = p.id
     LEFT JOIN categories c ON c.id = p.category_id
@@ -377,6 +396,127 @@ def _build_stock_summary(rows):
         "inventory_value": inventory_value,
         "expiring_count": expiring_count,
     }
+
+
+def _build_stock_group_name_expression(expression):
+    normalized = f"trim(COALESCE({expression}, ''))"
+    for _ in range(6):
+        normalized = f"replace({normalized}, '  ', ' ')"
+    return f"lower({normalized})"
+
+
+def _build_stock_group_key_expression(name_expression, product_expression):
+    normalized_name = _build_stock_group_name_expression(name_expression)
+    return (
+        f"CASE "
+        f"WHEN {normalized_name} <> '' THEN 'name:' || {normalized_name} "
+        f"ELSE 'product:' || CAST({product_expression} AS TEXT) "
+        f"END"
+    )
+
+
+def _build_stock_summary_from_row(row):
+    row = row or {}
+    return {
+        "total_variants": int(row["total_variants"] or 0),
+        "total_qty": int(row["total_qty"] or 0),
+        "zero_count": int(row["zero_count"] or 0),
+        "low_count": int(row["low_count"] or 0),
+        "ready_count": int(row["ready_count"] or 0),
+        "inventory_value": float(row["inventory_value"] or 0),
+        "expiring_count": int(row["expiring_count"] or 0),
+    }
+
+
+def _fetch_stock_summary(db, base_query, params):
+    row = db.execute(
+        f"""
+        WITH filtered_rows AS (
+            {base_query}
+        )
+        SELECT
+            COUNT(*) AS total_variants,
+            COALESCE(SUM(CAST(qty AS INTEGER)), 0) AS total_qty,
+            COALESCE(SUM(CASE WHEN qty <= 0 THEN 1 ELSE 0 END), 0) AS zero_count,
+            COALESCE(SUM(CASE WHEN qty > 0 AND qty < ? THEN 1 ELSE 0 END), 0) AS low_count,
+            COALESCE(SUM(CASE WHEN qty >= ? THEN 1 ELSE 0 END), 0) AS ready_count,
+            COALESCE(SUM(
+                CASE
+                    WHEN qty > 0 THEN qty * (
+                        CASE
+                            WHEN price_nett > 0 THEN price_nett
+                            WHEN price_discount > 0 THEN price_discount
+                            ELSE price_retail
+                        END
+                    )
+                    ELSE 0
+                END
+            ), 0) AS inventory_value,
+            COALESCE(SUM(
+                CASE
+                    WHEN qty > 0
+                         AND expiry_date IS NOT NULL
+                         AND date(substr(expiry_date, 1, 10)) <= date('now', '+30 day')
+                    THEN 1
+                    ELSE 0
+                END
+            ), 0) AS expiring_count
+        FROM filtered_rows
+        """,
+        (*params, LOW_STOCK_THRESHOLD, LOW_STOCK_THRESHOLD),
+    ).fetchone()
+    return _build_stock_summary_from_row(row)
+
+
+def _count_stock_groups(db, base_query, params):
+    row = db.execute(
+        f"""
+        WITH filtered_rows AS (
+            {base_query}
+        )
+        SELECT COUNT(*) AS total_groups
+        FROM (
+            SELECT group_key
+            FROM filtered_rows
+            GROUP BY group_key
+        ) grouped_rows
+        """,
+        params,
+    ).fetchone()
+    return int(row["total_groups"] or 0) if row else 0
+
+
+def _fetch_stock_page_rows(db, base_query, params, order_by, limit, offset):
+    rows = db.execute(
+        f"""
+        WITH filtered_rows AS (
+            {base_query}
+        ),
+        ordered_rows AS (
+            SELECT
+                filtered_rows.*,
+                ROW_NUMBER() OVER (
+                    ORDER BY {order_by}, age_days DESC, product_id, variant_id
+                ) AS row_order
+            FROM filtered_rows
+        ),
+        paged_groups AS (
+            SELECT
+                group_key,
+                MIN(row_order) AS first_row_order
+            FROM ordered_rows
+            GROUP BY group_key
+            ORDER BY first_row_order
+            LIMIT ? OFFSET ?
+        )
+        SELECT ordered_rows.*
+        FROM ordered_rows
+        JOIN paged_groups ON paged_groups.group_key = ordered_rows.group_key
+        ORDER BY paged_groups.first_row_order, ordered_rows.row_order
+        """,
+        (*params, limit, offset),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _build_stock_group(rows):
@@ -489,6 +629,8 @@ def _normalize_stock_group_name(name):
 
 
 def _resolve_stock_group_key(row):
+    if row.get("group_key"):
+        return str(row["group_key"])
     normalized_name = _normalize_stock_group_name(row.get("name"))
     if normalized_name:
         return f"name:{normalized_name}"
@@ -647,7 +789,7 @@ def stock_table():
 
     limit = 10
     offset = (page - 1) * limit
-    order_by = _get_sort_clause(sort)
+    order_by = _get_stock_result_sort_clause(sort)
 
     base_query, params = _build_stock_query(
         warehouse_id,
@@ -657,19 +799,11 @@ def stock_table():
         stock_state,
     )
 
-    all_filtered_rows = [
-        dict(r)
-        for r in db.execute(
-            f"{base_query} ORDER BY {order_by}, age_days DESC",
-            params,
-        ).fetchall()
-    ]
-    grouped_stock_rows = _group_stock_rows(all_filtered_rows)
-    total_groups = len(grouped_stock_rows)
-    grouped_data = grouped_stock_rows[offset: offset + limit]
-    data = _flatten_grouped_stock_rows(grouped_data)
+    summary = _fetch_stock_summary(db, base_query, params)
+    total_groups = _count_stock_groups(db, base_query, params)
+    data = _fetch_stock_page_rows(db, base_query, params, order_by, limit, offset)
+    grouped_data = _group_stock_rows(data)
 
-    summary = _build_stock_summary(all_filtered_rows)
     can_view_inventory_value = _can_view_inventory_value()
     if not can_view_inventory_value:
         summary["inventory_value"] = 0
@@ -683,8 +817,8 @@ def stock_table():
             "warehouse": warehouse_id,
             "sort": sort,
             "stock_state": stock_state,
-            "start_date": start_date.isoformat() if start_date else "",
-            "end_date": end_date.isoformat() if end_date else "",
+            "start_date": start_date or "",
+            "end_date": end_date or "",
         },
         group_size=5,
     )
@@ -703,8 +837,8 @@ def stock_table():
             "q": search,
             "sort": sort,
             "stock_state": stock_state,
-            "start_date": start_date.isoformat() if start_date else "",
-            "end_date": end_date.isoformat() if end_date else "",
+            "start_date": start_date or "",
+            "end_date": end_date or "",
         },
         page_param="product_page",
     )

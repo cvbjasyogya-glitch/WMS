@@ -20,7 +20,7 @@ from services.receipt_pdf_service import (
     format_receipt_homebase_label,
     generate_pos_receipt_pdf,
 )
-from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role
+from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role, normalize_role
 from services.stock_service import add_stock, remove_stock
 from services.whatsapp_service import (
     record_whatsapp_delivery,
@@ -33,6 +33,9 @@ from services.whatsapp_service import (
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
 
 PAYMENT_METHODS = ("cash", "qris", "transfer", "debit", "credit")
+POS_ASSIGNABLE_ROLE_LIST = ("owner", "super_admin", "leader", "admin", "staff")
+INACTIVE_EMPLOYMENT_STATUSES = ("inactive", "terminated", "resigned", "former", "nonactive", "non-active")
+POS_REVENUE_HIDDEN_LABEL = "-"
 
 POS_PRINTER_DRIVER_RESOURCES = [
     {
@@ -494,6 +497,13 @@ def _normalize_payment_method(raw_value):
     return method if method in PAYMENT_METHODS else "cash"
 
 
+def _format_payment_method_label(raw_value):
+    method = _normalize_payment_method(raw_value)
+    if method == "transfer":
+        return "TF"
+    return method.upper()
+
+
 def _normalize_adjustment_type(raw_value):
     safe_value = str(raw_value or "").strip().lower()
     return safe_value if safe_value in {"amount", "percent"} else "amount"
@@ -579,6 +589,90 @@ def _require_pos_access(json_mode=False):
 
     flash(message, "error")
     return redirect("/workspace/")
+
+
+def _can_view_pos_revenue():
+    return normalize_role(session.get("role")) in {"owner", "super_admin"}
+
+
+def _mask_pos_sale_item_financials(item):
+    masked_item = dict(item or {})
+    for numeric_key in ("unit_price", "line_total", "void_amount", "active_line_total"):
+        if numeric_key in masked_item:
+            masked_item[numeric_key] = 0
+    for label_key in ("unit_price_label", "line_total_label", "void_amount_label", "active_line_total_label"):
+        if label_key in masked_item:
+            masked_item[label_key] = POS_REVENUE_HIDDEN_LABEL
+    return masked_item
+
+
+def _mask_pos_sale_log_rows(rows, can_view_revenue):
+    if can_view_revenue:
+        return rows
+
+    masked_rows = []
+    for row in rows:
+        masked_row = dict(row or {})
+        for numeric_key in ("total_amount", "paid_amount", "change_amount", "subtotal_amount", "discount_amount", "tax_amount"):
+            if numeric_key in masked_row:
+                masked_row[numeric_key] = 0
+        for label_key in (
+            "total_amount_label",
+            "paid_amount_label",
+            "change_amount_label",
+            "subtotal_amount_label",
+            "discount_amount_label",
+            "tax_amount_label",
+        ):
+            if label_key in masked_row:
+                masked_row[label_key] = POS_REVENUE_HIDDEN_LABEL
+        if "items" in masked_row:
+            masked_row["items"] = [_mask_pos_sale_item_financials(item) for item in masked_row.get("items") or []]
+        if "item_preview_lines" in masked_row:
+            masked_row["item_preview_lines"] = [
+                _mask_pos_sale_item_financials(item)
+                for item in masked_row.get("item_preview_lines") or []
+            ]
+        masked_rows.append(masked_row)
+    return masked_rows
+
+
+def _mask_pos_sale_log_summary(summary, can_view_revenue):
+    if can_view_revenue:
+        return summary
+
+    masked_summary = dict(summary or {})
+    masked_summary["total_revenue"] = 0
+    masked_summary["total_revenue_label"] = POS_REVENUE_HIDDEN_LABEL
+    masked_summary["average_ticket_label"] = POS_REVENUE_HIDDEN_LABEL
+    return masked_summary
+
+
+def _mask_pos_staff_sales_rows(rows, can_view_revenue):
+    if can_view_revenue:
+        return rows
+
+    masked_rows = []
+    for row in rows:
+        masked_row = dict(row or {})
+        masked_row["total_revenue"] = 0
+        masked_row["average_ticket"] = 0
+        masked_row["total_revenue_label"] = POS_REVENUE_HIDDEN_LABEL
+        masked_row["average_ticket_label"] = POS_REVENUE_HIDDEN_LABEL
+        masked_rows.append(masked_row)
+    return masked_rows
+
+
+def _mask_pos_staff_sales_summary(summary, can_view_revenue):
+    if can_view_revenue:
+        return summary
+
+    masked_summary = dict(summary or {})
+    masked_summary["total_revenue"] = 0
+    masked_summary["total_revenue_label"] = POS_REVENUE_HIDDEN_LABEL
+    masked_summary["average_ticket_label"] = POS_REVENUE_HIDDEN_LABEL
+    masked_summary["top_staff_revenue_label"] = POS_REVENUE_HIDDEN_LABEL
+    return masked_summary
 
 
 def _default_warehouse_id(db):
@@ -710,8 +804,8 @@ def _build_pos_staff_option(row, warehouse_id):
 
 
 def _fetch_pos_staff_options(db, warehouse_id):
-    rows = db.execute(
-        """
+    params = [*POS_ASSIGNABLE_ROLE_LIST, *INACTIVE_EMPLOYMENT_STATUSES]
+    query = """
         SELECT
             u.id,
             u.username,
@@ -726,9 +820,16 @@ def _fetch_pos_staff_options(db, warehouse_id):
         FROM users u
         LEFT JOIN employees e ON e.id = u.employee_id
         LEFT JOIN warehouses w ON w.id = COALESCE(e.warehouse_id, u.warehouse_id)
-        ORDER BY COALESCE(NULLIF(TRIM(e.full_name), ''), u.username) ASC, u.id ASC
-        """
-    ).fetchall()
+        WHERE u.role IN (?, ?, ?, ?, ?)
+          AND COALESCE(NULLIF(LOWER(TRIM(e.employment_status)), ''), 'active') NOT IN (?, ?, ?, ?, ?, ?)
+    """
+
+    if warehouse_id is not None:
+        query += " AND COALESCE(e.warehouse_id, u.warehouse_id) = ?"
+        params.append(warehouse_id)
+
+    query += " ORDER BY COALESCE(NULLIF(TRIM(e.full_name), ''), u.username) ASC, u.id ASC"
+    rows = db.execute(query, tuple(params)).fetchall()
 
     options = []
     for row in rows:
@@ -968,6 +1069,139 @@ def _build_pos_cash_closing_preview_seed(warehouse_name, closing_date=None):
         combined_total_amount=0,
         note="",
     )
+
+
+def _resolve_pos_cash_closing_bucket_key(payment_method):
+    normalized_method = _normalize_payment_method(payment_method)
+    if normalized_method == "cash":
+        return "cash_amount"
+    if normalized_method == "debit":
+        return "debit_amount"
+    if normalized_method == "transfer":
+        return "mb_amount"
+    return "cv_amount"
+
+
+def _resolve_pos_cash_closing_combined_warehouse_ids(db):
+    rows = db.execute("SELECT id, name FROM warehouses ORDER BY id ASC").fetchall()
+    prioritized_ids = []
+    fallback_ids = []
+    for row in rows:
+        warehouse_id = _to_int(row["id"], 0)
+        if warehouse_id <= 0:
+            continue
+        fallback_ids.append(warehouse_id)
+        warehouse_name = str(row["name"] or "").strip().lower()
+        if "mataram" in warehouse_name or "mega" in warehouse_name:
+            prioritized_ids.append(warehouse_id)
+    return prioritized_ids or fallback_ids
+
+
+def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None, cashier_user_id=None):
+    safe_date = _normalize_pos_cash_closing_date(closing_date)
+    params = [safe_date]
+    where_clauses = ["ps.sale_date=?"]
+    if _to_int(warehouse_id, 0) > 0:
+        where_clauses.append("ps.warehouse_id=?")
+        params.append(int(warehouse_id))
+    if _to_int(cashier_user_id, 0) > 0:
+        where_clauses.append("ps.cashier_user_id=?")
+        params.append(int(cashier_user_id))
+
+    rows = db.execute(
+        f"""
+        SELECT
+            LOWER(COALESCE(ps.payment_method, 'cash')) AS payment_method,
+            COALESCE(SUM(ps.total_amount), 0) AS total_amount
+        FROM pos_sales ps
+        WHERE {" AND ".join(where_clauses)}
+        GROUP BY LOWER(COALESCE(ps.payment_method, 'cash'))
+        """,
+        params,
+    ).fetchall()
+
+    totals = {
+        "cash_amount": 0,
+        "debit_amount": 0,
+        "mb_amount": 0,
+        "cv_amount": 0,
+    }
+    for row in rows:
+        bucket_key = _resolve_pos_cash_closing_bucket_key(row["payment_method"])
+        totals[bucket_key] += max(int(round(float(row["total_amount"] or 0))), 0)
+    totals["reported_total_amount"] = (
+        totals["cash_amount"]
+        + totals["debit_amount"]
+        + totals["mb_amount"]
+        + totals["cv_amount"]
+    )
+    return totals
+
+
+def _fetch_pos_cash_closing_combined_total(db, closing_date):
+    safe_date = _normalize_pos_cash_closing_date(closing_date)
+    warehouse_ids = _resolve_pos_cash_closing_combined_warehouse_ids(db)
+    if not warehouse_ids:
+        return 0
+    placeholders = ",".join("?" for _ in warehouse_ids)
+    row = db.execute(
+        f"""
+        SELECT COALESCE(SUM(ps.total_amount), 0) AS total_amount
+        FROM pos_sales ps
+        WHERE ps.sale_date=?
+          AND ps.warehouse_id IN ({placeholders})
+        """,
+        [safe_date, *warehouse_ids],
+    ).fetchone()
+    return max(int(round(float((row["total_amount"] if row else 0) or 0))), 0)
+
+
+def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, warehouse_id=None, cashier_user_id=None):
+    safe_date = _normalize_pos_cash_closing_date(closing_date)
+    method_totals = _fetch_pos_cash_closing_method_totals(
+        db,
+        safe_date,
+        warehouse_id=warehouse_id,
+        cashier_user_id=cashier_user_id,
+    )
+    combined_total_amount = _fetch_pos_cash_closing_combined_total(db, safe_date)
+    expense_amount = 0
+    cash_on_hand_amount = max(method_totals["cash_amount"] - expense_amount, 0)
+    defaults = {
+        "closing_date": safe_date,
+        "cash_amount": method_totals["cash_amount"],
+        "debit_amount": method_totals["debit_amount"],
+        "mb_amount": method_totals["mb_amount"],
+        "cv_amount": method_totals["cv_amount"],
+        "reported_total_amount": method_totals["reported_total_amount"],
+        "expense_amount": expense_amount,
+        "cash_on_hand_amount": cash_on_hand_amount,
+        "combined_total_amount": combined_total_amount,
+    }
+    for key in (
+        "cash_amount",
+        "debit_amount",
+        "mb_amount",
+        "cv_amount",
+        "reported_total_amount",
+        "expense_amount",
+        "cash_on_hand_amount",
+        "combined_total_amount",
+    ):
+        defaults[f"{key}_label"] = _format_pos_cash_closing_amount(defaults[key], zero_label="0")
+    defaults["preview_text"] = _build_pos_cash_closing_summary_message(
+        warehouse_name,
+        safe_date,
+        cash_amount=defaults["cash_amount"],
+        debit_amount=defaults["debit_amount"],
+        mb_amount=defaults["mb_amount"],
+        cv_amount=defaults["cv_amount"],
+        expense_amount=defaults["expense_amount"],
+        cash_on_hand_amount=defaults["cash_on_hand_amount"],
+        combined_total_amount=defaults["combined_total_amount"],
+        note="",
+    )
+    return defaults
 
 
 def _build_pos_cash_closing_wa_status_meta(status):
@@ -1270,7 +1504,7 @@ def _fetch_pos_sale_logs(
         total_amount = _currency(row.get("total_amount") or 0)
         paid_amount = _currency(row.get("paid_amount") or 0)
         change_amount = _currency(row.get("change_amount") or 0)
-        payment_method = str(row.get("payment_method") or "cash").upper()
+        payment_method_label = _format_payment_method_label(row.get("payment_method"))
         created_time_label = _format_pos_time_label(row.get("created_at"))
         item_preview_lines = items[:3]
 
@@ -1284,7 +1518,7 @@ def _fetch_pos_sale_logs(
                 "total_amount_label": _format_pos_currency_label(total_amount),
                 "paid_amount_label": _format_pos_currency_label(paid_amount),
                 "change_amount_label": _format_pos_currency_label(change_amount),
-                "payment_method_label": payment_method,
+                "payment_method_label": payment_method_label,
                 "created_time_label": created_time_label,
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
@@ -1380,7 +1614,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         "total_amount_label": _format_pos_currency_label(total_amount),
         "paid_amount_label": _format_pos_currency_label(paid_amount),
         "change_amount_label": _format_pos_currency_label(change_amount),
-        "payment_method_label": str(sale.get("payment_method") or "cash").upper(),
+        "payment_method_label": _format_payment_method_label(sale.get("payment_method")),
         "created_time_label": created_time_label,
         "created_datetime_label": f"{sale['sale_date']} {created_time_label}" if created_time_label != "-" else sale["sale_date"],
         "customer_phone_label": sale["customer_phone"] if sale.get("customer_phone") and sale["customer_phone"] != "-" else "Tanpa nomor",
@@ -1964,7 +2198,7 @@ def _fetch_pos_sale_logs(
                 "tax_amount_label": _format_pos_currency_label(tax_amount),
                 "discount_rule_label": _format_pos_adjustment_rule_label(row.get("discount_type"), row.get("discount_value")),
                 "tax_rule_label": _format_pos_adjustment_rule_label(row.get("tax_type"), row.get("tax_value")),
-                "payment_method_label": str(row.get("payment_method") or "cash").upper(),
+                "payment_method_label": _format_payment_method_label(row.get("payment_method")),
                 "created_time_label": created_time_label,
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
@@ -2079,7 +2313,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         "tax_amount_label": _format_pos_currency_label(tax_amount),
         "discount_rule_label": _format_pos_adjustment_rule_label(sale.get("discount_type"), sale.get("discount_value")),
         "tax_rule_label": _format_pos_adjustment_rule_label(sale.get("tax_type"), sale.get("tax_value")),
-        "payment_method_label": str(sale.get("payment_method") or "cash").upper(),
+        "payment_method_label": _format_payment_method_label(sale.get("payment_method")),
         "created_time_label": created_time_label,
         "created_datetime_label": f"{sale['sale_date']} {created_time_label}" if created_time_label != "-" else sale["sale_date"],
         "customer_phone_label": sale["customer_phone"] if sale.get("customer_phone") and sale["customer_phone"] != "-" else "Tanpa nomor",
@@ -2400,6 +2634,7 @@ def pos_page():
         return denied
 
     db = get_db()
+    can_view_pos_revenue = _can_view_pos_revenue()
     selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
     sale_date = _normalize_sale_date(request.args.get("sale_date"))
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
@@ -2439,6 +2674,14 @@ def pos_page():
         selected_warehouse=selected_warehouse,
         limit=24,
     )
+    summary = _fetch_pos_summary(db, selected_warehouse, sale_date)
+    if not can_view_pos_revenue:
+        summary["total_revenue"] = 0
+    sales_log_summary = _mask_pos_sale_log_summary(
+        _build_pos_sale_log_summary(sales_log_rows, sale_date),
+        can_view_pos_revenue,
+    )
+    sales_log_rows = _mask_pos_sale_log_rows(sales_log_rows, can_view_pos_revenue)
 
     return render_template(
         "pos.html",
@@ -2456,10 +2699,11 @@ def pos_page():
         selected_pos_staff_id=selected_pos_staff_option["id"],
         selected_pos_staff_label=selected_pos_staff_option["display_name"],
         pos_auto_print_after_checkout=bool(current_app.config.get("POS_AUTO_PRINT_AFTER_CHECKOUT")),
-        summary=_fetch_pos_summary(db, selected_warehouse, sale_date),
+        can_view_pos_revenue=can_view_pos_revenue,
+        summary=summary,
         recent_sales=_fetch_recent_sales(db, selected_warehouse, sale_date),
         sales_log_rows=sales_log_rows,
-        sales_log_summary=_build_pos_sale_log_summary(sales_log_rows, sale_date),
+        sales_log_summary=sales_log_summary,
     )
 
 
@@ -2482,6 +2726,7 @@ def pos_staff_sales_report():
         return denied
 
     db = get_db()
+    can_view_pos_revenue = _can_view_pos_revenue()
     warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
     selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
@@ -2509,6 +2754,16 @@ def pos_staff_sales_report():
         month_period["date_to"],
         selected_warehouse=selected_warehouse,
     )
+    weekly_summary = _mask_pos_staff_sales_summary(
+        _build_pos_staff_sales_summary(weekly_rows, week_period["label"]),
+        can_view_pos_revenue,
+    )
+    monthly_summary = _mask_pos_staff_sales_summary(
+        _build_pos_staff_sales_summary(monthly_rows, month_period["label"]),
+        can_view_pos_revenue,
+    )
+    weekly_rows = _mask_pos_staff_sales_rows(weekly_rows, can_view_pos_revenue)
+    monthly_rows = _mask_pos_staff_sales_rows(monthly_rows, can_view_pos_revenue)
 
     return render_template(
         "pos_staff_sales_report.html",
@@ -2518,10 +2773,11 @@ def pos_staff_sales_report():
         selected_warehouse_name=selected_warehouse_name,
         week_period=week_period,
         month_period=month_period,
+        can_view_pos_revenue=can_view_pos_revenue,
         weekly_rows=weekly_rows,
         monthly_rows=monthly_rows,
-        weekly_summary=_build_pos_staff_sales_summary(weekly_rows, week_period["label"]),
-        monthly_summary=_build_pos_staff_sales_summary(monthly_rows, month_period["label"]),
+        weekly_summary=weekly_summary,
+        monthly_summary=monthly_summary,
     )
 
 
@@ -2532,6 +2788,7 @@ def pos_sales_log_page():
         return denied
 
     db = get_db()
+    can_view_pos_revenue = _can_view_pos_revenue()
     warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
     selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
@@ -2562,12 +2819,25 @@ def pos_sales_log_page():
         limit=120,
         receipt_wa_status="failed" if wa_failed_only else "",
     )
+    sales_log_summary = _mask_pos_sale_log_summary(
+        _build_pos_sale_log_summary(sales_log_rows, date_range["label"]),
+        can_view_pos_revenue,
+    )
+    sales_log_rows = _mask_pos_sale_log_rows(sales_log_rows, can_view_pos_revenue)
     cash_closing_actor = _fetch_pos_cash_closing_actor(db, selected_warehouse, selected_cashier_user_id)
     cash_closing_reports = _fetch_pos_cash_closing_reports(
         db,
         warehouse_id=selected_warehouse,
         cashier_user_id=selected_cashier_user_id,
         limit=8,
+    )
+    cash_closing_default_date = date_range["date_to"]
+    cash_closing_defaults = _build_pos_cash_closing_defaults(
+        db,
+        selected_warehouse_name,
+        cash_closing_default_date,
+        warehouse_id=selected_warehouse,
+        cashier_user_id=cash_closing_actor.get("user_id"),
     )
 
     return render_template(
@@ -2581,14 +2851,41 @@ def pos_sales_log_page():
         wa_failed_only=wa_failed_only,
         search_query=str(request.args.get("search") or "").strip(),
         date_range=date_range,
+        can_view_pos_revenue=can_view_pos_revenue,
         sales_log_rows=sales_log_rows,
-        sales_log_summary=_build_pos_sale_log_summary(sales_log_rows, date_range["label"]),
+        sales_log_summary=sales_log_summary,
         cash_closing_actor=cash_closing_actor,
         cash_closing_reports=cash_closing_reports,
-        cash_closing_default_date=date_cls.today().isoformat(),
-        cash_closing_preview_text=_build_pos_cash_closing_preview_seed(selected_warehouse_name, date_cls.today().isoformat()),
+        cash_closing_default_date=cash_closing_default_date,
+        cash_closing_defaults=cash_closing_defaults,
+        cash_closing_preview_text=cash_closing_defaults["preview_text"],
         cash_closing_return_url=_build_pos_cash_closing_return_url(),
     )
+
+
+@pos_bp.get("/cash-closing/defaults")
+def pos_cash_closing_defaults():
+    denied = _require_pos_access()
+    if denied:
+        return jsonify({"status": "error", "message": "Akses POS ditolak."}), 403
+
+    db = get_db()
+    warehouse_id = _resolve_pos_warehouse(db, request.args.get("warehouse_id"))
+    warehouse = db.execute(
+        "SELECT name FROM warehouses WHERE id=? LIMIT 1",
+        (warehouse_id,),
+    ).fetchone()
+    warehouse_name = warehouse["name"] if warehouse else f"WH {warehouse_id}"
+    cashier_user_id = _to_int(request.args.get("cashier_user_id"), 0) or None
+    closing_date = _normalize_pos_cash_closing_date(request.args.get("closing_date"))
+    defaults = _build_pos_cash_closing_defaults(
+        db,
+        warehouse_name,
+        closing_date,
+        warehouse_id=warehouse_id,
+        cashier_user_id=cashier_user_id,
+    )
+    return jsonify({"status": "success", "defaults": defaults})
 
 
 @pos_bp.post("/cash-closing/submit")
@@ -2611,7 +2908,7 @@ def pos_cash_closing_submit():
     mb_amount = _parse_pos_cash_closing_amount(request.form.get("mb_amount"))
     cv_amount = _parse_pos_cash_closing_amount(request.form.get("cv_amount"))
     expense_amount = _parse_pos_cash_closing_amount(request.form.get("expense_amount"))
-    cash_on_hand_amount = _parse_pos_cash_closing_amount(request.form.get("cash_on_hand_amount"))
+    cash_on_hand_amount = max(cash_amount - expense_amount, 0)
     combined_total_amount = _parse_pos_cash_closing_amount(request.form.get("combined_total_amount"))
     note = (request.form.get("note") or "").strip()
     return_url = _sanitize_pos_cash_closing_return_url(request.form.get("return_url"))
@@ -2707,7 +3004,8 @@ def pos_cash_closing_submit():
         wa_result = send_role_based_notification(
             "attendance.cash_closing",
             {
-                "roles": ("leader",),
+                "roles": ("owner",),
+                "usernames": ("edi", "akmal"),
                 "warehouse_id": warehouse_id,
                 "employee_name": cashier_actor["display_name"],
                 "warehouse_name": warehouse_name,
@@ -2758,13 +3056,13 @@ def pos_cash_closing_submit():
     db.commit()
 
     if wa_status == "sent":
-        flash("Tutup kasir tersimpan dan WA leader berhasil dikirim.", "success")
+        flash("Tutup kasir tersimpan dan WA owner / super admin berhasil dikirim.", "success")
     elif wa_status == "partial":
-        flash("Tutup kasir tersimpan, tapi WA leader hanya terkirim sebagian.", "warning")
+        flash("Tutup kasir tersimpan, tapi WA owner / super admin hanya terkirim sebagian.", "warning")
     elif wa_status == "failed":
-        flash("Tutup kasir tersimpan, tapi kirim WA leader gagal. Cek nomor atau gateway WA.", "error")
+        flash("Tutup kasir tersimpan, tapi kirim WA owner / super admin gagal. Cek nomor atau gateway WA.", "error")
     else:
-        flash("Tutup kasir tersimpan. Belum ada leader tujuan yang menerima WA untuk gudang ini.", "warning")
+        flash("Tutup kasir tersimpan. Belum ada owner / super admin tujuan yang menerima WA untuk laporan ini.", "warning")
     return redirect(f"{return_url}#tutup-kasir")
 
 
@@ -3025,11 +3323,16 @@ def pos_checkout():
     transaction_type = normalize_transaction_type(payload.get("transaction_type"))
     customer_id = _to_int(payload.get("customer_id"), 0)
     customer_name = (payload.get("customer_name") or "").strip()
-    customer_phone = (payload.get("customer_phone") or "").strip()
+    customer_phone = _normalize_pos_phone(payload.get("customer_phone"))
     try:
         selected_cashier = _resolve_pos_cashier_option(db, warehouse_id, payload.get("cashier_user_id"))
     except ValueError as exc:
         return _json_error(str(exc), 400)
+
+    if not customer_name:
+        return _json_error("Nama customer wajib diisi.", 400)
+    if not customer_phone:
+        return _json_error("No HP customer wajib diisi dengan angka yang valid.", 400)
 
     try:
         items = _validate_and_build_items(

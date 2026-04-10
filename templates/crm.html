@@ -81,6 +81,13 @@
         {% endfor %}
     </select>
     {% endif %}
+    {% if selected_tab == "purchases" %}
+    <select name="page_size">
+        {% for size in purchase_page_size_options %}
+        <option value="{{ size }}" {% if purchase_page_size == size %}selected{% endif %}>{{ size }} / halaman</option>
+        {% endfor %}
+    </select>
+    {% endif %}
     <button type="submit">Filter CRM</button>
 </form>
 
@@ -393,6 +400,13 @@
                 <h2>Riwayat Pembelian</h2>
                 <p>Setiap transaksi menyimpan detail item, channel, dan relasi ke customer/member agar analisis marketing tidak hilang di level SKU.</p>
             </div>
+            <div class="helper-text">
+                {% if purchase_total %}
+                Menampilkan {{ purchase_page_start }}-{{ purchase_page_end }} dari {{ purchase_total }} transaksi.
+                {% else %}
+                Belum ada transaksi yang cocok dengan filter aktif.
+                {% endif %}
+            </div>
         </div>
         {% if purchases %}
         <table>
@@ -441,6 +455,13 @@
                     {% if can_manage_crm %}
                     <td>
                         <form method="POST" action="/crm/purchases/delete/{{ purchase.id }}">
+                            <input type="hidden" name="tab" value="purchases">
+                            <input type="hidden" name="search" value="{{ search }}">
+                            {% if selected_warehouse %}
+                            <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+                            {% endif %}
+                            <input type="hidden" name="page" value="{{ purchase_pagination.page if purchase_pagination else 1 }}">
+                            <input type="hidden" name="page_size" value="{{ purchase_page_size }}">
                             <button type="submit" class="danger-button" onclick="return confirm('Hapus purchase record ini?')">Hapus</button>
                         </form>
                     </td>
@@ -449,6 +470,8 @@
                 {% endfor %}
             </tbody>
         </table>
+        {% set pagination = purchase_pagination %}
+        {% include "partials/pagination_nav.html" %}
         {% else %}
         <div class="empty-state">Belum ada riwayat pembelian pada scope CRM ini.</div>
         {% endif %}
@@ -850,6 +873,9 @@ const CRM_SMART_SELECT_DEFAULT_SUMMARIES = {
     memberStaff: "Cari staff pengusul lebih cepat berdasarkan nama atau gudang.",
     memberRecord: "Search member aktif. Kode member dan nama customer ikut terbaca.",
 };
+const CRM_SMART_SELECT_REMOTE_DEBOUNCE_MS = 180;
+const CRM_SMART_SELECT_REMOTE_LIMIT = {{ crm_smart_select_limit|int }};
+const CRM_PAGE_SELECTED_WAREHOUSE = String({{ (selected_warehouse or scoped_crm_warehouse or "")|tojson }});
 
 function normalizeCrmSmartSelectValue(value) {
     return String(value || "")
@@ -858,7 +884,7 @@ function normalizeCrmSmartSelectValue(value) {
 }
 
 function buildCrmSmartSelectOptionState(option) {
-    const label = String(option?.textContent || "").trim();
+    const label = String(option?.label ?? option?.textContent ?? "").trim();
     const dataset = Object.fromEntries(Object.entries(option?.dataset || {}).map(([key, value]) => [key, String(value || "")]));
     const searchBlob = [label, ...Object.values(dataset)].join(" ");
     return {
@@ -896,6 +922,28 @@ function setCrmSmartSelectSummary(node, message, fallback) {
     node.textContent = message || fallback || "";
 }
 
+function mergeCrmSmartSelectOptions(defaultOption, optionStates) {
+    const normalizedDefault = defaultOption ? buildCrmSmartSelectOptionState(defaultOption) : null;
+    const seenValues = new Set();
+    const merged = [];
+
+    if (normalizedDefault) {
+        seenValues.add(normalizedDefault.value);
+        merged.push(normalizedDefault);
+    }
+
+    (Array.isArray(optionStates) ? optionStates : []).forEach((optionState) => {
+        const normalizedOption = buildCrmSmartSelectOptionState(optionState);
+        if (!normalizedOption.value || seenValues.has(normalizedOption.value)) {
+            return;
+        }
+        seenValues.add(normalizedOption.value);
+        merged.push(normalizedOption);
+    });
+
+    return merged;
+}
+
 function createCrmSmartSelectController(config) {
     const select = config?.select;
     const searchInput = config?.searchInput;
@@ -903,22 +951,33 @@ function createCrmSmartSelectController(config) {
         return null;
     }
 
+    const initialOptions = Array.from(select.options).map(buildCrmSmartSelectOptionState);
     const controller = {
         ...config,
         state: {
-            all: Array.from(select.options).map(buildCrmSmartSelectOptionState),
+            all: initialOptions,
+            initial: initialOptions,
+            remoteRequestToken: 0,
+            remoteDebounceTimer: null,
         },
-        sync(queryOverride = null) {
+        getDefaultOption() {
+            return controller.state.initial?.[0] || controller.state.all?.[0] || null;
+        },
+        getCurrentState() {
+            const selectedOption = select.selectedOptions?.[0] || select.options?.[select.selectedIndex] || null;
+            return selectedOption ? buildCrmSmartSelectOptionState(selectedOption) : null;
+        },
+        render(queryOverride = null, optionStates = null) {
             const query = queryOverride === null ? String(searchInput?.value || "") : String(queryOverride || "");
             const currentValue = String(select.value || "");
-            const options = Array.isArray(controller.state.all) ? controller.state.all : [];
+            const options = Array.isArray(optionStates) ? optionStates : controller.state.all;
             if (!options.length) {
                 return;
             }
 
-            const defaultOption = options[0];
+            const defaultOption = controller.getDefaultOption() || options[0];
             const defaultValue = defaultOption?.value ?? "";
-            const currentState = options.find((option) => option.value === currentValue) || null;
+            const currentState = controller.getCurrentState();
             const visibleOptions = options.filter((option, index) => {
                 if (index === 0) {
                     return false;
@@ -965,12 +1024,115 @@ function createCrmSmartSelectController(config) {
                 controller.defaultSummary,
             );
         },
+        cancelPendingRemote() {
+            if (controller.state.remoteDebounceTimer) {
+                window.clearTimeout(controller.state.remoteDebounceTimer);
+                controller.state.remoteDebounceTimer = null;
+            }
+        },
+        buildRemoteUrl(query) {
+            const params = new URLSearchParams();
+            params.set("limit", String(controller.remoteLimit || CRM_SMART_SELECT_REMOTE_LIMIT));
+            const safeQuery = String(query || "").trim();
+            if (safeQuery) {
+                params.set("q", safeQuery);
+            }
+            const remoteParams = typeof controller.getRemoteParams === "function" ? controller.getRemoteParams() : {};
+            Object.entries(remoteParams || {}).forEach(([key, value]) => {
+                const safeValue = value === undefined || value === null ? "" : String(value).trim();
+                if (safeValue) {
+                    params.set(key, safeValue);
+                }
+            });
+            return `${controller.remoteUrl}?${params.toString()}`;
+        },
+        async fetchRemoteOptions(query, { replaceInitial = false } = {}) {
+            const safeQuery = String(query || "").trim();
+            if (!controller.remoteUrl) {
+                controller.render(safeQuery, controller.state.initial);
+                return;
+            }
+
+            const requestToken = ++controller.state.remoteRequestToken;
+            if (safeQuery) {
+                setCrmSmartSelectSummary(
+                    controller.summaryNode,
+                    `Mencari "${safeQuery}"...`,
+                    controller.defaultSummary,
+                );
+            }
+
+            try {
+                const response = await fetch(controller.buildRemoteUrl(safeQuery), {
+                    headers: {
+                        "Accept": "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
+                });
+                const payload = await response.json().catch(() => null);
+                if (requestToken !== controller.state.remoteRequestToken) {
+                    return;
+                }
+                if (!response.ok || payload?.status !== "success") {
+                    throw new Error(payload?.message || "Tidak bisa memuat opsi CRM.");
+                }
+                const nextOptions = mergeCrmSmartSelectOptions(controller.getDefaultOption(), payload.options || []);
+                if (replaceInitial) {
+                    controller.state.initial = nextOptions;
+                }
+                controller.state.all = nextOptions;
+                controller.render(safeQuery, nextOptions);
+            } catch (error) {
+                if (requestToken !== controller.state.remoteRequestToken) {
+                    return;
+                }
+                controller.state.all = controller.state.initial;
+                controller.render(safeQuery, controller.state.initial);
+                if (safeQuery) {
+                    setCrmSmartSelectSummary(
+                        controller.summaryNode,
+                        `Pencarian live gagal untuk "${safeQuery}". Menampilkan opsi yang sudah ada.`,
+                        controller.defaultSummary,
+                    );
+                }
+            }
+        },
+        queueRemoteFetch(query, { immediate = false, replaceInitial = false } = {}) {
+            controller.cancelPendingRemote();
+            if (immediate) {
+                void controller.fetchRemoteOptions(query, { replaceInitial });
+                return;
+            }
+            controller.state.remoteDebounceTimer = window.setTimeout(() => {
+                controller.state.remoteDebounceTimer = null;
+                void controller.fetchRemoteOptions(query, { replaceInitial });
+            }, controller.remoteDebounceMs || CRM_SMART_SELECT_REMOTE_DEBOUNCE_MS);
+        },
+        sync(queryOverride = null, { forceRemote = false, replaceInitial = false } = {}) {
+            const query = queryOverride === null ? String(searchInput?.value || "") : String(queryOverride || "");
+            const safeQuery = query.trim();
+            if (controller.remoteUrl && (forceRemote || safeQuery)) {
+                controller.queueRemoteFetch(query, { immediate: true, replaceInitial });
+                return;
+            }
+            controller.cancelPendingRemote();
+            controller.state.all = controller.state.initial;
+            controller.render(query, controller.state.initial);
+        },
     };
 
     searchInput?.addEventListener("input", () => {
-        controller.sync();
+        const query = String(searchInput.value || "");
+        if (controller.remoteUrl && query.trim()) {
+            controller.queueRemoteFetch(query);
+            return;
+        }
+        controller.cancelPendingRemote();
+        controller.state.all = controller.state.initial;
+        controller.render(query, controller.state.initial);
     });
 
+    controller.render("", controller.state.initial);
     return controller;
 }
 
@@ -1168,7 +1330,11 @@ function handleCrmPurchaseSubmit() {
 
 function syncCrmMemberOptions() {
     if (!crmPurchaseCustomer || !crmPurchaseMember) return;
-    crmPurchaseMemberSelectController?.sync();
+    crmPurchaseMember.value = "";
+    if (crmPurchaseMemberSearch) {
+        crmPurchaseMemberSearch.value = "";
+    }
+    crmPurchaseMemberSelectController?.sync("", { forceRemote: true, replaceInitial: true });
     syncCrmPurchaseTransactionOptions();
     syncCrmPurchaseLoyaltyHint();
 }
@@ -1178,6 +1344,12 @@ const crmPurchaseCustomerSelectController = createCrmSmartSelectController({
     searchInput: crmPurchaseCustomerSearch,
     summaryNode: crmPurchaseCustomerSearchSummary,
     defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.purchaseCustomer,
+    remoteUrl: "/crm/options/customers",
+    getRemoteParams() {
+        return {
+            warehouse: crmPurchaseWarehouse?.value || "",
+        };
+    },
 });
 
 const crmPurchaseMemberSelectController = createCrmSmartSelectController({
@@ -1185,6 +1357,13 @@ const crmPurchaseMemberSelectController = createCrmSmartSelectController({
     searchInput: crmPurchaseMemberSearch,
     summaryNode: crmPurchaseMemberSearchSummary,
     defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.purchaseMember,
+    remoteUrl: "/crm/options/members",
+    getRemoteParams() {
+        return {
+            warehouse: crmPurchaseWarehouse?.value || "",
+            customer_id: crmPurchaseCustomer?.value || "",
+        };
+    },
     extraFilter(optionState) {
         const selectedCustomer = String(crmPurchaseCustomer?.value || "");
         const optionCustomerId = String(optionState?.dataset?.customerId || "");
@@ -1202,6 +1381,12 @@ const crmMemberCustomerSelectController = createCrmSmartSelectController({
     searchInput: crmMemberCustomerSearch,
     summaryNode: crmMemberCustomerSearchSummary,
     defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.memberCustomer,
+    remoteUrl: "/crm/options/customers",
+    getRemoteParams() {
+        return {
+            warehouse: CRM_PAGE_SELECTED_WAREHOUSE,
+        };
+    },
 });
 
 const crmMemberStaffSelectController = createCrmSmartSelectController({
@@ -1209,6 +1394,12 @@ const crmMemberStaffSelectController = createCrmSmartSelectController({
     searchInput: crmMemberStaffSearch,
     summaryNode: crmMemberStaffSearchSummary,
     defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.memberStaff,
+    remoteUrl: "/crm/options/staff",
+    getRemoteParams() {
+        return {
+            warehouse: CRM_PAGE_SELECTED_WAREHOUSE,
+        };
+    },
 });
 
 const crmMemberRecordSelectController = createCrmSmartSelectController({
@@ -1216,6 +1407,12 @@ const crmMemberRecordSelectController = createCrmSmartSelectController({
     searchInput: crmMemberRecordMemberSearch,
     summaryNode: crmMemberRecordMemberSearchSummary,
     defaultSummary: CRM_SMART_SELECT_DEFAULT_SUMMARIES.memberRecord,
+    remoteUrl: "/crm/options/members",
+    getRemoteParams() {
+        return {
+            warehouse: CRM_PAGE_SELECTED_WAREHOUSE,
+        };
+    },
 });
 
 const crmPurchasePicker = (document.getElementById("itemPickerModal") && crmPurchaseWarehouse)
@@ -1266,6 +1463,20 @@ crmPurchaseTransactionType?.addEventListener("change", () => {
 crmMemberType?.addEventListener("change", syncCrmMemberFormFields);
 crmMemberRecordMember?.addEventListener("change", syncCrmMemberRecordFormFields);
 crmPurchaseWarehouse?.addEventListener("change", () => {
+    if (crmPurchaseCustomer) {
+        crmPurchaseCustomer.value = "";
+    }
+    if (crmPurchaseMember) {
+        crmPurchaseMember.value = "";
+    }
+    if (crmPurchaseCustomerSearch) {
+        crmPurchaseCustomerSearch.value = "";
+    }
+    if (crmPurchaseMemberSearch) {
+        crmPurchaseMemberSearch.value = "";
+    }
+    crmPurchaseCustomerSelectController?.sync("", { forceRemote: true, replaceInitial: true });
+    crmPurchaseMemberSelectController?.sync("", { forceRemote: true, replaceInitial: true });
     crmPurchaseItems.length = 0;
     renderCrmPurchaseQueue();
     resetCrmPurchaseDraft();

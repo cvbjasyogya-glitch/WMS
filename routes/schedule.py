@@ -9,6 +9,7 @@ from services.announcement_center import (
     create_schedule_change_event,
     format_date_range,
 )
+from services.attendance_request_service import queue_attendance_request
 from services.notification_service import notify_broadcast
 from services.rbac import has_permission, is_scoped_role
 
@@ -1578,104 +1579,53 @@ def save_schedule_entry():
             flash("Kode shift tidak ditemukan.", "error")
             return _schedule_redirect()
 
-    try:
-        if shift_code:
-            for current_day in _daterange(start_date, end_date):
-                db.execute(
-                    """
-                    INSERT INTO schedule_entries(
-                        employee_id,
-                        schedule_date,
-                        shift_code,
-                        note,
-                        updated_by
-                    )
-                    VALUES (?,?,?,?,?)
-                    ON CONFLICT(employee_id, schedule_date) DO UPDATE SET
-                        shift_code=excluded.shift_code,
-                        note=excluded.note,
-                        updated_by=excluded.updated_by,
-                        updated_at=CURRENT_TIMESTAMP
-                    """,
-                    (
-                        employee_id,
-                        current_day.isoformat(),
-                        shift_code,
-                        note or None,
-                        session.get("user_id"),
-                    ),
-                )
-            flash("Jadwal manual berhasil diterapkan.", "success")
-        else:
-            db.execute(
-                """
-                DELETE FROM schedule_entries
-                WHERE employee_id=?
-                  AND schedule_date BETWEEN ? AND ?
-                """,
-                (employee_id, start_date.isoformat(), end_date.isoformat()),
-            )
-            flash("Jadwal manual pada rentang tersebut berhasil dibersihkan.", "success")
+    employee_name = (employee["full_name"] or "Karyawan").strip()
+    date_range_label = format_date_range(start_date.isoformat(), end_date.isoformat())
+    if shift_code:
+        shift_label = (shift_meta["label"] or shift_code).strip()
+        summary_title = f"{employee_name} - {shift_label}"
+        summary_note = f"Shift {shift_label} ({shift_code}) untuk {date_range_label}"
+        if note:
+            summary_note += f" | {note}"
+    else:
+        summary_title = f"{employee_name} - Jadwal Dibersihkan"
+        summary_note = f"Membersihkan jadwal manual untuk {date_range_label}"
+        if note:
+            summary_note += f" | {note}"
 
+    payload = {
+        "employee_id": employee_id,
+        "employee_name": employee_name,
+        "warehouse_id": employee["warehouse_id"],
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "shift_code": shift_code,
+        "shift_label": (shift_meta["label"] if shift_meta else ""),
+        "note": note,
+        "date_range_label": date_range_label,
+    }
+
+    try:
+        queue_result = queue_attendance_request(
+            db,
+            request_type="schedule_entry",
+            warehouse_id=employee["warehouse_id"],
+            employee_id=employee_id,
+            requested_by=session.get("user_id"),
+            summary_title=summary_title,
+            summary_note=summary_note,
+            payload=payload,
+        )
         db.commit()
     except Exception:
         db.rollback()
-        flash("Perubahan jadwal gagal disimpan.", "error")
+        flash("Permintaan perubahan jadwal gagal dikirim ke approval.", "error")
         return _schedule_redirect()
 
-    try:
-        date_range_label = format_date_range(start_date.isoformat(), end_date.isoformat())
-        employee_name = (employee["full_name"] or "Karyawan").strip()
-        if shift_code:
-            shift_label = (shift_meta["label"] or shift_code).strip()
-            schedule_message = f"Jadwal {employee_name} untuk {date_range_label} diubah ke shift {shift_label} ({shift_code})."
-            if note:
-                schedule_message += f" Catatan: {note}"
-            event_id = create_schedule_change_event(
-                db,
-                warehouse_id=employee["warehouse_id"],
-                event_kind="entry_update",
-                title=f"{employee_name} - {shift_label}",
-                message=schedule_message,
-                affected_employee_id=employee_id,
-                affected_employee_name=employee_name,
-                start_date=start_date.isoformat(),
-                end_date=end_date.isoformat(),
-                created_by=session.get("user_id"),
-            )
-        else:
-            schedule_message = f"Jadwal manual {employee_name} untuk {date_range_label} dibersihkan."
-            event_id = create_schedule_change_event(
-                db,
-                warehouse_id=employee["warehouse_id"],
-                event_kind="entry_clear",
-                title=f"{employee_name} - Jadwal Dibersihkan",
-                message=schedule_message,
-                affected_employee_id=employee_id,
-                affected_employee_name=employee_name,
-                start_date=start_date.isoformat(),
-                end_date=end_date.isoformat(),
-                created_by=session.get("user_id"),
-            )
-        db.commit()
-        payload = build_schedule_change_notification_payload(
-            {"id": event_id, "title": schedule_message.split(".")[0], "message": schedule_message}
-        )
-        notify_broadcast(
-            payload["subject"],
-            payload["message"],
-            warehouse_id=employee["warehouse_id"],
-            push_title=payload["push_title"],
-            push_body=payload["push_body"],
-            push_url="/announcements/",
-            push_tag=payload["push_tag"],
-            category="schedule",
-            link_url="/announcements/",
-            source_type="schedule_change",
-            source_id=str(event_id),
-        )
-    except Exception as exc:
-        print("SCHEDULE CHANGE BROADCAST ERROR:", exc)
+    if queue_result.get("existing"):
+        flash("Perubahan shift dengan detail yang sama masih menunggu approval HR / Super Admin.", "info")
+    else:
+        flash("Permintaan perubahan shift berhasil dikirim ke approval HR / Super Admin.", "success")
 
     return _schedule_redirect()
 

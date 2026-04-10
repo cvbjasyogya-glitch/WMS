@@ -63,6 +63,7 @@
     <button type="submit">Terapkan Filter</button>
     {% if can('manage_product_master') %}
     <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
+    <button type="button" class="ghost-button danger" onclick="deleteAllProducts()">Hapus Semua Produk</button>
     {% endif %}
 </form>
 
@@ -663,6 +664,37 @@ function bulkDelete() {
         alert(data.message || "Gagal menghapus produk.");
     })
     .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function deleteAllProducts() {
+    const confirmationText = window.prompt(
+        "Fitur ini akan menghapus seluruh master produk beserta stok dan variannya. Beberapa histori atau laporan yang masih terhubung ke master produk bisa ikut terdampak. Ketik HAPUS SEMUA PRODUK untuk melanjutkan."
+    );
+
+    if (confirmationText === null) {
+        return;
+    }
+
+    if (confirmationText.trim().toUpperCase() !== "HAPUS SEMUA PRODUK") {
+        alert("Konfirmasi tidak cocok. Penghapusan semua produk dibatalkan.");
+        return;
+    }
+
+    fetch("/products/delete-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation_text: confirmationText })
+    })
+    .then((res) => res.json())
+    .then(async (data) => {
+        if (data.status === "success") {
+            notifyUser(data.message || "Semua produk berhasil diproses untuk dihapus.");
+            await refreshProductsView();
+            return;
+        }
+        alert(data.message || "Gagal menghapus semua produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus semua produk."));
 }
 
 function buildPreviewTable(rows) {

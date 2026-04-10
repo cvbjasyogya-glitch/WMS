@@ -15,6 +15,7 @@ from routes.schedule import (
     LIVE_SCHEDULE_SLOTS,
     _build_board_rows as _build_schedule_board_rows,
     _build_day_notes as _build_schedule_day_notes,
+    _daterange as _schedule_daterange,
     _build_entry_map as _build_schedule_entry_map,
     _build_override_map as _build_schedule_override_map,
     _build_schedule_members as _build_schedule_members,
@@ -29,7 +30,21 @@ from services.hris_catalog import (
     is_self_service_hris_module,
     role_has_hris_access,
 )
-from services.announcement_center import build_announcement_notification_payload
+from services.announcement_center import (
+    build_announcement_notification_payload,
+    build_schedule_change_notification_payload,
+    create_schedule_change_event,
+    format_date_range,
+)
+from services.attendance_request_service import (
+    build_attendance_request_summary,
+    can_manage_attendance_request_approvals,
+    fetch_attendance_requests,
+    get_attendance_request_type_label,
+    parse_attendance_request_payload,
+    queue_attendance_request,
+    split_attendance_requests,
+)
 from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_broadcast, notify_operational_event, notify_user
 from services.rbac import has_permission, is_scoped_role, normalize_role
@@ -64,7 +79,7 @@ ASSET_STATUSES = {"allocated", "standby", "maintenance", "returned"}
 ASSET_CONDITIONS = {"good", "fair", "damaged"}
 PROJECT_PRIORITIES = {"low", "medium", "high", "critical"}
 PROJECT_STATUSES = {"planning", "active", "on_hold", "completed", "cancelled"}
-BIOMETRIC_PUNCH_TYPES = {"check_in", "break_start", "break_finish", "check_out"}
+BIOMETRIC_PUNCH_TYPES = {"check_in", "free_attendance", "break_start", "break_finish", "check_out"}
 BIOMETRIC_SYNC_STATUSES = {"queued", "synced", "failed", "manual"}
 BIOMETRIC_PHOTO_MIME_TYPES = {
     "image/jpeg": ".jpg",
@@ -2429,6 +2444,250 @@ def _split_approval_requests(approval_requests, recent_limit=20):
     return pending_requests, recent_requests[:recent_limit]
 
 
+def _get_attendance_request_by_id(db, request_id):
+    row = db.execute(
+        """
+        SELECT
+            r.*,
+            e.employee_code,
+            e.full_name,
+            e.position,
+            w.name AS warehouse_name,
+            ru.username AS requested_by_name,
+            hu.username AS handled_by_name
+        FROM attendance_action_requests r
+        LEFT JOIN employees e ON e.id = r.employee_id
+        LEFT JOIN warehouses w ON w.id = r.warehouse_id
+        LEFT JOIN users ru ON ru.id = r.requested_by
+        LEFT JOIN users hu ON hu.id = r.handled_by
+        WHERE r.id=?
+        LIMIT 1
+        """,
+        (request_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    record["request_type_label"] = get_attendance_request_type_label(record.get("request_type"))
+    record["payload_map"] = parse_attendance_request_payload(record.get("payload"))
+    return record
+
+
+def _notify_attendance_request_decision(db, request_row, *, approved):
+    if not request_row or not request_row.get("requested_by"):
+        return
+
+    outcome_label = "disetujui" if approved else "ditolak"
+    requester_name = (
+        str(request_row.get("requested_by_name") or "").strip()
+        or str(request_row.get("requested_by") or "").strip()
+        or "Requester"
+    )
+    approver_name = (
+        str(session.get("username") or "").strip()
+        or str(session.get("user_id") or "").strip()
+        or "HR / Super Admin"
+    )
+    summary_title = str(request_row.get("summary_title") or request_row.get("request_type_label") or "Request Attendance").strip()
+    decision_note = str(request_row.get("decision_note") or "").strip()
+    message = (
+        f"Request {summary_title} telah {outcome_label} oleh {approver_name}."
+        f"{f' Catatan: {decision_note}.' if decision_note else ''}"
+    )
+    notify_user(
+        request_row.get("requested_by"),
+        f"{summary_title} {outcome_label.title()}",
+        message,
+        category="attendance",
+        link_url="/hris/approval",
+        source_type="attendance_request_status",
+        source_id=f"{request_row.get('id')}:{'approved' if approved else 'rejected'}",
+        dedupe_key=f"attendance_request_status:{request_row.get('id')}:{'approved' if approved else 'rejected'}",
+        push_title=f"{summary_title} {outcome_label.title()}",
+        push_body=f"{requester_name} | {outcome_label.title()}",
+    )
+
+
+def _apply_attendance_request(db, request_row):
+    if not request_row:
+        raise ValueError("Request attendance tidak ditemukan.")
+
+    request_type = str(request_row.get("request_type") or "").strip().lower()
+    payload = parse_attendance_request_payload(request_row.get("payload"))
+
+    if request_type == "schedule_entry":
+        employee_id = _to_int(payload.get("employee_id"))
+        start_date = _parse_iso_date(payload.get("start_date"))
+        end_date = _parse_iso_date(payload.get("end_date"))
+        shift_code = str(payload.get("shift_code") or "").strip().upper()
+        note = str(payload.get("note") or "").strip()
+
+        employee = db.execute(
+            "SELECT id, full_name, warehouse_id FROM employees WHERE id=?",
+            (employee_id,),
+        ).fetchone()
+        if employee is None:
+            raise ValueError("Karyawan untuk perubahan shift tidak ditemukan.")
+        if start_date is None or end_date is None or end_date < start_date:
+            raise ValueError("Rentang tanggal perubahan shift tidak valid.")
+
+        shift_meta = None
+        if shift_code:
+            shift_meta = db.execute(
+                "SELECT code, label FROM schedule_shift_codes WHERE code=?",
+                (shift_code,),
+            ).fetchone()
+            if shift_meta is None:
+                raise ValueError("Kode shift request sudah tidak tersedia.")
+
+        if shift_code:
+            for current_day in _schedule_daterange(start_date, end_date):
+                db.execute(
+                    """
+                    INSERT INTO schedule_entries(
+                        employee_id,
+                        schedule_date,
+                        shift_code,
+                        note,
+                        updated_by
+                    )
+                    VALUES (?,?,?,?,?)
+                    ON CONFLICT(employee_id, schedule_date) DO UPDATE SET
+                        shift_code=excluded.shift_code,
+                        note=excluded.note,
+                        updated_by=excluded.updated_by,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        employee_id,
+                        current_day.isoformat(),
+                        shift_code,
+                        note or None,
+                        session.get("user_id"),
+                    ),
+                )
+        else:
+            db.execute(
+                """
+                DELETE FROM schedule_entries
+                WHERE employee_id=?
+                  AND schedule_date BETWEEN ? AND ?
+                """,
+                (employee_id, start_date.isoformat(), end_date.isoformat()),
+            )
+
+        employee_name = (employee["full_name"] or "Karyawan").strip()
+        date_range_label = format_date_range(start_date.isoformat(), end_date.isoformat())
+        if shift_code:
+            shift_label = (shift_meta["label"] or shift_code).strip()
+            schedule_message = f"Jadwal {employee_name} untuk {date_range_label} diubah ke shift {shift_label} ({shift_code})."
+            if note:
+                schedule_message += f" Catatan: {note}"
+            event_id = create_schedule_change_event(
+                db,
+                warehouse_id=employee["warehouse_id"],
+                event_kind="entry_update",
+                title=f"{employee_name} - {shift_label}",
+                message=schedule_message,
+                affected_employee_id=employee_id,
+                affected_employee_name=employee_name,
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                created_by=session.get("user_id"),
+            )
+        else:
+            schedule_message = f"Jadwal manual {employee_name} untuk {date_range_label} dibersihkan."
+            event_id = create_schedule_change_event(
+                db,
+                warehouse_id=employee["warehouse_id"],
+                event_kind="entry_clear",
+                title=f"{employee_name} - Jadwal Dibersihkan",
+                message=schedule_message,
+                affected_employee_id=employee_id,
+                affected_employee_name=employee_name,
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                created_by=session.get("user_id"),
+            )
+
+        try:
+            payload_notification = build_schedule_change_notification_payload(
+                {"id": event_id, "title": schedule_message.split(".")[0], "message": schedule_message}
+            )
+            notify_broadcast(
+                payload_notification["subject"],
+                payload_notification["message"],
+                warehouse_id=employee["warehouse_id"],
+                push_title=payload_notification["push_title"],
+                push_body=payload_notification["push_body"],
+                push_url="/announcements/",
+                push_tag=payload_notification["push_tag"],
+                category="schedule",
+                link_url="/announcements/",
+                source_type="schedule_change",
+                source_id=str(event_id),
+            )
+        except Exception as exc:
+            print("ATTENDANCE REQUEST SCHEDULE BROADCAST ERROR:", exc)
+
+        return (
+            f"Perubahan shift {employee_name} untuk {date_range_label} berhasil diterapkan."
+            if shift_code else
+            f"Jadwal manual {employee_name} untuk {date_range_label} berhasil dibersihkan."
+        )
+
+    if request_type == "overtime_use":
+        employee_id = _to_int(payload.get("employee_id"))
+        usage_date = _parse_iso_date(payload.get("usage_date"))
+        minutes_used = _to_int(payload.get("minutes_used"), default=None)
+        note = str(payload.get("note") or "").strip()
+        employee = _get_accessible_employee(db, employee_id)
+        if employee is None:
+            raise ValueError("Staff untuk pengurangan lembur tidak ditemukan.")
+        employee = dict(employee)
+        if usage_date is None:
+            raise ValueError("Tanggal pengurangan lembur tidak valid.")
+        if minutes_used is None or minutes_used <= 0:
+            raise ValueError("Durasi pengurangan lembur tidak valid.")
+        overtime_balance = _build_employee_overtime_balance(db, employee["id"])
+        if minutes_used > overtime_balance["available_minutes"]:
+            raise ValueError("Saldo lembur saat ini tidak cukup untuk request tersebut.")
+        db.execute(
+            """
+            INSERT INTO overtime_usage_records(
+                employee_id,
+                warehouse_id,
+                usage_date,
+                minutes_used,
+                note,
+                handled_by,
+                updated_at
+            )
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            (
+                employee["id"],
+                employee["warehouse_id"],
+                usage_date.isoformat(),
+                minutes_used,
+                note,
+                session.get("user_id"),
+                _current_timestamp(),
+            ),
+        )
+        return f"Pengurangan lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_used)} berhasil diterapkan."
+
+    if request_type == "overtime_usage_delete":
+        usage_id = _to_int(payload.get("usage_id"))
+        usage = _get_overtime_usage_by_id(db, usage_id)
+        if usage is None:
+            raise ValueError("Riwayat pemakaian lembur untuk request ini sudah tidak tersedia.")
+        db.execute("DELETE FROM overtime_usage_records WHERE id=?", (usage_id,))
+        return f"Pembatalan pemakaian lembur {usage['full_name']} pada {usage['usage_date']} berhasil diterapkan."
+
+    raise ValueError("Tipe request attendance belum didukung.")
+
+
 def _build_payroll_summary(payroll_runs):
     return {
         "total": len(payroll_runs),
@@ -4431,6 +4690,10 @@ def hris_index(module_slug=None):
     approval_filters = None
     approval_pending_requests = []
     approval_recent_requests = []
+    attendance_action_requests = []
+    attendance_action_summary = None
+    attendance_action_pending_requests = []
+    attendance_action_recent_requests = []
     payroll_runs = []
     payroll_summary = None
     payroll_filters = None
@@ -4541,6 +4804,16 @@ def hris_index(module_slug=None):
             "date_to": date_to,
         }
         approval_pending_requests, approval_recent_requests = _split_approval_requests(approval_requests)
+        attendance_action_requests = fetch_attendance_requests(
+            db,
+            status="all",
+            search=search,
+            warehouse_id=selected_warehouse,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        attendance_action_summary = build_attendance_request_summary(attendance_action_requests)
+        attendance_action_pending_requests, attendance_action_recent_requests = split_attendance_requests(attendance_action_requests)
     elif selected_module["slug"] == "payroll":
         payroll_runs, search, status, selected_warehouse, period_month, period_year = _fetch_payroll_runs(db)
         payroll_summary = _build_payroll_summary(payroll_runs)
@@ -4673,6 +4946,10 @@ def hris_index(module_slug=None):
         approval_filters=approval_filters,
         approval_pending_requests=approval_pending_requests,
         approval_recent_requests=approval_recent_requests,
+        attendance_action_requests=attendance_action_requests,
+        attendance_action_summary=attendance_action_summary,
+        attendance_action_pending_requests=attendance_action_pending_requests,
+        attendance_action_recent_requests=attendance_action_recent_requests,
         payroll_runs=payroll_runs,
         payroll_summary=payroll_summary,
         payroll_filters=payroll_filters,
@@ -4732,6 +5009,7 @@ def hris_index(module_slug=None):
         can_manage_attendance=can_manage_attendance_records(),
         can_manage_leave=can_manage_leave_records(),
         can_manage_approval=can_manage_approval_records(),
+        can_manage_attendance_approval=can_manage_attendance_request_approvals(session.get("role")),
         can_manage_payroll=can_manage_payroll_records(),
         can_manage_recruitment=can_manage_recruitment_records(),
         can_manage_onboarding=can_manage_onboarding_records(),
@@ -5039,6 +5317,76 @@ def update_daily_live_report(report_id):
         print("DAILY LIVE REPORT STATUS NOTIFICATION ERROR:", exc)
 
     flash("Status report harian/live berhasil diperbarui.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/approval/attendance-request/<int:request_id>/process", methods=["POST"])
+def process_attendance_request(request_id):
+    return_to = _safe_hris_return_to("/hris/approval")
+    if not can_manage_attendance_request_approvals(session.get("role")):
+        flash("Hanya HR dan Super Admin yang bisa memproses request attendance ini.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    request_row = _get_attendance_request_by_id(db, request_id)
+    if request_row is None:
+        flash("Request attendance tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    if str(request_row.get("status") or "").lower() != "pending":
+        flash("Request attendance ini sudah diproses sebelumnya.", "info")
+        return redirect(return_to)
+
+    decision = (request.form.get("decision") or "").strip().lower()
+    decision_note = (request.form.get("decision_note") or "").strip()
+    if decision not in {"approved", "rejected"}:
+        flash("Keputusan approval attendance tidak valid.", "error")
+        return redirect(return_to)
+
+    try:
+        if decision == "approved":
+            success_message = _apply_attendance_request(db, request_row)
+        else:
+            success_message = "Request attendance ditolak."
+
+        db.execute(
+            """
+            UPDATE attendance_action_requests
+            SET status=?,
+                handled_by=?,
+                handled_at=?,
+                decision_note=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                decision,
+                session.get("user_id"),
+                _current_timestamp(),
+                decision_note or None,
+                _current_timestamp(),
+                request_id,
+            ),
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        flash(str(exc), "error")
+        return redirect(return_to)
+
+    try:
+        updated_request = _get_attendance_request_by_id(db, request_id)
+        if updated_request is not None:
+            updated_request["decision_note"] = decision_note
+            _notify_attendance_request_decision(
+                db,
+                updated_request,
+                approved=decision == "approved",
+            )
+    except Exception as exc:
+        print("ATTENDANCE REQUEST DECISION NOTIFICATION ERROR:", exc)
+
+    flash(success_message, "success" if decision == "approved" else "info")
     return redirect(return_to)
 
 
@@ -7500,35 +7848,43 @@ def use_biometric_overtime():
         )
         return redirect(return_to)
 
-    db.execute(
-        """
-        INSERT INTO overtime_usage_records(
-            employee_id,
-            warehouse_id,
-            usage_date,
-            minutes_used,
-            note,
-            handled_by,
-            updated_at
-        )
-        VALUES (?,?,?,?,?,?,?)
-        """,
-        (
-            employee["id"],
-            employee["warehouse_id"],
-            usage_date.isoformat(),
-            minutes_used,
-            note,
-            session.get("user_id"),
-            _current_timestamp(),
-        ),
-    )
-    db.commit()
+    payload = {
+        "employee_id": employee["id"],
+        "employee_name": employee["full_name"],
+        "warehouse_id": employee["warehouse_id"],
+        "usage_date": usage_date.isoformat(),
+        "minutes_used": minutes_used,
+        "duration_label": _format_duration_minutes_label(minutes_used),
+        "note": note,
+    }
 
-    flash(
-        f"Pemakaian lembur untuk {employee['full_name']} berhasil dicatat sebesar { _format_duration_minutes_label(minutes_used) }.",
-        "success",
-    )
+    try:
+        queue_result = queue_attendance_request(
+            db,
+            request_type="overtime_use",
+            warehouse_id=employee["warehouse_id"],
+            employee_id=employee["id"],
+            requested_by=session.get("user_id"),
+            summary_title=f"{employee['full_name']} - Pengurangan Lembur",
+            summary_note=(
+                f"{_format_duration_minutes_label(minutes_used)} pada {usage_date.isoformat()}"
+                f"{f' | {note}' if note else ''}"
+            ),
+            payload=payload,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        flash("Permintaan pengurangan saldo lembur gagal dikirim ke approval.", "error")
+        return redirect(return_to)
+
+    if queue_result.get("existing"):
+        flash("Permintaan pengurangan saldo lembur yang sama masih menunggu approval.", "info")
+    else:
+        flash(
+            f"Permintaan pengurangan lembur {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval.",
+            "success",
+        )
     return redirect(return_to)
 
 
@@ -7545,13 +7901,44 @@ def delete_biometric_overtime_usage(usage_id):
         flash("Riwayat pemakaian lembur tidak ditemukan.", "error")
         return redirect(return_to)
 
-    db.execute("DELETE FROM overtime_usage_records WHERE id=?", (usage_id,))
-    db.commit()
+    payload = {
+        "usage_id": usage_id,
+        "employee_id": usage["employee_id"],
+        "employee_name": usage["full_name"],
+        "warehouse_id": usage["warehouse_id"],
+        "usage_date": usage["usage_date"],
+        "minutes_used": usage["minutes_used"],
+        "duration_label": usage["duration_label"],
+        "note": usage["note"] or "",
+    }
 
-    flash(
-        f"Riwayat pemakaian lembur {usage['full_name']} pada {usage['usage_date']} berhasil dibatalkan.",
-        "success",
-    )
+    try:
+        queue_result = queue_attendance_request(
+            db,
+            request_type="overtime_usage_delete",
+            warehouse_id=usage["warehouse_id"],
+            employee_id=usage["employee_id"],
+            requested_by=session.get("user_id"),
+            summary_title=f"{usage['full_name']} - Pembatalan Lembur",
+            summary_note=(
+                f"Batalkan {_format_duration_minutes_label(usage['minutes_used'])} pada {usage['usage_date']}"
+                f"{f' | {usage['note']}' if usage['note'] else ''}"
+            ),
+            payload=payload,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        flash("Permintaan pembatalan pemakaian lembur gagal dikirim ke approval.", "error")
+        return redirect(return_to)
+
+    if queue_result.get("existing"):
+        flash("Permintaan pembatalan pemakaian lembur yang sama masih menunggu approval.", "info")
+    else:
+        flash(
+            f"Permintaan pembatalan pemakaian lembur {usage['full_name']} berhasil dikirim ke approval.",
+            "success",
+        )
     return redirect(return_to)
 
 

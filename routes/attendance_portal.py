@@ -31,6 +31,7 @@ attendance_portal_bp = Blueprint("attendance_portal", __name__, url_prefix="/abs
 
 ATTENDANCE_PORTAL_PUNCH_LABELS = {
     "check_in": "Check In",
+    "free_attendance": "Absen Bebas",
     "break_start": "Break Start",
     "break_finish": "Break Finish",
     "check_out": "Check Out",
@@ -39,6 +40,7 @@ ATTENDANCE_PORTAL_PUNCH_LABELS = {
 
 ATTENDANCE_PORTAL_CORRECTABLE_PUNCH_TYPES = {
     "check_out": "Check Out",
+    "free_attendance": "Absen Bebas",
     "break_start": "Break Start",
 }
 
@@ -136,6 +138,15 @@ def _build_attendance_location_label(location_scope, location_other_detail, loca
     if scope_label:
         return _merge_attendance_location_label(scope_label, safe_location_label)
     return safe_location_label
+
+
+def _build_google_maps_url(latitude, longitude):
+    try:
+        latitude_value = float(latitude)
+        longitude_value = float(longitude)
+    except (TypeError, ValueError):
+        return None
+    return f"https://www.google.com/maps?q={latitude_value:.6f},{longitude_value:.6f}"
 
 
 def _normalize_identity_text(value):
@@ -358,12 +369,12 @@ def _build_attendance_punch_options(attendance_today, day_logs):
     if has_check_out:
         return []
 
-    options = []
-    options.append("check_out")
+    options = ["free_attendance"]
     if break_open:
         options.append("break_finish")
     else:
         options.append("break_start")
+    options.append("check_out")
     return options
 
 
@@ -393,6 +404,25 @@ def _build_attendance_punch_helper_text(punch_options):
         return "Check in dan check out hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari riwayat absen."
     if safe_options == ["check_in"]:
         return "Mulai dulu dengan Check In. Setelah itu dropdown ini otomatis menampilkan pilihan absen lainnya."
+
+    if "free_attendance" in safe_options:
+        follow_up_labels = [
+            _get_attendance_punch_label(option)
+            for option in safe_options
+            if option != "free_attendance"
+        ]
+        if not follow_up_labels:
+            return "Absen Bebas bisa dipakai berkali-kali selama shift belum diakhiri dengan Check Out."
+        if len(follow_up_labels) == 1:
+            follow_up_text = follow_up_labels[0]
+        elif len(follow_up_labels) == 2:
+            follow_up_text = f"{follow_up_labels[0]} atau {follow_up_labels[1]}"
+        else:
+            follow_up_text = f"{', '.join(follow_up_labels[:-1])}, atau {follow_up_labels[-1]}"
+        return (
+            f"Pilihan absen berikutnya: {follow_up_text}. "
+            "Absen Bebas bisa dipakai berkali-kali selama shift belum diakhiri dengan Check Out."
+        )
 
     option_labels = [_get_attendance_punch_label(option) for option in safe_options]
     if len(option_labels) == 1:
@@ -651,6 +681,7 @@ def _fetch_attendance_history(db, linked_employee, limit=8):
             for row in db.execute(
                 f"""
                 SELECT id, punch_time, punch_type, sync_status, location_label, note
+                       , latitude, longitude
                 FROM biometric_logs
                 WHERE employee_id=?
                   AND substr(punch_time, 1, 10) IN ({placeholders})
@@ -688,6 +719,7 @@ def _fetch_attendance_history(db, linked_employee, limit=8):
                         "punch_label": _get_attendance_punch_label(log.get("punch_type")),
                         "punch_time_label": _format_portal_datetime_display(log.get("punch_time")),
                         "location_label": (log.get("location_label") or "-").strip() or "-",
+                        "gmaps_url": _build_google_maps_url(log.get("latitude"), log.get("longitude")),
                         "note": (log.get("note") or "").strip(),
                         "sync_status": (log.get("sync_status") or "").strip().lower() or "queued",
                     }

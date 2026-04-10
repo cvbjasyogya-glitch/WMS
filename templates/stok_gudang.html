@@ -7,6 +7,15 @@
 
 {% block page_actions %}
 <div class="split-actions">
+    {% if can('manage_product_master') %}
+    <button
+        type="button"
+        class="btn-link"
+        data-ipos4-import-open
+    >
+        Import iPOS4
+    </button>
+    {% endif %}
     <a
         href="/stock/export?q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}"
         class="btn-link"
@@ -570,6 +579,78 @@
 {% include "partials/product_studio_panel.html" %}
 
 {% if can('manage_product_master') %}
+<div class="picker-modal" id="ipos4ImportModal" hidden>
+    <div class="picker-modal-backdrop" data-ipos4-import-close></div>
+    <div class="picker-modal-panel stock-edit-modal-panel" role="dialog" aria-modal="true" aria-labelledby="ipos4ImportModalTitle">
+        <div class="section-title">
+            <div>
+                <h2 id="ipos4ImportModalTitle">Import iPOS4</h2>
+                <p>Upload file backup <span class="mono">.i4bu</span> untuk sinkron master produk dan SKU iPOS langsung dari halaman ini.</p>
+            </div>
+        </div>
+
+        <div id="ipos4ImportStatus"></div>
+
+        <form id="ipos4ImportForm" class="stock-edit-detail-form">
+            <div class="form-grid">
+                <div>
+                    <label>File Backup iPOS4</label>
+                    <input type="file" id="ipos4ImportFile" name="file" accept=".i4bu" required>
+                    <small class="helper-text">Gunakan file backup iPOS4 dengan ekstensi <span class="mono">.i4bu</span>.</small>
+                </div>
+                <div>
+                    <label>Mode Import</label>
+                    <select id="ipos4ImportMode" name="mode">
+                        <option value="products_only" selected>Produk + SKU iPOS</option>
+                        <option value="sync_sku_only">Sinkron SKU saja</option>
+                        <option value="products_with_mirror">Produk + SKU + Mirror iPOS</option>
+                        <option value="products_with_sales">Produk + Customer + Penjualan ERP</option>
+                        <option value="full_except_stock">Full ERP kecuali Stock</option>
+                    </select>
+                    <small class="helper-text" id="ipos4ImportModeHint">Sinkron master produk dan SKU iPOS dengan mode aman tanpa stok, user, customer, atau histori sales.</small>
+                </div>
+            </div>
+
+            <div class="meta-grid products-meta-grid">
+                <div class="meta-card">
+                    <span>Duplikat</span>
+                    <strong>Cek SKU lalu Nama</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Stok iPOS</span>
+                    <strong>Tidak Diimport</strong>
+                </div>
+                <div class="meta-card">
+                    <span>User iPOS</span>
+                    <strong>Sesuai Mode</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Warehouse iPOS</span>
+                    <strong>Sesuai Mode</strong>
+                </div>
+                <div class="meta-card">
+                    <span>SKU Hasil</span>
+                    <strong>Kode Komputer iPOS</strong>
+                </div>
+            </div>
+
+            <div id="ipos4ImportSummary" class="helper-text" hidden></div>
+
+            <div id="ipos4ProgressWrapper" class="import-progress">
+                <div id="ipos4ProgressText" class="progress-text"></div>
+                <div class="progress-track">
+                    <div id="ipos4ProgressBar" class="progress-bar"></div>
+                </div>
+            </div>
+
+            <div class="split-actions stock-edit-modal-actions">
+                <button type="submit" id="ipos4ImportSubmitButton">Mulai Import iPOS4</button>
+                <button type="button" class="ghost-button" data-ipos4-import-close>Tutup</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="stock-context-menu" id="stockContextMenu" hidden>
     <button type="button" data-stock-context-action="edit">Edit Detail Produk</button>
     <button type="button" data-stock-context-action="studio">Buka Studio Produk</button>
@@ -1711,7 +1792,7 @@ function closeManualProductModeModal() {
 }
 
 function syncStockModalBodyState() {
-    const hasOpenModal = ["manualProductModeModal", "stockEditModal", "stockSearchReplaceModal"].some((id) => {
+    const hasOpenModal = ["manualProductModeModal", "stockEditModal", "stockSearchReplaceModal", "ipos4ImportModal"].some((id) => {
         const node = document.getElementById(id);
         return Boolean(node && node.hidden === false);
     });
@@ -2054,6 +2135,263 @@ function setImportBusy(isBusy) {
     });
 }
 
+function setIpos4ImportBusy(isBusy) {
+    const fileInput = document.getElementById("ipos4ImportFile");
+    const submitButton = document.getElementById("ipos4ImportSubmitButton");
+    const closeButtons = document.querySelectorAll("[data-ipos4-import-close]");
+
+    if (fileInput) {
+        fileInput.disabled = isBusy;
+    }
+    if (submitButton) {
+        submitButton.disabled = isBusy;
+        submitButton.innerText = isBusy ? "Mengimpor..." : "Mulai Import iPOS4";
+    }
+    closeButtons.forEach((button) => {
+        button.disabled = isBusy;
+    });
+}
+
+let ipos4ImportProgressTimer = null;
+let ipos4ImportProgressPercent = 0;
+const IPOS4_IMPORT_MODE_COPY = {
+    products_only: "Sinkron master produk dan SKU iPOS dengan mode aman tanpa stok, user, customer, atau histori sales.",
+    sync_sku_only: "Hanya merapikan SKU produk yang sudah terhubung ke iPOS tanpa membuat import master baru.",
+    products_with_mirror: "Sinkron produk dan SKU iPOS sambil memperbarui mirror iPOS untuk kebutuhan audit atau pengecekan data.",
+    products_with_sales: "Sinkron produk, customer, crm_purchase_records, crm_purchase_items, dan pos_sales ke ERP tanpa mengubah stok atau user.",
+    full_except_stock: "Import full ERP dari iPOS4: warehouse, user, produk, customer, dan histori penjualan ikut masuk, tetapi stok tetap tidak diimport."
+};
+const IPOS4_IMPORT_PROGRESS_STAGES = {
+    default: [
+        { percent: 12, text: "Mengunggah file backup iPOS4..." },
+        { percent: 28, text: "Membaca struktur dump iPOS4..." },
+        { percent: 46, text: "Mencocokkan produk ERP dengan item iPOS..." },
+        { percent: 68, text: "Menyinkronkan SKU ke kode komputer iPOS..." },
+        { percent: 86, text: "Merapikan hasil import dan menyusun ringkasan..." }
+    ],
+    products_with_sales: [
+        { percent: 10, text: "Mengunggah file backup iPOS4..." },
+        { percent: 24, text: "Membaca struktur dump dan tabel transaksi iPOS..." },
+        { percent: 42, text: "Mencocokkan produk ERP dengan item iPOS..." },
+        { percent: 58, text: "Menyinkronkan customer dan SKU iPOS..." },
+        { percent: 78, text: "Memasukkan histori penjualan ke CRM/POS ERP..." },
+        { percent: 92, text: "Merapikan hasil import dan menyusun ringkasan..." }
+    ],
+    full_except_stock: [
+        { percent: 10, text: "Mengunggah file backup iPOS4..." },
+        { percent: 22, text: "Membaca struktur dump, gudang, dan user iPOS..." },
+        { percent: 38, text: "Menyinkronkan warehouse dan akun user ERP..." },
+        { percent: 56, text: "Mencocokkan produk ERP dengan item iPOS..." },
+        { percent: 74, text: "Memasukkan customer dan histori penjualan ke ERP..." },
+        { percent: 92, text: "Merapikan hasil import full tanpa stok..." }
+    ]
+};
+
+function getIpos4ImportProgressStages() {
+    const selectedMode = document.getElementById("ipos4ImportMode")?.value || "products_only";
+    return IPOS4_IMPORT_PROGRESS_STAGES[selectedMode] || IPOS4_IMPORT_PROGRESS_STAGES.default;
+}
+
+function updateIpos4ImportModeHint() {
+    const select = document.getElementById("ipos4ImportMode");
+    const hint = document.getElementById("ipos4ImportModeHint");
+    if (!select || !hint) {
+        return;
+    }
+
+    hint.textContent = IPOS4_IMPORT_MODE_COPY[select.value] || IPOS4_IMPORT_MODE_COPY.products_only;
+}
+
+function renderIpos4ImportProgress({ visible = false, text = "", percent = 0 } = {}) {
+    const wrapper = document.getElementById("ipos4ProgressWrapper");
+    const bar = document.getElementById("ipos4ProgressBar");
+    const label = document.getElementById("ipos4ProgressText");
+
+    if (!wrapper || !bar || !label) {
+        return;
+    }
+
+    wrapper.classList.toggle("is-visible", Boolean(visible));
+    label.innerText = text || "";
+    ipos4ImportProgressPercent = Math.max(0, Math.min(100, Number(percent || 0)));
+    bar.style.width = ipos4ImportProgressPercent + "%";
+}
+
+function resetIpos4ImportProgress() {
+    if (ipos4ImportProgressTimer) {
+        window.clearInterval(ipos4ImportProgressTimer);
+        ipos4ImportProgressTimer = null;
+    }
+    renderIpos4ImportProgress({ visible: false, text: "", percent: 0 });
+}
+
+function startIpos4ImportProgress() {
+    resetIpos4ImportProgress();
+    const stages = getIpos4ImportProgressStages();
+    let stageIndex = 0;
+    renderIpos4ImportProgress({
+        visible: true,
+        text: stages[stageIndex].text,
+        percent: stages[stageIndex].percent
+    });
+
+    ipos4ImportProgressTimer = window.setInterval(() => {
+        if (stageIndex < stages.length - 1) {
+            stageIndex += 1;
+            renderIpos4ImportProgress({
+                visible: true,
+                text: stages[stageIndex].text,
+                percent: stages[stageIndex].percent
+            });
+            return;
+        }
+
+        const nextPercent = Math.min(94, ipos4ImportProgressPercent + 1);
+        renderIpos4ImportProgress({
+            visible: true,
+            text: stages[stages.length - 1].text,
+            percent: nextPercent
+        });
+    }, 1200);
+}
+
+function finishIpos4ImportProgress(success = true) {
+    if (ipos4ImportProgressTimer) {
+        window.clearInterval(ipos4ImportProgressTimer);
+        ipos4ImportProgressTimer = null;
+    }
+
+    renderIpos4ImportProgress({
+        visible: true,
+        text: success
+            ? "Import selesai. Menyegarkan daftar produk..."
+            : "Import dihentikan karena terjadi error.",
+        percent: success ? 100 : Math.max(8, ipos4ImportProgressPercent)
+    });
+}
+
+function renderIpos4ImportSummary(summary) {
+    const summaryBox = document.getElementById("ipos4ImportSummary");
+    if (!summaryBox) {
+        return;
+    }
+
+    if (!summary || typeof summary !== "object") {
+        summaryBox.hidden = true;
+        summaryBox.innerHTML = "";
+        return;
+    }
+
+    const formatNumber = (value) => new Intl.NumberFormat("id-ID").format(Number(value || 0));
+    const escapeValue = (value) => escapeManualProductHtml(value ?? "");
+
+    summaryBox.innerHTML = `
+        <div class="table-box" style="margin-top: 8px; margin-bottom: 0;">
+            <table>
+                <tbody>
+                    <tr><th style="width: 42%;">Produk Baru</th><td>${formatNumber(summary.products_created)}</td></tr>
+                    <tr><th>Produk Diupdate</th><td>${formatNumber(summary.products_updated)}</td></tr>
+                    <tr><th>Merge By Name</th><td>${formatNumber(summary.products_merged_by_name)}</td></tr>
+                    <tr><th>Konflik Nama</th><td>${formatNumber(summary.products_name_conflicts)}</td></tr>
+                    <tr><th>Customer Baru</th><td>${formatNumber(summary.customers_created)}</td></tr>
+                    <tr><th>Customer Reuse</th><td>${formatNumber(summary.customers_reused)}</td></tr>
+                    <tr><th>CRM Purchase Records</th><td>${formatNumber(summary.sales_created)}</td></tr>
+                    <tr><th>CRM Purchase Items</th><td>${formatNumber(summary.sales_items_imported)}</td></tr>
+                    <tr><th>SKU Sudah Sesuai</th><td>${formatNumber(summary.sku_already_ok)}</td></tr>
+                    <tr><th>SKU Disinkronkan</th><td>${formatNumber(summary.sku_synced)}</td></tr>
+                    <tr><th>Konflik SKU</th><td>${formatNumber(summary.sku_conflicts)}</td></tr>
+                    <tr><th>Backup Database</th><td class="mono">${escapeValue(summary.backup_dir || "-")}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    `;
+    summaryBox.hidden = false;
+}
+
+function openIpos4ImportModal() {
+    const modal = document.getElementById("ipos4ImportModal");
+    const form = document.getElementById("ipos4ImportForm");
+    const fileInput = document.getElementById("ipos4ImportFile");
+    if (!modal) {
+        return;
+    }
+
+    form?.reset();
+    renderProductStudioStatus("ipos4ImportStatus", "");
+    renderIpos4ImportSummary(null);
+    resetIpos4ImportProgress();
+    updateIpos4ImportModeHint();
+    modal.hidden = false;
+    syncStockModalBodyState();
+    window.requestAnimationFrame(() => fileInput?.focus());
+}
+
+function closeIpos4ImportModal() {
+    const modal = document.getElementById("ipos4ImportModal");
+    if (!modal) {
+        return;
+    }
+
+    modal.hidden = true;
+    resetIpos4ImportProgress();
+    syncStockModalBodyState();
+}
+
+async function submitIpos4Import(event) {
+    event.preventDefault();
+
+    const form = document.getElementById("ipos4ImportForm");
+    const fileInput = document.getElementById("ipos4ImportFile");
+    const file = fileInput?.files?.[0];
+
+    if (!form || !file) {
+        renderProductStudioStatus("ipos4ImportStatus", "Pilih file backup iPOS4 terlebih dahulu.", "error");
+        return false;
+    }
+
+    renderProductStudioStatus("ipos4ImportStatus", "Import iPOS4 sedang diproses. Mohon tunggu sampai selesai.", "success");
+    renderIpos4ImportSummary(null);
+    setIpos4ImportBusy(true);
+    startIpos4ImportProgress();
+
+    const formData = new FormData(form);
+    formData.set("file", file);
+
+    try {
+        const response = await fetch("/products/import/ipos4", {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json"
+            },
+            body: formData
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data.status !== "success") {
+            finishIpos4ImportProgress(false);
+            renderProductStudioStatus("ipos4ImportStatus", data.message || "Import iPOS4 gagal dijalankan.", "error");
+            return false;
+        }
+
+        finishIpos4ImportProgress(true);
+        renderProductStudioStatus("ipos4ImportStatus", data.message || "Import iPOS4 selesai.", "success");
+        renderIpos4ImportSummary(data.summary || {});
+        notifyProductStudioMessage(data.message || "Import iPOS4 selesai.");
+        await refreshProductsView();
+        if (fileInput) {
+            fileInput.value = "";
+        }
+        return false;
+    } catch (error) {
+        finishIpos4ImportProgress(false);
+        renderProductStudioStatus("ipos4ImportStatus", "Terjadi error saat mengirim file iPOS4.", "error");
+        return false;
+    } finally {
+        setIpos4ImportBusy(false);
+    }
+}
+
 function bulkDelete() {
     const ids = Array.from(document.querySelectorAll(".product-row-check:checked")).map((checkbox) => checkbox.value);
     if (!ids.length) {
@@ -2080,6 +2418,37 @@ function bulkDelete() {
         alert(data.message || "Gagal menghapus produk.");
     })
     .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function deleteAllProducts() {
+    const confirmationText = window.prompt(
+        "Fitur ini akan menghapus seluruh master produk beserta stok dan variannya. Beberapa histori atau laporan yang masih terhubung ke master produk bisa ikut terdampak. Ketik HAPUS SEMUA PRODUK untuk melanjutkan."
+    );
+
+    if (confirmationText === null) {
+        return;
+    }
+
+    if (confirmationText.trim().toUpperCase() !== "HAPUS SEMUA PRODUK") {
+        alert("Konfirmasi tidak cocok. Penghapusan semua produk dibatalkan.");
+        return;
+    }
+
+    fetch("/products/delete-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation_text: confirmationText })
+    })
+    .then((res) => res.json())
+    .then(async (data) => {
+        if (data.status === "success") {
+            notifyProductStudioMessage(data.message || "Semua produk berhasil diproses untuk dihapus.");
+            await refreshProductsView();
+            return;
+        }
+        alert(data.message || "Gagal menghapus semua produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus semua produk."));
 }
 
 function buildPreviewTable(rows) {
@@ -2226,6 +2595,15 @@ document.getElementById("manualProductUnitLabel")?.addEventListener("change", sy
 document.querySelectorAll("[data-manual-product-mode-close]").forEach((node) => {
     node.addEventListener("click", closeManualProductModeModal);
 });
+document.querySelectorAll("[data-ipos4-import-open]").forEach((node) => {
+    node.addEventListener("click", openIpos4ImportModal);
+});
+document.querySelectorAll("[data-ipos4-import-close]").forEach((node) => {
+    node.addEventListener("click", closeIpos4ImportModal);
+});
+document.getElementById("ipos4ImportForm")?.addEventListener("submit", submitIpos4Import);
+document.getElementById("ipos4ImportMode")?.addEventListener("change", updateIpos4ImportModeHint);
+updateIpos4ImportModeHint();
 document.querySelectorAll("[data-manual-product-mode-option]").forEach((button) => {
     button.addEventListener("click", () => {
         const applied = setManualProductMode(button.dataset.manualProductModeOption, {
@@ -2240,6 +2618,10 @@ document.querySelectorAll("[data-manual-product-mode-option]").forEach((button) 
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !document.getElementById("manualProductModeModal")?.hidden) {
         closeManualProductModeModal();
+        return;
+    }
+    if (event.key === "Escape" && !document.getElementById("ipos4ImportModal")?.hidden) {
+        closeIpos4ImportModal();
     }
 });
 

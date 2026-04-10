@@ -17,20 +17,6 @@
                     <strong>Kasir Penjualan</strong>
                 </div>
             </div>
-            <div class="pos-ipos-topstats" aria-label="Ringkasan kasir harian">
-                <div class="pos-ipos-topstat">
-                    <span>Tx Hari Ini</span>
-                    <strong>{{ summary.total_tx }}</strong>
-                </div>
-                <div class="pos-ipos-topstat">
-                    <span>Total Item</span>
-                    <strong>{{ summary.total_items }}</strong>
-                </div>
-                <div class="pos-ipos-topstat">
-                    <span>Omzet</span>
-                    <strong>Rp {{ "{:,.0f}".format(summary.total_revenue).replace(",", ".") }}</strong>
-                </div>
-            </div>
             <div class="pos-ipos-topactions">
                 <details class="pos-ipos-header-menu" data-pos-header-menu>
                     <summary class="pos-ipos-menu-trigger" aria-haspopup="menu" aria-label="Buka menu POS">
@@ -107,27 +93,27 @@
                     </div>
 
                     <div class="pos-ipos-transaction-grid">
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-transaction-no">
                             <label for="posTransactionDisplay">No Transaksi</label>
                             <input type="text" id="posTransactionDisplay" value="AUTO" readonly>
                         </div>
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-transaction-date">
                             <label>Tanggal Kasir</label>
                             <input type="text" value="{{ sale_date }}" readonly>
                         </div>
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-homebase">
                             <label>Gudang Aktif</label>
                             <input type="text" value="{{ selected_warehouse_name }}" readonly>
                         </div>
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-customer-name">
                             <label for="posCustomerName">Nama Customer</label>
-                            <input type="text" id="posCustomerName" placeholder="Nama customer" value="Walk-in Customer">
+                            <input type="text" id="posCustomerName" placeholder="Nama customer" autocomplete="off" required>
                         </div>
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-customer-phone">
                             <label for="posCustomerPhone">No HP Customer</label>
-                            <input type="text" id="posCustomerPhone" placeholder="No HP customer">
+                            <input type="text" id="posCustomerPhone" placeholder="No HP customer" inputmode="tel" autocomplete="off" required>
                         </div>
-                        <div class="pos-ipos-field">
+                        <div class="pos-ipos-field pos-ipos-field-transaction-type">
                             <label for="posTransactionType">Jenis Transaksi Loyalty</label>
                             <select id="posTransactionType">
                                 {% for transaction_type, transaction_label in transaction_type_labels.items() %}
@@ -135,13 +121,13 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="pos-ipos-field pos-ipos-field-customer">
+                        <div class="pos-ipos-field pos-ipos-field-customer pos-ipos-field-dualcontrol">
                             <label for="posCustomerId">Pelanggan CRM</label>
                             <div class="pos-ipos-select-search">
                                 <input
                                     type="search"
                                     id="posCustomerSearch"
-                                    placeholder="Cari nama, no HP, atau kode member"
+                                    placeholder="Cari member"
                                     spellcheck="false"
                                     autocomplete="off"
                                     autocapitalize="off"
@@ -167,13 +153,13 @@
                         <div class="pos-ipos-field pos-ipos-field-member-status" hidden aria-hidden="true">
                             <small id="posCustomerLoyaltyHint" class="helper-text">Pilih customer untuk melihat jenis member dan panduan transaksi loyalty.</small>
                         </div>
-                        <div class="pos-ipos-field pos-ipos-field-cashier">
+                        <div class="pos-ipos-field pos-ipos-field-cashier pos-ipos-field-dualcontrol">
                             <label for="posCashierUserId">Kasir / Sales</label>
                             <div class="pos-ipos-select-search">
                                 <input
                                     type="search"
                                     id="posCashierSearch"
-                                    placeholder="Cari kasir atau sales"
+                                    placeholder="Cari kasir"
                                     spellcheck="false"
                                     autocomplete="off"
                                     autocapitalize="off"
@@ -359,7 +345,7 @@
                                 class="pos-payment-method{% if loop.first %} is-active{% endif %}"
                                 data-pos-payment-method="{{ method }}"
                             >
-                                {{ method|upper }}
+                                {{ "TF" if method|lower == "transfer" else method|upper }}
                             </button>
                             {% endfor %}
                         </div>
@@ -460,10 +446,12 @@
             </div>
 
             <div class="pos-ipos-log-meta">
+                {% if can_view_pos_revenue %}
                 <div class="pos-ipos-log-card">
                     <span>Omzet</span>
                     <strong>{{ sales_log_summary.total_revenue_label }}</strong>
                 </div>
+                {% endif %}
                 <div class="pos-ipos-log-card">
                     <span>Total Item</span>
                     <strong>{{ sales_log_summary.total_items }}</strong>
@@ -472,10 +460,12 @@
                     <span>Customer</span>
                     <strong>{{ sales_log_summary.customer_total }}</strong>
                 </div>
+                {% if can_view_pos_revenue %}
                 <div class="pos-ipos-log-card">
                     <span>Rata-rata</span>
                     <strong>{{ sales_log_summary.average_ticket_label }}</strong>
                 </div>
+                {% endif %}
             </div>
 
             <div class="table-box pos-ipos-log-tablebox" data-scrollable-table="1">
@@ -489,7 +479,9 @@
                             <th>Staff</th>
                             <th>Item</th>
                             <th>Metode</th>
+                            {% if can_view_pos_revenue %}
                             <th>Total</th>
+                            {% endif %}
                             <th>Catatan</th>
                             <th>Aksi</th>
                         </tr>
@@ -544,11 +536,13 @@
                                 <strong>{{ sale.payment_method_label }}</strong>
                                 <div class="helper-text">{{ sale.total_items }} item</div>
                             </td>
+                            {% if can_view_pos_revenue %}
                             <td>
                                 <strong>{{ sale.total_amount_label }}</strong>
                                 <div class="helper-text">Subtotal {{ sale.subtotal_amount_label }}</div>
                                 <div class="helper-text">Disc {{ sale.discount_amount_label }} | Pajak {{ sale.tax_amount_label }}</div>
                             </td>
+                            {% endif %}
                             <td>{{ sale.note or "-" }}</td>
                             <td class="pos-sales-log-actions">
                                 <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>

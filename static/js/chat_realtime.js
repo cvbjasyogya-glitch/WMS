@@ -533,15 +533,51 @@
         }
     });
 
-    window.addEventListener("beforeunload", () => {
+    window.addEventListener("pageshow", () => {
+        sendHeartbeat();
+        if (!window.__WMS_CHAT_PAGE__) {
+            if (!pollTimer) {
+                pollTimer = window.setInterval(pollUnreadOnly, unreadPollIntervalMs);
+            }
+            if (!callPollTimer) {
+                callPollTimer = window.setInterval(pollIncomingCalls, callPollIntervalMs);
+            }
+            pollUnreadOnly();
+            pollIncomingCalls();
+        }
+        if (!heartbeatTimer) {
+            heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatIntervalMs);
+        }
+    });
+
+    window.addEventListener("pagehide", () => {
         if (pollTimer) {
             window.clearInterval(pollTimer);
+            pollTimer = null;
         }
         if (callPollTimer) {
             window.clearInterval(callPollTimer);
+            callPollTimer = null;
         }
         if (heartbeatTimer) {
             window.clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+        }
+        stopCallRingtone();
+    });
+
+    window.addEventListener("beforeunload", () => {
+        if (pollTimer) {
+            window.clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        if (callPollTimer) {
+            window.clearInterval(callPollTimer);
+            callPollTimer = null;
+        }
+        if (heartbeatTimer) {
+            window.clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
         }
         stopCallRingtone();
     });

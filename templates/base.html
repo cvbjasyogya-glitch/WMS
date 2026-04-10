@@ -989,16 +989,57 @@ function readDesktopSidebarPreference() {
     }
 }
 
-function updateScrollableTableHints() {
+const scrollableTableHintCache = new WeakMap();
+
+function shouldMeasureScrollableTableBox(box) {
+    if (!(box instanceof HTMLElement) || !box.isConnected || box.hidden) {
+        return false;
+    }
+    if (box.closest("[hidden], [aria-hidden='true']")) {
+        return false;
+    }
+
+    const rect = box.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    return rect.bottom >= -180 && rect.top <= viewportHeight + 180;
+}
+
+function updateScrollableTableHints(force = false) {
     document.querySelectorAll(".table-box").forEach((box) => {
         const table = box.querySelector("table");
         if (!table) {
             box.dataset.scrollableTable = "0";
+            scrollableTableHintCache.delete(box);
             return;
         }
 
-        const isScrollable = table.scrollWidth > box.clientWidth + 12;
+        if (!force && !shouldMeasureScrollableTableBox(box)) {
+            return;
+        }
+
+        const boxWidth = Math.max(0, Math.round(box.clientWidth || 0));
+        if (!boxWidth) {
+            return;
+        }
+
+        const tableWidth = Math.max(0, Math.round(table.scrollWidth || 0));
+        const cachedState = scrollableTableHintCache.get(box);
+        if (
+            !force
+            && cachedState
+            && cachedState.boxWidth === boxWidth
+            && cachedState.tableWidth === tableWidth
+        ) {
+            return;
+        }
+
+        const isScrollable = tableWidth > boxWidth + 12;
         box.dataset.scrollableTable = isScrollable ? "1" : "0";
+        scrollableTableHintCache.set(box, {
+            boxWidth,
+            tableWidth,
+            scrollable: isScrollable ? "1" : "0",
+        });
     });
 }
 

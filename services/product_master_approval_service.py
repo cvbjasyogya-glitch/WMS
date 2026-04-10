@@ -10,6 +10,7 @@ PRODUCT_MASTER_APPROVAL_TYPES = {
 }
 PRODUCT_MASTER_APPROVER_ROLES = {"leader", "super_admin"}
 PRODUCT_MASTER_DIRECT_ROLES = {"leader", "owner", "super_admin"}
+PRODUCT_DELETE_LOOKUP_BATCH_SIZE = 400
 
 
 def is_product_master_approval_type(value):
@@ -86,23 +87,25 @@ def find_pending_product_delete_approvals(db, product_ids):
     if not cleaned_ids:
         return {}
 
-    placeholders = ",".join(["?"] * len(cleaned_ids))
-    rows = db.execute(
-        f"""
-        SELECT id, product_id, type, status, note, payload, requested_by, created_at
-        FROM approvals
-        WHERE type=? AND status='pending' AND product_id IN ({placeholders})
-        ORDER BY id DESC
-        """,
-        (PRODUCT_DELETE_APPROVAL_TYPE, *cleaned_ids),
-    ).fetchall()
-
     pending = {}
-    for row in rows:
-        mapped = dict(row)
-        product_id = int(mapped.get("product_id") or 0)
-        if product_id and product_id not in pending:
-            pending[product_id] = mapped
+    for index in range(0, len(cleaned_ids), PRODUCT_DELETE_LOOKUP_BATCH_SIZE):
+        batch_ids = cleaned_ids[index:index + PRODUCT_DELETE_LOOKUP_BATCH_SIZE]
+        placeholders = ",".join(["?"] * len(batch_ids))
+        rows = db.execute(
+            f"""
+            SELECT id, product_id, type, status, note, payload, requested_by, created_at
+            FROM approvals
+            WHERE type=? AND status='pending' AND product_id IN ({placeholders})
+            ORDER BY id DESC
+            """,
+            (PRODUCT_DELETE_APPROVAL_TYPE, *batch_ids),
+        ).fetchall()
+
+        for row in rows:
+            mapped = dict(row)
+            product_id = int(mapped.get("product_id") or 0)
+            if product_id and product_id not in pending:
+                pending[product_id] = mapped
     return pending
 
 
