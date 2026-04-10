@@ -97,6 +97,42 @@
 <small class="helper-text">Gunakan filter gudang dan kata kunci untuk membaca perilaku customer per toko atau secara keseluruhan.</small>
 {% endif %}
 
+{% if can_manage_crm %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Import CRM dari Excel</h2>
+            <p>Upload file `.xlsx` CRM gabungan untuk memasukkan kontak pelanggan, histori nota, dan member senaran sekaligus. Histori item dari file tetap tampil walau belum terhubung langsung ke master produk.</p>
+        </div>
+    </div>
+    <form method="POST" action="/crm/import" enctype="multipart/form-data">
+        <input type="hidden" name="tab" value="{{ selected_tab }}">
+        <div class="form-grid">
+            <div class="span-full">
+                <label>File Excel CRM</label>
+                <input type="file" name="crm_file" accept=".xlsx" required>
+                <small class="helper-text">Sheet yang dibaca: `DATABASE`, `DATABASE PENJUALAN`, dan seluruh sheet `MEMBER SENARAN...`.</small>
+            </div>
+            <div>
+                <label>Scope Gudang Import</label>
+                <select name="warehouse" {% if scoped_crm_warehouse %}disabled{% endif %}>
+                    <option value="">Semua Gudang dari File</option>
+                    {% for warehouse in warehouses %}
+                    <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id or (scoped_crm_warehouse and scoped_crm_warehouse == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if scoped_crm_warehouse %}
+                <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
+                {% endif %}
+            </div>
+        </div>
+        <div class="split-actions stack-gap-md">
+            <button type="submit">Import CRM Excel</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
 {% if selected_tab == "contacts" %}
     {% if can_manage_crm %}
     <div class="form-box">

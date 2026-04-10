@@ -34,6 +34,8 @@ from init_db import init_db
 MIRROR_METADATA_TABLE = "__ipos4_mirror_metadata"
 IPOS_IMPORT_RUNS_TABLE = "ipos_import_runs"
 IPOS_IMPORT_PRODUCT_MAP_TABLE = "ipos_import_product_map"
+IMPORT_SQLITE_TIMEOUT_SECONDS = 300
+IMPORT_SQLITE_BUSY_TIMEOUT_MS = 300000
 DEFAULT_VARIANT_NAME = "default"
 PRIMARY_SOURCE_WAREHOUSE_CODE = "MTR"
 RECEIPT_PREFIX = "IPOS"
@@ -260,20 +262,60 @@ def build_note(*parts: object) -> str | None:
     return " | ".join(cleaned) if cleaned else None
 
 
+def _apply_sqlite_runtime_pragmas(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute(f"PRAGMA busy_timeout = {IMPORT_SQLITE_BUSY_TIMEOUT_MS}")
+
+
 def backup_database_files(database_path: Path) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_dir = database_path.parent / "db_import_backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_root = backup_dir / f"{database_path.stem}-{timestamp}"
     backup_root.mkdir(parents=True, exist_ok=True)
+    backup_file = backup_root / database_path.name
 
-    for path in (
-        database_path,
-        database_path.with_name(f"{database_path.name}-wal"),
-        database_path.with_name(f"{database_path.name}-shm"),
-    ):
-        if path.exists():
-            shutil.copy2(path, backup_root / path.name)
+    src_conn = sqlite3.connect(
+        f"file:{database_path}?mode=ro",
+        uri=True,
+        timeout=IMPORT_SQLITE_TIMEOUT_SECONDS,
+        check_same_thread=False,
+    )
+    dest_conn = sqlite3.connect(
+        str(backup_file),
+        timeout=IMPORT_SQLITE_TIMEOUT_SECONDS,
+        check_same_thread=False,
+    )
+    verify_conn = None
+
+    try:
+        _apply_sqlite_runtime_pragmas(src_conn)
+        _apply_sqlite_runtime_pragmas(dest_conn)
+        src_conn.backup(dest_conn, sleep=0.25)
+        dest_conn.commit()
+    finally:
+        try:
+            dest_conn.close()
+        finally:
+            src_conn.close()
+
+    try:
+        verify_conn = sqlite3.connect(
+            str(backup_file),
+            timeout=IMPORT_SQLITE_TIMEOUT_SECONDS,
+            check_same_thread=False,
+        )
+        rows = verify_conn.execute("PRAGMA integrity_check").fetchall()
+        integrity = ", ".join(str(row[0]) for row in rows)
+        if integrity.strip().lower() != "ok":
+            raise RuntimeError(f"Backup integrity_check failed: {integrity}")
+    finally:
+        if verify_conn is not None:
+            verify_conn.close()
+
     return backup_root
 
 
@@ -376,9 +418,13 @@ class IposDumpReader:
 
 
 def connect_sqlite(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(
+        str(path),
+        timeout=IMPORT_SQLITE_TIMEOUT_SECONDS,
+        check_same_thread=False,
+    )
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+    _apply_sqlite_runtime_pragmas(conn)
     return conn
 
 

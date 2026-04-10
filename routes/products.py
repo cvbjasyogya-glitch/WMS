@@ -36,6 +36,13 @@ PRODUCT_DELETE_LOCK_RETRY_DELAY_SECONDS = 0.35
 IPOS4_IMPORT_RUNS_TABLE = "ipos_import_runs"
 IPOS4_IMPORT_UNDO_CONFIRMATION = "UNDO IMPORT IPOS4"
 IPOS4_UNDO_BACKUP_DIRNAME = "db_undo_backups"
+OPTIONAL_PRODUCT_DELETE_TABLES = (
+    "stock_area_balances",
+    "stock_opname_results",
+    "crm_purchase_items",
+    "owner_requests",
+    "ipos_import_product_map",
+)
 IPOS4_IMPORT_UI_MODES = {
     "products_only": {
         "label": "Produk + SKU iPOS",
@@ -147,6 +154,11 @@ def _format_ipos4_import_error(exc: BaseException) -> str:
         return (
             "Import iPOS4 gagal: proses dihentikan worker server saat import berjalan. "
             "Biasanya ini karena timeout di Gunicorn/Nginx atau import dump terlalu berat untuk request web biasa."
+        )
+    if _is_sqlite_lock_error(exc):
+        return (
+            "Import iPOS4 gagal: database ERP sedang sibuk di server. "
+            "Coba ulang saat trafik lebih sepi atau setelah proses lain selesai."
         )
 
     message = str(exc).strip()
@@ -427,6 +439,20 @@ def _rollback_product_delete_transaction(db):
 def _is_sqlite_lock_error(exc):
     message = str(exc or "").strip().lower()
     return "locked" in message and "database" in message
+
+
+def _is_foreign_key_constraint_error(exc):
+    message = str(exc or "").strip().lower()
+    return "foreign key constraint failed" in message
+
+
+def _delete_from_optional_product_table(db, table_name, placeholders, params):
+    try:
+        db.execute(f"DELETE FROM {table_name} WHERE product_id IN ({placeholders})", params)
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return
+        raise
 
 
 def _normalize_picker_query(raw_query):
@@ -1259,6 +1285,10 @@ def _delete_product_bundle(db, product_ids):
 
         db.execute(f"DELETE FROM requests WHERE product_id IN ({placeholders})", batch_ids)
         db.execute(f"DELETE FROM approvals WHERE product_id IN ({placeholders})", batch_ids)
+
+        for table_name in OPTIONAL_PRODUCT_DELETE_TABLES:
+            _delete_from_optional_product_table(db, table_name, placeholders, batch_ids)
+
         db.execute(f"DELETE FROM stock_movements WHERE product_id IN ({placeholders})", batch_ids)
         db.execute(f"DELETE FROM stock_history WHERE product_id IN ({placeholders})", batch_ids)
         db.execute(f"DELETE FROM stock_batches WHERE product_id IN ({placeholders})", batch_ids)
@@ -1596,6 +1626,19 @@ def delete_all_products():
             "deleted_count": deleted_count,
         })
 
+    except sqlite3.IntegrityError as e:
+        _rollback_product_delete_transaction(db)
+        if _is_foreign_key_constraint_error(e):
+            current_app.logger.exception("DELETE ALL PRODUCTS FK ERROR")
+            return _products_json_error(
+                (
+                    "Gagal menghapus semua produk karena masih ada relasi data lama yang menahan master produk. "
+                    "Deploy patch terbaru ke VPS lalu coba lagi."
+                ),
+                409,
+            )
+        current_app.logger.exception("DELETE ALL PRODUCTS INTEGRITY ERROR")
+        return _products_json_error("Gagal menghapus semua produk.", 500)
     except sqlite3.OperationalError as e:
         _rollback_product_delete_transaction(db)
         if _is_sqlite_lock_error(e):
@@ -1603,11 +1646,11 @@ def delete_all_products():
                 "Database sedang sibuk. Coba ulang hapus semua produk beberapa detik lagi.",
                 503,
             )
-        print("DELETE ALL PRODUCTS ERROR:", e)
+        current_app.logger.exception("DELETE ALL PRODUCTS ERROR")
         return _products_json_error("Gagal menghapus semua produk.", 500)
     except Exception as e:
         _rollback_product_delete_transaction(db)
-        print("DELETE ALL PRODUCTS ERROR:", e)
+        current_app.logger.exception("DELETE ALL PRODUCTS ERROR")
         return _products_json_error("Gagal menghapus semua produk.", 500)
 
 
@@ -1690,6 +1733,12 @@ def import_ipos4_products():
         summary = import_module_ref.run_import(args)
     except SystemExit as exc:
         current_app.logger.exception("iPOS4 import aborted for %s", filename)
+        return _products_json_error(_format_ipos4_import_error(exc), 500)
+    except sqlite3.OperationalError as exc:
+        if _is_sqlite_lock_error(exc):
+            current_app.logger.warning("iPOS4 import hit SQLite lock for %s", filename)
+            return _products_json_error(_format_ipos4_import_error(exc), 503)
+        current_app.logger.exception("iPOS4 import failed for %s", filename)
         return _products_json_error(_format_ipos4_import_error(exc), 500)
     except Exception as exc:
         current_app.logger.exception("iPOS4 import failed for %s", filename)

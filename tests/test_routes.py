@@ -15,6 +15,7 @@ import init_db as init_db_module
 import services.notification_service as notification_service
 import services.receipt_pdf_service as receipt_pdf_service
 import services.whatsapp_service as whatsapp_service
+from openpyxl import Workbook
 from services.event_notification_policy import (
     get_event_notification_policy,
     save_event_notification_policy,
@@ -354,6 +355,67 @@ class WmsRoutesTestCase(unittest.TestCase):
             archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
             archive.writestr("xl/sharedStrings.xml", shared_strings_xml)
 
+        output.seek(0)
+        return output.getvalue()
+
+    def build_crm_import_workbook_bytes(self):
+        workbook = Workbook()
+        database_sheet = workbook.active
+        database_sheet.title = "DATABASE"
+        database_sheet.append(
+            [
+                "Luar Biasa..",
+                "Nama Pelanggan",
+                "Jenis Kelamin",
+                "Kategori",
+                "Nomor Nota",
+                "Nomor HP",
+                "Lokasi",
+                "STATUS",
+                "Mark",
+            ]
+        )
+        database_sheet.append(
+            [
+                datetime(2025, 1, 15),
+                "EGY",
+                "LAKI-LAKI",
+                "SENARAN",
+                33333,
+                "wa.me/+6281234567890",
+                "MATARAM SPORT",
+                "",
+                "s",
+            ]
+        )
+        database_sheet.append(
+            [
+                datetime(2025, 1, 16),
+                "RUDI",
+                "LAKI-LAKI",
+                "UMUM",
+                37840,
+                "wa.me/+6281234500001",
+                "MEGA SPORT",
+                "",
+                "x",
+            ]
+        )
+
+        sales_sheet = workbook.create_sheet("DATABASE PENJUALAN")
+        sales_sheet.append(["Nomor Nota", "PEMBELIAN", "Lokasi", "Jumlah Pcs"])
+        sales_sheet.append([33333, "S/B AERO 66", "MATARAM SPORTS", 1])
+        sales_sheet.append([33333, "R/B ASTROX 77", "MATARAM SPORTS", 1])
+        sales_sheet.append([37840, "GRIP SUPER TAC", "MEGA SPORTS", 2])
+
+        member_sheet = workbook.create_sheet("MEMBER SENARAN MTRM")
+        member_sheet.append(["DATA MEMBERSHIP CARD SENAR BADMINTON MATARAM SPORTS"])
+        member_sheet.append(["No ID Pelanggan", "Nama", "Sejak", "NO. NOTA PEMBELIAN KE-", None, None, None, None, None, "FREE"])
+        member_sheet.append([None, None, None, 1, 2, 3, 4, 5, 6, None])
+        member_sheet.append(["0001", "EGY", datetime(2025, 1, 15), 33333, None, None, None, None, None, None])
+
+        output = BytesIO()
+        workbook.save(output)
         output.seek(0)
         return output.getvalue()
 
@@ -849,6 +911,125 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(any("CRM-OPT-001" in label for label in scoped_labels))
         self.assertTrue(any("CRM-OPT-002" in label for label in scoped_labels))
         self.assertTrue(all("CRM-OPT-999" not in label for label in scoped_labels))
+
+    def test_crm_page_includes_excel_import_form_for_manage_role(self):
+        self.login()
+
+        response = self.client.get("/crm/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn('action="/crm/import"', html)
+        self.assertIn('name="crm_file"', html)
+        self.assertIn("DATABASE PENJUALAN", html)
+
+    def test_crm_import_excel_creates_customers_purchases_memberships_and_summary_fallback(self):
+        self.create_user("super_admin_crm_import", "pass1234", "super_admin")
+        self.login("super_admin_crm_import", "pass1234")
+        workbook_bytes = self.build_crm_import_workbook_bytes()
+
+        response = self.client.post(
+            "/crm/import",
+            data={
+                "tab": "contacts",
+                "crm_file": (BytesIO(workbook_bytes), "crm-import.xlsx"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Import CRM Excel selesai", html)
+
+        with self.app.app_context():
+            db = get_db()
+            customer_count = db.execute("SELECT COUNT(*) AS total FROM crm_customers").fetchone()["total"]
+            purchase_count = db.execute("SELECT COUNT(*) AS total FROM crm_purchase_records").fetchone()["total"]
+            member_count = db.execute("SELECT COUNT(*) AS total FROM crm_memberships").fetchone()["total"]
+            egys_customer = db.execute(
+                """
+                SELECT id, customer_type, phone
+                FROM crm_customers
+                WHERE warehouse_id=1 AND customer_name='EGY'
+                """
+            ).fetchone()
+            purchase_row = db.execute(
+                """
+                SELECT invoice_no, import_items_summary, import_total_qty
+                FROM crm_purchase_records
+                WHERE warehouse_id=1 AND invoice_no='33333'
+                """
+            ).fetchone()
+            member_row = db.execute(
+                """
+                SELECT member_code, member_type, opening_stringing_visits
+                FROM crm_memberships
+                WHERE warehouse_id=1
+                """
+            ).fetchone()
+
+        self.assertEqual(customer_count, 2)
+        self.assertEqual(purchase_count, 2)
+        self.assertEqual(member_count, 1)
+        self.assertIsNotNone(egys_customer)
+        self.assertEqual(egys_customer["customer_type"], "member")
+        self.assertEqual(egys_customer["phone"], "6281234567890")
+        self.assertEqual(purchase_row["import_total_qty"], 2)
+        self.assertIn("S/B AERO 66 x1", purchase_row["import_items_summary"])
+        self.assertIn("R/B ASTROX 77 x1", purchase_row["import_items_summary"])
+        self.assertEqual(member_row["member_type"], "stringing")
+        self.assertEqual(member_row["opening_stringing_visits"], 1)
+        self.assertIn("CRM-STR-MTRM-0001", member_row["member_code"])
+
+        purchases_page = self.client.get("/crm/?tab=purchases")
+        purchases_html = purchases_page.get_data(as_text=True)
+        self.assertIn("S/B AERO 66 x1", purchases_html)
+
+    def test_crm_import_excel_is_idempotent_for_scoped_warehouse(self):
+        self.create_user("leader_crm_import_scope", "pass1234", "leader", warehouse_id=1)
+        self.login("leader_crm_import_scope", "pass1234")
+        workbook_bytes = self.build_crm_import_workbook_bytes()
+
+        for _ in range(2):
+            response = self.client.post(
+                "/crm/import",
+                data={
+                    "tab": "contacts",
+                    "warehouse": "2",
+                    "crm_file": (BytesIO(workbook_bytes), "crm-import.xlsx"),
+                },
+                content_type="multipart/form-data",
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            warehouse_one_customers = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_customers WHERE warehouse_id=1"
+            ).fetchone()["total"]
+            warehouse_two_customers = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_customers WHERE warehouse_id=2"
+            ).fetchone()["total"]
+            warehouse_one_purchases = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_purchase_records WHERE warehouse_id=1"
+            ).fetchone()["total"]
+            warehouse_two_purchases = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_purchase_records WHERE warehouse_id=2"
+            ).fetchone()["total"]
+            warehouse_one_members = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_memberships WHERE warehouse_id=1"
+            ).fetchone()["total"]
+            warehouse_two_members = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_memberships WHERE warehouse_id=2"
+            ).fetchone()["total"]
+
+        self.assertEqual(warehouse_one_customers, 1)
+        self.assertEqual(warehouse_two_customers, 0)
+        self.assertEqual(warehouse_one_purchases, 1)
+        self.assertEqual(warehouse_two_purchases, 0)
+        self.assertEqual(warehouse_one_members, 1)
+        self.assertEqual(warehouse_two_members, 0)
 
     def test_admin_and_hris_pages_include_reusable_searchable_select_component(self):
         self.create_user("role_admin_searchable_select", "pass1234", "super_admin")
@@ -13534,6 +13715,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertIn("izin menulis file kerja import", payload["message"])
 
+    def test_import_ipos4_returns_retryable_message_when_database_locked(self):
+        self.login()
+        mocked_import_module = Mock()
+        mocked_import_module.run_import.side_effect = sqlite3.OperationalError("database is locked")
+
+        with patch("routes.products.import_module", return_value=mocked_import_module):
+            response = self.client.post(
+                "/products/import/ipos4",
+                data={
+                    "mode": "full_except_stock",
+                    "file": (BytesIO(b"ipos4-backup"), "sample.i4bu"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 503)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("database erp sedang sibuk", payload["message"].lower())
+
     def test_latest_ipos4_import_run_returns_undo_metadata(self):
         self.login()
 
@@ -14736,6 +14937,100 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(remaining_count, 0)
+
+    def test_delete_all_products_cleans_related_so_and_ipos_mapping_rows(self):
+        self.create_user("leader_delete_all_related", "pass1234", "leader", warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            product_id = db.execute(
+                """
+                INSERT INTO products(sku, name, category_id, unit_label, variant_mode)
+                VALUES (?,?,?,?,?)
+                """,
+                ("DEL-ALL-REL-001", "Produk Relasi", None, "pcs", "non_variant"),
+            ).lastrowid
+            variant_id = db.execute(
+                """
+                INSERT INTO product_variants(product_id, variant, price_retail, price_discount, price_nett, variant_code, color, gtin, no_gtin)
+                VALUES (?,?,?,?,?,'','','',1)
+                """,
+                (product_id, "default", 0, 0, 0),
+            ).lastrowid
+            db.execute(
+                "INSERT INTO stock(product_id, variant_id, warehouse_id, qty) VALUES (?,?,?,?)",
+                (product_id, variant_id, 1, 3),
+            )
+            db.execute(
+                """
+                INSERT INTO stock_opname_results(product_id, variant_id, warehouse_id, area_kind, system_qty, physical_qty, diff_qty, user_id)
+                VALUES (?,?,?,?,?,?,?,NULL)
+                """,
+                (product_id, variant_id, 1, "display", 0, 1, 1),
+            )
+            db.execute(
+                """
+                INSERT INTO stock_area_balances(product_id, variant_id, warehouse_id, area_kind, qty, updated_by)
+                VALUES (?,?,?,?,?,NULL)
+                """,
+                (product_id, variant_id, 1, "display", 1),
+            )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ipos_import_product_map(
+                    source_item_code TEXT PRIMARY KEY,
+                    source_item_name TEXT,
+                    product_id INTEGER NOT NULL,
+                    source_dump TEXT,
+                    synced_at TEXT NOT NULL,
+                    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO ipos_import_product_map(source_item_code, source_item_name, product_id, source_dump, synced_at)
+                VALUES (?,?,?,?,datetime('now'))
+                """,
+                ("REL-001", "Produk Relasi", product_id, "/tmp/dump.i4bu"),
+            )
+            db.commit()
+
+        self.login("leader_delete_all_related", "pass1234")
+        response = self.client.post(
+            "/products/delete-all",
+            json={"confirmation_text": "HAPUS SEMUA PRODUK"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["deleted_count"], 1)
+
+        with self.app.app_context():
+            db = get_db()
+            product_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id=?",
+                (product_id,),
+            ).fetchone()[0]
+            so_count = db.execute(
+                "SELECT COUNT(*) FROM stock_opname_results WHERE product_id=?",
+                (product_id,),
+            ).fetchone()[0]
+            area_count = db.execute(
+                "SELECT COUNT(*) FROM stock_area_balances WHERE product_id=?",
+                (product_id,),
+            ).fetchone()[0]
+            map_count = db.execute(
+                "SELECT COUNT(*) FROM ipos_import_product_map WHERE product_id=?",
+                (product_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(product_count, 0)
+        self.assertEqual(so_count, 0)
+        self.assertEqual(area_count, 0)
+        self.assertEqual(map_count, 0)
 
     def test_owner_can_update_owner_request_status_and_notify_requester(self):
         self.create_user("owner_manager", "pass1234", "owner")
@@ -17387,6 +17682,65 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(stock_response.status_code, 200)
         stock_html = stock_response.get_data(as_text=True)
         self.assertIn('data-stock-summary="total_qty">11</h3>', stock_html)
+
+    def test_stock_opname_submit_tolerates_stale_actor_fk_for_area_split_tables(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=6, variants="SOFKAREA")
+        variant_id = variants_rows[0]["id"]
+
+        with patch("routes.stock_opname._resolve_so_actor_user_id", return_value=999999):
+            response = self.client.post(
+                "/so/submit",
+                json={
+                    "warehouse_id": 1,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "display_system": 0,
+                            "display_physical": 2,
+                            "gudang_system": 6,
+                            "gudang_physical": 5,
+                        }
+                    ],
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 1)
+
+        with self.app.app_context():
+            db = get_db()
+            result_rows = db.execute(
+                """
+                SELECT COUNT(*) AS total_rows,
+                       SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS null_user_rows
+                FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            area_rows = db.execute(
+                """
+                SELECT COUNT(*) AS total_rows,
+                       SUM(CASE WHEN updated_by IS NULL THEN 1 ELSE 0 END) AS null_actor_rows
+                FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(result_rows["total_rows"], 2)
+        self.assertEqual(result_rows["null_user_rows"], 2)
+        self.assertEqual(area_rows["total_rows"], 2)
+        self.assertEqual(area_rows["null_actor_rows"], 2)
+        self.assertEqual(stock_row["qty"], 7)
 
     def test_stock_opname_adjustment_allows_null_actor_for_stale_session_mapping(self):
         self.login()

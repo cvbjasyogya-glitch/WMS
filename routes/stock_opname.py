@@ -164,6 +164,11 @@ def _is_sqlite_lock_error(exc):
     return "locked" in message and "database" in message
 
 
+def _is_foreign_key_constraint_error(exc):
+    message = str(exc or "").strip().lower()
+    return "foreign key constraint failed" in message
+
+
 def _rollback_so_transaction(db):
     try:
         db.rollback()
@@ -309,25 +314,59 @@ def _record_so_result(
     diff_qty,
     user_id,
 ):
-    db.execute(
-        """
-        INSERT INTO stock_opname_results(
-            product_id, variant_id, warehouse_id,
-            area_kind, system_qty, physical_qty, diff_qty, user_id
-        )
-        VALUES (?,?,?,?,?,?,?,?)
-        """,
-        (
-            product_id,
-            variant_id,
-            warehouse_id,
-            area_kind,
-            system_qty,
-            physical_qty,
-            diff_qty,
-            user_id,
-        ),
+    params = (
+        product_id,
+        variant_id,
+        warehouse_id,
+        area_kind,
+        system_qty,
+        physical_qty,
+        diff_qty,
+        user_id,
     )
+    try:
+        db.execute(
+            """
+            INSERT INTO stock_opname_results(
+                product_id, variant_id, warehouse_id,
+                area_kind, system_qty, physical_qty, diff_qty, user_id
+            )
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            params,
+        )
+    except sqlite3.IntegrityError as exc:
+        if not (_is_foreign_key_constraint_error(exc) and user_id is not None):
+            raise
+        current_app.logger.warning(
+            "SO result insert retried without actor because user FK is stale",
+            extra={
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "warehouse_id": warehouse_id,
+                "area_kind": area_kind,
+                "stale_user_id": user_id,
+            },
+        )
+        db.execute(
+            """
+            INSERT INTO stock_opname_results(
+                product_id, variant_id, warehouse_id,
+                area_kind, system_qty, physical_qty, diff_qty, user_id
+            )
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                product_id,
+                variant_id,
+                warehouse_id,
+                area_kind,
+                system_qty,
+                physical_qty,
+                diff_qty,
+                None,
+            ),
+        )
 
 
 def _apply_so_total_adjustment(
@@ -454,8 +493,7 @@ def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, p
 
 
 def _upsert_so_area_balance(db, product_id, variant_id, warehouse_id, area_kind, qty, user_id):
-    db.execute(
-        """
+    sql = """
         INSERT INTO stock_area_balances(
             product_id,
             variant_id,
@@ -470,16 +508,41 @@ def _upsert_so_area_balance(db, product_id, variant_id, warehouse_id, area_kind,
             qty = excluded.qty,
             updated_by = excluded.updated_by,
             updated_at = CURRENT_TIMESTAMP
-        """,
-        (
-            product_id,
-            variant_id,
-            warehouse_id,
-            area_kind,
-            qty,
-            user_id,
-        ),
+    """
+    params = (
+        product_id,
+        variant_id,
+        warehouse_id,
+        area_kind,
+        qty,
+        user_id,
     )
+    try:
+        db.execute(sql, params)
+    except sqlite3.IntegrityError as exc:
+        if not (_is_foreign_key_constraint_error(exc) and user_id is not None):
+            raise
+        current_app.logger.warning(
+            "SO area balance upsert retried without actor because user FK is stale",
+            extra={
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "warehouse_id": warehouse_id,
+                "area_kind": area_kind,
+                "stale_user_id": user_id,
+            },
+        )
+        db.execute(
+            sql,
+            (
+                product_id,
+                variant_id,
+                warehouse_id,
+                area_kind,
+                qty,
+                None,
+            ),
+        )
 
 
 def _resolve_so_area_system_quantities(total_qty, display_saved_qty):

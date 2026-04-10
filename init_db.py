@@ -124,6 +124,9 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "crm_memberships", "opening_stringing_visits", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_memberships", "opening_reward_redeemed", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_purchase_records", "transaction_type", "TEXT DEFAULT 'purchase'")
+    _ensure_column(cursor, "crm_purchase_records", "import_source", "TEXT")
+    _ensure_column(cursor, "crm_purchase_records", "import_items_summary", "TEXT")
+    _ensure_column(cursor, "crm_purchase_records", "import_total_qty", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "service_count_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "reward_redeemed_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "benefit_value", "REAL DEFAULT 0")
@@ -1299,6 +1302,9 @@ def init_db(db_path=None, sqlite_options=None):
         total_amount REAL DEFAULT 0,
         note TEXT,
         handled_by INTEGER,
+        import_source TEXT,
+        import_items_summary TEXT,
+        import_total_qty INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(customer_id) REFERENCES crm_customers(id),

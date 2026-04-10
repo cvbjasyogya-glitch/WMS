@@ -2567,7 +2567,7 @@ function bulkDelete() {
 
 function deleteAllProducts() {
     const confirmationText = window.prompt(
-        "Fitur ini akan menghapus seluruh master produk beserta stok dan variannya. Beberapa histori atau laporan yang masih terhubung ke master produk bisa ikut terdampak. Ketik HAPUS SEMUA PRODUK untuk melanjutkan."
+        "Fitur ini akan menghapus seluruh master produk beserta stok dan variannya. Beberapa histori atau laporan yang masih terhubung ke master produk bisa ikut terdampak. Untuk akun admin, aksi ini hanya mengirim approval ke leader / super admin. Ketik HAPUS SEMUA PRODUK untuk melanjutkan."
     );
 
     if (confirmationText === null) {
@@ -2599,7 +2599,7 @@ function deleteAllProducts() {
 
         if (res.ok && data.status === "success") {
             if (data.approval_status === "pending") {
-                alert(data.message || "Permintaan hapus produk sudah dikirim dan menunggu approval.");
+                alert(data.message || "Permintaan hapus produk sudah dikirim. Produk belum hilang karena masih menunggu approval leader / super admin.");
             } else {
                 notifyProductStudioMessage(data.message || "Semua produk berhasil diproses untuk dihapus.");
             }

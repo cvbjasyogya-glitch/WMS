@@ -1,10 +1,12 @@
 import json
+import sqlite3
 from urllib.parse import urlencode
 from datetime import date as date_cls
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session
 
 from database import get_db
+from services.crm_excel_import import import_crm_workbook
 from services.pagination import build_pagination_state
 from services.crm_loyalty import (
     CRM_TRANSACTION_TYPES,
@@ -160,6 +162,10 @@ def _require_crm_manage():
         return True
     flash("Tidak punya akses untuk mengelola CRM", "error")
     return False
+
+
+def _is_sqlite_lock_error(exc):
+    return "database is locked" in str(exc or "").lower()
 
 
 def _build_scope_clause(alias):
@@ -546,7 +552,8 @@ def _fetch_customers(db, search="", selected_warehouse=None):
             COALESCE(p.purchase_count, 0) AS purchase_count,
             COALESCE(p.total_spent, 0) AS total_spent,
             p.last_purchase_date,
-            COALESCE(mp.products_summary, '-') AS products_summary,
+            mp.products_summary AS products_summary,
+            COALESCE(ip.imported_products_summary, '') AS imported_products_summary,
             m.member_code,
             m.member_type,
             COALESCE(m.status, 'non_member') AS membership_status
@@ -576,6 +583,14 @@ def _fetch_customers(db, search="", selected_warehouse=None):
             JOIN product_variants v ON v.id = pi.variant_id
             GROUP BY pr.customer_id
         ) mp ON mp.customer_id = c.id
+        LEFT JOIN (
+            SELECT
+                pr.customer_id,
+                GROUP_CONCAT(DISTINCT NULLIF(TRIM(pr.import_items_summary), '')) AS imported_products_summary
+            FROM crm_purchase_records pr
+            WHERE TRIM(COALESCE(pr.import_items_summary, '')) <> ''
+            GROUP BY pr.customer_id
+        ) ip ON ip.customer_id = c.id
         LEFT JOIN crm_memberships m ON m.customer_id = c.id
         WHERE 1=1
     """
@@ -598,12 +613,25 @@ def _fetch_customers(db, search="", selected_warehouse=None):
                 OR COALESCE(c.email, '') LIKE ?
                 OR COALESCE(c.instagram_handle, '') LIKE ?
                 OR COALESCE(m.member_code, '') LIKE ?
+                OR COALESCE(ip.imported_products_summary, '') LIKE ?
             )
         """
-        params.extend([like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like])
 
     query += " ORDER BY p.last_purchase_date DESC, c.customer_name ASC, c.id DESC"
-    return [dict(row) for row in db.execute(query, params).fetchall()]
+    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    for row in rows:
+        actual_summary = (row.get("products_summary") or "").strip()
+        imported_summary = (row.get("imported_products_summary") or "").strip()
+        if actual_summary and imported_summary:
+            row["products_summary"] = f"{actual_summary} | {imported_summary}"
+        elif imported_summary:
+            row["products_summary"] = imported_summary
+        elif actual_summary:
+            row["products_summary"] = actual_summary
+        else:
+            row["products_summary"] = "-"
+    return rows
 
 
 def _build_purchase_record_filters(search="", selected_warehouse=None):
@@ -627,6 +655,7 @@ def _build_purchase_record_filters(search="", selected_warehouse=None):
                 OR COALESCE(pr.channel, '') LIKE ?
                 OR COALESCE(pr.transaction_type, '') LIKE ?
                 OR COALESCE(pr.note, '') LIKE ?
+                OR COALESCE(pr.import_items_summary, '') LIKE ?
                 OR EXISTS (
                     SELECT 1
                     FROM crm_purchase_items spi
@@ -641,7 +670,7 @@ def _build_purchase_record_filters(search="", selected_warehouse=None):
                 )
             )
         """
-        params.extend([like, like, like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like, like])
 
     return query, params
 
@@ -709,8 +738,10 @@ def _fetch_purchase_records(db, search="", selected_warehouse=None, limit=None, 
 
     for row in rows:
         item_snapshot = item_map.get(row["id"], {})
-        row["total_qty"] = item_snapshot.get("total_qty") or 0
-        row["items_summary"] = item_snapshot.get("items_summary") or "-"
+        fallback_total_qty = _to_int(row.get("import_total_qty"), 0)
+        fallback_summary = (row.get("import_items_summary") or "").strip()
+        row["total_qty"] = item_snapshot.get("total_qty") or fallback_total_qty
+        row["items_summary"] = item_snapshot.get("items_summary") or fallback_summary or "-"
 
     return rows
 
@@ -1162,6 +1193,104 @@ def crm_smart_select_options(option_type):
             "options": options,
         }
     )
+
+
+@crm_bp.route("/import", methods=["POST"])
+def import_crm_excel():
+    selected_tab = request.form.get("tab") or "contacts"
+    if not _require_crm_manage():
+        return _crm_redirect(selected_tab)
+
+    upload = request.files.get("crm_file")
+    if not upload or not (upload.filename or "").strip():
+        flash("File Excel CRM wajib dipilih dulu.", "error")
+        return _crm_redirect(selected_tab)
+
+    filename = (upload.filename or "").strip()
+    if not filename.lower().endswith(".xlsx"):
+        flash("Format file CRM harus .xlsx.", "error")
+        return _crm_redirect(selected_tab)
+
+    workbook_bytes = upload.read()
+    if not workbook_bytes:
+        flash("File CRM kosong atau gagal dibaca.", "error")
+        return _crm_redirect(selected_tab)
+
+    db = get_db()
+    raw_import_warehouse = request.form.get("warehouse")
+    if raw_import_warehouse in (None, "") and not _crm_scope_warehouse():
+        selected_warehouse = None
+    else:
+        selected_warehouse = _resolve_crm_warehouse(
+            db,
+            raw_import_warehouse,
+            allow_empty=not is_scoped_role(session.get("role")),
+        )
+    handled_by = _to_int(session.get("user_id"), 0) or None
+
+    try:
+        summary = import_crm_workbook(
+            db,
+            workbook_bytes,
+            filename=filename,
+            selected_warehouse_id=selected_warehouse,
+            handled_by=handled_by,
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return _crm_redirect(selected_tab)
+    except sqlite3.OperationalError as exc:
+        current_app.logger.exception("CRM IMPORT SQLITE ERROR")
+        if _is_sqlite_lock_error(exc):
+            flash("Import CRM gagal karena database sedang sibuk di server. Coba ulang saat traffic VPS lebih sepi.", "error")
+        else:
+            flash("Import CRM gagal diproses oleh database server.", "error")
+        return _crm_redirect(selected_tab)
+    except Exception:
+        current_app.logger.exception("CRM IMPORT ERROR")
+        flash("Import CRM gagal diproses. Cek log server untuk detail error.", "error")
+        return _crm_redirect(selected_tab)
+
+    warehouse_labels = []
+    processed_warehouse_ids = summary.get("processed_warehouses") or []
+    if processed_warehouse_ids:
+        placeholders = ",".join("?" for _ in processed_warehouse_ids)
+        warehouse_rows = db.execute(
+            f"SELECT id, name FROM warehouses WHERE id IN ({placeholders}) ORDER BY name ASC",
+            processed_warehouse_ids,
+        ).fetchall()
+        warehouse_labels = [row["name"] for row in warehouse_rows]
+
+    summary_parts = [
+        f"customer {summary['customers_created']} baru / {summary['customers_updated']} update",
+        f"histori {summary['purchases_created']} baru / {summary['purchases_updated']} update",
+        f"member {summary['memberships_created']} baru / {summary['memberships_updated']} update",
+    ]
+    if summary.get("purchases_skipped_conflict"):
+        summary_parts.append(f"{summary['purchases_skipped_conflict']} invoice manual dilewati")
+    if summary.get("memberships_skipped_conflict"):
+        summary_parts.append(f"{summary['memberships_skipped_conflict']} member bentrok dilewati")
+    if summary.get("skipped_unknown_warehouse"):
+        summary_parts.append(f"{summary['skipped_unknown_warehouse']} baris lokasi tidak dikenali")
+
+    total_changes = (
+        int(summary.get("customers_created") or 0)
+        + int(summary.get("customers_updated") or 0)
+        + int(summary.get("purchases_created") or 0)
+        + int(summary.get("purchases_updated") or 0)
+        + int(summary.get("memberships_created") or 0)
+        + int(summary.get("memberships_updated") or 0)
+    )
+
+    if total_changes <= 0:
+        flash("Import CRM selesai, tapi tidak ada data yang berubah pada scope gudang ini.", "warning")
+        return _crm_redirect(selected_tab)
+
+    warehouse_suffix = ""
+    if warehouse_labels:
+        warehouse_suffix = f" Scope: {', '.join(warehouse_labels)}."
+    flash("Import CRM Excel selesai: " + "; ".join(summary_parts) + warehouse_suffix, "success")
+    return _crm_redirect(selected_tab)
 
 
 @crm_bp.route("/customers/add", methods=["POST"])
