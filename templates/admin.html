@@ -6,6 +6,9 @@
 {% block page_subtitle %}Pusat kontrol khusus untuk mengatur user, role, scope gudang, dan governance akses sistem tanpa tercampur dengan pengaturan gudang fisik.{% endblock %}
 
 {% block page_actions %}
+{% if session.get("role") == "super_admin" %}
+<a href="/admin/permissions" class="ghost-button">Hak Akses Fitur</a>
+{% endif %}
 <a href="/admin/warehouses" class="ghost-button">Sistem Gudang</a>
 {% endblock %}
 

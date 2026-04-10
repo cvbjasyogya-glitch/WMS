@@ -3,7 +3,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, current_app, render_template, request, redirect, session, url_for, flash
 from database import get_db
 from services.notification_service import send_email, send_whatsapp
-from services.rbac import is_scoped_role, normalize_role
+from services.rbac import is_scoped_role, load_user_permission_override_snapshot, normalize_role
 from services.auth_security import (
     clear_login_failures,
     get_client_ip,
@@ -109,6 +109,9 @@ def login():
         session["username"] = user["username"]
         session["role"] = normalized_role
         session["employee_id"] = user.get("employee_id")
+        permission_snapshot = load_user_permission_override_snapshot(db, user["id"])
+        session["permission_grants"] = sorted(permission_snapshot["allow"])
+        session["permission_denies"] = sorted(permission_snapshot["deny"])
         session["chat_sound_volume"] = float(
             user.get("chat_sound_volume")
             if user.get("chat_sound_volume") is not None

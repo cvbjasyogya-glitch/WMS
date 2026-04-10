@@ -9,7 +9,18 @@ from services.event_notification_policy import (
     row_matches_notification_aliases,
     save_event_notification_policy,
 )
-from services.rbac import has_permission, is_scoped_role, normalize_role
+from services.rbac import (
+    SELF_PROTECTED_PERMISSION_DENIES,
+    get_permission_label,
+    get_permissions,
+    get_role_permissions,
+    has_permission,
+    is_scoped_role,
+    list_permission_groups,
+    load_user_permission_overrides,
+    normalize_role,
+    save_user_permission_overrides,
+)
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -92,11 +103,20 @@ def require_admin():
     return True
 
 
+def require_super_admin():
+    if normalize_role(session.get("role")) != "super_admin":
+        flash("Pengaturan hak akses khusus hanya bisa diatur oleh super admin.", "error")
+        return False
+    return True
+
+
 def _admin_redirect(section="access"):
     if section == "warehouses":
         return redirect("/admin/warehouses")
     if section == "notifications":
         return redirect("/admin/notifications")
+    if section == "permissions":
+        return redirect("/admin/permissions")
     return redirect("/admin/")
 
 
@@ -336,6 +356,95 @@ def _load_admin_context():
     }
 
 
+def _build_permission_admin_context(users):
+    db = get_db()
+    user_ids = [int(user["id"]) for user in users if user.get("id")]
+    override_map = load_user_permission_overrides(db, user_ids)
+
+    permission_groups = []
+    total_custom_users = 0
+    total_grants = 0
+    total_denies = 0
+
+    for group in list_permission_groups():
+        permission_groups.append(
+            {
+                "key": group["key"],
+                "label": group["label"],
+                "permissions": [dict(permission) for permission in group["permissions"]],
+            }
+        )
+
+    permission_users = []
+    for user in users:
+        user_id = int(user["id"])
+        override_snapshot = override_map.get(user_id, {"allow": set(), "deny": set()})
+        grants = set(override_snapshot.get("allow") or set())
+        denies = set(override_snapshot.get("deny") or set())
+        if grants or denies:
+            total_custom_users += 1
+        total_grants += len(grants)
+        total_denies += len(denies)
+
+        base_permissions = get_role_permissions(user["role"])
+        effective_permissions = get_permissions(user["role"], grants=grants, denies=denies)
+
+        group_cards = []
+        for group in permission_groups:
+            permission_rows = []
+            active_count = 0
+            for permission in group["permissions"]:
+                permission_key = permission["key"]
+                is_role_default = permission_key in base_permissions
+                is_granted = permission_key in grants
+                is_denied = permission_key in denies
+                is_effective = permission_key in effective_permissions
+                if is_effective:
+                    active_count += 1
+                permission_rows.append(
+                    {
+                        **permission,
+                        "is_role_default": is_role_default,
+                        "is_granted": is_granted,
+                        "is_denied": is_denied,
+                        "is_effective": is_effective,
+                    }
+                )
+            group_cards.append(
+                {
+                    "key": group["key"],
+                    "label": group["label"],
+                    "permissions": permission_rows,
+                    "active_count": active_count,
+                    "total_count": len(permission_rows),
+                }
+            )
+
+        permission_users.append(
+            {
+                **user,
+                "role_permission_count": len(base_permissions),
+                "effective_permission_count": len(effective_permissions),
+                "custom_grants": sorted(grants),
+                "custom_denies": sorted(denies),
+                "custom_grant_labels": [get_permission_label(permission) for permission in sorted(grants)],
+                "custom_deny_labels": [get_permission_label(permission) for permission in sorted(denies)],
+                "permission_groups": group_cards,
+            }
+        )
+
+    return {
+        "permission_groups": permission_groups,
+        "permission_users": permission_users,
+        "permission_summary": {
+            "managed_permissions": sum(len(group["permissions"]) for group in permission_groups),
+            "custom_users": total_custom_users,
+            "custom_grants": total_grants,
+            "custom_denies": total_denies,
+        },
+    }
+
+
 def _resolve_employee_link(db, role, warehouse_id, raw_employee_id):
     employee_id = raw_employee_id or None
     if not employee_id:
@@ -369,6 +478,67 @@ def admin_page():
         admin_section="access",
         **_load_admin_context(),
     )
+
+
+@admin_bp.route("/permissions")
+def permission_admin_page():
+    if not require_admin():
+        return redirect("/")
+    if not require_super_admin():
+        return _admin_redirect()
+
+    admin_context = _load_admin_context()
+    permission_context = _build_permission_admin_context(admin_context["users"])
+    return render_template(
+        "admin_permissions.html",
+        admin_section="permissions",
+        **permission_context,
+        **admin_context,
+    )
+
+
+@admin_bp.route("/permissions/<int:user_id>", methods=["POST"])
+def update_user_permissions(user_id):
+    if not require_admin():
+        return redirect("/")
+    if not require_super_admin():
+        return _admin_redirect()
+
+    db = get_db()
+    user = db.execute(
+        "SELECT id, username, role FROM users WHERE id=?",
+        (user_id,),
+    ).fetchone()
+    if not user:
+        flash("User target permission tidak ditemukan.", "error")
+        return _admin_redirect("permissions")
+
+    grant_permissions = set(request.form.getlist("grant_permissions"))
+    deny_permissions = set(request.form.getlist("deny_permissions"))
+    if grant_permissions & deny_permissions:
+        flash("Permission yang sama tidak boleh masuk grant dan cabut akses sekaligus.", "error")
+        return _admin_redirect("permissions")
+
+    current_user_id = session.get("user_id")
+    if current_user_id == user_id and deny_permissions.intersection(SELF_PROTECTED_PERMISSION_DENIES):
+        flash("Akun login sendiri tidak boleh mencabut akses workspace atau admin dari panel ini.", "error")
+        return _admin_redirect("permissions")
+
+    try:
+        save_user_permission_overrides(
+            db,
+            user_id,
+            allow_permissions=grant_permissions,
+            deny_permissions=deny_permissions,
+            updated_by=current_user_id,
+        )
+    except ValueError:
+        flash("Konfigurasi hak akses tidak valid.", "error")
+        return _admin_redirect("permissions")
+
+    db.commit()
+    flash(f"Hak akses khusus untuk {user['username']} berhasil diperbarui.", "success")
+    return _admin_redirect("permissions")
 
 
 @admin_bp.route("/warehouses")

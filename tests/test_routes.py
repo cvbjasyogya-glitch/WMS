@@ -17110,6 +17110,79 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/admin/")
         self.assertEqual(response.status_code, 200)
 
+    def test_super_admin_can_access_permission_admin_page(self):
+        self.create_user("super_permission_admin", "pass1234", "super_admin")
+        self.login("super_permission_admin", "pass1234")
+
+        response = self.client.get("/admin/permissions")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Hak Akses Fitur", html)
+        self.assertIn("Override Hak Akses Per User", html)
+
+    def test_owner_cannot_access_permission_admin_page(self):
+        self.create_user("owner_permission_admin", "pass1234", "owner")
+        self.login("owner_permission_admin", "pass1234")
+
+        response = self.client.get("/admin/permissions", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/", response.headers.get("Location", ""))
+
+    def test_super_admin_can_grant_crm_access_to_intern_via_admin_permission_page(self):
+        self.create_user("super_permission_grant", "pass1234", "super_admin")
+        self.create_user("intern_permission_target", "pass1234", "intern", warehouse_id=1)
+        target_user_id = self.get_user_id("intern_permission_target")
+
+        self.login("super_permission_grant", "pass1234")
+        update_response = self.client.post(
+            f"/admin/permissions/{target_user_id}",
+            data={"grant_permissions": ["view_crm"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            overrides = db.execute(
+                """
+                SELECT permission_key, access_state
+                FROM user_permission_overrides
+                WHERE user_id=?
+                """,
+                (target_user_id,),
+            ).fetchall()
+        self.assertEqual(len(overrides), 1)
+        self.assertEqual(overrides[0]["permission_key"], "view_crm")
+        self.assertEqual(overrides[0]["access_state"], "allow")
+
+        self.logout()
+        self.login("intern_permission_target", "pass1234")
+        crm_response = self.client.get("/crm/", follow_redirects=False)
+        self.assertEqual(crm_response.status_code, 200)
+        self.assertIn("CRM Customer Hub", crm_response.get_data(as_text=True))
+
+    def test_super_admin_can_revoke_default_crm_access_from_leader(self):
+        self.create_user("super_permission_revoke", "pass1234", "super_admin")
+        self.create_user("leader_permission_target", "pass1234", "leader", warehouse_id=1)
+        target_user_id = self.get_user_id("leader_permission_target")
+
+        self.login("super_permission_revoke", "pass1234")
+        update_response = self.client.post(
+            f"/admin/permissions/{target_user_id}",
+            data={"deny_permissions": ["view_crm"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        self.logout()
+        self.login("leader_permission_target", "pass1234")
+        crm_response = self.client.get("/crm/", follow_redirects=False)
+
+        self.assertEqual(crm_response.status_code, 302)
+        self.assertIn("/schedule/", crm_response.headers.get("Location", ""))
+
     def test_owner_admin_page_focuses_on_access_and_roles(self):
         self.create_user("owner_access", "pass1234", "owner")
         self.login("owner_access", "pass1234")

@@ -1,12 +1,17 @@
 <div class="box admin-local-nav-box">
     <div class="split-actions admin-local-nav">
         <a href="/admin/" class="ghost-button {% if admin_section == 'access' %}active{% endif %}">Akses &amp; Role</a>
+        {% if session.get("role") == "super_admin" %}
+        <a href="/admin/permissions" class="ghost-button {% if admin_section == 'permissions' %}active{% endif %}">Hak Akses Fitur</a>
+        {% endif %}
         <a href="/admin/warehouses" class="ghost-button {% if admin_section == 'warehouses' %}active{% endif %}">Sistem Gudang</a>
         <a href="/admin/notifications" class="ghost-button {% if admin_section == 'notifications' %}active{% endif %}">Klasifikasi Notif</a>
     </div>
     <small class="helper-text">
         {% if admin_section == "access" %}
         Halaman ini khusus untuk mengatur role, user, notifikasi akun, dan kontrol akses sistem.
+        {% elif admin_section == "permissions" %}
+        Halaman ini khusus untuk super admin yang ingin memberi akses tambahan atau mencabut akses default per user tanpa mengubah role dasarnya.
         {% elif admin_section == "notifications" %}
         Halaman ini khusus untuk mengatur event notifikasi ERP yang dikirim ke role dan user tertentu tanpa ubah kode.
         {% else %}

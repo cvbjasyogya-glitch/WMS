@@ -130,6 +130,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "crm_member_records", "service_count_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "reward_redeemed_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "benefit_value", "REAL DEFAULT 0")
+    _ensure_column(cursor, "user_permission_overrides", "updated_by", "INTEGER")
     _ensure_column(cursor, "pos_sales", "subtotal_amount", "REAL DEFAULT 0")
     _ensure_column(cursor, "pos_sales", "discount_type", "TEXT DEFAULT 'amount'")
     _ensure_column(cursor, "pos_sales", "discount_value", "REAL DEFAULT 0")
@@ -712,6 +713,21 @@ def init_db(db_path=None, sqlite_options=None):
             c.execute("DROP TABLE users_old")
     except Exception:
         pass
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS user_permission_overrides(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        permission_key TEXT NOT NULL,
+        access_state TEXT NOT NULL,
+        updated_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, permission_key),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id)
+    )
+    """)
 
     migrate_schema(c)
 
@@ -1696,6 +1712,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_records_main ON crm_purchase_records(warehouse_id, purchase_date, customer_id, member_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_purchase_items_main ON crm_purchase_items(purchase_id, product_id, variant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_member_records_main ON crm_member_records(warehouse_id, record_date, member_id, record_type)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user ON user_permission_overrides(user_id, access_state, permission_key)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_main ON pos_sales(warehouse_id, sale_date, cashier_user_id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_receipt ON pos_sales(receipt_no)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_main ON chat_threads(last_message_at, updated_at)")

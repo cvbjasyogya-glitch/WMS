@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}Hak Akses Fitur | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Administrasi Sistem{% endblock %}
+{% block page_title %}Hak Akses Fitur{% endblock %}
+{% block page_subtitle %}Panel khusus super admin untuk memberi akses tambahan atau mencabut akses default per user tanpa mengubah role utama dan tanpa edit kode manual di VPS.{% endblock %}
+
+{% block page_actions %}
+<a href="/admin/" class="ghost-button">Kembali ke Admin</a>
+{% endblock %}
+
+{% block content %}
+{% include "partials/admin_local_nav.html" %}
+
+<div class="summary">
+    <div class="card-mini">
+        <p>User Dengan Override</p>
+        <h3>{{ permission_summary.custom_users }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Grant Khusus</p>
+        <h3>{{ permission_summary.custom_grants }}</h3>
+    </div>
+    <div class="card-mini warning">
+        <p>Akses Dicabut</p>
+        <h3>{{ permission_summary.custom_denies }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Permission Terkelola</p>
+        <h3>{{ permission_summary.managed_permissions }}</h3>
+    </div>
+</div>
+
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Total User</span>
+        <strong>{{ permission_users|length }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Role Global</span>
+        <strong>{{ health.global_roles }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Role Scoped</span>
+        <strong>{{ health.scoped_roles }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Grup Permission</span>
+        <strong>{{ permission_groups|length }}</strong>
+    </div>
+</div>
+
+<div class="box">
+    <p class="helper-text">Checkbox di kolom grant hanya muncul untuk fitur yang belum dimiliki role bawaan user. Checkbox di kolom cabut akses hanya muncul untuk fitur yang memang sudah aktif dari role dasarnya. Akses `Workspace` dan `Admin` untuk akun login sendiri tidak bisa dicabut dari panel ini agar super admin tidak terkunci keluar.</p>
+</div>
+
+<details class="table-box panel-disclosure" open>
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Override Hak Akses Per User</h2>
+                <p>Gunakan panel ini untuk mengatur siapa saja yang bisa membuka fitur tertentu tanpa perlu membuat role baru.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ permission_users|length }} user</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        {% if permission_users %}
+        <div class="stack-scroll-list">
+            {% for user in permission_users %}
+            <details class="box stack-scroll-card box-no-margin panel-disclosure">
+                <summary class="panel-summary">
+                    <div class="section-title">
+                        <div>
+                            <h2>{{ user.employee_name or user.username }}</h2>
+                            <p>@{{ user.username }} | {{ user.role }}{% if user.warehouse_name %} | {{ user.warehouse_name }}{% endif %}</p>
+                        </div>
+                    </div>
+                    <div class="panel-summary-meta">
+                        <span class="badge">Default {{ user.role_permission_count }}</span>
+                        <span class="badge success">Efektif {{ user.effective_permission_count }}</span>
+                        {% if user.custom_grants %}
+                        <span class="badge">{{ user.custom_grants|length }} grant</span>
+                        {% endif %}
+                        {% if user.custom_denies %}
+                        <span class="badge warning">{{ user.custom_denies|length }} cabut</span>
+                        {% endif %}
+                        <span class="panel-summary-state">Atur</span>
+                    </div>
+                </summary>
+                <div class="panel-content">
+                    <div class="meta-grid">
+                        <div class="meta-card">
+                            <span>Grant Khusus</span>
+                            <strong>{{ user.custom_grants|length }}</strong>
+                            <small class="helper-text">{{ user.custom_grant_labels|join(", ") if user.custom_grant_labels else "-" }}</small>
+                        </div>
+                        <div class="meta-card">
+                            <span>Akses Dicabut</span>
+                            <strong>{{ user.custom_denies|length }}</strong>
+                            <small class="helper-text">{{ user.custom_deny_labels|join(", ") if user.custom_deny_labels else "-" }}</small>
+                        </div>
+                    </div>
+
+                    <form method="POST" action="/admin/permissions/{{ user.id }}">
+                        {% for group in user.permission_groups %}
+                        <div class="form-box">
+                            <div class="section-title">
+                                <div>
+                                    <h2>{{ group.label }}</h2>
+                                    <p>{{ group.active_count }} dari {{ group.total_count }} permission sedang aktif efektif untuk user ini.</p>
+                                </div>
+                            </div>
+                            <div class="cards admin-role-guide-grid">
+                                {% for permission in group.permissions %}
+                                <article class="card admin-role-card {% if permission.is_effective %}success{% endif %}">
+                                    <p>{{ permission.key }}</p>
+                                    <h2>{{ permission.label }}</h2>
+                                    <p class="admin-role-copy">{{ permission.description }}</p>
+                                    <div class="admin-role-card-meta">
+                                        {% if permission.is_effective %}
+                                        <span class="status-pill">Aktif</span>
+                                        {% else %}
+                                        <span class="status-pill">Nonaktif</span>
+                                        {% endif %}
+                                        {% if permission.is_role_default %}
+                                        <span class="status-pill">Default Role</span>
+                                        {% else %}
+                                        <span class="status-pill">Opsional</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="stack-gap-sm">
+                                        {% if permission.is_role_default %}
+                                        <label>
+                                            <input type="checkbox" name="deny_permissions" value="{{ permission.key }}" {% if permission.is_denied %}checked{% endif %}>
+                                            Cabut akses default ini
+                                        </label>
+                                        {% else %}
+                                        <label>
+                                            <input type="checkbox" name="grant_permissions" value="{{ permission.key }}" {% if permission.is_granted %}checked{% endif %}>
+                                            Tambah akses khusus ini
+                                        </label>
+                                        {% endif %}
+                                    </div>
+                                </article>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="split-actions stack-gap-md">
+                            <button type="submit">Simpan Hak Akses</button>
+                        </div>
+                    </form>
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">Belum ada user untuk diatur hak aksesnya.</div>
+        {% endif %}
+    </div>
+</details>
+{% endblock %}

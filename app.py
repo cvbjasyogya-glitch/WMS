@@ -10,7 +10,14 @@ from config import Config
 from database import close_db, get_db
 from datetime import datetime, timezone
 from services.notification_service import send_email, send_whatsapp
-from services.rbac import can_access_pos_terminal, has_permission, is_scoped_role, normalize_role
+from services.rbac import (
+    can_access_pos_terminal,
+    has_permission,
+    is_scoped_role,
+    load_user_permission_override_snapshot,
+    normalize_role,
+    request_has_custom_permission_grants,
+)
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -185,6 +192,8 @@ def _role_default_redirect_target(role):
 
 
 def _role_can_open_endpoint(role, endpoint):
+    if request_has_custom_permission_grants():
+        return True
     rules = RESTRICTED_ROLE_ENDPOINT_RULES.get(normalize_role(role))
     if not rules:
         return True
@@ -1095,6 +1104,9 @@ def create_app():
         session["username"] = user["username"]
         session["role"] = normalized_role
         session["employee_id"] = user["employee_id"]
+        permission_snapshot = load_user_permission_override_snapshot(db, user["id"])
+        session["permission_grants"] = sorted(permission_snapshot["allow"])
+        session["permission_denies"] = sorted(permission_snapshot["deny"])
         session["chat_sound_volume"] = float(
             user["chat_sound_volume"]
             if user["chat_sound_volume"] is not None
