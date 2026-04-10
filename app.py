@@ -673,6 +673,15 @@ def create_app():
 
     app = Flask(__name__)
     app.config.from_object(Config)
+    os.makedirs(app.instance_path, exist_ok=True)
+    app.config.setdefault(
+        "IPOS4_IMPORT_RUNTIME_DIR",
+        os.path.join(app.instance_path, "ipos4_runtime"),
+    )
+    app.config.setdefault(
+        "IPOS4_MIRROR_DB_PATH",
+        os.path.join(app.instance_path, "ipos4_mirror.db"),
+    )
     app.config.setdefault(
         "BIOMETRIC_PHOTO_UPLOAD_FOLDER",
         os.path.join(app.root_path, "static", "uploads", "geotag"),

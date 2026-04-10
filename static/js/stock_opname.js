@@ -75,6 +75,32 @@
             .replace(/'/g, "&#39;");
     }
 
+    async function readResponsePayload(response) {
+        const rawText = await response.text();
+        let payload = {};
+
+        try {
+            payload = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            payload = {};
+        }
+
+        return { payload, rawText };
+    }
+
+    function extractServerMessage(payload, rawText, fallbackMessage) {
+        const payloadMessage = payload?.error || payload?.message;
+        if (payloadMessage) {
+            return String(payloadMessage);
+        }
+
+        const cleanedText = String(rawText || "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        return cleanedText ? cleanedText.slice(0, 220) : fallbackMessage;
+    }
+
     function readInt(rawValue, fallback = null) {
         const value = Number.parseInt(String(rawValue ?? "").trim(), 10);
         return Number.isNaN(value) ? fallback : value;
@@ -362,12 +388,19 @@
 
     async function loadPage(page) {
         const response = await fetch(`${config.listUrl || "/so"}?${buildQuery({ page })}`, {
-            headers: { "X-Requested-With": "XMLHttpRequest" },
+            headers: {
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            credentials: "same-origin",
         });
+        const { payload, rawText } = await readResponsePayload(response);
         if (!response.ok) {
+            throw new Error(extractServerMessage(payload, rawText, messages.loadError));
+        }
+        if (!payload || typeof payload !== "object") {
             throw new Error(messages.loadError);
         }
-        const payload = await response.json();
         applyPayload(payload);
     }
 
@@ -433,6 +466,7 @@
                     "Accept": "application/json",
                     "X-Requested-With": "XMLHttpRequest",
                 },
+                credentials: "same-origin",
                 body: JSON.stringify({
                     display_id: state.displayId,
                     gudang_id: state.gudangId,
@@ -442,9 +476,12 @@
                 }),
             });
 
-            const payload = await response.json();
+            const { payload, rawText } = await readResponsePayload(response);
             if (!response.ok) {
-                throw new Error(payload.error || messages.saveError);
+                throw new Error(extractServerMessage(payload, rawText, messages.saveError));
+            }
+            if (!payload || typeof payload !== "object") {
+                throw new Error(messages.saveError);
             }
 
             applyPayload(payload);

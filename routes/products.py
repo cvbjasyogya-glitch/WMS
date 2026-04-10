@@ -98,6 +98,49 @@ IPOS4_IMPORT_UI_MODES = {
 }
 
 
+def _resolve_ipos4_path(raw_value, fallback: Path) -> Path:
+    candidate = str(raw_value or "").strip()
+    if not candidate:
+        return fallback.resolve()
+
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        path = Path(current_app.root_path).resolve() / path
+    return path.resolve()
+
+
+def _get_ipos4_import_runtime_dir() -> Path:
+    instance_root = Path(current_app.instance_path).resolve()
+    instance_root.mkdir(parents=True, exist_ok=True)
+    runtime_dir = _resolve_ipos4_path(
+        current_app.config.get("IPOS4_IMPORT_RUNTIME_DIR"),
+        instance_root / "ipos4_runtime",
+    )
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    return runtime_dir
+
+
+def _get_ipos4_mirror_db_path() -> Path:
+    instance_root = Path(current_app.instance_path).resolve()
+    mirror_path = _resolve_ipos4_path(
+        current_app.config.get("IPOS4_MIRROR_DB_PATH"),
+        instance_root / "ipos4_mirror.db",
+    )
+    mirror_path.parent.mkdir(parents=True, exist_ok=True)
+    return mirror_path
+
+
+def _format_ipos4_import_error(exc: BaseException) -> str:
+    if isinstance(exc, PermissionError):
+        return (
+            "Import iPOS4 gagal: server tidak punya izin menulis file kerja import. "
+            "Cek permission folder instance/runtime di VPS."
+        )
+
+    message = str(exc).strip()
+    return f"Import iPOS4 gagal: {message or exc.__class__.__name__}"
+
+
 def _can_manage_product_master():
     return has_permission(session.get("role"), "manage_product_master")
 
@@ -1370,11 +1413,13 @@ def import_ipos4_products():
     if not mode_config:
         return _products_json_error("Mode import iPOS4 tidak dikenal.", 400)
 
-    upload_dir = Path(current_app.root_path).resolve() / "scripts" / ".tmp" / "ipos4_uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    temp_path = upload_dir / f"ipos4-{uuid.uuid4().hex}.i4bu"
+    temp_path = None
 
     try:
+        runtime_dir = _get_ipos4_import_runtime_dir()
+        upload_dir = runtime_dir / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = upload_dir / f"ipos4-{uuid.uuid4().hex}.i4bu"
         file.save(temp_path)
 
         db = g.pop("db", None)
@@ -1388,7 +1433,8 @@ def import_ipos4_products():
         args = SimpleNamespace(
             source_dump=str(temp_path),
             target_db=str(Path(current_app.config["DATABASE"]).expanduser().resolve()),
-            mirror_db=str((Path(current_app.root_path).resolve() / "instance" / "ipos4_mirror.db")),
+            mirror_db=str(_get_ipos4_mirror_db_path()),
+            workspace_dir=str(runtime_dir),
             preview=False,
             skip_mirror=mode_config["skip_mirror"],
             skip_users=mode_config["skip_users"],
@@ -1405,12 +1451,15 @@ def import_ipos4_products():
         )
         summary = import_module_ref.run_import(args)
     except SystemExit as exc:
-        return _products_json_error(f"Import iPOS4 gagal: {exc}", 500)
+        current_app.logger.exception("iPOS4 import aborted for %s", filename)
+        return _products_json_error(_format_ipos4_import_error(exc), 500)
     except Exception as exc:
-        return _products_json_error(f"Import iPOS4 gagal: {exc}", 500)
+        current_app.logger.exception("iPOS4 import failed for %s", filename)
+        return _products_json_error(_format_ipos4_import_error(exc), 500)
     finally:
         try:
-            temp_path.unlink(missing_ok=True)
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         except Exception:
             pass
 

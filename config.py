@@ -225,6 +225,14 @@ class Config:
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(12 * 1024 * 1024)))
     CHAT_ATTACHMENT_MAX_BYTES = int(os.getenv("CHAT_ATTACHMENT_MAX_BYTES", str(10 * 1024 * 1024)))
     CHAT_SOUND_VOLUME_DEFAULT = float(os.getenv("CHAT_SOUND_VOLUME_DEFAULT", "0.85"))
+    IPOS4_IMPORT_RUNTIME_DIR = os.getenv(
+        "IPOS4_IMPORT_RUNTIME_DIR",
+        os.path.join(BASE_DIR, "instance", "ipos4_runtime"),
+    )
+    IPOS4_MIRROR_DB_PATH = os.getenv(
+        "IPOS4_MIRROR_DB_PATH",
+        os.path.join(BASE_DIR, "instance", "ipos4_mirror.db"),
+    )
     KIRIMI_BASE_URL = _first_env_value("KIRIMI_BASE_URL", default="https://api.kirimi.id")
     KIRIMI_USER_CODE = _first_env_value("KIRIMI_USER_CODE")
     KIRIMI_DEVICE_ID = _first_env_value("KIRIMI_DEVICE_ID")

@@ -1,5 +1,6 @@
 import os
 import shutil
+import sqlite3
 import unittest
 import json
 import importlib
@@ -42,6 +43,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.document_upload_root = os.path.join(temp_root, f"document_uploads_{uuid4().hex}")
         self.document_signature_root = os.path.join(temp_root, f"document_signatures_{uuid4().hex}")
         self.receipt_pdf_root = os.path.join(temp_root, f"receipt_pdfs_{uuid4().hex}")
+        self.ipos4_runtime_root = os.path.join(temp_root, f"ipos4_runtime_{uuid4().hex}")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -67,6 +69,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             POS_RECEIPT_PDF_RENDERER="legacy",
             POS_AUTO_PRINT_AFTER_CHECKOUT=False,
             PUBLIC_BASE_URL="https://erp.test",
+            IPOS4_IMPORT_RUNTIME_DIR=self.ipos4_runtime_root,
+            IPOS4_MIRROR_DB_PATH=os.path.join(self.ipos4_runtime_root, "ipos4_mirror.db"),
             SECRET_KEY="test-secret-key",
             LOGIN_THROTTLE_LIMIT=3,
             LOGIN_THROTTLE_WINDOW_SECONDS=300,
@@ -90,6 +94,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             shutil.rmtree(self.document_signature_root)
         if os.path.isdir(self.receipt_pdf_root):
             shutil.rmtree(self.receipt_pdf_root)
+        if os.path.isdir(self.ipos4_runtime_root):
+            shutil.rmtree(self.ipos4_runtime_root)
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -13501,11 +13507,32 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["selected_mode_label"], "Full ERP kecuali Stock")
 
         args = captured["args"]
+        self.assertTrue(str(args.source_dump).startswith(self.ipos4_runtime_root))
+        self.assertTrue(str(args.workspace_dir).startswith(self.ipos4_runtime_root))
+        self.assertTrue(str(args.mirror_db).startswith(self.ipos4_runtime_root))
         self.assertFalse(args.skip_users)
         self.assertFalse(args.skip_warehouses)
         self.assertFalse(args.skip_customers)
         self.assertFalse(args.skip_sales)
         self.assertTrue(args.skip_stock)
+
+    def test_import_ipos4_returns_json_error_when_runtime_dir_not_writable(self):
+        self.login()
+
+        with patch("routes.products._get_ipos4_import_runtime_dir", side_effect=PermissionError("denied")):
+            response = self.client.post(
+                "/products/import/ipos4",
+                data={
+                    "mode": "products_only",
+                    "file": (BytesIO(b"ipos4-backup"), "sample.i4bu"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 500)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("izin menulis file kerja import", payload["message"])
 
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
@@ -17037,6 +17064,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["processed"], 0)
         self.assertIn("stok sudah sinkron", payload["message"].lower())
+
+    def test_stock_opname_submit_returns_retryable_message_when_database_locked(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(variants="SOLOCK")
+        variant_id = variants_rows[0]["id"]
+
+        with patch("routes.stock_opname._apply_so_adjustment", side_effect=sqlite3.OperationalError("database is locked")):
+            response = self.client.post(
+                "/so/submit",
+                json={
+                    "display_id": 1,
+                    "gudang_id": 2,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "display_system": 5,
+                            "display_physical": 3,
+                            "gudang_system": 0,
+                            "gudang_physical": 2,
+                        }
+                    ],
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 503)
+        payload = response.get_json()
+        self.assertIn("database sedang sibuk di server", payload["error"])
 
     def test_stock_opname_adjustment_allows_null_actor_for_stale_session_mapping(self):
         self.login()

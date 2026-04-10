@@ -7,6 +7,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import tempfile
 import uuid
 from collections import defaultdict
 from datetime import datetime
@@ -141,6 +142,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Hanya sinkronkan SKU produk yang sudah/linkable ke iPOS tanpa import transaksi baru.",
     )
+    parser.add_argument(
+        "--workspace-dir",
+        default="",
+        help="Folder kerja sementara untuk ekstraksi/parser dump iPOS4.",
+    )
     return parser.parse_args()
 
 
@@ -223,10 +229,10 @@ def backup_database_files(database_path: Path) -> Path:
 
 
 class WorkspaceTempDir:
-    def __init__(self) -> None:
-        root = Path.cwd() / "tmp_ipos_migration"
-        root.mkdir(parents=True, exist_ok=True)
-        self.path = root / f"session_{uuid.uuid4().hex}"
+    def __init__(self, root: Path | str) -> None:
+        base_root = Path(root).expanduser().resolve()
+        base_root.mkdir(parents=True, exist_ok=True)
+        self.path = base_root / f"session_{uuid.uuid4().hex}"
         self.path.mkdir(parents=True, exist_ok=True)
         self.name = str(self.path.resolve())
 
@@ -234,14 +240,43 @@ class WorkspaceTempDir:
         shutil.rmtree(self.name, ignore_errors=True)
 
 
+def build_workspace_temp_dir_factory(root: Path):
+    class ScopedWorkspaceTempDir(WorkspaceTempDir):
+        def __init__(self) -> None:
+            super().__init__(root)
+
+    return ScopedWorkspaceTempDir
+
+
+def resolve_workspace_root(raw_value: object, target_db: Path) -> Path:
+    candidate = clean_string(raw_value)
+    if candidate:
+        root = Path(candidate).expanduser()
+    else:
+        root = target_db.parent / "tmp_ipos_migration"
+
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        root = Path(tempfile.gettempdir()) / "wms-erp-ipos4"
+        root.mkdir(parents=True, exist_ok=True)
+
+    return root.resolve()
+
+
 class IposDumpReader:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, workspace_root: Path | None = None) -> None:
         if PGDUMPLIB_IMPORT_ERROR is not None:
             raise RuntimeError(
                 "pgdumplib belum tersedia. Jalankan `pip install -r requirements.txt` terlebih dahulu."
             ) from PGDUMPLIB_IMPORT_ERROR
         self.path = path.resolve()
-        self._patch_runtime()
+        self.workspace_root = (
+            Path(workspace_root).expanduser().resolve()
+            if workspace_root is not None
+            else Path(tempfile.gettempdir()).resolve() / "wms-erp-ipos4"
+        )
+        self._patch_runtime(self.workspace_root)
         self.dump = pgdumplib.load(self.path)
         self.table_columns: dict[str, list[str]] = {}
         self._table_data_entries = {
@@ -253,8 +288,14 @@ class IposDumpReader:
             self.table_columns[table_name] = self._extract_columns(entry.copy_stmt or "")
 
     @staticmethod
-    def _patch_runtime() -> None:
-        pgdump_dump.tempfile.TemporaryDirectory = WorkspaceTempDir
+    def _patch_runtime(workspace_root: Path | None = None) -> None:
+        scoped_root = (
+            workspace_root
+            if workspace_root is not None
+            else Path(tempfile.gettempdir()) / "wms-erp-ipos4"
+        )
+        scoped_root.mkdir(parents=True, exist_ok=True)
+        pgdump_dump.tempfile.TemporaryDirectory = build_workspace_temp_dir_factory(scoped_root)
         pgdump_dump.constants.MIN_VER = (1, 11, 0)
 
     @staticmethod
@@ -1542,6 +1583,7 @@ def run_import(args: argparse.Namespace) -> dict:
     source_dump = Path(args.source_dump).expanduser().resolve()
     target_db = Path(args.target_db).expanduser().resolve()
     mirror_db = Path(args.mirror_db).expanduser().resolve()
+    workspace_root = resolve_workspace_root(getattr(args, "workspace_dir", ""), target_db)
     products_only_mode = bool(args.products_only)
     sync_sku_only_mode = bool(args.sync_sku_only)
     skip_mirror = bool(args.skip_mirror or sync_sku_only_mode)
@@ -1556,7 +1598,7 @@ def run_import(args: argparse.Namespace) -> dict:
         raise FileNotFoundError(f"File source dump tidak ditemukan: {source_dump}")
 
     print_step(f"Loading dump: {source_dump}")
-    reader = IposDumpReader(source_dump)
+    reader = IposDumpReader(source_dump, workspace_root=workspace_root)
 
     if args.preview:
         preview = preview_source(reader, target_db, mirror_db)

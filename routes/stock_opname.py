@@ -1,4 +1,8 @@
-from flask import Blueprint, Response, jsonify, render_template, request, session
+import json
+import sqlite3
+import time
+
+from flask import Blueprint, Response, current_app, jsonify, render_template, request, session
 from database import get_db
 from services.notification_service import notify_operational_event
 import csv
@@ -6,6 +10,8 @@ from io import StringIO
 
 so_bp = Blueprint("so", __name__, url_prefix="/so")
 SO_PAGE_SIZE = 20
+SO_DB_LOCK_RETRY_ATTEMPTS = 2
+SO_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
 
 
 def _normalize_so_search(value):
@@ -112,6 +118,36 @@ def _build_so_response_payload(payload, *, message=None, processed=None):
     if processed is not None:
         response["processed"] = processed
     return response
+
+
+def _load_so_request_payload():
+    payload = request.get_json(silent=True)
+    if isinstance(payload, dict):
+        return payload
+
+    raw_payload = (request.form.get("payload") or "").strip()
+    if raw_payload:
+        try:
+            parsed = json.loads(raw_payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            return parsed
+
+    form_payload = request.form.to_dict()
+    return form_payload if form_payload else {}
+
+
+def _is_sqlite_lock_error(exc):
+    message = str(exc or "").strip().lower()
+    return "locked" in message and "database" in message
+
+
+def _rollback_so_transaction(db):
+    try:
+        db.rollback()
+    except Exception:
+        pass
 
 
 def _build_so_base_query(search):
@@ -340,7 +376,7 @@ def so_page():
 @so_bp.route("/submit", methods=["POST"])
 def submit_so():
     db = get_db()
-    data = request.get_json(silent=True) or {}
+    data = _load_so_request_payload()
     search = _normalize_so_search(data.get("q"))
     page = data.get("page", 1)
 
@@ -355,91 +391,124 @@ def submit_so():
     if not items:
         return jsonify({"error": "Tidak ada item yang dikirim"}), 400
 
-    try:
-        db.execute("BEGIN IMMEDIATE")
-        processed = 0
-        valid_items = 0
+    max_retries = max(
+        0,
+        int(current_app.config.get("SO_DB_LOCK_RETRY_ATTEMPTS", SO_DB_LOCK_RETRY_ATTEMPTS) or 0),
+    )
+    retry_delay = max(
+        0.0,
+        float(
+            current_app.config.get(
+                "SO_DB_LOCK_RETRY_DELAY_SECONDS",
+                SO_DB_LOCK_RETRY_DELAY_SECONDS,
+            )
+            or 0.0
+        ),
+    )
 
-        for item in items:
-            try:
-                product_id = int(item["product_id"])
-                variant_id = int(item["variant_id"])
-                display_physical = int(item.get("display_physical", 0) or 0)
-                gudang_physical = int(item.get("gudang_physical", 0) or 0)
-            except Exception:
-                continue
+    for attempt in range(max_retries + 1):
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            processed = 0
+            valid_items = 0
 
-            entity = db.execute(
-                """
-                SELECT p.id
-                FROM products p
-                JOIN product_variants pv ON pv.product_id = p.id
-                WHERE p.id=? AND pv.id=?
-                """,
-                (product_id, variant_id),
-            ).fetchone()
+            for item in items:
+                try:
+                    product_id = int(item["product_id"])
+                    variant_id = int(item["variant_id"])
+                    display_physical = int(item.get("display_physical", 0) or 0)
+                    gudang_physical = int(item.get("gudang_physical", 0) or 0)
+                except Exception:
+                    continue
 
-            if not entity:
-                db.rollback()
-                return jsonify({"error": "Produk atau variant tidak valid"}), 400
+                entity = db.execute(
+                    """
+                    SELECT p.id
+                    FROM products p
+                    JOIN product_variants pv ON pv.product_id = p.id
+                    WHERE p.id=? AND pv.id=?
+                    """,
+                    (product_id, variant_id),
+                ).fetchone()
 
-            if display_physical < 0 or gudang_physical < 0:
-                db.rollback()
-                return jsonify({"error": "Stock fisik tidak boleh negatif"}), 400
+                if not entity:
+                    _rollback_so_transaction(db)
+                    return jsonify({"error": "Produk atau variant tidak valid"}), 400
 
-            valid_items += 1
+                if display_physical < 0 or gudang_physical < 0:
+                    _rollback_so_transaction(db)
+                    return jsonify({"error": "Stock fisik tidak boleh negatif"}), 400
 
-            stock_row = db.execute(
-                """
-                SELECT
-                    COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as display_qty,
-                    COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as gudang_qty
-                FROM stock
-                WHERE product_id=? AND variant_id=? AND warehouse_id IN (?, ?)
-                """,
-                (display_id, gudang_id, product_id, variant_id, display_id, gudang_id),
-            ).fetchone()
+                valid_items += 1
 
-            display_system = int(stock_row["display_qty"] or 0) if stock_row else 0
-            gudang_system = int(stock_row["gudang_qty"] or 0) if stock_row else 0
+                stock_row = db.execute(
+                    """
+                    SELECT
+                        COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as display_qty,
+                        COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as gudang_qty
+                    FROM stock
+                    WHERE product_id=? AND variant_id=? AND warehouse_id IN (?, ?)
+                    """,
+                    (display_id, gudang_id, product_id, variant_id, display_id, gudang_id),
+                ).fetchone()
 
-            diff_display = display_physical - display_system
-            diff_gudang = gudang_physical - gudang_system
+                display_system = int(stock_row["display_qty"] or 0) if stock_row else 0
+                gudang_system = int(stock_row["gudang_qty"] or 0) if stock_row else 0
 
-            if diff_display != 0:
-                _apply_so_adjustment(
+                diff_display = display_physical - display_system
+                diff_gudang = gudang_physical - gudang_system
+
+                if diff_display != 0:
+                    _apply_so_adjustment(
+                        db,
+                        product_id,
+                        variant_id,
+                        display_id,
+                        display_system,
+                        display_physical,
+                        diff_display,
+                        user_id,
+                        "Stock Opname Display",
+                    )
+                    processed += 1
+
+                if diff_gudang != 0:
+                    _apply_so_adjustment(
+                        db,
+                        product_id,
+                        variant_id,
+                        gudang_id,
+                        gudang_system,
+                        gudang_physical,
+                        diff_gudang,
+                        user_id,
+                        "Stock Opname Gudang",
+                    )
+                    processed += 1
+
+            if valid_items == 0:
+                _rollback_so_transaction(db)
+                return jsonify({"error": "Tidak ada item valid yang bisa diproses"}), 400
+
+            if processed == 0:
+                _rollback_so_transaction(db)
+                payload = _build_so_page_payload(
                     db,
-                    product_id,
-                    variant_id,
                     display_id,
-                    display_system,
-                    display_physical,
-                    diff_display,
-                    user_id,
-                    "Stock Opname Display",
-                )
-                processed += 1
-
-            if diff_gudang != 0:
-                _apply_so_adjustment(
-                    db,
-                    product_id,
-                    variant_id,
                     gudang_id,
-                    gudang_system,
-                    gudang_physical,
-                    diff_gudang,
-                    user_id,
-                    "Stock Opname Gudang",
+                    search=search,
+                    page=page,
+                    limit=SO_PAGE_SIZE,
                 )
-                processed += 1
+                return jsonify(
+                    _build_so_response_payload(
+                        payload,
+                        message="Tidak ada perubahan baru. Data stok sudah sinkron dengan hasil SO.",
+                        processed=0,
+                    )
+                )
 
-        if valid_items == 0:
-            db.rollback()
-            return jsonify({"error": "Tidak ada item valid yang bisa diproses"}), 400
-
-        if processed == 0:
-            db.rollback()
+            db.commit()
             payload = _build_so_page_payload(
                 db,
                 display_id,
@@ -448,50 +517,55 @@ def submit_so():
                 page=page,
                 limit=SO_PAGE_SIZE,
             )
-            return jsonify(
-                _build_so_response_payload(
-                    payload,
-                    message="Tidak ada perubahan baru. Data stok sudah sinkron dengan hasil SO.",
-                    processed=0,
+            response_payload = _build_so_response_payload(
+                payload,
+                message="SO berhasil disimpan dan stock sudah sinkron",
+                processed=processed,
+            )
+            try:
+                notify_operational_event(
+                    f"Stock opname tersimpan: {processed} penyesuaian",
+                    (
+                        f"Hasil stock opname berhasil disimpan untuk "
+                        f"{payload['display_name']} dan {payload['gudang_name']} "
+                        f"dengan {processed} penyesuaian stok."
+                    ),
+                    category="inventory",
+                    link_url="/so",
+                    source_type="stock_opname_session",
+                    push_title="Stock opname tersimpan",
+                    push_body=f"{processed} penyesuaian | {payload['display_name']} & {payload['gudang_name']}",
                 )
-            )
+            except Exception as exc:
+                print("STOCK OPNAME NOTIFICATION ERROR:", exc)
+            return jsonify(response_payload)
 
-        db.commit()
-        payload = _build_so_page_payload(
-            db,
-            display_id,
-            gudang_id,
-            search=search,
-            page=page,
-            limit=SO_PAGE_SIZE,
-        )
-        response_payload = _build_so_response_payload(
-            payload,
-            message="SO berhasil disimpan dan stock sudah sinkron",
-            processed=processed,
-        )
-        try:
-            notify_operational_event(
-                f"Stock opname tersimpan: {processed} penyesuaian",
-                (
-                    f"Hasil stock opname berhasil disimpan untuk "
-                    f"{payload['display_name']} dan {payload['gudang_name']} "
-                    f"dengan {processed} penyesuaian stok."
-                ),
-                category="inventory",
-                link_url="/so",
-                source_type="stock_opname_session",
-                push_title="Stock opname tersimpan",
-                push_body=f"{processed} penyesuaian | {payload['display_name']} & {payload['gudang_name']}",
-            )
+        except sqlite3.OperationalError as exc:
+            _rollback_so_transaction(db)
+            if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                current_app.logger.warning(
+                    "SO submit hit SQLite lock, retry %s/%s",
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(retry_delay)
+                continue
+            if _is_sqlite_lock_error(exc):
+                current_app.logger.warning("SO submit failed after SQLite lock retries")
+                return jsonify(
+                    {
+                        "error": (
+                            "SO gagal disimpan: database sedang sibuk di server. "
+                            "Coba ulang beberapa detik lagi."
+                        )
+                    }
+                ), 503
+            current_app.logger.exception("SO ERROR")
+            return jsonify({"error": str(exc)}), 500
         except Exception as exc:
-            print("STOCK OPNAME NOTIFICATION ERROR:", exc)
-        return jsonify(response_payload)
-
-    except Exception as e:
-        db.rollback()
-        print("SO ERROR:", e)
-        return jsonify({"error": str(e)}), 500
+            _rollback_so_transaction(db)
+            current_app.logger.exception("SO ERROR")
+            return jsonify({"error": str(exc)}), 500
 
 
 @so_bp.route("/export")
