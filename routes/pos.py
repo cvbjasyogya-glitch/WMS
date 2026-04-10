@@ -3043,6 +3043,8 @@ def pos_cash_closing_submit():
             },
         )
         deliveries = wa_result.get("deliveries") or []
+        if wa_result.get("suppressed"):
+            wa_status = "suppressed"
         delivery_count = len(deliveries)
         success_count = sum(1 for item in deliveries if item.get("ok"))
         error_messages = []
@@ -3051,7 +3053,9 @@ def pos_cash_closing_submit():
             if error_text and error_text not in error_messages:
                 error_messages.append(error_text)
         wa_error = " | ".join(error_messages)
-        if delivery_count <= 0:
+        if wa_status == "suppressed":
+            wa_status = "suppressed"
+        elif delivery_count <= 0:
             wa_status = "skipped"
         elif success_count >= delivery_count:
             wa_status = "sent"
@@ -3089,6 +3093,8 @@ def pos_cash_closing_submit():
         flash("Tutup kasir tersimpan, tapi WA owner / super admin hanya terkirim sebagian.", "warning")
     elif wa_status == "failed":
         flash("Tutup kasir tersimpan, tapi kirim WA owner / super admin gagal. Cek nomor atau gateway WA.", "error")
+    elif wa_status == "suppressed":
+        flash("Tutup kasir tersimpan tanpa broadcast WA karena aksi dilakukan oleh super admin.", "success")
     else:
         flash("Tutup kasir tersimpan. Belum ada owner / super admin tujuan yang menerima WA untuk laporan ini.", "warning")
     return redirect(f"{return_url}#tutup-kasir")

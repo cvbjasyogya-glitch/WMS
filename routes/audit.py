@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, Response, session, redirect, flash
 from database import get_db
+from services.private_activity_policy import can_view_super_admin_private_audit
 from services.rbac import has_permission, is_scoped_role
 import csv
 import re
@@ -178,7 +179,7 @@ def group_audit_rows(rows):
 # ==========================
 # BUILD QUERY (FIX FINAL)
 # ==========================
-def build_query(filters, warehouse_id=None):
+def build_query(filters, warehouse_id=None, viewer_role=None):
 
     query = """
     SELECT 
@@ -207,6 +208,9 @@ def build_query(filters, warehouse_id=None):
     if warehouse_id:
         query += " AND h.warehouse_id=?"
         params.append(warehouse_id)
+
+    if not can_view_super_admin_private_audit(viewer_role):
+        query += " AND COALESCE(u.role, '') <> 'super_admin'"
 
     if filters.get("search"):
         query += " AND (p.name LIKE ? OR p.sku LIKE ? OR v.variant LIKE ?)"
@@ -303,7 +307,7 @@ def audit_page():
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
 
     try:
-        query, params = build_query(filters, warehouse_id)
+        query, params = build_query(filters, warehouse_id, viewer_role=session.get("role"))
         query += " ORDER BY datetime(h.date, '+7 hours') DESC LIMIT ? OFFSET ?"
         params += [limit, offset]
 
@@ -352,7 +356,7 @@ def export_csv():
     warehouse_id, _ = resolve_audit_warehouse(db)
 
     try:
-        query, params = build_query(filters, warehouse_id)
+        query, params = build_query(filters, warehouse_id, viewer_role=session.get("role"))
         query += " ORDER BY datetime(h.date, '+7 hours') DESC LIMIT 2000"
 
         rows = db.execute(query, params).fetchall()

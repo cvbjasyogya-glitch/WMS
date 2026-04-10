@@ -21,7 +21,12 @@
     </div>
     <div class="card-mini success">
         <p>Revenue Tercatat</p>
-        <h3>Rp {{ "{:,.0f}".format(summary.total_revenue).replace(",", ".") }}</h3>
+        {% if can_view_crm_revenue %}
+        <h3>Rp {{ "{:,.0f}".format(summary.total_revenue or 0).replace(",", ".") }}</h3>
+        {% else %}
+        <h3>Disembunyikan</h3>
+        <small class="helper-text">Hanya owner &amp; super admin</small>
+        {% endif %}
     </div>
 </div>
 
@@ -242,7 +247,11 @@
                     <td>
                         <strong>{{ customer.purchase_count }}</strong>
                         <div class="helper-text">
+                            {% if can_view_crm_revenue %}
                             Rp {{ "{:,.0f}".format(customer.total_spent or 0).replace(",", ".") }}
+                            {% else %}
+                            Nominal disembunyikan
+                            {% endif %}
                             {% if customer.last_purchase_date %}<br>{{ customer.last_purchase_date }}{% endif %}
                         </div>
                     </td>
@@ -476,7 +485,13 @@
                     </td>
                     <td><span class="badge">{{ purchase.channel|replace('_', ' ')|title }}</span></td>
                     <td><span class="badge">{{ transaction_type_labels.get(purchase.transaction_type or 'purchase', (purchase.transaction_type or 'purchase')|replace('_', ' ')|title) }}</span></td>
-                    <td>Rp {{ "{:,.0f}".format(purchase.total_amount or 0).replace(",", ".") }}</td>
+                    <td>
+                        {% if can_view_crm_revenue %}
+                        Rp {{ "{:,.0f}".format(purchase.total_amount or 0).replace(",", ".") }}
+                        {% else %}
+                        Disembunyikan
+                        {% endif %}
+                    </td>
                     <td>
                         {% if purchase.member_code %}
                         <span class="badge green">{{ purchase.member_code }}</span>
@@ -735,7 +750,13 @@
                     <td>
                         <span class="badge">{{ member_type_labels.get(member.member_type, member.member_type|replace('_', ' ')|title) }}</span>
                         {% if member.member_type == 'stringing' %}
-                        <div class="helper-text">Free Rp {{ "{:,.0f}".format(member.reward_unit_amount or 0).replace(",", ".") }}</div>
+                        <div class="helper-text">
+                            {% if can_view_crm_revenue %}
+                            Free Rp {{ "{:,.0f}".format(member.reward_unit_amount or 0).replace(",", ".") }}
+                            {% else %}
+                            Nominal benefit disembunyikan
+                            {% endif %}
+                        </div>
                         {% endif %}
                     </td>
                     <td>
@@ -744,7 +765,11 @@
                         <div class="helper-text">
                             Free tersedia {{ member.available_reward_count }}x
                             {% if member.available_reward_count %}
+                                {% if can_view_crm_revenue %}
                             / Rp {{ "{:,.0f}".format(member.available_reward_value or 0).replace(",", ".") }}
+                                {% else %}
+                            / nominal benefit disembunyikan
+                                {% endif %}
                             {% endif %}
                             <br>Total senaran {{ member.total_stringing_visits }}x
                         </div>
@@ -755,7 +780,13 @@
                     </td>
                     <td>{{ member.join_date }}<div class="helper-text">{{ member.expiry_date or "-" }}</div></td>
                     <td>{{ member.record_count }}<div class="helper-text">{{ member.last_record_date or "-" }}</div></td>
-                    <td>Rp {{ "{:,.0f}".format(member.total_member_spend or 0).replace(",", ".") }}</td>
+                    <td>
+                        {% if can_view_crm_revenue %}
+                        Rp {{ "{:,.0f}".format(member.total_member_spend or 0).replace(",", ".") }}
+                        {% else %}
+                        Disembunyikan
+                        {% endif %}
+                    </td>
                     <td>{{ member.requested_by_staff_name or member.requested_by_staff_username or "-" }}</td>
                     {% if can_manage_crm %}
                     <td>
@@ -804,14 +835,24 @@
                     </td>
                     <td><span class="badge">{{ record.record_type|replace('_', ' ')|title }}</span></td>
                     <td>{{ record.reference_no or "-" }}</td>
-                    <td>Rp {{ "{:,.0f}".format(record.amount or 0).replace(",", ".") }}</td>
+                    <td>
+                        {% if can_view_crm_revenue %}
+                        Rp {{ "{:,.0f}".format(record.amount or 0).replace(",", ".") }}
+                        {% else %}
+                        Disembunyikan
+                        {% endif %}
+                    </td>
                     <td>
                         {% if record.member_type == 'stringing' %}
                         Kunjungan {{ record.service_count_delta or 0 }}
                         <div class="helper-text">
                             Free dipakai {{ record.reward_redeemed_delta or 0 }}x
                             {% if record.benefit_value %}
+                                {% if can_view_crm_revenue %}
                             / Benefit Rp {{ "{:,.0f}".format(record.benefit_value or 0).replace(",", ".") }}
+                                {% else %}
+                            / Benefit disembunyikan
+                                {% endif %}
                             {% endif %}
                             {% if record.points_delta %}
                             <br>Poin {{ record.points_delta }}

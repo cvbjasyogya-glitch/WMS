@@ -16,6 +16,7 @@ import services.notification_service as notification_service
 import services.receipt_pdf_service as receipt_pdf_service
 import services.whatsapp_service as whatsapp_service
 from openpyxl import Workbook
+from flask import session
 from services.event_notification_policy import (
     get_event_notification_policy,
     save_event_notification_policy,
@@ -1030,6 +1031,213 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(warehouse_two_purchases, 0)
         self.assertEqual(warehouse_one_members, 1)
         self.assertEqual(warehouse_two_members, 0)
+
+    def test_admin_crm_page_hides_revenue_amounts(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-HIDE-001",
+            qty=8,
+            variants="Default",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        add_customer = self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer CRM Hidden",
+                "phone": "628100000123",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_customer.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer CRM Hidden'"
+            ).fetchone()
+        self.assertIsNotNone(customer)
+
+        add_member = self.client.post(
+            "/crm/members/add",
+            data={
+                "customer_id": str(customer["id"]),
+                "member_code": "MBR-HIDE-001",
+                "member_type": "stringing",
+                "status": "active",
+                "join_date": "2026-04-01",
+                "reward_unit_amount": "75000",
+                "opening_stringing_visits": "0",
+                "opening_reward_redeemed": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_member.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='MBR-HIDE-001'"
+            ).fetchone()
+        self.assertIsNotNone(member)
+
+        add_stringing_visit = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(customer["id"]),
+                "member_id": str(member["id"]),
+                "purchase_date": "2026-04-02",
+                "invoice_no": "INV-HIDE-001",
+                "channel": "store",
+                "transaction_type": "stringing_service",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 75000,
+                            "display_name": "CRM-HIDE-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_stringing_visit.status_code, 302)
+
+        add_stringing_reward = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(customer["id"]),
+                "member_id": str(member["id"]),
+                "purchase_date": "2026-04-03",
+                "invoice_no": "INV-HIDE-REWARD-001",
+                "channel": "store",
+                "transaction_type": "stringing_reward_redemption",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 0,
+                            "display_name": "CRM-HIDE-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_stringing_reward.status_code, 302)
+
+        add_member_record = self.client.post(
+            "/crm/member-records/add",
+            data={
+                "member_id": str(member["id"]),
+                "record_date": "2026-04-04",
+                "record_type": "reward_redemption",
+                "reference_no": "MANUAL-HIDE-001",
+                "amount": "0",
+                "points_delta": "0",
+                "service_count_delta": "0",
+                "reward_redeemed_delta": "1",
+                "benefit_value": "75000",
+                "note": "Benefit loyalty disembunyikan untuk admin",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_member_record.status_code, 302)
+
+        contacts_response = self.client.get("/crm/?tab=contacts")
+        self.assertEqual(contacts_response.status_code, 200)
+        contacts_html = contacts_response.get_data(as_text=True)
+        self.assertIn("Hanya owner &amp; super admin", contacts_html)
+        self.assertIn("Nominal disembunyikan", contacts_html)
+        self.assertNotIn("Rp 75.000", contacts_html)
+
+        purchases_response = self.client.get("/crm/?tab=purchases")
+        self.assertEqual(purchases_response.status_code, 200)
+        purchases_html = purchases_response.get_data(as_text=True)
+        self.assertIn("Disembunyikan", purchases_html)
+        self.assertNotIn("Rp 75.000", purchases_html)
+
+        members_response = self.client.get("/crm/?tab=members")
+        self.assertEqual(members_response.status_code, 200)
+        members_html = members_response.get_data(as_text=True)
+        self.assertIn("Nominal benefit disembunyikan", members_html)
+        self.assertNotIn("Rp 75.000", members_html)
+
+    def test_owner_crm_page_can_view_revenue_amounts(self):
+        self.create_user("owner_crm_revenue", "pass1234", "owner")
+        self.login("owner_crm_revenue", "pass1234")
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-VIEW-001",
+            qty=5,
+            variants="Default",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        add_customer = self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer CRM Visible",
+                "phone": "628100000456",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_customer.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer CRM Visible'"
+            ).fetchone()
+        self.assertIsNotNone(customer)
+
+        add_purchase = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(customer["id"]),
+                "purchase_date": "2026-04-02",
+                "invoice_no": "INV-VIEW-001",
+                "channel": "store",
+                "transaction_type": "purchase",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 2,
+                            "unit_price": 105000,
+                            "display_name": "CRM-VIEW-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_purchase.status_code, 302)
+
+        contacts_response = self.client.get("/crm/?tab=contacts")
+        self.assertEqual(contacts_response.status_code, 200)
+        contacts_html = contacts_response.get_data(as_text=True)
+        self.assertIn("Rp 210.000", contacts_html)
+        self.assertNotIn("Hanya owner &amp; super admin", contacts_html)
+
+        purchases_response = self.client.get("/crm/?tab=purchases")
+        self.assertEqual(purchases_response.status_code, 200)
+        purchases_html = purchases_response.get_data(as_text=True)
+        self.assertIn("Rp 210.000", purchases_html)
 
     def test_admin_and_hris_pages_include_reusable_searchable_select_component(self):
         self.create_user("role_admin_searchable_select", "pass1234", "super_admin")
@@ -3524,6 +3732,70 @@ class WmsRoutesTestCase(unittest.TestCase):
             sent_recipients,
             {"6281200000001", "6281200000002", "6281200000003", "6281200000004"},
         )
+
+    def test_super_admin_kasir_wms_notifications_are_suppressed(self):
+        self.create_user(
+            "owner_private_notifications",
+            "pass1234",
+            "owner",
+            phone="081233344455",
+            notify_whatsapp=1,
+        )
+        self.create_user("edi_private_notifications", "pass1234", "super_admin")
+        super_admin_id = self.get_user_id("edi_private_notifications")
+
+        with self.app.test_request_context("/stock/"):
+            session["user_id"] = super_admin_id
+            session["role"] = "super_admin"
+            session["username"] = "edi_private_notifications"
+            session["warehouse_id"] = 1
+
+            operational_result = notification_service.notify_operational_event(
+                "Adjustment stok privat",
+                "Aktivitas ini tidak boleh broadcast umum.",
+                warehouse_id=1,
+                category="inventory",
+                link_url="/stock/",
+                source_type="stock_adjustment",
+            )
+            role_result = notification_service.notify_roles(
+                ("owner",),
+                "Approval privat",
+                "Aktivitas super admin tidak dibroadcast.",
+                warehouse_id=1,
+                category="approval",
+                link_url="/approvals",
+                source_type="approval_queue",
+            )
+            with patch("services.whatsapp_service.send_whatsapp_text") as mocked_send:
+                whatsapp_result = whatsapp_service.send_role_based_notification(
+                    "attendance.cash_closing",
+                    {
+                        "roles": ("owner",),
+                        "warehouse_id": 1,
+                        "warehouse_name": "Gudang Mataram",
+                        "employee_name": "Edi",
+                        "subject": "Tutup Kasir Privat",
+                        "message": "Aksi kasir super admin tidak broadcast.",
+                        "link_url": "/kasir/log?warehouse=1",
+                    },
+                )
+                mocked_send.assert_not_called()
+
+        self.assertTrue(operational_result["suppressed"])
+        self.assertTrue(role_result["suppressed"])
+        self.assertTrue(whatsapp_result["suppressed"])
+        self.assertEqual(whatsapp_result["deliveries"], [])
+
+        with self.app.app_context():
+            db = get_db()
+            web_count = db.execute("SELECT COUNT(*) AS total FROM web_notifications").fetchone()["total"]
+            role_event_count = db.execute(
+                "SELECT COUNT(*) AS total FROM notifications WHERE channel IN ('wa_role_event', 'wa_role_document')"
+            ).fetchone()["total"]
+
+        self.assertEqual(web_count, 0)
+        self.assertEqual(role_event_count, 0)
 
     def test_schedule_page_opens_coordination_sidebar_group(self):
         self.login()
@@ -17261,6 +17533,149 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login("owner_audit", "pass1234")
         response = self.client.get("/audit/")
         self.assertEqual(response.status_code, 200)
+
+    def test_owner_audit_page_hides_super_admin_private_rows(self):
+        self.create_user("owner_audit_private", "pass1234", "owner")
+        self.create_user("super_audit_private", "pass1234", "super_admin")
+
+        with self.app.app_context():
+            db = get_db()
+            warehouse_id = db.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()["id"]
+
+            db.execute(
+                "INSERT INTO products(sku, name, category_id) VALUES (?,?,NULL)",
+                ("AUDIT-HIDE-001", "Produk Audit Privat"),
+            )
+            product_id = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("AUDIT-HIDE-001",),
+            ).fetchone()["id"]
+            db.execute(
+                "INSERT INTO product_variants(product_id, variant) VALUES (?,?)",
+                (product_id, "DEFAULT"),
+            )
+            variant_id = db.execute(
+                "SELECT id FROM product_variants WHERE product_id=?",
+                (product_id,),
+            ).fetchone()["id"]
+            owner_id = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("owner_audit_private",),
+            ).fetchone()["id"]
+            super_admin_id = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("super_audit_private",),
+            ).fetchone()["id"]
+
+            db.execute(
+                """
+                INSERT INTO stock_history(
+                    product_id, variant_id, warehouse_id, action, type, qty, note, user_id, ip_address, user_agent, date
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    "EDIT",
+                    "IN",
+                    1,
+                    "BARIS OWNER TERLIHAT",
+                    owner_id,
+                    "127.0.0.1",
+                    "pytest",
+                    "2026-04-11 09:00:00",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO stock_history(
+                    product_id, variant_id, warehouse_id, action, type, qty, note, user_id, ip_address, user_agent, date
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    "EDIT",
+                    "IN",
+                    2,
+                    "BARIS SUPER ADMIN PRIVAT",
+                    super_admin_id,
+                    "127.0.0.1",
+                    "pytest",
+                    "2026-04-11 10:00:00",
+                ),
+            )
+            db.commit()
+
+        self.login("owner_audit_private", "pass1234")
+        response = self.client.get("/audit/?action=EDIT")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("BARIS OWNER TERLIHAT", html)
+        self.assertNotIn("BARIS SUPER ADMIN PRIVAT", html)
+        self.assertNotIn("super_audit_private", html)
+
+    def test_super_admin_audit_page_still_shows_private_super_admin_rows(self):
+        self.create_user("super_audit_visible", "pass1234", "super_admin")
+
+        with self.app.app_context():
+            db = get_db()
+            warehouse_id = db.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()["id"]
+
+            db.execute(
+                "INSERT INTO products(sku, name, category_id) VALUES (?,?,NULL)",
+                ("AUDIT-SHOW-001", "Produk Audit Visible"),
+            )
+            product_id = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("AUDIT-SHOW-001",),
+            ).fetchone()["id"]
+            db.execute(
+                "INSERT INTO product_variants(product_id, variant) VALUES (?,?)",
+                (product_id, "DEFAULT"),
+            )
+            variant_id = db.execute(
+                "SELECT id FROM product_variants WHERE product_id=?",
+                (product_id,),
+            ).fetchone()["id"]
+            super_admin_id = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("super_audit_visible",),
+            ).fetchone()["id"]
+
+            db.execute(
+                """
+                INSERT INTO stock_history(
+                    product_id, variant_id, warehouse_id, action, type, qty, note, user_id, ip_address, user_agent, date
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    "EDIT",
+                    "IN",
+                    3,
+                    "BARIS SUPER ADMIN TETAP TERLIHAT",
+                    super_admin_id,
+                    "127.0.0.1",
+                    "pytest",
+                    "2026-04-11 11:00:00",
+                ),
+            )
+            db.commit()
+
+        self.login("super_audit_visible", "pass1234")
+        response = self.client.get("/audit/?action=EDIT")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("BARIS SUPER ADMIN TETAP TERLIHAT", html)
+        self.assertIn("super_audit_visible", html)
 
     def test_audit_page_groups_import_rows_by_series_with_variant_dropdown(self):
         self.create_user("owner_audit_group", "pass1234", "owner")

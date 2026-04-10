@@ -9,6 +9,7 @@ from flask import current_app, has_request_context, request, session
 from database import get_db
 from services.announcement_center import role_matches_audience, user_matches_scope
 from services.event_notification_policy import row_matches_notification_aliases
+from services.private_activity_policy import should_suppress_super_admin_notifications
 from services.whatsapp_service import send_whatsapp_text
 
 try:
@@ -712,6 +713,13 @@ def notify_operational_event(
     source_id=None,
     dedupe_key=None,
 ):
+    if should_suppress_super_admin_notifications(
+        category=category,
+        link_url=link_url,
+        source_type=source_type,
+    ):
+        return {"web": [], "push": [], "suppressed": True}
+
     db = get_db()
     recipient_map = {}
     exclude_ids = set(_normalize_user_ids(exclude_user_ids))
@@ -756,7 +764,7 @@ def notify_operational_event(
             continue
         recipient_map[recipient_id] = recipient
 
-    results = {"web": [], "push": []}
+    results = {"web": [], "push": [], "suppressed": False}
     resolved_link = _resolve_notification_link_url(link_url)
 
     for recipient in recipient_map.values():
@@ -1016,6 +1024,13 @@ def notify_roles(
     source_id=None,
     dedupe_key=None,
 ):
+    if should_suppress_super_admin_notifications(
+        category=category,
+        link_url=link_url,
+        source_type=source_type,
+    ):
+        return {"email": [], "wa": [], "suppressed": True}
+
     roles = _normalize_roles(roles)
     usernames = usernames or ()
     user_ids = _normalize_user_ids(user_ids)
@@ -1061,7 +1076,7 @@ def notify_roles(
 
         recipients = list(combined.values())
 
-    results = {"email": [], "wa": []}
+    results = {"email": [], "wa": [], "suppressed": False}
     db = get_db()
 
     for r in recipients:

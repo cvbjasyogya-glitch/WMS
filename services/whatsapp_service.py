@@ -9,6 +9,7 @@ from services.event_notification_policy import (
     get_event_notification_policy,
     row_matches_notification_aliases,
 )
+from services.private_activity_policy import should_suppress_super_admin_notifications
 from services.rbac import normalize_role
 
 try:
@@ -757,7 +758,15 @@ def send_role_based_notification(event_type, payload):
         "subject": subject,
         "message": message,
         "deliveries": [],
+        "suppressed": False,
     }
+
+    if should_suppress_super_admin_notifications(
+        event_type=normalized_event,
+        link_url=link_url,
+    ):
+        results["suppressed"] = True
+        return results
 
     for recipient in recipients:
         if _notification_exists_recent(

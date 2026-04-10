@@ -24,7 +24,7 @@ from services.crm_loyalty import (
     normalize_membership_status,
     normalize_transaction_type,
 )
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import has_permission, is_scoped_role, normalize_role
 
 
 crm_bp = Blueprint("crm", __name__, url_prefix="/crm")
@@ -109,6 +109,27 @@ def _crm_scope_warehouse():
     if is_scoped_role(session.get("role")):
         return session.get("warehouse_id")
     return None
+
+
+def _can_view_crm_revenue():
+    return normalize_role(session.get("role")) in {"owner", "super_admin"}
+
+
+def _mask_crm_revenue(customers, purchases, memberships, member_records, summary):
+    masked_summary = dict(summary or {})
+    masked_summary["total_revenue"] = None
+
+    masked_customers = [{**row, "total_spent": None} for row in customers]
+    masked_purchases = [{**row, "total_amount": None} for row in purchases]
+    masked_memberships = [{**row, "total_member_spend": None} for row in memberships]
+    masked_member_records = [{**row, "amount": None} for row in member_records]
+    return (
+        masked_customers,
+        masked_purchases,
+        masked_memberships,
+        masked_member_records,
+        masked_summary,
+    )
 
 
 def _resolve_crm_warehouse(db, raw_warehouse_id, allow_empty=False):
@@ -1043,6 +1064,7 @@ def crm_page():
         return _crm_access_denied_redirect()
 
     db = get_db()
+    can_view_crm_revenue = _can_view_crm_revenue()
     selected_tab = _normalize_tab(request.args.get("tab"))
     search = (request.args.get("search") or "").strip()
     member_status = (request.args.get("member_status") or "").strip().lower()
@@ -1107,6 +1129,15 @@ def crm_page():
     member_options = _fetch_member_options(db, selected_warehouse, limit=CRM_SMART_SELECT_LIMIT)
     staff_options = _fetch_staff_options(db, selected_warehouse, limit=CRM_SMART_SELECT_LIMIT)
 
+    if not can_view_crm_revenue:
+        customers, purchases, memberships, member_records, summary = _mask_crm_revenue(
+            customers,
+            purchases,
+            memberships,
+            member_records,
+            summary,
+        )
+
     return render_template(
         "crm.html",
         selected_tab=selected_tab,
@@ -1141,6 +1172,7 @@ def crm_page():
         default_stringing_reward_amount=DEFAULT_STRINGING_REWARD_AMOUNT,
         scoped_crm_warehouse=_crm_scope_warehouse(),
         can_manage_crm=has_permission(session.get("role"), "manage_crm"),
+        can_view_crm_revenue=can_view_crm_revenue,
     )
 
 
