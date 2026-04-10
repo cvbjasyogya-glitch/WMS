@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}Report Harian | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Portal Report Harian{% endblock %}
+{% block eyebrow %}Portal Report Staff{% endblock %}
 {% block page_title %}Form Report Harian & Live{% endblock %}
-{% block page_subtitle %}Portal ini bisa dipakai semua user login untuk kirim update kerja harian atau laporan live. Status review tidak diatur dari sini dan hanya diproses oleh HR atau Super Admin di HRIS.{% endblock %}
+{% block page_subtitle %}Portal ini dipakai user login untuk kirim update kerja harian, laporan live, dan lampiran bukti. Review akhir tetap diproses oleh HR atau Super Admin dari HRIS.{% endblock %}
 
 {% block content %}
 <div class="summary">
@@ -83,11 +83,11 @@
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Kendala / Hambatan</label>
-                <textarea name="blocker_note" rows="3" placeholder="Opsional. Contoh: stok belum lengkap, sistem lambat, manpower kurang, atau approval belum turun."></textarea>
+                <textarea name="blocker_note" rows="3" placeholder="Wajib diisi. Contoh: stok belum lengkap, sistem lambat, manpower kurang, atau approval belum turun." required></textarea>
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Tindak Lanjut</label>
-                <textarea name="follow_up_note" rows="3" placeholder="Opsional. Contoh: lanjut besok pagi, menunggu transfer barang, perlu follow up HR / owner / leader."></textarea>
+                <textarea name="follow_up_note" rows="3" placeholder="Wajib diisi. Contoh: lanjut besok pagi, menunggu transfer barang, perlu follow up HR / owner / leader." required></textarea>
             </div>
             <div style="grid-column: 1 / -1;" data-live-attachment-wrap hidden>
                 <label>Lampiran Bukti</label>
@@ -159,6 +159,7 @@
     <div class="empty-state">Belum ada laporan yang dikirim dari akun ini.</div>
     {% endif %}
 </div>
+
 <script>
 (() => {
     const form = document.querySelector("[data-daily-live-report-form]");

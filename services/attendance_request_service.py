@@ -9,6 +9,10 @@ ATTENDANCE_REQUEST_TYPE_META = {
         "label": "Perubahan Shift Jadwal",
         "category": "schedule",
     },
+    "overtime_add": {
+        "label": "Penambahan Saldo Lembur",
+        "category": "overtime",
+    },
     "overtime_use": {
         "label": "Pengurangan Saldo Lembur",
         "category": "overtime",

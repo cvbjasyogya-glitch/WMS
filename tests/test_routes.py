@@ -245,6 +245,28 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/w8AAgMBgN6lNn0AAAAASUVORK5CYII="
         )
 
+    def submit_daily_report(
+        self,
+        title="Report Harian Auto",
+        report_date=None,
+        summary="Pekerjaan hari ini selesai sesuai rencana.",
+        blocker_note="Ada kendala kecil yang masih bisa ditangani.",
+        follow_up_note="Besok lanjut follow up sesuai temuan hari ini.",
+    ):
+        safe_report_date = report_date or date_cls.today().isoformat()
+        return self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": safe_report_date,
+                "title": title,
+                "summary": summary,
+                "blocker_note": blocker_note,
+                "follow_up_note": follow_up_note,
+            },
+            follow_redirects=False,
+        )
+
     def build_xlsx_bytes(self, rows):
         def column_label(index):
             label = ""
@@ -1041,6 +1063,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tutup Kasir", html)
         self.assertIn('data-cash-closing-preview', html)
         self.assertIn('name="cash_amount"', html)
+        self.assertIn('name="qris_amount"', html)
         self.assertIn("Simpan &amp; Kirim WA Owner", html)
         self.assertIn('data-cash-closing-defaults-url="/kasir/cash-closing/defaults"', html)
 
@@ -1146,11 +1169,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         defaults = payload["defaults"]
         self.assertEqual(defaults["cash_amount"], 150000)
         self.assertEqual(defaults["debit_amount"], 200000)
+        self.assertEqual(defaults["qris_amount"], 400000)
         self.assertEqual(defaults["mb_amount"], 300000)
-        self.assertEqual(defaults["cv_amount"], 400000)
+        self.assertEqual(defaults["cv_amount"], 0)
         self.assertEqual(defaults["cash_on_hand_amount"], 150000)
         self.assertEqual(defaults["combined_total_amount"], 1550000)
         self.assertIn('Laporan "Mataram" 08/04/2026', defaults["preview_text"])
+        self.assertIn("QRIS", defaults["preview_text"])
         self.assertEqual(defaults["combined_total_amount_label"], "1.550.000")
 
     def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_owner_whatsapp(self):
@@ -1179,6 +1204,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "closing_date": "2026-04-08",
                     "cash_amount": "754000",
                     "debit_amount": "5380000",
+                    "qris_amount": "20000",
                     "mb_amount": "",
                     "cv_amount": "",
                     "expense_amount": "",
@@ -1212,6 +1238,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     closing_date,
                     cash_amount,
                     debit_amount,
+                    qris_amount,
                     reported_total_amount,
                     cash_on_hand_amount,
                     combined_total_amount,
@@ -1233,10 +1260,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(report["closing_date"], "2026-04-08")
         self.assertEqual(report["cash_amount"], 754000)
         self.assertEqual(report["debit_amount"], 5380000)
-        self.assertEqual(report["reported_total_amount"], 6134000)
+        self.assertEqual(report["qris_amount"], 20000)
+        self.assertEqual(report["reported_total_amount"], 6154000)
         self.assertEqual(report["cash_on_hand_amount"], 754000)
         self.assertEqual(report["combined_total_amount"], 10919760)
         self.assertIn('Laporan "Mataram" 08/04/2026', report["summary_message"])
+        self.assertIn("QRIS", report["summary_message"])
         self.assertIn("5.380.000", report["summary_message"])
         self.assertEqual(report["wa_status"], "sent")
         self.assertEqual(report["wa_delivery_count"], 1)
@@ -1320,6 +1349,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Absen Foto", workspace_html)
         self.assertIn("Libur", workspace_html)
         self.assertIn("Report Harian", workspace_html)
+        self.assertIn("KPI Staff", workspace_html)
         self.assertIn("Jadwal", workspace_html)
         self.assertNotIn("Meeting Live", workspace_html)
         self.assertNotIn("Chat Operasional", workspace_html)
@@ -1347,6 +1377,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn('aria-label="Meeting Live"', attendance_html)
         self.assertNotIn('aria-label="Libur"', attendance_html)
         self.assertNotIn('aria-label="Report Harian"', attendance_html)
+        self.assertNotIn('aria-label="KPI Staff"', attendance_html)
         self.assertNotIn('aria-label="Jadwal"', attendance_html)
         self.assertNotIn('data-sidebar-main-trigger="workspace"', attendance_html)
         self.assertNotIn('data-sidebar-main-trigger="wms"', attendance_html)
@@ -1664,7 +1695,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Log Penjualan Hari Ini", pos_html)
         self.assertIn(receipt_no, pos_html)
         self.assertIn("Customer Nota", pos_html)
-        self.assertIn("Cetak PDF", pos_html)
+        self.assertIn("Cetak Thermal", pos_html)
 
         log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03&search=Customer+Nota")
         self.assertEqual(log_response.status_code, 200)
@@ -6954,9 +6985,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("HRIS Integration Hub", html)
-        self.assertIn("Performance", html)
-        self.assertIn("Performance Review", html)
-        self.assertIn("Tambah Review", html)
+        self.assertIn("KPI &amp; Target", html)
+        self.assertIn("Kelola Target KPI Bulanan", html)
+        self.assertIn("Workbook KPI &amp; Target", html)
+        self.assertIn("Input KPI Staff", html)
 
     def test_hris_helpdesk_route_renders_operational_view(self):
         self.login_hr_user()
@@ -7850,6 +7882,158 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (employee_id,),
             ).fetchone()[0]
         self.assertEqual(usage_count, 1)
+
+    def test_overtime_portal_submits_add_and_reduce_requests_then_hr_can_approve_them(self):
+        date_value = "2026-09-07"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-PORTAL",
+            full_name="Portal Lembur Staff",
+            warehouse_id=1,
+        )
+        self.create_user("portal_overtime_staff", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, check_out,
+                    status, shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    date_value,
+                    "08:00",
+                    "17:00",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        self.login("portal_overtime_staff", "pass1234")
+
+        page_response = self.client.get("/lembur/")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("Ajukan Tambah / Kurangi Lembur", page_html)
+        self.assertIn("1j 00m", page_html)
+
+        add_response = self.client.post(
+            "/lembur/submit",
+            data={
+                "request_mode": "add",
+                "request_date": date_value,
+                "minutes_amount": "45",
+                "reason": "Koreksi lembur event malam.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_response.status_code, 302)
+
+        reduce_response = self.client.post(
+            "/lembur/submit",
+            data={
+                "request_mode": "reduce",
+                "request_date": date_value,
+                "minutes_amount": "30",
+                "reason": "Dipakai izin pulang lebih awal.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(reduce_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_rows = db.execute(
+                """
+                SELECT request_type, status, summary_title
+                FROM attendance_action_requests
+                WHERE employee_id=?
+                ORDER BY id ASC
+                """,
+                (employee_id,),
+            ).fetchall()
+
+        self.assertEqual([row["request_type"] for row in request_rows], ["overtime_add", "overtime_use"])
+        self.assertEqual([row["status"] for row in request_rows], ["pending", "pending"])
+        self.assertIn("Tambah Lembur", request_rows[0]["summary_title"])
+        self.assertIn("Kurangi Lembur", request_rows[1]["summary_title"])
+
+        self.logout()
+        self.login_hr_user("hr_ot_portal_approval", "pass1234")
+
+        with self.app.app_context():
+            db = get_db()
+            add_request = db.execute(
+                """
+                SELECT id
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_add'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            reduce_request = db.execute(
+                """
+                SELECT id
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        approve_add_response = self.client.post(
+            f"/hris/approval/attendance-request/{add_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Lembur event valid."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_add_response.status_code, 302)
+
+        approve_reduce_response = self.client.post(
+            f"/hris/approval/attendance-request/{reduce_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Pengurangan sesuai izin."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_reduce_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            adjustment_row = db.execute(
+                """
+                SELECT minutes_delta, note
+                FROM overtime_balance_adjustments
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            usage_row = db.execute(
+                """
+                SELECT minutes_used, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(adjustment_row["minutes_delta"], 45)
+        self.assertEqual(adjustment_row["note"], "Koreksi lembur event malam.")
+        self.assertEqual(usage_row["minutes_used"], 30)
+        self.assertEqual(usage_row["note"], "Dipakai izin pulang lebih awal.")
+        self.assertEqual((60 + 45 - 30), 75)
 
     def test_hr_can_override_biometric_late_status_and_preserve_it_after_resync(self):
         self.login_hr_user("hr_bio_override", "pass1234")
@@ -10074,6 +10258,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             },
             follow_redirects=False,
         )
+
+        self.submit_daily_report(
+            title="Report edit checkout",
+            report_date=today,
+        )
+
         self.client.post(
             "/absen/submit",
             data={
@@ -10170,6 +10360,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             },
             follow_redirects=False,
         )
+
+        self.submit_daily_report(
+            title="Report wrong checkout",
+            report_date=today,
+        )
+
         self.client.post(
             "/absen/submit",
             data={
@@ -10272,6 +10468,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             },
             follow_redirects=False,
         )
+
+        self.submit_daily_report(
+            title="Report no edit",
+            report_date=today,
+        )
+
         self.client.post(
             "/absen/submit",
             data={
@@ -10600,6 +10802,11 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
 
+        self.submit_daily_report(
+            title="Report break flow",
+            report_date=today,
+        )
+
         self.client.post(
             "/absen/submit",
             data={
@@ -10644,6 +10851,111 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["check_in"], "07:50")
         self.assertEqual(attendance["check_out"], "17:10")
         self.assertEqual(attendance["status"], "present")
+
+    def test_attendance_portal_blocks_check_out_until_daily_report_is_submitted(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-REPORT-GATE",
+            full_name="Portal Report Gate",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_report_gate", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_report_gate", "pass1234")
+        today = date_cls.today().isoformat()
+
+        check_in_response = self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T08:00",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(check_in_response.status_code, 302)
+
+        blocked_response = self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_out",
+                "location_label": "Gudang Mataram - Pulang",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "5.4",
+                "punch_time": f"{today}T17:05",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(blocked_response.status_code, 302)
+        self.assertIn("/laporan-harian/", blocked_response.headers.get("Location", ""))
+
+        with self.app.app_context():
+            db = get_db()
+            attendance_before_report = db.execute(
+                """
+                SELECT check_in, check_out
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(attendance_before_report["check_in"], "08:00")
+        self.assertIsNone(attendance_before_report["check_out"])
+
+        report_response = self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": today,
+                "title": "Report gate checkout",
+                "summary": "Pekerjaan hari ini selesai sesuai target.",
+                "blocker_note": "Stok rak samping sempat berbeda 1 item.",
+                "follow_up_note": "Besok validasi ulang stok rak samping.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(report_response.status_code, 302)
+
+        checkout_response = self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_out",
+                "location_label": "Gudang Mataram - Pulang",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "5.4",
+                "punch_time": f"{today}T17:05",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(checkout_response.status_code, 302)
+        self.assertIn("/absen/", checkout_response.headers.get("Location", ""))
+
+        with self.app.app_context():
+            db = get_db()
+            attendance_after_report = db.execute(
+                """
+                SELECT check_in, check_out, status
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(attendance_after_report["check_in"], "08:00")
+        self.assertEqual(attendance_after_report["check_out"], "17:05")
+        self.assertEqual(attendance_after_report["status"], "present")
 
     def test_attendance_check_out_notification_includes_effective_work_duration(self):
         employee_id = self.create_employee_record(
@@ -10694,6 +11006,11 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "photo_data_url": self.build_camera_photo_data_url(),
             },
             follow_redirects=False,
+        )
+
+        self.submit_daily_report(
+            title="Report work notify",
+            report_date=today,
         )
 
         with patch("routes.attendance_portal.notify_operational_event") as mocked_operational_notify, patch(
@@ -10767,6 +11084,11 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "photo_data_url": self.build_camera_photo_data_url(),
             },
             follow_redirects=False,
+        )
+
+        self.submit_daily_report(
+            title="Report next shift",
+            report_date=today,
         )
 
         with patch("routes.attendance_portal.notify_operational_event"), patch(
@@ -10852,6 +11174,11 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "photo_data_url": self.build_camera_photo_data_url(),
             },
             follow_redirects=False,
+        )
+
+        self.submit_daily_report(
+            title="Report next live",
+            report_date=today,
         )
 
         with patch("routes.attendance_portal.notify_operational_event"), patch(
@@ -11646,6 +11973,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         page_html = page_response.get_data(as_text=True)
         self.assertIn("Form Report Harian &amp; Live", page_html)
         self.assertIn('name="attachment"', page_html)
+        self.assertNotIn("Input KPI Mingguan Staff", page_html)
 
         submit_response = self.client.post(
             "/laporan-harian/submit",
@@ -11707,6 +12035,221 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Live promo toko Mega", hris_html)
         self.assertIn("bukti-live.pdf", hris_html)
 
+    def test_daily_report_portal_requires_summary_blocker_and_follow_up_notes(self):
+        today = date_cls.today().isoformat()
+        self.create_user("ops_daily_required", "pass1234", "staff", warehouse_id=1)
+        self.login("ops_daily_required", "pass1234")
+
+        submit_response = self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": today,
+                "title": "Report belum lengkap",
+                "summary": "Ringkasan sudah diisi.",
+                "blocker_note": "",
+                "follow_up_note": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(submit_response.status_code, 200)
+        submit_html = submit_response.get_data(as_text=True)
+        self.assertIn("Judul, ringkasan, kendala, dan tindak lanjut wajib diisi.", submit_html)
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                "SELECT id FROM daily_live_reports WHERE title=?",
+                ("Report belum lengkap",),
+            ).fetchone()
+
+        self.assertIsNone(report)
+
+    def test_kpi_portal_renders_form_for_linked_employee(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-KPI-PORTAL",
+            full_name="Muhammad Naufal Ash-Shiddiq",
+            warehouse_id=1,
+            position="Marketing Staff",
+        )
+        self.create_user("staff_kpi_portal", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("staff_kpi_portal", "pass1234")
+
+        response = self.client.get("/kpi-staff/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Input KPI Staff", html)
+        self.assertIn('action="/kpi-staff/submit"', html)
+        self.assertIn("Muhammad Naufal Ash-Shiddiq", html)
+        self.assertIn('name="metric_live_jam"', html)
+        self.assertIn('name="metric_job_8_produk_fb"', html)
+
+    def test_kpi_portal_submits_staff_report_and_hris_review_updates_status(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-KPI-SUBMIT",
+            full_name="Muhammad Naufal Ash-Shiddiq",
+            warehouse_id=1,
+            position="Marketing Staff",
+        )
+        self.create_user("staff_kpi_submit", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("staff_kpi_submit", "pass1234")
+
+        submit_response = self.client.post(
+            "/kpi-staff/submit",
+            data={
+                "period_label": "2026-04",
+                "week_key": "W2",
+                "metric_live_jam": "20",
+                "metric_live_rp": "300000",
+                "metric_offline_rp": "15000000",
+                "metric_offline_ulasan": "6",
+                "metric_offline_crm": "7",
+                "metric_offline_slow": "3",
+                "metric_konten_individu": "2",
+                "metric_job_8_produk_fb": "90",
+                "metric_job_cek_produk_harian": "120",
+                "obstacle_note": "Traffic live turun di tengah minggu.",
+                "solution_note": "Naikkan follow up CRM dan refresh materi promo.",
+                "coordination_note": "Butuh sinkron konten dengan tim marketing.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/kpi-staff/#kpi-target-form", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                """
+                SELECT id, employee_id, period_label, week_key, template_key, template_name,
+                       status, obstacle_note, solution_note, coordination_note, weighted_score
+                FROM kpi_staff_reports
+                WHERE employee_id=? AND period_label=? AND week_key=?
+                """,
+                (employee_id, "2026-04", "W2"),
+            ).fetchone()
+
+        self.assertIsNotNone(report)
+        self.assertEqual(report["employee_id"], employee_id)
+        self.assertEqual(report["template_key"], "mataram-naufal")
+        self.assertEqual(report["template_name"], "Muhammad Naufal Ash-Shiddiq")
+        self.assertEqual(report["status"], "submitted")
+        self.assertEqual(report["obstacle_note"], "Traffic live turun di tengah minggu.")
+        self.assertEqual(report["solution_note"], "Naikkan follow up CRM dan refresh materi promo.")
+        self.assertEqual(report["coordination_note"], "Butuh sinkron konten dengan tim marketing.")
+        self.assertGreater(report["weighted_score"], 0)
+
+        portal_after_submit = self.client.get("/kpi-staff/")
+        self.assertEqual(portal_after_submit.status_code, 200)
+        portal_html = portal_after_submit.get_data(as_text=True)
+        self.assertIn("Riwayat KPI Saya", portal_html)
+        self.assertIn("Muhammad Naufal Ash-Shiddiq", portal_html)
+        self.assertIn("Traffic live turun di tengah minggu.", portal_html)
+
+        self.logout()
+        self.login_hr_user()
+
+        hris_response = self.client.get("/hris/pms")
+        self.assertEqual(hris_response.status_code, 200)
+        hris_html = hris_response.get_data(as_text=True)
+        self.assertIn("Input KPI Staff", hris_html)
+        self.assertIn("Muhammad Naufal Ash-Shiddiq", hris_html)
+        self.assertIn("Traffic live turun di tengah minggu.", hris_html)
+
+        review_response = self.client.post(
+            f"/hris/pms/report/{report['id']}/review",
+            data={
+                "status": "reviewed",
+                "review_note": "Progress KPI minggu ini sudah masuk dan valid.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(review_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            reviewed_report = db.execute(
+                "SELECT status, review_note, reviewed_by FROM kpi_staff_reports WHERE id=?",
+                (report["id"],),
+            ).fetchone()
+
+        self.assertEqual(reviewed_report["status"], "reviewed")
+        self.assertEqual(reviewed_report["review_note"], "Progress KPI minggu ini sudah masuk dan valid.")
+        self.assertIsNotNone(reviewed_report["reviewed_by"])
+
+    def test_hris_can_manage_monthly_kpi_targets_and_staff_portal_uses_them(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-KPI-TARGET",
+            full_name="Muhammad Naufal Ash-Shiddiq",
+            warehouse_id=1,
+            position="Marketing Staff",
+        )
+        self.create_user("staff_kpi_target", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login_hr_user("hr_kpi_target", "pass1234")
+
+        period_label = date_cls.today().strftime("%Y-%m")
+        add_response = self.client.post(
+            "/hris/pms/target/add",
+            data={
+                "employee_id": str(employee_id),
+                "period_label": period_label,
+                "minimum_pass_score": "8.75",
+                "summary": "Target custom bulan ini untuk dorong CRM dan loyalty.",
+                "team_focus_text": "CRM\nLoyalty",
+                "metric_code[]": ["live_jam", "crm_baru"],
+                "metric_group[]": ["Live", "CRM"],
+                "metric_label[]": ["Live Jam Custom", "Closing Membership"],
+                "metric_unit[]": ["Jam", "CRM"],
+                "metric_target[]": ["44", "25"],
+                "metric_weight[]": ["5", "10"],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            plan = db.execute(
+                """
+                SELECT id, minimum_pass_score, summary, metric_payload
+                FROM kpi_target_plans
+                WHERE employee_id=? AND period_label=?
+                """,
+                (employee_id, period_label),
+            ).fetchone()
+
+        self.assertIsNotNone(plan)
+        self.assertAlmostEqual(plan["minimum_pass_score"], 8.75)
+        self.assertIn("Closing Membership", plan["metric_payload"])
+
+        update_response = self.client.post(
+            f"/hris/pms/target/update/{plan['id']}",
+            data={
+                "period_label": period_label,
+                "minimum_pass_score": "9",
+                "summary": "Revisi target bulanan untuk fokus membership dan follow up.",
+                "team_focus_text": "Membership\nFollow Up",
+                "metric_code[]": ["live_jam", "vip_follow_up"],
+                "metric_group[]": ["Live", "CRM"],
+                "metric_label[]": ["Live Jam Revisi", "VIP Follow Up"],
+                "metric_unit[]": ["Jam", "Customer"],
+                "metric_target[]": ["48", "30"],
+                "metric_weight[]": ["6", "12"],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        self.logout()
+        self.login("staff_kpi_target", "pass1234")
+
+        portal_response = self.client.get("/kpi-staff/")
+        self.assertEqual(portal_response.status_code, 200)
+        portal_html = portal_response.get_data(as_text=True)
+        self.assertIn("VIP Follow Up", portal_html)
+        self.assertIn("Live Jam Revisi", portal_html)
+        self.assertNotIn("Closing Membership", portal_html)
+
     def test_daily_report_submit_triggers_role_based_whatsapp_notification(self):
         today = date_cls.today().isoformat()
         self.create_user("ops_daily_wa", "pass1234", "staff", warehouse_id=1)
@@ -11720,8 +12263,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "report_date": today,
                     "title": "Live test whatsapp",
                     "summary": "Traffic aman.",
-                    "blocker_note": "",
-                    "follow_up_note": "",
+                    "blocker_note": "Host sempat ganti device.",
+                    "follow_up_note": "Besok cek koneksi dan mic sebelum live.",
                     "attachment": (BytesIO(b"%PDF-1.4 bukti live report"), "bukti-live.pdf"),
                 },
                 content_type="multipart/form-data",
@@ -11835,6 +12378,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "report_date": "2026-09-06",
                 "title": "Closing stok sore",
                 "summary": "Semua rak utama sudah dirapikan dan stok display dicek.",
+                "blocker_note": "Ada selisih display kecil yang perlu dicek ulang.",
+                "follow_up_note": "Besok lanjut validasi display rak depan.",
             },
             follow_redirects=False,
         )
@@ -11894,6 +12439,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "report_date": "2026-09-06",
                 "title": "Live sore marketplace",
                 "summary": "Live selesai sesuai target.",
+                "blocker_note": "Audio sempat drop sebentar di tengah sesi.",
+                "follow_up_note": "Besok cek mic dan jaringan sebelum mulai.",
             },
             follow_redirects=False,
         )
@@ -11984,6 +12531,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "report_date": "2026-09-06",
                 "title": "Report harian biasa",
                 "summary": "Tidak boleh pakai lampiran bukti karena bukan report live.",
+                "blocker_note": "Butuh follow up stok rak belakang.",
+                "follow_up_note": "Besok lanjut hitung ulang rak belakang.",
                 "attachment": (BytesIO(b"fake-image"), "bukti.png"),
             },
             content_type="multipart/form-data",

@@ -8,7 +8,7 @@ Wrapper ini cocok untuk PC kasir yang ingin:
 - tetap bisa pindah ke modul gudang `/stock/`
 - menyimpan sesi login di app desktop
 - punya mode launcher Windows yang stabil untuk Edge/Chrome
-- tetap punya jembatan native awal untuk cek printer Windows dan perintah `window.print()` saat `pywebview` tersedia
+- tetap punya bridge native Windows untuk cek printer, aktifkan printer pilihan, dan kirim nota thermal langsung ke driver `Xprinter`
 
 ## Model arsitektur
 
@@ -49,6 +49,7 @@ Saat app dibuka:
 - cek printer Windows via PowerShell
 - bridge lokal `localhost` untuk komunikasi ERP web -> desktop app
 - aktivasi printer pilihan seperti `Xprinter` sebelum print
+- print nota thermal langsung ke driver Windows (`RAW`) lewat `win32print`
 - restore default printer Windows setelah nota selesai dicetak
 - perintah print halaman aktif
 
@@ -82,7 +83,7 @@ window.pywebview.api.get_default_printer()
 Ini penting untuk tahap berikutnya jika Anda ingin:
 
 - pilih printer Xprinter tertentu dari app kasir
-- auto print tanpa dialog browser
+- auto print thermal langsung ke driver printer
 - scanner barcode native
 - shortcut tombol kasir di Windows
 
@@ -96,14 +97,15 @@ Saat `KasirERP.exe` berjalan, app desktop bisa membuka bridge lokal seperti:
 - `http://127.0.0.1:17844/printer/default`
 - `POST /printer/activate-preferred`
 - `POST /printer/restore-default`
+- `POST /printer/print-receipt`
 
 ERP web kasir memakai bridge ini untuk alur:
 
 1. checkout selesai
 2. kasir pilih mau print atau tidak
-3. jika `Ya`, desktop bridge mengaktifkan printer preferensi seperti `Xprinter`
-4. halaman nota thermal melakukan print
-5. setelah `afterprint`, default printer Windows dikembalikan lagi
+3. jika `Ya` dan layout nota `thermal`, desktop bridge mencoba print native ke driver `Xprinter` dulu
+4. jika native print tidak tersedia, ERP fallback ke alur `activate preferred printer -> window.print()`
+5. setelah selesai, default printer Windows dikembalikan lagi
 
 ## Jalankan versi Python
 
@@ -157,23 +159,36 @@ Contoh field penting:
 - `window.width`
 - `window.height`
 - `printer.preferred_printer_name`
+- `printer.native_driver_print_enabled`
+- `printer.paper_width_chars`
+- `printer.raw_encoding`
+- `printer.cut_after_print`
 
 ## Catatan penting tentang print
 
-Pondasi ini sudah siap untuk:
+Sekarang wrapper ini sudah siap untuk:
 
 - mengetahui printer default Windows
 - membaca daftar printer Windows
 - memicu `window.print()` dari app desktop mode `pywebview`
 - membuka ERP lewat Edge/Chrome dengan `--kiosk-printing` saat mode browser aktif
+- mengirim nota thermal teks langsung ke driver `Xprinter` melalui bridge lokal desktop
+- fallback otomatis ke print browser kalau native raw print tidak bisa dipakai
 
-Tetapi pemilihan printer **langsung ke Xprinter tertentu tanpa dialog** belum dihardcode di tahap ini. Itu akan jadi tahap berikutnya dengan native print bridge khusus Windows.
+Mode native print ini membutuhkan:
+
+- Windows
+- package `pywin32`
+- nama printer di config cocok dengan printer Windows yang terpasang
+- layout nota `thermal`
+
+Untuk nota A4 atau jika native print gagal, alur lama `window.print()` tetap dipakai sebagai fallback.
 
 ## Tahap lanjutan yang paling masuk akal setelah ini
 
 1. Tambahkan mode login kasir khusus desktop
-2. Tambahkan pemilihan printer `Xprinter` by name
-3. Tambahkan auto print nota thermal tanpa dialog
+2. Tambahkan pilihan printer dari UI desktop
+3. Tambahkan preview status printer dan hasil test print
 4. Tambahkan endpoint handshake ERP web <-> desktop app
 5. Tambahkan shortcut native: kasir, gudang, log penjualan, printer status
 

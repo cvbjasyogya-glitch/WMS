@@ -65,10 +65,10 @@ HRIS_MODULES = (
     },
     {
         "slug": "pms",
-        "label": "Performance",
-        "summary": "Penilaian, objective review, feedback, dan performance cycle.",
+        "label": "KPI & Target",
+        "summary": "Target kerja staff per periode, input KPI mingguan, dan review HR sesuai format workbook operasional.",
         "source": "horilla-1.0/pms",
-        "status": "Performance",
+        "status": "KPI",
     },
     {
         "slug": "helpdesk",
@@ -124,7 +124,7 @@ MODULE_VIEW_ROLE_MAP = {
     "recruitment": set(FULL_HRIS_ROLES),
     "onboarding": set(FULL_HRIS_ROLES),
     "offboarding": set(FULL_HRIS_ROLES),
-    "pms": set(FULL_HRIS_ROLES),
+    "pms": set(FULL_HRIS_ROLES | OWNER_HRIS_SPECIAL_ROLES),
     "helpdesk": set(FULL_HRIS_ROLES | SELF_SERVICE_HRIS_ROLES),
     "report": set(FULL_HRIS_ROLES),
     "biometric": set(FULL_HRIS_ROLES | OWNER_HRIS_SPECIAL_ROLES),

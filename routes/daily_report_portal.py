@@ -19,6 +19,8 @@ daily_report_portal_bp = Blueprint("daily_report_portal", __name__, url_prefix="
 
 def _build_daily_report_portal_context(db):
     linked_employee = _get_self_service_employee(db)
+    if linked_employee:
+        linked_employee = dict(linked_employee)
     user_id = session.get("user_id")
     recent_reports = [
         dict(row)
@@ -66,6 +68,8 @@ def index():
 def submit():
     db = get_db()
     linked_employee = _get_self_service_employee(db)
+    if linked_employee:
+        linked_employee = dict(linked_employee)
 
     report_type = _normalize_daily_live_report_type(request.form.get("report_type"))
     report_date = (request.form.get("report_date") or "").strip() or date_cls.today().isoformat()
@@ -75,8 +79,8 @@ def submit():
     follow_up_note = (request.form.get("follow_up_note") or "").strip()
     attachment = request.files.get("attachment")
 
-    if not title or not summary:
-        flash("Judul dan isi laporan wajib diisi.", "error")
+    if not title or not summary or not blocker_note or not follow_up_note:
+        flash("Judul, ringkasan, kendala, dan tindak lanjut wajib diisi.", "error")
         return redirect("/laporan-harian/")
 
     if not report_date:
@@ -178,3 +182,10 @@ def submit():
 
     flash("Report berhasil dikirim. HR atau Super Admin akan memproses statusnya dari HRIS.", "success")
     return redirect("/laporan-harian/")
+
+
+@daily_report_portal_bp.route("/kpi/submit", methods=["POST"])
+def submit_kpi_staff_report():
+    from routes.kpi_portal import _submit_kpi_staff_report_form
+
+    return _submit_kpi_staff_report_form("/kpi-staff/#kpi-target-form")

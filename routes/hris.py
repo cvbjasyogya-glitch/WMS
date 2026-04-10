@@ -1,5 +1,6 @@
 import base64
 import binascii
+import json
 import os
 import re
 import sqlite3
@@ -46,6 +47,20 @@ from services.attendance_request_service import (
     split_attendance_requests,
 )
 from services.event_notification_policy import get_event_notification_policy
+from services.kpi_catalog import (
+    KPI_REPORT_STATUS_LABELS,
+    KPI_REPORT_STATUSES,
+    KPI_WEEK_OPTIONS,
+    build_kpi_metric_entries,
+    format_kpi_period_label,
+    get_current_kpi_week_key,
+    get_kpi_profiles,
+    normalize_kpi_period_label,
+    normalize_kpi_report_status,
+    normalize_kpi_week_key,
+    resolve_kpi_profile,
+    summarize_kpi_metric_entries,
+)
 from services.notification_service import notify_broadcast, notify_operational_event, notify_user
 from services.rbac import has_permission, is_scoped_role, normalize_role
 from services.whatsapp_service import send_role_based_notification
@@ -591,6 +606,18 @@ def _calculate_leave_days(start_date, end_date):
 
 def _current_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_hris_datetime_display(raw_value, include_date=False):
+    safe_value = str(raw_value or "").strip()
+    if not safe_value:
+        return "-"
+    normalized = safe_value.replace("T", " ")[:19]
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return safe_value
+    return parsed.strftime("%d/%m/%Y %H:%M" if include_date else "%H:%M")
 
 
 def _normalize_datetime_input(value):
@@ -2165,6 +2192,46 @@ def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None,
     return usage_rows
 
 
+def _fetch_overtime_balance_adjustment_records(db, selected_warehouse=None, employee_id=None, limit=None):
+    scope_warehouse = get_hris_scope()
+    safe_warehouse = scope_warehouse or selected_warehouse
+    query = """
+        SELECT
+            a.*,
+            e.employee_code,
+            e.full_name,
+            w.name AS warehouse_name,
+            u.username AS handled_by_name
+        FROM overtime_balance_adjustments a
+        JOIN employees e ON a.employee_id = e.id
+        LEFT JOIN warehouses w ON a.warehouse_id = w.id
+        LEFT JOIN users u ON a.handled_by = u.id
+        WHERE 1=1
+    """
+    params = []
+
+    if safe_warehouse:
+        query += " AND a.warehouse_id=?"
+        params.append(safe_warehouse)
+
+    if employee_id:
+        query += " AND a.employee_id=?"
+        params.append(employee_id)
+
+    query += " ORDER BY a.adjustment_date DESC, a.created_at DESC, a.id DESC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(int(max(1, limit)))
+
+    adjustment_rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    for row in adjustment_rows:
+        row["minutes_delta"] = max(0, int(row.get("minutes_delta") or 0))
+        row["duration_label"] = _format_duration_minutes_label(row["minutes_delta"])
+        row["handled_by_name"] = row.get("handled_by_name") or "-"
+        row["note"] = row.get("note") or "-"
+    return adjustment_rows
+
+
 def _get_overtime_usage_by_id(db, usage_id):
     scope_warehouse = get_hris_scope()
     query = """
@@ -2209,6 +2276,7 @@ def _build_employee_overtime_balance(db, employee_id):
             attendance_query += " AND 1=0"
         attendance_query += " ORDER BY attendance_date ASC, id ASC"
         attendance_rows = db.execute(attendance_query, (employee_id,)).fetchall()
+    adjustment_rows = _fetch_overtime_balance_adjustment_records(db, employee_id=employee_id)
     usage_rows = _fetch_overtime_usage_records(db, employee_id=employee_id)
 
     earned_seconds = 0
@@ -2216,15 +2284,23 @@ def _build_employee_overtime_balance(db, employee_id):
         overtime_summary = _summarize_overtime_activity(row["check_out"], row["shift_label"])
         earned_seconds += overtime_summary["total_seconds"]
 
+    added_minutes = sum(max(0, int(row.get("minutes_delta") or 0)) for row in adjustment_rows)
+    added_seconds = added_minutes * 60
     used_minutes = sum(max(0, int(row.get("minutes_used") or 0)) for row in usage_rows)
     used_seconds = used_minutes * 60
-    available_seconds = max(0, earned_seconds - used_seconds)
+    available_seconds = max(0, earned_seconds + added_seconds - used_seconds)
     return {
         "earned_seconds": earned_seconds,
+        "added_seconds": added_seconds,
+        "added_minutes": added_minutes,
         "used_seconds": used_seconds,
         "used_minutes": used_minutes,
         "available_seconds": available_seconds,
         "available_minutes": available_seconds // 60,
+        "earned_label": _format_duration_minutes_label(earned_seconds // 60, zero_label="0 mnt"),
+        "added_label": _format_duration_minutes_label(added_minutes, zero_label="0 mnt"),
+        "used_label": _format_duration_minutes_label(used_minutes, zero_label="0 mnt"),
+        "available_label": _format_duration_minutes_label(available_seconds // 60, zero_label="0 mnt"),
     }
 
 
@@ -2235,9 +2311,12 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
             **employee,
             "earned_total_seconds": 0,
             "earned_period_seconds": 0,
+            "added_total_seconds": 0,
+            "added_period_seconds": 0,
             "used_total_seconds": 0,
             "used_period_seconds": 0,
             "last_overtime_date": "",
+            "last_adjustment_date": "",
             "last_usage_date": "",
         }
         for employee in employees
@@ -2283,6 +2362,19 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                 if row["attendance_date"] > recap_row["last_overtime_date"]:
                     recap_row["last_overtime_date"] = row["attendance_date"]
 
+    adjustment_rows = _fetch_overtime_balance_adjustment_records(db, selected_warehouse=selected_warehouse)
+    for adjustment_row in adjustment_rows:
+        recap_row = employee_map.get(adjustment_row["employee_id"])
+        if recap_row is None:
+            continue
+
+        adjustment_seconds = adjustment_row["minutes_delta"] * 60
+        recap_row["added_total_seconds"] += adjustment_seconds
+        if _is_iso_date_within_range(adjustment_row["adjustment_date"], period_date_from, period_date_to):
+            recap_row["added_period_seconds"] += adjustment_seconds
+        if adjustment_row["adjustment_date"] > recap_row["last_adjustment_date"]:
+            recap_row["last_adjustment_date"] = adjustment_row["adjustment_date"]
+
     usage_rows = _fetch_overtime_usage_records(db, selected_warehouse=selected_warehouse)
     for usage_row in usage_rows:
         recap_row = employee_map.get(usage_row["employee_id"])
@@ -2298,10 +2390,18 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
 
     recap_rows = []
     for recap_row in employee_map.values():
-        raw_available_seconds = recap_row["earned_total_seconds"] - recap_row["used_total_seconds"]
+        raw_available_seconds = (
+            recap_row["earned_total_seconds"]
+            + recap_row["added_total_seconds"]
+            - recap_row["used_total_seconds"]
+        )
         available_seconds = max(0, raw_available_seconds)
         available_minutes = available_seconds // 60
-        if recap_row["earned_total_seconds"] <= 0 and recap_row["used_total_seconds"] <= 0:
+        if (
+            recap_row["earned_total_seconds"] <= 0
+            and recap_row["added_total_seconds"] <= 0
+            and recap_row["used_total_seconds"] <= 0
+        ):
             continue
         recap_rows.append(
             {
@@ -2313,6 +2413,14 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                 "earned_period_label": _format_break_duration_label(
                     recap_row["earned_period_seconds"],
                     has_break_activity=recap_row["earned_period_seconds"] > 0,
+                ),
+                "added_total_label": _format_break_duration_label(
+                    recap_row["added_total_seconds"],
+                    has_break_activity=recap_row["added_total_seconds"] > 0,
+                ),
+                "added_period_label": _format_break_duration_label(
+                    recap_row["added_period_seconds"],
+                    has_break_activity=recap_row["added_period_seconds"] > 0,
                 ),
                 "used_total_label": _format_break_duration_label(
                     recap_row["used_total_seconds"],
@@ -2326,7 +2434,7 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                 "available_minutes": available_minutes,
                 "available_label": _format_duration_minutes_label(available_minutes, zero_label="0 mnt"),
                 "has_available_balance": available_seconds > 0,
-                "latest_activity_date": recap_row["last_usage_date"] or recap_row["last_overtime_date"] or "-",
+                "latest_activity_date": recap_row["last_usage_date"] or recap_row["last_adjustment_date"] or recap_row["last_overtime_date"] or "-",
                 "usage_hint_label": (
                     f"Maks { _format_duration_minutes_label(available_minutes, zero_label='0 mnt') }"
                     if available_seconds > 0
@@ -2348,11 +2456,16 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         "staff_total": len(recap_rows),
         "staff_with_balance": sum(1 for row in recap_rows if row["has_available_balance"]),
         "earned_period_seconds": sum(row["earned_period_seconds"] for row in recap_rows),
+        "added_period_seconds": sum(row["added_period_seconds"] for row in recap_rows),
         "used_period_seconds": sum(row["used_period_seconds"] for row in recap_rows),
         "available_total_seconds": sum(row["available_seconds"] for row in recap_rows),
         "earned_period_label": _format_break_duration_label(
             sum(row["earned_period_seconds"] for row in recap_rows),
             has_break_activity=sum(row["earned_period_seconds"] for row in recap_rows) > 0,
+        ),
+        "added_period_label": _format_break_duration_label(
+            sum(row["added_period_seconds"] for row in recap_rows),
+            has_break_activity=sum(row["added_period_seconds"] for row in recap_rows) > 0,
         ),
         "used_period_label": _format_break_duration_label(
             sum(row["used_period_seconds"] for row in recap_rows),
@@ -2636,6 +2749,44 @@ def _apply_attendance_request(db, request_row):
             f"Jadwal manual {employee_name} untuk {date_range_label} berhasil dibersihkan."
         )
 
+    if request_type == "overtime_add":
+        employee_id = _to_int(payload.get("employee_id"))
+        adjustment_date = _parse_iso_date(payload.get("adjustment_date"))
+        minutes_delta = _to_int(payload.get("minutes_delta"), default=None)
+        note = str(payload.get("note") or "").strip()
+        employee = _get_accessible_employee(db, employee_id)
+        if employee is None:
+            raise ValueError("Staff untuk penambahan lembur tidak ditemukan.")
+        employee = dict(employee)
+        if adjustment_date is None:
+            raise ValueError("Tanggal penambahan lembur tidak valid.")
+        if minutes_delta is None or minutes_delta <= 0:
+            raise ValueError("Durasi penambahan lembur tidak valid.")
+        db.execute(
+            """
+            INSERT INTO overtime_balance_adjustments(
+                employee_id,
+                warehouse_id,
+                adjustment_date,
+                minutes_delta,
+                note,
+                handled_by,
+                updated_at
+            )
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            (
+                employee["id"],
+                employee["warehouse_id"],
+                adjustment_date.isoformat(),
+                minutes_delta,
+                note,
+                session.get("user_id"),
+                _current_timestamp(),
+            ),
+        )
+        return f"Penambahan lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_delta)} berhasil diterapkan."
+
     if request_type == "overtime_use":
         employee_id = _to_int(payload.get("employee_id"))
         usage_date = _parse_iso_date(payload.get("usage_date"))
@@ -2746,6 +2897,552 @@ def _build_performance_summary(performance_reviews):
         "closed": sum(1 for record in performance_reviews if record["status"] == "closed"),
         "avg_score": round(total_score / count, 2) if count else 0,
     }
+
+
+def _safe_json_loads(payload, default):
+    if not payload:
+        return default
+    try:
+        return json.loads(payload)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+
+
+def _format_kpi_value_label(value, *, currency=False):
+    try:
+        numeric_value = float(value or 0)
+    except (TypeError, ValueError):
+        numeric_value = 0.0
+
+    rounded_value = round(numeric_value, 2)
+    if currency:
+        return f"Rp {int(round(rounded_value)):,}".replace(",", ".")
+    if abs(rounded_value - int(round(rounded_value))) < 0.0001:
+        return str(int(round(rounded_value)))
+    return f"{rounded_value:.2f}".rstrip("0").rstrip(".")
+
+
+def _build_kpi_profile_snapshot(profile):
+    safe_profile = dict(profile or {})
+    return {
+        "key": safe_profile.get("key"),
+        "display_name": safe_profile.get("display_name"),
+        "warehouse_group": safe_profile.get("warehouse_group"),
+        "warehouse_label": safe_profile.get("warehouse_label"),
+        "team_focus": list(safe_profile.get("team_focus") or []),
+        "minimum_pass_score": float(safe_profile.get("minimum_pass_score") or 0),
+        "summary": safe_profile.get("summary") or "",
+        "metrics": [
+            {
+                "code": metric.get("code"),
+                "group": metric.get("group"),
+                "label": metric.get("label"),
+                "unit": metric.get("unit"),
+                "target": float(metric.get("target") or 0),
+                "weight": float(metric.get("weight") or 0),
+            }
+            for metric in safe_profile.get("metrics", [])
+        ],
+    }
+
+
+def _decorate_kpi_metric_entries(metric_entries):
+    items = []
+    for entry in metric_entries or []:
+        safe_entry = dict(entry)
+        safe_entry["target_label"] = _format_kpi_value_label(
+            safe_entry.get("target"),
+            currency=(safe_entry.get("unit") == "Rp"),
+        )
+        safe_entry["actual_label"] = _format_kpi_value_label(
+            safe_entry.get("actual_value"),
+            currency=(safe_entry.get("unit") == "Rp"),
+        )
+        safe_entry["achievement_percent"] = int(round(float(safe_entry.get("achievement_ratio") or 0) * 100))
+        safe_entry["score_label"] = f"{float(safe_entry.get('score_value') or 0):.2f}".rstrip("0").rstrip(".")
+        items.append(safe_entry)
+    return items
+
+
+def _decorate_kpi_staff_report_row(row):
+    report = dict(row)
+    report["metric_entries"] = _decorate_kpi_metric_entries(_safe_json_loads(report.get("metric_payload"), []))
+    report["target_snapshot"] = _safe_json_loads(report.get("target_payload"), {})
+    report["team_focus_items"] = _safe_json_loads(report.get("team_focus_payload"), [])
+    report["period_label_human"] = format_kpi_period_label(report.get("period_label"))
+    report["status_label"] = KPI_REPORT_STATUS_LABELS.get(
+        report.get("status"),
+        str(report.get("status") or "").replace("_", " ").title(),
+    )
+    report["score_label"] = f"{float(report.get('weighted_score') or 0):.2f}".rstrip("0").rstrip(".")
+    report["completion_percent"] = int(round(float(report.get("completion_ratio") or 0) * 100))
+    report["created_at_label"] = _format_hris_datetime_display(report.get("created_at"), include_date=True)
+    report["reviewed_at_label"] = _format_hris_datetime_display(report.get("reviewed_at"), include_date=True)
+    report["minimum_pass_score"] = float(report.get("target_snapshot", {}).get("minimum_pass_score") or 0)
+    report["is_passed"] = float(report.get("weighted_score") or 0) >= report["minimum_pass_score"]
+    return report
+
+
+def _normalize_kpi_metric_code(value, fallback_index=1):
+    safe_value = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+    return safe_value or f"metric_{int(max(1, fallback_index))}"
+
+
+def _normalize_kpi_team_focus_items(value):
+    if isinstance(value, str):
+        raw_items = str(value).replace("\r", "\n").replace(",", "\n").split("\n")
+    else:
+        raw_items = list(value or [])
+    items = []
+    seen = set()
+    for raw_item in raw_items:
+        item = str(raw_item or "").strip()
+        key = item.lower()
+        if not item or key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+    return items
+
+
+def _normalize_kpi_plan_metric_rows(metric_rows):
+    normalized_rows = []
+    seen_codes = set()
+    for index, metric in enumerate(metric_rows or [], start=1):
+        label = str((metric or {}).get("label") or "").strip()
+        group = str((metric or {}).get("group") or "").strip() or "General"
+        unit = str((metric or {}).get("unit") or "").strip() or "Poin"
+        if not label:
+            continue
+        code = _normalize_kpi_metric_code((metric or {}).get("code") or label, index)
+        suffix = 2
+        base_code = code
+        while code in seen_codes:
+            code = f"{base_code}_{suffix}"
+            suffix += 1
+        seen_codes.add(code)
+        normalized_rows.append(
+            {
+                "code": code,
+                "group": group,
+                "label": label,
+                "unit": unit,
+                "target": float((metric or {}).get("target") or 0),
+                "weight": float((metric or {}).get("weight") or 0),
+            }
+        )
+    return normalized_rows
+
+
+def _extract_kpi_metric_rows_from_form(form):
+    codes = form.getlist("metric_code[]")
+    groups = form.getlist("metric_group[]")
+    labels = form.getlist("metric_label[]")
+    units = form.getlist("metric_unit[]")
+    targets = form.getlist("metric_target[]")
+    weights = form.getlist("metric_weight[]")
+    row_count = max(len(codes), len(groups), len(labels), len(units), len(targets), len(weights))
+    metric_rows = []
+    for index in range(row_count):
+        label = str(labels[index] if index < len(labels) else "").strip()
+        group = str(groups[index] if index < len(groups) else "").strip()
+        unit = str(units[index] if index < len(units) else "").strip()
+        code = str(codes[index] if index < len(codes) else "").strip()
+        target_raw = targets[index] if index < len(targets) else ""
+        weight_raw = weights[index] if index < len(weights) else ""
+        if not any([label, group, unit, str(target_raw).strip(), str(weight_raw).strip(), code]):
+            continue
+        if not label:
+            raise ValueError("Label target KPI tidak boleh kosong.")
+        target_value = _to_float(target_raw)
+        weight_percent = _to_float(weight_raw)
+        weight_value = weight_percent / 100 if weight_percent > 1 else weight_percent
+        metric_rows.append(
+            {
+                "code": code,
+                "group": group or "General",
+                "label": label,
+                "unit": unit or "Poin",
+                "target": float(target_value or 0),
+                "weight": float(weight_value or 0),
+            }
+        )
+    normalized_rows = _normalize_kpi_plan_metric_rows(metric_rows)
+    if not normalized_rows:
+        raise ValueError("Minimal satu target KPI wajib diisi.")
+    return normalized_rows
+
+
+def _build_kpi_profile_from_plan_row(row):
+    plan = dict(row or {})
+    metric_rows = _normalize_kpi_plan_metric_rows(_safe_json_loads(plan.get("metric_payload"), []))
+    team_focus_items = _normalize_kpi_team_focus_items(_safe_json_loads(plan.get("team_focus_payload"), []))
+    warehouse_label = (
+        str(plan.get("warehouse_label") or "").strip()
+        or str(plan.get("warehouse_name") or "").strip()
+        or "Gudang"
+    )
+    warehouse_group = (
+        str(plan.get("warehouse_group") or "").strip().lower()
+        or ("mega" if "mega" in warehouse_label.lower() else "mataram")
+    )
+    return {
+        "id": plan.get("id"),
+        "key": str(plan.get("template_key") or f"kpi-plan-{plan.get('employee_id') or 'staff'}-{plan.get('period_label') or 'periode'}"),
+        "display_name": str(plan.get("template_name") or plan.get("full_name") or "Target KPI Staff").strip(),
+        "warehouse_group": warehouse_group,
+        "warehouse_label": warehouse_label,
+        "aliases": [str(plan.get("full_name") or plan.get("template_name") or "").strip()],
+        "metrics": metric_rows,
+        "team_focus": team_focus_items,
+        "minimum_pass_score": float(plan.get("minimum_pass_score") or 0),
+        "summary": str(plan.get("summary") or "").strip(),
+        "period_label": normalize_kpi_period_label(plan.get("period_label")),
+    }
+
+
+def _decorate_kpi_target_plan_row(row):
+    plan = dict(row or {})
+    profile = _build_kpi_profile_from_plan_row(plan)
+    plan["profile"] = profile
+    plan["metric_rows"] = _decorate_kpi_metric_entries(profile.get("metrics", []))
+    for metric in plan["metric_rows"]:
+        metric["weight_percent_label"] = f"{float(metric.get('weight') or 0) * 100:.2f}".rstrip("0").rstrip(".")
+    plan["team_focus_items"] = profile.get("team_focus", [])
+    plan["team_focus_text"] = "\n".join(plan["team_focus_items"])
+    plan["period_label"] = profile.get("period_label")
+    plan["period_label_human"] = format_kpi_period_label(plan.get("period_label"))
+    plan["pass_score_label"] = f"{float(profile.get('minimum_pass_score') or 0):.2f}".rstrip("0").rstrip(".")
+    plan["created_at_label"] = _format_hris_datetime_display(plan.get("created_at"), include_date=True)
+    plan["updated_at_label"] = _format_hris_datetime_display(plan.get("updated_at"), include_date=True)
+    plan["metric_count"] = len(plan["metric_rows"])
+    return plan
+
+
+def _fetch_kpi_target_plan_by_employee_period(db, employee_id, period_label, selected_warehouse=None):
+    safe_employee_id = _to_int(employee_id)
+    if not safe_employee_id:
+        return None
+
+    safe_period_label = normalize_kpi_period_label(period_label)
+    scope_warehouse = get_hris_scope()
+    safe_warehouse = scope_warehouse or selected_warehouse
+    query = """
+        SELECT
+            p.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position,
+            w.name AS warehouse_name,
+            cu.username AS created_by_name,
+            uu.username AS updated_by_name
+        FROM kpi_target_plans p
+        JOIN employees e ON p.employee_id = e.id
+        LEFT JOIN warehouses w ON p.warehouse_id = w.id
+        LEFT JOIN users cu ON p.created_by = cu.id
+        LEFT JOIN users uu ON p.updated_by = uu.id
+        WHERE p.employee_id=? AND p.period_label=?
+    """
+    params = [safe_employee_id, safe_period_label]
+    if safe_warehouse:
+        query += " AND p.warehouse_id=?"
+        params.append(safe_warehouse)
+    query += " LIMIT 1"
+    row = db.execute(query, params).fetchone()
+    return _decorate_kpi_target_plan_row(row) if row else None
+
+
+def _resolve_effective_kpi_profile(db, linked_employee, period_label=None):
+    if linked_employee:
+        safe_employee = dict(linked_employee)
+        target_plan = _fetch_kpi_target_plan_by_employee_period(
+            db,
+            safe_employee.get("id"),
+            period_label or date_cls.today().isoformat(),
+        )
+        if target_plan:
+            return target_plan["profile"]
+        return resolve_kpi_profile(
+            employee_name=safe_employee.get("full_name"),
+            warehouse_name=safe_employee.get("warehouse_name"),
+            work_location=safe_employee.get("work_location"),
+            position=safe_employee.get("position"),
+        )
+    return resolve_kpi_profile()
+
+
+def _fetch_kpi_target_plans(db):
+    search = (request.args.get("q") or "").strip()
+    period_label = normalize_kpi_period_label(request.args.get("period"))
+    scope_warehouse = get_hris_scope()
+
+    if scope_warehouse:
+        selected_warehouse = scope_warehouse
+    else:
+        selected_warehouse = _to_int(request.args.get("warehouse"))
+
+    query = """
+        SELECT
+            p.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position,
+            w.name AS warehouse_name,
+            cu.username AS created_by_name,
+            uu.username AS updated_by_name
+        FROM kpi_target_plans p
+        JOIN employees e ON p.employee_id = e.id
+        LEFT JOIN warehouses w ON p.warehouse_id = w.id
+        LEFT JOIN users cu ON p.created_by = cu.id
+        LEFT JOIN users uu ON p.updated_by = uu.id
+        WHERE 1=1
+    """
+    params = []
+
+    if search:
+        like = f"%{search}%"
+        query += """
+            AND (
+                e.employee_code LIKE ?
+                OR e.full_name LIKE ?
+                OR COALESCE(e.department, '') LIKE ?
+                OR COALESCE(e.position, '') LIKE ?
+                OR COALESCE(p.summary, '') LIKE ?
+                OR COALESCE(p.template_name, '') LIKE ?
+            )
+        """
+        params.extend([like, like, like, like, like, like])
+
+    if selected_warehouse:
+        query += " AND p.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    if period_label:
+        query += " AND p.period_label=?"
+        params.append(period_label)
+
+    query += " ORDER BY p.period_label DESC, e.full_name COLLATE NOCASE ASC, p.id DESC"
+    plans = [_decorate_kpi_target_plan_row(row) for row in db.execute(query, params).fetchall()]
+    return plans, search, selected_warehouse, period_label
+
+
+def _build_kpi_target_plan_summary(plans):
+    safe_plans = list(plans or [])
+    return {
+        "total": len(safe_plans),
+        "metrics": sum(int(item.get("metric_count") or 0) for item in safe_plans),
+        "employees": len({item.get("employee_id") for item in safe_plans if item.get("employee_id")}),
+        "avg_pass_score": round(
+            sum(float(item.get("profile", {}).get("minimum_pass_score") or 0) for item in safe_plans) / len(safe_plans),
+            2,
+        )
+        if safe_plans
+        else 0,
+    }
+
+
+def _build_kpi_target_seed_profiles(db, employee_rows, period_label):
+    seed_map = {}
+    for employee in employee_rows or []:
+        safe_employee = dict(employee)
+        profile = _resolve_effective_kpi_profile(db, safe_employee, period_label=period_label)
+        if not profile:
+            continue
+        seed_map[str(safe_employee.get("id"))] = {
+            "template_name": profile.get("display_name"),
+            "minimum_pass_score": float(profile.get("minimum_pass_score") or 0),
+            "summary": profile.get("summary") or "",
+            "team_focus_text": "\n".join(_normalize_kpi_team_focus_items(profile.get("team_focus") or [])),
+            "metrics": [
+                {
+                    "code": metric.get("code"),
+                    "group": metric.get("group"),
+                    "label": metric.get("label"),
+                    "unit": metric.get("unit"),
+                    "target": float(metric.get("target") or 0),
+                    "weight_percent": round(float(metric.get("weight") or 0) * 100, 4),
+                }
+                for metric in profile.get("metrics", [])
+            ],
+        }
+    return seed_map
+
+
+def _build_kpi_summary(kpi_reports):
+    count = len(kpi_reports)
+    total_score = sum(float(report.get("weighted_score") or 0) for report in kpi_reports)
+    total_completion = sum(float(report.get("completion_ratio") or 0) for report in kpi_reports)
+    return {
+        "total": count,
+        "submitted": sum(1 for report in kpi_reports if report.get("status") == "submitted"),
+        "reviewed": sum(1 for report in kpi_reports if report.get("status") == "reviewed"),
+        "follow_up": sum(1 for report in kpi_reports if report.get("status") == "follow_up"),
+        "avg_score": round(total_score / count, 2) if count else 0,
+        "avg_completion": round((total_completion / count) * 100, 2) if count else 0,
+    }
+
+
+def _get_kpi_staff_report_by_id(db, report_id):
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            r.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position,
+            w.name AS warehouse_name,
+            u.username AS submitter_username,
+            ru.username AS reviewed_by_name
+        FROM kpi_staff_reports r
+        JOIN employees e ON r.employee_id = e.id
+        LEFT JOIN warehouses w ON r.warehouse_id = w.id
+        LEFT JOIN users u ON r.user_id = u.id
+        LEFT JOIN users ru ON r.reviewed_by = ru.id
+        WHERE r.id=?
+    """
+    params = [report_id]
+
+    if scope_warehouse:
+        query += " AND r.warehouse_id=?"
+        params.append(scope_warehouse)
+
+    row = db.execute(query, params).fetchone()
+    return _decorate_kpi_staff_report_row(row) if row else None
+
+
+def _get_kpi_target_plan_by_id(db, plan_id):
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            p.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position,
+            w.name AS warehouse_name,
+            cu.username AS created_by_name,
+            uu.username AS updated_by_name
+        FROM kpi_target_plans p
+        JOIN employees e ON p.employee_id = e.id
+        LEFT JOIN warehouses w ON p.warehouse_id = w.id
+        LEFT JOIN users cu ON p.created_by = cu.id
+        LEFT JOIN users uu ON p.updated_by = uu.id
+        WHERE p.id=?
+    """
+    params = [plan_id]
+
+    if scope_warehouse:
+        query += " AND p.warehouse_id=?"
+        params.append(scope_warehouse)
+
+    row = db.execute(query, params).fetchone()
+    return _decorate_kpi_target_plan_row(row) if row else None
+
+
+def _fetch_kpi_staff_reports(db):
+    search = (request.args.get("q") or "").strip()
+    status = (request.args.get("status") or "all").strip().lower()
+    period_label = normalize_kpi_period_label(request.args.get("period"))
+    week_key = (request.args.get("week") or "all").strip().upper()
+    scope_warehouse = get_hris_scope()
+
+    if scope_warehouse:
+        selected_warehouse = scope_warehouse
+    else:
+        selected_warehouse = _to_int(request.args.get("warehouse"))
+
+    query = """
+        SELECT
+            r.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position,
+            w.name AS warehouse_name,
+            u.username AS submitter_username,
+            ru.username AS reviewed_by_name
+        FROM kpi_staff_reports r
+        JOIN employees e ON r.employee_id = e.id
+        LEFT JOIN warehouses w ON r.warehouse_id = w.id
+        LEFT JOIN users u ON r.user_id = u.id
+        LEFT JOIN users ru ON r.reviewed_by = ru.id
+        WHERE 1=1
+    """
+    params = []
+
+    if search:
+        query += """
+            AND (
+                e.employee_code LIKE ?
+                OR e.full_name LIKE ?
+                OR COALESCE(e.department, '') LIKE ?
+                OR COALESCE(e.position, '') LIKE ?
+                OR COALESCE(r.template_name, '') LIKE ?
+            )
+        """
+        like = f"%{search}%"
+        params.extend([like, like, like, like, like])
+
+    if status in KPI_REPORT_STATUSES:
+        query += " AND r.status=?"
+        params.append(status)
+
+    if selected_warehouse:
+        query += " AND r.warehouse_id=?"
+        params.append(selected_warehouse)
+
+    if period_label:
+        query += " AND r.period_label=?"
+        params.append(period_label)
+
+    if week_key in KPI_WEEK_OPTIONS:
+        query += " AND r.week_key=?"
+        params.append(week_key)
+
+    query += " ORDER BY r.period_label DESC, r.week_key DESC, e.full_name COLLATE NOCASE ASC, r.id DESC"
+
+    kpi_reports = [_decorate_kpi_staff_report_row(row) for row in db.execute(query, params).fetchall()]
+    return kpi_reports, search, status, selected_warehouse, period_label, week_key
+
+
+def _build_kpi_profile_reference_cards(selected_warehouse=None, warehouse_rows=None, search=""):
+    warehouse_name_map = {}
+    for row in warehouse_rows or []:
+        try:
+            warehouse_id = int(row["id"])
+            warehouse_name_map[warehouse_id] = row["name"]
+        except Exception:
+            continue
+    warehouse_group = None
+    if selected_warehouse:
+        resolved_name = warehouse_name_map.get(int(selected_warehouse), "")
+        warehouse_group = "mega" if "mega" in str(resolved_name).lower() else "mataram"
+
+    cards = []
+    safe_search = str(search or "").strip().lower()
+    for profile in get_kpi_profiles(warehouse_group):
+        if safe_search:
+            haystack = " ".join(
+                [
+                    profile.get("display_name", ""),
+                    profile.get("warehouse_label", ""),
+                    profile.get("summary", ""),
+                    " ".join(item.get("label", "") for item in profile.get("metrics", [])),
+                ]
+            ).lower()
+            if safe_search not in haystack:
+                continue
+        cards.append(
+            {
+                **profile,
+                "metrics": _decorate_kpi_metric_entries(profile.get("metrics", [])),
+                "pass_score_label": f"{float(profile.get('minimum_pass_score') or 0):.2f}".rstrip("0").rstrip("."),
+            }
+        )
+    return cards
 
 
 def _build_helpdesk_summary(helpdesk_tickets):
@@ -4713,6 +5410,15 @@ def hris_index(module_slug=None):
     performance_summary = None
     performance_filters = None
     performance_employees = []
+    kpi_reports = []
+    kpi_summary = None
+    kpi_filters = None
+    kpi_profile_cards = []
+    kpi_target_plans = []
+    kpi_target_summary = None
+    kpi_target_employees = []
+    kpi_target_period_label = normalize_kpi_period_label(None)
+    kpi_target_seed_profiles = {}
     helpdesk_tickets = []
     helpdesk_summary = None
     helpdesk_filters = None
@@ -4855,15 +5561,28 @@ def hris_index(module_slug=None):
         }
         offboarding_employees = _fetch_employee_options(db)
     elif selected_module["slug"] == "pms":
-        performance_reviews, search, status, selected_warehouse, review_period = _fetch_performance_reviews(db)
-        performance_summary = _build_performance_summary(performance_reviews)
-        performance_filters = {
+        kpi_reports, search, status, selected_warehouse, period_label, week_key = _fetch_kpi_staff_reports(db)
+        kpi_summary = _build_kpi_summary(kpi_reports)
+        kpi_filters = {
             "search": search,
             "status": status,
             "warehouse_id": selected_warehouse,
-            "review_period": review_period,
+            "period_label": period_label,
+            "week_key": week_key,
         }
-        performance_employees = _fetch_employee_options(db)
+        kpi_target_plans, _, _, kpi_target_period_label = _fetch_kpi_target_plans(db)
+        kpi_target_summary = _build_kpi_target_plan_summary(kpi_target_plans)
+        kpi_target_employees = _fetch_employee_options(db)
+        kpi_target_seed_profiles = _build_kpi_target_seed_profiles(
+            db,
+            kpi_target_employees,
+            kpi_target_period_label or period_label,
+        )
+        kpi_profile_cards = _build_kpi_profile_reference_cards(
+            selected_warehouse=selected_warehouse,
+            warehouse_rows=warehouses,
+            search=search,
+        )
     elif selected_module["slug"] == "helpdesk":
         helpdesk_tickets, search, category, priority, status, selected_warehouse = _fetch_helpdesk_tickets(db)
         helpdesk_summary = _build_helpdesk_summary(helpdesk_tickets)
@@ -4969,6 +5688,19 @@ def hris_index(module_slug=None):
         performance_summary=performance_summary,
         performance_filters=performance_filters,
         performance_employees=performance_employees,
+        kpi_reports=kpi_reports,
+        kpi_summary=kpi_summary,
+        kpi_filters=kpi_filters,
+        kpi_target_plans=kpi_target_plans,
+        kpi_target_summary=kpi_target_summary,
+        kpi_target_employees=kpi_target_employees,
+        kpi_target_period_label=(kpi_target_period_label if 'kpi_target_period_label' in locals() else normalize_kpi_period_label(None)),
+        kpi_target_seed_profiles=kpi_target_seed_profiles,
+        kpi_profile_cards=kpi_profile_cards,
+        kpi_week_options=KPI_WEEK_OPTIONS,
+        current_kpi_week_key=get_current_kpi_week_key(),
+        current_kpi_period_label=normalize_kpi_period_label(None),
+        format_kpi_period_label=format_kpi_period_label,
         helpdesk_tickets=helpdesk_tickets,
         helpdesk_summary=helpdesk_summary,
         helpdesk_filters=helpdesk_filters,
@@ -6811,6 +7543,255 @@ def delete_performance(review_id):
 
     flash("Performance review berhasil dihapus", "success")
     return redirect("/hris/pms")
+
+
+@hris_bp.route("/pms/report/<int:report_id>/review", methods=["POST"])
+def review_kpi_staff_report(report_id):
+    return_to = _safe_hris_return_to("/hris/pms")
+    if not can_manage_performance_records():
+        flash("Tidak punya akses untuk mereview KPI staff.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    report = _get_kpi_staff_report_by_id(db, report_id)
+    if not report:
+        flash("Data KPI staff tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    status = normalize_kpi_report_status(request.form.get("status"))
+    review_note = (request.form.get("review_note") or "").strip()
+    reviewed_by = session.get("user_id") if status in {"reviewed", "follow_up"} else None
+    reviewed_at = _current_timestamp() if reviewed_by else None
+
+    db.execute(
+        """
+        UPDATE kpi_staff_reports
+        SET status=?,
+            review_note=?,
+            reviewed_by=?,
+            reviewed_at=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            status,
+            review_note or None,
+            reviewed_by,
+            reviewed_at,
+            _current_timestamp(),
+            report_id,
+        ),
+    )
+    db.commit()
+
+    flash("Status KPI staff berhasil diperbarui.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/pms/target/add", methods=["POST"])
+def add_kpi_target_plan():
+    return_to = _safe_hris_return_to("/hris/pms")
+    if not can_manage_performance_records():
+        flash("Tidak punya akses untuk mengelola target KPI staff.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    employee_id = _to_int(request.form.get("employee_id"))
+    employee = _get_accessible_employee(db, employee_id)
+    if not employee:
+        flash("Karyawan tidak valid untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    period_label = normalize_kpi_period_label(request.form.get("period_label"))
+    minimum_pass_score = _to_float(request.form.get("minimum_pass_score"))
+    summary = (request.form.get("summary") or "").strip()
+    team_focus_items = _normalize_kpi_team_focus_items(request.form.get("team_focus_text"))
+
+    try:
+        metric_rows = _extract_kpi_metric_rows_from_form(request.form)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(return_to)
+
+    duplicate = db.execute(
+        "SELECT id FROM kpi_target_plans WHERE employee_id=? AND period_label=?",
+        (employee["id"], period_label),
+    ).fetchone()
+    if duplicate:
+        flash("Target KPI untuk staff dan periode tersebut sudah ada. Silakan edit yang sudah tersedia.", "error")
+        return redirect(return_to)
+
+    reference_profile = resolve_kpi_profile(
+        employee_name=employee.get("full_name"),
+        warehouse_name=employee.get("warehouse_name"),
+        work_location=employee.get("work_location"),
+        position=employee.get("position"),
+    )
+    warehouse_group = (
+        reference_profile.get("warehouse_group")
+        if reference_profile
+        else ("mega" if "mega" in str(employee.get("warehouse_name") or "").lower() else "mataram")
+    )
+    warehouse_label = (
+        reference_profile.get("warehouse_label")
+        if reference_profile
+        else str(employee.get("warehouse_name") or "Gudang").strip()
+    )
+
+    db.execute(
+        """
+        INSERT INTO kpi_target_plans(
+            employee_id,
+            warehouse_id,
+            period_label,
+            template_key,
+            template_name,
+            warehouse_group,
+            warehouse_label,
+            minimum_pass_score,
+            summary,
+            team_focus_payload,
+            metric_payload,
+            created_by,
+            updated_by,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            employee["id"],
+            employee["warehouse_id"],
+            period_label,
+            (reference_profile.get("key") if reference_profile else None),
+            employee.get("full_name") or (reference_profile.get("display_name") if reference_profile else "Target KPI Staff"),
+            warehouse_group,
+            warehouse_label,
+            float(minimum_pass_score or 0),
+            summary or None,
+            json.dumps(team_focus_items, ensure_ascii=False),
+            json.dumps(metric_rows, ensure_ascii=False),
+            session.get("user_id"),
+            session.get("user_id"),
+            _current_timestamp(),
+        ),
+    )
+    db.commit()
+
+    flash("Target KPI bulanan berhasil ditambahkan.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/pms/target/update/<int:plan_id>", methods=["POST"])
+def update_kpi_target_plan(plan_id):
+    return_to = _safe_hris_return_to("/hris/pms")
+    if not can_manage_performance_records():
+        flash("Tidak punya akses untuk mengelola target KPI staff.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    plan = _get_kpi_target_plan_by_id(db, plan_id)
+    if not plan:
+        flash("Target KPI bulanan tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    employee = _get_accessible_employee(db, plan["employee_id"])
+    if not employee:
+        flash("Karyawan target KPI tidak valid untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    period_label = normalize_kpi_period_label(request.form.get("period_label"))
+    minimum_pass_score = _to_float(request.form.get("minimum_pass_score"))
+    summary = (request.form.get("summary") or "").strip()
+    team_focus_items = _normalize_kpi_team_focus_items(request.form.get("team_focus_text"))
+
+    try:
+        metric_rows = _extract_kpi_metric_rows_from_form(request.form)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(return_to)
+
+    duplicate = db.execute(
+        "SELECT id FROM kpi_target_plans WHERE employee_id=? AND period_label=? AND id<>?",
+        (employee["id"], period_label, plan_id),
+    ).fetchone()
+    if duplicate:
+        flash("Periode target KPI ini sudah dipakai record lain untuk staff yang sama.", "error")
+        return redirect(return_to)
+
+    reference_profile = resolve_kpi_profile(
+        employee_name=employee.get("full_name"),
+        warehouse_name=employee.get("warehouse_name"),
+        work_location=employee.get("work_location"),
+        position=employee.get("position"),
+    )
+    warehouse_group = (
+        reference_profile.get("warehouse_group")
+        if reference_profile
+        else ("mega" if "mega" in str(employee.get("warehouse_name") or "").lower() else "mataram")
+    )
+    warehouse_label = (
+        reference_profile.get("warehouse_label")
+        if reference_profile
+        else str(employee.get("warehouse_name") or "Gudang").strip()
+    )
+
+    db.execute(
+        """
+        UPDATE kpi_target_plans
+        SET period_label=?,
+            template_key=?,
+            template_name=?,
+            warehouse_group=?,
+            warehouse_label=?,
+            minimum_pass_score=?,
+            summary=?,
+            team_focus_payload=?,
+            metric_payload=?,
+            updated_by=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            period_label,
+            (reference_profile.get("key") if reference_profile else plan.get("template_key")),
+            employee.get("full_name") or plan.get("template_name") or "Target KPI Staff",
+            warehouse_group,
+            warehouse_label,
+            float(minimum_pass_score or 0),
+            summary or None,
+            json.dumps(team_focus_items, ensure_ascii=False),
+            json.dumps(metric_rows, ensure_ascii=False),
+            session.get("user_id"),
+            _current_timestamp(),
+            plan_id,
+        ),
+    )
+    db.commit()
+
+    flash("Target KPI bulanan berhasil diupdate.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/pms/target/delete/<int:plan_id>", methods=["POST"])
+def delete_kpi_target_plan(plan_id):
+    return_to = _safe_hris_return_to("/hris/pms")
+    if not can_manage_performance_records():
+        flash("Tidak punya akses untuk mengelola target KPI staff.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    plan = _get_kpi_target_plan_by_id(db, plan_id)
+    if not plan:
+        flash("Target KPI bulanan tidak ditemukan.", "error")
+        return redirect(return_to)
+
+    db.execute("DELETE FROM kpi_target_plans WHERE id=?", (plan_id,))
+    db.commit()
+
+    flash("Target KPI bulanan berhasil dihapus.", "success")
+    return redirect(return_to)
 
 
 @hris_bp.route("/helpdesk/add", methods=["POST"])

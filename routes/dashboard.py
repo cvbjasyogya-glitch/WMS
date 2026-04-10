@@ -89,6 +89,18 @@ def _build_workspace_sections(role):
             )
         )
 
+    if has_permission(normalized_role, "access_overtime_portal"):
+        coordination_items.append(
+            _workspace_tile(
+                "Lembur",
+                "/lembur/",
+                "Ajukan tambah atau kurangi saldo lembur, lalu pantau status approval HR dan Super Admin.",
+                "Lembur",
+                "teal",
+                "coordination-absen-foto",
+            )
+        )
+
     if has_permission(normalized_role, "access_daily_report_portal"):
         coordination_items.append(
             _workspace_tile(
@@ -98,6 +110,18 @@ def _build_workspace_sections(role):
                 "Report",
                 "rose",
                 "coordination-report-harian",
+            )
+        )
+
+    if has_permission(normalized_role, "access_kpi_portal"):
+        coordination_items.append(
+            _workspace_tile(
+                "KPI Staff",
+                "/kpi-staff/",
+                "Isi KPI mingguan staff sesuai template warehouse dan pantau review HR dari portal terpisah.",
+                "KPI",
+                "indigo",
+                "hris-performance",
             )
         )
 

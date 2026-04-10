@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}Lembur | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Portal Pengajuan Lembur{% endblock %}
+{% block page_title %}Form Tambah / Kurangi Lembur{% endblock %}
+{% block page_subtitle %}Halaman ini dipakai staff untuk mengajukan tambah atau kurangi saldo lembur. Approval tetap hanya diproses oleh HR dan Super Admin.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Akun Login</p>
+        <h3>@{{ session.get("username", "guest") }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Role</p>
+        <h3>{{ session.get("role", "guest")|replace("_", " ")|title }}</h3>
+    </div>
+    <div class="card-mini warning">
+        <p>Diproses Oleh</p>
+        <h3>HR / Super Admin</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Request Pending</p>
+        <h3>{{ request_history_summary.pending }}</h3>
+    </div>
+</div>
+
+{% if linked_employee %}
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Identitas Pengaju</h2>
+            <p>Pengajuan lembur di portal ini selalu terkunci ke akun karyawan yang sedang login, jadi tidak bisa dipakai untuk mengajukan atas nama orang lain.</p>
+        </div>
+    </div>
+    <div class="attendance-identity-grid">
+        <div class="meta-card">
+            <span>Karyawan</span>
+            <strong>{{ linked_employee.full_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Kode Karyawan</span>
+            <strong>{{ linked_employee.employee_code }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Gudang</span>
+            <strong>{{ linked_employee.warehouse_name or "-" }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Posisi</span>
+            <strong>{{ linked_employee.position or "-" }}</strong>
+        </div>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Saldo Lembur Saat Ini</h2>
+            <p>Saldo tersedia dihitung dari lembur otomatis hasil absensi, ditambah adjustment manual yang sudah disetujui, lalu dikurangi pemakaian lembur yang sudah approved.</p>
+        </div>
+    </div>
+    <div class="attendance-identity-grid">
+        <div class="meta-card">
+            <span>Saldo Tersedia</span>
+            <strong>{{ balance.available_label if balance else "0 mnt" }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Lembur Otomatis</span>
+            <strong>{{ balance.earned_label if balance else "0 mnt" }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Tambah Approved</span>
+            <strong>{{ balance.added_label if balance else "0 mnt" }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Sudah Dipakai</span>
+            <strong>{{ balance.used_label if balance else "0 mnt" }}</strong>
+        </div>
+    </div>
+</div>
+
+<div class="form-box" data-overtime-portal>
+    <div class="section-title">
+        <div>
+            <h2>Ajukan Tambah / Kurangi Lembur</h2>
+            <p>Pilih jenis pengajuan, isi tanggal referensi, durasi menit, lalu jelaskan alasannya. Request akan masuk ke approval attendance dan baru memengaruhi saldo setelah disetujui HR atau Super Admin.</p>
+        </div>
+    </div>
+
+    <form method="POST" action="/lembur/submit">
+        <div class="form-grid">
+            <div>
+                <label>Jenis Pengajuan</label>
+                <select name="request_mode" data-overtime-mode-select required>
+                    <option value="add">Tambah Lembur</option>
+                    <option value="reduce">Kurangi Lembur</option>
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Referensi</label>
+                <input type="date" name="request_date" value="{{ today_value }}" required>
+            </div>
+            <div>
+                <label>Durasi Menit</label>
+                <input type="number" name="minutes_amount" min="1" step="1" value="60" data-overtime-minutes required>
+            </div>
+            <div>
+                <label>Preview Durasi</label>
+                <input type="text" value="1j 00m" data-overtime-duration-preview readonly>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Alasan Pengajuan</label>
+                <textarea name="reason" rows="3" placeholder="Wajib diisi. Contoh: ada lembur event yang belum masuk ke sistem, koreksi saldo lembur, atau pemakaian lembur untuk izin pulang lebih cepat." required></textarea>
+                <small class="helper-text" data-overtime-mode-helper>Tambah lembur dipakai untuk koreksi atau penambahan saldo lembur manual yang butuh approval.</small>
+            </div>
+        </div>
+        <div class="split-actions attendance-submit-row">
+            <button type="submit">Kirim Pengajuan Lembur</button>
+        </div>
+    </form>
+</div>
+
+<div class="table-box stack-scroll-shell">
+    <div class="section-title">
+        <div>
+            <h2>Riwayat Pengajuan Lembur</h2>
+            <p>Riwayat ini menampilkan request lembur milik akun login aktif, termasuk status pending, approved, atau rejected dari approval attendance.</p>
+        </div>
+    </div>
+
+    <div class="summary">
+        <div class="card-mini">
+            <p>Total Request</p>
+            <h3>{{ request_history_summary.total }}</h3>
+        </div>
+        <div class="card-mini {% if request_history_summary.pending %}warning{% endif %}">
+            <p>Pending</p>
+            <h3>{{ request_history_summary.pending }}</h3>
+        </div>
+        <div class="card-mini success">
+            <p>Approved</p>
+            <h3>{{ request_history_summary.approved }}</h3>
+        </div>
+        <div class="card-mini warning">
+            <p>Rejected</p>
+            <h3>{{ request_history_summary.rejected }}</h3>
+        </div>
+    </div>
+
+    {% if request_history %}
+    <div class="stack-scroll-list">
+        {% for item in request_history %}
+        <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="section-title">
+                <div>
+                    <h3>{{ item.request_type_label }}</h3>
+                    <p>{{ item.created_at_label }} | {{ item.warehouse_name or "-" }}</p>
+                </div>
+                <span class="badge {{ item.status_badge_class }}">{{ item.status_label }}</span>
+            </div>
+            <div class="attendance-identity-grid">
+                <div class="meta-card">
+                    <span>Dikirim Oleh</span>
+                    <strong>{{ item.requested_by_name or "Saya" }}</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Diproses Oleh</span>
+                    <strong>{{ item.handled_by_name or "Menunggu review" }}</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Diproses Pada</span>
+                    <strong>{{ item.handled_at_label }}</strong>
+                </div>
+                <div class="meta-card">
+                    <span>Status</span>
+                    <strong>{{ item.status_label }}</strong>
+                </div>
+            </div>
+            <div class="form-grid">
+                <div style="grid-column: 1 / -1;">
+                    <label>Ringkasan</label>
+                    <div class="empty-state">{{ item.summary_note or item.summary_title }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Approval</label>
+                    <div class="empty-state">{{ item.decision_note or "Belum ada catatan approval." }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada pengajuan lembur dari akun ini.</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="form-box">
+    <div class="empty-state">
+        Akun ini belum ditautkan ke data karyawan, jadi halaman lembur belum bisa dipakai. Hubungkan akun ke employee dari halaman Admin terlebih dulu.
+    </div>
+</div>
+{% endif %}
+
+<script>
+(() => {
+    const shell = document.querySelector("[data-overtime-portal]");
+    if (!shell) {
+        return;
+    }
+
+    const modeSelect = shell.querySelector("[data-overtime-mode-select]");
+    const minutesInput = shell.querySelector("[data-overtime-minutes]");
+    const durationPreview = shell.querySelector("[data-overtime-duration-preview]");
+    const modeHelper = shell.querySelector("[data-overtime-mode-helper]");
+
+    const formatMinutes = (value) => {
+        const safeMinutes = Math.max(0, Number(value) || 0);
+        if (!safeMinutes) {
+            return "0 mnt";
+        }
+        const hours = Math.floor(safeMinutes / 60);
+        const minutes = safeMinutes % 60;
+        if (hours > 0) {
+            return `${hours}j ${String(minutes).padStart(2, "0")}m`;
+        }
+        return `${safeMinutes} mnt`;
+    };
+
+    const syncPreview = () => {
+        if (durationPreview) {
+            durationPreview.value = formatMinutes(minutesInput?.value);
+        }
+        if (modeHelper) {
+            modeHelper.textContent = (modeSelect?.value || "add") === "reduce"
+                ? "Kurangi lembur dipakai saat mau mengurangi saldo lembur yang sudah tersedia. Request akan ditolak kalau melebihi saldo saat ini."
+                : "Tambah lembur dipakai untuk koreksi atau penambahan saldo lembur manual yang butuh approval.";
+        }
+    };
+
+    modeSelect?.addEventListener("change", syncPreview);
+    minutesInput?.addEventListener("input", syncPreview);
+    syncPreview();
+})();
+</script>
+{% endblock %}

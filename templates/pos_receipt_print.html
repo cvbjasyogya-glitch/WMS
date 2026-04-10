@@ -1059,10 +1059,37 @@ const receiptRuntimeUrl = new URL(window.location.href);
 const receiptDesktopSource = String(receiptRuntimeUrl.searchParams.get("source") || "");
 const receiptCopy = {{ receipt_copy | tojson }};
 const receiptFollowupCopy = {{ receipt_followup_copy | tojson }};
+const receiptLayout = {{ receipt_layout | tojson }};
 const receiptDesktopBridge = String(
     receiptRuntimeUrl.searchParams.get("desktop_bridge")
     || (receiptDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
 ).replace(/\/+$/, "");
+const receiptNativePrintPayload = {{ {
+    "copy_label": receipt_copy_label,
+    "store_name": receipt_brand.business_name or store_name,
+    "business_address": receipt_brand.business_address or "",
+    "receipt_no": sale.receipt_no,
+    "cashier_name": sale.cashier_receipt_label,
+    "customer_name": sale.customer_name,
+    "sale_datetime": sale.sale_date ~ " " ~ sale.created_time_label,
+    "payment_method_label": sale.payment_method_label,
+    "total_items": sale.total_items,
+    "subtotal_amount_label": sale.subtotal_amount_label,
+    "discount_amount_label": sale.discount_amount_label,
+    "tax_amount_label": sale.tax_amount_label,
+    "total_amount_label": sale.total_amount_label,
+    "paid_amount_label": sale.paid_amount_label,
+    "change_amount_label": sale.change_amount_label,
+    "loyalty_summary_title": sale.loyalty_summary_title,
+    "loyalty_lines": sale.loyalty_summary_lines,
+    "thank_you_text": (receipt_brand.thank_you_text or ("Terima kasih atas kunjungan Anda di " ~ (receipt_brand.business_name or store_name) ~ ".")) if receipt_copy != "store" else "",
+    "feedback_line": (receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-"))) if receipt_copy != "store" else "",
+    "social_label": (receipt_brand.social_label or "Social Media Kami di:") if receipt_copy != "store" else "",
+    "social_media_url": (receipt_brand.social_media_url or "") if receipt_copy != "store" else "",
+    "store_copy_note": ("Arsip kasir " ~ (receipt_brand.business_name or store_name) ~ ". " ~ sale.payment_method_label ~ " | " ~ sale.total_items ~ " item") if receipt_copy == "store" else "",
+    "items": sale["items"],
+} | tojson }};
+let receiptPrintFlowHandled = false;
 
 function buildReceiptRuntimeUrl(url) {
     const resolved = new URL(String(url || "/"), window.location.origin);
@@ -1134,9 +1161,44 @@ async function restoreReceiptDesktopPrinter() {
     return result;
 }
 
+async function printReceiptThroughDesktopBridge() {
+    if (receiptDesktopSource !== "desktop-kasir" || receiptLayout !== "thermal") {
+        return { ok: false, skipped: true, error: "native_print_not_applicable" };
+    }
+    const result = await callReceiptDesktopBridge("/printer/print-receipt", receiptNativePrintPayload);
+    if (!result.ok) {
+        console.warn("Receipt desktop native print failed:", result.error || result);
+    }
+    return result;
+}
+
+function finalizeReceiptPrintFlow() {
+    if (receiptPrintFlowHandled) {
+        return;
+    }
+    receiptPrintFlowHandled = true;
+    window.setTimeout(() => {
+        restoreReceiptDesktopPrinter().finally(() => {
+            if (receiptFollowupCopy) {
+                window.location.replace(buildReceiptFollowupUrl(receiptFollowupCopy));
+                return;
+            }
+{% if auto_close %}
+            window.close();
+{% endif %}
+        });
+    }, 180);
+}
+
 window.posReceiptPrintCurrentPage = async function posReceiptPrintCurrentPage() {
+    const nativeResult = await printReceiptThroughDesktopBridge();
+    if (nativeResult.ok) {
+        finalizeReceiptPrintFlow();
+        return nativeResult;
+    }
     await prepareReceiptDesktopPrinter();
     window.print();
+    return nativeResult;
 };
 
 document.querySelectorAll("[data-receipt-runtime-link]").forEach((node) => {
@@ -1155,17 +1217,7 @@ window.addEventListener("load", () => {
 {% endif %}
 
 window.addEventListener("afterprint", () => {
-    window.setTimeout(() => {
-        restoreReceiptDesktopPrinter().finally(() => {
-            if (receiptFollowupCopy) {
-                window.location.replace(buildReceiptFollowupUrl(receiptFollowupCopy));
-                return;
-            }
-{% if auto_close %}
-            window.close();
-{% endif %}
-        });
-    }, 180);
+    finalizeReceiptPrintFlow();
 });
 </script>
 </body>

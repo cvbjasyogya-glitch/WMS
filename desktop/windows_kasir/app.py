@@ -10,12 +10,18 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from typing import Any
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import webbrowser
 
 import requests
+
+try:
+    import win32print
+except ImportError:  # pragma: no cover - optional on non-Windows/build hosts
+    win32print = None
 
 
 APP_VERSION = "0.1.0"
@@ -65,6 +71,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "printer": {
         "preferred_printer_name": "Xprinter",
+        "native_driver_print_enabled": True,
+        "paper_width_chars": 32,
+        "raw_encoding": "cp437",
+        "cut_after_print": True,
         "note": "Masih pondasi desktop. Printer native bisa dikembangkan dari bridge ini.",
     },
 }
@@ -422,6 +432,230 @@ def set_windows_default_printer(printer_name: str, timeout_seconds: int = 8) -> 
     return {"ok": True, "printer_name": safe_name, "error": ""}
 
 
+def _normalize_receipt_text(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_text.replace("\r", " ").split()).strip()
+
+
+def _coerce_receipt_int(value: Any, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _truncate_receipt_text(value: str, width: int) -> str:
+    safe_width = max(8, int(width or 32))
+    safe_value = _normalize_receipt_text(value)
+    if len(safe_value) <= safe_width:
+        return safe_value
+    return safe_value[: max(1, safe_width - 1)].rstrip() + "-"
+
+
+def _wrap_receipt_text(value: Any, width: int) -> list[str]:
+    safe_width = max(8, int(width or 32))
+    safe_value = _normalize_receipt_text(value)
+    if not safe_value:
+        return [""]
+
+    words = safe_value.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if not current:
+            current = word
+            continue
+        candidate = f"{current} {word}"
+        if len(candidate) <= safe_width:
+            current = candidate
+            continue
+        lines.append(current)
+        current = word
+
+    if current:
+        lines.append(current)
+
+    return lines or [safe_value[:safe_width]]
+
+
+def _receipt_kv_line(label: Any, value: Any, width: int) -> list[str]:
+    safe_width = max(8, int(width or 32))
+    safe_label = _truncate_receipt_text(label, max(4, safe_width // 2))
+    safe_value = _normalize_receipt_text(value)
+    if not safe_value:
+        return [_truncate_receipt_text(safe_label, safe_width)]
+
+    max_value_width = max(8, safe_width - len(safe_label) - 1)
+    wrapped_values = _wrap_receipt_text(safe_value, max_value_width)
+    lines = []
+    first_value = wrapped_values[0]
+    spacing = max(1, safe_width - len(safe_label) - len(first_value))
+    lines.append(f"{safe_label}{' ' * spacing}{first_value}")
+    indent = " " * min(len(safe_label), safe_width // 2)
+    for extra in wrapped_values[1:]:
+        lines.append(f"{indent} {extra}")
+    return lines
+
+
+def _receipt_separator(width: int, char: str = "-") -> str:
+    safe_width = max(8, int(width or 32))
+    return (char or "-") * safe_width
+
+
+def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
+    safe_width = max(24, min(64, int(width or 32)))
+    items = payload.get("items") or []
+    loyalty_lines = payload.get("loyalty_lines") or []
+
+    lines: list[str] = []
+    store_name = _normalize_receipt_text(payload.get("store_name"))
+    copy_label = _normalize_receipt_text(payload.get("copy_label"))
+    business_address = _normalize_receipt_text(payload.get("business_address"))
+
+    if copy_label:
+        lines.extend(_wrap_receipt_text(copy_label, safe_width))
+    if store_name:
+        lines.extend(_wrap_receipt_text(store_name, safe_width))
+    if business_address:
+        lines.extend(_wrap_receipt_text(business_address, safe_width))
+
+    lines.append(_receipt_separator(safe_width))
+    for key, value in (
+        ("No", payload.get("receipt_no")),
+        ("Kasir", payload.get("cashier_name")),
+        ("Pel", payload.get("customer_name")),
+        ("Tanggal", payload.get("sale_datetime")),
+    ):
+        lines.extend(_receipt_kv_line(key, value, safe_width))
+
+    lines.append(_receipt_separator(safe_width))
+    for item in items:
+        product_name = _normalize_receipt_text(item.get("product_name"))
+        if product_name:
+            lines.extend(_wrap_receipt_text(product_name, safe_width))
+
+        variant = _normalize_receipt_text(item.get("variant_name"))
+        sku = _normalize_receipt_text(item.get("sku"))
+        variant_line = " / ".join(part for part in (variant, sku) if part)
+        if variant_line:
+            lines.extend(_wrap_receipt_text(variant_line, safe_width))
+
+        qty_text = str(item.get("active_qty") or "0")
+        price_text = _normalize_receipt_text(item.get("unit_price_label"))
+        total_text = _normalize_receipt_text(item.get("line_total_label"))
+        calc_left = f"{qty_text} x {price_text}".strip()
+        lines.extend(_receipt_kv_line(calc_left, total_text, safe_width))
+
+        void_qty = _coerce_receipt_int(item.get("void_qty"))
+        if void_qty > 0:
+            void_text = f"Void {void_qty}"
+            void_amount = _normalize_receipt_text(item.get("void_amount_label"))
+            lines.extend(_receipt_kv_line(void_text, void_amount, safe_width))
+
+        lines.append("")
+
+    if items:
+        while lines and lines[-1] == "":
+            lines.pop()
+
+    lines.append(_receipt_separator(safe_width))
+    for key, value in (
+        ("Qty", payload.get("total_items")),
+        ("Subtotal", payload.get("subtotal_amount_label")),
+        ("Potongan", payload.get("discount_amount_label")),
+        ("Pajak", payload.get("tax_amount_label")),
+        ("Grand Total", payload.get("total_amount_label")),
+        ("Bayar", payload.get("paid_amount_label")),
+        ("Kembali", payload.get("change_amount_label")),
+        ("Metode", payload.get("payment_method_label")),
+    ):
+        lines.extend(_receipt_kv_line(key, value, safe_width))
+
+    if loyalty_lines:
+        lines.append(_receipt_separator(safe_width))
+        loyalty_title = _normalize_receipt_text(payload.get("loyalty_summary_title"))
+        if loyalty_title:
+            lines.extend(_wrap_receipt_text(loyalty_title, safe_width))
+        for entry in loyalty_lines:
+            clean_entry = _normalize_receipt_text(entry).lstrip("- ").strip()
+            if clean_entry:
+                lines.extend(_wrap_receipt_text(f"* {clean_entry}", safe_width))
+
+    footer_lines = [
+        payload.get("store_copy_note"),
+        payload.get("thank_you_text"),
+        payload.get("feedback_line"),
+        payload.get("social_label"),
+        payload.get("social_media_url"),
+    ]
+    footer_lines = [line for line in footer_lines if _normalize_receipt_text(line)]
+    if footer_lines:
+        lines.append(_receipt_separator(safe_width))
+        for line in footer_lines:
+            lines.extend(_wrap_receipt_text(line, safe_width))
+
+    return "\n".join(line.rstrip() for line in lines if line is not None).strip()
+
+
+def print_raw_receipt_to_windows_printer(
+    printer_name: str,
+    receipt_text: str,
+    *,
+    encoding: str = "cp437",
+    cut_after_print: bool = True,
+    job_name: str = "Kasir ERP Receipt",
+) -> dict[str, Any]:
+    safe_name = str(printer_name or "").strip()
+    if not safe_name:
+        return {"ok": False, "printer_name": "", "error": "missing_printer_name"}
+    if os.name != "nt":
+        return {"ok": False, "printer_name": safe_name, "error": "windows_only"}
+    if win32print is None:
+        return {"ok": False, "printer_name": safe_name, "error": "pywin32_missing"}
+
+    safe_encoding = str(encoding or "cp437").strip() or "cp437"
+    try:
+        payload = (receipt_text or "").replace("\r\n", "\n").replace("\r", "\n")
+        encoded_body = payload.encode(safe_encoding, errors="replace")
+    except LookupError:
+        safe_encoding = "cp437"
+        encoded_body = (receipt_text or "").encode(safe_encoding, errors="replace")
+
+    raw_bytes = b"\x1b@" + encoded_body + b"\n\n\n\n"
+    if cut_after_print:
+        raw_bytes += b"\x1dV\x00"
+
+    printer_handle = None
+    try:
+        printer_handle = win32print.OpenPrinter(safe_name)
+        job_id = win32print.StartDocPrinter(printer_handle, 1, (job_name, None, "RAW"))
+        try:
+            win32print.StartPagePrinter(printer_handle)
+            bytes_written = win32print.WritePrinter(printer_handle, raw_bytes)
+            win32print.EndPagePrinter(printer_handle)
+        finally:
+            win32print.EndDocPrinter(printer_handle)
+    except Exception as exc:
+        return {"ok": False, "printer_name": safe_name, "error": str(exc)}
+    finally:
+        if printer_handle is not None:
+            try:
+                win32print.ClosePrinter(printer_handle)
+            except Exception:
+                pass
+
+    return {
+        "ok": True,
+        "printer_name": safe_name,
+        "bytes_written": int(bytes_written or 0),
+        "encoding": safe_encoding,
+        "error": "",
+    }
+
+
 class DesktopRuntime:
     def __init__(self, config: dict[str, Any], logger: logging.Logger):
         self.config = config
@@ -455,6 +689,7 @@ class DesktopRuntime:
             "preferred_printer_name": str(((self.config.get("printer") or {}).get("preferred_printer_name") or "")).strip(),
             "bridge_base_url": self.bridge_base_url,
             "supports_native_bridge": True,
+            "supports_native_receipt_print": bool(os.name == "nt" and win32print is not None),
             "runtime_mode": "desktop-http-bridge",
         }
 
@@ -593,6 +828,61 @@ class DesktopRuntime:
                 "error": "",
             }
 
+    def print_receipt(self, payload: dict[str, Any], printer_name: str = "") -> dict[str, Any]:
+        printer_config = self.config.get("printer") or {}
+        if not bool(printer_config.get("native_driver_print_enabled", True)):
+            return {"ok": False, "printer_name": "", "error": "native_driver_print_disabled"}
+
+        snapshot = self.get_printer_snapshot()
+        if not snapshot.get("ok"):
+            return {
+                "ok": False,
+                "printer_name": "",
+                "error": str(snapshot.get("error") or "printer_snapshot_failed"),
+            }
+
+        configured_name = str(printer_config.get("preferred_printer_name") or "").strip()
+        desired_name = str(printer_name or configured_name).strip()
+        if not desired_name:
+            return {"ok": False, "printer_name": "", "error": "missing_preferred_printer_name"}
+
+        matched_name = resolve_preferred_printer_name(snapshot, desired_name)
+        if not matched_name:
+            available_names = [
+                str((printer or {}).get("Name") or "").strip()
+                for printer in (snapshot.get("printers") or [])
+                if str((printer or {}).get("Name") or "").strip()
+            ]
+            return {
+                "ok": False,
+                "printer_name": "",
+                "error": "preferred_printer_not_found",
+                "preferred_printer_name": desired_name,
+                "available_printers": available_names,
+            }
+
+        receipt_text = build_thermal_receipt_text(
+            payload if isinstance(payload, dict) else {},
+            width=_coerce_receipt_int(printer_config.get("paper_width_chars"), 32),
+        )
+        if not receipt_text:
+            return {"ok": False, "printer_name": matched_name, "error": "receipt_payload_empty"}
+
+        result = print_raw_receipt_to_windows_printer(
+            matched_name,
+            receipt_text,
+            encoding=str(printer_config.get("raw_encoding") or "cp437").strip() or "cp437",
+            cut_after_print=bool(printer_config.get("cut_after_print", True)),
+            job_name=f"Kasir ERP {str((payload or {}).get('receipt_no') or 'Receipt').strip()}",
+        )
+        if result.get("ok"):
+            self.logger.info(
+                "Native thermal receipt printed to %s (%s bytes)",
+                matched_name,
+                result.get("bytes_written", 0),
+            )
+        return result
+
 
 class NativeBridge:
     def __init__(self, runtime: DesktopRuntime, logger: logging.Logger):
@@ -658,6 +948,9 @@ class NativeBridge:
 
     def restore_default_printer(self) -> dict[str, Any]:
         return self.runtime.restore_default_printer()
+
+    def print_receipt(self, payload: dict[str, Any], printer_name: str = "") -> dict[str, Any]:
+        return self.runtime.print_receipt(payload, printer_name)
 
     def shutdown(self) -> dict[str, Any]:
         if self.window is not None:
@@ -731,6 +1024,9 @@ def _start_local_bridge_server(
                 return
             if path == "/printer/restore-default":
                 self._send_json(runtime.restore_default_printer())
+                return
+            if path == "/printer/print-receipt":
+                self._send_json(runtime.print_receipt(payload, payload.get("printer_name") or ""))
                 return
             self._send_json({"ok": False, "error": "not_found"}, status_code=404)
 

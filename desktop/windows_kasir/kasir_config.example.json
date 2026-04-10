@@ -43,6 +43,10 @@
   },
   "printer": {
     "preferred_printer_name": "Xprinter",
-    "note": "Printer native bridge bisa dikembangkan dari pondasi desktop ini."
+    "native_driver_print_enabled": true,
+    "paper_width_chars": 32,
+    "raw_encoding": "cp437",
+    "cut_after_print": true,
+    "note": "KasirERP.exe bisa kirim nota thermal langsung ke driver Xprinter lewat bridge desktop lokal."
   }
 }

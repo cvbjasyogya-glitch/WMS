@@ -195,6 +195,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "cash_closing_reports", "closing_date", "TEXT")
     _ensure_column(cursor, "cash_closing_reports", "cash_amount", "REAL DEFAULT 0")
     _ensure_column(cursor, "cash_closing_reports", "debit_amount", "REAL DEFAULT 0")
+    _ensure_column(cursor, "cash_closing_reports", "qris_amount", "REAL DEFAULT 0")
     _ensure_column(cursor, "cash_closing_reports", "mb_amount", "REAL DEFAULT 0")
     _ensure_column(cursor, "cash_closing_reports", "cv_amount", "REAL DEFAULT 0")
     _ensure_column(cursor, "cash_closing_reports", "reported_total_amount", "REAL DEFAULT 0")
@@ -413,6 +414,42 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "daily_live_reports", "handled_by", "INTEGER")
     _ensure_column(cursor, "daily_live_reports", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "daily_live_reports", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "kpi_staff_reports", "user_id", "INTEGER")
+    _ensure_column(cursor, "kpi_staff_reports", "employee_id", "INTEGER")
+    _ensure_column(cursor, "kpi_staff_reports", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "kpi_staff_reports", "report_date", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "period_label", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "week_key", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "template_key", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "template_name", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "target_payload", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "metric_payload", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "team_focus_payload", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "total_weight", "REAL DEFAULT 0")
+    _ensure_column(cursor, "kpi_staff_reports", "weighted_score", "REAL DEFAULT 0")
+    _ensure_column(cursor, "kpi_staff_reports", "completion_ratio", "REAL DEFAULT 0")
+    _ensure_column(cursor, "kpi_staff_reports", "obstacle_note", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "solution_note", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "coordination_note", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "status", "TEXT DEFAULT 'submitted'")
+    _ensure_column(cursor, "kpi_staff_reports", "review_note", "TEXT")
+    _ensure_column(cursor, "kpi_staff_reports", "reviewed_by", "INTEGER")
+    _ensure_column(cursor, "kpi_staff_reports", "reviewed_at", "TIMESTAMP")
+    _ensure_column(cursor, "kpi_staff_reports", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "kpi_target_plans", "employee_id", "INTEGER")
+    _ensure_column(cursor, "kpi_target_plans", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "kpi_target_plans", "period_label", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "template_key", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "template_name", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "warehouse_group", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "warehouse_label", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "minimum_pass_score", "REAL DEFAULT 0")
+    _ensure_column(cursor, "kpi_target_plans", "summary", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "team_focus_payload", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "metric_payload", "TEXT")
+    _ensure_column(cursor, "kpi_target_plans", "created_by", "INTEGER")
+    _ensure_column(cursor, "kpi_target_plans", "updated_by", "INTEGER")
+    _ensure_column(cursor, "kpi_target_plans", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "attendance_action_requests", "request_type", "TEXT")
     _ensure_column(cursor, "attendance_action_requests", "warehouse_id", "INTEGER")
     _ensure_column(cursor, "attendance_action_requests", "employee_id", "INTEGER")
@@ -425,6 +462,13 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "attendance_action_requests", "handled_at", "TIMESTAMP")
     _ensure_column(cursor, "attendance_action_requests", "decision_note", "TEXT")
     _ensure_column(cursor, "attendance_action_requests", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "overtime_balance_adjustments", "employee_id", "INTEGER")
+    _ensure_column(cursor, "overtime_balance_adjustments", "warehouse_id", "INTEGER")
+    _ensure_column(cursor, "overtime_balance_adjustments", "adjustment_date", "TEXT")
+    _ensure_column(cursor, "overtime_balance_adjustments", "minutes_delta", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "overtime_balance_adjustments", "note", "TEXT")
+    _ensure_column(cursor, "overtime_balance_adjustments", "handled_by", "INTEGER")
+    _ensure_column(cursor, "overtime_balance_adjustments", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "chat_threads", "thread_type", "TEXT DEFAULT 'direct'")
     _ensure_column(cursor, "chat_threads", "group_name", "TEXT")
     _ensure_column(cursor, "chat_threads", "group_description", "TEXT")
@@ -719,6 +763,7 @@ def init_db(db_path=None, sqlite_options=None):
         closing_date TEXT NOT NULL,
         cash_amount REAL DEFAULT 0,
         debit_amount REAL DEFAULT 0,
+        qris_amount REAL DEFAULT 0,
         mb_amount REAL DEFAULT 0,
         cv_amount REAL DEFAULT 0,
         reported_total_amount REAL DEFAULT 0,
@@ -794,6 +839,23 @@ def init_db(db_path=None, sqlite_options=None):
         warehouse_id INTEGER NOT NULL,
         usage_date TEXT NOT NULL,
         minutes_used INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        handled_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS overtime_balance_adjustments(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        adjustment_date TEXT NOT NULL,
+        minutes_delta INTEGER NOT NULL DEFAULT 0,
         note TEXT,
         handled_by INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1072,6 +1134,66 @@ def init_db(db_path=None, sqlite_options=None):
         FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE SET NULL,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
         FOREIGN KEY(handled_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS kpi_staff_reports(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        employee_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        report_date TEXT NOT NULL,
+        period_label TEXT NOT NULL,
+        week_key TEXT NOT NULL,
+        template_key TEXT NOT NULL,
+        template_name TEXT NOT NULL,
+        target_payload TEXT NOT NULL,
+        metric_payload TEXT NOT NULL,
+        team_focus_payload TEXT,
+        total_weight REAL DEFAULT 0,
+        weighted_score REAL DEFAULT 0,
+        completion_ratio REAL DEFAULT 0,
+        obstacle_note TEXT NOT NULL,
+        solution_note TEXT NOT NULL,
+        coordination_note TEXT,
+        status TEXT DEFAULT 'submitted',
+        review_note TEXT,
+        reviewed_by INTEGER,
+        reviewed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(employee_id, period_label, week_key),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(reviewed_by) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS kpi_target_plans(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        period_label TEXT NOT NULL,
+        template_key TEXT,
+        template_name TEXT NOT NULL,
+        warehouse_group TEXT,
+        warehouse_label TEXT,
+        minimum_pass_score REAL DEFAULT 0,
+        summary TEXT,
+        team_focus_payload TEXT,
+        metric_payload TEXT NOT NULL,
+        created_by INTEGER,
+        updated_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(employee_id, period_label),
+        FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+        FOREIGN KEY(created_by) REFERENCES users(id),
+        FOREIGN KEY(updated_by) REFERENCES users(id)
     )
     """)
 
@@ -1526,6 +1648,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_leave_requests_main ON leave_requests(warehouse_id, start_date, end_date, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_payroll_runs_main ON payroll_runs(warehouse_id, period_year, period_month, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_overtime_usage_main ON overtime_usage_records(warehouse_id, usage_date, employee_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_overtime_balance_adjustments_main ON overtime_balance_adjustments(warehouse_id, adjustment_date, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_main ON recruitment_candidates(warehouse_id, stage, status, candidate_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_onboarding_records_main ON onboarding_records(warehouse_id, stage, status, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_offboarding_records_main ON offboarding_records(warehouse_id, stage, status, employee_id)")
@@ -1537,6 +1660,9 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_announcement_posts_main ON announcement_posts(warehouse_id, audience, status, publish_date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_document_records_main ON document_records(warehouse_id, document_type, status, effective_date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_daily_live_reports_main ON daily_live_reports(warehouse_id, report_date, report_type, status, user_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_kpi_staff_reports_main ON kpi_staff_reports(warehouse_id, period_label, week_key, status, employee_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_kpi_staff_reports_user ON kpi_staff_reports(user_id, period_label, week_key, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_kpi_target_plans_main ON kpi_target_plans(warehouse_id, period_label, employee_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_reminders_main ON dashboard_reminders(reminder_date, warehouse_id, status)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_customers_main ON crm_customers(warehouse_id, customer_name, customer_type)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_crm_memberships_main ON crm_memberships(warehouse_id, tier, status, join_date)")

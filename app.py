@@ -40,7 +40,9 @@ from routes.product_lookup import product_lookup_bp
 from routes.chat import chat_bp
 from routes.attendance_portal import attendance_portal_bp
 from routes.daily_report_portal import daily_report_portal_bp
+from routes.kpi_portal import kpi_portal_bp
 from routes.leave_portal import leave_portal_bp
+from routes.overtime_portal import overtime_portal_bp
 from routes.account import account_bp
 from routes.announcement_center import announcement_center_bp
 from routes.meetings import meetings_bp
@@ -81,7 +83,9 @@ RESTRICTED_ROLE_ENDPOINT_RULES = {
         "announcement_center.",
         "attendance_portal.",
         "leave_portal.",
+        "overtime_portal.",
         "daily_report_portal.",
+        "kpi_portal.",
         "schedule.",
         "account.",
         "notifications_center.",
@@ -91,7 +95,9 @@ RESTRICTED_ROLE_ENDPOINT_RULES = {
         "announcement_center.",
         "attendance_portal.",
         "leave_portal.",
+        "overtime_portal.",
         "daily_report_portal.",
+        "kpi_portal.",
         "schedule.",
         "account.",
         "notifications_center.",
@@ -1221,7 +1227,9 @@ def create_app():
     app.register_blueprint(chat_bp)
     app.register_blueprint(attendance_portal_bp)
     app.register_blueprint(daily_report_portal_bp)
+    app.register_blueprint(kpi_portal_bp)
     app.register_blueprint(leave_portal_bp)
+    app.register_blueprint(overtime_portal_bp)
     app.register_blueprint(meetings_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(announcement_center_bp)

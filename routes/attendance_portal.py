@@ -91,6 +91,43 @@ ATTENDANCE_LOCATION_SCOPE_LABELS = {
 }
 
 
+def _has_completed_daily_report_for_date(db, linked_employee, report_date, user_id=None):
+    safe_report_date = str(report_date or "").strip()
+    if not safe_report_date:
+        return False
+
+    employee_id = 0
+    if linked_employee:
+        employee_id = int((linked_employee.get("id") or 0))
+    safe_user_id = int(user_id or session.get("user_id") or 0)
+
+    row = db.execute(
+        """
+        SELECT id
+        FROM daily_live_reports
+        WHERE report_type='daily'
+          AND report_date=?
+          AND COALESCE(summary, '') <> ''
+          AND COALESCE(blocker_note, '') <> ''
+          AND COALESCE(follow_up_note, '') <> ''
+          AND (
+                (? > 0 AND COALESCE(employee_id, 0)=?)
+             OR (? > 0 AND COALESCE(user_id, 0)=?)
+          )
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (
+            safe_report_date,
+            employee_id,
+            employee_id,
+            safe_user_id,
+            safe_user_id,
+        ),
+    ).fetchone()
+    return row is not None
+
+
 def _normalize_attendance_location_text(value):
     return " ".join(str(value or "").replace("|", " | ").split()).strip(" |-")
 
@@ -816,6 +853,7 @@ def _build_cash_closing_summary_message(
     *,
     cash_amount=0,
     debit_amount=0,
+    qris_amount=0,
     mb_amount=0,
     cv_amount=0,
     expense_amount=0,
@@ -825,7 +863,11 @@ def _build_cash_closing_summary_message(
 ):
     warehouse_label = _build_cash_closing_warehouse_label(linked_employee)
     summary_total_amount = max(
-        int(cash_amount or 0) + int(debit_amount or 0) + int(mb_amount or 0) + int(cv_amount or 0),
+        int(cash_amount or 0)
+        + int(debit_amount or 0)
+        + int(qris_amount or 0)
+        + int(mb_amount or 0)
+        + int(cv_amount or 0),
         0,
     )
     message_lines = [
@@ -833,6 +875,7 @@ def _build_cash_closing_summary_message(
         "",
         _build_cash_closing_summary_line("Tunai", cash_amount),
         _build_cash_closing_summary_line("Debet", debit_amount),
+        _build_cash_closing_summary_line("QRIS", qris_amount),
         _build_cash_closing_summary_line("Mb", mb_amount),
         _build_cash_closing_summary_line("CV", cv_amount),
         "------------------------------",
@@ -855,6 +898,7 @@ def _build_cash_closing_preview_seed(linked_employee, closing_date=None):
         closing_date or date_cls.today().isoformat(),
         cash_amount=0,
         debit_amount=0,
+        qris_amount=0,
         mb_amount=0,
         cv_amount=0,
         expense_amount=0,
@@ -889,6 +933,7 @@ def _fetch_cash_closing_reports(db, linked_employee, limit=6):
                 closing_date,
                 cash_amount,
                 debit_amount,
+                qris_amount,
                 mb_amount,
                 cv_amount,
                 reported_total_amount,
@@ -1012,6 +1057,12 @@ def _fetch_attendance_portal_state(db):
     )
     attendance_history = _fetch_attendance_history(db, linked_employee)
     cash_closing_reports = _fetch_cash_closing_reports(db, linked_employee)
+    today_daily_report_submitted = _has_completed_daily_report_for_date(
+        db,
+        linked_employee,
+        today_date,
+        user_id=session.get("user_id"),
+    ) if linked_employee else False
 
     return {
         "linked_employee": linked_employee,
@@ -1044,6 +1095,7 @@ def _fetch_attendance_portal_state(db):
         "cash_closing_default_date": today_date,
         "cash_closing_warehouse_label": _build_cash_closing_warehouse_label(linked_employee) if linked_employee else "Mataram",
         "show_follow_up_punch_group": len(punch_options) > 1 and punch_mode != "check_in",
+        "today_daily_report_submitted": today_daily_report_submitted,
     }
 
 
@@ -1084,6 +1136,7 @@ def index():
         cash_closing_default_date=portal_state["cash_closing_default_date"],
         cash_closing_warehouse_label=portal_state["cash_closing_warehouse_label"],
         portal_show_follow_up_punch_group=portal_state["show_follow_up_punch_group"],
+        portal_today_daily_report_submitted=portal_state["today_daily_report_submitted"],
     )
 
 
@@ -1163,6 +1216,18 @@ def submit():
     if requested_punch_type and requested_punch_type not in allowed_punch_types:
         flash("Tipe absen tidak sesuai urutan harian. Pilih tipe yang tersedia di form.", "error")
         return redirect("/absen/")
+
+    if punch_type == "check_out" and not _has_completed_daily_report_for_date(
+        db,
+        linked_employee,
+        punch_time[:10],
+        user_id=session.get("user_id"),
+    ):
+        flash(
+            "Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.",
+            "error",
+        )
+        return redirect("/laporan-harian/")
 
     if not location_label:
         flash("Alamat atau tempat absen wajib diisi sebelum absen.", "error")
@@ -1323,6 +1388,7 @@ def submit_cash_closing():
     closing_date = _normalize_cash_closing_date(request.form.get("closing_date"))
     cash_amount = _parse_cash_closing_amount(request.form.get("cash_amount"))
     debit_amount = _parse_cash_closing_amount(request.form.get("debit_amount"))
+    qris_amount = _parse_cash_closing_amount(request.form.get("qris_amount"))
     mb_amount = _parse_cash_closing_amount(request.form.get("mb_amount"))
     cv_amount = _parse_cash_closing_amount(request.form.get("cv_amount"))
     expense_amount = _parse_cash_closing_amount(request.form.get("expense_amount"))
@@ -1334,6 +1400,7 @@ def submit_cash_closing():
         (
             cash_amount,
             debit_amount,
+            qris_amount,
             mb_amount,
             cv_amount,
             expense_amount,
@@ -1344,12 +1411,13 @@ def submit_cash_closing():
         flash("Isi minimal satu nominal sebelum mengirim tutup kasir.", "error")
         return redirect("/absen/#tutup-kasir")
 
-    reported_total_amount = cash_amount + debit_amount + mb_amount + cv_amount
+    reported_total_amount = cash_amount + debit_amount + qris_amount + mb_amount + cv_amount
     summary_message = _build_cash_closing_summary_message(
         linked_employee,
         closing_date,
         cash_amount=cash_amount,
         debit_amount=debit_amount,
+        qris_amount=qris_amount,
         mb_amount=mb_amount,
         cv_amount=cv_amount,
         expense_amount=expense_amount,
@@ -1375,6 +1443,7 @@ def submit_cash_closing():
             closing_date,
             cash_amount,
             debit_amount,
+            qris_amount,
             mb_amount,
             cv_amount,
             reported_total_amount,
@@ -1387,7 +1456,7 @@ def submit_cash_closing():
             created_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             session.get("user_id"),
@@ -1396,6 +1465,7 @@ def submit_cash_closing():
             closing_date,
             cash_amount,
             debit_amount,
+            qris_amount,
             mb_amount,
             cv_amount,
             reported_total_amount,

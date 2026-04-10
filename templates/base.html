@@ -167,7 +167,7 @@
 
     {% set is_workspace_home_active = request.path.startswith('/workspace') %}
     {% set is_meeting_active = request.path.startswith('/meetings') %}
-    {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/laporan-harian') or is_meeting_active %}
+    {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/lembur') or request.path.startswith('/laporan-harian') or request.path.startswith('/kpi-staff') or is_meeting_active %}
     {% set is_announcements_active = request.path.startswith('/announcements') %}
     {% set is_crm_active = request.path.startswith('/crm') %}
     {% set is_product_lookup_active = request.path.startswith('/info-produk') %}
@@ -182,7 +182,7 @@
     {% set is_hris_active = request.path.startswith('/hris') %}
     {% set is_system_active = request.path.startswith('/admin') %}
     {% set is_account_active = request.path.startswith('/account') %}
-    {% set can_view_coordination = can("view_announcements") or can("view_meetings") or can("access_attendance_portal") or can("access_leave_portal") or can("access_daily_report_portal") or can("view_schedule") %}
+    {% set can_view_coordination = can("view_announcements") or can("view_meetings") or can("access_attendance_portal") or can("access_leave_portal") or can("access_overtime_portal") or can("access_daily_report_portal") or can("access_kpi_portal") or can("view_schedule") %}
     {% set can_view_workspace = can("view_workspace") or can("view_product_lookup") or can("view_crm") %}
     {% set can_view_wms = can("view_wms") %}
     {% set show_account_settings = session.get("role") != "free_lance" %}
@@ -290,10 +290,22 @@
                         <span>Libur</span>
                     </a>
                     {% endif %}
+                    {% if can("access_overtime_portal") %}
+                    <a href="/lembur/" class="sidebar-subtile {% if request.path.startswith('/lembur') %}active{% endif %}" aria-label="Lembur">
+                        <img src="{{ asset_url('icons/workspace/coordination-absen-foto.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Lembur</span>
+                    </a>
+                    {% endif %}
                     {% if can("access_daily_report_portal") %}
                     <a href="/laporan-harian/" class="sidebar-subtile {% if request.path.startswith('/laporan-harian') %}active{% endif %}" aria-label="Report Harian">
                         <img src="{{ asset_url('icons/workspace/coordination-report-harian.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Report Harian</span>
+                    </a>
+                    {% endif %}
+                    {% if can("access_kpi_portal") %}
+                    <a href="/kpi-staff/" class="sidebar-subtile {% if request.path.startswith('/kpi-staff') %}active{% endif %}" aria-label="KPI Staff">
+                        <img src="{{ asset_url('icons/workspace/hris-performance.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>KPI Staff</span>
                     </a>
                     {% endif %}
                     {% if can("view_schedule") %}

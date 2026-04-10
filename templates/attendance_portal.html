@@ -48,6 +48,10 @@
                 <span>Masuk / Pulang</span>
                 <strong>{{ attendance_today.check_in if attendance_today and attendance_today.check_in else "-" }} / {{ attendance_today.check_out if attendance_today and attendance_today.check_out else "-" }}</strong>
             </div>
+            <div class="meta-card">
+                <span>Report Harian</span>
+                <strong>{{ "Sudah Terkirim" if portal_today_daily_report_submitted else "Belum Terkirim" }}</strong>
+            </div>
         </div>
         {% if linked_employee %}
         <small class="helper-text">Portal ini terkunci ke akun karyawan aktif. Ambil foto, cek lokasi, lalu simpan absensi dari satu layar yang sama.</small>
@@ -65,6 +69,8 @@
         data-employee-name="{{ linked_employee.full_name }}"
         data-warehouse-name="{{ linked_employee.warehouse_name or '-' }}"
         data-today-date="{{ today_date }}"
+        data-daily-report-submitted="{{ '1' if portal_today_daily_report_submitted else '0' }}"
+        data-daily-report-url="/laporan-harian/"
         data-shift-profiles='{{ portal_shift_profiles_payload|tojson }}'
     >
         <div class="section-title">
@@ -390,6 +396,8 @@
     const employeeName = portal.dataset.employeeName || "";
     const warehouseName = portal.dataset.warehouseName || "";
     const todayDate = portal.dataset.todayDate || "";
+    const dailyReportSubmitted = portal.dataset.dailyReportSubmitted === "1";
+    const dailyReportUrl = portal.dataset.dailyReportUrl || "/laporan-harian/";
     const shiftProfiles = (() => {
         try {
             return JSON.parse(portal.dataset.shiftProfiles || "{}");
@@ -1913,6 +1921,13 @@
             return;
         }
         syncPunchTime();
+        const selectedPunchType = punchTypeSelect ? (punchTypeSelect.value || "check_in").trim().toLowerCase() : "check_in";
+        if (selectedPunchType === "check_out" && !dailyReportSubmitted) {
+            event.preventDefault();
+            window.alert("Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.");
+            window.location.href = dailyReportUrl;
+            return;
+        }
         if (!rawPhotoDataUrl) {
             event.preventDefault();
             setCameraState("Ambil foto dulu sebelum menyimpan absen.", "error");

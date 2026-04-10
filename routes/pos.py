@@ -1021,6 +1021,7 @@ def _build_pos_cash_closing_summary_message(
     *,
     cash_amount=0,
     debit_amount=0,
+    qris_amount=0,
     mb_amount=0,
     cv_amount=0,
     expense_amount=0,
@@ -1032,7 +1033,11 @@ def _build_pos_cash_closing_summary_message(
     if warehouse_label == "-":
         warehouse_label = "Mataram"
     total_amount = max(
-        int(cash_amount or 0) + int(debit_amount or 0) + int(mb_amount or 0) + int(cv_amount or 0),
+        int(cash_amount or 0)
+        + int(debit_amount or 0)
+        + int(qris_amount or 0)
+        + int(mb_amount or 0)
+        + int(cv_amount or 0),
         0,
     )
     message_lines = [
@@ -1040,6 +1045,7 @@ def _build_pos_cash_closing_summary_message(
         "",
         _build_pos_cash_closing_summary_line("Tunai", cash_amount),
         _build_pos_cash_closing_summary_line("Debet", debit_amount),
+        _build_pos_cash_closing_summary_line("QRIS", qris_amount),
         _build_pos_cash_closing_summary_line("Mb", mb_amount),
         _build_pos_cash_closing_summary_line("CV", cv_amount),
         "------------------------------",
@@ -1062,6 +1068,7 @@ def _build_pos_cash_closing_preview_seed(warehouse_name, closing_date=None):
         closing_date or date_cls.today().isoformat(),
         cash_amount=0,
         debit_amount=0,
+        qris_amount=0,
         mb_amount=0,
         cv_amount=0,
         expense_amount=0,
@@ -1077,6 +1084,8 @@ def _resolve_pos_cash_closing_bucket_key(payment_method):
         return "cash_amount"
     if normalized_method == "debit":
         return "debit_amount"
+    if normalized_method == "qris":
+        return "qris_amount"
     if normalized_method == "transfer":
         return "mb_amount"
     return "cv_amount"
@@ -1123,6 +1132,7 @@ def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None
     totals = {
         "cash_amount": 0,
         "debit_amount": 0,
+        "qris_amount": 0,
         "mb_amount": 0,
         "cv_amount": 0,
     }
@@ -1132,6 +1142,7 @@ def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None
     totals["reported_total_amount"] = (
         totals["cash_amount"]
         + totals["debit_amount"]
+        + totals["qris_amount"]
         + totals["mb_amount"]
         + totals["cv_amount"]
     )
@@ -1171,6 +1182,7 @@ def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, wareho
         "closing_date": safe_date,
         "cash_amount": method_totals["cash_amount"],
         "debit_amount": method_totals["debit_amount"],
+        "qris_amount": method_totals["qris_amount"],
         "mb_amount": method_totals["mb_amount"],
         "cv_amount": method_totals["cv_amount"],
         "reported_total_amount": method_totals["reported_total_amount"],
@@ -1181,6 +1193,7 @@ def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, wareho
     for key in (
         "cash_amount",
         "debit_amount",
+        "qris_amount",
         "mb_amount",
         "cv_amount",
         "reported_total_amount",
@@ -1194,6 +1207,7 @@ def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, wareho
         safe_date,
         cash_amount=defaults["cash_amount"],
         debit_amount=defaults["debit_amount"],
+        qris_amount=defaults["qris_amount"],
         mb_amount=defaults["mb_amount"],
         cv_amount=defaults["cv_amount"],
         expense_amount=defaults["expense_amount"],
@@ -1310,6 +1324,7 @@ def _fetch_pos_cash_closing_reports(db, warehouse_id=None, cashier_user_id=None,
             ccr.closing_date,
             ccr.cash_amount,
             ccr.debit_amount,
+            ccr.qris_amount,
             ccr.mb_amount,
             ccr.cv_amount,
             ccr.reported_total_amount,
@@ -1527,6 +1542,10 @@ def _fetch_pos_sale_logs(
                 "item_preview_lines": item_preview_lines,
                 "item_preview_more": max(len(items) - len(item_preview_lines), 0),
                 "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
+                "receipt_thermal_url": (
+                    f"/kasir/receipt/{row['receipt_no']}/print"
+                    f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+                ),
                 "receipt_pdf_url": f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
             }
         )
@@ -2208,6 +2227,10 @@ def _fetch_pos_sale_logs(
                 "item_preview_more": max(len(items) - len(item_preview_lines), 0),
                 "has_voidable_items": any(item.get("can_void") for item in items),
                 "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
+                "receipt_thermal_url": (
+                    f"/kasir/receipt/{row['receipt_no']}/print"
+                    f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+                ),
                 "receipt_pdf_url": row.get("receipt_pdf_url") or f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
                 "receipt_pdf_public_url": row.get("receipt_pdf_url") or "",
                 "receipt_whatsapp_status": str(row.get("receipt_whatsapp_status") or "pending").strip().lower(),
@@ -2905,6 +2928,7 @@ def pos_cash_closing_submit():
     closing_date = _normalize_pos_cash_closing_date(request.form.get("closing_date"))
     cash_amount = _parse_pos_cash_closing_amount(request.form.get("cash_amount"))
     debit_amount = _parse_pos_cash_closing_amount(request.form.get("debit_amount"))
+    qris_amount = _parse_pos_cash_closing_amount(request.form.get("qris_amount"))
     mb_amount = _parse_pos_cash_closing_amount(request.form.get("mb_amount"))
     cv_amount = _parse_pos_cash_closing_amount(request.form.get("cv_amount"))
     expense_amount = _parse_pos_cash_closing_amount(request.form.get("expense_amount"))
@@ -2917,6 +2941,7 @@ def pos_cash_closing_submit():
         (
             cash_amount,
             debit_amount,
+            qris_amount,
             mb_amount,
             cv_amount,
             expense_amount,
@@ -2927,12 +2952,13 @@ def pos_cash_closing_submit():
         flash("Isi minimal satu nominal sebelum mengirim tutup kasir.", "error")
         return redirect(f"{return_url}#tutup-kasir")
 
-    reported_total_amount = cash_amount + debit_amount + mb_amount + cv_amount
+    reported_total_amount = cash_amount + debit_amount + qris_amount + mb_amount + cv_amount
     summary_message = _build_pos_cash_closing_summary_message(
         warehouse_name,
         closing_date,
         cash_amount=cash_amount,
         debit_amount=debit_amount,
+        qris_amount=qris_amount,
         mb_amount=mb_amount,
         cv_amount=cv_amount,
         expense_amount=expense_amount,
@@ -2958,6 +2984,7 @@ def pos_cash_closing_submit():
             closing_date,
             cash_amount,
             debit_amount,
+            qris_amount,
             mb_amount,
             cv_amount,
             reported_total_amount,
@@ -2970,7 +2997,7 @@ def pos_cash_closing_submit():
             created_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             cashier_actor.get("user_id"),
@@ -2979,6 +3006,7 @@ def pos_cash_closing_submit():
             closing_date,
             cash_amount,
             debit_amount,
+            qris_amount,
             mb_amount,
             cv_amount,
             reported_total_amount,

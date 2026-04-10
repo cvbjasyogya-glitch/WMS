@@ -546,7 +546,7 @@
                             <td>{{ sale.note or "-" }}</td>
                             <td class="pos-sales-log-actions">
                                 <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
-                                <a href="{{ sale.receipt_pdf_url }}" target="_blank" rel="noopener" class="pos-vintage-mini">Cetak PDF</a>
+                                <a href="{{ sale.receipt_thermal_url }}" target="_blank" rel="noopener" class="pos-vintage-mini" data-pos-runtime-link="1">Cetak Thermal</a>
                             </td>
                         </tr>
                         {% endfor %}

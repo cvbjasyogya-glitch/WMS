@@ -2588,27 +2588,27 @@
 {% elif selected_module.slug == "pms" %}
 <div class="summary">
     <div class="card-mini">
-        <p>Total Review</p>
-        <h3>{{ performance_summary.total }}</h3>
+        <p>Total Laporan KPI</p>
+        <h3>{{ kpi_summary.total if kpi_summary else 0 }}</h3>
     </div>
-    <div class="card-mini {% if performance_summary.draft %}warning{% endif %}">
-        <p>Draft</p>
-        <h3>{{ performance_summary.draft }}</h3>
+    <div class="card-mini {% if kpi_summary and kpi_summary.submitted %}warning{% endif %}">
+        <p>Menunggu Review</p>
+        <h3>{{ kpi_summary.submitted if kpi_summary else 0 }}</h3>
     </div>
     <div class="card-mini success">
-        <p>Reviewed + Acknowledged</p>
-        <h3>{{ performance_summary.reviewed + performance_summary.acknowledged }}</h3>
+        <p>Reviewed</p>
+        <h3>{{ kpi_summary.reviewed if kpi_summary else 0 }}</h3>
     </div>
-    <div class="card-mini {% if performance_summary.closed %}danger{% endif %}">
-        <p>Closed</p>
-        <h3>{{ performance_summary.closed }}</h3>
+    <div class="card-mini {% if kpi_summary and kpi_summary.follow_up %}danger{% endif %}">
+        <p>Perlu Follow Up</p>
+        <h3>{{ kpi_summary.follow_up if kpi_summary else 0 }}</h3>
     </div>
 </div>
 
 <div class="meta-grid">
     <div class="meta-card">
         <span>Average Score</span>
-        <strong>{{ "%.2f"|format(performance_summary.avg_score) }}</strong>
+        <strong>{{ "%.2f"|format(kpi_summary.avg_score if kpi_summary else 0) }}</strong>
     </div>
     <div class="meta-card">
         <span>Scope Gudang</span>
@@ -2621,8 +2621,8 @@
         </strong>
     </div>
     <div class="meta-card">
-        <span>Reviewed</span>
-        <strong>{{ performance_summary.reviewed }}</strong>
+        <span>Average Completion</span>
+        <strong>{{ "%.0f"|format(kpi_summary.avg_completion if kpi_summary else 0) }}%</strong>
     </div>
     <div class="meta-card">
         <span>Akses Kelola</span>
@@ -2631,211 +2631,546 @@
 </div>
 
 <form method="GET" class="top-bar products-filter-bar">
-    <input type="text" name="q" value="{{ performance_filters.search }}" placeholder="Cari code, nama, departemen, atau posisi">
+    <input type="text" name="q" value="{{ kpi_filters.search if kpi_filters else '' }}" placeholder="Cari code, nama staff, template, departemen, atau posisi">
     <select name="warehouse" {% if performance_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
-        <option value="{{ w.id }}" {% if performance_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+        <option value="{{ w.id }}" {% if kpi_filters and kpi_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
         {% endfor %}
     </select>
     {% if performance_scope_warehouse %}
     <input type="hidden" name="warehouse" value="{{ performance_scope_warehouse }}">
     {% endif %}
-    <input type="text" name="review_period" value="{{ performance_filters.review_period or '' }}" placeholder="Contoh: 2026-Q2">
+    <input type="month" name="period" value="{{ kpi_filters.period_label if kpi_filters else '' }}">
+    <select name="week">
+        <option value="all" {% if not kpi_filters or kpi_filters.week_key == 'all' %}selected{% endif %}>Semua Minggu</option>
+        {% for week_key in kpi_week_options %}
+        <option value="{{ week_key }}" {% if kpi_filters and kpi_filters.week_key == week_key %}selected{% endif %}>{{ week_key }}</option>
+        {% endfor %}
+    </select>
     <select name="status">
-        <option value="all" {% if performance_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
-        <option value="draft" {% if performance_filters.status == 'draft' %}selected{% endif %}>Draft</option>
-        <option value="reviewed" {% if performance_filters.status == 'reviewed' %}selected{% endif %}>Reviewed</option>
-        <option value="acknowledged" {% if performance_filters.status == 'acknowledged' %}selected{% endif %}>Acknowledged</option>
-        <option value="closed" {% if performance_filters.status == 'closed' %}selected{% endif %}>Closed</option>
+        <option value="all" {% if not kpi_filters or kpi_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
+        <option value="submitted" {% if kpi_filters and kpi_filters.status == 'submitted' %}selected{% endif %}>Menunggu Review</option>
+        <option value="reviewed" {% if kpi_filters and kpi_filters.status == 'reviewed' %}selected{% endif %}>Reviewed</option>
+        <option value="follow_up" {% if kpi_filters and kpi_filters.status == 'follow_up' %}selected{% endif %}>Perlu Follow Up</option>
     </select>
     <button type="submit">Filter</button>
 </form>
 
 {% if performance_scope_warehouse %}
-<small class="helper-text">Performance review yang tampil dibatasi ke gudang akun Anda, jadi evaluasi tim tetap fokus sesuai area kerja.</small>
+<small class="helper-text">Data KPI yang tampil dibatasi ke gudang akun Anda, jadi review target tetap fokus sesuai area kerja.</small>
 {% endif %}
 
-{% if can_manage_performance %}
+<details class="form-box panel-disclosure" open>
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Kelola Target KPI Bulanan</h2>
+                <p>Bagian ini dipakai HR atau Super Admin untuk menambah target bulan baru, mengubah target yang sudah ada, dan menyesuaikan metric per staff saat KPI berubah tiap bulan.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ kpi_target_summary.total if kpi_target_summary else 0 }} target</span>
+            <span class="panel-summary-state">Buka Pengaturan</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+    <div class="meta-grid" style="margin-bottom:16px;">
+        <div class="meta-card">
+            <span>Periode Target</span>
+            <strong>{{ format_kpi_period_label(kpi_target_period_label) }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Staff Diatur</span>
+            <strong>{{ kpi_target_summary.employees if kpi_target_summary else 0 }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Total Metric</span>
+            <strong>{{ kpi_target_summary.metrics if kpi_target_summary else 0 }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Avg Minimum Lulus</span>
+            <strong>{{ "%.2f"|format(kpi_target_summary.avg_pass_score if kpi_target_summary else 0) }}</strong>
+        </div>
+    </div>
+
+    {% if can_manage_performance %}
+    <div class="box" style="margin-bottom:16px;">
+        <div class="section-title">
+            <div>
+                <h3>Tambah Target Bulanan</h3>
+                <p>Pilih staff dulu, lalu klik ambil template referensi supaya metric bawaan masuk dan bisa langsung diedit.</p>
+            </div>
+        </div>
+        {% if kpi_target_employees %}
+        <form method="POST" action="/hris/pms/target/add" data-kpi-target-editor>
+            <input type="hidden" name="return_to" value="{{ report_return_to }}">
+            <div class="form-grid">
+                <div>
+                    <label>Staff</label>
+                    <select name="employee_id" data-kpi-target-employee required>
+                        <option value="">Pilih Staff</option>
+                        {% for employee in kpi_target_employees %}
+                        <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label>Periode Target</label>
+                    <input type="month" name="period_label" value="{{ kpi_target_period_label }}" required>
+                </div>
+                <div>
+                    <label>Minimum Lulus</label>
+                    <input type="number" name="minimum_pass_score" min="0" step="0.01" value="8" required data-kpi-target-pass-score>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Ringkasan Target</label>
+                    <textarea name="summary" rows="2" placeholder="Contoh: Fokus KPI Mei untuk dorong live, CRM, dan slow moving." data-kpi-target-summary></textarea>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Fokus Tim</label>
+                    <textarea name="team_focus_text" rows="2" placeholder="Pisahkan dengan baris baru atau koma. Contoh: Konten Tim, CRM, Offline Activity" data-kpi-target-team-focus></textarea>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <div class="split-actions" style="justify-content:space-between; gap:12px; margin-bottom:12px;">
+                        <label style="margin:0;">Metric KPI</label>
+                        <div class="split-actions" style="gap:8px; justify-content:flex-end;">
+                            <button type="button" data-kpi-target-load-seed>Ambil Template Referensi</button>
+                            <button type="button" data-kpi-target-add-row>Tambah Metric</button>
+                        </div>
+                    </div>
+                    <div class="table-box" style="margin:0;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Group</th>
+                                    <th>Metric</th>
+                                    <th>Satuan</th>
+                                    <th>Target</th>
+                                    <th>Bobot (%)</th>
+                                    <th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody data-kpi-target-rows></tbody>
+                        </table>
+                    </div>
+                    <small class="helper-text">Bobot diisi dalam persen. Misalnya 5 berarti 5%.</small>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Simpan Target Bulanan</button>
+            </div>
+        </form>
+        {% else %}
+        <div class="empty-state">Belum ada data staff untuk dibuatkan target KPI.</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if kpi_target_plans %}
+    <div class="stack-scroll-list">
+        {% for plan in kpi_target_plans %}
+        <details class="box stack-scroll-card panel-disclosure" style="margin-bottom:0;">
+            <summary class="panel-summary">
+                <div class="section-title">
+                    <div>
+                        <h3>{{ plan.full_name }}</h3>
+                        <p>{{ plan.employee_code }} | {{ plan.warehouse_name or plan.profile.warehouse_label }} | {{ plan.period_label_human }} | {{ plan.metric_count }} metric</p>
+                    </div>
+                </div>
+                <div class="panel-summary-meta">
+                    <span class="badge">Min {{ plan.pass_score_label }}</span>
+                    <span class="badge">{{ plan.updated_at_label or plan.created_at_label }}</span>
+                    <span class="panel-summary-state">Edit Target</span>
+                </div>
+            </summary>
+            <div class="panel-content">
+                <form method="POST" action="/hris/pms/target/update/{{ plan.id }}" data-kpi-target-editor>
+                    <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Staff</label>
+                            <input type="text" value="{{ plan.full_name }}{% if plan.employee_code %} ({{ plan.employee_code }}){% endif %}" disabled>
+                        </div>
+                        <div>
+                            <label>Periode Target</label>
+                            <input type="month" name="period_label" value="{{ plan.period_label }}" required>
+                        </div>
+                        <div>
+                            <label>Minimum Lulus</label>
+                            <input type="number" name="minimum_pass_score" min="0" step="0.01" value="{{ plan.profile.minimum_pass_score }}" required data-kpi-target-pass-score>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Ringkasan Target</label>
+                            <textarea name="summary" rows="2" data-kpi-target-summary>{{ plan.profile.summary or '' }}</textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Fokus Tim</label>
+                            <textarea name="team_focus_text" rows="2" data-kpi-target-team-focus>{{ plan.team_focus_text }}</textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <div class="split-actions" style="justify-content:space-between; gap:12px; margin-bottom:12px;">
+                                <label style="margin:0;">Metric KPI</label>
+                                <div class="split-actions" style="gap:8px; justify-content:flex-end;">
+                                    <button type="button" data-kpi-target-add-row>Tambah Metric</button>
+                                </div>
+                            </div>
+                            <div class="table-box" style="margin:0;">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Group</th>
+                                            <th>Metric</th>
+                                            <th>Satuan</th>
+                                            <th>Target</th>
+                                            <th>Bobot (%)</th>
+                                            <th>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-kpi-target-rows>
+                                        {% for metric in plan.metric_rows %}
+                                        <tr data-kpi-target-row>
+                                            <td>
+                                                <input type="hidden" name="metric_code[]" value="{{ metric.code }}">
+                                                <input type="text" name="metric_group[]" value="{{ metric.group }}" required>
+                                            </td>
+                                            <td><input type="text" name="metric_label[]" value="{{ metric.label }}" required></td>
+                                            <td><input type="text" name="metric_unit[]" value="{{ metric.unit }}" required></td>
+                                            <td><input type="number" name="metric_target[]" min="0" step="0.01" value="{{ metric.target }}" required></td>
+                                            <td><input type="number" name="metric_weight[]" min="0" step="0.01" value="{{ metric.weight_percent_label }}" required></td>
+                                            <td><button type="button" data-kpi-target-remove-row>Hapus</button></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <small class="helper-text">Dibuat {{ plan.created_at_label or "-" }}{% if plan.updated_by_name %} • terakhir diubah oleh @{{ plan.updated_by_name }}{% endif %}</small>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Target</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/pms/target/delete/{{ plan.id }}" style="margin-top:12px;" onsubmit="return confirm('Hapus target KPI bulanan untuk {{ plan.full_name }}?');">
+                    <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                    <button type="submit" class="ghost-button">Hapus Target</button>
+                </form>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada target KPI bulanan untuk periode {{ format_kpi_period_label(kpi_target_period_label) }}.</div>
+    {% endif %}
+
+    <template id="kpiTargetMetricRowTemplate">
+        <tr data-kpi-target-row>
+            <td>
+                <input type="hidden" name="metric_code[]" value="">
+                <input type="text" name="metric_group[]" value="General" required>
+            </td>
+            <td><input type="text" name="metric_label[]" value="" required></td>
+            <td><input type="text" name="metric_unit[]" value="Poin" required></td>
+            <td><input type="number" name="metric_target[]" min="0" step="0.01" value="0" required></td>
+            <td><input type="number" name="metric_weight[]" min="0" step="0.01" value="0" required></td>
+            <td><button type="button" data-kpi-target-remove-row>Hapus</button></td>
+        </tr>
+    </template>
+    <script type="application/json" id="kpiTargetSeedProfilesData">{{ kpi_target_seed_profiles|tojson }}</script>
+    <script>
+    (() => {
+        const template = document.getElementById("kpiTargetMetricRowTemplate");
+        const seedSource = document.getElementById("kpiTargetSeedProfilesData");
+        if (!template || !seedSource) {
+            return;
+        }
+
+        let seedMap = {};
+        try {
+            seedMap = JSON.parse(seedSource.textContent || "{}");
+        } catch (error) {
+            seedMap = {};
+        }
+
+        const createRow = (metric = {}) => {
+            const fragment = template.content.cloneNode(true);
+            const row = fragment.querySelector("[data-kpi-target-row]");
+            if (!row) {
+                return fragment;
+            }
+            const codeInput = row.querySelector('input[name="metric_code[]"]');
+            const groupInput = row.querySelector('input[name="metric_group[]"]');
+            const labelInput = row.querySelector('input[name="metric_label[]"]');
+            const unitInput = row.querySelector('input[name="metric_unit[]"]');
+            const targetInput = row.querySelector('input[name="metric_target[]"]');
+            const weightInput = row.querySelector('input[name="metric_weight[]"]');
+            if (codeInput) codeInput.value = metric.code || "";
+            if (groupInput) groupInput.value = metric.group || "General";
+            if (labelInput) labelInput.value = metric.label || "";
+            if (unitInput) unitInput.value = metric.unit || "Poin";
+            if (targetInput) targetInput.value = metric.target ?? 0;
+            if (weightInput) weightInput.value = metric.weight_percent ?? 0;
+            return fragment;
+        };
+
+        const bindEditor = (editor) => {
+            const rowsContainer = editor.querySelector("[data-kpi-target-rows]");
+            if (!rowsContainer) {
+                return;
+            }
+
+            const addRowButton = editor.querySelector("[data-kpi-target-add-row]");
+            const loadSeedButton = editor.querySelector("[data-kpi-target-load-seed]");
+            const employeeSelect = editor.querySelector("[data-kpi-target-employee]");
+            const summaryField = editor.querySelector("[data-kpi-target-summary]");
+            const teamFocusField = editor.querySelector("[data-kpi-target-team-focus]");
+            const passScoreField = editor.querySelector("[data-kpi-target-pass-score]");
+
+            const ensureOneRow = () => {
+                if (!rowsContainer.querySelector("[data-kpi-target-row]")) {
+                    rowsContainer.appendChild(createRow());
+                }
+            };
+
+            const appendRow = (metric = {}) => {
+                rowsContainer.appendChild(createRow(metric));
+            };
+
+            const populateFromSeed = () => {
+                const selectedEmployeeId = employeeSelect ? String(employeeSelect.value || "").trim() : "";
+                if (!selectedEmployeeId || !seedMap[selectedEmployeeId]) {
+                    ensureOneRow();
+                    return;
+                }
+                const seed = seedMap[selectedEmployeeId];
+                rowsContainer.innerHTML = "";
+                (seed.metrics || []).forEach((metric) => appendRow(metric));
+                if (!(seed.metrics || []).length) {
+                    ensureOneRow();
+                }
+                if (summaryField && !summaryField.value.trim()) {
+                    summaryField.value = seed.summary || "";
+                }
+                if (teamFocusField && !teamFocusField.value.trim()) {
+                    teamFocusField.value = seed.team_focus_text || "";
+                }
+                if (passScoreField && !String(passScoreField.value || "").trim()) {
+                    passScoreField.value = seed.minimum_pass_score ?? "";
+                }
+            };
+
+            addRowButton?.addEventListener("click", () => appendRow());
+            loadSeedButton?.addEventListener("click", populateFromSeed);
+            rowsContainer.addEventListener("click", (event) => {
+                const button = event.target.closest("[data-kpi-target-remove-row]");
+                if (!button) {
+                    return;
+                }
+                const row = button.closest("[data-kpi-target-row]");
+                row?.remove();
+                ensureOneRow();
+            });
+
+            ensureOneRow();
+        };
+
+        document.querySelectorAll("[data-kpi-target-editor]").forEach(bindEditor);
+    })();
+    </script>
+    </div>
+</details>
+
 <details class="form-box panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
-                <h2>Tambah Review</h2>
-                <p>Modul Performance ini dipakai untuk menilai goal, disiplin, dan teamwork per periode review, lalu menghasilkan final score dan rating otomatis.</p>
+                <h2>Workbook KPI &amp; Target</h2>
+                <p>Referensi ini menampilkan template KPI bawaan. Kalau target bulan berjalan sudah diatur dari panel target bulanan di atas, portal staff akan memakai target bulanan tersebut.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="panel-summary-state">Buka Form</span>
+            <span class="badge">{{ kpi_profile_cards|length }} profile</span>
+            <span class="panel-summary-state">Buka Referensi</span>
         </div>
     </summary>
     <div class="panel-content">
-    {% if performance_employees %}
-    <form method="POST" action="/hris/performance/add">
-        <div class="form-grid">
-            <div>
-                <label>Karyawan</label>
-                <select name="employee_id" required>
-                    <option value="">Pilih Karyawan</option>
-                    {% for employee in performance_employees %}
-                    <option value="{{ employee.id }}">{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
-                    {% endfor %}
-                </select>
+    <div class="empty-state" style="margin-bottom:16px;">
+        Staff mengisi KPI dari <a href="/kpi-staff/#kpi-target-form">portal KPI Staff</a>, lalu HR / Super Admin mereview hasilnya dari menu ini.
+    </div>
+    {% if kpi_profile_cards %}
+    <div class="stack-scroll-list">
+        {% for profile in kpi_profile_cards %}
+        <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="section-title">
+                <div>
+                    <h3>{{ profile.display_name }}</h3>
+                    <p>{{ profile.warehouse_label }} | Minimum Lulus {{ profile.pass_score_label }} | {{ profile.summary or "Target KPI mengikuti workbook operasional." }}</p>
+                </div>
+                <div class="report-status-stack">
+                    <span class="badge">{{ profile.warehouse_label }}</span>
+                </div>
             </div>
-            <div>
-                <label>Periode Review</label>
-                <input name="review_period" placeholder="Contoh: 2026-Q2" required>
+            {% if profile.team_focus %}
+            <div class="split-actions" style="margin-bottom:12px; justify-content:flex-start; gap:8px; flex-wrap:wrap;">
+                {% for focus in profile.team_focus %}
+                <span class="badge">{{ focus }}</span>
+                {% endfor %}
             </div>
-            <div>
-                <label>Goal Score</label>
-                <input type="number" name="goal_score" min="0" max="100" step="0.01" value="0">
-            </div>
-            <div>
-                <label>Discipline Score</label>
-                <input type="number" name="discipline_score" min="0" max="100" step="0.01" value="0">
-            </div>
-            <div>
-                <label>Teamwork Score</label>
-                <input type="number" name="teamwork_score" min="0" max="100" step="0.01" value="0">
-            </div>
-            <div>
-                <label>Status</label>
-                <select name="status">
-                    <option value="draft">Draft</option>
-                    <option value="reviewed">Reviewed</option>
-                    <option value="acknowledged">Acknowledged</option>
-                    <option value="closed">Closed</option>
-                </select>
-            </div>
-            <div>
-                <label>Reviewer</label>
-                <input name="reviewer_name" placeholder="Contoh: Manager Area">
-            </div>
-            <div style="grid-column: 1 / -1;">
-                <label>Catatan</label>
-                <textarea name="note" rows="3" placeholder="Ringkasan pencapaian, area perbaikan, dan tindak lanjut review."></textarea>
+            {% endif %}
+            <div class="table-box" style="margin:0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Group</th>
+                            <th>Target</th>
+                            <th>Satuan</th>
+                            <th>Bobot</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for metric in profile.metrics %}
+                        <tr>
+                            <td>{{ metric.label }}</td>
+                            <td>{{ metric.target_label }}</td>
+                            <td>{{ metric.unit }}</td>
+                            <td>{{ "%.0f"|format((metric.weight or 0) * 100) }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
-        <div class="split-actions" style="margin-top:16px;">
-            <button type="submit">Tambah Review</button>
-        </div>
-    </form>
+        {% endfor %}
+    </div>
     {% else %}
-    <div class="empty-state">Belum ada data karyawan yang bisa dipakai. Tambahkan employee dulu sebelum membuat performance review.</div>
+    <div class="empty-state">Template KPI belum tersedia untuk filter yang dipilih.</div>
     {% endif %}
     </div>
 </details>
-{% endif %}
 
 <details class="table-box stack-scroll-shell panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
-                <h2>Performance Review</h2>
-                <p>Register ini menjadi fondasi untuk cycle review, coaching plan, dan evaluasi performa tim yang lebih lengkap pada tahap modul berikutnya.</p>
+                <h2>Input KPI Staff</h2>
+                <p>Register ini menampung hasil pengisian staff dari portal koordinasi, lengkap dengan kendala, solusi, catatan koordinasi, dan skor target per minggu.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="badge">{{ performance_reviews|length }} data</span>
+            <span class="badge">{{ kpi_reports|length }} data</span>
             <span class="panel-summary-state">Buka Daftar</span>
         </div>
     </summary>
     <div class="panel-content">
-    {% if performance_reviews %}
-        {% if can_manage_performance %}
+    {% if kpi_reports %}
         <div class="stack-scroll-list">
-            {% for review in performance_reviews %}
+            {% for report in kpi_reports %}
             <div class="box stack-scroll-card" style="margin-bottom:0;">
-                <form method="POST" action="/hris/performance/update/{{ review.id }}">
+                <div class="section-title">
+                    <div>
+                        <h3>{{ report.full_name }}</h3>
+                        <p>{{ report.employee_code }} | {{ report.warehouse_name or '-' }} | {{ report.period_label_human }} {{ report.week_key }} | {{ report.template_name }}</p>
+                    </div>
+                    <div class="report-status-stack">
+                        <span class="badge {{ 'green' if report.status == 'reviewed' else 'orange' if report.status == 'submitted' else 'red' }}">{{ report.status_label }}</span>
+                        <span class="badge">{{ report.score_label }} / {{ "%.2f"|format(report.minimum_pass_score or 0) }}</span>
+                        <span class="badge">{{ report.completion_percent }}%</span>
+                    </div>
+                </div>
+                {% if report.team_focus_items %}
+                <div class="split-actions" style="margin-bottom:12px; justify-content:flex-start; gap:8px; flex-wrap:wrap;">
+                    {% for focus in report.team_focus_items %}
+                    <span class="badge">{{ focus }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <div class="form-grid">
+                    <div>
+                        <label>Dikirim Oleh</label>
+                        <div class="empty-state report-portal-text">@{{ report.submitter_username or "-" }} | {{ report.created_at_label }}</div>
+                    </div>
+                    <div>
+                        <label>Review Terakhir</label>
+                        <div class="empty-state report-portal-text">
+                            {% if report.reviewed_at %}
+                            {{ report.reviewed_at_label }} oleh {{ report.reviewed_by_name or "HR / Super Admin" }}
+                            {% else %}
+                            Belum direview
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Kendala</label>
+                        <div class="empty-state report-portal-text">{{ report.obstacle_note }}</div>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Solusi / Tindak Lanjut</label>
+                        <div class="empty-state report-portal-text">{{ report.solution_note }}</div>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label>Catatan Koordinasi</label>
+                        <div class="empty-state report-portal-text">{{ report.coordination_note or "-" }}</div>
+                    </div>
+                    {% if report.review_note %}
+                    <div style="grid-column: 1 / -1;">
+                        <label>Catatan Review HR</label>
+                        <div class="empty-state report-portal-text">{{ report.review_note }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="table-box" style="margin-top:16px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Target</th>
+                                <th>Target</th>
+                                <th>Realisasi</th>
+                                <th>Bobot</th>
+                                <th>Capaian</th>
+                                <th>Nilai</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for metric in report.metric_entries %}
+                            <tr>
+                                <td>{{ metric.label }}</td>
+                                <td>{{ metric.target_label }} {{ metric.unit }}</td>
+                                <td>{{ metric.actual_label }} {{ metric.unit }}</td>
+                                <td>{{ "%.0f"|format((metric.weight or 0) * 100) }}%</td>
+                                <td>{{ metric.achievement_percent }}%</td>
+                                <td>{{ metric.score_label }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if can_manage_performance %}
+                <form method="POST" action="/hris/pms/report/{{ report.id }}/review" style="margin-top:16px;">
+                    <input type="hidden" name="return_to" value="{{ report_return_to }}">
                     <div class="form-grid">
                         <div>
-                            <label>Karyawan</label>
-                            <select name="employee_id" required>
-                                {% for employee in performance_employees %}
-                                <option value="{{ employee.id }}" {% if review.employee_id == employee.id %}selected{% endif %}>{{ employee.employee_code }} - {{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div>
-                            <label>Periode Review</label>
-                            <input name="review_period" value="{{ review.review_period }}" required>
-                        </div>
-                        <div>
-                            <label>Goal Score</label>
-                            <input type="number" name="goal_score" min="0" max="100" step="0.01" value="{{ review.goal_score or 0 }}">
-                        </div>
-                        <div>
-                            <label>Discipline Score</label>
-                            <input type="number" name="discipline_score" min="0" max="100" step="0.01" value="{{ review.discipline_score or 0 }}">
-                        </div>
-                        <div>
-                            <label>Teamwork Score</label>
-                            <input type="number" name="teamwork_score" min="0" max="100" step="0.01" value="{{ review.teamwork_score or 0 }}">
-                        </div>
-                        <div>
-                            <label>Status</label>
+                            <label>Status Review</label>
                             <select name="status">
-                                <option value="draft" {% if review.status == 'draft' %}selected{% endif %}>Draft</option>
-                                <option value="reviewed" {% if review.status == 'reviewed' %}selected{% endif %}>Reviewed</option>
-                                <option value="acknowledged" {% if review.status == 'acknowledged' %}selected{% endif %}>Acknowledged</option>
-                                <option value="closed" {% if review.status == 'closed' %}selected{% endif %}>Closed</option>
+                                <option value="submitted" {% if report.status == 'submitted' %}selected{% endif %}>Menunggu Review</option>
+                                <option value="reviewed" {% if report.status == 'reviewed' %}selected{% endif %}>Reviewed</option>
+                                <option value="follow_up" {% if report.status == 'follow_up' %}selected{% endif %}>Perlu Follow Up</option>
                             </select>
-                        </div>
-                        <div>
-                            <label>Reviewer</label>
-                            <input name="reviewer_name" value="{{ review.reviewer_name or '' }}">
-                        </div>
-                        <div>
-                            <label>Final Score</label>
-                            <input value="{{ "%.2f"|format(review.final_score or 0) }} | {{ review.rating or '-' }}" disabled>
                         </div>
                         <div style="grid-column: 1 / -1;">
-                            <label>Catatan</label>
-                            <textarea name="note" rows="3">{{ review.note or '' }}</textarea>
+                            <label>Catatan Review</label>
+                            <textarea name="review_note" rows="3" placeholder="Contoh: KPI minggu ini cukup baik, tapi CRM dan slow moving masih perlu dikejar.">{{ report.review_note or '' }}</textarea>
                         </div>
                     </div>
                     <div class="split-actions" style="margin-top:16px;">
-                        <button type="submit">Update Review</button>
+                        <button type="submit">Simpan Review KPI</button>
                     </div>
                 </form>
-                <form method="POST" action="/hris/performance/delete/{{ review.id }}" style="margin-top:12px;">
-                    <button type="submit" class="danger-button" onclick="return confirm('Hapus performance review ini?')">Hapus</button>
-                </form>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
-        {% else %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Code</th>
-                    <th>Nama</th>
-                    <th>Gudang</th>
-                    <th>Periode</th>
-                    <th>Score</th>
-                    <th>Rating</th>
-                    <th>Status</th>
-                    <th>Reviewer</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for review in performance_reviews %}
-                <tr>
-                    <td class="mono">{{ review.employee_code }}</td>
-                    <td>{{ review.full_name }}</td>
-                    <td>{{ review.warehouse_name or '-' }}</td>
-                    <td>{{ review.review_period }}</td>
-                    <td>{{ "%.2f"|format(review.final_score or 0) }}</td>
-                    <td>{{ review.rating or '-' }}</td>
-                    <td><span class="badge {{ 'green' if review.status in ['acknowledged', 'closed'] else 'orange' if review.status in ['draft', 'reviewed'] else 'red' }}">{{ review.status }}</span></td>
-                    <td>{{ review.reviewer_name or '-' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
     {% else %}
-    <div class="empty-state">Belum ada performance review. Modul Performance siap dipakai untuk evaluasi periodik tim.</div>
+    <div class="empty-state">Belum ada input KPI staff untuk filter yang dipilih.</div>
     {% endif %}
     </div>
 </details>

@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}KPI Staff | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Portal KPI Staff{% endblock %}
+{% block page_title %}Input KPI Staff{% endblock %}
+{% block page_subtitle %}Portal ini dipakai staff untuk isi KPI mingguan sesuai template warehouse dan posisi kerja. Review akhir tetap diproses oleh HR atau Super Admin dari HRIS KPI &amp; Target.{% endblock %}
+
+{% block content %}
+<div class="summary">
+    <div class="card-mini">
+        <p>Akun Login</p>
+        <h3>@{{ session.get("username", "guest") }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>Karyawan</p>
+        <h3>{{ linked_employee.full_name if linked_employee else "Belum Ditautkan" }}</h3>
+    </div>
+    <div class="card-mini">
+        <p>KPI Terkirim</p>
+        <h3>{{ kpi_report_summary.total }}</h3>
+    </div>
+    <div class="card-mini warning">
+        <p>Diproses Oleh</p>
+        <h3>HR / Super Admin</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Rata-rata Skor</p>
+        <h3>{{ "%.2f"|format(kpi_report_summary.avg_score or 0) }}</h3>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Identitas KPI</h2>
+            <p>Template KPI otomatis mengikuti data karyawan yang terhubung ke akun login ini.</p>
+        </div>
+    </div>
+    <div class="attendance-identity-grid">
+        <div class="meta-card">
+            <span>Akun</span>
+            <strong>@{{ session.get("username", "guest") }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Role</span>
+            <strong>{{ session.get("role", "guest")|replace("_", " ")|title }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Gudang</span>
+            <strong>{{ linked_employee.warehouse_name if linked_employee else ("WH " ~ session.get("warehouse_id", "-")) }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Karyawan Tautan</span>
+            <strong>{{ linked_employee.full_name if linked_employee else "Belum Ditautkan" }}</strong>
+        </div>
+    </div>
+</div>
+
+<div class="form-box" id="kpi-target-form">
+    <div class="section-title">
+        <div>
+            <h2>Form KPI Mingguan</h2>
+            <p>Isi realisasi minggu aktif, lalu jelaskan kendala dan solusi supaya review KPI lebih cepat dan jelas.</p>
+        </div>
+    </div>
+
+    {% if linked_employee and kpi_profile %}
+    <div class="attendance-identity-grid" style="margin-bottom:20px;">
+        <div class="meta-card">
+            <span>Profile KPI</span>
+            <strong>{{ kpi_profile.display_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Gudang</span>
+            <strong>{{ kpi_profile.warehouse_label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Periode Aktif</span>
+            <strong>{{ current_kpi_period_label_human }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Minimum Lulus</span>
+            <strong>{{ "%.2f"|format(kpi_profile.minimum_pass_score or 0) }}</strong>
+        </div>
+    </div>
+
+    {% if kpi_profile.team_focus %}
+    <div class="split-actions" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+        {% for focus in kpi_profile.team_focus %}
+        <span class="badge">{{ focus }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/kpi-staff/submit">
+        <div class="form-grid">
+            <div>
+                <label>Periode KPI</label>
+                <input type="month" name="period_label" value="{{ current_kpi_period_label }}" required>
+            </div>
+            <div>
+                <label>Minggu</label>
+                <select name="week_key" required>
+                    {% for week_key in kpi_week_options %}
+                    <option value="{{ week_key }}" {% if current_kpi_week_key == week_key %}selected{% endif %}>{{ week_key }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Target KPI Sesuai Workbook</label>
+                <div class="table-box" style="margin:0;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Target</th>
+                                <th>Nilai Target</th>
+                                <th>Satuan</th>
+                                <th>Bobot</th>
+                                <th>Realisasi Minggu Ini</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for metric in kpi_profile.metrics %}
+                            <tr>
+                                <td>{{ metric.label }}</td>
+                                <td>{{ metric.target_label }}</td>
+                                <td>{{ metric.unit }}</td>
+                                <td>{{ "%.0f"|format((metric.weight or 0) * 100) }}%</td>
+                                <td>
+                                    <input
+                                        type="number"
+                                        name="metric_{{ metric.code }}"
+                                        min="0"
+                                        step="0.01"
+                                        value="0"
+                                        aria-label="Realisasi {{ metric.label }}"
+                                    >
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Kendala KPI</label>
+                <textarea name="obstacle_note" rows="3" placeholder="Wajib diisi. Jelaskan hambatan yang membuat target minggu ini belum maksimal." required></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Solusi / Tindak Lanjut KPI</label>
+                <textarea name="solution_note" rows="3" placeholder="Wajib diisi. Jelaskan solusi, tindakan perbaikan, atau follow up minggu berikutnya." required></textarea>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan Koordinasi</label>
+                <textarea name="coordination_note" rows="3" placeholder="Opsional. Tulis hal yang perlu di-brief ke leader, HR, marketing, atau tim lain."></textarea>
+            </div>
+        </div>
+        <div class="split-actions attendance-submit-row">
+            <button type="submit">Kirim KPI Staff</button>
+            {% if can_view_hris_module('pms') %}
+            <a href="/hris/pms">Buka HRIS KPI &amp; Target</a>
+            {% endif %}
+        </div>
+    </form>
+    {% else %}
+    <div class="empty-state">Form KPI staff baru aktif kalau akun ini sudah ditautkan ke data karyawan dan template KPI-nya sudah tersedia.</div>
+    {% endif %}
+</div>
+
+<div class="table-box stack-scroll-shell">
+    <div class="section-title">
+        <div>
+            <h2>Riwayat KPI Saya</h2>
+            <p>Daftar ini menampilkan input KPI mingguan yang sudah dikirim dari portal koordinasi, berikut status review dan catatan follow up dari HR.</p>
+        </div>
+    </div>
+    {% if recent_kpi_reports %}
+    <div class="stack-scroll-list">
+        {% for report in recent_kpi_reports %}
+        <div class="box stack-scroll-card report-portal-card">
+            <div class="section-title">
+                <div>
+                    <h3>{{ report.template_name }}</h3>
+                    <p>{{ report.period_label_human }} | {{ report.week_key }} | {{ report.warehouse_name or "-" }}</p>
+                </div>
+                <div class="report-status-stack">
+                    <span class="badge">{{ report.status_label }}</span>
+                    <span class="badge">{{ report.score_label }} / {{ "%.2f"|format(report.minimum_pass_score or 0) }}</span>
+                </div>
+            </div>
+            <div class="form-grid">
+                <div>
+                    <label>Completion</label>
+                    <div class="empty-state report-portal-text">{{ report.completion_percent }}%</div>
+                </div>
+                <div>
+                    <label>Dikirim</label>
+                    <div class="empty-state report-portal-text">{{ report.created_at_label }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Kendala</label>
+                    <div class="empty-state report-portal-text">{{ report.obstacle_note }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Solusi</label>
+                    <div class="empty-state report-portal-text">{{ report.solution_note }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Koordinasi</label>
+                    <div class="empty-state report-portal-text">{{ report.coordination_note or "-" }}</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Catatan Review HR</label>
+                    <div class="empty-state report-portal-text">{{ report.review_note or "Belum ada catatan review." }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Belum ada KPI mingguan yang dikirim dari akun ini.</div>
+    {% endif %}
+</div>
+{% endblock %}

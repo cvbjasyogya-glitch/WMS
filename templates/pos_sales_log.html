@@ -137,6 +137,10 @@
                             <input type="text" name="debit_amount" inputmode="numeric" placeholder="5380000" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.debit_amount_label }}">
                         </div>
                         <div>
+                            <label>QRIS</label>
+                            <input type="text" name="qris_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.qris_amount_label }}">
+                        </div>
+                        <div>
                             <label>MB</label>
                             <input type="text" name="mb_amount" inputmode="numeric" placeholder="0" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.mb_amount_label }}">
                         </div>
@@ -308,8 +312,8 @@
                         {% if sale.receipt_whatsapp_error %}
                         <div class="helper-text">{{ sale.receipt_whatsapp_error }}</div>
                         {% endif %}
-                        <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button">Preview Nota</a>
-                        <a href="/kasir/receipt/{{ sale.receipt_no }}/pdf" target="_blank" rel="noopener" class="btn-link">Cetak PDF</a>
+                        <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button" data-pos-runtime-link="1">Preview Nota</a>
+                        <a href="{{ sale.receipt_thermal_url }}" target="_blank" rel="noopener" class="btn-link" data-pos-runtime-link="1">Cetak Thermal</a>
                         <button
                             type="button"
                             class="ghost-button"
@@ -332,6 +336,25 @@
 
 {% block extra_scripts %}
 <script>
+const posSalesLogRuntimeUrl = new URL(window.location.href);
+const posSalesLogDesktopSource = String(posSalesLogRuntimeUrl.searchParams.get("source") || "");
+const posSalesLogDesktopBridge = String(
+    posSalesLogRuntimeUrl.searchParams.get("desktop_bridge")
+    || (posSalesLogDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
+).replace(/\/+$/, "");
+
+function buildPosSalesLogRuntimeUrl(url) {
+    const resolved = new URL(String(url || "/"), window.location.origin);
+    if (posSalesLogDesktopSource) {
+        resolved.searchParams.set("source", posSalesLogDesktopSource);
+    }
+    if (posSalesLogDesktopBridge) {
+        resolved.searchParams.set("desktop_bridge", posSalesLogDesktopBridge);
+    }
+    const normalized = `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    return resolved.origin === window.location.origin ? normalized : resolved.toString();
+}
+
 async function submitPosVoidFromLog(button) {
     if (!(button instanceof HTMLButtonElement)) {
         return;
@@ -447,6 +470,13 @@ document.addEventListener("click", (event) => {
     submitPosReceiptResendFromLog(resendButton);
 });
 
+document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
+    if (!(node instanceof HTMLAnchorElement)) {
+        return;
+    }
+    node.href = buildPosSalesLogRuntimeUrl(node.getAttribute("href") || "/");
+});
+
 (() => {
     const cashClosingPanel = document.querySelector("[data-cash-closing-panel]");
     if (!cashClosingPanel) {
@@ -467,6 +497,7 @@ document.addEventListener("click", (event) => {
         .trim() || "Mataram";
     const cashInput = cashClosingPanel.querySelector("[name='cash_amount']");
     const debitInput = cashClosingPanel.querySelector("[name='debit_amount']");
+    const qrisInput = cashClosingPanel.querySelector("[name='qris_amount']");
     const mbInput = cashClosingPanel.querySelector("[name='mb_amount']");
     const cvInput = cashClosingPanel.querySelector("[name='cv_amount']");
     const combinedInput = cashClosingPanel.querySelector("[name='combined_total_amount']");
@@ -531,6 +562,9 @@ document.addEventListener("click", (event) => {
         if (debitInput instanceof HTMLInputElement) {
             debitInput.value = formatAmount(defaults.debit_amount, "0");
         }
+        if (qrisInput instanceof HTMLInputElement) {
+            qrisInput.value = formatAmount(defaults.qris_amount, "0");
+        }
         if (mbInput instanceof HTMLInputElement) {
             mbInput.value = formatAmount(defaults.mb_amount, "0");
         }
@@ -551,18 +585,20 @@ document.addEventListener("click", (event) => {
         const amounts = {
             cash: parseAmount(cashClosingPanel.querySelector("[name='cash_amount']")?.value),
             debit: parseAmount(cashClosingPanel.querySelector("[name='debit_amount']")?.value),
+            qris: parseAmount(cashClosingPanel.querySelector("[name='qris_amount']")?.value),
             mb: parseAmount(cashClosingPanel.querySelector("[name='mb_amount']")?.value),
             cv: parseAmount(cashClosingPanel.querySelector("[name='cv_amount']")?.value),
             expense: parseAmount(cashClosingPanel.querySelector("[name='expense_amount']")?.value),
             cashOnHand: parseAmount(cashClosingPanel.querySelector("[name='cash_on_hand_amount']")?.value),
             combined: parseAmount(cashClosingPanel.querySelector("[name='combined_total_amount']")?.value),
         };
-        const totalAmount = amounts.cash + amounts.debit + amounts.mb + amounts.cv;
+        const totalAmount = amounts.cash + amounts.debit + amounts.qris + amounts.mb + amounts.cv;
         const lines = [
             `Laporan "${warehouseLabel}" ${formatDateLabel(dateInput?.value)}`,
             "",
             buildLine("Tunai", amounts.cash),
             buildLine("Debet", amounts.debit),
+            buildLine("QRIS", amounts.qris),
             buildLine("Mb", amounts.mb),
             buildLine("CV", amounts.cv),
             "------------------------------",

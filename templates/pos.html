@@ -359,6 +359,13 @@ function buildPosRuntimeUrl(url) {
     return resolved.origin === window.location.origin ? normalized : resolved.toString();
 }
 
+document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
+    if (!(node instanceof HTMLAnchorElement)) {
+        return;
+    }
+    node.href = buildPosRuntimeUrl(node.getAttribute("href") || "/");
+});
+
 async function callPosDesktopBridge(path, payload = null) {
     if (!posDesktopBridge) {
         return { ok: false, error: "desktop_bridge_missing" };
