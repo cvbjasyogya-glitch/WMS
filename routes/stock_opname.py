@@ -1,17 +1,21 @@
+import csv
 import json
 import sqlite3
 import time
+from io import StringIO
 
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, session
+
 from database import get_db
 from services.notification_service import notify_operational_event
-import csv
-from io import StringIO
+from services.rbac import is_scoped_role
 
 so_bp = Blueprint("so", __name__, url_prefix="/so")
 SO_PAGE_SIZE = 20
 SO_DB_LOCK_RETRY_ATTEMPTS = 2
 SO_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
+SO_AREA_DISPLAY = "display"
+SO_AREA_GUDANG = "gudang"
 
 
 def _normalize_so_search(value):
@@ -53,51 +57,64 @@ def _resolve_so_actor_user_id(db, user_id):
     return safe_user_id if row else None
 
 
-def _resolve_so_warehouses(db, display_id=None, gudang_id=None):
-    warehouses = db.execute("SELECT * FROM warehouses ORDER BY id").fetchall()
-    if not warehouses:
-        return 1, 1
+def _resolve_so_warehouse(db, warehouse_id=None, legacy_display_id=None, legacy_gudang_id=None):
+    all_warehouses = [dict(row) for row in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
+    if not all_warehouses:
+        return 1, [], False
 
-    default_display = warehouses[0]["id"]
-    default_gudang = warehouses[1]["id"] if len(warehouses) >= 2 else default_display
+    default_warehouse_id = all_warehouses[0]["id"]
+    warehouse_lookup = {warehouse["id"]: warehouse for warehouse in all_warehouses}
+    scoped_warehouse = is_scoped_role(session.get("role"))
+
+    if scoped_warehouse:
+        raw_selected = session.get("warehouse_id") or default_warehouse_id
+    else:
+        raw_selected = warehouse_id
+        if raw_selected in (None, ""):
+            raw_selected = legacy_display_id
+        if raw_selected in (None, ""):
+            raw_selected = legacy_gudang_id
+        if raw_selected in (None, ""):
+            raw_selected = session.get("warehouse_id") or default_warehouse_id
 
     try:
-        display_id = int(display_id or default_display)
-    except:
-        display_id = default_display
+        selected_warehouse_id = int(raw_selected or default_warehouse_id)
+    except (TypeError, ValueError):
+        selected_warehouse_id = default_warehouse_id
 
-    try:
-        gudang_id = int(gudang_id or default_gudang)
-    except:
-        gudang_id = default_gudang
+    if selected_warehouse_id not in warehouse_lookup:
+        selected_warehouse_id = default_warehouse_id
 
-    if not _warehouse_exists(db, display_id):
-        display_id = default_display
-    if not _warehouse_exists(db, gudang_id):
-        gudang_id = default_gudang
+    if scoped_warehouse:
+        available_warehouses = [warehouse_lookup[selected_warehouse_id]]
+    else:
+        available_warehouses = all_warehouses
 
-    if display_id == gudang_id and len(warehouses) >= 2:
-        gudang_id = next((w["id"] for w in warehouses if w["id"] != display_id), display_id)
-
-    return display_id, gudang_id
+    return selected_warehouse_id, available_warehouses, scoped_warehouse
 
 
 def _build_so_summary(rows):
-    gap_count = 0
+    display_item_count = 0
     total_display = 0
     total_gudang = 0
+    total_qty = 0
 
-    for row in rows:
-        total_display += int(row["display_qty"] or 0)
-        total_gudang += int(row["gudang_qty"] or 0)
-        if row["display_qty"] != row["gudang_qty"]:
-            gap_count += 1
+    for raw_row in rows:
+        row = dict(raw_row)
+        display_qty = int(row.get("display_qty") or 0)
+        gudang_qty = int(row.get("gudang_qty") or 0)
+        total_display += display_qty
+        total_gudang += gudang_qty
+        total_qty += int(row.get("total_qty") or (display_qty + gudang_qty))
+        if display_qty > 0:
+            display_item_count += 1
 
     return {
         "items": len(rows),
         "display_qty": total_display,
         "gudang_qty": total_gudang,
-        "gap_count": gap_count,
+        "total_qty": total_qty,
+        "gap_count": display_item_count,
     }
 
 
@@ -108,10 +125,14 @@ def _build_so_response_payload(payload, *, message=None, processed=None):
         "total_pages": payload["total_pages"],
         "summary": payload["summary"],
         "search": payload["search"],
-        "display_id": payload["display_id"],
-        "gudang_id": payload["gudang_id"],
-        "display_name": payload["display_name"],
-        "gudang_name": payload["gudang_name"],
+        "warehouse_id": payload["warehouse_id"],
+        "warehouse_name": payload["warehouse_name"],
+        "is_scoped_warehouse": payload["is_scoped_warehouse"],
+        # Backward-compatible keys for any stale frontend/cache still reading legacy payloads.
+        "display_id": payload["warehouse_id"],
+        "gudang_id": payload["warehouse_id"],
+        "display_name": payload["warehouse_name"],
+        "gudang_name": payload["warehouse_name"],
     }
     if message is not None:
         response["message"] = message
@@ -150,109 +171,157 @@ def _rollback_so_transaction(db):
         pass
 
 
-def _build_so_base_query(search):
-    base_query = """
+def _build_so_display_qty_expression(total_expression, display_balance_expression):
+    total = f"COALESCE({total_expression}, 0)"
+    display_balance = f"COALESCE({display_balance_expression}, 0)"
+    return (
+        "CASE "
+        f"WHEN {total} <= 0 THEN 0 "
+        f"WHEN {display_balance} <= 0 THEN 0 "
+        f"WHEN {display_balance} >= {total} THEN {total} "
+        f"ELSE {display_balance} "
+        "END"
+    )
+
+
+def _build_so_gudang_qty_expression(total_expression, display_expression):
+    total = f"COALESCE({total_expression}, 0)"
+    return (
+        "CASE "
+        f"WHEN {total} - ({display_expression}) > 0 THEN {total} - ({display_expression}) "
+        "ELSE 0 "
+        "END"
+    )
+
+
+def _build_so_inventory_query(warehouse_id, search):
+    display_qty_expression = _build_so_display_qty_expression("s.qty", "sad.qty")
+    gudang_qty_expression = _build_so_gudang_qty_expression("s.qty", display_qty_expression)
+
+    query = f"""
+        SELECT
+            p.id AS product_id,
+            p.sku,
+            p.name,
+            pv.id AS variant_id,
+            pv.variant,
+            COALESCE(s.qty, 0) AS total_qty,
+            {display_qty_expression} AS display_qty,
+            {gudang_qty_expression} AS gudang_qty
         FROM products p
         JOIN product_variants pv ON p.id = pv.product_id
-        LEFT JOIN stock sd
-            ON sd.product_id = p.id
-            AND sd.variant_id = pv.id
-            AND sd.warehouse_id = ?
-        LEFT JOIN stock sg
-            ON sg.product_id = p.id
-            AND sg.variant_id = pv.id
-            AND sg.warehouse_id = ?
+        LEFT JOIN stock s
+            ON s.product_id = p.id
+            AND s.variant_id = pv.id
+            AND s.warehouse_id = ?
+        LEFT JOIN stock_area_balances sad
+            ON sad.product_id = p.id
+            AND sad.variant_id = pv.id
+            AND sad.warehouse_id = ?
+            AND sad.area_kind = '{SO_AREA_DISPLAY}'
         WHERE 1=1
     """
-    params = []
+    params = [warehouse_id, warehouse_id]
 
     search_clause, search_params = _build_so_search_clause(
         search,
         ("p.name", "p.sku", "pv.variant"),
     )
-    base_query += search_clause
-    params += search_params
+    query += search_clause
+    params.extend(search_params)
+    return query, params
 
-    return base_query, params
 
-
-def _build_so_page_payload(db, display_id, gudang_id, search="", page=1, limit=20):
+def _build_so_page_payload(
+    db,
+    warehouse_id,
+    search="",
+    page=1,
+    limit=20,
+    *,
+    scoped_warehouse=False,
+    available_warehouses=None,
+):
     try:
         page = int(page or 1)
         if page < 1:
             page = 1
-    except:
+    except (TypeError, ValueError):
         page = 1
 
     search = _normalize_so_search(search)
     offset = (page - 1) * limit
-    base_query, extra_params = _build_so_base_query(search)
-    params = [display_id, gudang_id] + extra_params
+    inventory_query, params = _build_so_inventory_query(warehouse_id, search)
 
-    total = db.execute("SELECT COUNT(*) " + base_query, params).fetchone()[0]
+    total = db.execute(
+        f"SELECT COUNT(*) FROM ({inventory_query}) inventory_rows",
+        params,
+    ).fetchone()[0]
 
     summary_row = db.execute(
-        """
+        f"""
         SELECT
-            COUNT(*) as items,
-            COALESCE(SUM(COALESCE(sd.qty, 0)), 0) as display_qty,
-            COALESCE(SUM(COALESCE(sg.qty, 0)), 0) as gudang_qty,
-            COALESCE(SUM(CASE WHEN COALESCE(sd.qty, 0) != COALESCE(sg.qty, 0) THEN 1 ELSE 0 END), 0) as gap_count
-        """
-        + base_query,
+            COUNT(*) AS items,
+            COALESCE(SUM(display_qty), 0) AS display_qty,
+            COALESCE(SUM(gudang_qty), 0) AS gudang_qty,
+            COALESCE(SUM(total_qty), 0) AS total_qty,
+            COALESCE(SUM(CASE WHEN display_qty > 0 THEN 1 ELSE 0 END), 0) AS gap_count
+        FROM ({inventory_query}) inventory_rows
+        """,
         params,
     ).fetchone()
 
     rows = db.execute(
-        """
-        SELECT
-            p.id as product_id,
-            p.sku,
-            p.name,
-            pv.id as variant_id,
-            pv.variant,
-            COALESCE(sd.qty,0) as display_qty,
-            COALESCE(sg.qty,0) as gudang_qty
-        """
-        + base_query
-        + """
-        ORDER BY p.name ASC
+        f"""
+        SELECT *
+        FROM ({inventory_query}) inventory_rows
+        ORDER BY name ASC, variant ASC
         LIMIT ? OFFSET ?
         """,
-        params + [limit, offset],
+        (*params, limit, offset),
     ).fetchall()
 
-    warehouses = [dict(w) for w in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
-    warehouse_lookup = {w["id"]: w["name"] for w in warehouses}
+    warehouses = available_warehouses or [dict(row) for row in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
+    warehouse_lookup = {warehouse["id"]: warehouse["name"] for warehouse in warehouses}
     summary = dict(summary_row) if summary_row else _build_so_summary(rows)
 
     return {
-        "data": [dict(r) for r in rows],
+        "data": [dict(row) for row in rows],
         "page": page,
         "total_pages": max(1, (total + limit - 1) // limit),
         "summary": summary,
         "search": search,
-        "display_id": display_id,
-        "gudang_id": gudang_id,
-        "display_name": warehouse_lookup.get(display_id, f"Gudang {display_id}"),
-        "gudang_name": warehouse_lookup.get(gudang_id, f"Gudang {gudang_id}"),
+        "warehouse_id": warehouse_id,
+        "warehouse_name": warehouse_lookup.get(warehouse_id, f"Gudang {warehouse_id}"),
         "warehouses": warehouses,
+        "is_scoped_warehouse": scoped_warehouse,
     }
 
 
-def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, physical_qty, diff_qty, user_id, note):
+def _record_so_result(
+    db,
+    product_id,
+    variant_id,
+    warehouse_id,
+    area_kind,
+    system_qty,
+    physical_qty,
+    diff_qty,
+    user_id,
+):
     db.execute(
         """
         INSERT INTO stock_opname_results(
             product_id, variant_id, warehouse_id,
-            system_qty, physical_qty, diff_qty, user_id
+            area_kind, system_qty, physical_qty, diff_qty, user_id
         )
-        VALUES (?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?)
         """,
         (
             product_id,
             variant_id,
             warehouse_id,
+            area_kind,
             system_qty,
             physical_qty,
             diff_qty,
@@ -260,6 +329,18 @@ def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, p
         ),
     )
 
+
+def _apply_so_total_adjustment(
+    db,
+    product_id,
+    variant_id,
+    warehouse_id,
+    system_qty,
+    physical_qty,
+    diff_qty,
+    user_id,
+    note,
+):
     db.execute(
         """
         INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
@@ -269,6 +350,36 @@ def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, p
         """,
         (product_id, variant_id, warehouse_id, physical_qty),
     )
+
+    db.execute(
+        """
+        DELETE FROM stock_batches
+        WHERE product_id=? AND variant_id=? AND warehouse_id=?
+        """,
+        (product_id, variant_id, warehouse_id),
+    )
+
+    if physical_qty > 0:
+        db.execute(
+            """
+            INSERT INTO stock_batches(
+                product_id, variant_id, warehouse_id,
+                qty, remaining_qty, cost, created_at
+            )
+            VALUES (?,?,?,?,?,?,datetime('now'))
+            """,
+            (
+                product_id,
+                variant_id,
+                warehouse_id,
+                physical_qty,
+                physical_qty,
+                0,
+            ),
+        )
+
+    if diff_qty == 0:
+        return
 
     db.execute(
         """
@@ -308,51 +419,96 @@ def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, p
         ),
     )
 
-    db.execute(
-        """
-        DELETE FROM stock_batches
-        WHERE product_id=? AND variant_id=? AND warehouse_id=?
-        """,
-        (product_id, variant_id, warehouse_id),
+
+def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, physical_qty, diff_qty, user_id, note):
+    normalized_note = str(note or "").strip().lower()
+    if "display" in normalized_note:
+        area_kind = SO_AREA_DISPLAY
+    elif "gudang" in normalized_note:
+        area_kind = SO_AREA_GUDANG
+    else:
+        area_kind = "total"
+
+    _record_so_result(
+        db,
+        product_id,
+        variant_id,
+        warehouse_id,
+        area_kind,
+        system_qty,
+        physical_qty,
+        diff_qty,
+        user_id,
+    )
+    _apply_so_total_adjustment(
+        db,
+        product_id,
+        variant_id,
+        warehouse_id,
+        system_qty,
+        physical_qty,
+        diff_qty,
+        user_id,
+        note,
     )
 
-    if physical_qty > 0:
-        db.execute(
-            """
-            INSERT INTO stock_batches(
-                product_id, variant_id, warehouse_id,
-                qty, remaining_qty, cost, created_at
-            )
-            VALUES (?,?,?,?,?,?,datetime('now'))
-            """,
-            (
-                product_id,
-                variant_id,
-                warehouse_id,
-                physical_qty,
-                physical_qty,
-                0,
-            ),
+
+def _upsert_so_area_balance(db, product_id, variant_id, warehouse_id, area_kind, qty, user_id):
+    db.execute(
+        """
+        INSERT INTO stock_area_balances(
+            product_id,
+            variant_id,
+            warehouse_id,
+            area_kind,
+            qty,
+            updated_by
         )
+        VALUES (?,?,?,?,?,?)
+        ON CONFLICT(product_id, variant_id, warehouse_id, area_kind)
+        DO UPDATE SET
+            qty = excluded.qty,
+            updated_by = excluded.updated_by,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            product_id,
+            variant_id,
+            warehouse_id,
+            area_kind,
+            qty,
+            user_id,
+        ),
+    )
+
+
+def _resolve_so_area_system_quantities(total_qty, display_saved_qty):
+    total_qty = max(int(total_qty or 0), 0)
+    display_qty = max(int(display_saved_qty or 0), 0)
+    if display_qty > total_qty:
+        display_qty = total_qty
+    gudang_qty = max(total_qty - display_qty, 0)
+    return display_qty, gudang_qty, total_qty
 
 
 @so_bp.route("/")
 def so_page():
     db = get_db()
     search = _normalize_so_search(request.args.get("q"))
-
-    display_id, gudang_id = _resolve_so_warehouses(
+    warehouse_id, available_warehouses, scoped_warehouse = _resolve_so_warehouse(
         db,
+        request.args.get("warehouse"),
         request.args.get("display_id"),
         request.args.get("gudang_id"),
     )
     payload = _build_so_page_payload(
         db,
-        display_id,
-        gudang_id,
+        warehouse_id,
         search=search,
         page=request.args.get("page", 1),
         limit=SO_PAGE_SIZE,
+        scoped_warehouse=scoped_warehouse,
+        available_warehouses=available_warehouses,
     )
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -364,12 +520,11 @@ def so_page():
         search=payload["search"],
         page=payload["page"],
         total_pages=payload["total_pages"],
-        display_id=payload["display_id"],
-        gudang_id=payload["gudang_id"],
-        display_name=payload["display_name"],
-        gudang_name=payload["gudang_name"],
+        warehouse_id=payload["warehouse_id"],
+        warehouse_name=payload["warehouse_name"],
         warehouses=payload["warehouses"],
         summary=payload["summary"],
+        is_scoped_warehouse=payload["is_scoped_warehouse"],
     )
 
 
@@ -380,8 +535,9 @@ def submit_so():
     search = _normalize_so_search(data.get("q"))
     page = data.get("page", 1)
 
-    display_id, gudang_id = _resolve_so_warehouses(
+    warehouse_id, available_warehouses, scoped_warehouse = _resolve_so_warehouse(
         db,
+        data.get("warehouse_id") or data.get("warehouse"),
         data.get("display_id"),
         data.get("gudang_id"),
     )
@@ -442,49 +598,101 @@ def submit_so():
                 valid_items += 1
 
                 stock_row = db.execute(
-                    """
+                    f"""
                     SELECT
-                        COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as display_qty,
-                        COALESCE(MAX(CASE WHEN warehouse_id = ? THEN qty END), 0) as gudang_qty
-                    FROM stock
-                    WHERE product_id=? AND variant_id=? AND warehouse_id IN (?, ?)
+                        COALESCE(s.qty, 0) AS total_qty,
+                        COALESCE(sad.qty, 0) AS display_saved_qty
+                    FROM products p
+                    JOIN product_variants pv ON pv.product_id = p.id
+                    LEFT JOIN stock s
+                        ON s.product_id = p.id
+                        AND s.variant_id = pv.id
+                        AND s.warehouse_id = ?
+                    LEFT JOIN stock_area_balances sad
+                        ON sad.product_id = p.id
+                        AND sad.variant_id = pv.id
+                        AND sad.warehouse_id = ?
+                        AND sad.area_kind = '{SO_AREA_DISPLAY}'
+                    WHERE p.id=? AND pv.id=?
                     """,
-                    (display_id, gudang_id, product_id, variant_id, display_id, gudang_id),
+                    (warehouse_id, warehouse_id, product_id, variant_id),
                 ).fetchone()
 
-                display_system = int(stock_row["display_qty"] or 0) if stock_row else 0
-                gudang_system = int(stock_row["gudang_qty"] or 0) if stock_row else 0
+                display_system, gudang_system, total_system = _resolve_so_area_system_quantities(
+                    stock_row["total_qty"] if stock_row else 0,
+                    stock_row["display_saved_qty"] if stock_row else 0,
+                )
 
-                diff_display = display_physical - display_system
-                diff_gudang = gudang_physical - gudang_system
+                display_diff = display_physical - display_system
+                gudang_diff = gudang_physical - gudang_system
+                total_physical = display_physical + gudang_physical
+                total_diff = total_physical - total_system
 
-                if diff_display != 0:
-                    _apply_so_adjustment(
+                if display_diff == 0 and gudang_diff == 0:
+                    continue
+
+                _upsert_so_area_balance(
+                    db,
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    SO_AREA_DISPLAY,
+                    display_physical,
+                    user_id,
+                )
+                _upsert_so_area_balance(
+                    db,
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    SO_AREA_GUDANG,
+                    gudang_physical,
+                    user_id,
+                )
+
+                if display_diff != 0:
+                    _record_so_result(
                         db,
                         product_id,
                         variant_id,
-                        display_id,
+                        warehouse_id,
+                        SO_AREA_DISPLAY,
                         display_system,
                         display_physical,
-                        diff_display,
+                        display_diff,
                         user_id,
-                        "Stock Opname Display",
                     )
-                    processed += 1
 
-                if diff_gudang != 0:
-                    _apply_so_adjustment(
+                if gudang_diff != 0:
+                    _record_so_result(
                         db,
                         product_id,
                         variant_id,
-                        gudang_id,
+                        warehouse_id,
+                        SO_AREA_GUDANG,
                         gudang_system,
                         gudang_physical,
-                        diff_gudang,
+                        gudang_diff,
                         user_id,
-                        "Stock Opname Gudang",
                     )
-                    processed += 1
+
+                if total_diff != 0:
+                    _apply_so_total_adjustment(
+                        db,
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                        total_system,
+                        total_physical,
+                        total_diff,
+                        user_id,
+                        (
+                            "Stock Opname Total Toko "
+                            f"(Display {display_physical}, Gudang {gudang_physical})"
+                        ),
+                    )
+
+                processed += 1
 
             if valid_items == 0:
                 _rollback_so_transaction(db)
@@ -494,16 +702,17 @@ def submit_so():
                 _rollback_so_transaction(db)
                 payload = _build_so_page_payload(
                     db,
-                    display_id,
-                    gudang_id,
+                    warehouse_id,
                     search=search,
                     page=page,
                     limit=SO_PAGE_SIZE,
+                    scoped_warehouse=scoped_warehouse,
+                    available_warehouses=available_warehouses,
                 )
                 return jsonify(
                     _build_so_response_payload(
                         payload,
-                        message="Tidak ada perubahan baru. Data stok sudah sinkron dengan hasil SO.",
+                        message="Tidak ada perubahan baru. Data stok toko sudah sinkron dengan hasil SO.",
                         processed=0,
                     )
                 )
@@ -511,30 +720,30 @@ def submit_so():
             db.commit()
             payload = _build_so_page_payload(
                 db,
-                display_id,
-                gudang_id,
+                warehouse_id,
                 search=search,
                 page=page,
                 limit=SO_PAGE_SIZE,
+                scoped_warehouse=scoped_warehouse,
+                available_warehouses=available_warehouses,
             )
             response_payload = _build_so_response_payload(
                 payload,
-                message="SO berhasil disimpan dan stock sudah sinkron",
+                message="SO berhasil disimpan dan total stok toko sudah sinkron",
                 processed=processed,
             )
             try:
                 notify_operational_event(
-                    f"Stock opname tersimpan: {processed} penyesuaian",
+                    f"Stock opname tersimpan: {processed} produk",
                     (
-                        f"Hasil stock opname berhasil disimpan untuk "
-                        f"{payload['display_name']} dan {payload['gudang_name']} "
-                        f"dengan {processed} penyesuaian stok."
+                        f"Hasil stock opname untuk {payload['warehouse_name']} berhasil disimpan. "
+                        f"{processed} produk diperbarui dan total stok toko sudah disinkronkan."
                     ),
                     category="inventory",
-                    link_url="/so",
+                    link_url=f"/so?warehouse={warehouse_id}",
                     source_type="stock_opname_session",
                     push_title="Stock opname tersimpan",
-                    push_body=f"{processed} penyesuaian | {payload['display_name']} & {payload['gudang_name']}",
+                    push_body=f"{processed} produk | {payload['warehouse_name']}",
                 )
             except Exception as exc:
                 print("STOCK OPNAME NOTIFICATION ERROR:", exc)
@@ -572,30 +781,24 @@ def submit_so():
 def export_so():
     db = get_db()
     search = _normalize_so_search(request.args.get("q"))
-
-    display_id, gudang_id = _resolve_so_warehouses(
+    warehouse_id, available_warehouses, _ = _resolve_so_warehouse(
         db,
+        request.args.get("warehouse"),
         request.args.get("display_id"),
         request.args.get("gudang_id"),
     )
-    base_query, extra_params = _build_so_base_query(search)
-    params = [display_id, gudang_id] + extra_params
-
+    inventory_query, params = _build_so_inventory_query(warehouse_id, search)
     data = db.execute(
-        """
-        SELECT
-            p.sku,
-            p.name,
-            pv.variant,
-            COALESCE(sd.qty,0) as display_qty,
-            COALESCE(sg.qty,0) as gudang_qty
-        """
-        + base_query
-        + """
-        ORDER BY p.name ASC
+        f"""
+        SELECT sku, name, variant, display_qty, gudang_qty, total_qty
+        FROM ({inventory_query}) inventory_rows
+        ORDER BY name ASC, variant ASC
         """,
         params,
     ).fetchall()
+
+    warehouse_lookup = {warehouse["id"]: warehouse["name"] for warehouse in available_warehouses}
+    warehouse_name = (warehouse_lookup.get(warehouse_id, f"warehouse_{warehouse_id}") or f"warehouse_{warehouse_id}").replace(" ", "_")
 
     output = StringIO()
     writer = csv.writer(output)
@@ -606,6 +809,7 @@ def export_so():
             "Variant",
             "Display System Qty",
             "Gudang System Qty",
+            "Total System Qty",
         ]
     )
 
@@ -617,6 +821,7 @@ def export_so():
                 row["variant"],
                 row["display_qty"],
                 row["gudang_qty"],
+                row["total_qty"],
             ]
         )
 
@@ -625,7 +830,7 @@ def export_so():
         mimetype="text/csv",
         headers={
             "Content-Disposition": (
-                f"attachment;filename=stock_opname_display_{display_id}_gudang_{gudang_id}.csv"
+                f"attachment;filename=stock_opname_{warehouse_name}.csv"
             )
         },
     )
@@ -635,13 +840,13 @@ def export_so():
 def export_so_report():
     db = get_db()
     search = _normalize_so_search(request.args.get("q"))
-
-    display_id, gudang_id = _resolve_so_warehouses(
+    warehouse_id, available_warehouses, _ = _resolve_so_warehouse(
         db,
+        request.args.get("warehouse"),
         request.args.get("display_id"),
         request.args.get("gudang_id"),
     )
-    params = [display_id, gudang_id]
+    params = [warehouse_id]
     search_clause, search_params = _build_so_search_clause(
         search,
         ("p.sku", "p.name", "pv.variant"),
@@ -654,25 +859,33 @@ def export_so_report():
             p.sku,
             p.name,
             pv.variant,
-            w.name as warehouse_name,
-            r.system_qty,
-            r.physical_qty,
-            r.diff_qty,
-            r.created_at,
+            w.name AS warehouse_name,
+            CASE
+                WHEN LOWER(COALESCE(h.area_kind, '')) = 'display' THEN 'Display'
+                WHEN LOWER(COALESCE(h.area_kind, '')) = 'gudang' THEN 'Gudang'
+                ELSE 'Total'
+            END AS area_label,
+            h.system_qty,
+            h.physical_qty,
+            h.diff_qty,
+            h.created_at,
             u.username
-        FROM stock_opname_results r
-        JOIN products p ON r.product_id = p.id
-        JOIN product_variants pv ON r.variant_id = pv.id
-        LEFT JOIN users u ON r.user_id = u.id
-        LEFT JOIN warehouses w ON r.warehouse_id = w.id
-        WHERE r.warehouse_id IN (?, ?)
+        FROM stock_opname_results h
+        JOIN products p ON h.product_id = p.id
+        JOIN product_variants pv ON h.variant_id = pv.id
+        LEFT JOIN users u ON h.user_id = u.id
+        LEFT JOIN warehouses w ON h.warehouse_id = w.id
+        WHERE h.warehouse_id = ?
         """
         + search_clause
         + """
-        ORDER BY r.created_at DESC
+        ORDER BY h.created_at DESC
         """,
         params,
     ).fetchall()
+
+    warehouse_lookup = {warehouse["id"]: warehouse["name"] for warehouse in available_warehouses}
+    warehouse_name = (warehouse_lookup.get(warehouse_id, f"warehouse_{warehouse_id}") or f"warehouse_{warehouse_id}").replace(" ", "_")
 
     output = StringIO()
     writer = csv.writer(output)
@@ -681,6 +894,7 @@ def export_so_report():
             "Tanggal",
             "User",
             "Gudang",
+            "Area",
             "SKU",
             "Nama Produk",
             "Variant",
@@ -696,6 +910,7 @@ def export_so_report():
                 row["created_at"],
                 row["username"] or "System",
                 row["warehouse_name"] or "-",
+                row["area_label"],
                 row["sku"],
                 row["name"],
                 row["variant"],
@@ -710,7 +925,7 @@ def export_so_report():
         mimetype="text/csv",
         headers={
             "Content-Disposition": (
-                f"attachment;filename=laporan_so_display_{display_id}_gudang_{gudang_id}.csv"
+                f"attachment;filename=laporan_so_{warehouse_name}.csv"
             )
         },
     )

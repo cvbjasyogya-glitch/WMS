@@ -9,15 +9,13 @@
         currentPage: Number.parseInt(config.page || 1, 10) || 1,
         totalPages: Number.parseInt(config.totalPages || 1, 10) || 1,
         search: String(config.search || "").trim(),
-        displayId: Number.parseInt(config.displayId || 0, 10) || 0,
-        gudangId: Number.parseInt(config.gudangId || 0, 10) || 0,
+        warehouseId: Number.parseInt(config.warehouseId || 0, 10) || 0,
         saving: false,
     };
 
     const nodes = {
         filterForm: document.getElementById("soFilterForm"),
-        displaySelect: document.getElementById("displaySelect"),
-        gudangSelect: document.getElementById("gudangSelect"),
+        warehouseSelect: document.getElementById("warehouseSelect"),
         searchInput: document.getElementById("searchInput"),
         exportSoLink: document.getElementById("exportSoLink"),
         exportReportLink: document.getElementById("exportReportLink"),
@@ -33,12 +31,12 @@
         summaryItems: document.getElementById("soSummaryItems"),
         summaryDisplayQty: document.getElementById("soSummaryDisplayQty"),
         summaryGudangQty: document.getElementById("soSummaryGudangQty"),
+        summaryTotalQty: document.getElementById("soSummaryTotalQty"),
         summaryGapCount: document.getElementById("soSummaryGapCount"),
         summaryGapCard: document.getElementById("soSummaryGapCard"),
         pageInfo: document.getElementById("pageInfo"),
         metaPage: document.getElementById("soMetaPage"),
-        displayName: document.getElementById("soDisplayName"),
-        gudangName: document.getElementById("soGudangName"),
+        warehouseName: document.getElementById("soWarehouseName"),
         prevBtn: document.getElementById("prevBtn"),
         nextBtn: document.getElementById("nextBtn"),
     };
@@ -126,8 +124,7 @@
         const params = new URLSearchParams();
         const nextPage = readInt(extra.page, state.currentPage) || 1;
         params.set("page", String(nextPage));
-        params.set("display_id", String(state.displayId || 0));
-        params.set("gudang_id", String(state.gudangId || 0));
+        params.set("warehouse", String(state.warehouseId || 0));
         if (state.search) {
             params.set("q", state.search);
         }
@@ -136,8 +133,7 @@
 
     function syncExportLinks() {
         const exportQuery = new URLSearchParams();
-        exportQuery.set("display_id", String(state.displayId || 0));
-        exportQuery.set("gudang_id", String(state.gudangId || 0));
+        exportQuery.set("warehouse", String(state.warehouseId || 0));
         if (state.search) {
             exportQuery.set("q", state.search);
         }
@@ -162,20 +158,17 @@
         if (nodes.summaryGudangQty) {
             nodes.summaryGudangQty.innerText = summary.gudang_qty ?? 0;
         }
+        if (nodes.summaryTotalQty) {
+            nodes.summaryTotalQty.innerText = summary.total_qty ?? 0;
+        }
         if (nodes.summaryGapCount) {
             nodes.summaryGapCount.innerText = summary.gap_count ?? 0;
-        }
-        if (nodes.summaryGapCard) {
-            nodes.summaryGapCard.classList.toggle("warning", Number(summary.gap_count || 0) > 0);
         }
     }
 
     function syncSelectors() {
-        if (nodes.displaySelect) {
-            nodes.displaySelect.value = String(state.displayId || "");
-        }
-        if (nodes.gudangSelect) {
-            nodes.gudangSelect.value = String(state.gudangId || "");
+        if (nodes.warehouseSelect) {
+            nodes.warehouseSelect.value = String(state.warehouseId || "");
         }
         if (nodes.searchInput) {
             nodes.searchInput.value = state.search;
@@ -289,7 +282,7 @@
             nodes.pendingHelp.innerText = pending.invalid
                 ? messages.invalidInput
                 : hasChanges
-                    ? "Perubahan di halaman ini siap disimpan ke hasil stock opname."
+                    ? "Perubahan di halaman ini siap disimpan ke hasil stock opname toko ini."
                     : "Belum ada perubahan fisik yang perlu disimpan.";
         }
         if (nodes.saveBar) {
@@ -368,8 +361,9 @@
 
         state.currentPage = readInt(payload.page, state.currentPage) || 1;
         state.totalPages = readInt(payload.total_pages, state.totalPages) || 1;
-        state.displayId = readInt(payload.display_id, state.displayId) || state.displayId;
-        state.gudangId = readInt(payload.gudang_id, state.gudangId) || state.gudangId;
+        state.warehouseId = readInt(payload.warehouse_id, state.warehouseId)
+            || readInt(payload.display_id, state.warehouseId)
+            || state.warehouseId;
         state.search = String(payload.search ?? state.search).trim();
 
         renderTable(payload.data || []);
@@ -378,11 +372,8 @@
         syncExportLinks();
         updatePagination();
 
-        if (nodes.displayName && payload.display_name) {
-            nodes.displayName.innerText = payload.display_name;
-        }
-        if (nodes.gudangName && payload.gudang_name) {
-            nodes.gudangName.innerText = payload.gudang_name;
+        if (nodes.warehouseName && payload.warehouse_name) {
+            nodes.warehouseName.innerText = payload.warehouse_name;
         }
     }
 
@@ -468,8 +459,7 @@
                 },
                 credentials: "same-origin",
                 body: JSON.stringify({
-                    display_id: state.displayId,
-                    gudang_id: state.gudangId,
+                    warehouse_id: state.warehouseId,
                     q: state.search,
                     page: state.currentPage,
                     items: pending.items,
@@ -494,25 +484,9 @@
         }
     }
 
-    function ensureDistinctWarehousePair(changedField) {
-        const displayValue = readInt(nodes.displaySelect?.value, state.displayId) || state.displayId;
-        const gudangValue = readInt(nodes.gudangSelect?.value, state.gudangId) || state.gudangId;
-
-        if (displayValue && gudangValue && displayValue === gudangValue) {
-            const targetSelect = changedField === "display" ? nodes.gudangSelect : nodes.displaySelect;
-            const nextOption = Array.from(targetSelect?.options || []).find((option) => readInt(option.value, 0) !== displayValue);
-            if (nextOption && targetSelect) {
-                targetSelect.value = nextOption.value;
-            }
-        }
-
-        state.displayId = readInt(nodes.displaySelect?.value, state.displayId) || state.displayId;
-        state.gudangId = readInt(nodes.gudangSelect?.value, state.gudangId) || state.gudangId;
-        syncExportLinks();
-    }
-
     function handleFilterSubmit(event) {
         state.search = String(nodes.searchInput?.value || "").trim();
+        state.warehouseId = readInt(nodes.warehouseSelect?.value, state.warehouseId) || state.warehouseId;
         syncExportLinks();
         if (hasUnsavedChanges() && !window.confirm(messages.confirmFilterChange)) {
             event.preventDefault();
@@ -527,11 +501,9 @@
         nodes.prevBtn?.addEventListener("click", () => changePage(-1));
         nodes.nextBtn?.addEventListener("click", () => changePage(1));
 
-        nodes.displaySelect?.addEventListener("change", () => {
-            ensureDistinctWarehousePair("display");
-        });
-        nodes.gudangSelect?.addEventListener("change", () => {
-            ensureDistinctWarehousePair("gudang");
+        nodes.warehouseSelect?.addEventListener("change", () => {
+            state.warehouseId = readInt(nodes.warehouseSelect?.value, state.warehouseId) || state.warehouseId;
+            syncExportLinks();
         });
         nodes.searchInput?.addEventListener("input", () => {
             state.search = String(nodes.searchInput?.value || "").trim();

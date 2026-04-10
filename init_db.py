@@ -161,6 +161,7 @@ def migrate_schema(cursor):
     # user assigned warehouse (for single-warehouse roles)
     _ensure_column(cursor, "users", "warehouse_id", "INTEGER")
     _ensure_column(cursor, "users", "employee_id", "INTEGER")
+    _ensure_column(cursor, "stock_opname_results", "area_kind", "TEXT")
     _ensure_column(cursor, "owner_requests", "note", "TEXT")
     _ensure_column(cursor, "owner_requests", "status", "TEXT DEFAULT 'pending'")
     _ensure_column(cursor, "owner_requests", "requested_by", "INTEGER")
@@ -1621,6 +1622,7 @@ def init_db(db_path=None, sqlite_options=None):
         product_id INTEGER,
         variant_id INTEGER,
         warehouse_id INTEGER,
+        area_kind TEXT,
         system_qty INTEGER DEFAULT 0,
         physical_qty INTEGER DEFAULT 0,
         diff_qty INTEGER DEFAULT 0,
@@ -1633,6 +1635,24 @@ def init_db(db_path=None, sqlite_options=None):
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS stock_area_balances(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        variant_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        area_kind TEXT NOT NULL,
+        qty INTEGER DEFAULT 0,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(product_id, variant_id, warehouse_id, area_kind),
+        FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
+        FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+    )
+    """)
+
     # ==========================
     # INDEX
     # ==========================
@@ -1641,6 +1661,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_history_main ON stock_history(product_id, warehouse_id, date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_main ON stock(product_id, variant_id, warehouse_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_so_results_main ON stock_opname_results(product_id, variant_id, warehouse_id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_stock_area_balances_main ON stock_area_balances(warehouse_id, area_kind, product_id, variant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_owner_requests_main ON owner_requests(warehouse_id, status, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_employees_main ON employees(warehouse_id, employment_status, full_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_main ON attendance_records(warehouse_id, attendance_date, status, employee_id)")

@@ -16988,19 +16988,34 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("BIRU", html)
         self.assertIn("B/S EPP CLB", html)
 
-    def test_stock_opname_page_supports_selected_warehouses_and_exports(self):
+    def test_stock_opname_page_supports_selected_store_scope_and_exports(self):
         self.login()
-        response = self.client.get("/so/?display_id=1&gudang_id=2")
+        response = self.client.get("/so/?warehouse=1")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('name="display_id"', html)
-        self.assertIn('name="gudang_id"', html)
-        self.assertIn("/so/export?display_id=1&gudang_id=2", html)
+        self.assertIn('name="warehouse"', html)
+        self.assertNotIn('name="display_id"', html)
+        self.assertIn("/so/export?warehouse=1", html)
         self.assertIn("Simpan Hasil SO", html)
+        self.assertIn("Total Toko", html)
 
-        export = self.client.get("/so/export?display_id=1&gudang_id=2")
+        export = self.client.get("/so/export?warehouse=1")
         self.assertEqual(export.status_code, 200)
-        self.assertIn("Display System Qty", export.get_data(as_text=True))
+        self.assertIn("Total System Qty", export.get_data(as_text=True))
+
+    def test_stock_opname_page_is_locked_to_scoped_user_warehouse(self):
+        self.create_user("staff_so_mataram", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_so_mataram", "pass1234")
+
+        response = self.client.get(
+            "/so/?warehouse=2",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+
+        self.assertEqual(payload["warehouse_id"], 1)
+        self.assertTrue(payload["is_scoped_warehouse"])
 
     def test_stock_opname_page_uses_refactored_script_and_row_data_attributes(self):
         self.login()
@@ -17011,7 +17026,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id="1",
         )
         self.assertEqual(response.status_code, 302)
-        response = self.client.get("/so/?display_id=1&gudang_id=2")
+        response = self.client.get("/so/?warehouse=1")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
 
@@ -17028,17 +17043,19 @@ class WmsRoutesTestCase(unittest.TestCase):
             qty=1,
             variants="FILTER-A",
             warehouse_id="1",
+            name="Produk Filter Alpha",
         )
         response_b, _, _ = self.create_product(
             sku="SO-FILTER-BETA",
             qty=1,
             variants="FILTER-B",
             warehouse_id="1",
+            name="Produk Filter Beta",
         )
         self.assertEqual(response_a.status_code, 302)
         self.assertEqual(response_b.status_code, 302)
 
-        export = self.client.get("/so/export?display_id=1&gudang_id=2&q=ALPHA")
+        export = self.client.get("/so/export?warehouse=1&q=ALPHA")
         self.assertEqual(export.status_code, 200)
         csv_text = export.get_data(as_text=True)
 
@@ -17054,11 +17071,12 @@ class WmsRoutesTestCase(unittest.TestCase):
                 qty=1,
                 variants=f"VAR{index}",
                 warehouse_id="1",
+                name=f"Produk Sum {index:02d}",
             )
             self.assertEqual(response.status_code, 302)
 
         response = self.client.get(
-            "/so/?display_id=1&gudang_id=2",
+            "/so/?warehouse=1",
             headers={"X-Requested-With": "XMLHttpRequest"},
         )
         self.assertEqual(response.status_code, 200)
@@ -17066,8 +17084,10 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(len(payload["data"]), 20)
         self.assertEqual(payload["summary"]["items"], 21)
-        self.assertEqual(payload["summary"]["display_qty"], 21)
-        self.assertEqual(payload["summary"]["gudang_qty"], 0)
+        self.assertEqual(payload["summary"]["display_qty"], 0)
+        self.assertEqual(payload["summary"]["gudang_qty"], 21)
+        self.assertEqual(payload["summary"]["total_qty"], 21)
+        self.assertEqual(payload["summary"]["gap_count"], 0)
         self.assertEqual(payload["total_pages"], 2)
 
     def test_role_refresh_allows_promoted_user_to_adjust_directly(self):
@@ -17120,22 +17140,21 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_stock_opname_submit_updates_stock_and_history(self):
         self.login()
-        _, product_id, variants_rows = self.create_product(variants="SO")
+        _, product_id, variants_rows = self.create_product(qty=9, variants="SO")
         variant_id = variants_rows[0]["id"]
 
         response = self.client.post(
             "/so/submit",
             json={
-                "display_id": 1,
-                "gudang_id": 2,
+                "warehouse_id": 1,
                 "items": [
                     {
                         "product_id": product_id,
                         "variant_id": variant_id,
-                        "display_system": 5,
-                        "display_physical": 3,
-                        "gudang_system": 0,
-                        "gudang_physical": 2,
+                        "display_system": 0,
+                        "display_physical": 1,
+                        "gudang_system": 9,
+                        "gudang_physical": 10,
                     }
                 ],
             },
@@ -17145,27 +17164,44 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
-            display_stock = db.execute(
+            store_stock = db.execute(
                 "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
                 (product_id, variant_id),
             ).fetchone()
-            gudang_stock = db.execute(
-                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=2",
+            display_area = db.execute(
+                """
+                SELECT qty FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='display'
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            gudang_area = db.execute(
+                """
+                SELECT qty FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='gudang'
+                """,
                 (product_id, variant_id),
             ).fetchone()
             so_rows = db.execute(
-                "SELECT COUNT(*) FROM stock_opname_results WHERE product_id=? AND variant_id=?",
+                """
+                SELECT COUNT(*) FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
                 (product_id, variant_id),
             ).fetchone()[0]
             history_rows = db.execute(
-                "SELECT COUNT(*) FROM stock_history WHERE product_id=? AND variant_id=? AND action='STOCK_OPNAME'",
+                """
+                SELECT COUNT(*) FROM stock_history
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND action='STOCK_OPNAME'
+                """,
                 (product_id, variant_id),
             ).fetchone()[0]
 
-        self.assertEqual(display_stock["qty"], 3)
-        self.assertEqual(gudang_stock["qty"], 2)
+        self.assertEqual(store_stock["qty"], 11)
+        self.assertEqual(display_area["qty"], 1)
+        self.assertEqual(gudang_area["qty"], 10)
         self.assertEqual(so_rows, 2)
-        self.assertEqual(history_rows, 2)
+        self.assertEqual(history_rows, 1)
 
     def test_stock_opname_submit_uses_latest_server_stock_and_returns_refresh_payload(self):
         self.login()
@@ -17187,8 +17223,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.post(
             "/so/submit",
             json={
-                "display_id": 1,
-                "gudang_id": 2,
+                "warehouse_id": 1,
                 "page": 1,
                 "q": "",
                 "items": [
@@ -17196,9 +17231,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                         "product_id": product_id,
                         "variant_id": variant_id,
                         "display_system": 5,
-                        "display_physical": 6,
+                        "display_physical": 1,
                         "gudang_system": 0,
-                        "gudang_physical": 0,
+                        "gudang_physical": 6,
                     }
                 ],
             },
@@ -17212,47 +17247,60 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
-            so_row = db.execute(
+            display_row = db.execute(
                 """
                 SELECT system_qty, physical_qty, diff_qty
                 FROM stock_opname_results
-                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='display'
                 ORDER BY id DESC
                 LIMIT 1
                 """,
                 (product_id, variant_id),
             ).fetchone()
-            display_stock = db.execute(
+            gudang_row = db.execute(
+                """
+                SELECT system_qty, physical_qty, diff_qty
+                FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='gudang'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            store_stock = db.execute(
                 "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
                 (product_id, variant_id),
             ).fetchone()
 
-        self.assertIsNotNone(so_row)
-        self.assertEqual(so_row["system_qty"], 8)
-        self.assertEqual(so_row["physical_qty"], 6)
-        self.assertEqual(so_row["diff_qty"], -2)
-        self.assertEqual(display_stock["qty"], 6)
+        self.assertIsNotNone(display_row)
+        self.assertIsNotNone(gudang_row)
+        self.assertEqual(display_row["system_qty"], 0)
+        self.assertEqual(display_row["physical_qty"], 1)
+        self.assertEqual(display_row["diff_qty"], 1)
+        self.assertEqual(gudang_row["system_qty"], 8)
+        self.assertEqual(gudang_row["physical_qty"], 6)
+        self.assertEqual(gudang_row["diff_qty"], -2)
+        self.assertEqual(store_stock["qty"], 7)
 
     def test_stock_opname_submit_returns_success_when_stock_already_synced(self):
         self.login()
-        _, product_id, variants_rows = self.create_product(variants="SOSYNC")
+        _, product_id, variants_rows = self.create_product(qty=5, variants="SOSYNC")
         variant_id = variants_rows[0]["id"]
 
         response = self.client.post(
             "/so/submit",
             json={
-                "display_id": 1,
-                "gudang_id": 2,
+                "warehouse_id": 1,
                 "page": 1,
                 "q": "",
                 "items": [
                     {
                         "product_id": product_id,
                         "variant_id": variant_id,
-                        "display_system": 1,
-                        "display_physical": 5,
-                        "gudang_system": 0,
-                        "gudang_physical": 0,
+                        "display_system": 0,
+                        "display_physical": 0,
+                        "gudang_system": 5,
+                        "gudang_physical": 5,
                     }
                 ],
             },
@@ -17261,27 +17309,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["processed"], 0)
-        self.assertIn("stok sudah sinkron", payload["message"].lower())
+        self.assertIn("stok toko sudah sinkron", payload["message"].lower())
 
     def test_stock_opname_submit_returns_retryable_message_when_database_locked(self):
         self.login()
-        _, product_id, variants_rows = self.create_product(variants="SOLOCK")
+        _, product_id, variants_rows = self.create_product(qty=4, variants="SOLOCK")
         variant_id = variants_rows[0]["id"]
 
-        with patch("routes.stock_opname._apply_so_adjustment", side_effect=sqlite3.OperationalError("database is locked")):
+        with patch("routes.stock_opname._upsert_so_area_balance", side_effect=sqlite3.OperationalError("database is locked")):
             response = self.client.post(
                 "/so/submit",
                 json={
-                    "display_id": 1,
-                    "gudang_id": 2,
+                    "warehouse_id": 1,
                     "items": [
                         {
                             "product_id": product_id,
                             "variant_id": variant_id,
-                            "display_system": 5,
-                            "display_physical": 3,
-                            "gudang_system": 0,
-                            "gudang_physical": 2,
+                            "display_system": 0,
+                            "display_physical": 1,
+                            "gudang_system": 4,
+                            "gudang_physical": 4,
                         }
                     ],
                 },
@@ -17291,6 +17338,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         payload = response.get_json()
         self.assertIn("database sedang sibuk di server", payload["error"])
+
+    def test_stock_opname_submit_for_scoped_user_updates_combined_store_stock(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=9, variants="SOSCOPE")
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.create_user("staff_so_scope", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_so_scope", "pass1234")
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 2,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_system": 0,
+                        "display_physical": 1,
+                        "gudang_system": 9,
+                        "gudang_physical": 10,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["warehouse_id"], 1)
+
+        with self.app.app_context():
+            db = get_db()
+            own_store_stock = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            other_store_stock = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=2",
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(own_store_stock["qty"], 11)
+        self.assertIsNone(other_store_stock)
+
+        stock_response = self.client.get("/stock/")
+        self.assertEqual(stock_response.status_code, 200)
+        stock_html = stock_response.get_data(as_text=True)
+        self.assertIn('data-stock-summary="total_qty">11</h3>', stock_html)
 
     def test_stock_opname_adjustment_allows_null_actor_for_stale_session_mapping(self):
         self.login()
