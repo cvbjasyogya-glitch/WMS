@@ -174,6 +174,55 @@ def clean_string(value: object) -> str | None:
     return raw or None
 
 
+def pick_canonical_product_match(name_matches: list[dict]) -> dict | None:
+    if not name_matches:
+        return None
+    return min(
+        name_matches,
+        key=lambda row: (
+            int(row["id"]),
+            str(row.get("sku") or "").strip().casefold(),
+            str(row.get("name") or "").strip().casefold(),
+        ),
+    )
+
+
+def resolve_existing_import_product_match(
+    product_cache_by_id: dict[int, dict],
+    product_cache_by_sku: dict[str, dict],
+    product_cache_by_name: dict[str, list[dict]],
+    linked_products: dict[str, dict],
+    mapped_product_ids: set[int],
+    sku: str | None,
+    name: str | None,
+) -> tuple[dict | None, str | None, bool]:
+    safe_sku = clean_string(sku)
+    if safe_sku:
+        linked_product = linked_products.get(safe_sku)
+        if linked_product:
+            existing = product_cache_by_id.get(int(linked_product["product_id"]))
+            if existing:
+                return existing, "linked", False
+
+        existing = product_cache_by_sku.get(safe_sku)
+        if existing:
+            return existing, "sku", False
+
+    name_key = normalize_text(name)
+    if not name_key:
+        return None, None, False
+
+    name_candidates = [
+        candidate
+        for candidate in product_cache_by_name.get(name_key, [])
+        if int(candidate["id"]) not in mapped_product_ids
+    ]
+    if not name_candidates:
+        return None, None, False
+
+    return pick_canonical_product_match(name_candidates), "name", len(name_candidates) > 1
+
+
 def to_float(value: object, default: float = 0.0) -> float:
     if value in (None, ""):
         return default
@@ -856,24 +905,19 @@ def import_products(
         brand_value = clean_string(row.get("merek"))
         source_office = clean_string(row.get("dept"))
 
-        existing = None
-        linked_product = linked_products.get(sku)
-        if linked_product:
-            existing = product_cache_by_id.get(int(linked_product["product_id"]))
-        if existing is None:
-            existing = product_cache_by_sku.get(sku)
-        if existing is None:
-            name_key = normalize_text(name)
-            name_candidates = [
-                candidate
-                for candidate in product_cache_by_name.get(name_key, [])
-                if int(candidate["id"]) not in mapped_product_ids
-            ]
-            if len(name_candidates) == 1:
-                existing = name_candidates[0]
-                summary["products_merged_by_name"] += 1
-            elif len(name_candidates) > 1:
-                summary["products_name_conflicts"] += 1
+        existing, match_type, has_multiple_name_matches = resolve_existing_import_product_match(
+            product_cache_by_id,
+            product_cache_by_sku,
+            product_cache_by_name,
+            linked_products,
+            mapped_product_ids,
+            sku,
+            name,
+        )
+        if existing and match_type == "name":
+            summary["products_merged_by_name"] += 1
+        elif has_multiple_name_matches:
+            summary["products_name_conflicts"] += 1
 
         if existing:
             conn.execute(

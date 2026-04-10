@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from flask import Blueprint, request, redirect, jsonify, flash, session, current_app, g
-from database import get_db
+from database import get_db, close_db
 from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_operational_event, notify_roles
 from services.pagination import build_pagination_state
@@ -19,6 +19,8 @@ from services.stock_service import add_stock
 import csv
 from importlib import import_module
 import json
+import sqlite3
+import time
 import uuid
 from io import BytesIO, StringIO
 import xml.etree.ElementTree as ET
@@ -29,6 +31,11 @@ products_bp = Blueprint("products", __name__, url_prefix="/products")
 IMPORT_PROGRESS = {}
 PRODUCT_STUDIO_REDIRECT_PATH = "/stock/"
 PRODUCT_DELETE_BATCH_SIZE = 400
+PRODUCT_DELETE_LOCK_RETRY_ATTEMPTS = 2
+PRODUCT_DELETE_LOCK_RETRY_DELAY_SECONDS = 0.35
+IPOS4_IMPORT_RUNS_TABLE = "ipos_import_runs"
+IPOS4_IMPORT_UNDO_CONFIRMATION = "UNDO IMPORT IPOS4"
+IPOS4_UNDO_BACKUP_DIRNAME = "db_undo_backups"
 IPOS4_IMPORT_UI_MODES = {
     "products_only": {
         "label": "Produk + SKU iPOS",
@@ -211,6 +218,127 @@ def _products_json_error(message, status_code=403, **payload):
     return jsonify(response), status_code
 
 
+def _parse_json_object(raw_value):
+    if isinstance(raw_value, dict):
+        return dict(raw_value)
+
+    try:
+        parsed = json.loads(str(raw_value or "").strip() or "{}")
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_confirmation_text(value):
+    return " ".join(str(value or "").strip().upper().split())
+
+
+def _load_latest_ipos4_import_run(db):
+    try:
+        row = db.execute(
+            f"""
+            SELECT id, source_dump, target_db, mirror_db, started_at, finished_at, summary_json
+            FROM {IPOS4_IMPORT_RUNS_TABLE}
+            WHERE finished_at IS NOT NULL
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return None
+        raise
+    return dict(row) if row else None
+
+
+def _serialize_ipos4_import_run(row):
+    if not row:
+        return None
+
+    summary = _parse_json_object(row.get("summary_json"))
+    if str(summary.get("operation") or "").strip().lower() == "undo_restore":
+        return None
+
+    source_dump = str(row.get("source_dump") or "").strip()
+    target_db = Path(str(row.get("target_db") or "")).expanduser().resolve()
+    backup_dir_value = str(summary.get("backup_dir") or "").strip()
+    backup_dir = Path(backup_dir_value).expanduser().resolve() if backup_dir_value else None
+    backup_file = backup_dir / target_db.name if backup_dir else None
+    undo_available = bool(
+        row.get("finished_at")
+        and backup_dir
+        and backup_dir.exists()
+        and backup_file is not None
+        and backup_file.exists()
+    )
+
+    return {
+        "id": int(row.get("id") or 0),
+        "source_dump": source_dump,
+        "source_dump_name": Path(source_dump).name if source_dump else "",
+        "target_db": str(target_db),
+        "mirror_db": str(row.get("mirror_db") or "").strip(),
+        "started_at": str(row.get("started_at") or "").strip(),
+        "finished_at": str(row.get("finished_at") or "").strip(),
+        "backup_dir": str(backup_dir) if backup_dir else "",
+        "backup_file": str(backup_file) if backup_file else "",
+        "mode": str(summary.get("mode") or "").strip(),
+        "products_created": int(summary.get("products_created") or 0),
+        "products_updated": int(summary.get("products_updated") or 0),
+        "products_merged_by_name": int(summary.get("products_merged_by_name") or 0),
+        "customers_created": int(summary.get("customers_created") or 0),
+        "sales_created": int(summary.get("sales_created") or 0),
+        "sales_items_imported": int(summary.get("sales_items_imported") or 0),
+        "undo_available": undo_available,
+    }
+
+
+def _create_ipos4_undo_safety_backup(target_db_path: Path) -> Path:
+    backup_module = import_module("scripts.backup_sqlite_db")
+    backup_root = target_db_path.parent / IPOS4_UNDO_BACKUP_DIRNAME
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup_path = Path(backup_module.backup_database(target_db_path, backup_root)).expanduser().resolve()
+    if not backup_path.exists():
+        raise FileNotFoundError(f"Backup undo tidak berhasil dibuat: {backup_path}")
+    return backup_path
+
+
+def _restore_sqlite_database_from_snapshot(snapshot_path: Path, target_db_path: Path) -> None:
+    source_conn = sqlite3.connect(
+        f"file:{snapshot_path}?mode=ro",
+        uri=True,
+        timeout=30,
+        check_same_thread=False,
+    )
+    target_conn = sqlite3.connect(
+        str(target_db_path),
+        timeout=30,
+        check_same_thread=False,
+        isolation_level=None,
+    )
+
+    try:
+        target_conn.row_factory = sqlite3.Row
+        target_conn.execute("PRAGMA foreign_keys = OFF")
+        target_conn.execute("PRAGMA busy_timeout = 30000")
+        source_conn.backup(target_conn)
+        target_conn.commit()
+        try:
+            target_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+
+        integrity_rows = target_conn.execute("PRAGMA integrity_check").fetchall()
+        integrity_result = ", ".join(str(row[0]) for row in integrity_rows)
+        if integrity_result.strip().lower() != "ok":
+            raise RuntimeError(f"Integrity check gagal setelah undo import: {integrity_result}")
+    finally:
+        try:
+            target_conn.close()
+        finally:
+            source_conn.close()
+
+
 def _require_product_master_access(json_mode=False):
     if _can_manage_product_master():
         return None
@@ -269,6 +397,18 @@ def _iter_product_id_batches(product_ids, batch_size=PRODUCT_DELETE_BATCH_SIZE):
 
     for index in range(0, len(cleaned_ids), batch_size):
         yield cleaned_ids[index:index + batch_size]
+
+
+def _rollback_product_delete_transaction(db):
+    try:
+        db.rollback()
+    except Exception:
+        pass
+
+
+def _is_sqlite_lock_error(exc):
+    message = str(exc or "").strip().lower()
+    return "locked" in message and "database" in message
 
 
 def _normalize_picker_query(raw_query):
@@ -1111,6 +1251,47 @@ def _delete_product_bundle(db, product_ids):
     return total_deleted
 
 
+def _run_product_delete_batches(db, product_ids, batch_action, *, log_label):
+    total_ids = [int(product_id) for product_id in product_ids or [] if int(product_id or 0)]
+    if not total_ids:
+        return []
+
+    results = []
+    max_retries = PRODUCT_DELETE_LOCK_RETRY_ATTEMPTS
+    retry_delay = PRODUCT_DELETE_LOCK_RETRY_DELAY_SECONDS
+
+    for batch_index, batch_ids in enumerate(_iter_product_id_batches(total_ids), start=1):
+        for attempt in range(max_retries + 1):
+            try:
+                db.execute("BEGIN")
+                results.append(batch_action(batch_ids))
+                db.commit()
+                if len(total_ids) > PRODUCT_DELETE_BATCH_SIZE:
+                    current_app.logger.info(
+                        "%s batch %s committed (%s items)",
+                        log_label,
+                        batch_index,
+                        len(batch_ids),
+                    )
+                break
+            except sqlite3.OperationalError as exc:
+                _rollback_product_delete_transaction(db)
+                if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                    current_app.logger.warning(
+                        "%s hit SQLite lock, retry %s/%s",
+                        log_label,
+                        attempt + 1,
+                        max_retries,
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                raise
+            except Exception:
+                _rollback_product_delete_transaction(db)
+                raise
+    return results
+
+
 @products_bp.route("/get_variants/<int:product_id>")
 def get_variants(product_id):
 
@@ -1272,9 +1453,13 @@ def bulk_delete():
                     "approval_ids": existing_ids,
                 })
 
-            db.execute("BEGIN")
-            approval_ids = _queue_product_delete_requests(db, queue_ids)
-            db.commit()
+            approval_chunks = _run_product_delete_batches(
+                db,
+                queue_ids,
+                lambda batch_ids: _queue_product_delete_requests(db, batch_ids),
+                log_label="bulk-delete approval queue",
+            )
+            approval_ids = [approval_id for chunk in approval_chunks for approval_id in chunk]
             existing_count = len(pending_map)
             total_pending_ids = [pending_map[product_id]["id"] for product_id in ids if product_id in pending_map] + approval_ids
             message = f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin."
@@ -1291,17 +1476,30 @@ def bulk_delete():
                 "approval_ids": total_pending_ids,
             })
 
-        db.execute("BEGIN")
-        deleted_count = _delete_product_bundle(db, ids)
-        db.commit()
+        deleted_batches = _run_product_delete_batches(
+            db,
+            ids,
+            lambda batch_ids: _delete_product_bundle(db, batch_ids),
+            log_label="bulk-delete direct delete",
+        )
+        deleted_count = sum(int(value or 0) for value in deleted_batches)
         return jsonify({
             "status": "success",
             "message": f"{deleted_count} produk berhasil dihapus.",
             "deleted_count": deleted_count,
         })
 
+    except sqlite3.OperationalError as e:
+        _rollback_product_delete_transaction(db)
+        if _is_sqlite_lock_error(e):
+            return _products_json_error(
+                "Database sedang sibuk. Coba ulang hapus produk beberapa detik lagi.",
+                503,
+            )
+        print("BULK DELETE ERROR:", e)
+        return _products_json_error("Gagal menghapus produk.", 500)
     except Exception as e:
-        db.rollback()
+        _rollback_product_delete_transaction(db)
         print("BULK DELETE ERROR:", e)
         return _products_json_error("Gagal menghapus produk.", 500)
 
@@ -1344,9 +1542,13 @@ def delete_all_products():
                     "approval_ids": existing_ids,
                 })
 
-            db.execute("BEGIN")
-            approval_ids = _queue_product_delete_requests(db, queue_ids)
-            db.commit()
+            approval_chunks = _run_product_delete_batches(
+                db,
+                queue_ids,
+                lambda batch_ids: _queue_product_delete_requests(db, batch_ids),
+                log_label="delete-all approval queue",
+            )
+            approval_ids = [approval_id for chunk in approval_chunks for approval_id in chunk]
             existing_count = len(pending_map)
             total_pending_ids = [pending_map[product_id]["id"] for product_id in ids if product_id in pending_map] + approval_ids
             message = f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin."
@@ -1363,17 +1565,30 @@ def delete_all_products():
                 "approval_ids": total_pending_ids,
             })
 
-        db.execute("BEGIN")
-        deleted_count = _delete_product_bundle(db, ids)
-        db.commit()
+        deleted_batches = _run_product_delete_batches(
+            db,
+            ids,
+            lambda batch_ids: _delete_product_bundle(db, batch_ids),
+            log_label="delete-all direct delete",
+        )
+        deleted_count = sum(int(value or 0) for value in deleted_batches)
         return jsonify({
             "status": "success",
             "message": f"{deleted_count} produk berhasil dihapus.",
             "deleted_count": deleted_count,
         })
 
+    except sqlite3.OperationalError as e:
+        _rollback_product_delete_transaction(db)
+        if _is_sqlite_lock_error(e):
+            return _products_json_error(
+                "Database sedang sibuk. Coba ulang hapus semua produk beberapa detik lagi.",
+                503,
+            )
+        print("DELETE ALL PRODUCTS ERROR:", e)
+        return _products_json_error("Gagal menghapus semua produk.", 500)
     except Exception as e:
-        db.rollback()
+        _rollback_product_delete_transaction(db)
         print("DELETE ALL PRODUCTS ERROR:", e)
         return _products_json_error("Gagal menghapus semua produk.", 500)
 
@@ -1478,6 +1693,106 @@ def import_ipos4_products():
             "selected_mode": selected_mode,
             "selected_mode_label": mode_config["label"],
             "summary": summary,
+        }
+    )
+
+
+@products_bp.route("/import/ipos4/latest", methods=["GET"])
+def latest_ipos4_import_run():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
+
+    db = get_db()
+    latest_run = _serialize_ipos4_import_run(_load_latest_ipos4_import_run(db))
+    return jsonify({"status": "success", "import_run": latest_run})
+
+
+@products_bp.route("/import/ipos4/undo", methods=["POST"])
+def undo_latest_ipos4_import():
+    denied = _require_product_master_access(json_mode=True)
+    if denied:
+        return denied
+
+    payload = request.get_json(silent=True) or {}
+    confirmation_text = _normalize_confirmation_text(payload.get("confirmation_text"))
+    if confirmation_text != IPOS4_IMPORT_UNDO_CONFIRMATION:
+        return _products_json_error(
+            f"Ketik {IPOS4_IMPORT_UNDO_CONFIRMATION} untuk mengembalikan database ke kondisi sebelum import iPOS4 terakhir.",
+            400,
+        )
+
+    try:
+        requested_run_id = int(payload.get("import_run_id") or 0)
+    except (TypeError, ValueError):
+        requested_run_id = 0
+
+    db = get_db()
+    latest_row = _load_latest_ipos4_import_run(db)
+    latest_run = _serialize_ipos4_import_run(latest_row)
+    if not latest_run:
+        return _products_json_error("Belum ada import iPOS4 yang bisa di-undo.", 404)
+
+    if requested_run_id and requested_run_id != latest_run["id"]:
+        return _products_json_error(
+            "Import iPOS4 terbaru sudah berubah. Muat ulang halaman lalu coba undo lagi.",
+            409,
+        )
+
+    current_target_db = Path(current_app.config["DATABASE"]).expanduser().resolve()
+    if Path(latest_run["target_db"]).resolve() != current_target_db:
+        return _products_json_error(
+            "Backup import iPOS4 terakhir mengarah ke database yang berbeda dari database aktif server ini.",
+            409,
+        )
+
+    if not latest_run["undo_available"]:
+        return _products_json_error(
+            "Backup sebelum import iPOS4 terakhir tidak ditemukan, jadi undo belum bisa dijalankan.",
+            404,
+        )
+
+    snapshot_path = Path(latest_run["backup_file"]).expanduser().resolve()
+    if not snapshot_path.exists():
+        return _products_json_error(
+            "File backup sebelum import iPOS4 terakhir tidak ditemukan di server.",
+            404,
+        )
+
+    try:
+        close_db()
+        undo_backup_path = _create_ipos4_undo_safety_backup(current_target_db)
+        _restore_sqlite_database_from_snapshot(snapshot_path, current_target_db)
+    except sqlite3.OperationalError as exc:
+        current_app.logger.exception("Undo iPOS4 import failed due to SQLite error")
+        if "locked" in str(exc).lower():
+            return _products_json_error(
+                "Database sedang sibuk. Coba ulang undo import saat trafik server lebih sepi.",
+                503,
+            )
+        return _products_json_error("Undo import iPOS4 gagal dijalankan.", 500)
+    except Exception as exc:
+        current_app.logger.exception("Undo iPOS4 import failed")
+        return _products_json_error(
+            f"Undo import iPOS4 gagal: {str(exc).strip() or exc.__class__.__name__}",
+            500,
+        )
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": (
+                "Database ERP dikembalikan ke kondisi sebelum import iPOS4 terakhir. "
+                "Perubahan setelah import tersebut ikut dibatalkan."
+            ),
+            "restored_import": {
+                "id": latest_run["id"],
+                "source_dump_name": latest_run["source_dump_name"],
+                "finished_at": latest_run["finished_at"],
+                "backup_dir": latest_run["backup_dir"],
+            },
+            "undo_backup_path": str(undo_backup_path),
+            "note": "Mirror iPOS4 tidak ikut di-restore. Jika perlu, perbarui lagi saat import berikutnya.",
         }
     )
 

@@ -89,6 +89,7 @@
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
         <button type="button" class="ghost-button" onclick="previewImport()">Preview File</button>
         <button type="button" onclick="submitImport()">Mulai Import</button>
+        <button type="button" class="ghost-button danger" id="classicIpos4UndoButton" onclick="undoLatestIpos4ImportFromProducts()" hidden>Undo Import iPOS4 Terakhir</button>
     </div>
 
     <small class="helper-text">
@@ -96,6 +97,7 @@
         Kolom opsional: <span class="mono">color, variant_code, gtin</span>.
         File <span class="mono">.csv</span> dengan pemisah koma atau titik koma tetap bisa dibaca. Untuk file Excel, angka seperti <span class="mono">1.0</span> akan dibaca otomatis sebagai qty/gudang yang valid.
     </small>
+    <small id="classicIpos4UndoHint" class="helper-text" hidden></small>
 
     <div id="previewBox"></div>
 
@@ -640,6 +642,123 @@ function setImportBusy(isBusy) {
     });
 }
 
+let latestIpos4UndoImportClassic = null;
+const IPOS4_IMPORT_UNDO_CONFIRMATION = "UNDO IMPORT IPOS4";
+
+function renderLatestIpos4UndoClassic(importRun) {
+    const hint = document.getElementById("classicIpos4UndoHint");
+    const button = document.getElementById("classicIpos4UndoButton");
+    if (!hint || !button) {
+        return;
+    }
+
+    latestIpos4UndoImportClassic = importRun && typeof importRun === "object" ? importRun : null;
+    if (!latestIpos4UndoImportClassic) {
+        hint.hidden = true;
+        hint.textContent = "";
+        button.hidden = true;
+        button.disabled = true;
+        return;
+    }
+
+    const details = [
+        latestIpos4UndoImportClassic.source_dump_name || latestIpos4UndoImportClassic.source_dump || "Import iPOS4 terakhir",
+        latestIpos4UndoImportClassic.finished_at || "waktu tidak diketahui"
+    ].filter(Boolean).join(" | ");
+
+    hint.hidden = false;
+    hint.textContent = latestIpos4UndoImportClassic.undo_available
+        ? `Undo iPOS4 siap dipakai untuk: ${details}. Semua perubahan setelah import tersebut ikut hilang.`
+        : `Import iPOS4 terakhir terdeteksi (${details}), tapi backup sebelum import tidak ditemukan jadi undo belum bisa dijalankan.`;
+    button.hidden = !latestIpos4UndoImportClassic.undo_available;
+    button.disabled = !latestIpos4UndoImportClassic.undo_available;
+}
+
+async function loadLatestIpos4UndoClassic() {
+    try {
+        const response = await fetch("/products/import/ipos4/latest", {
+            headers: {
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
+            }
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== "success") {
+            renderLatestIpos4UndoClassic(null);
+            return null;
+        }
+        renderLatestIpos4UndoClassic(payload.import_run || null);
+        return payload.import_run || null;
+    } catch (error) {
+        renderLatestIpos4UndoClassic(null);
+        return null;
+    }
+}
+
+async function undoLatestIpos4ImportFromProducts() {
+    const latestImport = latestIpos4UndoImportClassic?.undo_available
+        ? latestIpos4UndoImportClassic
+        : await loadLatestIpos4UndoClassic();
+    if (!latestImport || !latestImport.undo_available) {
+        alert("Belum ada import iPOS4 terakhir yang bisa di-undo dari halaman ini.");
+        return;
+    }
+
+    const confirmationText = window.prompt(
+        `Undo akan mengembalikan database ke kondisi sebelum import ${latestImport.source_dump_name || "iPOS4 terakhir"} pada ${latestImport.finished_at || "-"}. Semua perubahan setelah import itu ikut hilang. Ketik ${IPOS4_IMPORT_UNDO_CONFIRMATION} untuk melanjutkan.`
+    );
+    if (confirmationText === null) {
+        return;
+    }
+
+    if (String(confirmationText || "").trim().toUpperCase().replace(/\s+/g, " ") !== IPOS4_IMPORT_UNDO_CONFIRMATION) {
+        alert("Konfirmasi undo tidak cocok. Database tidak jadi dipulihkan.");
+        return;
+    }
+
+    renderStatus("importStatus", "Undo import iPOS4 sedang dijalankan. Mohon tunggu sampai selesai.", "success");
+    setImportBusy(true);
+    try {
+        const response = await fetch("/products/import/ipos4/undo", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            body: JSON.stringify({
+                import_run_id: latestImport.id,
+                confirmation_text: confirmationText
+            })
+        });
+        const rawText = await response.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        if (!response.ok || data.status !== "success") {
+            const fallbackMessage = rawText
+                ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
+                : "";
+            renderStatus("importStatus", data.message || fallbackMessage || "Undo import iPOS4 gagal dijalankan.", "error");
+            return;
+        }
+
+        renderStatus("importStatus", data.message || "Undo import iPOS4 selesai.", "success");
+        notifyUser(data.message || "Undo import iPOS4 selesai.");
+        window.setTimeout(() => {
+            window.location.reload();
+        }, 450);
+    } catch (error) {
+        renderStatus("importStatus", "Terjadi error saat menjalankan undo import iPOS4.", "error");
+    } finally {
+        setImportBusy(false);
+    }
+}
+
 function bulkDelete() {
     const ids = Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => cb.value);
     if (ids.length === 0) {
@@ -675,24 +794,42 @@ function deleteAllProducts() {
         return;
     }
 
-    if (confirmationText.trim().toUpperCase() !== "HAPUS SEMUA PRODUK") {
+    const normalizedConfirmation = String(confirmationText || "").trim().toUpperCase().replace(/\s+/g, " ");
+    if (normalizedConfirmation !== "HAPUS SEMUA PRODUK") {
         alert("Konfirmasi tidak cocok. Penghapusan semua produk dibatalkan.");
         return;
     }
 
     fetch("/products/delete-all", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
         body: JSON.stringify({ confirmation_text: confirmationText })
     })
-    .then((res) => res.json())
-    .then(async (data) => {
-        if (data.status === "success") {
-            notifyUser(data.message || "Semua produk berhasil diproses untuk dihapus.");
+    .then(async (res) => {
+        const rawText = await res.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        if (res.ok && data.status === "success") {
+            if (data.approval_status === "pending") {
+                alert(data.message || "Permintaan hapus produk sudah dikirim dan menunggu approval.");
+            } else {
+                notifyUser(data.message || "Semua produk berhasil diproses untuk dihapus.");
+            }
             await refreshProductsView();
             return;
         }
-        alert(data.message || "Gagal menghapus semua produk.");
+        const fallbackMessage = rawText
+            ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
+            : "";
+        alert(data.message || fallbackMessage || "Gagal menghapus semua produk.");
     })
     .catch(() => alert("Terjadi error saat menghapus semua produk."));
 }
@@ -830,6 +967,7 @@ async function submitImport() {
     }
 }
 
+loadLatestIpos4UndoClassic();
 bindCheckAllControl();
 
 if (variantRowsBody && !variantRowsBody.children.length) {

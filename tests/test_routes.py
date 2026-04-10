@@ -13534,6 +13534,154 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertIn("izin menulis file kerja import", payload["message"])
 
+    def test_latest_ipos4_import_run_returns_undo_metadata(self):
+        self.login()
+
+        backup_dir = os.path.join(self.ipos4_runtime_root, "db_import_backups", "ipos-run-latest")
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_target = os.path.join(backup_dir, os.path.basename(self.db_path))
+
+        source_conn = sqlite3.connect(self.db_path)
+        backup_conn = sqlite3.connect(backup_target)
+        try:
+            source_conn.backup(backup_conn)
+            backup_conn.commit()
+        finally:
+            backup_conn.close()
+            source_conn.close()
+
+        with self.app.app_context():
+            db = get_db()
+            import_module_ref = importlib.import_module("scripts.import_ipos4_dump")
+            import_module_ref.ensure_import_tables(db)
+            db.execute(
+                """
+                INSERT INTO ipos_import_runs(source_dump, target_db, mirror_db, started_at, finished_at, summary_json)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    "/tmp/Backup Mega 10-04-2026.i4bu",
+                    self.db_path,
+                    os.path.join(self.ipos4_runtime_root, "ipos4_mirror.db"),
+                    "2026-04-10 23:10:00",
+                    "2026-04-10 23:28:00",
+                    json.dumps(
+                        {
+                            "backup_dir": backup_dir,
+                            "mode": "full_except_stock",
+                            "products_created": 12,
+                            "products_updated": 8,
+                            "products_merged_by_name": 5,
+                            "sales_created": 44,
+                        },
+                        ensure_ascii=True,
+                        sort_keys=True,
+                    ),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/products/import/ipos4/latest", follow_redirects=False)
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertIsNotNone(payload["import_run"])
+        self.assertEqual(payload["import_run"]["source_dump_name"], "Backup Mega 10-04-2026.i4bu")
+        self.assertEqual(payload["import_run"]["mode"], "full_except_stock")
+        self.assertTrue(payload["import_run"]["undo_available"])
+        self.assertEqual(payload["import_run"]["products_created"], 12)
+
+    def test_undo_latest_ipos4_import_restores_database_snapshot(self):
+        self.login()
+        keep_response, keep_product_id, _ = self.create_product(
+            sku="UNDO-KEEP-001",
+            qty=3,
+            variants="KA",
+            name="Produk Sebelum Import",
+        )
+        self.assertEqual(keep_response.status_code, 302)
+
+        backup_dir = os.path.join(self.ipos4_runtime_root, "db_import_backups", "ipos-run-undo")
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_target = os.path.join(backup_dir, os.path.basename(self.db_path))
+
+        source_conn = sqlite3.connect(self.db_path)
+        backup_conn = sqlite3.connect(backup_target)
+        try:
+            source_conn.backup(backup_conn)
+            backup_conn.commit()
+        finally:
+            backup_conn.close()
+            source_conn.close()
+
+        imported_response, imported_product_id, _ = self.create_product(
+            sku="UNDO-IMPORT-001",
+            qty=7,
+            variants="IA",
+            name="Produk Hasil Import",
+        )
+        self.assertEqual(imported_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            import_module_ref = importlib.import_module("scripts.import_ipos4_dump")
+            import_module_ref.ensure_import_tables(db)
+            db.execute(
+                """
+                INSERT INTO ipos_import_runs(source_dump, target_db, mirror_db, started_at, finished_at, summary_json)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    "/tmp/Backup Undo 10-04-2026.i4bu",
+                    self.db_path,
+                    os.path.join(self.ipos4_runtime_root, "ipos4_mirror.db"),
+                    "2026-04-10 23:15:00",
+                    "2026-04-10 23:25:00",
+                    json.dumps(
+                        {
+                            "backup_dir": backup_dir,
+                            "mode": "products_only",
+                            "products_created": 1,
+                            "products_updated": 0,
+                        },
+                        ensure_ascii=True,
+                        sort_keys=True,
+                    ),
+                ),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/products/import/ipos4/undo",
+            json={"confirmation_text": "UNDO IMPORT IPOS4"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertIn("dikembalikan ke kondisi sebelum import", payload["message"])
+        self.assertTrue(str(payload.get("undo_backup_path") or "").endswith(".db"))
+
+        with self.app.app_context():
+            db = get_db()
+            keep_row = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("UNDO-KEEP-001",),
+            ).fetchone()
+            imported_row = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("UNDO-IMPORT-001",),
+            ).fetchone()
+            keep_stock = db.execute(
+                "SELECT COUNT(*) FROM stock WHERE product_id=?",
+                (keep_product_id,),
+            ).fetchone()[0]
+
+        self.assertIsNotNone(keep_row)
+        self.assertEqual(keep_row["id"], keep_product_id)
+        self.assertIsNone(imported_row)
+        self.assertEqual(keep_stock, 1)
+
     def test_leader_can_process_bulk_inbound_directly(self):
         self.create_user("leader_inbound", "pass1234", "leader", warehouse_id=1)
         self.login()
@@ -14538,6 +14686,56 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(product_count, 2)
         self.assertEqual(approval_count, 2)
+
+    def test_delete_all_products_removes_large_dataset_in_batches_for_direct_role(self):
+        self.create_user("leader_delete_all_large", "pass1234", "leader", warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            for index in range(0, 405):
+                sku = f"DEL-ALL-LARGE-{index:03d}"
+                product_id = db.execute(
+                    """
+                    INSERT INTO products(sku, name, category_id, unit_label, variant_mode)
+                    VALUES (?,?,?,?,?)
+                    """,
+                    (sku, f"Produk Besar {index}", None, "pcs", "non_variant"),
+                ).lastrowid
+                variant_id = db.execute(
+                    """
+                    INSERT INTO product_variants(product_id, variant, price_retail, price_discount, price_nett, variant_code, color, gtin, no_gtin)
+                    VALUES (?,?,?,?,?,'','','',1)
+                    """,
+                    (product_id, "default", 0, 0, 0),
+                ).lastrowid
+                db.execute(
+                    """
+                    INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
+                    VALUES (?,?,?,?)
+                    """,
+                    (product_id, variant_id, 1, 1),
+                )
+            db.commit()
+
+        self.login("leader_delete_all_large", "pass1234")
+        response = self.client.post(
+            "/products/delete-all",
+            json={"confirmation_text": "HAPUS   SEMUA   PRODUK"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["deleted_count"], 405)
+
+        with self.app.app_context():
+            db = get_db()
+            remaining_count = db.execute(
+                "SELECT COUNT(*) FROM products WHERE sku LIKE 'DEL-ALL-LARGE-%'"
+            ).fetchone()[0]
+
+        self.assertEqual(remaining_count, 0)
 
     def test_owner_can_update_owner_request_status_and_notify_requester(self):
         self.create_user("owner_manager", "pass1234", "owner")
