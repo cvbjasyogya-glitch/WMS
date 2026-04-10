@@ -303,7 +303,25 @@ def _create_ipos4_undo_safety_backup(target_db_path: Path) -> Path:
     return backup_path
 
 
+def _sqlite_sidecar_paths(database_path: Path) -> list[Path]:
+    base_path = Path(database_path).expanduser().resolve()
+    return [
+        base_path.with_name(f"{base_path.name}-wal"),
+        base_path.with_name(f"{base_path.name}-shm"),
+    ]
+
+
+def _remove_sqlite_sidecars(database_path: Path) -> None:
+    for sidecar_path in _sqlite_sidecar_paths(database_path):
+        try:
+            sidecar_path.unlink(missing_ok=True)
+        except FileNotFoundError:
+            continue
+
+
 def _restore_sqlite_database_from_snapshot(snapshot_path: Path, target_db_path: Path) -> None:
+    _remove_sqlite_sidecars(target_db_path)
+
     source_conn = sqlite3.connect(
         f"file:{snapshot_path}?mode=ro",
         uri=True,
