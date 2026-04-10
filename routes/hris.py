@@ -7912,6 +7912,12 @@ def delete_biometric_overtime_usage(usage_id):
         "note": usage["note"] or "",
     }
 
+    summary_note = (
+        f"Batalkan {_format_duration_minutes_label(usage['minutes_used'])} pada {usage['usage_date']}"
+    )
+    if usage["note"]:
+        summary_note += f" | {usage['note']}"
+
     try:
         queue_result = queue_attendance_request(
             db,
@@ -7920,10 +7926,7 @@ def delete_biometric_overtime_usage(usage_id):
             employee_id=usage["employee_id"],
             requested_by=session.get("user_id"),
             summary_title=f"{usage['full_name']} - Pembatalan Lembur",
-            summary_note=(
-                f"Batalkan {_format_duration_minutes_label(usage['minutes_used'])} pada {usage['usage_date']}"
-                f"{f' | {usage['note']}' if usage['note'] else ''}"
-            ),
+            summary_note=summary_note,
             payload=payload,
         )
         db.commit()
