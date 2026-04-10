@@ -774,25 +774,25 @@ def remember_product_cache_entry(
 ) -> dict:
     cached_row = dict(row)
     product_id = int(cached_row["id"])
+    previous_row = product_cache_by_id.get(product_id) or {}
+    previous_sku_key = clean_string(previous_row.get("sku"))
+    if previous_sku_key:
+        current_row = product_cache_by_sku.get(previous_sku_key)
+        if current_row and int(current_row["id"]) == product_id:
+            product_cache_by_sku.pop(previous_sku_key, None)
 
-    stale_skus = [
-        sku_key
-        for sku_key, current_row in product_cache_by_sku.items()
-        if int(current_row["id"]) == product_id
-    ]
-    for sku_key in stale_skus:
-        product_cache_by_sku.pop(sku_key, None)
-
-    for name_key in list(product_cache_by_name.keys()):
+    previous_name_key = normalize_text(previous_row.get("name"))
+    if previous_name_key:
+        previous_rows = product_cache_by_name.get(previous_name_key, [])
         filtered_rows = [
             current_row
-            for current_row in product_cache_by_name[name_key]
+            for current_row in previous_rows
             if int(current_row["id"]) != product_id
         ]
         if filtered_rows:
-            product_cache_by_name[name_key] = filtered_rows
+            product_cache_by_name[previous_name_key] = filtered_rows
         else:
-            product_cache_by_name.pop(name_key, None)
+            product_cache_by_name.pop(previous_name_key, None)
 
     product_cache_by_id[product_id] = cached_row
     sku_key = clean_string(cached_row.get("sku"))
@@ -900,16 +900,16 @@ def import_products(
             product_id = int(cursor.lastrowid)
             summary["products_created"] += 1
 
-        current_product_row = remember_product_cache_entry(
+        remember_product_cache_entry(
             product_cache_by_id,
             product_cache_by_sku,
             product_cache_by_name,
             {
-            "id": product_id,
-            "sku": (existing or {}).get("sku") if existing else sku,
-            "name": name,
-            "category_id": category_id,
-            "unit_label": unit_label,
+                "id": product_id,
+                "sku": (existing or {}).get("sku") if existing else sku,
+                "name": name,
+                "category_id": category_id,
+                "unit_label": unit_label,
             },
         )
 

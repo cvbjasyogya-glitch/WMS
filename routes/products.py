@@ -136,6 +136,11 @@ def _format_ipos4_import_error(exc: BaseException) -> str:
             "Import iPOS4 gagal: server tidak punya izin menulis file kerja import. "
             "Cek permission folder instance/runtime di VPS."
         )
+    if isinstance(exc, SystemExit) and str(getattr(exc, "code", "")).strip() == "1":
+        return (
+            "Import iPOS4 gagal: proses dihentikan worker server saat import berjalan. "
+            "Biasanya ini karena timeout di Gunicorn/Nginx atau import dump terlalu berat untuk request web biasa."
+        )
 
     message = str(exc).strip()
     return f"Import iPOS4 gagal: {message or exc.__class__.__name__}"
