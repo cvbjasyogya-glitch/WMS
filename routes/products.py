@@ -1404,6 +1404,8 @@ def import_ipos4_products():
             sync_sku_only=mode_config["sync_sku_only"],
         )
         summary = import_module_ref.run_import(args)
+    except SystemExit as exc:
+        return _products_json_error(f"Import iPOS4 gagal: {exc}", 500)
     except Exception as exc:
         return _products_json_error(f"Import iPOS4 gagal: {exc}", 500)
     finally:

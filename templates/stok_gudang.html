@@ -2366,11 +2366,20 @@ async function submitIpos4Import(event) {
             },
             body: formData
         });
-        const data = await response.json().catch(() => ({}));
+        const rawText = await response.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (parseError) {
+            data = {};
+        }
 
         if (!response.ok || data.status !== "success") {
             finishIpos4ImportProgress(false);
-            renderProductStudioStatus("ipos4ImportStatus", data.message || "Import iPOS4 gagal dijalankan.", "error");
+            const fallbackMessage = rawText
+                ? `Import iPOS4 gagal (${response.status}). ${rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)}`
+                : `Import iPOS4 gagal (${response.status}).`;
+            renderProductStudioStatus("ipos4ImportStatus", data.message || fallbackMessage || "Import iPOS4 gagal dijalankan.", "error");
             return false;
         }
 

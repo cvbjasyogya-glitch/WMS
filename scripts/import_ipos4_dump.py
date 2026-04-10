@@ -19,10 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
 try:
     import pgdumplib
     import pgdumplib.dump as pgdump_dump
+    PGDUMPLIB_IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover
-    raise SystemExit(
-        "pgdumplib belum tersedia. Jalankan `py -m pip install -r requirements.txt` terlebih dahulu."
-    ) from exc
+    pgdumplib = None
+    pgdump_dump = None
+    PGDUMPLIB_IMPORT_ERROR = exc
 
 from werkzeug.security import generate_password_hash
 
@@ -235,6 +236,10 @@ class WorkspaceTempDir:
 
 class IposDumpReader:
     def __init__(self, path: Path) -> None:
+        if PGDUMPLIB_IMPORT_ERROR is not None:
+            raise RuntimeError(
+                "pgdumplib belum tersedia. Jalankan `pip install -r requirements.txt` terlebih dahulu."
+            ) from PGDUMPLIB_IMPORT_ERROR
         self.path = path.resolve()
         self._patch_runtime()
         self.dump = pgdumplib.load(self.path)
