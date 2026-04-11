@@ -24,6 +24,7 @@ from services.event_notification_policy import (
 from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
+from routes.pos import _format_pos_time_label
 from routes.chat import _format_timestamp_label
 from routes.schedule import (
     LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
@@ -1353,6 +1354,163 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn(">Omzet<", leader_html)
         self.assertNotIn("Rata-rata Ticket", leader_html)
 
+    def test_pos_time_label_uses_indonesia_offset(self):
+        self.assertEqual(_format_pos_time_label("2026-04-11 02:01:00"), "09:01")
+        self.assertEqual(_format_pos_time_label("2026-04-11T02:01:00Z"), "09:01")
+
+    def test_super_admin_can_update_processed_pos_payment_method(self):
+        self.create_user("staff_payment_edit", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_payment_edit")
+        self.login_pos_user("super_pos_payment_edit", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-PAYMENT-EDIT-001",
+            qty=4,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={"ok": False, "provider": "kirimi", "receiver": "", "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-11",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Edit Payment",
+                    "customer_phone": "628120007777",
+                    "payment_method": "cash",
+                    "paid_amount": 150000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+
+        update = self.client.post(
+            f"/kasir/sale/{payload['sale_id']}/payment-method",
+            json={"payment_method": "debit", "return_url": "/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(update.status_code, 200)
+        update_payload = update.get_json()
+        self.assertEqual(update_payload["status"], "success")
+        self.assertEqual(update_payload["payment_method"], "debit")
+        self.assertEqual(update_payload["payment_method_label"], "DEBIT")
+        self.assertFalse(update_payload["had_cash_closing_report"])
+
+        with self.app.app_context():
+            db = get_db()
+            pos_sale = db.execute(
+                "SELECT payment_method FROM pos_sales WHERE id=?",
+                (payload["sale_id"],),
+            ).fetchone()
+
+        self.assertEqual(pos_sale["payment_method"], "debit")
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn(f'/kasir/sale/{payload["sale_id"]}/payment-method', log_html)
+        self.assertIn("Update Metode", log_html)
+        self.assertIn("DEBIT", log_html)
+
+    def test_pos_payment_method_update_warns_when_cash_closing_report_exists(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-POS-PAYMENT-WARN",
+            full_name="Kasir Payment Warn",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("staff_payment_warn", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        selected_cashier_user_id = self.get_user_id("staff_payment_warn")
+        self.login_pos_user("super_pos_payment_warn", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-PAYMENT-WARN-001",
+            qty=4,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={"ok": False, "provider": "kirimi", "receiver": "", "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-11",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Payment Warning",
+                    "customer_phone": "628120008888",
+                    "payment_method": "cash",
+                    "paid_amount": 175000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 175000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO cash_closing_reports(
+                    user_id, employee_id, warehouse_id, closing_date, cash_amount, reported_total_amount, cash_on_hand_amount, combined_total_amount, summary_message
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    selected_cashier_user_id,
+                    employee_id,
+                    1,
+                    "2026-04-11",
+                    175000,
+                    175000,
+                    175000,
+                    175000,
+                    "Ringkasan lama",
+                ),
+            )
+            db.commit()
+
+        update = self.client.post(
+            f"/kasir/sale/{payload['sale_id']}/payment-method",
+            json={"payment_method": "qris"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(update.status_code, 200)
+        update_payload = update.get_json()
+        self.assertEqual(update_payload["status"], "success")
+        self.assertTrue(update_payload["had_cash_closing_report"])
+        self.assertIn("tutup kasir", update_payload["message"].lower())
+
     def test_pos_sales_log_supports_quick_filter_for_failed_whatsapp_transactions(self):
         self.create_user("staff_sales_log_filter", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_log_filter")
@@ -2128,6 +2286,84 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(pdf_response.data.startswith(b"%PDF-1."))
         pdf_response.close()
 
+    def test_imported_ipos_sales_show_source_sales_name_when_user_mapping_is_missing(self):
+        self.login_pos_user("pos_imported_ipos_super", "super_admin")
+        receipt_no = "IPOS-45912-KSR-MTR-0426"
+
+        with self.app.app_context():
+            db = get_db()
+            customer_id = db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'UMUM', '', 'walk_in')
+                """
+            ).lastrowid
+            purchase_id = db.execute(
+                """
+                INSERT INTO crm_purchase_records(
+                    customer_id, member_id, warehouse_id, purchase_date, invoice_no, channel,
+                    transaction_type, items_count, total_amount, note, handled_by, created_at, updated_at
+                )
+                VALUES (?,?,?,?,?,'store','purchase',?,?,?,NULL,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                """,
+                (
+                    customer_id,
+                    None,
+                    1,
+                    "2026-04-09 10:19:05",
+                    "45912/KSR/MTR/0426",
+                    1,
+                    80000,
+                    "Imported from iPOS4: 45912/KSR/MTR/0426 | source_type=KSR | source_sales=AFIF | source_cashier=YUNI",
+                ),
+            ).lastrowid
+            db.execute(
+                """
+                INSERT INTO pos_sales(
+                    purchase_id, customer_id, warehouse_id, cashier_user_id, sale_date, receipt_no,
+                    source_cashier_name, source_sales_name, payment_method, total_items, subtotal_amount,
+                    discount_type, discount_value, discount_amount, tax_type, tax_value, tax_amount,
+                    total_amount, paid_amount, change_amount, status, note, created_at, updated_at
+                )
+                VALUES (
+                    ?, ?, ?, NULL, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    'amount', 0, 0, 'amount', 0, 0,
+                    ?, ?, ?, 'posted', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """,
+                (
+                    purchase_id,
+                    customer_id,
+                    1,
+                    "2026-04-09",
+                    receipt_no,
+                    "YUNI",
+                    "AFIF",
+                    "debit",
+                    1,
+                    80000,
+                    80000,
+                    80000,
+                    0,
+                    "Imported from iPOS4: 45912/KSR/MTR/0426 | source_type=KSR | source_sales=AFIF | source_cashier=YUNI",
+                ),
+            )
+            db.commit()
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-09&date_to=2026-04-09&search=45912")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn(receipt_no, log_html)
+        self.assertIn("AFIF", log_html)
+        self.assertNotIn("Tanpa Staff", log_html)
+
+        print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+        self.assertIn("AFIF", print_html)
+        self.assertIn(receipt_no, print_html)
+
     def test_pos_checkout_generates_public_receipt_pdf_and_logs_failed_whatsapp_without_blocking_sale(self):
         self.create_user("staff_sales_kirimi", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_kirimi")
@@ -2473,7 +2709,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         thermal_response = self.client.get(payload["receipt_print_url"])
         self.assertEqual(thermal_response.status_code, 200)
         thermal_html = thermal_response.get_data(as_text=True)
-        self.assertIn('class="thermal-layout"', thermal_html)
+        self.assertIn("thermal-layout", thermal_html)
         self.assertIn("Copy Customer", thermal_html)
         self.assertIn("Cetak Nota", thermal_html)
         self.assertIn("Grand Total", thermal_html)
@@ -2485,6 +2721,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("window.close()", thermal_html)
         self.assertIn("--thermal-printable-width: 72mm", thermal_html)
         self.assertIn("https://instagram.com/mataramsports", thermal_html)
+        self.assertIn('const receiptPerformanceMode = "auto"', thermal_html)
+        self.assertIn("data-thermal-qr-src=", thermal_html)
+        self.assertNotIn('<img src="https://api.qrserver.com', thermal_html)
 
         store_response = self.client.get(
             f"/kasir/receipt/{payload['receipt_no']}/print?layout=thermal&copy=store&autoprint=1&autoclose=1"
@@ -2492,9 +2731,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(store_response.status_code, 200)
         store_html = store_response.get_data(as_text=True)
         self.assertIn("Copy Toko", store_html)
+        self.assertIn("thermal-store-badge", store_html)
+        self.assertIn("thermal-summary-grid", store_html)
         self.assertNotIn("Social Media Kami di:", store_html)
         self.assertNotIn("Terimakasih atas kunjungan anda", store_html)
         self.assertNotIn("https://instagram.com/mataramsports", store_html)
+        self.assertNotIn("Arsip kasir", store_html)
 
     def test_pos_checkout_receipt_whatsapp_passes_sale_warehouse_to_sender(self):
         self.create_user("staff_sales_mega_receipt", "pass1234", "staff", warehouse_id=2)
@@ -2881,6 +3123,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
         self.assertIn("receipt-paper", inspected_html["payload"])
+        self.assertIn("pdf-mode", inspected_html["payload"])
+        self.assertIn('const receiptPerformanceMode = "full"', inspected_html["payload"])
         self.assertIn("POS-HTML-20260409-0001", inspected_html["payload"])
         self.assertIn("Antonio", inspected_html["payload"])
         self.assertIn("Kasir / Sales", inspected_html["payload"])
@@ -10634,9 +10878,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """
                 INSERT INTO biometric_logs(
                     employee_id, warehouse_id, device_name, device_user_id, punch_time, punch_type, sync_status,
-                    location_label, latitude, longitude, accuracy_m, note, shift_code, shift_label
+                    location_label, latitude, longitude, accuracy_m, note, shift_code, shift_label, photo_path
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     employee_id,
@@ -10653,6 +10897,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "Attendance portal check in",
                     "pagi",
                     "Shift Pagi | 08.00 - 16.00",
+                    "geotag_portal_history_checkin.jpg",
                 ),
             )
             db.execute(
@@ -10691,6 +10936,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Perbaiki Log Terakhir", html)
         self.assertIn("2026-03-30", html)
         self.assertIn("17:05", html)
+        self.assertIn("Lihat Foto Geotag", html)
+        self.assertIn("/static/test-geotag/geotag_portal_history_checkin.jpg", html)
 
     def test_hr_can_edit_attendance_portal_check_out_and_resync_attendance(self):
         employee_id = self.create_employee_record(

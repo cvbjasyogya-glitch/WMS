@@ -287,6 +287,14 @@
                                             {% if log.gmaps_url %}
                                             <a href="{{ log.gmaps_url }}" class="helper-text" target="_blank" rel="noopener noreferrer">Buka di Google Maps</a>
                                             {% endif %}
+                                            {% if log.has_photo and log.photo_url %}
+                                            <div class="attendance-log-media">
+                                                <a href="{{ log.photo_url }}" target="_blank" rel="noopener noreferrer" class="attendance-log-photo-link">
+                                                    <img src="{{ log.photo_url }}" alt="Foto geotag {{ log.punch_label }} {{ item.attendance_date }}" class="attendance-log-photo-thumb" loading="lazy">
+                                                </a>
+                                                <a href="{{ log.photo_url }}" class="helper-text" target="_blank" rel="noopener noreferrer">Lihat Foto Geotag</a>
+                                            </div>
+                                            {% endif %}
                                         </div>
                                         <div class="attendance-log-event-meta">
                                             <span class="badge{% if log.sync_status == 'manual' %} orange{% elif log.sync_status == 'synced' %} green{% elif log.sync_status == 'failed' %} red{% endif %}">{{ log.sync_status|replace('_', ' ')|title }}</span>

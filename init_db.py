@@ -146,6 +146,8 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "pos_sales", "receipt_whatsapp_status", "TEXT DEFAULT 'pending'")
     _ensure_column(cursor, "pos_sales", "receipt_whatsapp_error", "TEXT")
     _ensure_column(cursor, "pos_sales", "receipt_whatsapp_sent_at", "TIMESTAMP")
+    _ensure_column(cursor, "pos_sales", "source_cashier_name", "TEXT")
+    _ensure_column(cursor, "pos_sales", "source_sales_name", "TEXT")
 
     _ensure_column(cursor, "requests", "reason", "TEXT")
     _ensure_column(cursor, "requests", "approved_at", "TIMESTAMP")
@@ -1386,6 +1388,8 @@ def init_db(db_path=None, sqlite_options=None):
         cashier_user_id INTEGER,
         sale_date TEXT NOT NULL,
         receipt_no TEXT NOT NULL UNIQUE,
+        source_cashier_name TEXT,
+        source_sales_name TEXT,
         payment_method TEXT DEFAULT 'cash',
         total_items INTEGER DEFAULT 0,
         subtotal_amount REAL DEFAULT 0,

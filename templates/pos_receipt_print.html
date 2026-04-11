@@ -1,9 +1,39 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="id"{% if receipt_performance_mode == "lite" %} class="receipt-lite-mode"{% endif %}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nota {{ sale.receipt_no }} | {{ receipt_brand.business_name or store_name }}</title>
+<script>
+(() => {
+    const forcedMode = {{ receipt_performance_mode | tojson }};
+    if (forcedMode === "full") {
+        document.documentElement.dataset.receiptPerformance = "full";
+        return;
+    }
+    if (forcedMode === "lite") {
+        document.documentElement.classList.add("receipt-lite-mode");
+        document.documentElement.dataset.receiptPerformance = "lite";
+        return;
+    }
+
+    const navigatorRef = window.navigator || {};
+    const connection = navigatorRef.connection || navigatorRef.mozConnection || navigatorRef.webkitConnection || null;
+    const saveData = Boolean(connection && connection.saveData);
+    const hardwareConcurrency = Number(navigatorRef.hardwareConcurrency || 0);
+    const deviceMemory = Number(navigatorRef.deviceMemory || 0);
+    const prefersReducedMotion = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+    const shouldUseLiteMode = saveData
+        || (hardwareConcurrency > 0 && hardwareConcurrency <= 4)
+        || (deviceMemory > 0 && deviceMemory <= 4)
+        || prefersReducedMotion;
+
+    document.documentElement.classList.toggle("receipt-lite-mode", shouldUseLiteMode);
+    document.documentElement.dataset.receiptPerformance = shouldUseLiteMode ? "lite" : "full";
+})();
+</script>
 <style>
     :root {
         color-scheme: light;
@@ -35,11 +65,23 @@
         font: 13.1px/1.42 "Segoe UI", Tahoma, sans-serif;
     }
 
+    html.receipt-lite-mode body {
+        padding: 12px;
+        background: #f4f6f8;
+        font-size: 12.6px;
+        line-height: 1.34;
+    }
+
     .receipt-shell {
         max-width: 900px;
         margin: 0 auto;
         display: grid;
         gap: 10px;
+    }
+
+    html.receipt-lite-mode .receipt-shell {
+        max-width: 840px;
+        gap: 8px;
     }
 
     .receipt-actions {
@@ -75,6 +117,12 @@
         padding: 16px 18px 14px;
         box-shadow: 0 22px 54px rgba(20, 39, 58, 0.08);
         page-break-inside: avoid;
+    }
+
+    html.receipt-lite-mode .receipt-paper,
+    html.receipt-lite-mode body.thermal-layout .receipt-paper {
+        border-radius: 12px;
+        box-shadow: none;
     }
 
     .receipt-top {
@@ -216,6 +264,17 @@
         border-radius: 16px;
         border: 1px solid var(--receipt-border);
         background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    }
+
+    html.receipt-lite-mode .receipt-info-row,
+    html.receipt-lite-mode .receipt-item-row,
+    html.receipt-lite-mode .receipt-total-box,
+    html.receipt-lite-mode .receipt-note-box,
+    html.receipt-lite-mode .receipt-loyalty-box,
+    html.receipt-lite-mode .receipt-footer,
+    html.receipt-lite-mode .receipt-brand-logo-wrap {
+        background: #ffffff;
+        box-shadow: none;
     }
 
     .receipt-info-row.is-combined {
@@ -444,6 +503,151 @@
         font-size: 0.9rem;
     }
 
+    body.pdf-mode:not(.thermal-layout) {
+        padding: 0;
+        background: #ffffff;
+        font-size: 10.6px;
+        line-height: 1.32;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-shell {
+        max-width: none;
+        gap: 0;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-paper {
+        padding: 8px 10px 7px;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        break-inside: auto;
+        page-break-inside: auto;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-top,
+    body.pdf-mode:not(.thermal-layout) .receipt-items,
+    body.pdf-mode:not(.thermal-layout) .receipt-side-stack {
+        gap: 6px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-brand-panel {
+        gap: 10px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-brand-lockup {
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-brand-logo-wrap {
+        min-height: 50px;
+        padding: 5px 8px;
+        border-radius: 14px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-brand-logo {
+        max-height: 36px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-brand strong {
+        font-size: 1.28rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-status-stack {
+        min-width: 128px;
+        gap: 4px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-status-meta {
+        font-size: 0.82rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-chip {
+        min-height: 24px;
+        padding: 0 10px;
+        font-size: 0.72rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-divider {
+        margin: 6px 0;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-info {
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-info-row {
+        padding: 7px 9px;
+        border-radius: 12px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-info-row strong {
+        font-size: 0.92rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-item-row {
+        gap: 3px;
+        padding: 6px 8px;
+        border-radius: 12px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-item-name {
+        font-size: 0.9rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-item-meta {
+        font-size: 0.78rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-bottom-grid {
+        grid-template-columns: minmax(0, 1.08fr) minmax(200px, 0.82fr);
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-total-box,
+    body.pdf-mode:not(.thermal-layout) .receipt-note-box,
+    body.pdf-mode:not(.thermal-layout) .receipt-loyalty-box,
+    body.pdf-mode:not(.thermal-layout) .receipt-footer {
+        padding: 8px 9px;
+        border-radius: 12px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-total-row {
+        gap: 8px;
+        font-size: 0.84rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-total-row strong {
+        font-size: 0.88rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-total-row.is-total span:first-child,
+    body.pdf-mode:not(.thermal-layout) .receipt-total-row.is-total strong {
+        font-size: 0.96rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-note-box strong,
+    body.pdf-mode:not(.thermal-layout) .receipt-loyalty-box strong {
+        margin-bottom: 4px;
+        font-size: 0.72rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-note,
+    body.pdf-mode:not(.thermal-layout) .receipt-footer-note {
+        font-size: 0.82rem;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-loyalty-list {
+        gap: 3px;
+        padding-left: 14px;
+    }
+
+    body.pdf-mode:not(.thermal-layout) .receipt-footer strong {
+        font-size: 0.9rem;
+    }
+
     @media (max-width: 900px) {
         .receipt-brand-panel,
         .receipt-bottom-grid {
@@ -498,7 +702,7 @@
     @media print {
         @page {
             size: A4 portrait;
-            margin: 5.5mm;
+            margin: 4mm;
         }
 
         body {
@@ -521,6 +725,8 @@
             border: 0;
             border-radius: 0;
             box-shadow: none;
+            break-inside: auto;
+            page-break-inside: auto;
         }
 
         .receipt-brand-lockup {
@@ -584,6 +790,13 @@
         font: 13px/1.38 "Consolas", "Courier New", monospace;
     }
 
+    html.receipt-lite-mode body.thermal-layout {
+        padding: 6px;
+        background: #ffffff;
+        font-size: 12px;
+        line-height: 1.28;
+    }
+
     body.thermal-layout .receipt-shell {
         width: 100%;
         max-width: var(--thermal-screen-width);
@@ -609,6 +822,10 @@
         box-shadow: 0 8px 24px rgba(18, 18, 18, 0.12);
     }
 
+    body.thermal-layout .receipt-paper.is-store-copy {
+        padding: 8px 8px 9px;
+    }
+
     .thermal-copy-chip {
         display: inline-flex;
         align-items: center;
@@ -629,10 +846,44 @@
         gap: 4px;
     }
 
+    .thermal-header.is-store-copy {
+        justify-items: stretch;
+        text-align: left;
+        gap: 3px;
+    }
+
+    .thermal-store-banner {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: start;
+    }
+
+    .thermal-store-badge {
+        justify-self: end;
+        font-size: 0.92rem;
+        font-weight: 900;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+    }
+
+    .thermal-store-datetime {
+        justify-self: end;
+        text-align: right;
+        font-size: 0.78rem;
+        color: #333333;
+        line-height: 1.18;
+        white-space: nowrap;
+    }
+
     .thermal-logo {
         width: 94px;
         max-height: 80px;
         object-fit: contain;
+    }
+
+    html.receipt-lite-mode .thermal-logo {
+        display: none;
     }
 
     .thermal-brand {
@@ -660,6 +911,11 @@
         font-size: 0.9rem;
     }
 
+    .thermal-meta.is-store-copy {
+        gap: 1px;
+        font-size: 0.84rem;
+    }
+
     .thermal-meta-row {
         display: grid;
         grid-template-columns: auto 1fr;
@@ -677,15 +933,42 @@
         gap: 8px;
     }
 
+    .thermal-items.is-store-copy {
+        gap: 5px;
+    }
+
     .thermal-item {
         display: grid;
         gap: 3px;
+    }
+
+    .thermal-item.is-store-copy {
+        gap: 1px;
+    }
+
+    .thermal-item-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: baseline;
     }
 
     .thermal-item-name {
         font-size: 0.95rem;
         font-weight: 800;
         text-transform: uppercase;
+    }
+
+    .thermal-item.is-store-copy .thermal-item-name {
+        font-size: 0.88rem;
+        letter-spacing: 0.01em;
+    }
+
+    .thermal-item-code {
+        text-align: right;
+        font-size: 0.74rem;
+        color: #4b5563;
+        white-space: nowrap;
     }
 
     .thermal-item-variant {
@@ -706,10 +989,28 @@
         font-size: 0.94rem;
     }
 
+    .thermal-summary.is-store-copy {
+        gap: 2px;
+        font-size: 0.84rem;
+    }
+
     .thermal-summary-row {
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 10px;
+    }
+
+    .thermal-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 2px 10px;
+        margin-top: 2px;
+    }
+
+    .thermal-summary-column {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
     }
 
     .thermal-summary-row.is-grand {
@@ -718,6 +1019,12 @@
         border-top: 1px dashed #1d1d1d;
         font-size: 1.06rem;
         font-weight: 900;
+    }
+
+    .thermal-summary.is-store-copy .thermal-summary-row.is-grand {
+        margin-top: 1px;
+        padding-top: 4px;
+        font-size: 1rem;
     }
 
     .thermal-footer {
@@ -747,6 +1054,22 @@
         border: 1px solid #2a2a2a;
         padding: 4px;
         background: #fff;
+    }
+
+    html.receipt-lite-mode .thermal-qr-wrap {
+        display: none;
+    }
+
+    .thermal-lite-hint {
+        display: none;
+        margin-top: 2px;
+        color: #475569;
+        font-size: 0.76rem;
+        line-height: 1.25;
+    }
+
+    html.receipt-lite-mode .thermal-lite-hint {
+        display: block;
     }
 
     .thermal-link {
@@ -806,7 +1129,7 @@
     }
 </style>
 </head>
-<body class="{% if receipt_layout == 'thermal' %}thermal-layout{% endif %}">
+<body class="{% if receipt_layout == 'thermal' %}thermal-layout {% endif %}{% if pdf_mode %}pdf-mode{% endif %}">
 <div class="receipt-shell">
     {% if not pdf_mode %}
     <div class="receipt-actions">
@@ -832,8 +1155,15 @@
     {% if (not social_qr_source) and receipt_brand.social_media_url %}
     {% set social_qr_source = "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" ~ (receipt_brand.social_media_url | urlencode) %}
     {% endif %}
-    <article class="receipt-paper">
-        <header class="thermal-header">
+    <article class="receipt-paper{% if receipt_copy == 'store' %} is-store-copy{% endif %}">
+        <header class="thermal-header{% if receipt_copy == 'store' %} is-store-copy{% endif %}">
+            {% if receipt_copy == "store" %}
+            <div class="thermal-store-banner">
+                <div class="thermal-brand">{{ receipt_brand.business_name or store_name }}</div>
+                <div class="thermal-store-badge">{{ receipt_copy_label }}</div>
+            </div>
+            <div class="thermal-store-datetime">{{ sale.sale_date }} {{ sale.created_time_label }}</div>
+            {% else %}
             <div class="thermal-copy-chip">{{ receipt_copy_label }}</div>
             {% if receipt_brand.logo_url %}
             <img src="{{ receipt_brand.logo_url }}" alt="Logo {{ receipt_brand.business_name or store_name }}" class="thermal-logo">
@@ -842,24 +1172,39 @@
             {% if receipt_brand.business_address %}
             <p class="thermal-address">{{ receipt_brand.business_address }}</p>
             {% endif %}
+            {% endif %}
         </header>
 
         <div class="thermal-divider"></div>
 
-        <section class="thermal-meta">
+        <section class="thermal-meta{% if receipt_copy == 'store' %} is-store-copy{% endif %}">
             <div class="thermal-meta-row"><span>No.</span><span class="value">{{ sale.receipt_no }}</span></div>
             <div class="thermal-meta-row"><span>Kasir</span><span class="value">{{ sale.cashier_receipt_label }}</span></div>
             <div class="thermal-meta-row"><span>Pel.</span><span class="value">{{ sale.customer_name }}</span></div>
+            {% if receipt_copy != "store" %}
             <div class="thermal-meta-row"><span>Tanggal</span><span class="value">{{ sale.sale_date }} {{ sale.created_time_label }}</span></div>
+            {% endif %}
         </section>
 
         <div class="thermal-divider"></div>
 
-        <section class="thermal-items">
+        <section class="thermal-items{% if receipt_copy == 'store' %} is-store-copy{% endif %}">
             {% for item in sale["items"] %}
-            <div class="thermal-item">
+            <div class="thermal-item{% if receipt_copy == 'store' %} is-store-copy{% endif %}">
+                {% if receipt_copy == "store" %}
+                <div class="thermal-item-head">
+                    <div class="thermal-item-name">{{ item.product_name }}</div>
+                    {% if item.sku %}
+                    <div class="thermal-item-code">Kode: {{ item.sku }}</div>
+                    {% endif %}
+                </div>
+                {% if item.variant_name and item.variant_name|lower != "default" %}
+                <div class="thermal-item-variant">{{ item.variant_name }}</div>
+                {% endif %}
+                {% else %}
                 <div class="thermal-item-name">{{ item.product_name }}</div>
                 <div class="thermal-item-variant">{{ item.variant_name }}{% if item.sku %} / {{ item.sku }}{% endif %}</div>
+                {% endif %}
                 <div class="thermal-item-calc">
                     <span>{{ item.active_qty }} x {{ item.unit_price_label }}</span>
                     <span>{{ item.active_line_total_label }}</span>
@@ -873,17 +1218,36 @@
 
         <div class="thermal-divider"></div>
 
-        <section class="thermal-summary">
+        <section class="thermal-summary{% if receipt_copy == 'store' %} is-store-copy{% endif %}">
             <div class="thermal-summary-row"><span>Qty</span><span>{{ sale.total_items }}</span></div>
+            {% if receipt_copy != "store" %}
             <div class="thermal-summary-row"><span>Subtotal</span><span>{{ sale.subtotal_amount_label }}</span></div>
             <div class="thermal-summary-row"><span>Potongan</span><span>{{ sale.discount_amount_label }}</span></div>
             <div class="thermal-summary-row"><span>Pajak</span><span>{{ sale.tax_amount_label }}</span></div>
+            {% endif %}
             <div class="thermal-summary-row is-grand"><span>Grand Total</span><span>{{ sale.total_amount_label }}</span></div>
+            {% if receipt_copy == "store" %}
+            <div class="thermal-summary-grid">
+                <div class="thermal-summary-column">
+                    <div class="thermal-summary-row"><span>Potongan</span><span>{{ sale.discount_amount_label }}</span></div>
+                    <div class="thermal-summary-row"><span>Tunai</span><span>{{ paid_cash }}</span></div>
+                    <div class="thermal-summary-row"><span>K. Kredit</span><span>{{ paid_credit }}</span></div>
+                    <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>
+                </div>
+                <div class="thermal-summary-column">
+                    <div class="thermal-summary-row"><span>Pajak</span><span>{{ sale.tax_amount_label }}</span></div>
+                    <div class="thermal-summary-row"><span>QRIS</span><span>{{ paid_qris }}</span></div>
+                    <div class="thermal-summary-row"><span>K. Debit</span><span>{{ paid_debit }}</span></div>
+                    <div class="thermal-summary-row"><span>Metode</span><span>{{ sale.payment_method_label }}</span></div>
+                </div>
+            </div>
+            {% else %}
             <div class="thermal-summary-row"><span>Tunai</span><span>{{ paid_cash }}</span></div>
             <div class="thermal-summary-row"><span>Kartu Kredit</span><span>{{ paid_credit }}</span></div>
             <div class="thermal-summary-row"><span>Kartu Debit</span><span>{{ paid_debit }}</span></div>
             <div class="thermal-summary-row"><span>QRIS</span><span>{{ paid_qris }}</span></div>
             <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>
+            {% endif %}
         </section>
 
         {% if sale.has_loyalty_summary and receipt_copy != "store" %}
@@ -896,21 +1260,17 @@
         </section>
         {% endif %}
 
+        {% if receipt_copy != "store" %}
         <div class="thermal-divider"></div>
 
         <footer class="thermal-footer">
-            {% if receipt_copy == "store" %}
-            <strong>{{ receipt_copy_label }}</strong>
-            <p class="thermal-store-note">Arsip kasir {{ receipt_brand.business_name or store_name }}.</p>
-            <p class="thermal-store-note">{{ sale.payment_method_label }} | {{ sale.total_items }} item</p>
-            {% else %}
             <p>{{ receipt_brand.return_policy or "Barang yang telah dibayarkan tidak dapat dikembalikan, kecuali produk tertentu sesuai perjanjian." }}</p>
             <strong>{{ receipt_brand.thank_you_text or ("Terima kasih atas kunjungan Anda di " ~ (receipt_brand.business_name or store_name) ~ ".") }}</strong>
             <p>{{ receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-")) }}</p>
             <p>{{ receipt_brand.social_label or "Social Media Kami di:" }}</p>
             {% if social_qr_source %}
             <div class="thermal-qr-wrap">
-                <img src="{{ social_qr_source }}" alt="QR Social Media {{ receipt_brand.business_name or store_name }}" class="thermal-qr">
+                <img data-thermal-qr-src="{{ social_qr_source }}" alt="QR Social Media {{ receipt_brand.business_name or store_name }}" class="thermal-qr" decoding="async">
                 {% if receipt_brand.social_media_url %}
                 <a href="{{ receipt_brand.social_media_url }}" target="_blank" rel="noopener" class="thermal-link">{{ receipt_brand.social_media_url }}</a>
                 {% endif %}
@@ -918,8 +1278,11 @@
             {% elif receipt_brand.social_media_url %}
             <a href="{{ receipt_brand.social_media_url }}" target="_blank" rel="noopener" class="thermal-link">{{ receipt_brand.social_media_url }}</a>
             {% endif %}
+            {% if receipt_brand.social_media_url %}
+            <p class="thermal-lite-hint">Mode ringan aktif: QR sosial disembunyikan agar halaman lebih enteng.</p>
             {% endif %}
         </footer>
+        {% endif %}
     </article>
     {% else %}
     <article class="receipt-paper">
@@ -1060,18 +1423,21 @@ const receiptDesktopSource = String(receiptRuntimeUrl.searchParams.get("source")
 const receiptCopy = {{ receipt_copy | tojson }};
 const receiptFollowupCopy = {{ receipt_followup_copy | tojson }};
 const receiptLayout = {{ receipt_layout | tojson }};
+const receiptPerformanceMode = {{ receipt_performance_mode | tojson }};
 const receiptDesktopBridge = String(
     receiptRuntimeUrl.searchParams.get("desktop_bridge")
     || (receiptDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
 ).replace(/\/+$/, "");
 const receiptNativePrintPayload = {{ {
+    "receipt_copy": receipt_copy,
     "copy_label": receipt_copy_label,
     "store_name": receipt_brand.business_name or store_name,
-    "business_address": receipt_brand.business_address or "",
+    "business_address": (receipt_brand.business_address or "") if receipt_copy != "store" else "",
     "receipt_no": sale.receipt_no,
     "cashier_name": sale.cashier_receipt_label,
     "customer_name": sale.customer_name,
     "sale_datetime": sale.sale_date ~ " " ~ sale.created_time_label,
+    "payment_method": sale.payment_method,
     "payment_method_label": sale.payment_method_label,
     "total_items": sale.total_items,
     "subtotal_amount_label": sale.subtotal_amount_label,
@@ -1086,7 +1452,7 @@ const receiptNativePrintPayload = {{ {
     "feedback_line": (receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-"))) if receipt_copy != "store" else "",
     "social_label": (receipt_brand.social_label or "Social Media Kami di:") if receipt_copy != "store" else "",
     "social_media_url": (receipt_brand.social_media_url or "") if receipt_copy != "store" else "",
-    "store_copy_note": ("Arsip kasir " ~ (receipt_brand.business_name or store_name) ~ ". " ~ sale.payment_method_label ~ " | " ~ sale.total_items ~ " item") if receipt_copy == "store" else "",
+    "store_copy_note": "",
     "items": sale["items"],
 } | tojson }};
 let receiptPrintFlowHandled = false;
@@ -1098,6 +1464,9 @@ function buildReceiptRuntimeUrl(url) {
     }
     if (receiptDesktopBridge) {
         resolved.searchParams.set("desktop_bridge", receiptDesktopBridge);
+    }
+    if (receiptPerformanceMode && receiptPerformanceMode !== "auto") {
+        resolved.searchParams.set("perf", receiptPerformanceMode);
     }
     const normalized = `${resolved.pathname}${resolved.search}${resolved.hash}`;
     return resolved.origin === window.location.origin ? normalized : resolved.toString();
@@ -1207,6 +1576,19 @@ document.querySelectorAll("[data-receipt-runtime-link]").forEach((node) => {
     }
     node.href = buildReceiptRuntimeUrl(node.getAttribute("href") || "/");
 });
+
+if (!document.documentElement.classList.contains("receipt-lite-mode")) {
+    document.querySelectorAll("[data-thermal-qr-src]").forEach((node) => {
+        if (!(node instanceof HTMLImageElement)) {
+            return;
+        }
+        const qrSource = String(node.dataset.thermalQrSrc || "").trim();
+        if (!qrSource || node.getAttribute("src")) {
+            return;
+        }
+        node.src = qrSource;
+    });
+}
 
 {% if auto_print and not pdf_mode %}
 window.addEventListener("load", () => {

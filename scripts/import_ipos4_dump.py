@@ -176,6 +176,121 @@ def clean_string(value: object) -> str | None:
     return raw or None
 
 
+def unique_non_empty_strings(values: list[object]) -> list[str]:
+    seen: set[str] = set()
+    normalized_values: list[str] = []
+    for value in values:
+        safe_value = clean_string(value)
+        if not safe_value:
+            continue
+        key = safe_value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_values.append(safe_value)
+    return normalized_values
+
+
+def build_ipos_sales_source_labels(header: dict) -> tuple[str | None, str | None, list[str]]:
+    cashier_candidates = unique_non_empty_strings([
+        header.get("user1"),
+        header.get("user2"),
+    ])
+    sales_candidates = unique_non_empty_strings([
+        header.get("kodesales"),
+        header.get("kodesales2"),
+        header.get("kodesales3"),
+        header.get("kodesales4"),
+    ])
+    source_cashier_name = cashier_candidates[0] if cashier_candidates else None
+    source_sales_name = " / ".join(sales_candidates) if sales_candidates else None
+    actor_candidates = sales_candidates + cashier_candidates
+    return source_cashier_name, source_sales_name, actor_candidates
+
+
+def build_user_identity_lookup(conn: sqlite3.Connection) -> tuple[dict[str, int], list[dict]]:
+    lookup: dict[str, int] = {}
+    identity_rows: list[dict] = []
+    rows = conn.execute(
+        """
+        SELECT
+            u.id,
+            u.username,
+            COALESCE(NULLIF(TRIM(e.full_name), ''), '') AS employee_name
+        FROM users u
+        LEFT JOIN employees e ON e.id = u.employee_id
+        """
+    ).fetchall()
+
+    for row in rows:
+        user_id = int(row["id"])
+        username_key = normalize_text(row["username"])
+        employee_key = normalize_text(row["employee_name"])
+        identity_rows.append(
+            {
+                "id": user_id,
+                "username_key": username_key,
+                "employee_key": employee_key,
+            }
+        )
+        for key in (username_key, employee_key):
+            if key and key not in lookup:
+                lookup[key] = user_id
+
+    return lookup, identity_rows
+
+
+def resolve_user_id_from_candidates(
+    candidates: list[object],
+    imported_user_ids: dict[str, int],
+    user_lookup: dict[str, int],
+    identity_rows: list[dict],
+) -> int | None:
+    imported_lookup = {
+        normalize_text(username_key): int(user_id)
+        for username_key, user_id in imported_user_ids.items()
+        if normalize_text(username_key)
+    }
+    normalized_candidates = [
+        normalize_text(candidate)
+        for candidate in candidates
+        if clean_string(candidate)
+    ]
+    normalized_candidates = [candidate for candidate in normalized_candidates if candidate]
+    if not normalized_candidates:
+        return None
+
+    for candidate in normalized_candidates:
+        imported_match = imported_lookup.get(candidate)
+        if imported_match:
+            return int(imported_match)
+        lookup_match = user_lookup.get(candidate)
+        if lookup_match:
+            return int(lookup_match)
+
+    best_match: tuple[int, int, int] | None = None
+    for candidate in normalized_candidates:
+        if len(candidate) < 4:
+            continue
+        for row in identity_rows:
+            for target_key in (row["username_key"], row["employee_key"]):
+                if not target_key:
+                    continue
+                score = None
+                if target_key.startswith(candidate):
+                    score = 0
+                elif candidate in target_key:
+                    score = 1
+                if score is None:
+                    continue
+                current_match = (score, len(target_key), int(row["id"]))
+                if best_match is None or current_match < best_match:
+                    best_match = current_match
+    if best_match is not None:
+        return best_match[2]
+    return None
+
+
 def pick_canonical_product_match(name_matches: list[dict]) -> dict | None:
     if not name_matches:
         return None
@@ -1482,6 +1597,7 @@ def import_sales(
         for row in conn.execute("SELECT receipt_no FROM pos_sales WHERE receipt_no IS NOT NULL")
     }
     sales_items_by_txn = build_sales_item_groups(reader, summary)
+    user_lookup, user_identity_rows = build_user_identity_lookup(conn)
     primary_warehouse_id = office_map.get(PRIMARY_SOURCE_WAREHOUSE_CODE) or next(iter(office_map.values()))
 
     processed = 0
@@ -1505,8 +1621,13 @@ def import_sales(
             summary,
         )
 
-        cashier_username = clean_string(header.get("user1")) or clean_string(header.get("user2"))
-        cashier_user_id = imported_user_ids.get((cashier_username or "").lower())
+        source_cashier_name, source_sales_name, actor_candidates = build_ipos_sales_source_labels(header)
+        cashier_user_id = resolve_user_id_from_candidates(
+            actor_candidates,
+            imported_user_ids,
+            user_lookup,
+            user_identity_rows,
+        )
         sale_lines = sales_items_by_txn.get(source_txn, [])
 
         total_items = max(
@@ -1527,6 +1648,8 @@ def import_sales(
             clean_string(header.get("keterangan")),
             f"Imported from iPOS4: {source_txn}",
             f"source_type={clean_string(header.get('tipe')) or '-'}",
+            f"source_sales={source_sales_name}" if source_sales_name else None,
+            f"source_cashier={source_cashier_name}" if source_cashier_name else None,
         )
 
         purchase_cursor = conn.execute(
@@ -1588,15 +1711,16 @@ def import_sales(
             """
             INSERT INTO pos_sales(
                 purchase_id, customer_id, warehouse_id, cashier_user_id, sale_date, receipt_no,
+                source_cashier_name, source_sales_name,
                 payment_method, total_items, subtotal_amount, discount_type, discount_value,
                 discount_amount, tax_type, tax_value, tax_amount, total_amount, paid_amount,
                 change_amount, status, note, created_at, updated_at
             )
             VALUES (
-                ?,?,?,?,?,?,
-                ?,? ,?,'amount',0,
-                ?,'amount',0,?,?,?,
-                ?,'posted',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+                ?,?,?,?,?,?,?,?,
+                ?,?,?, 'amount', 0,
+                ?, 'amount', 0, ?, ?, ?,
+                ?, 'posted', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,
             (
@@ -1606,6 +1730,8 @@ def import_sales(
                 cashier_user_id,
                 purchase_date,
                 receipt_no,
+                source_cashier_name,
+                source_sales_name,
                 payment_method,
                 total_items,
                 subtotal_amount,

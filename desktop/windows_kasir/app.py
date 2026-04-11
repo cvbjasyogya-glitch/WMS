@@ -505,6 +505,30 @@ def _receipt_separator(width: int, char: str = "-") -> str:
     return (char or "-") * safe_width
 
 
+def _receipt_compact_pair_line(left: Any, right: Any, width: int) -> str:
+    safe_width = max(8, int(width or 32))
+    safe_left = _normalize_receipt_text(left)
+    safe_right = _normalize_receipt_text(right)
+    if not safe_right:
+        return _truncate_receipt_text(safe_left, safe_width)
+    if not safe_left:
+        return _truncate_receipt_text(safe_right, safe_width)
+
+    safe_right = _truncate_receipt_text(safe_right, max(6, safe_width // 2))
+    remaining = max(6, safe_width - len(safe_right) - 1)
+    safe_left = _truncate_receipt_text(safe_left, remaining)
+    spacing = max(1, safe_width - len(safe_left) - len(safe_right))
+    return f"{safe_left}{' ' * spacing}{safe_right}"
+
+
+def _receipt_compact_value_text(label: Any, value: Any, width: int) -> str:
+    safe_width = max(8, int(width or 32))
+    safe_label = _normalize_receipt_text(label)
+    safe_value = _normalize_receipt_text(value)
+    raw_text = f"{safe_label} {safe_value}".strip() if safe_value else safe_label
+    return _truncate_receipt_text(raw_text, safe_width)
+
+
 def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
     safe_width = max(24, min(64, int(width or 32)))
     items = payload.get("items") or []
@@ -514,12 +538,24 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
     store_name = _normalize_receipt_text(payload.get("store_name"))
     copy_label = _normalize_receipt_text(payload.get("copy_label"))
     business_address = _normalize_receipt_text(payload.get("business_address"))
+    receipt_copy = _normalize_receipt_text(payload.get("receipt_copy")).lower()
+    is_store_copy = receipt_copy == "store"
+    payment_method = _normalize_receipt_text(payload.get("payment_method")).lower()
+    paid_amount_label = _normalize_receipt_text(payload.get("paid_amount_label")) or "Rp 0"
+    paid_cash = paid_amount_label if payment_method == "cash" else "Rp 0"
+    paid_credit = paid_amount_label if payment_method == "credit" else "Rp 0"
+    paid_debit = paid_amount_label if payment_method == "debit" else "Rp 0"
+    paid_qris = paid_amount_label if payment_method == "qris" else "Rp 0"
 
-    if copy_label:
-        lines.extend(_wrap_receipt_text(copy_label, safe_width))
-    if store_name:
-        lines.extend(_wrap_receipt_text(store_name, safe_width))
-    if business_address:
+    if is_store_copy:
+        if store_name or copy_label:
+            lines.append(_receipt_compact_pair_line(store_name, copy_label, safe_width))
+    else:
+        if copy_label:
+            lines.extend(_wrap_receipt_text(copy_label, safe_width))
+        if store_name:
+            lines.extend(_wrap_receipt_text(store_name, safe_width))
+    if business_address and not is_store_copy:
         lines.extend(_wrap_receipt_text(business_address, safe_width))
 
     lines.append(_receipt_separator(safe_width))
@@ -529,23 +565,40 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
         ("Pel", payload.get("customer_name")),
         ("Tanggal", payload.get("sale_datetime")),
     ):
+        if is_store_copy and key == "Tanggal":
+            continue
         lines.extend(_receipt_kv_line(key, value, safe_width))
+    if is_store_copy:
+        lines.extend(_receipt_kv_line("Waktu", payload.get("sale_datetime"), safe_width))
 
     lines.append(_receipt_separator(safe_width))
     for item in items:
         product_name = _normalize_receipt_text(item.get("product_name"))
-        if product_name:
-            lines.extend(_wrap_receipt_text(product_name, safe_width))
-
         variant = _normalize_receipt_text(item.get("variant_name"))
         sku = _normalize_receipt_text(item.get("sku"))
-        variant_line = " / ".join(part for part in (variant, sku) if part)
+        if product_name:
+            if is_store_copy and sku:
+                compact_product = f"{product_name} | {sku}"
+                if len(compact_product) <= safe_width:
+                    lines.append(compact_product)
+                else:
+                    lines.extend(_wrap_receipt_text(product_name, safe_width))
+            else:
+                lines.extend(_wrap_receipt_text(product_name, safe_width))
+        variant_parts = []
+        if variant and (not is_store_copy or variant.lower() != "default"):
+            variant_parts.append(variant)
+        if sku and not (is_store_copy and product_name and len(f"{product_name} | {sku}") <= safe_width):
+            variant_parts.append(f"Kode: {sku}" if is_store_copy else sku)
+        variant_line = " / ".join(part for part in variant_parts if part)
         if variant_line:
             lines.extend(_wrap_receipt_text(variant_line, safe_width))
 
         qty_text = str(item.get("active_qty") or "0")
         price_text = _normalize_receipt_text(item.get("unit_price_label"))
-        total_text = _normalize_receipt_text(item.get("line_total_label"))
+        total_text = _normalize_receipt_text(
+            item.get("active_line_total_label") or item.get("line_total_label")
+        )
         calc_left = f"{qty_text} x {price_text}".strip()
         lines.extend(_receipt_kv_line(calc_left, total_text, safe_width))
 
@@ -555,26 +608,55 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
             void_amount = _normalize_receipt_text(item.get("void_amount_label"))
             lines.extend(_receipt_kv_line(void_text, void_amount, safe_width))
 
-        lines.append("")
+        if not is_store_copy:
+            lines.append("")
 
     if items:
         while lines and lines[-1] == "":
             lines.pop()
 
     lines.append(_receipt_separator(safe_width))
-    for key, value in (
-        ("Qty", payload.get("total_items")),
-        ("Subtotal", payload.get("subtotal_amount_label")),
-        ("Potongan", payload.get("discount_amount_label")),
-        ("Pajak", payload.get("tax_amount_label")),
-        ("Grand Total", payload.get("total_amount_label")),
-        ("Bayar", payload.get("paid_amount_label")),
-        ("Kembali", payload.get("change_amount_label")),
-        ("Metode", payload.get("payment_method_label")),
-    ):
-        lines.extend(_receipt_kv_line(key, value, safe_width))
+    if is_store_copy:
+        lines.extend(_receipt_kv_line("Qty", payload.get("total_items"), safe_width))
+        lines.extend(_receipt_kv_line("Grand Total", payload.get("total_amount_label"), safe_width))
+        summary_columns = [
+            (
+                ("Potongan", payload.get("discount_amount_label")),
+                ("Pajak", payload.get("tax_amount_label")),
+            ),
+            (
+                ("Tunai", paid_cash),
+                ("QRIS", paid_qris),
+            ),
+            (
+                ("K. Kredit", paid_credit),
+                ("K. Debit", paid_debit),
+            ),
+            (
+                ("Kembali", payload.get("change_amount_label")),
+                ("Metode", payload.get("payment_method_label")),
+            ),
+        ]
+        left_width = max(10, (safe_width - 1) // 2)
+        right_width = max(10, safe_width - left_width - 1)
+        for left_entry, right_entry in summary_columns:
+            left_text = _receipt_compact_value_text(left_entry[0], left_entry[1], left_width)
+            right_text = _receipt_compact_value_text(right_entry[0], right_entry[1], right_width)
+            lines.append(f"{left_text.ljust(left_width)} {right_text}".rstrip())
+    else:
+        for key, value in (
+            ("Qty", payload.get("total_items")),
+            ("Subtotal", payload.get("subtotal_amount_label")),
+            ("Potongan", payload.get("discount_amount_label")),
+            ("Pajak", payload.get("tax_amount_label")),
+            ("Grand Total", payload.get("total_amount_label")),
+            ("Bayar", payload.get("paid_amount_label")),
+            ("Kembali", payload.get("change_amount_label")),
+            ("Metode", payload.get("payment_method_label")),
+        ):
+            lines.extend(_receipt_kv_line(key, value, safe_width))
 
-    if loyalty_lines:
+    if loyalty_lines and not is_store_copy:
         lines.append(_receipt_separator(safe_width))
         loyalty_title = _normalize_receipt_text(payload.get("loyalty_summary_title"))
         if loyalty_title:
@@ -592,7 +674,7 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
         payload.get("social_media_url"),
     ]
     footer_lines = [line for line in footer_lines if _normalize_receipt_text(line)]
-    if footer_lines:
+    if footer_lines and not is_store_copy:
         lines.append(_receipt_separator(safe_width))
         for line in footer_lines:
             lines.extend(_wrap_receipt_text(line, safe_width))

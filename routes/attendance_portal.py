@@ -10,6 +10,7 @@ from routes.schedule import (
 from routes.hris import (
     _build_biometric_handling,
     _current_timestamp,
+    _get_biometric_photo_url,
     _get_self_service_employee,
     _insert_biometric_log_record,
     _normalize_accuracy,
@@ -717,7 +718,7 @@ def _fetch_attendance_history(db, linked_employee, limit=8):
             dict(row)
             for row in db.execute(
                 f"""
-                SELECT id, punch_time, punch_type, sync_status, location_label, note
+                SELECT id, punch_time, punch_type, sync_status, location_label, note, photo_path
                        , latitude, longitude
                 FROM biometric_logs
                 WHERE employee_id=?
@@ -758,6 +759,8 @@ def _fetch_attendance_history(db, linked_employee, limit=8):
                         "location_label": (log.get("location_label") or "-").strip() or "-",
                         "gmaps_url": _build_google_maps_url(log.get("latitude"), log.get("longitude")),
                         "note": (log.get("note") or "").strip(),
+                        "photo_url": _get_biometric_photo_url(log.get("photo_path")),
+                        "has_photo": bool(log.get("photo_path")),
                         "sync_status": (log.get("sync_status") or "").strip().lower() or "queued",
                     }
                     for log in day_logs

@@ -128,6 +128,16 @@ def _normalize_receipt_copy(value, default="customer"):
     return "store" if default_value == "store" else "customer"
 
 
+def _normalize_receipt_performance_mode(value, default="auto"):
+    normalized = str(value or "").strip().lower()
+    if normalized in {"lite", "full"}:
+        return normalized
+    default_value = str(default or "auto").strip().lower()
+    if default_value in {"lite", "full"}:
+        return default_value
+    return "auto"
+
+
 def _encode_asset_as_data_uri(path):
     safe_path = str(path or "").strip()
     if not safe_path or not os.path.exists(safe_path):
@@ -164,6 +174,7 @@ def build_pos_receipt_render_context(
     receipt_layout="a4",
     receipt_copy="customer",
     receipt_followup_copy="",
+    receipt_performance_mode="auto",
     auto_print=False,
     auto_close=False,
     pdf_mode=False,
@@ -185,6 +196,10 @@ def build_pos_receipt_render_context(
         normalized_followup_copy = _normalize_receipt_copy(requested_followup_copy, default="customer")
         if normalized_followup_copy == normalized_receipt_copy:
             normalized_followup_copy = ""
+    normalized_performance_mode = _normalize_receipt_performance_mode(
+        receipt_performance_mode,
+        default="full" if pdf_mode else "auto",
+    )
 
     return {
         "sale": safe_sale,
@@ -195,6 +210,7 @@ def build_pos_receipt_render_context(
         "receipt_copy": normalized_receipt_copy,
         "receipt_copy_label": "Copy Toko" if normalized_receipt_copy == "store" else "Copy Customer",
         "receipt_followup_copy": normalized_followup_copy,
+        "receipt_performance_mode": normalized_performance_mode,
         "auto_print": bool(auto_print),
         "auto_close": bool(auto_close),
         "pdf_mode": bool(pdf_mode),
@@ -275,6 +291,7 @@ def _render_pos_receipt_pdf_via_browser(sale, absolute_path):
             **build_pos_receipt_render_context(
                 sale,
                 receipt_layout=renderer_layout,
+                receipt_performance_mode="full",
                 auto_print=False,
                 auto_close=False,
                 pdf_mode=True,

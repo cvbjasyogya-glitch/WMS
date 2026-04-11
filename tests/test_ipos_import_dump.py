@@ -2,9 +2,12 @@ import sqlite3
 import unittest
 
 from scripts.import_ipos4_dump import (
+    build_ipos_sales_source_labels,
+    build_user_identity_lookup,
     ensure_import_tables,
     import_products,
     remember_product_cache_entry,
+    resolve_user_id_from_candidates,
     resolve_existing_import_product_match,
 )
 
@@ -239,6 +242,57 @@ class IposImportDumpTestCase(unittest.TestCase):
         self.assertEqual(summary["products_updated"], 1)
         self.assertEqual(summary["products_merged_by_name"], 1)
         self.assertEqual(summary["products_name_conflicts"], 0)
+
+    def test_build_ipos_sales_source_labels_prioritizes_sales_codes_before_cashier(self):
+        source_cashier_name, source_sales_name, actor_candidates = build_ipos_sales_source_labels(
+            {
+                "user1": "YUNI",
+                "user2": "YUNI",
+                "kodesales": "AFIF",
+                "kodesales2": "CACA",
+                "kodesales3": "",
+                "kodesales4": None,
+            }
+        )
+
+        self.assertEqual(source_cashier_name, "YUNI")
+        self.assertEqual(source_sales_name, "AFIF / CACA")
+        self.assertEqual(actor_candidates, ["AFIF", "CACA", "YUNI"])
+
+    def test_resolve_user_id_from_candidates_matches_existing_employee_alias(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT)")
+        conn.execute(
+            """
+            CREATE TABLE users(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT,
+                employee_id INTEGER,
+                role TEXT,
+                warehouse_id INTEGER
+            )
+            """
+        )
+        employee_id = conn.execute(
+            "INSERT INTO employees(full_name) VALUES (?)",
+            ("Wahyuni",),
+        ).lastrowid
+        user_id = conn.execute(
+            "INSERT INTO users(username, employee_id, role, warehouse_id) VALUES (?,?,?,?)",
+            ("wahyuni", employee_id, "staff", 1),
+        ).lastrowid
+
+        user_lookup, identity_rows = build_user_identity_lookup(conn)
+        resolved_user_id = resolve_user_id_from_candidates(
+            ["YUNI"],
+            imported_user_ids={},
+            user_lookup=user_lookup,
+            identity_rows=identity_rows,
+        )
+
+        self.assertEqual(resolved_user_id, user_id)
+        conn.close()
 
 
 if __name__ == "__main__":

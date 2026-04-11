@@ -1,4 +1,4 @@
-from datetime import date as date_cls, datetime, timedelta
+from datetime import date as date_cls, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 
@@ -36,6 +36,35 @@ PAYMENT_METHODS = ("cash", "qris", "transfer", "debit", "credit")
 POS_ASSIGNABLE_ROLE_LIST = ("owner", "super_admin", "leader", "admin", "staff")
 INACTIVE_EMPLOYMENT_STATUSES = ("inactive", "terminated", "resigned", "former", "nonactive", "non-active")
 POS_REVENUE_HIDDEN_LABEL = "-"
+POS_DISPLAY_UTC_OFFSET_HOURS = 7
+POS_SOURCE_ACTOR_SQL = (
+    "COALESCE("
+    "NULLIF(TRIM(ps.source_sales_name), ''), "
+    "NULLIF(TRIM(ps.source_cashier_name), '')"
+    ")"
+)
+POS_CASHIER_NAME_SQL = (
+    "COALESCE("
+    "NULLIF(TRIM(e.full_name), ''), "
+    "NULLIF(TRIM(u.username), ''), "
+    f"{POS_SOURCE_ACTOR_SQL}, "
+    "'Tanpa Staff'"
+    ")"
+)
+POS_CASHIER_USERNAME_SQL = (
+    "COALESCE("
+    "NULLIF(TRIM(u.username), ''), "
+    f"{POS_SOURCE_ACTOR_SQL}, "
+    "'-'"
+    ")"
+)
+POS_CASHIER_POSITION_SQL = (
+    "COALESCE("
+    "NULLIF(TRIM(e.position), ''), "
+    "NULLIF(TRIM(u.role), ''), "
+    f"CASE WHEN {POS_SOURCE_ACTOR_SQL} IS NOT NULL THEN 'Sales iPOS4' ELSE 'Staff' END"
+    ")"
+)
 
 POS_PRINTER_DRIVER_RESOURCES = [
     {
@@ -915,7 +944,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
 
 def _fetch_recent_sales(db, warehouse_id, sale_date):
     rows = db.execute(
-        """
+        f"""
         SELECT
             ps.id,
             ps.receipt_no,
@@ -926,10 +955,11 @@ def _fetch_recent_sales(db, warehouse_id, sale_date):
             ps.paid_amount,
             ps.change_amount,
             c.customer_name,
-            u.username AS cashier_name
+            {POS_CASHIER_NAME_SQL} AS cashier_name
         FROM pos_sales ps
         JOIN crm_customers c ON c.id = ps.customer_id
         LEFT JOIN users u ON u.id = ps.cashier_user_id
+        LEFT JOIN employees e ON e.id = u.employee_id
         WHERE ps.warehouse_id=? AND ps.sale_date=?
         ORDER BY ps.id DESC
         LIMIT 20
@@ -951,11 +981,35 @@ def _normalize_pos_log_date_range(raw_date_from, raw_date_to):
     }
 
 
-def _format_pos_time_label(raw_value):
+def _parse_pos_timestamp(raw_value):
     safe_value = str(raw_value or "").strip()
-    if len(safe_value) >= 16:
-        return safe_value[11:16]
-    return "-"
+    if not safe_value:
+        return None
+
+    normalized = safe_value.replace("T", " ")
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    if len(normalized) == 16:
+        normalized = f"{normalized}:00"
+
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _format_pos_time_label(raw_value):
+    parsed = _parse_pos_timestamp(raw_value)
+    if not parsed:
+        return "-"
+
+    if parsed.tzinfo is not None:
+        local_time = parsed.astimezone(
+            timezone(timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS))
+        )
+    else:
+        local_time = parsed + timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS)
+    return local_time.strftime("%H:%M")
 
 
 def _normalize_pos_cash_closing_date(value):
@@ -1312,6 +1366,28 @@ def _sanitize_pos_cash_closing_return_url(raw_value):
     return safe_value
 
 
+def _has_pos_cash_closing_report(db, sale_row):
+    if not sale_row:
+        return False
+
+    row = db.execute(
+        """
+        SELECT id
+        FROM cash_closing_reports
+        WHERE warehouse_id=?
+          AND user_id=?
+          AND closing_date=?
+        LIMIT 1
+        """,
+        (
+            sale_row.get("warehouse_id"),
+            sale_row.get("cashier_user_id"),
+            sale_row.get("sale_date"),
+        ),
+    ).fetchone()
+    return row is not None
+
+
 def _fetch_pos_cash_closing_reports(db, warehouse_id=None, cashier_user_id=None, limit=8):
     safe_limit = max(1, min(_to_int(limit, 8), 40))
     params = []
@@ -1447,7 +1523,7 @@ def _fetch_pos_sale_logs(
 ):
     safe_limit = max(1, min(_to_int(limit, 60), 200))
     params = [date_from, date_to]
-    query = """
+    query = f"""
         SELECT
             ps.id,
             ps.purchase_id,
@@ -1465,9 +1541,9 @@ def _fetch_pos_sale_logs(
             ps.created_at,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
-            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS cashier_username,
-            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            {POS_CASHIER_NAME_SQL} AS cashier_name,
+            {POS_CASHIER_USERNAME_SQL} AS cashier_username,
+            {POS_CASHIER_POSITION_SQL} AS cashier_position,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
         JOIN crm_customers c ON c.id = ps.customer_id
@@ -1576,7 +1652,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         return None
 
     params = [safe_receipt]
-    query = """
+    query = f"""
         SELECT
             ps.id,
             ps.purchase_id,
@@ -1594,9 +1670,9 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.created_at,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
-            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS cashier_username,
-            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            {POS_CASHIER_NAME_SQL} AS cashier_name,
+            {POS_CASHIER_USERNAME_SQL} AS cashier_username,
+            {POS_CASHIER_POSITION_SQL} AS cashier_position,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
         JOIN crm_customers c ON c.id = ps.customer_id
@@ -1719,12 +1795,12 @@ def _resolve_month_range(raw_month_value):
 
 def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None):
     params = [date_from, date_to]
-    query = """
+    query = f"""
         SELECT
             ps.cashier_user_id,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS staff_name,
-            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS username,
-            COALESCE(NULLIF(TRIM(e.position), ''), 'Staff') AS position,
+            {POS_CASHIER_NAME_SQL} AS staff_name,
+            {POS_CASHIER_USERNAME_SQL} AS username,
+            {POS_CASHIER_POSITION_SQL} AS position,
             COALESCE(NULLIF(TRIM(home_w.name), ''), '-') AS home_warehouse_name,
             COUNT(ps.id) AS total_transactions,
             COALESCE(SUM(ps.total_items), 0) AS total_items,
@@ -2101,7 +2177,7 @@ def _fetch_pos_sale_logs(
 ):
     safe_limit = max(1, min(_to_int(limit, 60), 200))
     params = [date_from, date_to]
-    query = """
+    query = f"""
         SELECT
             ps.id,
             ps.purchase_id,
@@ -2136,9 +2212,9 @@ def _fetch_pos_sale_logs(
             COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
-            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS cashier_username,
-            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            {POS_CASHIER_NAME_SQL} AS cashier_name,
+            {POS_CASHIER_USERNAME_SQL} AS cashier_username,
+            {POS_CASHIER_POSITION_SQL} AS cashier_position,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
         LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
@@ -2222,6 +2298,8 @@ def _fetch_pos_sale_logs(
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
                 "cashier_identity_label": f"{row['cashier_name']} - {row['cashier_position']}",
+                "can_edit_payment_method": has_permission(session.get("role"), "manage_pos")
+                and str(row.get("status") or "posted").strip().lower() != "voided",
                 "items": items,
                 "item_preview_lines": item_preview_lines,
                 "item_preview_more": max(len(items) - len(item_preview_lines), 0),
@@ -2249,7 +2327,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         return None
 
     params = [safe_receipt]
-    query = """
+    query = f"""
         SELECT
             ps.id,
             ps.purchase_id,
@@ -2284,9 +2362,9 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS cashier_name,
-            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS cashier_username,
-            COALESCE(NULLIF(TRIM(e.position), ''), COALESCE(NULLIF(TRIM(u.role), ''), 'Staff')) AS cashier_position,
+            {POS_CASHIER_NAME_SQL} AS cashier_name,
+            {POS_CASHIER_USERNAME_SQL} AS cashier_username,
+            {POS_CASHIER_POSITION_SQL} AS cashier_position,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
         LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
@@ -2374,12 +2452,12 @@ def _fetch_pos_sale_detail_by_id(db, sale_id):
 
 def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None):
     params = [date_from, date_to]
-    query = """
+    query = f"""
         SELECT
             ps.cashier_user_id,
-            COALESCE(NULLIF(TRIM(e.full_name), ''), NULLIF(TRIM(u.username), ''), 'Tanpa Staff') AS staff_name,
-            COALESCE(NULLIF(TRIM(u.username), ''), '-') AS username,
-            COALESCE(NULLIF(TRIM(e.position), ''), 'Staff') AS position,
+            {POS_CASHIER_NAME_SQL} AS staff_name,
+            {POS_CASHIER_USERNAME_SQL} AS username,
+            {POS_CASHIER_POSITION_SQL} AS position,
             COALESCE(NULLIF(TRIM(home_w.name), ''), '-') AS home_warehouse_name,
             COUNT(ps.id) AS total_transactions,
             COALESCE(SUM(ps.total_items), 0) AS total_items,
@@ -2877,6 +2955,8 @@ def pos_sales_log_page():
         can_view_pos_revenue=can_view_pos_revenue,
         sales_log_rows=sales_log_rows,
         sales_log_summary=sales_log_summary,
+        payment_methods=PAYMENT_METHODS,
+        payment_method_labels={method: _format_payment_method_label(method) for method in PAYMENT_METHODS},
         cash_closing_actor=cash_closing_actor,
         cash_closing_reports=cash_closing_reports,
         cash_closing_default_date=cash_closing_default_date,
@@ -2884,6 +2964,107 @@ def pos_sales_log_page():
         cash_closing_preview_text=cash_closing_defaults["preview_text"],
         cash_closing_return_url=_build_pos_cash_closing_return_url(),
     )
+
+
+@pos_bp.post("/sale/<int:sale_id>/payment-method")
+def pos_update_sale_payment_method(sale_id):
+    denied = _require_pos_access(json_mode=request.is_json)
+    if denied:
+        return denied
+
+    if request.is_json:
+        request_data = request.get_json(silent=True) or {}
+    else:
+        request_data = request.form
+
+    if not has_permission(session.get("role"), "manage_pos"):
+        if request.is_json:
+            return _json_error("Role ini belum punya izin mengganti metode pembayaran POS.", 403)
+        flash("Role ini belum punya izin mengganti metode pembayaran POS.", "error")
+        return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+    db = get_db()
+    sale = _fetch_pos_sale_detail_by_id(db, sale_id)
+    if sale is None:
+        if request.is_json:
+            return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
+        flash("Transaksi POS tidak ditemukan atau tidak bisa diakses.", "error")
+        return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+    sale_status = str(sale.get("status") or "posted").strip().lower()
+    if sale_status == "voided":
+        if request.is_json:
+            return _json_error("Transaksi yang sudah void penuh tidak bisa diganti metode pembayarannya.", 400)
+        flash("Transaksi yang sudah void penuh tidak bisa diganti metode pembayarannya.", "error")
+        return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+    raw_payment_method = request_data.get("payment_method")
+    requested_payment_method = str(raw_payment_method or "").strip().lower()
+    if requested_payment_method not in PAYMENT_METHODS:
+        if request.is_json:
+            return _json_error("Metode pembayaran tidak valid.", 400)
+        flash("Metode pembayaran tidak valid.", "error")
+        return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+    current_payment_method = _normalize_payment_method(sale.get("payment_method"))
+    if requested_payment_method == current_payment_method:
+        message = f"Metode pembayaran transaksi {sale['receipt_no']} sudah { _format_payment_method_label(current_payment_method) }."
+        if request.is_json:
+            return jsonify(
+                {
+                    "status": "success",
+                    "message": message,
+                    "sale_id": sale["id"],
+                    "receipt_no": sale["receipt_no"],
+                    "payment_method": current_payment_method,
+                    "payment_method_label": _format_payment_method_label(current_payment_method),
+                    "unchanged": True,
+                }
+            )
+        flash(message, "info")
+        return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+    has_cash_closing_report = _has_pos_cash_closing_report(db, sale)
+    try:
+        db.execute(
+            """
+            UPDATE pos_sales
+            SET payment_method=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (requested_payment_method, sale["id"]),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        if request.is_json:
+            return _json_error("Metode pembayaran gagal diperbarui. Coba ulangi beberapa detik lagi.", 500)
+        flash("Metode pembayaran gagal diperbarui. Coba ulangi beberapa detik lagi.", "error")
+        return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+    success_message = (
+        f"Metode pembayaran {sale['receipt_no']} diubah dari "
+        f"{_format_payment_method_label(current_payment_method)} ke "
+        f"{_format_payment_method_label(requested_payment_method)}."
+    )
+    if has_cash_closing_report:
+        success_message += " Laporan tutup kasir yang sudah tersimpan tidak otomatis ikut diperbarui."
+
+    if request.is_json:
+        return jsonify(
+            {
+                "status": "success",
+                "message": success_message,
+                "sale_id": sale["id"],
+                "receipt_no": sale["receipt_no"],
+                "payment_method": requested_payment_method,
+                "payment_method_label": _format_payment_method_label(requested_payment_method),
+                "had_cash_closing_report": has_cash_closing_report,
+            }
+        )
+
+    flash(success_message, "success")
+    return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
 
 
 @pos_bp.get("/cash-closing/defaults")
@@ -3124,6 +3305,8 @@ def pos_receipt_print(receipt_no):
         and requested_followup_copy != receipt_copy
         else ""
     )
+    requested_performance_mode = str(request.args.get("perf") or "").strip().lower()
+    receipt_performance_mode = requested_performance_mode if requested_performance_mode in {"lite", "full"} else "auto"
 
     return render_template(
         "pos_receipt_print.html",
@@ -3132,6 +3315,7 @@ def pos_receipt_print(receipt_no):
             receipt_layout=receipt_layout,
             receipt_copy=receipt_copy,
             receipt_followup_copy=receipt_followup_copy,
+            receipt_performance_mode=receipt_performance_mode,
             auto_print=request.args.get("autoprint") == "1",
             auto_close=request.args.get("autoclose") == "1",
             pdf_mode=False,
