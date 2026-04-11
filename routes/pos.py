@@ -1,3 +1,4 @@
+import json
 from datetime import date as date_cls, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, session
@@ -33,6 +34,8 @@ from services.whatsapp_service import (
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
 
 PAYMENT_METHODS = ("cash", "qris", "transfer", "debit", "credit")
+SPLIT_PAYMENT_METHOD = "split"
+POS_ALL_PAYMENT_METHODS = PAYMENT_METHODS + (SPLIT_PAYMENT_METHOD,)
 POS_ASSIGNABLE_ROLE_LIST = ("owner", "super_admin", "leader", "admin", "staff")
 INACTIVE_EMPLOYMENT_STATUSES = ("inactive", "terminated", "resigned", "former", "nonactive", "non-active")
 POS_REVENUE_HIDDEN_LABEL = "-"
@@ -521,16 +524,120 @@ def _normalize_sale_date(raw_value):
         return date_cls.today().isoformat()
 
 
-def _normalize_payment_method(raw_value):
+def _normalize_payment_method(raw_value, *, allow_split=True):
     method = (raw_value or "").strip().lower()
-    return method if method in PAYMENT_METHODS else "cash"
+    allowed_methods = POS_ALL_PAYMENT_METHODS if allow_split else PAYMENT_METHODS
+    return method if method in allowed_methods else "cash"
 
 
 def _format_payment_method_label(raw_value):
     method = _normalize_payment_method(raw_value)
+    if method == SPLIT_PAYMENT_METHOD:
+        return "SPLIT"
     if method == "transfer":
         return "TF"
     return method.upper()
+
+
+def _normalize_pos_payment_breakdown(raw_value):
+    payload = raw_value
+    if isinstance(raw_value, str):
+        safe_value = raw_value.strip()
+        if not safe_value:
+            return []
+        try:
+            payload = json.loads(safe_value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+
+    if isinstance(payload, dict):
+        payload = [
+            {"method": key, "amount": value}
+            for key, value in payload.items()
+        ]
+
+    if not isinstance(payload, (list, tuple)):
+        return []
+
+    aggregated_amounts = {method: Decimal("0.00") for method in PAYMENT_METHODS}
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        method = _normalize_payment_method(entry.get("method"), allow_split=False)
+        amount = _to_decimal(entry.get("amount"), "0")
+        if amount <= 0:
+            continue
+        aggregated_amounts[method] = (
+            aggregated_amounts[method] + amount
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    normalized_entries = []
+    for method in PAYMENT_METHODS:
+        amount = aggregated_amounts[method]
+        if amount <= 0:
+            continue
+        normalized_amount = _currency(amount)
+        normalized_entries.append(
+            {
+                "method": method,
+                "method_label": _format_payment_method_label(method),
+                "amount": normalized_amount,
+                "amount_label": _format_pos_currency_label(normalized_amount),
+            }
+        )
+    return normalized_entries
+
+
+def _serialize_pos_payment_breakdown(entries):
+    normalized_entries = _normalize_pos_payment_breakdown(entries)
+    if not normalized_entries:
+        return None
+    return json.dumps(
+        [
+            {
+                "method": entry["method"],
+                "amount": _currency(entry["amount"]),
+            }
+            for entry in normalized_entries
+        ],
+        separators=(",", ":"),
+    )
+
+
+def _build_pos_payment_breakdown_label(entries):
+    normalized_entries = _normalize_pos_payment_breakdown(entries)
+    if not normalized_entries:
+        return ""
+    return " + ".join(
+        f"{entry['method_label']} {entry['amount_label']}"
+        for entry in normalized_entries
+    )
+
+
+def _build_pos_sale_payment_meta(payment_method, paid_amount, raw_breakdown):
+    normalized_method = _normalize_payment_method(payment_method)
+    normalized_entries = _normalize_pos_payment_breakdown(raw_breakdown)
+    has_payment_breakdown = (
+        normalized_method == SPLIT_PAYMENT_METHOD
+        and len(normalized_entries) >= 2
+    )
+    return {
+        "payment_breakdown_entries": normalized_entries if has_payment_breakdown else [],
+        "payment_breakdown_label": (
+            _build_pos_payment_breakdown_label(normalized_entries)
+            if has_payment_breakdown
+            else ""
+        ),
+        "has_payment_breakdown": has_payment_breakdown,
+        "effective_paid_amount": _currency(
+            sum(
+                _to_decimal(entry.get("amount"), "0")
+                for entry in (normalized_entries if has_payment_breakdown else [])
+            )
+            if has_payment_breakdown
+            else _to_decimal(paid_amount, "0")
+        ),
+    }
 
 
 def _normalize_adjustment_type(raw_value):
@@ -1133,7 +1240,7 @@ def _build_pos_cash_closing_preview_seed(warehouse_name, closing_date=None):
 
 
 def _resolve_pos_cash_closing_bucket_key(payment_method):
-    normalized_method = _normalize_payment_method(payment_method)
+    normalized_method = _normalize_payment_method(payment_method, allow_split=False)
     if normalized_method == "cash":
         return "cash_amount"
     if normalized_method == "debit":
@@ -1160,25 +1267,22 @@ def _resolve_pos_cash_closing_combined_warehouse_ids(db):
     return prioritized_ids or fallback_ids
 
 
-def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None, cashier_user_id=None):
+def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None):
     safe_date = _normalize_pos_cash_closing_date(closing_date)
     params = [safe_date]
     where_clauses = ["ps.sale_date=?"]
     if _to_int(warehouse_id, 0) > 0:
         where_clauses.append("ps.warehouse_id=?")
         params.append(int(warehouse_id))
-    if _to_int(cashier_user_id, 0) > 0:
-        where_clauses.append("ps.cashier_user_id=?")
-        params.append(int(cashier_user_id))
 
     rows = db.execute(
         f"""
         SELECT
             LOWER(COALESCE(ps.payment_method, 'cash')) AS payment_method,
-            COALESCE(SUM(ps.total_amount), 0) AS total_amount
+            COALESCE(ps.total_amount, 0) AS total_amount,
+            ps.payment_breakdown_json
         FROM pos_sales ps
         WHERE {" AND ".join(where_clauses)}
-        GROUP BY LOWER(COALESCE(ps.payment_method, 'cash'))
         """,
         params,
     ).fetchall()
@@ -1191,7 +1295,17 @@ def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None
         "cv_amount": 0,
     }
     for row in rows:
-        bucket_key = _resolve_pos_cash_closing_bucket_key(row["payment_method"])
+        split_entries = _normalize_pos_payment_breakdown(row["payment_breakdown_json"])
+        if split_entries:
+            for split_entry in split_entries:
+                bucket_key = _resolve_pos_cash_closing_bucket_key(split_entry["method"])
+                totals[bucket_key] += max(int(round(float(split_entry["amount"] or 0))), 0)
+            continue
+
+        fallback_method = row["payment_method"]
+        if _normalize_payment_method(fallback_method) == SPLIT_PAYMENT_METHOD:
+            fallback_method = "cash"
+        bucket_key = _resolve_pos_cash_closing_bucket_key(fallback_method)
         totals[bucket_key] += max(int(round(float(row["total_amount"] or 0))), 0)
     totals["reported_total_amount"] = (
         totals["cash_amount"]
@@ -1221,13 +1335,12 @@ def _fetch_pos_cash_closing_combined_total(db, closing_date):
     return max(int(round(float((row["total_amount"] if row else 0) or 0))), 0)
 
 
-def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, warehouse_id=None, cashier_user_id=None):
+def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, warehouse_id=None):
     safe_date = _normalize_pos_cash_closing_date(closing_date)
     method_totals = _fetch_pos_cash_closing_method_totals(
         db,
         safe_date,
         warehouse_id=warehouse_id,
-        cashier_user_id=cashier_user_id,
     )
     combined_total_amount = _fetch_pos_cash_closing_combined_total(db, safe_date)
     expense_amount = 0
@@ -1375,13 +1488,11 @@ def _has_pos_cash_closing_report(db, sale_row):
         SELECT id
         FROM cash_closing_reports
         WHERE warehouse_id=?
-          AND user_id=?
           AND closing_date=?
         LIMIT 1
         """,
         (
             sale_row.get("warehouse_id"),
-            sale_row.get("cashier_user_id"),
             sale_row.get("sale_date"),
         ),
     ).fetchone()
@@ -1445,6 +1556,16 @@ def _fetch_pos_cash_closing_reports(db, warehouse_id=None, cashier_user_id=None,
         report_items.append(
             {
                 "id": row["id"],
+                "cash_amount": int(row.get("cash_amount") or 0),
+                "debit_amount": int(row.get("debit_amount") or 0),
+                "qris_amount": int(row.get("qris_amount") or 0),
+                "mb_amount": int(row.get("mb_amount") or 0),
+                "cv_amount": int(row.get("cv_amount") or 0),
+                "expense_amount": int(row.get("expense_amount") or 0),
+                "cash_on_hand_amount": int(row.get("cash_on_hand_amount") or 0),
+                "combined_total_amount": int(row.get("combined_total_amount") or 0),
+                "closing_date": str(row.get("closing_date") or "").strip(),
+                "note": str(row.get("note") or "").strip(),
                 "cashier_name": row["cashier_name"],
                 "cashier_position": row["cashier_position"],
                 "warehouse_name": row["warehouse_name"],
@@ -1533,6 +1654,7 @@ def _fetch_pos_sale_logs(
             ps.sale_date,
             ps.receipt_no,
             ps.payment_method,
+            ps.payment_breakdown_json,
             ps.total_items,
             ps.total_amount,
             ps.paid_amount,
@@ -1595,6 +1717,11 @@ def _fetch_pos_sale_logs(
         total_amount = _currency(row.get("total_amount") or 0)
         paid_amount = _currency(row.get("paid_amount") or 0)
         change_amount = _currency(row.get("change_amount") or 0)
+        payment_meta = _build_pos_sale_payment_meta(
+            row.get("payment_method"),
+            paid_amount,
+            row.get("payment_breakdown_json"),
+        )
         payment_method_label = _format_payment_method_label(row.get("payment_method"))
         created_time_label = _format_pos_time_label(row.get("created_at"))
         item_preview_lines = items[:3]
@@ -1610,6 +1737,9 @@ def _fetch_pos_sale_logs(
                 "paid_amount_label": _format_pos_currency_label(paid_amount),
                 "change_amount_label": _format_pos_currency_label(change_amount),
                 "payment_method_label": payment_method_label,
+                "has_payment_breakdown": payment_meta["has_payment_breakdown"],
+                "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
+                "payment_breakdown_label": payment_meta["payment_breakdown_label"],
                 "created_time_label": created_time_label,
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
@@ -1662,6 +1792,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.sale_date,
             ps.receipt_no,
             ps.payment_method,
+            ps.payment_breakdown_json,
             ps.total_items,
             ps.total_amount,
             ps.paid_amount,
@@ -2187,6 +2318,7 @@ def _fetch_pos_sale_logs(
             ps.sale_date,
             ps.receipt_no,
             ps.payment_method,
+            ps.payment_breakdown_json,
             ps.total_items,
             ps.subtotal_amount,
             ps.discount_type,
@@ -2271,6 +2403,11 @@ def _fetch_pos_sale_logs(
         subtotal_amount = _currency(row.get("subtotal_amount") or 0)
         discount_amount = _currency(row.get("discount_amount") or 0)
         tax_amount = _currency(row.get("tax_amount") or 0)
+        payment_meta = _build_pos_sale_payment_meta(
+            row.get("payment_method"),
+            paid_amount,
+            row.get("payment_breakdown_json"),
+        )
         created_time_label = _format_pos_time_label(row.get("created_at"))
         item_preview_lines = items[:3]
         sale_status = _build_pos_sale_status_payload(row.get("status"))
@@ -2294,6 +2431,9 @@ def _fetch_pos_sale_logs(
                 "discount_rule_label": _format_pos_adjustment_rule_label(row.get("discount_type"), row.get("discount_value")),
                 "tax_rule_label": _format_pos_adjustment_rule_label(row.get("tax_type"), row.get("tax_value")),
                 "payment_method_label": _format_payment_method_label(row.get("payment_method")),
+                "has_payment_breakdown": payment_meta["has_payment_breakdown"],
+                "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
+                "payment_breakdown_label": payment_meta["payment_breakdown_label"],
                 "created_time_label": created_time_label,
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
@@ -2337,6 +2477,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.sale_date,
             ps.receipt_no,
             ps.payment_method,
+            ps.payment_breakdown_json,
             ps.total_items,
             ps.subtotal_amount,
             ps.discount_type,
@@ -2394,6 +2535,11 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
     subtotal_amount = _currency(sale.get("subtotal_amount") or 0)
     discount_amount = _currency(sale.get("discount_amount") or 0)
     tax_amount = _currency(sale.get("tax_amount") or 0)
+    payment_meta = _build_pos_sale_payment_meta(
+        sale.get("payment_method"),
+        paid_amount,
+        sale.get("payment_breakdown_json"),
+    )
     created_time_label = _format_pos_time_label(sale.get("created_at"))
 
     sale_detail = {
@@ -2415,6 +2561,9 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         "discount_rule_label": _format_pos_adjustment_rule_label(sale.get("discount_type"), sale.get("discount_value")),
         "tax_rule_label": _format_pos_adjustment_rule_label(sale.get("tax_type"), sale.get("tax_value")),
         "payment_method_label": _format_payment_method_label(sale.get("payment_method")),
+        "has_payment_breakdown": payment_meta["has_payment_breakdown"],
+        "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
+        "payment_breakdown_label": payment_meta["payment_breakdown_label"],
         "created_time_label": created_time_label,
         "created_datetime_label": f"{sale['sale_date']} {created_time_label}" if created_time_label != "-" else sale["sale_date"],
         "customer_phone_label": sale["customer_phone"] if sale.get("customer_phone") and sale["customer_phone"] != "-" else "Tanpa nomor",
@@ -2925,11 +3074,10 @@ def pos_sales_log_page():
         can_view_pos_revenue,
     )
     sales_log_rows = _mask_pos_sale_log_rows(sales_log_rows, can_view_pos_revenue)
-    cash_closing_actor = _fetch_pos_cash_closing_actor(db, selected_warehouse, selected_cashier_user_id)
+    cash_closing_actor = _fetch_pos_cash_closing_actor(db, selected_warehouse)
     cash_closing_reports = _fetch_pos_cash_closing_reports(
         db,
         warehouse_id=selected_warehouse,
-        cashier_user_id=selected_cashier_user_id,
         limit=8,
     )
     cash_closing_default_date = date_range["date_to"]
@@ -2938,7 +3086,6 @@ def pos_sales_log_page():
         selected_warehouse_name,
         cash_closing_default_date,
         warehouse_id=selected_warehouse,
-        cashier_user_id=cash_closing_actor.get("user_id"),
     )
 
     return render_template(
@@ -2963,6 +3110,7 @@ def pos_sales_log_page():
         cash_closing_defaults=cash_closing_defaults,
         cash_closing_preview_text=cash_closing_defaults["preview_text"],
         cash_closing_return_url=_build_pos_cash_closing_return_url(),
+        can_edit_cash_closing=str(session.get("role") or "").strip().lower() == "super_admin",
     )
 
 
@@ -3029,7 +3177,9 @@ def pos_update_sale_payment_method(sale_id):
         db.execute(
             """
             UPDATE pos_sales
-            SET payment_method=?, updated_at=CURRENT_TIMESTAMP
+            SET payment_method=?,
+                payment_breakdown_json=NULL,
+                updated_at=CURRENT_TIMESTAMP
             WHERE id=?
             """,
             (requested_payment_method, sale["id"]),
@@ -3080,14 +3230,12 @@ def pos_cash_closing_defaults():
         (warehouse_id,),
     ).fetchone()
     warehouse_name = warehouse["name"] if warehouse else f"WH {warehouse_id}"
-    cashier_user_id = _to_int(request.args.get("cashier_user_id"), 0) or None
     closing_date = _normalize_pos_cash_closing_date(request.args.get("closing_date"))
     defaults = _build_pos_cash_closing_defaults(
         db,
         warehouse_name,
         closing_date,
         warehouse_id=warehouse_id,
-        cashier_user_id=cashier_user_id,
     )
     return jsonify({"status": "success", "defaults": defaults})
 
@@ -3105,6 +3253,7 @@ def pos_cash_closing_submit():
         (warehouse_id,),
     ).fetchone()
     warehouse_name = warehouse["name"] if warehouse else f"WH {warehouse_id}"
+    editing_report_id = _to_int(request.form.get("cash_closing_report_id"), 0) or None
     cashier_actor = _fetch_pos_cash_closing_actor(db, warehouse_id, request.form.get("cashier_user_id"))
     closing_date = _normalize_pos_cash_closing_date(request.form.get("closing_date"))
     cash_amount = _parse_pos_cash_closing_amount(request.form.get("cash_amount"))
@@ -3117,6 +3266,36 @@ def pos_cash_closing_submit():
     combined_total_amount = _parse_pos_cash_closing_amount(request.form.get("combined_total_amount"))
     note = (request.form.get("note") or "").strip()
     return_url = _sanitize_pos_cash_closing_return_url(request.form.get("return_url"))
+
+    existing_report = None
+    if editing_report_id:
+        if str(session.get("role") or "").strip().lower() != "super_admin":
+            flash("Hanya super admin yang bisa mengedit laporan tutup kasir yang sudah tersimpan.", "error")
+            return redirect(f"{return_url}#tutup-kasir")
+        existing_report = db.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                employee_id,
+                warehouse_id,
+                closing_date,
+                wa_status,
+                wa_error,
+                wa_delivery_count,
+                wa_success_count
+            FROM cash_closing_reports
+            WHERE id=?
+            LIMIT 1
+            """,
+            (editing_report_id,),
+        ).fetchone()
+        if existing_report is None:
+            flash("Laporan tutup kasir yang ingin diedit tidak ditemukan.", "error")
+            return redirect(f"{return_url}#tutup-kasir")
+        if _to_int(existing_report["warehouse_id"], 0) != warehouse_id:
+            flash("Laporan tutup kasir hanya bisa diedit dari homebase yang sama.", "error")
+            return redirect(f"{return_url}#tutup-kasir")
 
     if not any(
         (
@@ -3153,8 +3332,50 @@ def pos_cash_closing_submit():
     submitted_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     subject = (
         f"Tutup Kasir {warehouse_label} "
-        f"{_format_pos_cash_closing_date_label(closing_date)} | {cashier_actor['display_name']}"
+        f"{_format_pos_cash_closing_date_label(closing_date)}"
     )
+
+    if existing_report is not None:
+        db.execute(
+            """
+            UPDATE cash_closing_reports
+            SET closing_date=?,
+                cash_amount=?,
+                debit_amount=?,
+                qris_amount=?,
+                mb_amount=?,
+                cv_amount=?,
+                reported_total_amount=?,
+                expense_amount=?,
+                cash_on_hand_amount=?,
+                combined_total_amount=?,
+                note=?,
+                summary_message=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                closing_date,
+                cash_amount,
+                debit_amount,
+                qris_amount,
+                mb_amount,
+                cv_amount,
+                reported_total_amount,
+                expense_amount,
+                cash_on_hand_amount,
+                combined_total_amount,
+                note,
+                summary_message,
+                existing_report["id"],
+            ),
+        )
+        db.commit()
+        flash(
+            "Laporan tutup kasir berhasil diperbarui. WA yang sudah pernah terkirim tidak otomatis dikirim ulang.",
+            "success",
+        )
+        return redirect(f"{return_url}#tutup-kasir")
 
     cursor = db.execute(
         """
@@ -3570,11 +3791,29 @@ def pos_checkout():
         tax_value=tax_value,
     )
 
-    paid_amount = _to_decimal(payload.get("paid_amount"), str(financials["total_amount"]))
-    if paid_amount < financials["total_amount"]:
-        return _json_error("Nominal bayar kurang dari total transaksi.", 400)
+    payment_breakdown_entries = _normalize_pos_payment_breakdown(payload.get("payment_splits"))
+    payment_breakdown_json = None
+    if payment_method == SPLIT_PAYMENT_METHOD or payment_breakdown_entries:
+        payment_method = SPLIT_PAYMENT_METHOD
+        if len(payment_breakdown_entries) < 2:
+            return _json_error("Split transaksi minimal harus memakai 2 metode pembayaran.", 400)
 
-    change_amount = (paid_amount - financials["total_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        split_total_amount = sum(
+            (_to_decimal(entry.get("amount"), "0") for entry in payment_breakdown_entries),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if split_total_amount != financials["total_amount"]:
+            return _json_error("Total split pembayaran harus pas sama total transaksi.", 400)
+
+        paid_amount = split_total_amount
+        change_amount = Decimal("0.00")
+        payment_breakdown_json = _serialize_pos_payment_breakdown(payment_breakdown_entries)
+    else:
+        paid_amount = _to_decimal(payload.get("paid_amount"), str(financials["total_amount"]))
+        if paid_amount < financials["total_amount"]:
+            return _json_error("Nominal bayar kurang dari total transaksi.", 400)
+
+        change_amount = (paid_amount - financials["total_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     member_id = None
     member_snapshot = None
@@ -3737,6 +3976,7 @@ def pos_checkout():
                 sale_date,
                 receipt_no,
                 payment_method,
+                payment_breakdown_json,
                 total_items,
                 subtotal_amount,
                 discount_type,
@@ -3751,7 +3991,7 @@ def pos_checkout():
                 status,
                 note
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 purchase_id,
@@ -3761,6 +4001,7 @@ def pos_checkout():
                 sale_date,
                 receipt_no,
                 payment_method,
+                payment_breakdown_json,
                 financials["total_items"],
                 _currency(financials["subtotal_amount"]),
                 financials["discount_type"],
@@ -3848,6 +4089,9 @@ def pos_checkout():
             "total_amount": _currency(financials["total_amount"]),
             "paid_amount": _currency(paid_amount),
             "change_amount": _currency(change_amount),
+            "payment_method": payment_method,
+            "payment_method_label": _format_payment_method_label(payment_method),
+            "payment_breakdown_label": _build_pos_payment_breakdown_label(payment_breakdown_entries),
             "receipt_print_url": (
                 f"/kasir/receipt/{receipt_no}/print"
                 f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"

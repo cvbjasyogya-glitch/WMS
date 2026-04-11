@@ -75,6 +75,17 @@ ATTENDANCE_SPECIAL_SHIFT_RULES = (
     },
 )
 
+ATTENDANCE_CHECKOUT_REPORT_BYPASS_RULES = (
+    {
+        "label": "Prapti",
+        "aliases": ("prapti", "bu prapti", "ibu prapti"),
+    },
+    {
+        "label": "Ika",
+        "aliases": ("ika", "bu ika", "ibu ika"),
+    },
+)
+
 ATTENDANCE_SHIFT_PROFILE_LABELS = {
     "mataram": "Gudang Mataram",
     "mega": "Gudang Mega",
@@ -218,6 +229,25 @@ def _resolve_special_shift_rule(linked_employee):
         session.get("username"),
     )
     for rule in ATTENDANCE_SPECIAL_SHIFT_RULES:
+        aliases = rule.get("aliases") or ()
+        for candidate in candidate_values:
+            if any(_matches_identity_alias(candidate, alias) for alias in aliases):
+                return rule
+    return None
+
+
+def _resolve_checkout_report_bypass_rule(linked_employee):
+    source = (
+        dict(linked_employee)
+        if linked_employee is not None and not isinstance(linked_employee, dict)
+        else (linked_employee or {})
+    )
+    candidate_values = (
+        source.get("full_name"),
+        source.get("employee_code"),
+        session.get("username"),
+    )
+    for rule in ATTENDANCE_CHECKOUT_REPORT_BYPASS_RULES:
         aliases = rule.get("aliases") or ()
         for candidate in candidate_values:
             if any(_matches_identity_alias(candidate, alias) for alias in aliases):
@@ -1060,6 +1090,8 @@ def _fetch_attendance_portal_state(db):
     )
     attendance_history = _fetch_attendance_history(db, linked_employee)
     cash_closing_reports = _fetch_cash_closing_reports(db, linked_employee)
+    checkout_report_bypass_rule = _resolve_checkout_report_bypass_rule(linked_employee)
+    check_out_daily_report_required = bool(linked_employee and checkout_report_bypass_rule is None)
     today_daily_report_submitted = _has_completed_daily_report_for_date(
         db,
         linked_employee,
@@ -1099,6 +1131,12 @@ def _fetch_attendance_portal_state(db):
         "cash_closing_warehouse_label": _build_cash_closing_warehouse_label(linked_employee) if linked_employee else "Mataram",
         "show_follow_up_punch_group": len(punch_options) > 1 and punch_mode != "check_in",
         "today_daily_report_submitted": today_daily_report_submitted,
+        "check_out_daily_report_required": check_out_daily_report_required,
+        "check_out_daily_report_bypass_label": (
+            str(checkout_report_bypass_rule.get("label") or "").strip()
+            if checkout_report_bypass_rule
+            else ""
+        ),
     }
 
 
@@ -1140,6 +1178,8 @@ def index():
         cash_closing_warehouse_label=portal_state["cash_closing_warehouse_label"],
         portal_show_follow_up_punch_group=portal_state["show_follow_up_punch_group"],
         portal_today_daily_report_submitted=portal_state["today_daily_report_submitted"],
+        portal_check_out_daily_report_required=portal_state["check_out_daily_report_required"],
+        portal_check_out_daily_report_bypass_label=portal_state["check_out_daily_report_bypass_label"],
     )
 
 
@@ -1220,12 +1260,15 @@ def submit():
         flash("Tipe absen tidak sesuai urutan harian. Pilih tipe yang tersedia di form.", "error")
         return redirect("/absen/")
 
-    if punch_type == "check_out" and not _has_completed_daily_report_for_date(
+    if (
+        punch_type == "check_out"
+        and portal_state["check_out_daily_report_required"]
+        and not _has_completed_daily_report_for_date(
         db,
         linked_employee,
         punch_time[:10],
         user_id=session.get("user_id"),
-    ):
+    )):
         flash(
             "Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.",
             "error",

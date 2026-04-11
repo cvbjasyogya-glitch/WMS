@@ -1619,10 +1619,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('name="qris_amount"', html)
         self.assertIn("Simpan &amp; Kirim WA Owner", html)
         self.assertIn('data-cash-closing-defaults-url="/kasir/cash-closing/defaults"', html)
+        self.assertIn("Petugas Submit", html)
+        self.assertIn("Semua kasir / sales", html)
 
     def test_pos_cash_closing_defaults_endpoint_returns_auto_totals(self):
         self.create_user("staff_cash_closing_defaults", "pass1234", "staff", warehouse_id=1)
         cashier_user_id = self.get_user_id("staff_cash_closing_defaults")
+        self.create_user("staff_cash_closing_defaults_alt", "pass1234", "staff", warehouse_id=1)
+        cashier_user_id_alt = self.get_user_id("staff_cash_closing_defaults_alt")
         self.create_user("staff_cash_closing_defaults_mega", "pass1234", "staff", warehouse_id=2)
         cashier_user_id_mega = self.get_user_id("staff_cash_closing_defaults_mega")
         self.login_pos_user("super_cash_closing_defaults", "super_admin")
@@ -1705,6 +1709,22 @@ class WmsRoutesTestCase(unittest.TestCase):
             paid_amount=400000,
         )
         checkout_sale(
+            warehouse_id=1,
+            cashier_id=cashier_user_id_alt,
+            product_id=product_id,
+            variant_id=variant_id,
+            payment_method="cash",
+            paid_amount=250000,
+        )
+        checkout_sale(
+            warehouse_id=1,
+            cashier_id=cashier_user_id_alt,
+            product_id=product_id,
+            variant_id=variant_id,
+            payment_method="debit",
+            paid_amount=50000,
+        )
+        checkout_sale(
             warehouse_id=2,
             cashier_id=cashier_user_id_mega,
             product_id=product_id_mega,
@@ -1720,16 +1740,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "success")
         defaults = payload["defaults"]
-        self.assertEqual(defaults["cash_amount"], 150000)
-        self.assertEqual(defaults["debit_amount"], 200000)
+        self.assertEqual(defaults["cash_amount"], 400000)
+        self.assertEqual(defaults["debit_amount"], 250000)
         self.assertEqual(defaults["qris_amount"], 400000)
         self.assertEqual(defaults["mb_amount"], 300000)
         self.assertEqual(defaults["cv_amount"], 0)
-        self.assertEqual(defaults["cash_on_hand_amount"], 150000)
-        self.assertEqual(defaults["combined_total_amount"], 1550000)
+        self.assertEqual(defaults["cash_on_hand_amount"], 400000)
+        self.assertEqual(defaults["combined_total_amount"], 1850000)
         self.assertIn('Laporan "Mataram" 08/04/2026', defaults["preview_text"])
         self.assertIn("QRIS", defaults["preview_text"])
-        self.assertEqual(defaults["combined_total_amount_label"], "1.550.000")
+        self.assertEqual(defaults["combined_total_amount_label"], "1.850.000")
 
     def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_owner_whatsapp(self):
         employee_id = self.create_employee_record(
@@ -1823,6 +1843,272 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(report["wa_status"], "sent")
         self.assertEqual(report["wa_delivery_count"], 1)
         self.assertEqual(report["wa_success_count"], 1)
+
+    def test_super_admin_can_edit_existing_cash_closing_report(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-POS-CLOSE-EDIT",
+            full_name="Kasir Edit",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("staff_cash_closing_edit_target", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        cashier_user_id = self.get_user_id("staff_cash_closing_edit_target")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO cash_closing_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    closing_date,
+                    cash_amount,
+                    debit_amount,
+                    qris_amount,
+                    mb_amount,
+                    cv_amount,
+                    reported_total_amount,
+                    expense_amount,
+                    cash_on_hand_amount,
+                    combined_total_amount,
+                    note,
+                    summary_message,
+                    wa_status,
+                    wa_delivery_count,
+                    wa_success_count
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    cashier_user_id,
+                    employee_id,
+                    1,
+                    "2026-04-11",
+                    800000,
+                    120000,
+                    0,
+                    0,
+                    0,
+                    920000,
+                    0,
+                    800000,
+                    1250000,
+                    "Setoran awal",
+                    'Laporan "Mataram" 11/04/2026\nTot. = 920.000',
+                    "sent",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            report = db.execute(
+                """
+                SELECT id
+                FROM cash_closing_reports
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cashier_user_id,),
+            ).fetchone()
+            report_id = report["id"]
+
+        self.login_pos_user("super_cash_closing_editor", "super_admin")
+
+        page_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn(f'data-report-id="{report_id}"', page_html)
+
+        response = self.client.post(
+            "/kasir/cash-closing/submit",
+            data={
+                "warehouse_id": "1",
+                "cash_closing_report_id": str(report_id),
+                "cashier_user_id": str(cashier_user_id),
+                "return_url": "/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11",
+                "closing_date": "2026-04-11",
+                "cash_amount": "900000",
+                "debit_amount": "150000",
+                "qris_amount": "25000",
+                "mb_amount": "",
+                "cv_amount": "10000",
+                "expense_amount": "5000",
+                "cash_on_hand_amount": "0",
+                "combined_total_amount": "1500000",
+                "note": "Revisi tutup kasir",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11#tutup-kasir", response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            updated_report = db.execute(
+                """
+                SELECT
+                    cash_amount,
+                    debit_amount,
+                    qris_amount,
+                    mb_amount,
+                    cv_amount,
+                    reported_total_amount,
+                    expense_amount,
+                    cash_on_hand_amount,
+                    combined_total_amount,
+                    note,
+                    summary_message,
+                    wa_status,
+                    wa_delivery_count,
+                    wa_success_count
+                FROM cash_closing_reports
+                WHERE id=?
+                LIMIT 1
+                """,
+                (report_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(updated_report)
+        self.assertEqual(updated_report["cash_amount"], 900000)
+        self.assertEqual(updated_report["debit_amount"], 150000)
+        self.assertEqual(updated_report["qris_amount"], 25000)
+        self.assertEqual(updated_report["mb_amount"], 0)
+        self.assertEqual(updated_report["cv_amount"], 10000)
+        self.assertEqual(updated_report["reported_total_amount"], 1085000)
+        self.assertEqual(updated_report["expense_amount"], 5000)
+        self.assertEqual(updated_report["cash_on_hand_amount"], 895000)
+        self.assertEqual(updated_report["combined_total_amount"], 1500000)
+        self.assertEqual(updated_report["note"], "Revisi tutup kasir")
+        self.assertIn("Revisi tutup kasir", updated_report["summary_message"])
+        self.assertEqual(updated_report["wa_status"], "sent")
+        self.assertEqual(updated_report["wa_delivery_count"], 1)
+        self.assertEqual(updated_report["wa_success_count"], 1)
+
+    def test_owner_cannot_edit_existing_cash_closing_report(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-POS-CLOSE-LOCK",
+            full_name="Kasir Kunci",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("staff_cash_closing_edit_locked", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        cashier_user_id = self.get_user_id("staff_cash_closing_edit_locked")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO cash_closing_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    closing_date,
+                    cash_amount,
+                    debit_amount,
+                    qris_amount,
+                    mb_amount,
+                    cv_amount,
+                    reported_total_amount,
+                    expense_amount,
+                    cash_on_hand_amount,
+                    combined_total_amount,
+                    note,
+                    summary_message,
+                    wa_status,
+                    wa_delivery_count,
+                    wa_success_count
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    cashier_user_id,
+                    employee_id,
+                    1,
+                    "2026-04-11",
+                    650000,
+                    350000,
+                    0,
+                    0,
+                    0,
+                    1000000,
+                    0,
+                    650000,
+                    1200000,
+                    "Data awal",
+                    'Laporan "Mataram" 11/04/2026\nTot. = 1.000.000',
+                    "sent",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            report = db.execute(
+                """
+                SELECT id, cash_amount, combined_total_amount, note
+                FROM cash_closing_reports
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cashier_user_id,),
+            ).fetchone()
+            report_id = report["id"]
+
+        self.login_pos_user("owner_cash_closing_editor_denied", "owner")
+
+        page_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertNotIn(f'data-report-id="{report_id}"', page_html)
+
+        response = self.client.post(
+            "/kasir/cash-closing/submit",
+            data={
+                "warehouse_id": "1",
+                "cash_closing_report_id": str(report_id),
+                "cashier_user_id": str(cashier_user_id),
+                "return_url": "/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11",
+                "closing_date": "2026-04-11",
+                "cash_amount": "999999",
+                "debit_amount": "0",
+                "qris_amount": "0",
+                "mb_amount": "0",
+                "cv_amount": "0",
+                "expense_amount": "0",
+                "cash_on_hand_amount": "999999",
+                "combined_total_amount": "999999",
+                "note": "Tidak boleh lolos",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11#tutup-kasir", response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            untouched_report = db.execute(
+                """
+                SELECT
+                    cash_amount,
+                    debit_amount,
+                    combined_total_amount,
+                    note
+                FROM cash_closing_reports
+                WHERE id=?
+                LIMIT 1
+                """,
+                (report_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(untouched_report)
+        self.assertEqual(untouched_report["cash_amount"], 650000)
+        self.assertEqual(untouched_report["debit_amount"], 350000)
+        self.assertEqual(untouched_report["combined_total_amount"], 1200000)
+        self.assertEqual(untouched_report["note"], "Data awal")
 
     def test_pos_staff_sales_report_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
         self.login_pos_user("owner_sales_report", "owner")
@@ -2202,6 +2488,137 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(pos_sale["subtotal_amount"]), 200000.0)
         self.assertAlmostEqual(float(pos_sale["total_amount"]), 199800.0)
         self.assertAlmostEqual(float(purchase["total_amount"]), 199800.0)
+
+    def test_pos_checkout_supports_split_payment_and_cash_closing_breakdown(self):
+        self.create_user("staff_sales_split", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_split")
+        self.login_pos_user("pos_split_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-SPLIT-001",
+            qty=7,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Split",
+                "customer_phone": "628120007777",
+                "payment_method": "split",
+                "payment_splits": [
+                    {"method": "cash", "amount": 100000},
+                    {"method": "debit", "amount": 150000},
+                ],
+                "paid_amount": 250000,
+                "note": "Checkout split payment",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 125000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["payment_method"], "split")
+        self.assertEqual(payload["payment_method_label"], "SPLIT")
+        self.assertIn("CASH Rp 100.000", payload["payment_breakdown_label"])
+        self.assertIn("DEBIT Rp 150.000", payload["payment_breakdown_label"])
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                """
+                SELECT payment_method, payment_breakdown_json, paid_amount, change_amount
+                FROM pos_sales
+                WHERE receipt_no=?
+                LIMIT 1
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        self.assertEqual(sale["payment_method"], "split")
+        self.assertEqual(sale["paid_amount"], 250000)
+        self.assertEqual(sale["change_amount"], 0)
+        payment_breakdown = json.loads(sale["payment_breakdown_json"])
+        self.assertEqual(len(payment_breakdown), 2)
+        self.assertEqual(payment_breakdown[0]["method"], "cash")
+        self.assertEqual(payment_breakdown[1]["method"], "debit")
+
+        defaults_response = self.client.get("/kasir/cash-closing/defaults?warehouse_id=1&closing_date=2026-04-03")
+        self.assertEqual(defaults_response.status_code, 200)
+        defaults_payload = defaults_response.get_json()
+        self.assertEqual(defaults_payload["status"], "success")
+        defaults = defaults_payload["defaults"]
+        self.assertEqual(defaults["cash_amount"], 100000)
+        self.assertEqual(defaults["debit_amount"], 150000)
+        self.assertEqual(defaults["reported_total_amount"], 250000)
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03&search=Customer+Split")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn("SPLIT", log_html)
+        self.assertIn("CASH Rp 100.000 + DEBIT Rp 150.000", log_html)
+
+        print_response = self.client.get(f"/kasir/receipt/{payload['receipt_no']}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+        self.assertIn("Split Bayar", print_html)
+        self.assertIn("CASH Rp 100.000 + DEBIT Rp 150.000", print_html)
+
+    def test_pos_checkout_rejects_split_payment_total_mismatch(self):
+        self.create_user("staff_sales_split_invalid", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_split_invalid")
+        self.login_pos_user("pos_split_invalid_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-SPLIT-ERR-001",
+            qty=4,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Split Gagal",
+                "customer_phone": "628120008888",
+                "payment_method": "split",
+                "payment_splits": [
+                    {"method": "cash", "amount": 50000},
+                    {"method": "qris", "amount": 100000},
+                ],
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 100000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 400)
+        error_payload = checkout.get_json()
+        self.assertEqual(error_payload["status"], "error")
+        self.assertIn("split pembayaran", error_payload["message"].lower())
 
     def test_pos_sales_log_and_receipt_print_show_complete_sale_details(self):
         self.create_user("staff_sales_receipt", "pass1234", "staff", warehouse_id=1)
@@ -10776,6 +11193,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(first_submit.status_code, 302)
 
+        report_submit = self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": today,
+                "title": "Portal auto check out",
+                "summary": "Penataan stok dan input penerimaan selesai.",
+                "blocker_note": "Rak depan sempat penuh saat serah terima.",
+                "follow_up_note": "Besok lanjut cek ulang label rak depan.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(report_submit.status_code, 302)
+
         second_submit = self.client.post(
             "/absen/submit",
             data={
@@ -11662,6 +12093,80 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance_after_report["check_in"], "08:00")
         self.assertEqual(attendance_after_report["check_out"], "17:05")
         self.assertEqual(attendance_after_report["status"], "present")
+
+    def test_attendance_portal_allows_checkout_without_daily_report_for_prapti_and_ika(self):
+        today = date_cls.today().isoformat()
+
+        special_cases = (
+            ("portal_prapti", "Prapti", "EMP-ABS-PRAPTI"),
+            ("portal_ika", "Ika", "EMP-ABS-IKA"),
+        )
+
+        for username, full_name, employee_code in special_cases:
+            with self.subTest(username=username):
+                employee_id = self.create_employee_record(
+                    employee_code=employee_code,
+                    full_name=full_name,
+                    warehouse_id=1,
+                    position="Warehouse Staff",
+                )
+                self.create_user(username, "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+                self.login(username, "pass1234")
+
+                portal_response = self.client.get("/absen/")
+                self.assertEqual(portal_response.status_code, 200)
+                portal_html = portal_response.get_data(as_text=True)
+                self.assertIn("Tidak Wajib", portal_html)
+                self.assertIn('data-daily-report-required="0"', portal_html)
+
+                check_in_response = self.client.post(
+                    "/absen/submit",
+                    data={
+                        "punch_type": "check_in",
+                        "location_label": "Gudang Mataram - Masuk",
+                        "latitude": "-8.583140",
+                        "longitude": "116.116798",
+                        "accuracy_m": "7.5",
+                        "punch_time": f"{today}T08:00",
+                        "photo_data_url": self.build_camera_photo_data_url(),
+                    },
+                    follow_redirects=False,
+                )
+                self.assertEqual(check_in_response.status_code, 302)
+
+                checkout_response = self.client.post(
+                    "/absen/submit",
+                    data={
+                        "punch_type": "check_out",
+                        "location_label": "Gudang Mataram - Pulang",
+                        "latitude": "-8.583140",
+                        "longitude": "116.116798",
+                        "accuracy_m": "5.4",
+                        "punch_time": f"{today}T17:05",
+                        "photo_data_url": self.build_camera_photo_data_url(),
+                    },
+                    follow_redirects=False,
+                )
+                self.assertEqual(checkout_response.status_code, 302)
+                self.assertIn("/absen/", checkout_response.headers.get("Location", ""))
+
+                with self.app.app_context():
+                    db = get_db()
+                    attendance_row = db.execute(
+                        """
+                        SELECT check_in, check_out, status
+                        FROM attendance_records
+                        WHERE employee_id=? AND attendance_date=?
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (employee_id, today),
+                    ).fetchone()
+
+                self.assertIsNotNone(attendance_row)
+                self.assertEqual(attendance_row["check_in"], "08:00")
+                self.assertEqual(attendance_row["check_out"], "17:05")
+                self.assertEqual(attendance_row["status"], "present")
 
     def test_attendance_check_out_notification_includes_effective_work_duration(self):
         employee_id = self.create_employee_record(

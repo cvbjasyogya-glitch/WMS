@@ -127,6 +127,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "crm_purchase_records", "import_source", "TEXT")
     _ensure_column(cursor, "crm_purchase_records", "import_items_summary", "TEXT")
     _ensure_column(cursor, "crm_purchase_records", "import_total_qty", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "payment_breakdown_json", "TEXT")
     _ensure_column(cursor, "crm_member_records", "service_count_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "reward_redeemed_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "benefit_value", "REAL DEFAULT 0")
@@ -1391,6 +1392,7 @@ def init_db(db_path=None, sqlite_options=None):
         source_cashier_name TEXT,
         source_sales_name TEXT,
         payment_method TEXT DEFAULT 'cash',
+        payment_breakdown_json TEXT,
         total_items INTEGER DEFAULT 0,
         subtotal_amount REAL DEFAULT 0,
         discount_type TEXT DEFAULT 'amount',

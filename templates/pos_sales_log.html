@@ -87,13 +87,12 @@
         data-cash-closing-panel
         data-cash-closing-warehouse="{{ selected_warehouse_name }}"
         data-cash-closing-warehouse-id="{{ selected_warehouse }}"
-        data-cash-closing-cashier-user-id="{{ cash_closing_actor.user_id or '' }}"
         data-cash-closing-defaults-url="/kasir/cash-closing/defaults"
     >
         <div class="section-title">
             <div>
                 <h2>Tutup Kasir</h2>
-                <p>Rekap penutupan kasir diambil otomatis dari log penjualan. Hanya kolom pengeluaran yang perlu diisi manual, lalu laporan dikirim ke owner dan super admin tujuan.</p>
+                <p>Rekap penutupan kasir diambil otomatis dari total semua transaksi kasir dan sales dalam homebase ini pada tanggal yang dipilih. Hanya kolom pengeluaran yang perlu diisi manual, lalu laporan dikirim ke owner dan super admin tujuan.</p>
             </div>
             <div class="attendance-overview-badges">
                 <span class="badge">{{ selected_warehouse_name }}</span>
@@ -103,6 +102,7 @@
 
         <form method="POST" action="/kasir/cash-closing/submit" class="attendance-cash-closing-form">
             <input type="hidden" name="warehouse_id" value="{{ selected_warehouse }}">
+            <input type="hidden" name="cash_closing_report_id" value="" data-cash-closing-report-id>
             <input type="hidden" name="cashier_user_id" value="{{ cash_closing_actor.user_id or '' }}">
             <input type="hidden" name="return_url" value="{{ cash_closing_return_url }}">
 
@@ -110,11 +110,15 @@
                 <div class="attendance-cash-closing-fields">
                     <div class="attendance-form-quick-grid">
                         <div class="meta-card">
-                            <span>Kasir / Sales</span>
+                            <span>Petugas Submit</span>
                             <strong>{{ cash_closing_actor.display_name }}</strong>
                         </div>
                         <div class="meta-card">
-                            <span>Gudang</span>
+                            <span>Cakupan Rekap</span>
+                            <strong>Semua kasir / sales {{ selected_warehouse_name }}</strong>
+                        </div>
+                        <div class="meta-card">
+                            <span>Homebase</span>
                             <strong>{{ selected_warehouse_name }}</strong>
                         </div>
                     </div>
@@ -163,9 +167,15 @@
                     </div>
 
                     <div class="split-actions attendance-submit-row">
-                        <button type="submit">Simpan &amp; Kirim WA Owner</button>
+                        <button type="submit" data-cash-closing-submit-button>Simpan &amp; Kirim WA Owner</button>
+                        {% if can_edit_cash_closing %}
+                        <button type="button" class="ghost-button" hidden data-cash-closing-cancel-edit>Batal Edit</button>
+                        {% endif %}
                     </div>
-                    <small class="helper-text" data-cash-closing-sync-status>Nominal otomatis mengikuti log penjualan pada tanggal yang dipilih.</small>
+                    <small class="helper-text" data-cash-closing-sync-status>Nominal otomatis mengikuti total semua transaksi homebase tanggal yang dipilih.</small>
+                    {% if can_edit_cash_closing %}
+                    <small class="helper-text" hidden data-cash-closing-edit-state>Mode edit laporan tutup kasir aktif. Simpan untuk memperbarui data yang salah.</small>
+                    {% endif %}
                 </div>
 
                 <div class="attendance-cash-closing-preview-panel">
@@ -181,8 +191,8 @@
                 <article class="attendance-cash-closing-item">
                     <div class="attendance-cash-closing-item-head">
                         <div>
-                            <h3>{{ item.cashier_name }} · {{ item.warehouse_label }}</h3>
-                            <p>{{ item.closing_date_label }} · {{ item.cashier_position }}</p>
+                            <h3>{{ item.warehouse_label }}</h3>
+                            <p>{{ item.closing_date_label }} · Submit: {{ item.cashier_name }}{% if item.cashier_position %} · {{ item.cashier_position }}{% endif %}</p>
                         </div>
                         <div class="attendance-log-badges">
                             <span class="badge {{ item.wa_status_badge }}">{{ item.wa_status_label }}</span>
@@ -190,6 +200,26 @@
                             <span class="badge">Tot. {{ item.summary_total_label }}</span>
                             {% endif %}
                             <span class="badge">{{ item.wa_success_count }}/{{ item.wa_delivery_count }} WA</span>
+                            {% if can_edit_cash_closing %}
+                            <button
+                                type="button"
+                                class="ghost-button"
+                                data-cash-closing-edit-button
+                                data-report-id="{{ item.id }}"
+                                data-closing-date="{{ item.closing_date }}"
+                                data-cash-amount="{{ item.cash_amount }}"
+                                data-debit-amount="{{ item.debit_amount }}"
+                                data-qris-amount="{{ item.qris_amount }}"
+                                data-mb-amount="{{ item.mb_amount }}"
+                                data-cv-amount="{{ item.cv_amount }}"
+                                data-expense-amount="{{ item.expense_amount }}"
+                                data-cash-on-hand-amount="{{ item.cash_on_hand_amount }}"
+                                data-combined-total-amount="{{ item.combined_total_amount }}"
+                                data-note="{{ item.note }}"
+                            >
+                                Edit Laporan
+                            </button>
+                            {% endif %}
                         </div>
                     </div>
                     {% if can_view_pos_revenue %}
@@ -284,6 +314,9 @@
                     </td>
                     <td>
                         <strong>{{ sale.payment_method_label }}</strong>
+                        {% if sale.has_payment_breakdown %}
+                        <div class="helper-text">{{ sale.payment_breakdown_label }}</div>
+                        {% endif %}
                         <div class="helper-text">{{ sale.total_items }} item</div>
                     </td>
                     {% if can_view_pos_revenue %}
@@ -329,6 +362,7 @@
                             <button type="submit" class="ghost-button">Update Metode</button>
                         </form>
                         {% endif %}
+                        <a href="/kasir/receipt/{{ sale.receipt_no }}/pdf" target="_blank" rel="noopener" class="ghost-button" data-pos-runtime-link="1">PDF Nota</a>
                         <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button" data-pos-runtime-link="1">Preview Nota</a>
                         <a href="{{ sale.receipt_thermal_url }}" target="_blank" rel="noopener" class="btn-link" data-pos-runtime-link="1">Cetak Thermal</a>
                         <button
@@ -503,12 +537,15 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
     const preview = cashClosingPanel.querySelector("[data-cash-closing-preview]");
     const dateInput = cashClosingPanel.querySelector("[name='closing_date']");
     const noteInput = cashClosingPanel.querySelector("[name='note']");
+    const reportIdInput = cashClosingPanel.querySelector("[data-cash-closing-report-id]");
     const amountInputs = Array.from(cashClosingPanel.querySelectorAll("[data-cash-amount]"));
     const editableAmountInputs = amountInputs.filter((input) => !input.hasAttribute("readonly"));
     const syncStatus = cashClosingPanel.querySelector("[data-cash-closing-sync-status]");
+    const editState = cashClosingPanel.querySelector("[data-cash-closing-edit-state]");
+    const submitButton = cashClosingPanel.querySelector("[data-cash-closing-submit-button]");
+    const cancelEditButton = cashClosingPanel.querySelector("[data-cash-closing-cancel-edit]");
     const defaultsUrl = String(cashClosingPanel.dataset.cashClosingDefaultsUrl || "").trim();
     const warehouseId = String(cashClosingPanel.dataset.cashClosingWarehouseId || "").trim();
-    const cashierUserId = String(cashClosingPanel.dataset.cashClosingCashierUserId || "").trim();
     const warehouseLabel = String(cashClosingPanel.dataset.cashClosingWarehouse || "Mataram")
         .replace(/^Gudang\s+/i, "")
         .trim() || "Mataram";
@@ -520,6 +557,8 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
     const combinedInput = cashClosingPanel.querySelector("[name='combined_total_amount']");
     const expenseInput = cashClosingPanel.querySelector("[name='expense_amount']");
     const cashOnHandInput = cashClosingPanel.querySelector("[name='cash_on_hand_amount']");
+    const defaultSubmitLabel = submitButton?.textContent || "Simpan & Kirim WA Owner";
+    const editSubmitLabel = "Simpan Perubahan";
 
     const parseAmount = (value) => {
         const normalized = String(value || "")
@@ -595,6 +634,79 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
         renderPreview();
     };
 
+    const setEditMode = (button) => {
+        if (!(button instanceof HTMLButtonElement)) {
+            return;
+        }
+        if (reportIdInput instanceof HTMLInputElement) {
+            reportIdInput.value = String(button.dataset.reportId || "").trim();
+        }
+        if (dateInput instanceof HTMLInputElement) {
+            dateInput.value = String(button.dataset.closingDate || "").trim();
+        }
+        if (combinedInput instanceof HTMLInputElement) {
+            combinedInput.value = formatAmount(button.dataset.combinedTotalAmount, "0");
+        }
+        if (cashInput instanceof HTMLInputElement) {
+            cashInput.value = formatAmount(button.dataset.cashAmount, "0");
+        }
+        if (debitInput instanceof HTMLInputElement) {
+            debitInput.value = formatAmount(button.dataset.debitAmount, "0");
+        }
+        if (qrisInput instanceof HTMLInputElement) {
+            qrisInput.value = formatAmount(button.dataset.qrisAmount, "0");
+        }
+        if (mbInput instanceof HTMLInputElement) {
+            mbInput.value = formatAmount(button.dataset.mbAmount, "0");
+        }
+        if (cvInput instanceof HTMLInputElement) {
+            cvInput.value = formatAmount(button.dataset.cvAmount, "0");
+        }
+        if (expenseInput instanceof HTMLInputElement) {
+            expenseInput.value = formatAmount(button.dataset.expenseAmount, "0");
+        }
+        if (cashOnHandInput instanceof HTMLInputElement) {
+            cashOnHandInput.value = formatAmount(button.dataset.cashOnHandAmount, "0");
+        }
+        if (noteInput instanceof HTMLTextAreaElement) {
+            noteInput.value = String(button.dataset.note || "");
+        }
+        if (submitButton instanceof HTMLButtonElement) {
+            submitButton.textContent = editSubmitLabel;
+        }
+        if (cancelEditButton instanceof HTMLButtonElement) {
+            cancelEditButton.hidden = false;
+        }
+        if (editState instanceof HTMLElement) {
+            editState.hidden = false;
+        }
+        if (syncStatus instanceof HTMLElement) {
+            syncStatus.textContent = "Mode edit aktif. Simpan untuk memperbarui laporan tutup kasir yang salah.";
+        }
+        renderPreview();
+        cashClosingPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    const clearEditMode = ({ reloadDefaults = true } = {}) => {
+        if (reportIdInput instanceof HTMLInputElement) {
+            reportIdInput.value = "";
+        }
+        if (submitButton instanceof HTMLButtonElement) {
+            submitButton.textContent = defaultSubmitLabel;
+        }
+        if (cancelEditButton instanceof HTMLButtonElement) {
+            cancelEditButton.hidden = true;
+        }
+        if (editState instanceof HTMLElement) {
+            editState.hidden = true;
+        }
+        if (reloadDefaults) {
+            loadDefaults();
+            return;
+        }
+        renderPreview();
+    };
+
     const renderPreview = () => {
         if (!preview) {
             return;
@@ -649,9 +761,6 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
             const url = new URL(defaultsUrl, window.location.origin);
             url.searchParams.set("warehouse_id", warehouseId);
             url.searchParams.set("closing_date", currentDate);
-            if (cashierUserId) {
-                url.searchParams.set("cashier_user_id", cashierUserId);
-            }
             const response = await fetch(url.toString(), {
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
@@ -663,7 +772,7 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
             }
             applyDefaults(data.defaults || {});
             if (syncStatus) {
-                syncStatus.textContent = `Nominal otomatis mengikuti log penjualan tanggal ${formatDateLabel(currentDate)}.`;
+                syncStatus.textContent = `Nominal otomatis mengikuti total semua transaksi homebase tanggal ${formatDateLabel(currentDate)}.`;
             }
         } catch (error) {
             syncCashOnHand();
@@ -688,6 +797,14 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
     });
     dateInput?.addEventListener("change", loadDefaults);
     noteInput?.addEventListener("input", renderPreview);
+    cancelEditButton?.addEventListener("click", () => {
+        clearEditMode({ reloadDefaults: true });
+    });
+    cashClosingPanel.querySelectorAll("[data-cash-closing-edit-button]").forEach((button) => {
+        button.addEventListener("click", () => {
+            setEditMode(button);
+        });
+    });
     syncCashOnHand();
     renderPreview();
 })();

@@ -456,6 +456,12 @@ const posQuickSearchForm = document.getElementById("posQuickSearchForm");
 const posQuickSearch = document.getElementById("posQuickSearch");
 const posQuickSearchSummary = document.getElementById("posQuickSearchSummary");
 const posQuickSearchResults = document.getElementById("posQuickSearchResults");
+const posSplitPaymentToggle = document.getElementById("posSplitPaymentToggle");
+const posSplitPaymentPanel = document.getElementById("posSplitPaymentPanel");
+const posSplitPaymentRows = document.getElementById("posSplitPaymentRows");
+const posAddSplitPaymentRow = document.getElementById("posAddSplitPaymentRow");
+const posSplitPaymentSummary = document.getElementById("posSplitPaymentSummary");
+const POS_SPLIT_PAYMENT_METHODS = {{ payment_methods | tojson }};
 
 function normalizePosPhoneValue(value) {
     let digits = String(value || "").replace(/\D+/g, "");
@@ -538,6 +544,11 @@ const posQuickSearchState = {
     items: [],
     totalItems: 0,
     query: "",
+};
+const posSplitPaymentState = {
+    nextId: 1,
+    previousSingleMethod: String(posPaymentMethod?.value || POS_SPLIT_PAYMENT_METHODS[0] || "cash"),
+    rows: [],
 };
 
 function escapeHtml(value) {
@@ -1121,12 +1132,17 @@ function resetPosDraft() {
 
 function updatePosChangePreview() {
     const grandTotal = getPosTotals().grandTotal;
-    const paidAmount = getPosCurrencyValue(posPaidAmount);
-    const changeAmount = Math.max(paidAmount - grandTotal, 0);
+    const paidAmount = isPosSplitPaymentEnabled()
+        ? getPosSplitPaymentTotal()
+        : getPosCurrencyValue(posPaidAmount);
+    const changeAmount = isPosSplitPaymentEnabled()
+        ? 0
+        : Math.max(paidAmount - grandTotal, 0);
     posChangeAmount.textContent = formatPosCurrency(changeAmount);
     if (posChangeAmountMirror) {
         posChangeAmountMirror.textContent = formatPosCurrency(changeAmount);
     }
+    updatePosSplitPaymentSummary();
 }
 
 function openPosCatalogPicker() {
@@ -1297,10 +1313,198 @@ async function loadPosQuickSearchResults(query) {
 }
 
 function setPosPaymentMethod(method) {
-    posPaymentMethod.value = method;
+    const normalizedMethod = POS_SPLIT_PAYMENT_METHODS.includes(method)
+        ? method
+        : (POS_SPLIT_PAYMENT_METHODS[0] || "cash");
+    posPaymentMethod.value = normalizedMethod;
     posPaymentMethodGrid.querySelectorAll("[data-pos-payment-method]").forEach((button) => {
-        button.classList.toggle("is-active", button.dataset.posPaymentMethod === method);
+        button.classList.toggle("is-active", button.dataset.posPaymentMethod === normalizedMethod);
     });
+    if (normalizedMethod !== "split") {
+        posSplitPaymentState.previousSingleMethod = normalizedMethod;
+    }
+}
+
+function isPosSplitPaymentEnabled() {
+    return Boolean(posSplitPaymentToggle?.checked);
+}
+
+function createPosSplitPaymentRow(method = "", amount = "") {
+    return {
+        id: posSplitPaymentState.nextId++,
+        method: POS_SPLIT_PAYMENT_METHODS.includes(method) ? method : "",
+        amount: amount === "" ? "" : roundPosMoney(amount),
+    };
+}
+
+function getPosNextSplitPaymentMethod(excludedMethods = []) {
+    return POS_SPLIT_PAYMENT_METHODS.find((method) => !excludedMethods.includes(method))
+        || POS_SPLIT_PAYMENT_METHODS[0]
+        || "cash";
+}
+
+function buildPosDefaultSplitRows() {
+    const primaryMethod = POS_SPLIT_PAYMENT_METHODS.includes(posSplitPaymentState.previousSingleMethod)
+        ? posSplitPaymentState.previousSingleMethod
+        : (POS_SPLIT_PAYMENT_METHODS[0] || "cash");
+    const secondaryMethod = getPosNextSplitPaymentMethod([primaryMethod]);
+    const grandTotal = getPosGrandTotal();
+    return [
+        createPosSplitPaymentRow(primaryMethod, grandTotal > 0 ? grandTotal : ""),
+        createPosSplitPaymentRow(secondaryMethod, ""),
+    ];
+}
+
+function ensurePosSplitPaymentRows() {
+    if (!Array.isArray(posSplitPaymentState.rows) || !posSplitPaymentState.rows.length) {
+        posSplitPaymentState.rows = buildPosDefaultSplitRows();
+    }
+    while (posSplitPaymentState.rows.length < 2) {
+        const usedMethods = posSplitPaymentState.rows.map((row) => row.method).filter(Boolean);
+        posSplitPaymentState.rows.push(createPosSplitPaymentRow(getPosNextSplitPaymentMethod(usedMethods), ""));
+    }
+}
+
+function getPosSplitPaymentPayload() {
+    return (posSplitPaymentState.rows || [])
+        .map((row) => ({
+            method: String(row?.method || "").trim().toLowerCase(),
+            amount: Math.max(roundPosMoney(row?.amount || 0), 0),
+        }))
+        .filter((row) => POS_SPLIT_PAYMENT_METHODS.includes(row.method) && row.amount > 0);
+}
+
+function getPosSplitPaymentTotal() {
+    return roundPosMoney(
+        getPosSplitPaymentPayload().reduce((sum, row) => sum + Number(row.amount || 0), 0)
+    );
+}
+
+function syncPosSplitPaidAmount() {
+    if (!posPaidAmount) {
+        return;
+    }
+    if (isPosSplitPaymentEnabled()) {
+        setPosCurrencyValue(posPaidAmount, getPosSplitPaymentTotal());
+        return;
+    }
+    if (!getPosCurrencyValue(posPaidAmount) && getPosGrandTotal() > 0) {
+        setPosCurrencyValue(posPaidAmount, getPosGrandTotal());
+    }
+}
+
+function updatePosSplitPaymentSummary() {
+    if (!posSplitPaymentSummary) {
+        return;
+    }
+
+    const resetState = () => {
+        posSplitPaymentSummary.classList.remove("is-valid", "is-warning", "is-error");
+    };
+    resetState();
+
+    if (!isPosSplitPaymentEnabled()) {
+        posSplitPaymentSummary.textContent = "Aktifkan split transaksi untuk membagi pembayaran.";
+        return;
+    }
+
+    const grandTotal = getPosGrandTotal();
+    const payload = getPosSplitPaymentPayload();
+    const distinctMethodCount = new Set(payload.map((row) => row.method)).size;
+    const splitTotal = roundPosMoney(payload.reduce((sum, row) => sum + Number(row.amount || 0), 0));
+    const difference = roundPosMoney(grandTotal - splitTotal);
+
+    if (distinctMethodCount < 2) {
+        posSplitPaymentSummary.classList.add("is-error");
+        posSplitPaymentSummary.textContent = "Pilih minimal 2 metode berbeda dengan nominal di atas 0.";
+        return;
+    }
+
+    if (difference > 0) {
+        posSplitPaymentSummary.classList.add("is-warning");
+        posSplitPaymentSummary.textContent = `Total split masih kurang ${formatPosCurrency(difference)} dari total transaksi.`;
+        return;
+    }
+
+    if (difference < 0) {
+        posSplitPaymentSummary.classList.add("is-error");
+        posSplitPaymentSummary.textContent = `Total split kelebihan ${formatPosCurrency(Math.abs(difference))}. Samakan dulu dengan total transaksi.`;
+        return;
+    }
+
+    posSplitPaymentSummary.classList.add("is-valid");
+    posSplitPaymentSummary.textContent = `Split transaksi siap dipakai. ${distinctMethodCount} metode · total ${formatPosCurrency(splitTotal)}.`;
+}
+
+function renderPosSplitPaymentRows() {
+    if (!posSplitPaymentRows) {
+        return;
+    }
+
+    if (!isPosSplitPaymentEnabled()) {
+        posSplitPaymentRows.innerHTML = "";
+        updatePosSplitPaymentSummary();
+        return;
+    }
+
+    ensurePosSplitPaymentRows();
+    posSplitPaymentRows.innerHTML = (posSplitPaymentState.rows || []).map((row, index) => {
+        const options = POS_SPLIT_PAYMENT_METHODS.map((method) => {
+            const label = method === "transfer" ? "TF" : method.toUpperCase();
+            return `<option value="${escapeHtml(method)}" ${row.method === method ? "selected" : ""}>${escapeHtml(label)}</option>`;
+        }).join("");
+        const removeDisabled = posSplitPaymentState.rows.length <= 2 ? "disabled" : "";
+        const safeAmount = row.amount === "" ? "" : String(row.amount);
+        return `
+            <div class="pos-ipos-split-row" data-pos-split-row-id="${row.id}">
+                <select data-pos-split-method="${row.id}" aria-label="Metode split ${index + 1}">
+                    <option value="">Pilih metode</option>
+                    ${options}
+                </select>
+                <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Nominal split"
+                    value="${escapeHtml(safeAmount)}"
+                    data-pos-split-amount="${row.id}"
+                    aria-label="Nominal split ${index + 1}"
+                >
+                <button type="button" class="ghost-button" data-pos-split-remove="${row.id}" ${removeDisabled}>Hapus</button>
+            </div>
+        `;
+    }).join("");
+    updatePosSplitPaymentSummary();
+}
+
+function syncPosSplitPaymentState() {
+    if (posSplitPaymentPanel) {
+        posSplitPaymentPanel.hidden = !isPosSplitPaymentEnabled();
+    }
+    if (isPosSplitPaymentEnabled()) {
+        ensurePosSplitPaymentRows();
+        posPaymentMethodGrid?.querySelectorAll("[data-pos-payment-method]").forEach((button) => {
+            button.classList.remove("is-active");
+        });
+        posPaymentMethod.value = "split";
+        if (posPaidAmount) {
+            posPaidAmount.readOnly = true;
+        }
+        posPaidQuickActions?.querySelectorAll("[data-pos-paid-shortcut]").forEach((button) => {
+            button.disabled = true;
+        });
+    } else {
+        setPosPaymentMethod(posSplitPaymentState.previousSingleMethod);
+        if (posPaidAmount) {
+            posPaidAmount.readOnly = false;
+        }
+        posPaidQuickActions?.querySelectorAll("[data-pos-paid-shortcut]").forEach((button) => {
+            button.disabled = false;
+        });
+    }
+    renderPosSplitPaymentRows();
+    syncPosSplitPaidAmount();
+    updatePosChangePreview();
 }
 
 function fitPosGrandTotalText(force = false) {
@@ -1359,10 +1563,7 @@ function renderPosCartSummary() {
         posTaxValue.textContent = formatPosCurrency(totals.taxAmount);
     }
 
-    if (!getPosCurrencyValue(posPaidAmount) && totals.grandTotal > 0) {
-        setPosCurrencyValue(posPaidAmount, totals.grandTotal);
-    }
-
+    syncPosSplitPaidAmount();
     updatePosChangePreview();
 }
 
@@ -1607,6 +1808,25 @@ function checkoutPosTransaction() {
     }
 
     const totals = getPosTotals();
+    const isSplitPayment = isPosSplitPaymentEnabled();
+    const splitPayments = getPosSplitPaymentPayload();
+    const splitTotalAmount = getPosSplitPaymentTotal();
+    const splitMethodCount = new Set(splitPayments.map((row) => row.method)).size;
+    if (isSplitPayment) {
+        if (splitMethodCount < 2) {
+            alert("Split transaksi minimal harus memakai 2 metode pembayaran yang berbeda.");
+            return;
+        }
+        if (Math.abs(splitTotalAmount - totals.grandTotal) > 0.009) {
+            if (splitTotalAmount < totals.grandTotal) {
+                alert(`Total split pembayaran masih kurang ${formatPosCurrency(totals.grandTotal - splitTotalAmount)}.`);
+            } else {
+                alert(`Total split pembayaran kelebihan ${formatPosCurrency(splitTotalAmount - totals.grandTotal)}.`);
+            }
+            return;
+        }
+    }
+
     const payload = {
         warehouse_id: posWarehouseId,
         sale_date: posSaleDate,
@@ -1615,12 +1835,13 @@ function checkoutPosTransaction() {
         customer_name: posCustomerName.value,
         customer_phone: posCustomerPhone.value,
         transaction_type: posTransactionType?.value || "purchase",
-        payment_method: posPaymentMethod.value,
+        payment_method: isSplitPayment ? "split" : posPaymentMethod.value,
         discount_type: totals.discountType,
         discount_value: totals.discountValue,
         tax_type: totals.taxType,
         tax_value: totals.taxValue,
-        paid_amount: getPosCurrencyValue(posPaidAmount),
+        paid_amount: isSplitPayment ? splitTotalAmount : getPosCurrencyValue(posPaidAmount),
+        payment_splits: isSplitPayment ? splitPayments : [],
         note: posNote.value,
         items: posCart.map((item) => ({
             product_id: item.product_id,
@@ -1786,6 +2007,10 @@ function updatePriceFromCart(index, nextPrice, options = {}) {
 }
 
 function applyPaidShortcut(shortcut) {
+    if (isPosSplitPaymentEnabled()) {
+        updatePosSplitPaymentSummary();
+        return;
+    }
     const grandTotal = getPosGrandTotal();
     const current = getPosCurrencyValue(posPaidAmount);
 
@@ -1823,6 +2048,11 @@ function setPosKeypadTarget(target) {
 function applyPosKey(key) {
     const input = posKeypadTarget === "paid" ? posPaidAmount : posDraftQty;
     if (!input) return;
+
+    if (posKeypadTarget === "paid" && isPosSplitPaymentEnabled()) {
+        updatePosSplitPaymentSummary();
+        return;
+    }
 
     if (posKeypadTarget === "paid" && window.wmsCurrencyInput?.isManagedInput(input)) {
         const baseValue = getPosCurrencyRaw(input);
@@ -1874,7 +2104,76 @@ function handlePosCartKeyboard(event) {
 posPaymentMethodGrid?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pos-payment-method]");
     if (!button) return;
+    if (isPosSplitPaymentEnabled() && posSplitPaymentToggle) {
+        posSplitPaymentToggle.checked = false;
+        syncPosSplitPaymentState();
+    }
     setPosPaymentMethod(button.dataset.posPaymentMethod || "cash");
+    updatePosChangePreview();
+});
+
+posSplitPaymentToggle?.addEventListener("change", () => {
+    syncPosSplitPaymentState();
+});
+
+posAddSplitPaymentRow?.addEventListener("click", () => {
+    const usedMethods = (posSplitPaymentState.rows || []).map((row) => row.method).filter(Boolean);
+    posSplitPaymentState.rows.push(createPosSplitPaymentRow(getPosNextSplitPaymentMethod(usedMethods), ""));
+    renderPosSplitPaymentRows();
+});
+
+posSplitPaymentRows?.addEventListener("input", (event) => {
+    const amountInput = event.target.closest("[data-pos-split-amount]");
+    if (!amountInput) {
+        return;
+    }
+    const rowId = Number(amountInput.dataset.posSplitAmount || 0);
+    const row = (posSplitPaymentState.rows || []).find((entry) => entry.id === rowId);
+    if (!row) {
+        return;
+    }
+    row.amount = amountInput.value === "" ? "" : roundPosMoney(amountInput.value);
+    syncPosSplitPaidAmount();
+    updatePosChangePreview();
+});
+
+posSplitPaymentRows?.addEventListener("change", (event) => {
+    const methodSelect = event.target.closest("[data-pos-split-method]");
+    if (methodSelect) {
+        const rowId = Number(methodSelect.dataset.posSplitMethod || 0);
+        const row = (posSplitPaymentState.rows || []).find((entry) => entry.id === rowId);
+        if (row) {
+            row.method = String(methodSelect.value || "").trim().toLowerCase();
+            updatePosSplitPaymentSummary();
+        }
+        return;
+    }
+
+    const amountInput = event.target.closest("[data-pos-split-amount]");
+    if (!amountInput) {
+        return;
+    }
+    const rowId = Number(amountInput.dataset.posSplitAmount || 0);
+    const row = (posSplitPaymentState.rows || []).find((entry) => entry.id === rowId);
+    if (!row) {
+        return;
+    }
+    row.amount = amountInput.value === "" ? "" : roundPosMoney(amountInput.value);
+    amountInput.value = row.amount === "" ? "" : String(row.amount);
+    syncPosSplitPaidAmount();
+    updatePosChangePreview();
+});
+
+posSplitPaymentRows?.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-pos-split-remove]");
+    if (!removeButton) {
+        return;
+    }
+    const rowId = Number(removeButton.dataset.posSplitRemove || 0);
+    posSplitPaymentState.rows = (posSplitPaymentState.rows || []).filter((entry) => entry.id !== rowId);
+    renderPosSplitPaymentRows();
+    syncPosSplitPaidAmount();
+    updatePosChangePreview();
 });
 
 posQuickSearchForm?.addEventListener("submit", async (event) => {
@@ -2264,6 +2563,7 @@ setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
 setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
 syncPosCashierSelectionState();
 syncPosCustomerSelectionState();
+syncPosSplitPaymentState();
 updatePosClock();
 window.setInterval(updatePosClock, 1000);
 window.addEventListener("resize", () => scheduleFitPosGrandTotalText(true));

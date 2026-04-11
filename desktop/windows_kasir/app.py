@@ -541,6 +541,7 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
     receipt_copy = _normalize_receipt_text(payload.get("receipt_copy")).lower()
     is_store_copy = receipt_copy == "store"
     payment_method = _normalize_receipt_text(payload.get("payment_method")).lower()
+    payment_breakdown_label = _normalize_receipt_text(payload.get("payment_breakdown_label"))
     paid_amount_label = _normalize_receipt_text(payload.get("paid_amount_label")) or "Rp 0"
     paid_cash = paid_amount_label if payment_method == "cash" else "Rp 0"
     paid_credit = paid_amount_label if payment_method == "credit" else "Rp 0"
@@ -643,6 +644,8 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
             left_text = _receipt_compact_value_text(left_entry[0], left_entry[1], left_width)
             right_text = _receipt_compact_value_text(right_entry[0], right_entry[1], right_width)
             lines.append(f"{left_text.ljust(left_width)} {right_text}".rstrip())
+        if payment_breakdown_label:
+            lines.extend(_receipt_kv_line("Split", payment_breakdown_label, safe_width))
     else:
         for key, value in (
             ("Qty", payload.get("total_items")),
@@ -655,6 +658,8 @@ def build_thermal_receipt_text(payload: dict[str, Any], width: int = 32) -> str:
             ("Metode", payload.get("payment_method_label")),
         ):
             lines.extend(_receipt_kv_line(key, value, safe_width))
+        if payment_breakdown_label:
+            lines.extend(_receipt_kv_line("Split", payment_breakdown_label, safe_width))
 
     if loyalty_lines and not is_store_copy:
         lines.append(_receipt_separator(safe_width))

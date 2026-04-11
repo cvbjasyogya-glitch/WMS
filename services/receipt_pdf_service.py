@@ -655,6 +655,13 @@ def _build_receipt_lines(sale):
             f"Kembali  : {_normalize_ascii_text(sale.get('change_amount_label') or 'Rp 0')}",
         ]
     )
+    if sale.get("has_payment_breakdown") and sale.get("payment_breakdown_label"):
+        _append_receipt_label_lines(
+            lines,
+            "Split",
+            sale.get("payment_breakdown_label"),
+            width=68,
+        )
 
     loyalty_lines = [str(line or "").strip() for line in (sale.get("loyalty_summary_lines") or []) if str(line or "").strip()]
     if loyalty_lines:
@@ -914,6 +921,8 @@ def _build_receipt_pdf_summary_model(sale, branding):
         ("Bayar", sale.get("paid_amount_label") or "Rp 0"),
         ("Kembalian", sale.get("change_amount_label") or "Rp 0"),
     ]
+    if sale.get("has_payment_breakdown") and sale.get("payment_breakdown_label"):
+        total_rows.append(("Split Bayar", sale.get("payment_breakdown_label") or "-"))
 
     totals_height = 26.0 + (len(total_rows) * 19.0) + 18.0
     loyalty_height = 0.0

@@ -1145,6 +1145,74 @@ body .pos-ipos-refactor .pos-ipos-methods {
     min-width: 0;
 }
 
+body .pos-ipos-refactor .pos-ipos-split-toggle {
+    display: grid;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px dashed var(--ipos-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--ipos-surface) 82%, transparent);
+}
+
+body .pos-ipos-refactor .pos-ipos-split-toggle-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-toggle input[type="checkbox"] {
+    inline-size: 16px;
+    block-size: 16px;
+    accent-color: var(--ipos-primary);
+}
+
+body .pos-ipos-refactor .pos-ipos-split-panel {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--ipos-border);
+    border-radius: 14px;
+    background: var(--ipos-surface);
+}
+
+body .pos-ipos-refactor .pos-ipos-split-list {
+    display: grid;
+    gap: 8px;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-row select,
+body .pos-ipos-refactor .pos-ipos-split-row input {
+    min-width: 0;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-summary.is-valid {
+    color: var(--ipos-success, #2f7d32);
+}
+
+body .pos-ipos-refactor .pos-ipos-split-summary.is-warning {
+    color: var(--ipos-warn, #b26a00);
+}
+
+body .pos-ipos-refactor .pos-ipos-split-summary.is-error {
+    color: var(--ipos-danger, #c0392b);
+}
+
 body .pos-ipos-refactor .pos-ipos-totalbox {
     padding: 16px;
     border-radius: 16px;
@@ -1494,6 +1562,10 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
     body .pos-ipos-refactor .pos-ipos-summaryrows > div {
         flex-wrap: wrap;
         align-items: flex-start;
+    }
+
+    body .pos-ipos-refactor .pos-ipos-split-row {
+        grid-template-columns: 1fr;
     }
 
     body .pos-ipos-refactor .pos-ipos-summaryrows > div > :is(span, strong),

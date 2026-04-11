@@ -349,6 +349,20 @@
                             </button>
                             {% endfor %}
                         </div>
+                        <label class="pos-ipos-split-toggle" for="posSplitPaymentToggle">
+                            <span class="pos-ipos-split-toggle-main">
+                                <input type="checkbox" id="posSplitPaymentToggle">
+                                <strong>Split Transaksi</strong>
+                            </span>
+                            <small>Bagi pembayaran ke 2 atau lebih metode sekaligus.</small>
+                        </label>
+                        <div class="pos-ipos-split-panel" id="posSplitPaymentPanel" hidden>
+                            <div class="pos-ipos-split-list" id="posSplitPaymentRows"></div>
+                            <div class="pos-ipos-split-actions">
+                                <button type="button" class="pos-vintage-mini" id="posAddSplitPaymentRow">Tambah Metode</button>
+                                <small class="helper-text" id="posSplitPaymentSummary">Aktifkan split transaksi untuk membagi pembayaran.</small>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="pos-ipos-shortcuts" id="posPaidQuickActions">
@@ -534,6 +548,9 @@
                             </td>
                             <td>
                                 <strong>{{ sale.payment_method_label }}</strong>
+                                {% if sale.has_payment_breakdown %}
+                                <div class="helper-text">{{ sale.payment_breakdown_label }}</div>
+                                {% endif %}
                                 <div class="helper-text">{{ sale.total_items }} item</div>
                             </td>
                             {% if can_view_pos_revenue %}

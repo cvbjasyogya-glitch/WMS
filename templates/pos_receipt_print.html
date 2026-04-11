@@ -394,6 +394,17 @@
         text-align: right;
     }
 
+    .receipt-total-row.is-multiline {
+        align-items: flex-start;
+    }
+
+    .receipt-total-row.is-multiline strong {
+        max-width: 60%;
+        text-align: right;
+        line-height: 1.35;
+        white-space: normal;
+    }
+
     .receipt-total-row.is-total {
         padding-top: 8px;
         border-top: 1px dashed var(--receipt-line);
@@ -1000,6 +1011,17 @@
         gap: 10px;
     }
 
+    .thermal-summary-row.is-multiline {
+        align-items: flex-start;
+    }
+
+    .thermal-summary-row.is-multiline span:last-child {
+        max-width: 58%;
+        text-align: right;
+        line-height: 1.3;
+        white-space: normal;
+    }
+
     .thermal-summary-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1241,12 +1263,18 @@
                     <div class="thermal-summary-row"><span>Metode</span><span>{{ sale.payment_method_label }}</span></div>
                 </div>
             </div>
+            {% if sale.has_payment_breakdown %}
+            <div class="thermal-summary-row is-multiline"><span>Split</span><span>{{ sale.payment_breakdown_label }}</span></div>
+            {% endif %}
             {% else %}
             <div class="thermal-summary-row"><span>Tunai</span><span>{{ paid_cash }}</span></div>
             <div class="thermal-summary-row"><span>Kartu Kredit</span><span>{{ paid_credit }}</span></div>
             <div class="thermal-summary-row"><span>Kartu Debit</span><span>{{ paid_debit }}</span></div>
             <div class="thermal-summary-row"><span>QRIS</span><span>{{ paid_qris }}</span></div>
             <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>
+            {% if sale.has_payment_breakdown %}
+            <div class="thermal-summary-row is-multiline"><span>Split</span><span>{{ sale.payment_breakdown_label }}</span></div>
+            {% endif %}
             {% endif %}
         </section>
 
@@ -1385,6 +1413,12 @@
                     <span>Kembalian</span>
                     <strong>{{ sale.change_amount_label }}</strong>
                 </div>
+                {% if sale.has_payment_breakdown %}
+                <div class="receipt-total-row is-multiline">
+                    <span>Split Bayar</span>
+                    <strong>{{ sale.payment_breakdown_label }}</strong>
+                </div>
+                {% endif %}
             </section>
 
             <div class="receipt-side-stack">
@@ -1439,6 +1473,7 @@ const receiptNativePrintPayload = {{ {
     "sale_datetime": sale.sale_date ~ " " ~ sale.created_time_label,
     "payment_method": sale.payment_method,
     "payment_method_label": sale.payment_method_label,
+    "payment_breakdown_label": sale.payment_breakdown_label,
     "total_items": sale.total_items,
     "subtotal_amount_label": sale.subtotal_amount_label,
     "discount_amount_label": sale.discount_amount_label,
