@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Riwayat Tutup Kasir | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Analytics{% endblock %}
+{% block page_title %}Riwayat Tutup Kasir{% endblock %}
+{% block page_subtitle %}Lihat laporan tutup kasir dari setiap homebase pada periode tertentu.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a href="/kasir/log?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}" class="btn-link">Kembali ke Log POS</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <form method="GET" class="top-bar">
+        <select name="warehouse" {% if scoped_warehouse %}disabled{% endif %}>
+            {% for warehouse in warehouses %}
+            <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+            {% endfor %}
+        </select>
+        {% if scoped_warehouse %}
+        <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+        {% endif %}
+        <input type="date" name="date_from" value="{{ date_range.date_from }}">
+        <input type="date" name="date_to" value="{{ date_range.date_to }}">
+        <button type="submit">Tampilkan Riwayat</button>
+    </form>
+
+    <section class="form-box attendance-cash-closing-card">
+        <div class="section-title">
+            <div>
+                <h2>Riwayat Tutup Kasir</h2>
+                <p>Homebase {{ selected_warehouse_name }} pada periode {{ date_range.label }}.</p>
+            </div>
+        </div>
+
+        <div class="attendance-cash-closing-list">
+            {% if cash_closing_reports %}
+                {% for item in cash_closing_reports %}
+                <article class="attendance-cash-closing-item">
+                    <div class="attendance-cash-closing-item-head">
+                        <div>
+                            <h3>{{ item.warehouse_label }}</h3>
+                            <p>{{ item.closing_date_label }} | Submit: {{ item.cashier_name }}{% if item.cashier_position %} | {{ item.cashier_position }}{% endif %}</p>
+                        </div>
+                        <div class="attendance-log-badges">
+                            <span class="badge {{ item.wa_status_badge }}">{{ item.wa_status_label }}</span>
+                            {% if can_view_pos_revenue %}
+                            <span class="badge">Tot. {{ item.summary_total_label }}</span>
+                            {% endif %}
+                            <span class="badge">{{ item.wa_success_count }}/{{ item.wa_delivery_count }} WA</span>
+                        </div>
+                    </div>
+                    {% if can_view_pos_revenue %}
+                    <pre class="attendance-cash-closing-sheet">{{ item.summary_message }}</pre>
+                    {% else %}
+                    <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk owner dan super admin.</p>
+                    {% endif %}
+                    {% if item.wa_error %}
+                    <p class="attendance-cash-closing-error">WA: {{ item.wa_error }}</p>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            {% else %}
+            <div class="empty-state">Belum ada riwayat tutup kasir pada periode ini.</div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

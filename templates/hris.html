@@ -949,7 +949,12 @@
 {% endif %}
 <small class="helper-text">Leave request tetap diproses di sini, dan sekarang request perubahan shift serta transaksi lembur juga masuk ke meja approval HR / Super Admin.</small>
 
-<details class="table-box stack-scroll-shell panel-disclosure" open>
+<details
+    class="table-box stack-scroll-shell panel-disclosure"
+    open
+    data-approval-queue="leave"
+    data-approval-empty-text="Tidak ada leave request pending pada filter saat ini. Approval HR sedang bersih."
+>
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -958,15 +963,24 @@
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="badge">{{ approval_pending_requests|length }} pending</span>
+            <span class="badge" data-approval-pending-count>{{ approval_pending_requests|length }} pending</span>
             <span class="panel-summary-state">Buka Queue</span>
         </div>
     </summary>
     <div class="panel-content">
     {% if approval_pending_requests %}
+        <div class="split-actions" style="margin-bottom:16px;">
+            <button type="button" class="ghost-button" data-approve-all data-approval-confirm="Setujui semua leave request pending?">Approve All</button>
+        </div>
+        <div class="import-progress" data-approval-progress>
+            <div class="progress-text">Memproses persetujuan...</div>
+            <div class="progress-track">
+                <div class="progress-bar"></div>
+            </div>
+        </div>
         <div class="stack-scroll-list">
             {% for leave in approval_pending_requests %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="box stack-scroll-card" style="margin-bottom:0;" data-approval-card>
                 <div class="section-title" style="margin-bottom:12px;">
                     <div>
                         <h3>{{ leave.full_name }}</h3>
@@ -1000,7 +1014,7 @@
                     {% endif %}
                 </div>
                 <div class="split-actions">
-                    <form method="POST" action="/hris/leave/update/{{ leave.id }}">
+                    <form method="POST" action="/hris/leave/update/{{ leave.id }}" data-approval-form data-approval-decision="approved" data-approval-confirm="Setujui leave request ini?">
                         <input type="hidden" name="employee_id" value="{{ leave.employee_id }}">
                         <input type="hidden" name="leave_type" value="{{ leave.leave_type }}">
                         <input type="hidden" name="start_date" value="{{ leave.start_date }}">
@@ -1008,7 +1022,7 @@
                         <input type="hidden" name="reason" value="{{ leave.reason or '' }}">
                         <input type="hidden" name="note" value="{{ leave.note or '' }}">
                         <input type="hidden" name="status" value="approved">
-                        <button type="submit" onclick="return confirm('Setujui leave request ini?')">Setujui</button>
+                        <button type="submit">Setujui</button>
                     </form>
                     <form method="POST" action="/hris/leave/update/{{ leave.id }}" class="table-action-row" style="flex:1 1 340px;">
                         <input type="hidden" name="employee_id" value="{{ leave.employee_id }}">
@@ -1030,7 +1044,12 @@
     </div>
 </details>
 
-<details class="table-box stack-scroll-shell panel-disclosure" {% if attendance_action_pending_requests %}open{% endif %}>
+<details
+    class="table-box stack-scroll-shell panel-disclosure"
+    {% if attendance_action_pending_requests %}open{% endif %}
+    data-approval-queue="attendance"
+    data-approval-empty-text="Tidak ada request attendance yang menunggu approval saat ini."
+>
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -1039,15 +1058,26 @@
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="badge">{{ attendance_action_pending_requests|length }} pending</span>
+            <span class="badge" data-approval-pending-count>{{ attendance_action_pending_requests|length }} pending</span>
             <span class="panel-summary-state">Buka Queue</span>
         </div>
     </summary>
     <div class="panel-content">
     {% if attendance_action_pending_requests %}
+        {% if can_manage_attendance_approval %}
+        <div class="split-actions" style="margin-bottom:16px;">
+            <button type="button" class="ghost-button" data-approve-all data-approval-confirm="Setujui semua request attendance pending?">Approve All</button>
+        </div>
+        <div class="import-progress" data-approval-progress>
+            <div class="progress-text">Memproses persetujuan...</div>
+            <div class="progress-track">
+                <div class="progress-bar"></div>
+            </div>
+        </div>
+        {% endif %}
         <div class="stack-scroll-list">
             {% for item in attendance_action_pending_requests %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="box stack-scroll-card" style="margin-bottom:0;" data-approval-card>
                 <div class="section-title" style="margin-bottom:12px;">
                     <div>
                         <h3>{{ item.summary_title }}</h3>
@@ -1095,9 +1125,9 @@
                 </div>
                 {% if can_manage_attendance_approval %}
                 <div class="split-actions">
-                    <form method="POST" action="/hris/approval/attendance-request/{{ item.id }}/process">
+                    <form method="POST" action="/hris/approval/attendance-request/{{ item.id }}/process" data-approval-form data-approval-decision="approved" data-approval-confirm="Setujui request attendance ini?">
                         <input type="hidden" name="decision" value="approved">
-                        <button type="submit" onclick="return confirm('Setujui request attendance ini?')">Setujui</button>
+                        <button type="submit">Setujui</button>
                     </form>
                     <form method="POST" action="/hris/approval/attendance-request/{{ item.id }}/process" class="table-action-row" style="flex:1 1 360px;">
                         <input type="hidden" name="decision" value="rejected">
@@ -5037,6 +5067,171 @@ document.addEventListener("DOMContentLoaded", function () {
 
     initBreakTimers();
     initDocumentSignaturePads();
+
+    const initApprovalQueues = function () {
+        const queues = document.querySelectorAll("[data-approval-queue]");
+        if (!queues.length) {
+            return;
+        }
+
+        queues.forEach(function (queue) {
+            const pendingBadge = queue.querySelector("[data-approval-pending-count]");
+            const progress = queue.querySelector("[data-approval-progress]");
+            const progressBar = progress ? progress.querySelector(".progress-bar") : null;
+            const progressText = progress ? progress.querySelector(".progress-text") : null;
+            const approveAllButton = queue.querySelector("[data-approve-all]");
+
+            const getCards = function () {
+                return Array.from(queue.querySelectorAll("[data-approval-card]"));
+            };
+
+            const renderEmptyState = function () {
+                const emptyText = queue.getAttribute("data-approval-empty-text") || "Tidak ada data.";
+                const existingEmpty = queue.querySelector("[data-approval-empty]");
+                if (getCards().length > 0) {
+                    if (existingEmpty) {
+                        existingEmpty.remove();
+                    }
+                    return;
+                }
+                if (existingEmpty) {
+                    return;
+                }
+                const emptyState = document.createElement("div");
+                emptyState.className = "empty-state";
+                emptyState.textContent = emptyText;
+                emptyState.setAttribute("data-approval-empty", "1");
+                const panelContent = queue.querySelector(".panel-content");
+                if (panelContent) {
+                    panelContent.appendChild(emptyState);
+                }
+            };
+
+            const updatePendingCount = function () {
+                if (!pendingBadge) {
+                    return;
+                }
+                pendingBadge.textContent = `${getCards().length} pending`;
+                renderEmptyState();
+            };
+
+            const showProgress = function (label) {
+                if (!progress) {
+                    return;
+                }
+                progress.classList.add("is-visible");
+                if (progressText && label) {
+                    progressText.textContent = label;
+                }
+                if (progressBar) {
+                    progressBar.style.width = "0%";
+                }
+            };
+
+            const hideProgress = function () {
+                if (!progress) {
+                    return;
+                }
+                progress.classList.remove("is-visible");
+                if (progressBar) {
+                    progressBar.style.width = "0%";
+                }
+            };
+
+            const submitApprovalForm = async function (form, options) {
+                const safeOptions = options || {};
+                const confirmMessage = form.getAttribute("data-approval-confirm") || "";
+                if (confirmMessage && !safeOptions.silent && !window.confirm(confirmMessage)) {
+                    return false;
+                }
+
+                const submitButton = form.querySelector("button[type='submit']");
+                const originalText = submitButton ? submitButton.textContent : "";
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.textContent = "Memproses...";
+                }
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: "POST",
+                        headers: {
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                        body: new FormData(form),
+                    });
+                    if (!response.ok) {
+                        throw new Error("Gagal menyimpan persetujuan.");
+                    }
+                    return true;
+                } catch (error) {
+                    window.alert(error.message || "Persetujuan gagal diproses.");
+                    return false;
+                } finally {
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = originalText || "Setujui";
+                    }
+                }
+            };
+
+            queue.querySelectorAll("[data-approval-form][data-approval-decision='approved']").forEach(function (form) {
+                form.addEventListener("submit", async function (event) {
+                    event.preventDefault();
+                    showProgress("Menyetujui request...");
+                    const success = await submitApprovalForm(form);
+                    if (success) {
+                        const card = form.closest("[data-approval-card]");
+                        if (card) {
+                            card.remove();
+                        }
+                        updatePendingCount();
+                    }
+                    hideProgress();
+                });
+            });
+
+            if (approveAllButton) {
+                approveAllButton.addEventListener("click", async function () {
+                    const confirmMessage = approveAllButton.getAttribute("data-approval-confirm") || "";
+                    if (confirmMessage && !window.confirm(confirmMessage)) {
+                        return;
+                    }
+
+                    const forms = Array.from(
+                        queue.querySelectorAll("[data-approval-form][data-approval-decision='approved']")
+                    );
+                    if (!forms.length) {
+                        return;
+                    }
+
+                    showProgress(`Menyetujui ${forms.length} request...`);
+                    let processed = 0;
+
+                    for (const form of forms) {
+                        const success = await submitApprovalForm(form, { silent: true });
+                        if (success) {
+                            const card = form.closest("[data-approval-card]");
+                            if (card) {
+                                card.remove();
+                            }
+                            processed += 1;
+                            if (progressBar) {
+                                progressBar.style.width = `${Math.round((processed / forms.length) * 100)}%`;
+                            }
+                        }
+                    }
+
+                    updatePendingCount();
+                    hideProgress();
+                });
+            }
+
+            renderEmptyState();
+        });
+    };
+
+    initApprovalQueues();
 });
 </script>
 {% endblock %}

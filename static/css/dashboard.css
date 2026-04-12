@@ -14567,6 +14567,52 @@ body .attendance-cash-closing-card {
     scroll-margin-top: calc(112px + env(safe-area-inset-top));
 }
 
+body .attendance-cash-closing-toggle {
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(10, 18, 31, 0.6);
+    overflow: hidden;
+}
+
+body .attendance-cash-closing-toggle > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+}
+
+body .attendance-cash-closing-toggle > summary::-webkit-details-marker {
+    display: none;
+}
+
+body .attendance-cash-closing-toggle[open] > summary {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+body .attendance-cash-closing-summary-text {
+    display: grid;
+    gap: 6px;
+}
+
+body .attendance-cash-closing-summary-text h2 {
+    margin: 0;
+}
+
+body .attendance-cash-closing-summary-text p {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.84rem;
+}
+
+body .attendance-cash-closing-toggle .attendance-cash-closing-card {
+    border: 0;
+    background: transparent;
+    padding: 16px 18px 18px;
+}
+
 body .attendance-cash-closing-form,
 body .attendance-cash-closing-fields,
 body .attendance-cash-closing-list {

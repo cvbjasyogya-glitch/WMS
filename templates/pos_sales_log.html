@@ -81,25 +81,24 @@
         {% endif %}
     </div>
 
-    <section
-        id="tutup-kasir"
-        class="form-box attendance-cash-closing-card"
-        data-cash-closing-panel
-        data-cash-closing-warehouse="{{ selected_warehouse_name }}"
-        data-cash-closing-warehouse-id="{{ selected_warehouse }}"
-        data-cash-closing-defaults-url="/kasir/cash-closing/defaults"
-    >
-        <div class="section-title">
-            <div>
+    <details class="attendance-cash-closing-toggle" id="tutup-kasir">
+        <summary class="attendance-cash-closing-summary">
+            <div class="attendance-cash-closing-summary-text">
                 <h2>Tutup Kasir</h2>
-                <p>Rekap penutupan kasir diambil otomatis dari total semua transaksi kasir dan sales dalam homebase ini pada tanggal yang dipilih. Hanya kolom pengeluaran yang perlu diisi manual, lalu laporan dikirim ke owner dan super admin tujuan.</p>
+                <p>Dropdown rekap otomatis tutup kasir untuk homebase {{ selected_warehouse_name }}.</p>
             </div>
             <div class="attendance-overview-badges">
                 <span class="badge">{{ selected_warehouse_name }}</span>
                 <span class="badge">{{ cash_closing_default_date }}</span>
             </div>
-        </div>
-
+        </summary>
+        <section
+            class="form-box attendance-cash-closing-card"
+            data-cash-closing-panel
+            data-cash-closing-warehouse="{{ selected_warehouse_name }}"
+            data-cash-closing-warehouse-id="{{ selected_warehouse }}"
+            data-cash-closing-defaults-url="/kasir/cash-closing/defaults"
+        >
         <form method="POST" action="/kasir/cash-closing/submit" class="attendance-cash-closing-form">
             <input type="hidden" name="warehouse_id" value="{{ selected_warehouse }}">
             <input type="hidden" name="cash_closing_report_id" value="" data-cash-closing-report-id>
@@ -185,6 +184,7 @@
             </div>
         </form>
 
+        {#
         <div class="attendance-cash-closing-list">
             {% if cash_closing_reports %}
                 {% for item in cash_closing_reports %}
@@ -236,7 +236,12 @@
             <div class="empty-state">Belum ada riwayat tutup kasir pada filter gudang ini.</div>
             {% endif %}
         </div>
-    </section>
+        #}
+        <div class="attendance-history-actions split-actions">
+            <a href="/kasir/cash-closing/history?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}" class="ghost-button">Lihat Riwayat Tutup Kasir</a>
+        </div>
+        </section>
+    </details>
 
     <div class="table-box" data-scrollable-table="1" data-pos-sales-log="1">
         <div class="section-title">
@@ -799,13 +804,28 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
 
     const buildLine = (label, amount, zeroLabel = "-") => `${label.padEnd(11, " ")} = ${formatAmount(amount, zeroLabel)}`;
 
+    const roundCashOnHand = (value) => {
+        const step = 50000;
+        const threshold = 25000;
+        const safeAmount = Math.max(Number(value) || 0, 0);
+        if (step <= 0) {
+            return safeAmount;
+        }
+        const remainder = safeAmount % step;
+        if (remainder >= threshold) {
+            return safeAmount + (step - remainder);
+        }
+        return safeAmount - remainder;
+    };
+
     const syncCashOnHand = () => {
         if (!(cashOnHandInput instanceof HTMLInputElement)) {
             return;
         }
         const cashAmount = parseAmount(cashInput?.value);
         const expenseAmount = parseAmount(expenseInput?.value);
-        cashOnHandInput.value = formatAmount(Math.max(cashAmount - expenseAmount, 0), "0");
+        const rawAmount = Math.max(cashAmount - expenseAmount, 0);
+        cashOnHandInput.value = formatAmount(roundCashOnHand(rawAmount), "0");
     };
 
     const applyDefaults = (defaults) => {

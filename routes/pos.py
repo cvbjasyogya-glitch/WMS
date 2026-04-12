@@ -1,5 +1,9 @@
 import json
 from datetime import date as date_cls, datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - fallback for older Python
+    ZoneInfo = None
 from decimal import Decimal, ROUND_HALF_UP
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 
@@ -40,6 +44,7 @@ POS_ASSIGNABLE_ROLE_LIST = ("owner", "super_admin", "leader", "admin", "staff")
 INACTIVE_EMPLOYMENT_STATUSES = ("inactive", "terminated", "resigned", "former", "nonactive", "non-active")
 POS_REVENUE_HIDDEN_LABEL = "-"
 POS_DISPLAY_UTC_OFFSET_HOURS = 7
+POS_DISPLAY_TIMEZONE = ZoneInfo("Asia/Jakarta") if ZoneInfo else timezone(timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS))
 POS_SOURCE_ACTOR_SQL = (
     "COALESCE("
     "NULLIF(TRIM(ps.source_sales_name), ''), "
@@ -1094,6 +1099,8 @@ def _parse_pos_timestamp(raw_value):
         return None
 
     normalized = safe_value.replace("T", " ")
+    if len(normalized) >= 19 and len(normalized) >= 11 and normalized[10].isdigit():
+        normalized = f"{normalized[:10]} {normalized[10:]}"
     if normalized.endswith("Z"):
         normalized = f"{normalized[:-1]}+00:00"
     if len(normalized) == 16:
@@ -1110,13 +1117,10 @@ def _format_pos_time_label(raw_value):
     if not parsed:
         return "-"
 
-    if parsed.tzinfo is not None:
-        local_time = parsed.astimezone(
-            timezone(timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS))
-        )
-    else:
-        local_time = parsed + timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS)
-    return local_time.strftime("%H:%M")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    local_time = parsed.astimezone(POS_DISPLAY_TIMEZONE)
+    return local_time.strftime("%H:%M:%S")
 
 
 def _normalize_pos_cash_closing_date(value):
@@ -1162,6 +1166,20 @@ def _format_pos_cash_closing_amount(value, zero_label="-"):
     if amount <= 0:
         return zero_label
     return f"{amount:,}".replace(",", ".")
+
+
+def _round_pos_cash_on_hand(amount, step=50000, threshold=25000):
+    try:
+        safe_amount = int(round(float(amount or 0)))
+    except (TypeError, ValueError):
+        safe_amount = 0
+    safe_amount = max(safe_amount, 0)
+    if step <= 0:
+        return safe_amount
+    remainder = safe_amount % step
+    if remainder >= threshold:
+        return safe_amount + (step - remainder)
+    return safe_amount - remainder
 
 
 def _format_pos_cash_closing_date_label(value):
@@ -1344,7 +1362,9 @@ def _build_pos_cash_closing_defaults(db, warehouse_name, closing_date, *, wareho
     )
     combined_total_amount = _fetch_pos_cash_closing_combined_total(db, safe_date)
     expense_amount = 0
-    cash_on_hand_amount = max(method_totals["cash_amount"] - expense_amount, 0)
+    cash_on_hand_amount = _round_pos_cash_on_hand(
+        max(method_totals["cash_amount"] - expense_amount, 0)
+    )
     defaults = {
         "closing_date": safe_date,
         "cash_amount": method_totals["cash_amount"],
@@ -1499,7 +1519,14 @@ def _has_pos_cash_closing_report(db, sale_row):
     return row is not None
 
 
-def _fetch_pos_cash_closing_reports(db, warehouse_id=None, cashier_user_id=None, limit=8):
+def _fetch_pos_cash_closing_reports(
+    db,
+    warehouse_id=None,
+    cashier_user_id=None,
+    date_from=None,
+    date_to=None,
+    limit=8,
+):
     safe_limit = max(1, min(_to_int(limit, 8), 40))
     params = []
     query = """
@@ -1542,6 +1569,14 @@ def _fetch_pos_cash_closing_reports(db, warehouse_id=None, cashier_user_id=None,
     if cashier_user_id:
         query += " AND ccr.user_id=?"
         params.append(int(cashier_user_id))
+
+    if date_from:
+        query += " AND ccr.closing_date >= ?"
+        params.append(str(date_from))
+
+    if date_to:
+        query += " AND ccr.closing_date <= ?"
+        params.append(str(date_to))
 
     query += """
         ORDER BY ccr.closing_date DESC, ccr.id DESC
@@ -3618,11 +3653,6 @@ def pos_sales_log_page():
     )
     sales_log_rows = _mask_pos_sale_log_rows(sales_log_rows, can_view_pos_revenue)
     cash_closing_actor = _fetch_pos_cash_closing_actor(db, selected_warehouse)
-    cash_closing_reports = _fetch_pos_cash_closing_reports(
-        db,
-        warehouse_id=selected_warehouse,
-        limit=8,
-    )
     cash_closing_default_date = date_range["date_to"]
     cash_closing_defaults = _build_pos_cash_closing_defaults(
         db,
@@ -3648,12 +3678,52 @@ def pos_sales_log_page():
         payment_methods=PAYMENT_METHODS,
         payment_method_labels={method: _format_payment_method_label(method) for method in PAYMENT_METHODS},
         cash_closing_actor=cash_closing_actor,
-        cash_closing_reports=cash_closing_reports,
         cash_closing_default_date=cash_closing_default_date,
         cash_closing_defaults=cash_closing_defaults,
         cash_closing_preview_text=cash_closing_defaults["preview_text"],
         cash_closing_return_url=_build_pos_cash_closing_return_url(),
         can_edit_cash_closing=str(session.get("role") or "").strip().lower() == "super_admin",
+    )
+
+
+@pos_bp.get("/cash-closing/history")
+def pos_cash_closing_history_page():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
+    scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
+    selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
+    date_range = _normalize_pos_log_date_range(request.args.get("date_from"), request.args.get("date_to"))
+
+    selected_warehouse_name = next(
+        (
+            warehouse["name"]
+            for warehouse in warehouses
+            if int(warehouse["id"] or 0) == int(selected_warehouse)
+        ),
+        f"WH {selected_warehouse}",
+    )
+
+    cash_closing_reports = _fetch_pos_cash_closing_reports(
+        db,
+        warehouse_id=selected_warehouse,
+        date_from=date_range["date_from"],
+        date_to=date_range["date_to"],
+        limit=40,
+    )
+
+    return render_template(
+        "pos_cash_closing_history.html",
+        warehouses=warehouses,
+        scoped_warehouse=scoped_warehouse,
+        selected_warehouse=selected_warehouse,
+        selected_warehouse_name=selected_warehouse_name,
+        date_range=date_range,
+        cash_closing_reports=cash_closing_reports,
+        can_view_pos_revenue=_can_view_pos_revenue(),
     )
 
 
@@ -3805,7 +3875,7 @@ def pos_cash_closing_submit():
     mb_amount = _parse_pos_cash_closing_amount(request.form.get("mb_amount"))
     cv_amount = _parse_pos_cash_closing_amount(request.form.get("cv_amount"))
     expense_amount = _parse_pos_cash_closing_amount(request.form.get("expense_amount"))
-    cash_on_hand_amount = max(cash_amount - expense_amount, 0)
+    cash_on_hand_amount = _round_pos_cash_on_hand(max(cash_amount - expense_amount, 0))
     combined_total_amount = _parse_pos_cash_closing_amount(request.form.get("combined_total_amount"))
     note = (request.form.get("note") or "").strip()
     return_url = _sanitize_pos_cash_closing_return_url(request.form.get("return_url"))
