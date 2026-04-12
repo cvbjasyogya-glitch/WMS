@@ -1081,6 +1081,12 @@
                         Rentang: {{ item.payload_map.start_date or '-' }} s/d {{ item.payload_map.end_date or '-' }}
                         {% if item.payload_map.shift_label %} | Shift: {{ item.payload_map.shift_label }}{% endif %}
                     </p>
+                    {% elif item.request_type == 'shift_swap' %}
+                    <p class="helper-text" style="margin-top:10px;">
+                        Tanggal: {{ item.payload_map.schedule_date_label or item.payload_map.schedule_date or '-' }}
+                        | {{ item.payload_map.employee_name or item.full_name or '-' }}: {{ item.payload_map.requester_current_shift_label or item.payload_map.requester_current_shift_code or '-' }}{% if item.payload_map.requester_current_shift_code %} ({{ item.payload_map.requester_current_shift_code }}){% endif %}
+                        | {{ item.payload_map.swap_with_employee_name or '-' }}: {{ item.payload_map.partner_current_shift_label or item.payload_map.partner_current_shift_code or '-' }}{% if item.payload_map.partner_current_shift_code %} ({{ item.payload_map.partner_current_shift_code }}){% endif %}
+                    </p>
                     {% elif item.request_type == 'overtime_use' %}
                     <p class="helper-text" style="margin-top:10px;">Tanggal: {{ item.payload_map.usage_date or '-' }} | Durasi: {{ item.payload_map.duration_label or '-' }}</p>
                     {% elif item.request_type == 'overtime_usage_delete' %}

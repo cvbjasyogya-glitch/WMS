@@ -136,6 +136,16 @@ def _build_workspace_sections(role):
                 "coordination-jadwal",
             )
         )
+        coordination_items.append(
+            _workspace_tile(
+                "Tukar Shift",
+                "/schedule/swap-request",
+                "Ajukan tuker shift manual dan pantau approval HR atau Super Admin dari halaman khusus.",
+                "Planner",
+                "indigo",
+                "coordination-jadwal",
+            )
+        )
 
     if has_permission(normalized_role, "view_chat"):
         coordination_items.append(

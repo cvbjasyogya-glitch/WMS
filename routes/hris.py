@@ -23,6 +23,8 @@ from routes.schedule import (
     _fetch_employees_for_schedule as _fetch_schedule_employees,
     _fetch_shift_codes as _fetch_schedule_shift_codes,
     _seed_default_shift_codes as _seed_schedule_shift_codes,
+    _validate_shift_swap_schedule as _validate_schedule_shift_swap_snapshot,
+    resolve_employee_schedule_for_date,
 )
 from services.hris_catalog import (
     can_manage_hris_module,
@@ -2748,6 +2750,152 @@ def _apply_attendance_request(db, request_row):
             if shift_code else
             f"Jadwal manual {employee_name} untuk {date_range_label} berhasil dibersihkan."
         )
+
+    if request_type == "shift_swap":
+        requester_id = _to_int(payload.get("employee_id"))
+        partner_id = _to_int(payload.get("swap_with_employee_id"))
+        schedule_date = _parse_iso_date(payload.get("schedule_date"))
+        requester_original_code = str(payload.get("requester_current_shift_code") or "").strip().upper()
+        partner_original_code = str(payload.get("partner_current_shift_code") or "").strip().upper()
+        requester_original_note = str(payload.get("requester_current_note") or "").strip()
+        partner_original_note = str(payload.get("partner_current_note") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+
+        if not requester_id or not partner_id or requester_id == partner_id:
+            raise ValueError("Data request tuker shift tidak valid.")
+        if schedule_date is None:
+            raise ValueError("Tanggal tuker shift tidak valid.")
+        if not requester_original_code or not partner_original_code:
+            raise ValueError("Kode shift tuker shift tidak lengkap.")
+        if requester_original_code == partner_original_code:
+            raise ValueError("Tukar shift tidak bisa diproses karena kedua staff punya shift yang sama.")
+
+        requester = db.execute(
+            "SELECT id, full_name, warehouse_id FROM employees WHERE id=?",
+            (requester_id,),
+        ).fetchone()
+        partner = db.execute(
+            "SELECT id, full_name, warehouse_id FROM employees WHERE id=?",
+            (partner_id,),
+        ).fetchone()
+        if requester is None or partner is None:
+            raise ValueError("Salah satu staff pada request tuker shift sudah tidak ditemukan.")
+
+        requester_name = str(requester["full_name"] or payload.get("employee_name") or "Staff").strip()
+        partner_name = str(partner["full_name"] or payload.get("swap_with_employee_name") or "Staff").strip()
+        requester_snapshot = resolve_employee_schedule_for_date(db, requester_id, schedule_date)
+        partner_snapshot = resolve_employee_schedule_for_date(db, partner_id, schedule_date)
+
+        try:
+            current_requester_code = _validate_schedule_shift_swap_snapshot(requester_snapshot, requester_name)
+            current_partner_code = _validate_schedule_shift_swap_snapshot(partner_snapshot, partner_name)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+        if (
+            current_requester_code != requester_original_code
+            or current_partner_code != partner_original_code
+        ):
+            raise ValueError(
+                "Jadwal salah satu staff sudah berubah sejak request dibuat. Minta pengaju kirim ulang tuker shift terbaru."
+            )
+
+        schedule_date_iso = schedule_date.isoformat()
+        for employee_id, shift_code, note in (
+            (requester_id, partner_original_code, partner_original_note),
+            (partner_id, requester_original_code, requester_original_note),
+        ):
+            db.execute(
+                """
+                INSERT INTO schedule_entries(
+                    employee_id,
+                    schedule_date,
+                    shift_code,
+                    note,
+                    updated_by
+                )
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(employee_id, schedule_date) DO UPDATE SET
+                    shift_code=excluded.shift_code,
+                    note=excluded.note,
+                    updated_by=excluded.updated_by,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    employee_id,
+                    schedule_date_iso,
+                    shift_code,
+                    note or None,
+                    session.get("user_id"),
+                ),
+            )
+
+        requester_applied_label = str(
+            partner_snapshot.get("label")
+            or payload.get("partner_current_shift_label")
+            or partner_original_code
+        ).strip()
+        partner_applied_label = str(
+            requester_snapshot.get("label")
+            or payload.get("requester_current_shift_label")
+            or requester_original_code
+        ).strip()
+        schedule_date_label = (
+            str(payload.get("schedule_date_label") or "").strip()
+            or requester_snapshot.get("full_label")
+            or partner_snapshot.get("full_label")
+            or schedule_date_iso
+        )
+        warehouse_id = (
+            _to_int(requester["warehouse_id"])
+            or _to_int(partner["warehouse_id"])
+            or _to_int(request_row.get("warehouse_id"))
+        )
+        schedule_message = (
+            f"Tukar shift {requester_name} dan {partner_name} untuk {schedule_date_label} diterapkan. "
+            f"{requester_name} menjadi {requester_applied_label} ({partner_original_code}), "
+            f"{partner_name} menjadi {partner_applied_label} ({requester_original_code})."
+        )
+        if reason:
+            schedule_message += f" Alasan: {reason}"
+        event_id = create_schedule_change_event(
+            db,
+            warehouse_id=warehouse_id,
+            event_kind="entry_update",
+            title=f"Tukar Shift {requester_name} x {partner_name}",
+            message=schedule_message,
+            affected_employee_id=requester_id,
+            affected_employee_name=requester_name,
+            start_date=schedule_date_iso,
+            end_date=schedule_date_iso,
+            created_by=session.get("user_id"),
+        )
+
+        try:
+            payload_notification = build_schedule_change_notification_payload(
+                {
+                    "id": event_id,
+                    "title": schedule_message.split(".")[0],
+                    "message": schedule_message,
+                }
+            )
+            notify_broadcast(
+                payload_notification["subject"],
+                payload_notification["message"],
+                warehouse_id=warehouse_id,
+                push_title=payload_notification["push_title"],
+                push_body=payload_notification["push_body"],
+                push_url="/announcements/",
+                push_tag=payload_notification["push_tag"],
+                category="schedule",
+                link_url="/announcements/",
+                source_type="schedule_change",
+                source_id=str(event_id),
+            )
+        except Exception as exc:
+            print("ATTENDANCE REQUEST SHIFT SWAP BROADCAST ERROR:", exc)
+
+        return f"Tukar shift {requester_name} dengan {partner_name} untuk {schedule_date_label} berhasil diterapkan."
 
     if request_type == "overtime_add":
         employee_id = _to_int(payload.get("employee_id"))

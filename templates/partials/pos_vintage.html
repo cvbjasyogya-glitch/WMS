@@ -4,6 +4,7 @@
     data-warehouse-id="{{ selected_warehouse }}"
     data-sale-date="{{ sale_date }}"
     data-warehouse-name="{{ selected_warehouse_name }}"
+    data-edit-sale-id="{{ editing_sale.id if editing_sale else '' }}"
     aria-label="Kasir Harian"
 >
     <h2 class="sr-only">Kasir Harian</h2>
@@ -91,11 +92,22 @@
                             <strong>Data Transaksi</strong>
                         </div>
                     </div>
+                    {% if editing_sale %}
+                    <div class="helper-text">
+                        Mode edit aktif untuk receipt <strong>{{ editing_sale.receipt_no }}</strong>.
+                        Tanggal transaksi tetap {{ editing_sale.sale_date }} dan jam awal tetap {{ editing_sale.created_time_label }}.
+                        Simpan perubahan untuk memperbarui isi barang tanpa membuat nomor transaksi baru.
+                    </div>
+                    <div class="split-actions">
+                        <span class="status-pill">Edit Transaksi</span>
+                        <a href="/kasir/?warehouse={{ selected_warehouse }}&sale_date={{ sale_date }}" class="ghost-button" data-pos-runtime-link="1">Batal Edit</a>
+                    </div>
+                    {% endif %}
 
                     <div class="pos-ipos-transaction-grid">
                         <div class="pos-ipos-field pos-ipos-field-transaction-no">
                             <label for="posTransactionDisplay">No Transaksi</label>
-                            <input type="text" id="posTransactionDisplay" value="AUTO" readonly>
+                            <input type="text" id="posTransactionDisplay" value="{{ editing_sale.receipt_no if editing_sale else 'AUTO' }}" readonly>
                         </div>
                         <div class="pos-ipos-field pos-ipos-field-transaction-date">
                             <label>Tanggal Kasir</label>
@@ -374,7 +386,7 @@
                         <button type="button" class="pos-vintage-mini danger" data-pos-paid-shortcut="clear">Reset</button>
                     </div>
 
-                    <button type="button" id="posCheckoutButton" class="pos-vintage-button is-success pos-ipos-checkout">Bayar [END]</button>
+                    <button type="button" id="posCheckoutButton" class="pos-vintage-button is-success pos-ipos-checkout">{{ "Simpan Edit [END]" if editing_sale else "Bayar [END]" }}</button>
                     <input type="hidden" id="posNote" value="">
                 </section>
             </aside>
@@ -563,6 +575,15 @@
                             <td>{{ sale.note or "-" }}</td>
                             <td class="pos-sales-log-actions">
                                 <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
+                                {% if sale.can_edit_transaction %}
+                                <a
+                                    href="/kasir/?warehouse={{ sale.warehouse_id }}&sale_date={{ sale.sale_date }}&edit_sale_id={{ sale.id }}"
+                                    class="pos-vintage-mini"
+                                    data-pos-runtime-link="1"
+                                >
+                                    Edit Transaksi
+                                </a>
+                                {% endif %}
                                 <a href="{{ sale.receipt_thermal_url }}" target="_blank" rel="noopener" class="pos-vintage-mini" data-pos-runtime-link="1">Cetak Thermal</a>
                             </td>
                         </tr>

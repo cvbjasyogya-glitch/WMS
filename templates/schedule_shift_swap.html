@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% macro filter_hidden_inputs() -%}
+<input type="hidden" name="start" value="{{ filters.start }}">
+<input type="hidden" name="days" value="{{ filters.days }}">
+{% if selected_warehouse %}
+<input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+{% endif %}
+{%- endmacro %}
+
+{% block title %}Pengajuan Tuker Shift | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Self Service Jadwal{% endblock %}
+{% block page_title %}Pengajuan Tuker Shift{% endblock %}
+{% block page_subtitle %}Ajukan tuker shift manual dengan staf lain pada tanggal yang sama tanpa mengubah board operasional secara langsung. Request akan masuk dulu ke approval HR atau Super Admin.{% endblock %}
+
+{% block page_actions %}
+<a class="ghost-button" href="/schedule/?start={{ filters.start }}&days={{ filters.days }}{% if selected_warehouse %}&warehouse={{ selected_warehouse }}{% endif %}">Kembali ke Board</a>
+<a class="ghost-button" href="/libur/">Buka Libur</a>
+{% endblock %}
+
+{% block content %}
+<div class="meta-grid">
+    <div class="meta-card">
+        <span>Scope Board</span>
+        <strong>{{ selected_warehouse_name }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Range Mulai</span>
+        <strong>{{ filters.start }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Range Sampai</span>
+        <strong>{{ range_end }}</strong>
+    </div>
+    <div class="meta-card">
+        <span>Status Form</span>
+        <strong>{{ "Siap Diajukan" if shift_swap_request.enabled else "Perlu Dicek" }}</strong>
+    </div>
+</div>
+
+<div class="form-box">
+    <div class="section-title">
+        <div>
+            <h2>Form Tuker Shift</h2>
+            <p>Gunakan halaman ini saat shift manual Anda perlu ditukar dengan staf lain di tanggal yang sama. Sistem akan membaca jadwal manual aktif milik kedua staf sebelum request dikirim ke approval.</p>
+        </div>
+    </div>
+
+    {% if shift_swap_request.linked_employee %}
+    <div class="form-grid" style="margin-bottom:16px;">
+        <div>
+            <label>Pengaju</label>
+            <input value="{{ shift_swap_request.linked_employee.full_name or shift_swap_request.linked_employee.display_name or '-' }}" readonly>
+        </div>
+        <div>
+            <label>Homebase</label>
+            <input value="{{ shift_swap_request.linked_employee.warehouse_name or '-' }}" readonly>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if shift_swap_request.enabled %}
+    <form method="POST" action="/schedule/swap-request/save">
+        {{ filter_hidden_inputs() }}
+        <div class="form-grid">
+            <div>
+                <label>Tanggal Tuker Shift</label>
+                <input type="date" name="swap_date" value="{{ filters.start }}" required>
+            </div>
+            <div>
+                <label>Partner Shift</label>
+                <select name="swap_with_employee_id" required>
+                    <option value="">Pilih Partner Shift</option>
+                    {% for partner in shift_swap_request.partner_options %}
+                    <option value="{{ partner.employee_id }}">{{ partner.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="span-full">
+                <label>Alasan Pengajuan</label>
+                <textarea name="reason" rows="4" placeholder="Contoh: perlu tuker shift karena urusan keluarga, appointment, atau backup event lain." required></textarea>
+            </div>
+        </div>
+        <small class="helper-text">Request hanya bisa diproses kalau Anda dan partner sama-sama punya shift manual aktif pada tanggal tersebut, lalu keputusan akhirnya menunggu approval HR / Super Admin.</small>
+        <div class="split-actions stack-gap-md">
+            <button type="submit">Kirim Pengajuan Tuker Shift</button>
+            <a class="ghost-button" href="/schedule/?start={{ filters.start }}&days={{ filters.days }}{% if selected_warehouse %}&warehouse={{ selected_warehouse }}{% endif %}">Batal</a>
+        </div>
+    </form>
+    {% else %}
+    <div class="box" style="margin-bottom:0;">
+        <strong>Form belum bisa dipakai</strong>
+        <p style="margin:8px 0 0;">{{ shift_swap_request.reason }}</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

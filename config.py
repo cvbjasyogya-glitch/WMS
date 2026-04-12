@@ -215,6 +215,9 @@ class Config:
     POS_RECEIPT_PDF_BROWSER = _first_env_value("POS_RECEIPT_PDF_BROWSER")
     POS_RECEIPT_PDF_BROWSER_TIMEOUT_SECONDS = _int_env("POS_RECEIPT_PDF_BROWSER_TIMEOUT_SECONDS", 25)
     POS_AUTO_PRINT_AFTER_CHECKOUT = _env_flag("POS_AUTO_PRINT_AFTER_CHECKOUT", False)
+    # Temporary cashier exception: POS may continue checkout while stock is 0 and let it go minus.
+    # Set to 0 to restore strict stock validation.
+    POS_ALLOW_NEGATIVE_STOCK_TEMP = _env_flag("POS_ALLOW_NEGATIVE_STOCK_TEMP", True)
     ENFORCE_SAME_ORIGIN_POSTS = _env_flag("ENFORCE_SAME_ORIGIN_POSTS", True)
     ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS = _env_flag(
         "ENFORCE_SAME_ORIGIN_POSTS_DURING_TESTS",

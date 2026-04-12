@@ -95,6 +95,16 @@ def _column_exists(cursor, table_name, column_name):
     return any(row["name"] == column_name for row in rows)
 
 
+def _get_table_sql(cursor, table_name):
+    row = cursor.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    if not row:
+        return ""
+    return str(row["sql"] or "")
+
+
 def _ensure_column(cursor, table_name, column_name, definition):
     if _table_exists(cursor, table_name) and not _column_exists(cursor, table_name, column_name):
         cursor.execute(
@@ -102,8 +112,41 @@ def _ensure_column(cursor, table_name, column_name, definition):
         )
 
 
+def _rebuild_stock_table_without_non_negative_qty_check(cursor):
+    table_sql = _get_table_sql(cursor, "stock").replace(" ", "").upper()
+    if "CHECK(QTY>=0)" not in table_sql:
+        return
+
+    cursor.execute("ALTER TABLE stock RENAME TO stock_legacy_non_negative_qty")
+    cursor.execute(
+        """
+        CREATE TABLE stock(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            variant_id INTEGER,
+            warehouse_id INTEGER,
+            qty INTEGER DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(product_id, variant_id, warehouse_id),
+            FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
+            FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+            FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO stock(id, product_id, variant_id, warehouse_id, qty, updated_at)
+        SELECT id, product_id, variant_id, warehouse_id, qty, updated_at
+        FROM stock_legacy_non_negative_qty
+        """
+    )
+    cursor.execute("DROP TABLE stock_legacy_non_negative_qty")
+
+
 def migrate_schema(cursor):
     # Keep existing databases compatible with the newer routes/services.
+    _rebuild_stock_table_without_non_negative_qty_check(cursor)
     _ensure_column(cursor, "products", "unit_label", "TEXT DEFAULT 'pcs'")
     _ensure_column(cursor, "products", "variant_mode", "TEXT DEFAULT 'variant'")
     _ensure_column(cursor, "product_variants", "price_retail", "REAL DEFAULT 0")
@@ -127,6 +170,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "crm_purchase_records", "import_source", "TEXT")
     _ensure_column(cursor, "crm_purchase_records", "import_items_summary", "TEXT")
     _ensure_column(cursor, "crm_purchase_records", "import_total_qty", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "stock", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     _ensure_column(cursor, "pos_sales", "payment_breakdown_json", "TEXT")
     _ensure_column(cursor, "crm_member_records", "service_count_delta", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "crm_member_records", "reward_redeemed_delta", "INTEGER DEFAULT 0")
@@ -627,6 +671,28 @@ def init_db(db_path=None, sqlite_options=None):
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
         FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE
+    )
+    """)
+
+    # ==========================
+    # POS NEGATIVE STOCK OVERDRAFTS
+    # ==========================
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS pos_negative_stock_overdrafts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER,
+        variant_id INTEGER,
+        warehouse_id INTEGER,
+        qty INTEGER DEFAULT 0,
+        remaining_qty INTEGER DEFAULT 0,
+        source_type TEXT,
+        source_id INTEGER,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP,
+        FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
+        FOREIGN KEY(variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+        FOREIGN KEY(warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE
     )
     """)
 
@@ -1688,6 +1754,8 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_batches_remaining ON stock_batches(remaining_qty)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_history_main ON stock_history(product_id, warehouse_id, date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_main ON stock(product_id, variant_id, warehouse_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pos_negative_stock_overdrafts_main ON pos_negative_stock_overdrafts(product_id, variant_id, warehouse_id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pos_negative_stock_overdrafts_remaining ON pos_negative_stock_overdrafts(remaining_qty)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_so_results_main ON stock_opname_results(product_id, variant_id, warehouse_id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_area_balances_main ON stock_area_balances(warehouse_id, area_kind, product_id, variant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_owner_requests_main ON owner_requests(warehouse_id, status, created_at)")

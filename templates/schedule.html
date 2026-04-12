@@ -15,6 +15,7 @@
 
 {% block page_actions %}
 <a class="ghost-button" href="/libur/">Buka Libur</a>
+<a class="ghost-button" href="/schedule/swap-request?start={{ filters.start }}&days={{ filters.days }}{% if selected_warehouse %}&warehouse={{ selected_warehouse }}{% endif %}">Pengajuan Tuker Shift</a>
 {% if show_hris_navigation and can_view_hris_module("offboarding") %}
 <a class="ghost-button" href="/hris/offboarding">Buka Offboarding</a>
 {% endif %}

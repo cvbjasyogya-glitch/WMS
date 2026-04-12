@@ -333,6 +333,15 @@
                     <td>{{ sale.note or "-" }}</td>
                     <td class="pos-sales-log-actions">
                         <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
+                        {% if sale.can_edit_transaction %}
+                        <a
+                            href="/kasir/?warehouse={{ sale.warehouse_id }}&sale_date={{ sale.sale_date }}&edit_sale_id={{ sale.id }}"
+                            class="ghost-button"
+                            data-pos-runtime-link="1"
+                        >
+                            Edit Transaksi
+                        </a>
+                        {% endif %}
                         {% if sale.receipt_whatsapp_status == "sent" %}
                         <div class="helper-text">WA Nota: terkirim</div>
                         {% elif sale.receipt_whatsapp_status == "failed" %}

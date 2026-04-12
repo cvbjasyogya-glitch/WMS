@@ -637,6 +637,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('updatePriceFromCart(index, getPosCurrencyValue(priceInput), { renderFull: false, syncInput: true });', html)
         self.assertIn('posCartBody.addEventListener("change", (event) => {', html)
 
+    def test_pos_page_exposes_temp_negative_stock_toggle_in_js(self):
+        self.login_pos_user("owner_pos_negative_toggle", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("const posAllowNegativeStockTemp = true;", html)
+        self.assertIn("Stok minus sementara. Transaksi tetap bisa diproses.", html)
+
     def test_pos_page_includes_customer_dropdown_smart_search(self):
         self.login_pos_user("owner_pos_customer_search", "owner")
 
@@ -1511,6 +1521,271 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(update_payload["had_cash_closing_report"])
         self.assertIn("tutup kasir", update_payload["message"].lower())
 
+    def test_pos_pages_expose_edit_transaction_actions_for_posted_sales(self):
+        self.create_user("staff_pos_edit_link", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_pos_edit_link")
+        self.login_pos_user("super_pos_edit_link", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-EDIT-LINK-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={"ok": False, "provider": "kirimi", "receiver": "", "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-11",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Edit Link",
+                    "customer_phone": "628120006666",
+                    "payment_method": "cash",
+                    "paid_amount": 165000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-11&date_to=2026-04-11")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn(f"edit_sale_id={checkout_payload['sale_id']}", log_html)
+        self.assertIn("Edit Transaksi", log_html)
+
+        pos_response = self.client.get(
+            f"/kasir/?warehouse=1&sale_date=2026-04-11&edit_sale_id={checkout_payload['sale_id']}"
+        )
+        self.assertEqual(pos_response.status_code, 200)
+        pos_html = pos_response.get_data(as_text=True)
+        self.assertIn("Mode edit aktif untuk receipt", pos_html)
+        self.assertIn(checkout_payload["receipt_no"], pos_html)
+        self.assertIn("const posEditingSale =", pos_html)
+        self.assertIn("Simpan Edit [END]", pos_html)
+
+    def test_super_admin_can_edit_pos_transaction_without_changing_receipt_or_created_at(self):
+        self.create_user("staff_pos_edit_sale", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_pos_edit_sale")
+        self.login_pos_user("super_pos_edit_sale", "super_admin")
+        response_a, product_a_id, variants_a_rows = self.create_product(
+            sku="POS-EDIT-SALE-A",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+            name="Produk Edit Sale A",
+        )
+        response_b, product_b_id, variants_b_rows = self.create_product(
+            sku="POS-EDIT-SALE-B",
+            qty=7,
+            variants="43",
+            warehouse_id="1",
+            name="Produk Edit Sale B",
+        )
+        self.assertEqual(response_a.status_code, 302)
+        self.assertEqual(response_b.status_code, 302)
+        variant_a_id = variants_a_rows[0]["id"]
+        variant_b_id = variants_b_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={"ok": False, "provider": "kirimi", "receiver": "", "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-11",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Edit Sale",
+                    "customer_phone": "628120005555",
+                    "payment_method": "cash",
+                    "paid_amount": 260000,
+                    "items": [
+                        {
+                            "product_id": product_a_id,
+                            "variant_id": variant_a_id,
+                            "qty": 2,
+                            "unit_price": 125000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+
+        with self.app.app_context():
+            db = get_db()
+            sale_before = db.execute(
+                """
+                SELECT id, purchase_id, receipt_no, sale_date, created_at
+                FROM pos_sales
+                WHERE id=?
+                """,
+                (checkout_payload["sale_id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(sale_before)
+
+        with patch("routes.pos.notify_operational_event") as mocked_notify, patch(
+            "routes.pos._generate_backend_pos_receipt_pdf"
+        ) as mocked_generate_pdf, patch("routes.pos._send_pos_receipt_to_customer") as mocked_send_receipt:
+            edit_response = self.client.post(
+                f"/kasir/sale/{checkout_payload['sale_id']}/edit",
+                json={
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Edit Sale",
+                    "customer_phone": "628120005555",
+                    "transaction_type": "purchase",
+                    "payment_method": "debit",
+                    "discount_type": "amount",
+                    "discount_value": 10000,
+                    "tax_type": "percent",
+                    "tax_value": 10,
+                    "paid_amount": 330000,
+                    "note": "Revisi barang salah scan",
+                    "items": [
+                        {
+                            "product_id": product_b_id,
+                            "variant_id": variant_b_id,
+                            "qty": 3,
+                            "unit_price": 100000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(edit_response.status_code, 200)
+        edit_payload = edit_response.get_json()
+        self.assertEqual(edit_payload["status"], "success")
+        self.assertEqual(edit_payload["receipt_no"], checkout_payload["receipt_no"])
+        self.assertEqual(edit_payload["payment_method"], "debit")
+        self.assertEqual(edit_payload["total_items"], 3)
+        self.assertAlmostEqual(edit_payload["subtotal_amount"], 300000.0)
+        self.assertAlmostEqual(edit_payload["discount_amount"], 10000.0)
+        self.assertAlmostEqual(edit_payload["tax_amount"], 29000.0)
+        self.assertAlmostEqual(edit_payload["total_amount"], 319000.0)
+        self.assertAlmostEqual(edit_payload["paid_amount"], 330000.0)
+        self.assertAlmostEqual(edit_payload["change_amount"], 11000.0)
+        mocked_notify.assert_not_called()
+        mocked_generate_pdf.assert_not_called()
+        mocked_send_receipt.assert_not_called()
+
+        with self.app.app_context():
+            db = get_db()
+            sale_after = db.execute(
+                """
+                SELECT
+                    id,
+                    purchase_id,
+                    receipt_no,
+                    sale_date,
+                    created_at,
+                    cashier_user_id,
+                    payment_method,
+                    total_items,
+                    subtotal_amount,
+                    discount_amount,
+                    tax_amount,
+                    total_amount,
+                    paid_amount,
+                    change_amount,
+                    receipt_pdf_path,
+                    receipt_pdf_url,
+                    receipt_whatsapp_status,
+                    receipt_whatsapp_error,
+                    note
+                FROM pos_sales
+                WHERE id=?
+                """,
+                (checkout_payload["sale_id"],),
+            ).fetchone()
+            purchase_after = db.execute(
+                """
+                SELECT customer_id, member_id, transaction_type, items_count, total_amount, note
+                FROM crm_purchase_records
+                WHERE id=?
+                """,
+                (sale_after["purchase_id"],),
+            ).fetchone()
+            purchase_items_after = db.execute(
+                """
+                SELECT product_id, variant_id, qty, unit_price, line_total, note
+                FROM crm_purchase_items
+                WHERE purchase_id=?
+                ORDER BY id ASC
+                """,
+                (sale_after["purchase_id"],),
+            ).fetchall()
+            stock_a_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_a_id, variant_a_id),
+            ).fetchone()
+            stock_b_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_b_id, variant_b_id),
+            ).fetchone()
+
+        self.assertEqual(sale_after["receipt_no"], sale_before["receipt_no"])
+        self.assertEqual(sale_after["sale_date"], sale_before["sale_date"])
+        self.assertEqual(sale_after["created_at"], sale_before["created_at"])
+        self.assertEqual(sale_after["cashier_user_id"], selected_cashier_user_id)
+        self.assertEqual(sale_after["payment_method"], "debit")
+        self.assertEqual(sale_after["total_items"], 3)
+        self.assertAlmostEqual(float(sale_after["subtotal_amount"]), 300000.0)
+        self.assertAlmostEqual(float(sale_after["discount_amount"]), 10000.0)
+        self.assertAlmostEqual(float(sale_after["tax_amount"]), 29000.0)
+        self.assertAlmostEqual(float(sale_after["total_amount"]), 319000.0)
+        self.assertAlmostEqual(float(sale_after["paid_amount"]), 330000.0)
+        self.assertAlmostEqual(float(sale_after["change_amount"]), 11000.0)
+        self.assertIsNone(sale_after["receipt_pdf_path"])
+        self.assertIsNone(sale_after["receipt_pdf_url"])
+        self.assertEqual(sale_after["receipt_whatsapp_status"], "pending")
+        self.assertFalse(sale_after["receipt_whatsapp_error"])
+        self.assertEqual(sale_after["note"], "Revisi barang salah scan")
+
+        self.assertEqual(purchase_after["transaction_type"], "purchase")
+        self.assertEqual(purchase_after["items_count"], 3)
+        self.assertAlmostEqual(float(purchase_after["total_amount"]), 319000.0)
+        self.assertEqual(purchase_after["note"], "Revisi barang salah scan")
+
+        self.assertEqual(len(purchase_items_after), 1)
+        self.assertEqual(purchase_items_after[0]["product_id"], product_b_id)
+        self.assertEqual(purchase_items_after[0]["variant_id"], variant_b_id)
+        self.assertEqual(purchase_items_after[0]["qty"], 3)
+        self.assertAlmostEqual(float(purchase_items_after[0]["unit_price"]), 100000.0)
+        self.assertAlmostEqual(float(purchase_items_after[0]["line_total"]), 300000.0)
+        self.assertEqual(purchase_items_after[0]["note"], "POS Edit Transaksi")
+
+        self.assertEqual(stock_a_after["qty"], 5)
+        self.assertEqual(stock_b_after["qty"], 4)
+
     def test_pos_sales_log_supports_quick_filter_for_failed_whatsapp_transactions(self):
         self.create_user("staff_sales_log_filter", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_log_filter")
@@ -2348,6 +2623,195 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(pos_sale["change_amount"]), 10000.0)
         self.assertEqual(pos_sale["payment_method"], "cash")
         self.assertEqual(pos_sale["cashier_user_id"], selected_cashier_user_id)
+
+    def test_pos_checkout_temporarily_allows_zero_stock_item_and_notifies_owner(self):
+        self.create_user("staff_sales_negative", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_negative")
+        self.login_pos_user("pos_negative_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-NEG-001",
+            qty=0,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch("routes.pos.notify_operational_event") as mocked_notify, patch(
+            "routes.pos._generate_backend_pos_receipt_pdf",
+            return_value=(None, None),
+        ), patch(
+            "routes.pos._send_pos_receipt_to_customer",
+            return_value={"ok": False, "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-12",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Stock Minus",
+                    "customer_phone": "628120000222",
+                    "payment_method": "cash",
+                    "paid_amount": 260000,
+                    "note": "Uji stok minus sementara",
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 2,
+                            "unit_price": 125000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            stock_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            overdraft_row = db.execute(
+                """
+                SELECT qty, remaining_qty, note
+                FROM pos_negative_stock_overdrafts
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(stock_after["qty"], -2)
+        self.assertEqual(overdraft_row["qty"], 2)
+        self.assertEqual(overdraft_row["remaining_qty"], 2)
+        self.assertIn("stok minus sementara", overdraft_row["note"].lower())
+
+        owner_alert_call = next(
+            (
+                call
+                for call in mocked_notify.call_args_list
+                if call.kwargs.get("recipient_roles") == ("owner",)
+            ),
+            None,
+        )
+        self.assertIsNotNone(owner_alert_call)
+        self.assertEqual(owner_alert_call.kwargs.get("include_actor"), False)
+        self.assertIn("staff staff_sales_negative sedang memproses transaksi", owner_alert_call.args[1].lower())
+        self.assertIn("stok 0 -> -2", owner_alert_call.args[1].lower())
+        self.assertIn(payload["receipt_no"].lower(), owner_alert_call.args[1].lower())
+
+    def test_pos_void_restores_negative_stock_checkout_back_to_zero(self):
+        self.create_user("staff_sales_negative_void", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_negative_void")
+        self.login_pos_user("pos_negative_void_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-NEG-VOID-001",
+            qty=0,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch("routes.pos.notify_operational_event"), patch(
+            "routes.pos._generate_backend_pos_receipt_pdf",
+            return_value=(None, None),
+        ), patch(
+            "routes.pos._send_pos_receipt_to_customer",
+            return_value={"ok": False, "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-12",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Void Minus",
+                    "customer_phone": "628120000333",
+                    "payment_method": "cash",
+                    "paid_amount": 260000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 2,
+                            "unit_price": 125000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+
+        with self.app.app_context():
+            db = get_db()
+            sale_item = db.execute(
+                """
+                SELECT id
+                FROM crm_purchase_items
+                WHERE purchase_id=?
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (checkout_payload["purchase_id"],),
+            ).fetchone()
+            stock_before_void = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(stock_before_void["qty"], -2)
+        self.assertIsNotNone(sale_item)
+
+        with patch("routes.pos.notify_operational_event"):
+            void_response = self.client.post(
+                f"/kasir/sales-item/{sale_item['id']}/void",
+                json={"void_qty": 2, "note": "Kembalikan stok minus"},
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(void_response.status_code, 200)
+        void_payload = void_response.get_json()
+        self.assertEqual(void_payload["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            stock_after_void = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            overdraft_after_void = db.execute(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0) AS remaining_qty
+                FROM pos_negative_stock_overdrafts
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(stock_after_void["qty"], 0)
+        self.assertEqual(overdraft_after_void["remaining_qty"], 0)
 
     def test_pos_checkout_requires_customer_name_and_phone(self):
         self.create_user("staff_sales_required_identity", "pass1234", "staff", warehouse_id=1)
@@ -4468,6 +4932,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-sidebar-group="coordination" open', html)
         self.assertIn('href="/schedule/" class="active"', html)
 
+    def test_shift_swap_page_opens_coordination_sidebar_group(self):
+        self.login()
+
+        response = self.client.get("/schedule/swap-request")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-sidebar-group="coordination" open', html)
+        self.assertIn('href="/schedule/swap-request" class="sidebar-subtile active"', html)
+        self.assertIn("Pengajuan Tuker Shift", html)
+
     def test_request_owner_page_opens_wms_and_request_submenu(self):
         self.login()
 
@@ -5760,6 +6235,184 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("schedule-live-check-button is-checked", html)
         self.assertIn("Klik kanan di desktop atau tekan tahan di mobile", html)
         self.assertIn('document.addEventListener("touchstart", beginTouchMenu', html)
+
+    def test_schedule_page_links_to_shift_swap_request_page_for_linked_staff(self):
+        own_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-SWAP-OWN",
+            full_name="Rio Tuker",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_employee_record(
+            employee_code="EMP-SCD-SWAP-ALLY",
+            full_name="Dina Partner",
+            warehouse_id=1,
+            position="Picker",
+        )
+        self.create_employee_record(
+            employee_code="EMP-SCD-SWAP-OTHER",
+            full_name="Mega Luar",
+            warehouse_id=2,
+            position="Marketing",
+        )
+        self.create_user("staff_shift_swap_form", "pass1234", "staff", warehouse_id=1, employee_id=own_employee_id)
+
+        self.login("staff_shift_swap_form", "pass1234")
+        board_response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(board_response.status_code, 200)
+        board_html = board_response.get_data(as_text=True)
+        self.assertIn("Pengajuan Tuker Shift", board_html)
+        self.assertIn('href="/schedule/swap-request?start=2026-03-30&days=7&warehouse=1"', board_html)
+        self.assertIn('href="/schedule/swap-request" class="sidebar-subtile', board_html)
+        self.assertNotIn('action="/schedule/swap-request/save"', board_html)
+
+        response = self.client.get("/schedule/swap-request?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(response.status_code, 200)
+
+        html = response.get_data(as_text=True)
+        self.assertIn("Pengajuan Tuker Shift", html)
+        self.assertIn('action="/schedule/swap-request/save"', html)
+        self.assertIn('name="swap_date"', html)
+        self.assertIn('name="swap_with_employee_id"', html)
+        self.assertIn("Rio Tuker", html)
+        self.assertIn("Dina Partner", html)
+        self.assertNotIn("Mega Luar", html)
+        self.assertIn("Kembali ke Board", html)
+        self.assertIn("approval HR / Super Admin", html)
+
+    def test_linked_staff_can_submit_shift_swap_request_and_hr_can_approve_it(self):
+        requester_id = self.create_employee_record(
+            employee_code="EMP-SCD-SWAP-RQ",
+            full_name="Rio Shift",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        partner_id = self.create_employee_record(
+            employee_code="EMP-SCD-SWAP-PT",
+            full_name="Dina Shift",
+            warehouse_id=1,
+            position="Cashier",
+        )
+        self.create_user("staff_shift_swap_submit", "pass1234", "staff", warehouse_id=1, employee_id=requester_id)
+        self.create_user("hr_shift_swap_approval", "pass1234", "hr")
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO schedule_entries(employee_id, schedule_date, shift_code, note, updated_by)
+                VALUES (?,?,?,?,?)
+                """,
+                [
+                    (requester_id, "2026-03-31", "P", "Shift buka toko", 1),
+                    (partner_id, "2026-03-31", "S", "Shift closing toko", 1),
+                ],
+            )
+            db.commit()
+
+        self.login("staff_shift_swap_submit", "pass1234")
+        page_response = self.client.get("/schedule/swap-request?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(page_response.status_code, 200)
+        self.assertIn('action="/schedule/swap-request/save"', page_response.get_data(as_text=True))
+
+        submit_response = self.client.post(
+            "/schedule/swap-request/save",
+            data={
+                "swap_date": "2026-03-31",
+                "swap_with_employee_id": str(partner_id),
+                "reason": "Tukar karena ada janji keluarga.",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/schedule/swap-request", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                """
+                SELECT id, request_type, status, summary_title, payload
+                FROM attendance_action_requests
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (requester_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(request_row)
+        self.assertEqual(request_row["request_type"], "shift_swap")
+        self.assertEqual(request_row["status"], "pending")
+        self.assertIn("Tukar Shift Rio Shift x Dina Shift", request_row["summary_title"])
+
+        payload = json.loads(request_row["payload"])
+        self.assertEqual(payload["schedule_date"], "2026-03-31")
+        self.assertEqual(payload["requester_current_shift_code"], "P")
+        self.assertEqual(payload["partner_current_shift_code"], "S")
+        self.assertEqual(payload["reason"], "Tukar karena ada janji keluarga.")
+
+        self.logout()
+        self.login("hr_shift_swap_approval", "pass1234")
+
+        approval_page = self.client.get("/hris/approval")
+        self.assertEqual(approval_page.status_code, 200)
+        approval_html = approval_page.get_data(as_text=True)
+        self.assertIn("Tukar Shift Rio Shift x Dina Shift", approval_html)
+        self.assertIn("Rio Shift: Pagi (P)", approval_html)
+        self.assertIn("Dina Shift: Siang (S)", approval_html)
+
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{request_row['id']}/process",
+            data={"decision": "approved", "decision_note": "Swap valid."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            approved_request = db.execute(
+                """
+                SELECT status
+                FROM attendance_action_requests
+                WHERE id=?
+                """,
+                (request_row["id"],),
+            ).fetchone()
+            requester_entry = db.execute(
+                """
+                SELECT shift_code, note
+                FROM schedule_entries
+                WHERE employee_id=? AND schedule_date='2026-03-31'
+                """,
+                (requester_id,),
+            ).fetchone()
+            partner_entry = db.execute(
+                """
+                SELECT shift_code, note
+                FROM schedule_entries
+                WHERE employee_id=? AND schedule_date='2026-03-31'
+                """,
+                (partner_id,),
+            ).fetchone()
+            event_row = db.execute(
+                """
+                SELECT title, message
+                FROM schedule_change_events
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        self.assertEqual(approved_request["status"], "approved")
+        self.assertEqual(requester_entry["shift_code"], "S")
+        self.assertEqual(requester_entry["note"], "Shift closing toko")
+        self.assertEqual(partner_entry["shift_code"], "P")
+        self.assertEqual(partner_entry["note"], "Shift buka toko")
+        self.assertIn("Tukar Shift Rio Shift x Dina Shift", event_row["title"])
+        self.assertIn("Tukar karena ada janji keluarga.", event_row["message"])
 
     def test_schedule_page_builds_theme_safe_colors_for_extreme_custom_values(self):
         self.create_user("hr_schedule_theme", "pass1234", "hr")

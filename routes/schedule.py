@@ -341,6 +341,20 @@ def _schedule_redirect():
     return redirect(f"/schedule/?{query_parts}")
 
 
+def _shift_swap_redirect():
+    args = {}
+    for key in ("start", "days", "warehouse"):
+        value = request.form.get(key)
+        if value not in (None, ""):
+            args[key] = value
+
+    if not args:
+        return redirect("/schedule/swap-request")
+
+    query_parts = "&".join(f"{key}={value}" for key, value in args.items())
+    return redirect(f"/schedule/swap-request?{query_parts}")
+
+
 def _can_view_schedule():
     return has_permission(session.get("role"), "view_schedule")
 
@@ -395,6 +409,109 @@ def _get_warehouse_label(warehouses, warehouse_id):
         if warehouse["id"] == warehouse_id:
             return warehouse["name"]
     return "Semua Gudang"
+
+
+def _get_schedule_linked_employee(db):
+    linked_employee_id = _to_int(session.get("employee_id"))
+    if not linked_employee_id:
+        linked_user_id = _to_int(session.get("user_id"))
+        if linked_user_id:
+            user_row = db.execute(
+                "SELECT employee_id FROM users WHERE id=? LIMIT 1",
+                (linked_user_id,),
+            ).fetchone()
+            linked_employee_id = _to_int(user_row["employee_id"] if user_row else None)
+
+    if not linked_employee_id:
+        return None
+
+    return next(
+        (
+            row
+            for row in _fetch_employees_for_schedule(db)
+            if _to_int(row.get("employee_id")) == linked_employee_id
+        ),
+        None,
+    )
+
+
+def _build_shift_swap_partner_options(db, linked_employee):
+    if not linked_employee:
+        return []
+
+    warehouse_id = _to_int(linked_employee.get("warehouse_id"))
+    if not warehouse_id:
+        return []
+    partner_rows = _build_schedule_members(_fetch_employees_for_schedule(db, warehouse_id))
+    partner_options = []
+    for row in partner_rows:
+        employee_id = _to_int(row.get("employee_id"))
+        if not employee_id or employee_id == _to_int(linked_employee.get("employee_id")):
+            continue
+        partner_options.append(
+            {
+                "employee_id": employee_id,
+                "full_name": row.get("full_name") or row.get("display_name") or "Staf",
+                "display_name": row.get("display_name") or row.get("full_name") or "Staf",
+                "position": row.get("position") or row.get("department") or "",
+                "warehouse_name": row.get("warehouse_name") or linked_employee.get("warehouse_name") or "-",
+                "label": " | ".join(
+                    part
+                    for part in [
+                        str(row.get("full_name") or row.get("display_name") or "Staf").strip(),
+                        str(row.get("position") or row.get("department") or "").strip(),
+                        str(row.get("warehouse_name") or linked_employee.get("warehouse_name") or "").strip(),
+                    ]
+                    if part
+                ),
+            }
+        )
+    return partner_options
+
+
+def _build_shift_swap_request_context(db, selected_warehouse):
+    linked_employee = _get_schedule_linked_employee(db)
+    if not linked_employee:
+        return {
+            "enabled": False,
+            "linked_employee": None,
+            "partner_options": [],
+            "reason": "Form tuker shift muncul otomatis setelah akun ditautkan ke data karyawan.",
+        }
+
+    linked_employee = dict(linked_employee)
+    linked_warehouse_id = _to_int(linked_employee.get("warehouse_id"))
+    if not linked_warehouse_id:
+        return {
+            "enabled": False,
+            "linked_employee": linked_employee,
+            "partner_options": [],
+            "reason": "Homebase karyawan belum diatur, jadi form tuker shift belum bisa dipakai.",
+        }
+
+    if selected_warehouse and linked_warehouse_id and int(selected_warehouse) != linked_warehouse_id:
+        return {
+            "enabled": False,
+            "linked_employee": linked_employee,
+            "partner_options": [],
+            "reason": "Pengajuan tuker shift hanya tampil saat scope board sesuai homebase Anda.",
+        }
+
+    partner_options = _build_shift_swap_partner_options(db, linked_employee)
+    if not partner_options:
+        return {
+            "enabled": False,
+            "linked_employee": linked_employee,
+            "partner_options": [],
+            "reason": "Belum ada partner shift lain yang aktif di homebase Anda.",
+        }
+
+    return {
+        "enabled": True,
+        "linked_employee": linked_employee,
+        "partner_options": partner_options,
+        "reason": "",
+    }
 
 
 def _resolve_schedule_display_name(full_name, custom_name=None, employee_code=None):
@@ -881,6 +998,23 @@ def resolve_employee_schedule_for_date(db, employee_id, target_date):
     }
 
 
+def _validate_shift_swap_schedule(schedule_snapshot, actor_label):
+    actor_name = str(actor_label or "Staff").strip() or "Staff"
+    if not schedule_snapshot or not schedule_snapshot.get("has_schedule"):
+        raise ValueError(f"{actor_name} belum punya shift aktif pada tanggal tersebut.")
+
+    source = str(schedule_snapshot.get("source") or "").strip().lower()
+    if source != "manual":
+        raise ValueError(
+            f"Shift {actor_name} pada tanggal tersebut bukan jadwal manual, jadi belum bisa dipakai untuk tuker shift."
+        )
+
+    shift_code = str(schedule_snapshot.get("shift_code") or schedule_snapshot.get("code") or "").strip().upper()
+    if not shift_code:
+        raise ValueError(f"Shift {actor_name} pada tanggal tersebut belum valid.")
+    return shift_code
+
+
 def resolve_employee_live_schedule_for_date(db, employee_id, target_date):
     target_day = target_date if isinstance(target_date, date_cls) else _parse_iso_date(target_date)
     if not target_day:
@@ -1141,6 +1275,40 @@ def schedule_page():
             "text_color": LIVE_SCHEDULE_DEFAULT_TEXT,
         },
         range_end=end_date.isoformat(),
+    )
+
+
+@schedule_bp.route("/swap-request")
+def shift_swap_request_page():
+    if not _require_schedule_view():
+        return redirect("/")
+
+    db = get_db()
+    _seed_default_shift_codes(db)
+
+    warehouses = db.execute(
+        "SELECT id, name FROM warehouses ORDER BY id"
+    ).fetchall()
+    selected_warehouse = _get_selected_warehouse(warehouses)
+    start_date = _parse_iso_date(request.args.get("start")) or _default_schedule_start()
+    days = _clamp_days(request.args.get("days"))
+    end_date = start_date + timedelta(days=days - 1)
+    shift_swap_request = _build_shift_swap_request_context(db, selected_warehouse)
+    filters = {
+        "start": start_date.isoformat(),
+        "days": days,
+        "warehouse": selected_warehouse,
+    }
+
+    return render_template(
+        "schedule_shift_swap.html",
+        warehouses=warehouses,
+        selected_warehouse=selected_warehouse,
+        selected_warehouse_name=_get_warehouse_label(warehouses, selected_warehouse),
+        scoped_schedule_warehouse=_schedule_scope_warehouse(),
+        filters=filters,
+        range_end=end_date.isoformat(),
+        shift_swap_request=shift_swap_request,
     )
 
 
@@ -1628,6 +1796,122 @@ def save_schedule_entry():
         flash("Permintaan perubahan shift berhasil dikirim ke approval HR / Super Admin.", "success")
 
     return _schedule_redirect()
+
+
+@schedule_bp.route("/swap-request/save", methods=["POST"])
+def save_shift_swap_request():
+    if not _require_schedule_view():
+        return _shift_swap_redirect()
+
+    db = get_db()
+    linked_employee = _get_schedule_linked_employee(db)
+    if not linked_employee:
+        flash("Akun Anda belum ditautkan ke data karyawan, jadi belum bisa mengajukan tuker shift.", "error")
+        return _shift_swap_redirect()
+
+    linked_employee = dict(linked_employee)
+    linked_employee_id = _to_int(linked_employee.get("employee_id"))
+    linked_warehouse_id = _to_int(linked_employee.get("warehouse_id"))
+    if not linked_employee_id or not linked_warehouse_id:
+        flash("Homebase atau data karyawan akun Anda belum lengkap untuk pengajuan tuker shift.", "error")
+        return _shift_swap_redirect()
+
+    selected_warehouse = _to_int(request.form.get("warehouse"))
+    if selected_warehouse and selected_warehouse != linked_warehouse_id:
+        flash("Pengajuan tuker shift hanya bisa dibuat saat board diarahkan ke homebase Anda.", "error")
+        return _shift_swap_redirect()
+
+    swap_date = _parse_iso_date(request.form.get("swap_date"))
+    partner_employee_id = _to_int(request.form.get("swap_with_employee_id"))
+    reason = (request.form.get("reason") or "").strip()
+
+    if not swap_date or not partner_employee_id or not reason:
+        flash("Tanggal, partner tuker shift, dan alasan wajib diisi.", "error")
+        return _shift_swap_redirect()
+
+    if partner_employee_id == linked_employee_id:
+        flash("Partner tuker shift harus staf lain.", "error")
+        return _shift_swap_redirect()
+
+    partner_options = {
+        option["employee_id"]: option
+        for option in _build_shift_swap_partner_options(db, linked_employee)
+    }
+    partner_option = partner_options.get(partner_employee_id)
+    if not partner_option:
+        flash("Partner tuker shift tidak valid untuk homebase Anda.", "error")
+        return _shift_swap_redirect()
+
+    requester_name = str(linked_employee.get("full_name") or linked_employee.get("display_name") or "Staf").strip()
+    partner_name = str(partner_option.get("full_name") or partner_option.get("display_name") or "Staf").strip()
+    requester_snapshot = resolve_employee_schedule_for_date(db, linked_employee_id, swap_date)
+    partner_snapshot = resolve_employee_schedule_for_date(db, partner_employee_id, swap_date)
+
+    try:
+        requester_shift_code = _validate_shift_swap_schedule(requester_snapshot, requester_name)
+        partner_shift_code = _validate_shift_swap_schedule(partner_snapshot, partner_name)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return _shift_swap_redirect()
+
+    if requester_shift_code == partner_shift_code:
+        flash("Shift Anda dan partner pada tanggal tersebut masih sama, jadi tidak ada yang perlu ditukar.", "error")
+        return _shift_swap_redirect()
+
+    requester_shift_label = str(requester_snapshot.get("label") or requester_shift_code).strip()
+    partner_shift_label = str(partner_snapshot.get("label") or partner_shift_code).strip()
+    schedule_date_label = (
+        requester_snapshot.get("full_label")
+        or partner_snapshot.get("full_label")
+        or swap_date.isoformat()
+    )
+    payload = {
+        "employee_id": linked_employee_id,
+        "employee_name": requester_name,
+        "warehouse_id": linked_warehouse_id,
+        "schedule_date": swap_date.isoformat(),
+        "schedule_date_label": schedule_date_label,
+        "swap_with_employee_id": partner_employee_id,
+        "swap_with_employee_name": partner_name,
+        "requester_current_shift_code": requester_shift_code,
+        "requester_current_shift_label": requester_shift_label,
+        "requester_current_note": str(requester_snapshot.get("note") or "").strip(),
+        "partner_current_shift_code": partner_shift_code,
+        "partner_current_shift_label": partner_shift_label,
+        "partner_current_note": str(partner_snapshot.get("note") or "").strip(),
+        "reason": reason,
+    }
+    summary_title = f"Tukar Shift {requester_name} x {partner_name}"
+    summary_note = (
+        f"{schedule_date_label} | "
+        f"{requester_name}: {requester_shift_label} ({requester_shift_code}) "
+        f"<-> {partner_name}: {partner_shift_label} ({partner_shift_code})"
+    )
+    if reason:
+        summary_note += f" | {reason}"
+
+    try:
+        queue_result = queue_attendance_request(
+            db,
+            request_type="shift_swap",
+            warehouse_id=linked_warehouse_id,
+            employee_id=linked_employee_id,
+            requested_by=session.get("user_id"),
+            summary_title=summary_title,
+            summary_note=summary_note,
+            payload=payload,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        flash("Pengajuan tuker shift gagal dikirim ke approval.", "error")
+        return _shift_swap_redirect()
+
+    if queue_result.get("existing"):
+        flash("Pengajuan tuker shift dengan detail yang sama masih menunggu approval HR / Super Admin.", "info")
+    else:
+        flash("Pengajuan tuker shift berhasil dikirim ke approval HR / Super Admin.", "success")
+    return _shift_swap_redirect()
 
 
 @schedule_bp.route("/day-note/save", methods=["POST"])

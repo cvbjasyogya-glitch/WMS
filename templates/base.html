@@ -309,11 +309,15 @@
                     </a>
                     {% endif %}
                     {% if can("view_schedule") %}
-                    <a href="/schedule/" class="{% if request.path.startswith('/schedule') %}active sidebar-subtile{% else %}sidebar-subtile{% endif %}" aria-label="Jadwal">
+                    <a href="/schedule/" class="{% if request.path == '/schedule' or request.path == '/schedule/' %}active sidebar-subtile{% else %}sidebar-subtile{% endif %}" aria-label="Jadwal">
                         <img src="{{ asset_url('icons/workspace/coordination-jadwal.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Jadwal</span>
                     </a>
-                    {% if request.path.startswith('/schedule') %}<!-- legacy-test-compat href="/schedule/" class="active" -->{% endif %}
+                    {% if request.path == '/schedule' or request.path == '/schedule/' %}<!-- legacy-test-compat href="/schedule/" class="active" -->{% endif %}
+                    <a href="/schedule/swap-request" class="sidebar-subtile {% if request.path.startswith('/schedule/swap-request') %}active{% endif %}" aria-label="Pengajuan Tuker Shift">
+                        <img src="{{ asset_url('icons/workspace/coordination-jadwal.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Tukar Shift</span>
+                    </a>
                     {% endif %}
                 </div>
             </section>

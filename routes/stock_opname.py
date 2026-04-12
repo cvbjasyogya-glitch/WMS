@@ -385,9 +385,24 @@ def _apply_so_total_adjustment(
         INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
         VALUES (?,?,?,?)
         ON CONFLICT(product_id,variant_id,warehouse_id)
-        DO UPDATE SET qty = excluded.qty
+        DO UPDATE SET
+            qty = excluded.qty,
+            updated_at = CURRENT_TIMESTAMP
         """,
-        (product_id, variant_id, warehouse_id, physical_qty),
+        (
+            product_id,
+            variant_id,
+            warehouse_id,
+            physical_qty
+            - db.execute(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0)
+                FROM pos_negative_stock_overdrafts
+                WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+                """,
+                (product_id, variant_id, warehouse_id),
+            ).fetchone()[0],
+        ),
     )
 
     db.execute(

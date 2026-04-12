@@ -2276,11 +2276,22 @@ def import_products():
 
             db.execute("""
             INSERT INTO stock(product_id,variant_id,warehouse_id,qty)
-            SELECT product_id,variant_id,warehouse_id,SUM(remaining_qty)
-            FROM stock_batches
-            GROUP BY product_id,variant_id,warehouse_id
+            SELECT
+                sb.product_id,
+                sb.variant_id,
+                sb.warehouse_id,
+                COALESCE(SUM(sb.remaining_qty), 0) - COALESCE((
+                    SELECT SUM(od.remaining_qty)
+                    FROM pos_negative_stock_overdrafts od
+                    WHERE od.product_id = sb.product_id
+                      AND od.variant_id = sb.variant_id
+                      AND od.warehouse_id = sb.warehouse_id
+                      AND COALESCE(od.remaining_qty, 0) > 0
+                ), 0)
+            FROM stock_batches sb
+            GROUP BY sb.product_id, sb.variant_id, sb.warehouse_id
             ON CONFLICT(product_id,variant_id,warehouse_id)
-            DO UPDATE SET qty = excluded.qty
+            DO UPDATE SET qty = excluded.qty, updated_at = CURRENT_TIMESTAMP
             """)
 
             db.commit()

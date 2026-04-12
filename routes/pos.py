@@ -2111,11 +2111,33 @@ def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, cu
     return created
 
 
-def _validate_and_build_items(db, warehouse_id, raw_items, *, free_reward_mode=False):
+def _is_pos_negative_stock_temp_enabled():
+    return bool(current_app.config.get("POS_ALLOW_NEGATIVE_STOCK_TEMP"))
+
+
+def _validate_and_build_items(
+    db,
+    warehouse_id,
+    raw_items,
+    *,
+    free_reward_mode=False,
+    stock_allowance_map=None,
+    allow_negative_stock=False,
+):
     if not isinstance(raw_items, list) or not raw_items:
         raise ValueError("Keranjang kasir masih kosong.")
 
     prepared = []
+    normalized_stock_allowance_map = {}
+    for key, qty in dict(stock_allowance_map or {}).items():
+        if not isinstance(key, (list, tuple)) or len(key) != 2:
+            continue
+        normalized_key = (_to_int(key[0], 0), _to_int(key[1], 0))
+        allowance_qty = max(_to_int(qty, 0), 0)
+        if normalized_key[0] <= 0 or normalized_key[1] <= 0 or allowance_qty <= 0:
+            continue
+        normalized_stock_allowance_map[normalized_key] = allowance_qty
+    requested_qty_map = {}
 
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
@@ -2158,12 +2180,15 @@ def _validate_and_build_items(db, warehouse_id, raw_items, *, free_reward_mode=F
         if not product:
             raise ValueError("Produk atau variant tidak ditemukan.")
 
-        available_qty = int(product["stock_qty"] or 0)
-        if available_qty < qty:
+        item_key = (product_id, variant_id)
+        available_qty = int(product["stock_qty"] or 0) + max(normalized_stock_allowance_map.get(item_key, 0), 0)
+        requested_qty = requested_qty_map.get(item_key, 0) + qty
+        if available_qty < requested_qty and not allow_negative_stock:
             label_variant = product["variant_name"] or "default"
             raise ValueError(
-                f"Stok tidak cukup untuk {product['sku']} / {label_variant}. Tersedia {available_qty}, diminta {qty}."
+                f"Stok tidak cukup untuk {product['sku']} / {label_variant}. Tersedia {available_qty}, diminta {requested_qty}."
             )
+        requested_qty_map[item_key] = requested_qty
 
         if free_reward_mode:
             unit_price = Decimal("0.00")
@@ -2194,6 +2219,302 @@ def _validate_and_build_items(db, warehouse_id, raw_items, *, free_reward_mode=F
         raise ValueError("Keranjang kasir masih kosong.")
 
     return prepared
+
+
+def _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id):
+    row = db.execute(
+        """
+        SELECT
+            COALESCE((
+                SELECT SUM(remaining_qty)
+                FROM stock_batches
+                WHERE product_id=? AND variant_id=? AND warehouse_id=?
+            ), 0) AS physical_qty,
+            COALESCE((
+                SELECT SUM(remaining_qty)
+                FROM pos_negative_stock_overdrafts
+                WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+            ), 0) AS overdraft_qty
+        """,
+        (
+            product_id,
+            variant_id,
+            warehouse_id,
+            product_id,
+            variant_id,
+            warehouse_id,
+        ),
+    ).fetchone()
+    physical_qty = max(int(row["physical_qty"] or 0), 0) if row else 0
+    overdraft_qty = max(int(row["overdraft_qty"] or 0), 0) if row else 0
+    return {
+        "net_qty": physical_qty - overdraft_qty,
+        "positive_qty": physical_qty,
+        "physical_qty": physical_qty,
+        "overdraft_qty": overdraft_qty,
+    }
+
+
+def _sync_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id):
+    snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    db.execute(
+        """
+        INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
+        VALUES (?,?,?,?)
+        ON CONFLICT(product_id, variant_id, warehouse_id)
+        DO UPDATE SET
+            qty=excluded.qty,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (product_id, variant_id, warehouse_id, snapshot["net_qty"]),
+    )
+    return snapshot
+
+
+def _record_pos_negative_stock_shortfall(db, product_id, variant_id, warehouse_id, qty, *, note=None):
+    safe_qty = _to_int(qty, 0)
+    if safe_qty <= 0:
+        return None
+
+    acting_user_id = _to_int(session.get("user_id"), 0) or None
+    ip_address = request.remote_addr if request else None
+    user_agent = request.headers.get("User-Agent") if request else None
+
+    cursor = db.execute(
+        """
+        INSERT INTO pos_negative_stock_overdrafts(
+            product_id,
+            variant_id,
+            warehouse_id,
+            qty,
+            remaining_qty,
+            source_type,
+            source_id,
+            note,
+            created_at
+        )
+        VALUES (?,?,?,?,?,?,?, ?, CURRENT_TIMESTAMP)
+        """,
+        (
+            product_id,
+            variant_id,
+            warehouse_id,
+            safe_qty,
+            safe_qty,
+            "pos_sale",
+            None,
+            note or "POS stok minus sementara",
+        ),
+    )
+    overdraft_id = cursor.lastrowid
+
+    db.execute(
+        """
+        INSERT INTO stock_history(
+            product_id,
+            variant_id,
+            warehouse_id,
+            action,
+            type,
+            qty,
+            note,
+            user_id,
+            ip_address,
+            user_agent
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            product_id,
+            variant_id,
+            warehouse_id,
+            "OUTBOUND",
+            "OUT",
+            safe_qty,
+            note or "POS stok minus sementara",
+            acting_user_id,
+            ip_address,
+            user_agent,
+        ),
+    )
+    return overdraft_id
+
+
+def _resolve_pos_negative_stock_shortfall(db, product_id, variant_id, warehouse_id, qty, *, note=None):
+    safe_qty = _to_int(qty, 0)
+    if safe_qty <= 0:
+        return {"resolved_qty": 0, "remaining_qty": 0}
+
+    acting_user_id = _to_int(session.get("user_id"), 0) or None
+    ip_address = request.remote_addr if request else None
+    user_agent = request.headers.get("User-Agent") if request else None
+    unresolved_qty = safe_qty
+    resolved_qty = 0
+
+    overdraft_rows = db.execute(
+        """
+        SELECT id, remaining_qty
+        FROM pos_negative_stock_overdrafts
+        WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+        ORDER BY datetime(created_at) ASC, id ASC
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchall()
+
+    for overdraft_row in overdraft_rows:
+        if unresolved_qty <= 0:
+            break
+        open_qty = max(_to_int(overdraft_row["remaining_qty"], 0), 0)
+        if open_qty <= 0:
+            continue
+        settled_qty = min(open_qty, unresolved_qty)
+        db.execute(
+            """
+            UPDATE pos_negative_stock_overdrafts
+            SET
+                remaining_qty = remaining_qty - ?,
+                resolved_at = CASE
+                    WHEN remaining_qty - ? <= 0 THEN CURRENT_TIMESTAMP
+                    ELSE resolved_at
+                END
+            WHERE id=?
+            """,
+            (settled_qty, settled_qty, overdraft_row["id"]),
+        )
+        unresolved_qty -= settled_qty
+        resolved_qty += settled_qty
+
+    if resolved_qty > 0:
+        db.execute(
+            """
+            INSERT INTO stock_history(
+                product_id,
+                variant_id,
+                warehouse_id,
+                action,
+                type,
+                qty,
+                note,
+                user_id,
+                ip_address,
+                user_agent
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                product_id,
+                variant_id,
+                warehouse_id,
+                "POS_OVERDRAFT_SETTLEMENT",
+                "IN",
+                resolved_qty,
+                note or "Pelunasan stok minus POS",
+                acting_user_id,
+                ip_address,
+                user_agent,
+            ),
+        )
+
+    return {
+        "resolved_qty": resolved_qty,
+        "remaining_qty": unresolved_qty,
+    }
+
+
+def _restore_pos_stock_after_reversal(db, product_id, variant_id, warehouse_id, qty, *, note=None, cost=0):
+    safe_qty = _to_int(qty, 0)
+    if safe_qty <= 0:
+        return {"ok": False, "error": "Qty pengembalian stok tidak valid."}
+
+    before_snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    settled_overdraft = _resolve_pos_negative_stock_shortfall(
+        db,
+        product_id,
+        variant_id,
+        warehouse_id,
+        safe_qty,
+        note=f"{note or 'Reversal POS'} [settle overdraft]",
+    )
+    remaining_restore_qty = max(_to_int(settled_overdraft.get("remaining_qty"), 0), 0)
+    if remaining_restore_qty > 0:
+        restored = add_stock(
+            product_id,
+            variant_id,
+            warehouse_id,
+            remaining_restore_qty,
+            note=note or "Reversal POS",
+            cost=cost,
+        )
+        if not restored:
+            return {"ok": False, "error": "Stok gagal dikembalikan saat proses reversal POS."}
+
+    after_snapshot = _sync_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    return {
+        "ok": True,
+        "before_qty": before_snapshot["net_qty"],
+        "after_qty": after_snapshot["net_qty"],
+        "settled_overdraft_qty": settled_overdraft.get("resolved_qty", 0),
+        "restored_physical_qty": remaining_restore_qty,
+    }
+
+
+def _remove_pos_stock_for_sale(db, product_id, variant_id, warehouse_id, qty, *, note=None):
+    safe_qty = _to_int(qty, 0)
+    if safe_qty <= 0:
+        return {"ok": False, "error": "Qty stok keluar tidak valid."}
+
+    before_snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    qty_from_positive_stock = min(safe_qty, before_snapshot["positive_qty"])
+    negative_shortfall_qty = max(safe_qty - qty_from_positive_stock, 0)
+
+    if negative_shortfall_qty > 0 and not _is_pos_negative_stock_temp_enabled():
+        return {"ok": False, "error": "Stok tidak cukup untuk diproses."}
+
+    if qty_from_positive_stock > 0:
+        removed = remove_stock(
+            product_id,
+            variant_id,
+            warehouse_id,
+            qty_from_positive_stock,
+            note=note or "POS checkout",
+        )
+        if not removed:
+            return {"ok": False, "error": "Gagal memotong stok positif yang tersedia."}
+
+    if negative_shortfall_qty > 0:
+        _record_pos_negative_stock_shortfall(
+            db,
+            product_id,
+            variant_id,
+            warehouse_id,
+            negative_shortfall_qty,
+            note=f"{note or 'POS checkout'} [stok minus sementara]",
+        )
+        after_snapshot = _sync_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    else:
+        after_snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+
+    return {
+        "ok": True,
+        "before_qty": before_snapshot["net_qty"],
+        "after_qty": after_snapshot["net_qty"],
+        "removed_qty": qty_from_positive_stock,
+        "negative_shortfall_qty": negative_shortfall_qty,
+        "used_negative_stock": negative_shortfall_qty > 0 or after_snapshot["net_qty"] < 0,
+    }
+
+
+def _build_pos_negative_stock_notification_message(receipt_no, cashier_name, affected_items):
+    item_labels = []
+    for item in affected_items:
+        sku = str(item.get("sku") or "-").strip() or "-"
+        variant_name = str(item.get("variant_name") or "default").strip() or "default"
+        before_qty = _to_int(item.get("before_qty"), 0)
+        after_qty = _to_int(item.get("after_qty"), 0)
+        item_labels.append(f"{sku} / {variant_name} (stok {before_qty} -> {after_qty})")
+    joined_items = "; ".join(item_labels) if item_labels else "barang tidak diketahui"
+    safe_cashier_name = str(cashier_name or "Staff POS").strip() or "Staff POS"
+    return f"Staff {safe_cashier_name} sedang memproses transaksi {receipt_no} dengan barang {joined_items}."
 
 
 def _build_pos_sale_status_payload(raw_status):
@@ -2411,6 +2732,12 @@ def _fetch_pos_sale_logs(
         created_time_label = _format_pos_time_label(row.get("created_at"))
         item_preview_lines = items[:3]
         sale_status = _build_pos_sale_status_payload(row.get("status"))
+        can_edit_transaction = (
+            has_permission(session.get("role"), "manage_pos")
+            and str(row.get("status") or "posted").strip().lower() == "posted"
+            and not any(max(_to_int(item.get("void_qty"), 0), 0) > 0 for item in items)
+            and any(max(_to_int(item.get("active_qty"), 0), 0) > 0 for item in items)
+        )
 
         normalized_rows.append(
             {
@@ -2431,6 +2758,7 @@ def _fetch_pos_sale_logs(
                 "discount_rule_label": _format_pos_adjustment_rule_label(row.get("discount_type"), row.get("discount_value")),
                 "tax_rule_label": _format_pos_adjustment_rule_label(row.get("tax_type"), row.get("tax_value")),
                 "payment_method_label": _format_payment_method_label(row.get("payment_method")),
+                "can_edit_transaction": can_edit_transaction,
                 "has_payment_breakdown": payment_meta["has_payment_breakdown"],
                 "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
                 "payment_breakdown_label": payment_meta["payment_breakdown_label"],
@@ -2597,6 +2925,172 @@ def _fetch_pos_sale_detail_by_id(db, sale_id):
     if not row:
         return None
     return _fetch_pos_sale_detail_by_receipt(db, row["receipt_no"])
+
+
+def _build_pos_stock_allowance_map_from_items(items):
+    allowance_map = {}
+    for item in items or []:
+        product_id = _to_int((item or {}).get("product_id"), 0)
+        variant_id = _to_int((item or {}).get("variant_id"), 0)
+        active_qty = max(_to_int((item or {}).get("active_qty"), 0), 0)
+        if product_id <= 0 or variant_id <= 0 or active_qty <= 0:
+            continue
+        item_key = (product_id, variant_id)
+        allowance_map[item_key] = allowance_map.get(item_key, 0) + active_qty
+    return allowance_map
+
+
+def _fetch_pos_product_snapshot_map(db, warehouse_id, item_keys):
+    normalized_variant_ids = sorted(
+        {
+            _to_int(item_key[1], 0)
+            for item_key in (item_keys or [])
+            if isinstance(item_key, (list, tuple))
+            and len(item_key) == 2
+            and _to_int(item_key[0], 0) > 0
+            and _to_int(item_key[1], 0) > 0
+        }
+    )
+    if not normalized_variant_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in normalized_variant_ids)
+    rows = db.execute(
+        f"""
+        SELECT
+            p.id AS product_id,
+            pv.id AS variant_id,
+            COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
+            COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
+            COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
+            COALESCE(pv.price_nett, 0) AS price_nett,
+            COALESCE(pv.price_discount, 0) AS price_discount,
+            COALESCE(pv.price_retail, 0) AS price_retail,
+            COALESCE(s.qty, 0) AS stock_qty
+        FROM product_variants pv
+        JOIN products p ON p.id = pv.product_id
+        LEFT JOIN stock s
+            ON s.product_id = p.id
+           AND s.variant_id = pv.id
+           AND s.warehouse_id = ?
+        WHERE pv.id IN ({placeholders})
+        """,
+        [warehouse_id, *normalized_variant_ids],
+    ).fetchall()
+    return {
+        (int(row["product_id"] or 0), int(row["variant_id"] or 0)): dict(row)
+        for row in rows
+    }
+
+
+def _build_pos_edit_sale_payload(db, sale_detail):
+    safe_sale = sale_detail or {}
+    if not safe_sale:
+        return None
+
+    sale_status = str(safe_sale.get("status") or "posted").strip().lower()
+    if sale_status != "posted":
+        raise ValueError("Hanya transaksi POS yang masih POSTED yang bisa diedit.")
+
+    raw_items = list(safe_sale.get("items") or [])
+    if not raw_items:
+        raise ValueError("Transaksi ini belum punya item aktif untuk diedit.")
+    if any(max(_to_int(item.get("void_qty"), 0), 0) > 0 for item in raw_items):
+        raise ValueError("Transaksi yang sudah pernah di-void tidak bisa diedit dari mode ini.")
+
+    stock_allowance_map = _build_pos_stock_allowance_map_from_items(raw_items)
+    if not stock_allowance_map:
+        raise ValueError("Transaksi ini belum punya item aktif untuk diedit.")
+
+    snapshot_map = _fetch_pos_product_snapshot_map(db, safe_sale["warehouse_id"], stock_allowance_map.keys())
+    prepared_items = []
+    missing_items = []
+
+    for item in raw_items:
+        product_id = _to_int(item.get("product_id"), 0)
+        variant_id = _to_int(item.get("variant_id"), 0)
+        active_qty = max(_to_int(item.get("active_qty"), 0), 0)
+        if product_id <= 0 or variant_id <= 0 or active_qty <= 0:
+            continue
+
+        snapshot = snapshot_map.get((product_id, variant_id))
+        if not snapshot:
+            missing_items.append(
+                f"{item.get('sku') or product_id} / {item.get('variant_name') or variant_id}"
+            )
+            continue
+
+        unit_price = _currency(item.get("unit_price") or 0)
+        retail_price = _currency(
+            snapshot.get("price_nett")
+            or snapshot.get("price_discount")
+            or snapshot.get("price_retail")
+            or unit_price
+        )
+        current_stock = _to_int(snapshot.get("stock_qty"), 0)
+
+        prepared_items.append(
+            {
+                "key": f"{product_id}-{variant_id}",
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "sku": snapshot.get("sku") or item.get("sku") or "-",
+                "name": snapshot.get("product_name") or item.get("product_name") or "Produk",
+                "variant_label": snapshot.get("variant_name") or item.get("variant_name") or "default",
+                "qty": active_qty,
+                "unit_price": unit_price,
+                "retail_price": retail_price,
+                "stock": current_stock + active_qty,
+                "current_stock": current_stock,
+                "stock_allowance": active_qty,
+            }
+        )
+
+    if missing_items:
+        raise ValueError(
+            "Sebagian item transaksi sudah tidak punya master produk aktif, jadi belum bisa diedit."
+        )
+    if not prepared_items:
+        raise ValueError("Transaksi ini belum punya item aktif untuk diedit.")
+
+    payment_breakdown_entries = list(safe_sale.get("payment_breakdown_entries") or [])
+    return {
+        "id": safe_sale["id"],
+        "purchase_id": safe_sale["purchase_id"],
+        "warehouse_id": safe_sale["warehouse_id"],
+        "receipt_no": safe_sale["receipt_no"],
+        "sale_date": safe_sale["sale_date"],
+        "created_time_label": safe_sale.get("created_time_label") or "-",
+        "created_datetime_label": safe_sale.get("created_datetime_label") or safe_sale.get("sale_date") or "-",
+        "customer_id": _to_int(safe_sale.get("customer_id"), 0),
+        "customer_name": safe_sale.get("customer_name") or "",
+        "customer_phone": _normalize_pos_phone(safe_sale.get("customer_phone")),
+        "transaction_type": normalize_transaction_type(safe_sale.get("transaction_type")),
+        "cashier_user_id": _to_int(safe_sale.get("cashier_user_id"), 0),
+        "payment_method": _normalize_payment_method(safe_sale.get("payment_method")),
+        "paid_amount": _currency(safe_sale.get("paid_amount") or 0),
+        "discount_type": _normalize_adjustment_type(safe_sale.get("discount_type")),
+        "discount_value": _currency(safe_sale.get("discount_value") or 0),
+        "tax_type": _normalize_adjustment_type(safe_sale.get("tax_type")),
+        "tax_value": _currency(safe_sale.get("tax_value") or 0),
+        "note": safe_sale.get("note") or "",
+        "items": prepared_items,
+        "is_split_payment": bool(safe_sale.get("has_payment_breakdown")),
+        "payment_splits": [
+            {
+                "method": _normalize_payment_method(entry.get("method"), allow_split=False),
+                "amount": _currency(entry.get("amount") or 0),
+            }
+            for entry in payment_breakdown_entries
+            if _normalize_payment_method(entry.get("method"), allow_split=False) in PAYMENT_METHODS
+            and _currency(entry.get("amount") or 0) > 0
+        ],
+        "stock_allowances": {
+            f"{product_id}-{variant_id}": allowance_qty
+            for (product_id, variant_id), allowance_qty in stock_allowance_map.items()
+            if allowance_qty > 0
+        },
+    }
 
 
 def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None):
@@ -2887,11 +3381,25 @@ def pos_page():
     can_view_pos_revenue = _can_view_pos_revenue()
     selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
     sale_date = _normalize_sale_date(request.args.get("sale_date"))
+    requested_edit_sale_id = _to_int(request.args.get("edit_sale_id"), 0)
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
+    editing_sale_payload = None
 
     warehouses = db.execute(
         "SELECT id, name FROM warehouses ORDER BY name"
     ).fetchall()
+    if requested_edit_sale_id > 0:
+        editing_sale = _fetch_pos_sale_detail_by_id(db, requested_edit_sale_id)
+        if editing_sale is None:
+            flash("Transaksi POS yang ingin diedit tidak ditemukan atau tidak bisa diakses.", "error")
+        else:
+            try:
+                editing_sale_payload = _build_pos_edit_sale_payload(db, editing_sale)
+                selected_warehouse = _to_int(editing_sale_payload.get("warehouse_id"), selected_warehouse) or selected_warehouse
+                sale_date = str(editing_sale_payload.get("sale_date") or sale_date)
+            except ValueError as exc:
+                flash(str(exc), "error")
+
     selected_warehouse_name = next(
         (
             warehouse["name"]
@@ -2901,14 +3409,18 @@ def pos_page():
         f"WH {selected_warehouse}",
     )
     pos_staff_options = _fetch_pos_staff_options(db, selected_warehouse)
+    preferred_staff_user_id = (
+        _to_int((editing_sale_payload or {}).get("cashier_user_id"), 0)
+        or _to_int(session.get("user_id"), 0)
+    )
     selected_pos_staff_option = next(
-        (option for option in pos_staff_options if option["id"] == _to_int(session.get("user_id"), 0)),
+        (option for option in pos_staff_options if option["id"] == preferred_staff_user_id),
         pos_staff_options[0] if pos_staff_options else None,
     )
 
     if selected_pos_staff_option is None:
         selected_pos_staff_option = {
-            "id": _to_int(session.get("user_id"), 0),
+            "id": preferred_staff_user_id,
             "username": session.get("username", "-"),
             "display_name": session.get("username", "-"),
             "label": session.get("username", "-"),
@@ -2950,6 +3462,7 @@ def pos_page():
         selected_pos_staff_label=selected_pos_staff_option["display_name"],
         pos_auto_print_after_checkout=bool(current_app.config.get("POS_AUTO_PRINT_AFTER_CHECKOUT")),
         can_view_pos_revenue=can_view_pos_revenue,
+        editing_sale=editing_sale_payload,
         summary=summary,
         recent_sales=_fetch_recent_sales(db, selected_warehouse, sale_date),
         sales_log_rows=sales_log_rows,
@@ -3661,7 +4174,8 @@ def pos_void_sale_item(item_id):
 
     try:
         db.execute("BEGIN")
-        restored = add_stock(
+        restored = _restore_pos_stock_after_reversal(
+            db,
             sale_item["product_id"],
             sale_item["variant_id"],
             sale_item["warehouse_id"],
@@ -3669,8 +4183,8 @@ def pos_void_sale_item(item_id):
             note=f"VOID POS {sale_item['receipt_no']} - {sale_item['sku']} / {sale_item['variant_name']}",
             cost=restore_cost,
         )
-        if not restored:
-            raise ValueError("Stok gagal dikembalikan saat proses void item.")
+        if not restored.get("ok"):
+            raise ValueError(restored.get("error") or "Stok gagal dikembalikan saat proses void item.")
 
         db.execute(
             """
@@ -3739,6 +4253,387 @@ def pos_void_sale_item(item_id):
     )
 
 
+@pos_bp.post("/sale/<int:sale_id>/edit")
+def pos_edit_sale(sale_id):
+    denied = _require_pos_access(json_mode=True)
+    if denied:
+        return denied
+
+    if not has_permission(session.get("role"), "manage_pos"):
+        return _json_error("Role ini belum punya izin mengedit transaksi POS.", 403)
+
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    sale = _fetch_pos_sale_detail_by_id(db, sale_id)
+    if sale is None:
+        return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
+
+    try:
+        _build_pos_edit_sale_payload(db, sale)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    warehouse_id = _to_int(sale.get("warehouse_id"), 0)
+    sale_date = str(sale.get("sale_date") or "").strip() or date_cls.today().isoformat()
+    payment_method = _normalize_payment_method(payload.get("payment_method"))
+    discount_type = _normalize_adjustment_type(payload.get("discount_type"))
+    discount_value = _to_decimal(payload.get("discount_value"), "0")
+    tax_type = _normalize_adjustment_type(payload.get("tax_type"))
+    tax_value = _to_decimal(payload.get("tax_value"), "0")
+    note = (payload.get("note") or "").strip() or None
+    transaction_type = normalize_transaction_type(payload.get("transaction_type"))
+    customer_id = _to_int(payload.get("customer_id"), 0)
+    customer_name = (payload.get("customer_name") or "").strip()
+    customer_phone = _normalize_pos_phone(payload.get("customer_phone"))
+    try:
+        selected_cashier = _resolve_pos_cashier_option(db, warehouse_id, payload.get("cashier_user_id"))
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    if not customer_name:
+        return _json_error("Nama customer wajib diisi.", 400)
+    if not customer_phone:
+        return _json_error("No HP customer wajib diisi dengan angka yang valid.", 400)
+
+    stock_allowance_map = _build_pos_stock_allowance_map_from_items(sale.get("items") or [])
+    try:
+        allow_negative_stock = _is_pos_negative_stock_temp_enabled()
+        items = _validate_and_build_items(
+            db,
+            warehouse_id,
+            payload.get("items"),
+            free_reward_mode=transaction_type == "stringing_reward_redemption",
+            stock_allowance_map=stock_allowance_map,
+            allow_negative_stock=allow_negative_stock,
+        )
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    financials = _build_pos_sale_financials(
+        items,
+        discount_type=discount_type,
+        discount_value=discount_value,
+        tax_type=tax_type,
+        tax_value=tax_value,
+    )
+
+    payment_breakdown_entries = _normalize_pos_payment_breakdown(payload.get("payment_splits"))
+    payment_breakdown_json = None
+    if payment_method == SPLIT_PAYMENT_METHOD or payment_breakdown_entries:
+        payment_method = SPLIT_PAYMENT_METHOD
+        if len(payment_breakdown_entries) < 2:
+            return _json_error("Split transaksi minimal harus memakai 2 metode pembayaran.", 400)
+
+        split_total_amount = sum(
+            (_to_decimal(entry.get("amount"), "0") for entry in payment_breakdown_entries),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if split_total_amount != financials["total_amount"]:
+            return _json_error("Total split pembayaran harus pas sama total transaksi.", 400)
+
+        paid_amount = split_total_amount
+        change_amount = Decimal("0.00")
+        payment_breakdown_json = _serialize_pos_payment_breakdown(payment_breakdown_entries)
+    else:
+        paid_amount = _to_decimal(payload.get("paid_amount"), str(financials["total_amount"]))
+        if paid_amount < financials["total_amount"]:
+            return _json_error("Nominal bayar kurang dari total transaksi.", 400)
+
+        change_amount = (paid_amount - financials["total_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    original_active_items = [
+        {
+            "product_id": _to_int(item.get("product_id"), 0),
+            "variant_id": _to_int(item.get("variant_id"), 0),
+            "sku": item.get("sku") or "-",
+            "variant_name": item.get("variant_name") or "default",
+            "qty": max(_to_int(item.get("active_qty"), 0), 0),
+        }
+        for item in (sale.get("items") or [])
+        if max(_to_int(item.get("active_qty"), 0), 0) > 0
+    ]
+
+    member_id = None
+    member_snapshot = None
+
+    try:
+        db.execute("BEGIN")
+        customer = _resolve_or_create_customer(
+            db,
+            warehouse_id,
+            customer_id,
+            customer_name,
+            customer_phone,
+        )
+
+        db.execute(
+            "DELETE FROM crm_member_records WHERE purchase_id=?",
+            (sale["purchase_id"],),
+        )
+
+        active_member = db.execute(
+            """
+            SELECT *
+            FROM crm_memberships
+            WHERE customer_id=? AND status='active'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (customer["id"],),
+        ).fetchone()
+        if active_member:
+            member_id = active_member["id"]
+            member_snapshot = get_member_snapshot(db, member_id)
+
+        if transaction_type == "stringing_reward_redemption" and not member_id:
+            raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
+
+        for original_item in original_active_items:
+            restore_cost = _resolve_pos_stock_restore_cost(
+                db,
+                original_item["product_id"],
+                original_item["variant_id"],
+                warehouse_id,
+            )
+            restored = _restore_pos_stock_after_reversal(
+                db,
+                original_item["product_id"],
+                original_item["variant_id"],
+                warehouse_id,
+                original_item["qty"],
+                note=(
+                    f"EDIT POS {sale['receipt_no']} rollback - "
+                    f"{original_item['sku']} / {original_item['variant_name']}"
+                ),
+                cost=restore_cost,
+            )
+            if not restored.get("ok"):
+                raise ValueError(restored.get("error") or "Stok transaksi lama gagal dikembalikan saat proses edit.")
+
+        db.execute(
+            "DELETE FROM crm_purchase_items WHERE purchase_id=?",
+            (sale["purchase_id"],),
+        )
+        db.executemany(
+            """
+            INSERT INTO crm_purchase_items(
+                purchase_id,
+                product_id,
+                variant_id,
+                qty,
+                unit_price,
+                line_total,
+                note
+            )
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            [
+                (
+                    sale["purchase_id"],
+                    item["product_id"],
+                    item["variant_id"],
+                    item["qty"],
+                    _currency(item["unit_price"]),
+                    _currency(item["line_total"]),
+                    "POS Edit Transaksi",
+                )
+                for item in items
+            ],
+        )
+
+        for item in items:
+            removed = _remove_pos_stock_for_sale(
+                db,
+                item["product_id"],
+                item["variant_id"],
+                warehouse_id,
+                item["qty"],
+                note=f"EDIT POS {sale['receipt_no']}",
+            )
+            if not removed.get("ok"):
+                raise ValueError(
+                    removed.get("error")
+                    or f"Gagal memotong stok {item['sku']} / {item['variant_name']} saat edit transaksi."
+                )
+
+        db.execute(
+            """
+            UPDATE crm_purchase_records
+            SET
+                customer_id=?,
+                member_id=?,
+                warehouse_id=?,
+                purchase_date=?,
+                invoice_no=?,
+                channel='pos',
+                transaction_type=?,
+                items_count=?,
+                total_amount=?,
+                note=?,
+                handled_by=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                customer["id"],
+                member_id,
+                warehouse_id,
+                sale_date,
+                sale["receipt_no"],
+                transaction_type,
+                financials["total_items"],
+                _currency(financials["total_amount"]),
+                note,
+                session.get("user_id"),
+                sale["purchase_id"],
+            ),
+        )
+
+        if member_id:
+            auto_record = build_auto_member_record(
+                member_snapshot or dict(active_member),
+                member_snapshot or dict(active_member),
+                purchase_id=sale["purchase_id"],
+                warehouse_id=warehouse_id,
+                record_date=sale_date,
+                reference_no=sale["receipt_no"],
+                amount=_currency(financials["total_amount"]),
+                transaction_type=transaction_type,
+                note=note or "",
+                handled_by=session.get("user_id"),
+                source_label="POS / iPos Edit",
+            )
+            db.execute(
+                """
+                INSERT INTO crm_member_records(
+                    member_id,
+                    purchase_id,
+                    warehouse_id,
+                    record_date,
+                    record_type,
+                    reference_no,
+                    amount,
+                    points_delta,
+                    service_count_delta,
+                    reward_redeemed_delta,
+                    benefit_value,
+                    note,
+                    handled_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    auto_record["member_id"],
+                    auto_record["purchase_id"],
+                    auto_record["warehouse_id"],
+                    auto_record["record_date"],
+                    auto_record["record_type"],
+                    auto_record["reference_no"],
+                    auto_record["amount"],
+                    auto_record["points_delta"],
+                    auto_record["service_count_delta"],
+                    auto_record["reward_redeemed_delta"],
+                    auto_record["benefit_value"],
+                    auto_record["note"],
+                    auto_record["handled_by"],
+                ),
+            )
+
+        db.execute(
+            """
+            UPDATE pos_sales
+            SET
+                customer_id=?,
+                warehouse_id=?,
+                cashier_user_id=?,
+                sale_date=?,
+                receipt_no=?,
+                payment_method=?,
+                payment_breakdown_json=?,
+                total_items=?,
+                subtotal_amount=?,
+                discount_type=?,
+                discount_value=?,
+                discount_amount=?,
+                tax_type=?,
+                tax_value=?,
+                tax_amount=?,
+                total_amount=?,
+                paid_amount=?,
+                change_amount=?,
+                status='posted',
+                voided_at=NULL,
+                voided_by=NULL,
+                receipt_pdf_path=NULL,
+                receipt_pdf_url=NULL,
+                receipt_whatsapp_status='pending',
+                receipt_whatsapp_error=NULL,
+                receipt_whatsapp_sent_at=NULL,
+                note=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                customer["id"],
+                warehouse_id,
+                selected_cashier["id"],
+                sale_date,
+                sale["receipt_no"],
+                payment_method,
+                payment_breakdown_json,
+                financials["total_items"],
+                _currency(financials["subtotal_amount"]),
+                financials["discount_type"],
+                _currency(financials["discount_value"]),
+                _currency(financials["discount_amount"]),
+                financials["tax_type"],
+                _currency(financials["tax_value"]),
+                _currency(financials["tax_amount"]),
+                _currency(financials["total_amount"]),
+                _currency(paid_amount),
+                _currency(change_amount),
+                note,
+                sale["id"],
+            ),
+        )
+
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return _json_error(str(exc), 400)
+    except Exception:
+        db.rollback()
+        return _json_error("Edit transaksi kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Transaksi berhasil diperbarui tanpa mengubah nomor nota dan waktu transaksi awal.",
+            "sale_id": sale["id"],
+            "receipt_no": sale["receipt_no"],
+            "purchase_id": sale["purchase_id"],
+            "sale_date": sale_date,
+            "created_time_label": sale.get("created_time_label") or "-",
+            "total_items": financials["total_items"],
+            "subtotal_amount": _currency(financials["subtotal_amount"]),
+            "discount_amount": _currency(financials["discount_amount"]),
+            "tax_amount": _currency(financials["tax_amount"]),
+            "total_amount": _currency(financials["total_amount"]),
+            "paid_amount": _currency(paid_amount),
+            "change_amount": _currency(change_amount),
+            "payment_method": payment_method,
+            "payment_method_label": _format_payment_method_label(payment_method),
+            "payment_breakdown_label": _build_pos_payment_breakdown_label(payment_breakdown_entries),
+            "receipt_print_url": (
+                f"/kasir/receipt/{sale['receipt_no']}/print"
+                f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+            ),
+            "receipt_whatsapp_status": "pending",
+            "receipt_whatsapp_error": "",
+        }
+    )
+
+
 @pos_bp.post("/checkout")
 def pos_checkout():
     denied = _require_pos_access(json_mode=True)
@@ -3774,11 +4669,13 @@ def pos_checkout():
         return _json_error("No HP customer wajib diisi dengan angka yang valid.", 400)
 
     try:
+        allow_negative_stock = _is_pos_negative_stock_temp_enabled()
         items = _validate_and_build_items(
             db,
             warehouse_id,
             payload.get("items"),
             free_reward_mode=transaction_type == "stringing_reward_redemption",
+            allow_negative_stock=allow_negative_stock,
         )
     except ValueError as exc:
         return _json_error(str(exc), 400)
@@ -3818,6 +4715,7 @@ def pos_checkout():
     member_id = None
     member_snapshot = None
     receipt_no = (payload.get("receipt_no") or "").strip()
+    negative_stock_alert_items = []
 
     try:
         db.execute("BEGIN")
@@ -4020,16 +4918,27 @@ def pos_checkout():
         sale_id = pos_cursor.lastrowid
 
         for item in items:
-            removed = remove_stock(
+            removed = _remove_pos_stock_for_sale(
+                db,
                 item["product_id"],
                 item["variant_id"],
                 warehouse_id,
                 item["qty"],
                 note=f"POS {receipt_no}",
             )
-            if not removed:
+            if not removed.get("ok"):
                 raise ValueError(
-                    f"Gagal memotong stok {item['sku']} / {item['variant_name']}. Silakan refresh data stok."
+                    removed.get("error")
+                    or f"Gagal memotong stok {item['sku']} / {item['variant_name']}. Silakan refresh data stok."
+                )
+            if removed.get("used_negative_stock"):
+                negative_stock_alert_items.append(
+                    {
+                        "sku": item["sku"],
+                        "variant_name": item["variant_name"],
+                        "before_qty": removed.get("before_qty"),
+                        "after_qty": removed.get("after_qty"),
+                    }
                 )
 
         db.commit()
@@ -4073,6 +4982,33 @@ def pos_checkout():
         )
     except Exception as exc:
         print("POS NOTIFICATION ERROR:", exc)
+
+    if negative_stock_alert_items and normalize_role(selected_cashier.get("role")) == "staff":
+        try:
+            cashier_name = (
+                selected_cashier.get("display_name")
+                or selected_cashier.get("label")
+                or selected_cashier.get("username")
+                or "Staff POS"
+            )
+            notify_operational_event(
+                f"Alert stok minus iPOS {receipt_no}",
+                _build_pos_negative_stock_notification_message(receipt_no, cashier_name, negative_stock_alert_items),
+                warehouse_id=warehouse_id,
+                include_actor=False,
+                recipient_roles=("owner",),
+                category="inventory",
+                link_url=f"/kasir/log?warehouse={warehouse_id}&date_from={sale_date}&date_to={sale_date}",
+                source_type="pos_negative_stock",
+                source_id=sale_id,
+                push_title="Alert stok minus iPOS",
+                push_body=(
+                    f"{cashier_name} | {negative_stock_alert_items[0]['sku']} | "
+                    f"stok {negative_stock_alert_items[0]['after_qty']}"
+                ),
+            )
+        except Exception as exc:
+            print("POS NEGATIVE STOCK NOTIFICATION ERROR:", exc)
 
     return jsonify(
         {
