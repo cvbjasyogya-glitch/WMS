@@ -216,6 +216,12 @@
                             <strong id="posCartBadge">0 item</strong>
                         </div>
                         <button type="button" id="posCheckoutButton" class="pos-checkout-button">Simpan Checkout</button>
+                        <div class="pos-checkout-progress" id="posCheckoutProgress" aria-live="polite" aria-hidden="true">
+                            <div class="progress-text" id="posCheckoutProgressText">Menyimpan...</div>
+                            <div class="progress-track">
+                                <div class="progress-bar"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -441,6 +447,8 @@ const posTaxType = document.getElementById("posTaxType");
 const posTaxInput = document.getElementById("posTaxInput");
 const posTaxValue = document.getElementById("posTaxValue");
 const posCheckoutButton = document.getElementById("posCheckoutButton");
+const posCheckoutProgress = document.getElementById("posCheckoutProgress");
+const posCheckoutProgressText = document.getElementById("posCheckoutProgressText");
 const posSelectedCard = document.getElementById("posSelectedCard");
 const posCatalogSearchForm = document.getElementById("posCatalogSearchForm");
 const posCatalogSearch = document.getElementById("posCatalogSearch");
@@ -1986,6 +1994,7 @@ function checkoutPosTransaction() {
             product_id: item.product_id,
             variant_id: item.variant_id,
             qty: Number(item.qty),
+            retail_price: Number(item.retail_price || 0),
             unit_price: Number(item.unit_price),
         })),
     };
@@ -1995,6 +2004,13 @@ function checkoutPosTransaction() {
 
     posCheckoutButton.disabled = true;
     posCheckoutButton.textContent = savingLabel;
+    if (posCheckoutProgress) {
+        posCheckoutProgress.classList.add("is-visible");
+        posCheckoutProgress.setAttribute("aria-hidden", "false");
+    }
+    if (posCheckoutProgressText) {
+        posCheckoutProgressText.textContent = savingLabel;
+    }
 
     fetch(endpointUrl, {
         method: "POST",
@@ -2052,6 +2068,10 @@ function checkoutPosTransaction() {
     .finally(() => {
         posCheckoutButton.disabled = false;
         posCheckoutButton.textContent = isPosEditMode() ? "Simpan Edit [END]" : "Bayar [END]";
+        if (posCheckoutProgress) {
+            posCheckoutProgress.classList.remove("is-visible");
+            posCheckoutProgress.setAttribute("aria-hidden", "true");
+        }
     });
 }
 

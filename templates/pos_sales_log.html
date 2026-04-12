@@ -268,7 +268,22 @@
             </thead>
             <tbody>
                 {% for sale in sales_log_rows %}
-                <tr>
+                <tr
+                    data-pos-sales-log-row="1"
+                    data-sale-id="{{ sale.id }}"
+                    data-receipt-no="{{ sale.receipt_no }}"
+                    data-warehouse-id="{{ sale.warehouse_id }}"
+                    data-sale-date="{{ sale.sale_date }}"
+                    data-edit-url="{% if sale.can_edit_transaction %}/kasir/?warehouse={{ sale.warehouse_id }}&sale_date={{ sale.sale_date }}&edit_sale_id={{ sale.id }}{% endif %}"
+                    data-receipt-pdf-url="/kasir/receipt/{{ sale.receipt_no }}/pdf"
+                    data-receipt-preview-url="{{ sale.receipt_print_url }}"
+                    data-receipt-thermal-url="{{ sale.receipt_thermal_url }}"
+                    data-can-edit-payment="{{ 1 if sale.can_edit_payment_method else 0 }}"
+                    data-payment-method="{{ sale.payment_method }}"
+                    data-wa-status="{{ sale.receipt_whatsapp_status }}"
+                    data-wa-error="{{ sale.receipt_whatsapp_error }}"
+                    data-return-url="{{ cash_closing_return_url }}"
+                >
                     <td>
                         <strong>{{ sale.receipt_no }}</strong>
                         <div class="helper-text">{{ sale.warehouse_name }}</div>
@@ -333,54 +348,12 @@
                     <td>{{ sale.note or "-" }}</td>
                     <td class="pos-sales-log-actions">
                         <span class="pos-sales-log-status" data-tone="{{ sale.status_tone }}">{{ sale.status_label }}</span>
-                        {% if sale.can_edit_transaction %}
-                        <a
-                            href="/kasir/?warehouse={{ sale.warehouse_id }}&sale_date={{ sale.sale_date }}&edit_sale_id={{ sale.id }}"
-                            class="ghost-button"
-                            data-pos-runtime-link="1"
-                        >
-                            Edit Transaksi
-                        </a>
-                        {% endif %}
-                        {% if sale.receipt_whatsapp_status == "sent" %}
-                        <div class="helper-text">WA Nota: terkirim</div>
-                        {% elif sale.receipt_whatsapp_status == "failed" %}
-                        <div class="helper-text">WA Nota: gagal</div>
-                        {% elif sale.receipt_whatsapp_status == "skipped" %}
-                        <div class="helper-text">WA Nota: belum terkirim</div>
-                        {% else %}
-                        <div class="helper-text">WA Nota: pending</div>
-                        {% endif %}
-                        {% if sale.receipt_whatsapp_error %}
-                        <div class="helper-text">{{ sale.receipt_whatsapp_error }}</div>
-                        {% endif %}
-                        {% if sale.can_edit_payment_method %}
-                        <form
-                            method="POST"
-                            action="/kasir/sale/{{ sale.id }}/payment-method"
-                            onsubmit="return confirm('Ganti metode pembayaran untuk transaksi {{ sale.receipt_no }}?')"
-                        >
-                            <input type="hidden" name="return_url" value="{{ cash_closing_return_url }}">
-                            <select name="payment_method" aria-label="Metode pembayaran {{ sale.receipt_no }}">
-                                {% for method in payment_methods %}
-                                <option value="{{ method }}" {% if sale.payment_method == method %}selected{% endif %}>
-                                    {{ payment_method_labels.get(method, method|upper) }}
-                                </option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit" class="ghost-button">Update Metode</button>
-                        </form>
-                        {% endif %}
-                        <a href="/kasir/receipt/{{ sale.receipt_no }}/pdf" target="_blank" rel="noopener" class="ghost-button" data-pos-runtime-link="1">PDF Nota</a>
-                        <a href="{{ sale.receipt_print_url }}" target="_blank" rel="noopener" class="ghost-button" data-pos-runtime-link="1">Preview Nota</a>
-                        <a href="{{ sale.receipt_thermal_url }}" target="_blank" rel="noopener" class="btn-link" data-pos-runtime-link="1">Cetak Thermal</a>
                         <button
                             type="button"
-                            class="ghost-button"
-                            data-pos-resend-receipt-sale-id="{{ sale.id }}"
-                            data-pos-resend-receipt-no="{{ sale.receipt_no }}"
+                            class="ghost-button pos-sales-log-action-trigger"
+                            data-pos-sales-log-action-trigger="1"
                         >
-                            Kirim Ulang Nota WA
+                            Aksi
                         </button>
                     </td>
                 </tr>
@@ -392,6 +365,10 @@
         {% endif %}
     </div>
 </div>
+<div class="pos-sales-context-menu" id="posSalesLogContextMenu" hidden>
+    <div class="pos-sales-context-header">Aksi Transaksi</div>
+    <div class="pos-sales-context-body" id="posSalesLogContextBody"></div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -402,6 +379,8 @@ const posSalesLogDesktopBridge = String(
     posSalesLogRuntimeUrl.searchParams.get("desktop_bridge")
     || (posSalesLogDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
 ).replace(/\/+$/, "");
+const posSalesLogPaymentMethods = {{ payment_methods | tojson }};
+const posSalesLogPaymentMethodLabels = {{ payment_method_labels | tojson }};
 
 function buildPosSalesLogRuntimeUrl(url) {
     const resolved = new URL(String(url || "/"), window.location.origin);
@@ -414,6 +393,221 @@ function buildPosSalesLogRuntimeUrl(url) {
     const normalized = `${resolved.pathname}${resolved.search}${resolved.hash}`;
     return resolved.origin === window.location.origin ? normalized : resolved.toString();
 }
+
+const posSalesContextMenu = document.getElementById("posSalesLogContextMenu");
+const posSalesContextBody = document.getElementById("posSalesLogContextBody");
+let activePosSalesRow = null;
+let ignoreNextPosSalesLogClick = false;
+
+function closePosSalesContextMenu() {
+    if (!posSalesContextMenu || posSalesContextMenu.hidden) {
+        return;
+    }
+    posSalesContextMenu.hidden = true;
+    posSalesContextMenu.setAttribute("aria-hidden", "true");
+    activePosSalesRow = null;
+}
+
+function appendPosSalesContextDivider(fragment) {
+    const divider = document.createElement("div");
+    divider.className = "pos-sales-context-divider";
+    fragment.appendChild(divider);
+}
+
+function appendPosSalesContextLink(fragment, label, href, options = {}) {
+    if (!href) return;
+    const link = document.createElement("a");
+    link.className = "pos-sales-context-link";
+    link.textContent = label;
+    link.href = buildPosSalesLogRuntimeUrl(href);
+    if (options.newTab) {
+        link.target = "_blank";
+        link.rel = "noopener";
+    }
+    fragment.appendChild(link);
+}
+
+function appendPosSalesContextButton(fragment, label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pos-sales-context-button";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    fragment.appendChild(button);
+}
+
+function appendPosSalesContextMeta(fragment, label) {
+    const meta = document.createElement("div");
+    meta.className = "pos-sales-context-meta";
+    meta.textContent = label;
+    fragment.appendChild(meta);
+}
+
+function buildPosSalesContextMenu(row) {
+    if (!posSalesContextBody || !row) {
+        return;
+    }
+
+    const saleId = Number(row.dataset.saleId || 0);
+    const receiptNo = String(row.dataset.receiptNo || "").trim();
+    const editUrl = String(row.dataset.editUrl || "").trim();
+    const pdfUrl = String(row.dataset.receiptPdfUrl || "").trim();
+    const previewUrl = String(row.dataset.receiptPreviewUrl || "").trim();
+    const thermalUrl = String(row.dataset.receiptThermalUrl || "").trim();
+    const waStatus = String(row.dataset.waStatus || "").trim() || "-";
+    const waError = String(row.dataset.waError || "").trim();
+    const canEditPayment = Number(row.dataset.canEditPayment || 0) > 0;
+    const currentPaymentMethod = String(row.dataset.paymentMethod || "").trim();
+    const returnUrl = String(row.dataset.returnUrl || "").trim();
+
+    posSalesContextBody.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+
+    if (receiptNo) {
+        appendPosSalesContextMeta(fragment, `Receipt ${receiptNo}`);
+    }
+    appendPosSalesContextMeta(fragment, `WA Nota: ${waStatus || "-"}`);
+    if (waError) {
+        appendPosSalesContextMeta(fragment, `Detail: ${waError}`);
+    }
+
+    appendPosSalesContextDivider(fragment);
+
+    if (editUrl) {
+        appendPosSalesContextLink(fragment, "Edit Transaksi", editUrl);
+    }
+    appendPosSalesContextLink(fragment, "PDF Nota", pdfUrl, { newTab: true });
+    appendPosSalesContextLink(fragment, "Preview Nota", previewUrl, { newTab: true });
+    appendPosSalesContextLink(fragment, "Cetak Thermal", thermalUrl, { newTab: true });
+
+    if (saleId) {
+        appendPosSalesContextButton(fragment, "Kirim Ulang Nota WA", () => {
+            const resendButton = document.createElement("button");
+            resendButton.dataset.posResendReceiptSaleId = String(saleId);
+            resendButton.dataset.posResendReceiptNo = receiptNo;
+            closePosSalesContextMenu();
+            submitPosReceiptResendFromLog(resendButton);
+        });
+    }
+
+    if (canEditPayment && saleId) {
+        appendPosSalesContextDivider(fragment);
+
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = `/kasir/sale/${saleId}/payment-method`;
+        form.className = "pos-sales-context-form";
+        form.addEventListener("submit", (event) => {
+            if (!window.confirm(`Ganti metode pembayaran untuk transaksi ${receiptNo || "-"}?`)) {
+                event.preventDefault();
+            }
+        });
+
+        if (returnUrl) {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "return_url";
+            input.value = returnUrl;
+            form.appendChild(input);
+        }
+
+        const select = document.createElement("select");
+        select.name = "payment_method";
+        select.setAttribute("aria-label", `Metode pembayaran ${receiptNo || ""}`.trim());
+        (Array.isArray(posSalesLogPaymentMethods) ? posSalesLogPaymentMethods : []).forEach((method) => {
+            const option = document.createElement("option");
+            option.value = method;
+            option.textContent = posSalesLogPaymentMethodLabels[method] || String(method || "").toUpperCase();
+            if (method === currentPaymentMethod) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+        form.appendChild(select);
+
+        const updateButton = document.createElement("button");
+        updateButton.type = "submit";
+        updateButton.className = "pos-sales-context-button";
+        updateButton.textContent = "Update Metode";
+        form.appendChild(updateButton);
+
+        fragment.appendChild(form);
+    }
+
+    posSalesContextBody.appendChild(fragment);
+}
+
+function openPosSalesContextMenu(event, row) {
+    if (!posSalesContextMenu || !posSalesContextBody) {
+        return;
+    }
+    activePosSalesRow = row;
+    buildPosSalesContextMenu(row);
+    posSalesContextMenu.hidden = false;
+    posSalesContextMenu.setAttribute("aria-hidden", "false");
+
+    const menuRect = posSalesContextMenu.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    let left = event.clientX || 0;
+    let top = event.clientY || 0;
+
+    if (left + menuRect.width > viewportWidth - 12) {
+        left = viewportWidth - menuRect.width - 12;
+    }
+    if (top + menuRect.height > viewportHeight - 12) {
+        top = viewportHeight - menuRect.height - 12;
+    }
+
+    posSalesContextMenu.style.left = `${Math.max(left, 12)}px`;
+    posSalesContextMenu.style.top = `${Math.max(top, 12)}px`;
+}
+
+document.addEventListener("contextmenu", (event) => {
+    const row = event.target.closest("[data-pos-sales-log-row='1']");
+    if (!row) {
+        closePosSalesContextMenu();
+        return;
+    }
+    event.preventDefault();
+    openPosSalesContextMenu(event, row);
+    ignoreNextPosSalesLogClick = true;
+});
+
+document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-pos-sales-log-action-trigger='1']");
+    if (trigger) {
+        event.preventDefault();
+        const row = trigger.closest("[data-pos-sales-log-row='1']");
+        if (row) {
+            const rect = trigger.getBoundingClientRect();
+            openPosSalesContextMenu(
+                { clientX: rect.left + rect.width / 2, clientY: rect.bottom + 6 },
+                row
+            );
+            ignoreNextPosSalesLogClick = true;
+        }
+        return;
+    }
+
+    if (ignoreNextPosSalesLogClick) {
+        ignoreNextPosSalesLogClick = false;
+        return;
+    }
+
+    if (posSalesContextMenu && !posSalesContextMenu.hidden && !posSalesContextMenu.contains(event.target)) {
+        closePosSalesContextMenu();
+    }
+});
+
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closePosSalesContextMenu();
+    }
+});
+
+window.addEventListener("scroll", closePosSalesContextMenu, true);
+window.addEventListener("resize", closePosSalesContextMenu);
 
 async function submitPosVoidFromLog(button) {
     if (!(button instanceof HTMLButtonElement)) {

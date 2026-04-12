@@ -1600,6 +1600,7 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
             COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
             COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
             COALESCE(cpi.qty, 0) AS qty,
+            COALESCE(cpi.retail_price, 0) AS retail_price,
             COALESCE(cpi.unit_price, 0) AS unit_price,
             COALESCE(cpi.line_total, 0) AS line_total
         FROM crm_purchase_items cpi
@@ -1615,17 +1616,27 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
     for row in rows:
         purchase_id = int(row["purchase_id"])
         unit_price = _currency(row["unit_price"] or 0)
+        retail_price = _currency(row["retail_price"] or 0)
         line_total = _currency(row["line_total"] or 0)
+        unit_discount = max(retail_price - unit_price, 0)
+        total_discount = max(unit_discount * int(row["qty"] or 0), 0)
         item_map.setdefault(purchase_id, []).append(
             {
                 "sku": row["sku"],
                 "product_name": row["product_name"],
                 "variant_name": row["variant_name"],
                 "qty": int(row["qty"] or 0),
+                "retail_price": retail_price,
                 "unit_price": unit_price,
                 "line_total": line_total,
+                "unit_discount": unit_discount,
+                "total_discount": total_discount,
+                "has_discount": unit_discount > 0,
+                "retail_price_label": _format_pos_currency_label(retail_price),
                 "unit_price_label": _format_pos_currency_label(unit_price),
                 "line_total_label": _format_pos_currency_label(line_total),
+                "unit_discount_label": _format_pos_currency_label(unit_discount),
+                "total_discount_label": _format_pos_currency_label(total_discount),
                 "summary_label": f"{row['sku']} · {row['product_name']} · {row['variant_name']} x{int(row['qty'] or 0)}",
             }
         )
@@ -2147,6 +2158,7 @@ def _validate_and_build_items(
         variant_id = _to_int(raw_item.get("variant_id"), 0)
         qty = _to_int(raw_item.get("qty"), 0)
         unit_price = _to_decimal(raw_item.get("unit_price"), "0")
+        retail_price = _to_decimal(raw_item.get("retail_price"), "0")
 
         if product_id <= 0 or variant_id <= 0 or qty <= 0:
             raise ValueError("Item kasir tidak valid. Periksa produk, variant, dan qty.")
@@ -2190,6 +2202,12 @@ def _validate_and_build_items(
             )
         requested_qty_map[item_key] = requested_qty
 
+        if retail_price <= 0:
+            retail_price = _to_decimal(
+                product["price_nett"] or product["price_discount"] or product["price_retail"] or 0,
+                "0",
+            )
+
         if free_reward_mode:
             unit_price = Decimal("0.00")
         elif unit_price <= 0:
@@ -2210,6 +2228,7 @@ def _validate_and_build_items(
                 "product_name": product["product_name"],
                 "variant_name": product["variant_name"] or "default",
                 "qty": qty,
+                "retail_price": retail_price,
                 "unit_price": unit_price,
                 "line_total": line_total,
             }
@@ -2555,6 +2574,7 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
             COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
             COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
             COALESCE(cpi.qty, 0) AS qty,
+            COALESCE(cpi.retail_price, 0) AS retail_price,
             COALESCE(cpi.unit_price, 0) AS unit_price,
             COALESCE(cpi.line_total, 0) AS line_total,
             COALESCE(cpi.void_qty, 0) AS void_qty,
@@ -2576,9 +2596,12 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
         void_qty = max(0, int(row["void_qty"] or 0))
         active_qty = max(sold_qty - void_qty, 0)
         unit_price = _currency(row["unit_price"] or 0)
+        retail_price = _currency(row["retail_price"] or 0)
         line_total = _currency(row["line_total"] or 0)
         void_amount = _currency(row["void_amount"] or 0)
         active_line_total = max(line_total - void_amount, 0)
+        unit_discount = max(retail_price - unit_price, 0)
+        total_discount = max(unit_discount * active_qty, 0)
 
         if active_qty <= 0:
             item_status = _build_pos_sale_status_payload("voided")
@@ -2598,15 +2621,22 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
                 "qty": sold_qty,
                 "void_qty": void_qty,
                 "active_qty": active_qty,
+                "retail_price": retail_price,
                 "unit_price": unit_price,
                 "line_total": line_total,
                 "void_amount": void_amount,
                 "active_line_total": active_line_total,
                 "void_note": row["void_note"],
+                "unit_discount": unit_discount,
+                "total_discount": total_discount,
+                "has_discount": unit_discount > 0 and active_qty > 0,
+                "retail_price_label": _format_pos_currency_label(retail_price),
                 "unit_price_label": _format_pos_currency_label(unit_price),
                 "line_total_label": _format_pos_currency_label(line_total),
                 "void_amount_label": _format_pos_currency_label(void_amount),
                 "active_line_total_label": _format_pos_currency_label(active_line_total),
+                "unit_discount_label": _format_pos_currency_label(unit_discount),
+                "total_discount_label": _format_pos_currency_label(total_discount),
                 "can_void": has_permission(session.get("role"), "manage_pos") and active_qty > 0,
                 "voidable_qty": active_qty,
                 "summary_label": f"{row['sku']} - {row['product_name']} - {row['variant_name']} x{active_qty}",
@@ -4421,11 +4451,12 @@ def pos_edit_sale(sale_id):
                 product_id,
                 variant_id,
                 qty,
+                retail_price,
                 unit_price,
                 line_total,
                 note
             )
-            VALUES (?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             [
                 (
@@ -4433,6 +4464,7 @@ def pos_edit_sale(sale_id):
                     item["product_id"],
                     item["variant_id"],
                     item["qty"],
+                    _currency(item.get("retail_price") or 0),
                     _currency(item["unit_price"]),
                     _currency(item["line_total"]),
                     "POS Edit Transaksi",
@@ -4794,11 +4826,12 @@ def pos_checkout():
                 product_id,
                 variant_id,
                 qty,
+                retail_price,
                 unit_price,
                 line_total,
                 note
             )
-            VALUES (?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             [
                 (
@@ -4806,6 +4839,7 @@ def pos_checkout():
                     item["product_id"],
                     item["variant_id"],
                     item["qty"],
+                    _currency(item.get("retail_price") or 0),
                     _currency(item["unit_price"]),
                     _currency(item["line_total"]),
                     "POS Checkout",

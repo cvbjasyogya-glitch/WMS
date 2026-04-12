@@ -518,7 +518,6 @@
                             <td>
                                 <strong>{{ sale.receipt_no }}</strong>
                                 <div class="helper-text">{{ sale.warehouse_name }}</div>
-                                <div class="helper-text">{{ sale.status_label }}</div>
                             </td>
                             <td>
                                 <strong>{{ sale.created_time_label }}</strong>
@@ -536,8 +535,7 @@
                                 {% for item in sale.item_preview_lines %}
                                 <div class="pos-sales-log-itemline" data-item-status="{{ item.status }}">
                                     <div>
-                                        <div class="helper-text">{{ item.summary_label }}</div>
-                                        <div class="helper-text">{{ item.detail_label }}</div>
+                                        <div class="helper-text">{{ item.summary_label }} · {{ item.detail_label }}</div>
                                         {% if item.void_qty %}
                                         <div class="helper-text">Void {{ item.void_qty }} | Nilai void {{ item.void_amount_label }}</div>
                                         {% endif %}
@@ -568,8 +566,7 @@
                             {% if can_view_pos_revenue %}
                             <td>
                                 <strong>{{ sale.total_amount_label }}</strong>
-                                <div class="helper-text">Subtotal {{ sale.subtotal_amount_label }}</div>
-                                <div class="helper-text">Disc {{ sale.discount_amount_label }} | Pajak {{ sale.tax_amount_label }}</div>
+                                <div class="helper-text">Sub {{ sale.subtotal_amount_label }} | Disc {{ sale.discount_amount_label }} | Pajak {{ sale.tax_amount_label }}</div>
                             </td>
                             {% endif %}
                             <td>{{ sale.note or "-" }}</td>

@@ -354,6 +354,11 @@
         color: #b45309;
     }
 
+    .receipt-item-discount {
+        font-size: 0.79rem;
+        color: #0f766e;
+    }
+
     .receipt-bottom-grid {
         display: grid;
         grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
@@ -1231,6 +1236,12 @@
                     <span>{{ item.active_qty }} x {{ item.unit_price_label }}</span>
                     <span>{{ item.active_line_total_label }}</span>
                 </div>
+                {% if item.has_discount %}
+                <div class="thermal-item-variant">
+                    Diskon item {{ item.unit_discount_label }} x {{ item.active_qty }} = {{ item.total_discount_label }}
+                    (Retail {{ item.retail_price_label }})
+                </div>
+                {% endif %}
                 {% if item.void_qty %}
                 <div class="thermal-item-variant">Void {{ item.void_qty }} | {{ item.void_amount_label }}</div>
                 {% endif %}
@@ -1379,6 +1390,12 @@
                 <div class="receipt-item-subtotal">
                     <strong>{{ item.active_line_total_label }}</strong>
                 </div>
+                {% if item.has_discount %}
+                <div class="receipt-item-discount">
+                    Diskon item {{ item.unit_discount_label }} x {{ item.active_qty }} = {{ item.total_discount_label }}
+                    (Retail {{ item.retail_price_label }})
+                </div>
+                {% endif %}
                 {% if item.void_qty %}
                 <div class="receipt-item-void">Terjual {{ item.qty }} | Void {{ item.void_qty }}{% if item.void_note %} | {{ item.void_note }}{% endif %}</div>
                 <div class="receipt-item-void">Nilai void {{ item.void_amount_label }}</div>

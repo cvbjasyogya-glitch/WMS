@@ -630,6 +630,13 @@ def _build_receipt_lines(sale):
         active_total_label = item.get("active_line_total_label") or item.get("line_total_label") or "Rp 0"
         unit_price_label = item.get("unit_price_label") or "Rp 0"
         lines.append(f"    Qty {active_qty} x {unit_price_label} = {active_total_label}")
+        if item.get("has_discount") and active_qty > 0:
+            unit_discount_label = item.get("unit_discount_label") or "Rp 0"
+            total_discount_label = item.get("total_discount_label") or "Rp 0"
+            retail_label = item.get("retail_price_label") or "Rp 0"
+            lines.append(
+                f"    Diskon item {unit_discount_label} x {active_qty} = {total_discount_label} (Retail {retail_label})"
+            )
         if int(item.get("void_qty") or 0) > 0:
             lines.append(
                 f"    Void {int(item.get('void_qty') or 0)} | {item.get('void_amount_label') or 'Rp 0'}"
@@ -862,6 +869,16 @@ def _build_receipt_pdf_item_blocks(sale):
         detail_lines = []
         if active_qty > 1:
             detail_lines.extend(_wrap_receipt_line(f"{active_qty} x {unit_price_label}", width=42))
+        if item.get("has_discount") and active_qty > 0:
+            unit_discount_label = item.get("unit_discount_label") or "Rp 0"
+            total_discount_label = item.get("total_discount_label") or "Rp 0"
+            retail_label = item.get("retail_price_label") or "Rp 0"
+            detail_lines.extend(
+                _wrap_receipt_line(
+                    f"Diskon item {unit_discount_label} x {active_qty} = {total_discount_label} (Retail {retail_label})",
+                    width=54,
+                )
+            )
         if int(item.get("void_qty") or 0) > 0:
             detail_lines.extend(
                 _wrap_receipt_line(

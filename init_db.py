@@ -161,6 +161,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "crm_purchase_items", "voided_at", "TIMESTAMP")
     _ensure_column(cursor, "crm_purchase_items", "voided_by", "INTEGER")
     _ensure_column(cursor, "crm_purchase_items", "void_note", "TEXT")
+    _ensure_column(cursor, "crm_purchase_items", "retail_price", "REAL DEFAULT 0")
     _ensure_column(cursor, "crm_memberships", "member_type", "TEXT DEFAULT 'purchase'")
     _ensure_column(cursor, "crm_memberships", "requested_by_staff_id", "INTEGER")
     _ensure_column(cursor, "crm_memberships", "reward_unit_amount", "REAL DEFAULT 75000")
@@ -1406,6 +1407,7 @@ def init_db(db_path=None, sqlite_options=None):
         product_id INTEGER NOT NULL,
         variant_id INTEGER NOT NULL,
         qty INTEGER DEFAULT 1,
+        retail_price REAL DEFAULT 0,
         unit_price REAL DEFAULT 0,
         line_total REAL DEFAULT 0,
         note TEXT,
