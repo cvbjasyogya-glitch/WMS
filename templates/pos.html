@@ -848,6 +848,48 @@ function roundPosMoney(value) {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
+function normalizePosEditableUnitPrice(value, fallback = 0) {
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue) && numericValue >= 0) {
+        return roundPosMoney(numericValue);
+    }
+
+    const fallbackValue = Number(fallback);
+    if (Number.isFinite(fallbackValue) && fallbackValue >= 0) {
+        return roundPosMoney(fallbackValue);
+    }
+
+    return 0;
+}
+
+function getPosStoredEditableUnitPrice(item) {
+    if (!item || typeof item !== "object") {
+        return 0;
+    }
+
+    const retailPrice = Number(item.retail_price || 0);
+    const currentUnitPrice = Number(item.unit_price || 0);
+    const fallbackPrice = retailPrice > 0 ? retailPrice : currentUnitPrice;
+    if (Object.prototype.hasOwnProperty.call(item, "editable_unit_price")) {
+        return normalizePosEditableUnitPrice(item.editable_unit_price, fallbackPrice);
+    }
+
+    return normalizePosEditableUnitPrice(fallbackPrice, 0);
+}
+
+function setPosStoredEditableUnitPrice(item, value) {
+    if (!item || typeof item !== "object") {
+        return 0;
+    }
+
+    const retailPrice = Number(item.retail_price || 0);
+    const currentUnitPrice = Number(item.unit_price || 0);
+    const fallbackPrice = retailPrice > 0 ? retailPrice : currentUnitPrice;
+    const normalizedPrice = normalizePosEditableUnitPrice(value, fallbackPrice);
+    item.editable_unit_price = normalizedPrice;
+    return normalizedPrice;
+}
+
 function setPosQuickSearchSummary(message) {
     if (posQuickSearchSummary) {
         posQuickSearchSummary.textContent = message || POS_QUICK_SEARCH_DEFAULT_SUMMARY;
@@ -1040,7 +1082,7 @@ function isPosFreeRewardMode() {
 function syncPosTransactionPricing() {
     const isFreeReward = isPosFreeRewardMode();
     posCart.forEach((item) => {
-        item.unit_price = isFreeReward ? 0 : Number(item.retail_price || item.unit_price || 0);
+        item.unit_price = isFreeReward ? 0 : getPosStoredEditableUnitPrice(item);
     });
 
     if (posDraftPrice) {
@@ -1754,6 +1796,7 @@ function addPosDraftToCart() {
 
     const qty = Number(posDraftQty.value || 0);
     const unitPrice = isPosFreeRewardMode() ? 0 : getPosCurrencyValue(posDraftPrice);
+    const retailPrice = normalizePosEditableUnitPrice(posDraft.unit_price || unitPrice, unitPrice);
     const key = `${posDraft.product_id}-${posDraft.variant_id}`;
     const existingIndex = posCart.findIndex((item) => item.key === key);
     const existing = existingIndex >= 0 ? posCart[existingIndex] : null;
@@ -1765,9 +1808,19 @@ function addPosDraftToCart() {
             return;
         }
         existing.qty = nextQty;
-        existing.unit_price = unitPrice;
-        existing.retail_price = existing.retail_price || posDraft.unit_price || existing.unit_price || 0;
+        existing.retail_price = normalizePosEditableUnitPrice(existing.retail_price || retailPrice, retailPrice);
+        if (isPosFreeRewardMode()) {
+            existing.unit_price = 0;
+            if (!Object.prototype.hasOwnProperty.call(existing, "editable_unit_price")) {
+                setPosStoredEditableUnitPrice(existing, existing.retail_price || retailPrice);
+            }
+        } else {
+            existing.unit_price = setPosStoredEditableUnitPrice(existing, unitPrice);
+        }
     } else {
+        const editableUnitPrice = isPosFreeRewardMode()
+            ? normalizePosEditableUnitPrice(retailPrice, unitPrice)
+            : normalizePosEditableUnitPrice(unitPrice, retailPrice);
         posCart.push({
             key,
             product_id: posDraft.product_id,
@@ -1776,8 +1829,9 @@ function addPosDraftToCart() {
             name: posDraft.name,
             variant_label: posDraft.variant_label,
             qty,
-            unit_price: unitPrice,
-            retail_price: posDraft.unit_price || unitPrice,
+            unit_price: isPosFreeRewardMode() ? 0 : editableUnitPrice,
+            editable_unit_price: editableUnitPrice,
+            retail_price: retailPrice,
             stock: posDraft.stock,
         });
     }
@@ -1948,12 +2002,15 @@ function applyPosEditingSaleToCart() {
     }
 
     posCart.length = 0;
+    const isRewardSale = String(posEditingSale.transaction_type || "purchase") === "stringing_reward_redemption";
     (Array.isArray(posEditingSale.items) ? posEditingSale.items : []).forEach((item) => {
         const productId = Number(item.product_id || 0);
         const variantId = Number(item.variant_id || 0);
         if (!productId || !variantId) {
             return;
         }
+        const retailPrice = normalizePosEditableUnitPrice(item.retail_price || item.unit_price, item.unit_price);
+        const savedUnitPrice = normalizePosEditableUnitPrice(item.unit_price, retailPrice);
         posCart.push({
             key: buildPosEditItemKey(productId, variantId),
             product_id: productId,
@@ -1962,8 +2019,9 @@ function applyPosEditingSaleToCart() {
             name: String(item.name || "Produk"),
             variant_label: String(item.variant_label || "Default"),
             qty: Math.max(Number(item.qty || 0), 1),
-            unit_price: Number(item.unit_price || 0),
-            retail_price: Number(item.retail_price || item.unit_price || 0),
+            unit_price: savedUnitPrice,
+            editable_unit_price: isRewardSale ? retailPrice : savedUnitPrice,
+            retail_price: retailPrice,
             stock: posAllowNegativeStockTemp
                 ? Number(item.stock || 0)
                 : Math.max(Number(item.stock || 0), 0),
@@ -2195,7 +2253,7 @@ function updatePriceFromCart(index, nextPrice, options = {}) {
         price = 0;
     }
 
-    posCart[index].unit_price = roundPosMoney(price);
+    posCart[index].unit_price = setPosStoredEditableUnitPrice(posCart[index], price);
     if (renderFull) {
         renderPosCart();
         setPosCartFocusedIndex(index);

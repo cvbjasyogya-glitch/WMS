@@ -759,6 +759,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('class="pos-cart-price-badge"', html)
         self.assertIn(">Gratis<", html)
 
+    def test_pos_script_preserves_manual_cart_price_when_transaction_pricing_syncs(self):
+        template_path = os.path.join(self.app.root_path, "templates", "pos.html")
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            template = template_file.read()
+
+        self.assertIn("function getPosStoredEditableUnitPrice(item) {", template)
+        self.assertIn("function setPosStoredEditableUnitPrice(item, value) {", template)
+        self.assertIn("item.unit_price = isFreeReward ? 0 : getPosStoredEditableUnitPrice(item);", template)
+        self.assertIn("posCart[index].unit_price = setPosStoredEditableUnitPrice(posCart[index], price);", template)
+        self.assertNotIn("item.unit_price = isFreeReward ? 0 : Number(item.retail_price || item.unit_price || 0);", template)
+
     def test_pos_manual_invoice_and_delivery_note_pages_render_for_pos_user(self):
         self.login_pos_user("owner_pos_manual_docs", "owner")
 
@@ -1353,6 +1364,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('if (/^\\d+$/.test(originalValue)) {', script)
         self.assertNotIn('/^\\d+(\\.\\d+)?$/.test(originalValue)', script)
         self.assertIn("trailingDigits.length <= 2", script)
+
+    def test_currency_input_script_reads_prepared_values_without_reapplying_live_formatting(self):
+        script_path = os.path.join(self.app.root_path, "static", "js", "currency_inputs.js")
+        with open(script_path, "r", encoding="utf-8") as script_file:
+            script = script_file.read()
+
+        self.assertIn("function ensurePreparedInput(input) {", script)
+        self.assertIn('if (input.dataset.wmsCurrencyPrepared !== "1") {', script)
+        self.assertIn("if (ensurePreparedInput(input)) {", script)
+        self.assertIn("if (!ensurePreparedInput(input)) {", script)
 
     def test_pos_sales_log_page_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
         self.login_pos_user("super_pos_log", "super_admin")

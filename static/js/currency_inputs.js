@@ -291,13 +291,24 @@
         collectManagedInputs(scope).forEach((input) => prepareInput(input));
     }
 
+    function ensurePreparedInput(input) {
+        if (!(input instanceof HTMLInputElement) || !input.matches(CURRENCY_SELECTOR)) {
+            return false;
+        }
+
+        if (input.dataset.wmsCurrencyPrepared !== "1") {
+            prepareInput(input);
+        }
+
+        return input.dataset.wmsCurrencyPrepared === "1";
+    }
+
     function getRawValue(input) {
         if (!(input instanceof HTMLInputElement)) {
             return "";
         }
 
-        if (input.matches(CURRENCY_SELECTOR)) {
-            prepareInput(input);
+        if (ensurePreparedInput(input)) {
             const resolvedMode = getManagedMode(input);
             const rawValue = input.dataset.wmsCurrencyRawValue || "";
             return resolvedMode === "currency"
@@ -322,12 +333,11 @@
             return;
         }
 
-        if (!input.matches(CURRENCY_SELECTOR)) {
+        if (!ensurePreparedInput(input)) {
             input.value = value === null || value === undefined ? "" : String(value);
             return;
         }
 
-        prepareInput(input);
         applyDisplayValue(input, value === null || value === undefined ? "" : String(value));
     }
 
