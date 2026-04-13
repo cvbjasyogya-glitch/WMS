@@ -9,7 +9,12 @@
     </div>
     <small class="helper-text">
         {% if admin_section == "access" %}
-        Halaman ini khusus untuk mengatur role, user, notifikasi akun, dan kontrol akses sistem.
+        Halaman ini khusus untuk mengatur role, user, notifikasi akun, dan kontrol akses
+        {% if session.get("role") == "super_admin" %}
+        <button type="button" class="admin-secret-trigger" data-admin-hidden-archive-trigger>sistem</button>.
+        {% else %}
+        sistem.
+        {% endif %}
         {% elif admin_section == "permissions" %}
         Halaman ini khusus untuk super admin yang ingin memberi akses tambahan atau mencabut akses default per user tanpa mengubah role dasarnya.
         {% elif admin_section == "notifications" %}

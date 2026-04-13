@@ -5,6 +5,56 @@
 {% block page_title %}Admin Access Center{% endblock %}
 {% block page_subtitle %}Pusat kontrol khusus untuk mengatur user, role, scope gudang, dan governance akses sistem tanpa tercampur dengan pengaturan gudang fisik.{% endblock %}
 
+{% block extra_head %}
+<style>
+    .admin-secret-trigger {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+    }
+
+    .admin-secret-trigger:focus-visible {
+        outline: 2px solid rgba(93, 183, 255, 0.42);
+        outline-offset: 3px;
+        border-radius: 6px;
+    }
+
+    .admin-hidden-archive-shell[hidden] {
+        display: none !important;
+    }
+
+    .admin-hidden-archive-shell {
+        margin-bottom: 18px;
+    }
+
+    .admin-hidden-archive-card {
+        width: 100%;
+        border: 1px solid rgba(93, 183, 255, 0.16);
+        border-radius: 18px;
+        padding: 18px 20px;
+        background: linear-gradient(180deg, rgba(18, 31, 51, 0.78), rgba(11, 20, 34, 0.9));
+        color: #eaf3ff;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .admin-hidden-archive-card strong {
+        display: block;
+        font-size: 16px;
+    }
+
+    .admin-hidden-archive-card span {
+        display: block;
+        margin-top: 6px;
+        color: rgba(219, 231, 245, 0.74);
+        font-size: 13px;
+    }
+</style>
+{% endblock %}
+
 {% block page_actions %}
 {% if session.get("role") == "super_admin" %}
 <a href="/admin/permissions" class="ghost-button">Hak Akses Fitur</a>
@@ -14,6 +64,15 @@
 
 {% block content %}
 {% include "partials/admin_local_nav.html" %}
+
+{% if session.get("role") == "super_admin" %}
+<section class="admin-hidden-archive-shell" data-admin-hidden-archive-shell hidden aria-hidden="true">
+    <button type="button" class="admin-hidden-archive-card" data-admin-hidden-archive-card>
+        <strong>Arsip Sistem</strong>
+        <span>Akses internal. Klik card ini lalu jawab pertanyaan tahap kedua untuk lanjut.</span>
+    </button>
+</section>
+{% endif %}
 
 <div class="summary">
     <div class="card-mini">
@@ -262,6 +321,68 @@
         {% endif %}
     </div>
 </details>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if session.get("role") == "super_admin" %}
+<script>
+(() => {
+    const trigger = document.querySelector("[data-admin-hidden-archive-trigger]");
+    const shell = document.querySelector("[data-admin-hidden-archive-shell]");
+    const card = document.querySelector("[data-admin-hidden-archive-card]");
+    const firstPassword = "susu";
+    const secondAnswer = "kambing";
+    const hiddenArchiveUrl = "/kasir/hidden-archive";
+
+    if (!trigger || !shell || !card) {
+        return;
+    }
+
+    function resetHiddenArchiveFlow() {
+        shell.hidden = true;
+        shell.setAttribute("aria-hidden", "true");
+    }
+
+    function revealHiddenArchiveCard() {
+        shell.hidden = false;
+        shell.setAttribute("aria-hidden", "false");
+        card.focus();
+    }
+
+    trigger.addEventListener("click", () => {
+        const password = window.prompt("Masukkan password global");
+        if (password === null) {
+            resetHiddenArchiveFlow();
+            return;
+        }
+
+        if (String(password || "").trim().toLowerCase() !== firstPassword) {
+            resetHiddenArchiveFlow();
+            window.alert("Password salah.");
+            return;
+        }
+
+        revealHiddenArchiveCard();
+    });
+
+    card.addEventListener("click", () => {
+        const answer = window.prompt("Susu apa?");
+        if (answer === null) {
+            resetHiddenArchiveFlow();
+            return;
+        }
+
+        if (String(answer || "").trim().toLowerCase() !== secondAnswer) {
+            resetHiddenArchiveFlow();
+            window.alert("Jawaban salah. Proses diulang dari awal.");
+            return;
+        }
+
+        window.location.href = hiddenArchiveUrl;
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}
 
 

@@ -9,9 +9,6 @@
 <div class="split-actions">
     <a href="/kasir/?warehouse={{ selected_warehouse }}" class="btn-link">Buka Kasir</a>
     <a href="/kasir/staff-sales?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}&week_date={{ date_range.date_from }}&month={{ date_range.date_from[:7] }}" class="ghost-button">Rekap Staff</a>
-    {% if can_manage_hidden_archive %}
-    <a href="/kasir/hidden-archive?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}" class="ghost-button">Hidden Archive</a>
-    {% endif %}
 </div>
 {% endblock %}
 

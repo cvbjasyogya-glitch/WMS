@@ -762,7 +762,7 @@ def _can_archive_pos_sale():
 
 def _get_pos_hidden_archive_password():
     configured = str(current_app.config.get("POS_HIDDEN_ARCHIVE_PASSWORD") or "").strip()
-    return configured or "123456"
+    return configured or "susu"
 
 
 def _get_pos_hidden_archive_unlock_seconds():
@@ -4006,7 +4006,6 @@ def pos_sales_log_page():
         cash_closing_preview_text=cash_closing_defaults["preview_text"],
         cash_closing_return_url=_build_pos_cash_closing_return_url(),
         can_edit_cash_closing=str(session.get("role") or "").strip().lower() == "super_admin",
-        can_manage_hidden_archive=_can_manage_pos_hidden_archive(),
     )
 
 

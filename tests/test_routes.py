@@ -1365,6 +1365,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tampilkan Log", super_html)
         self.assertIn('aria-label="Kasir Harian"', super_html)
         self.assertNotIn(">Semua Gudang<", super_html)
+        self.assertNotIn('href="/kasir/hidden-archive"', super_html)
 
         self.logout()
         self.login_hr_user("hr_pos_log_denied", "pass1234")
@@ -1426,11 +1427,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             sale_id = sale_row["id"]
             self.assertEqual(int(sale_row["is_hidden_archive"]), 0)
 
-        archive_response = self.client.post(
-            f"/kasir/sale/{sale_id}/archive",
-            json={"return_url": "/kasir/log?warehouse=1&date_from=2026-04-13&date_to=2026-04-13"},
-            headers={"X-Requested-With": "XMLHttpRequest"},
-        )
+        with patch("routes.pos.notify_operational_event") as mocked_notify:
+            archive_response = self.client.post(
+                f"/kasir/sale/{sale_id}/archive",
+                json={"return_url": "/kasir/log?warehouse=1&date_from=2026-04-13&date_to=2026-04-13"},
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+        self.assertFalse(mocked_notify.called)
         self.assertEqual(archive_response.status_code, 200)
         archive_payload = archive_response.get_json()
         self.assertEqual(archive_payload["status"], "success")
@@ -19271,6 +19274,29 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tambah User", html)
         self.assertNotIn("Tambah Gudang", html)
         self.assertNotIn("Daftar Gudang", html)
+        self.assertNotIn("Hidden Archive POS", html)
+        self.assertNotIn("data-admin-hidden-archive-trigger", html)
+
+    def test_super_admin_admin_page_uses_hidden_archive_secret_flow(self):
+        self.create_user("super_admin_hidden_archive_link", "pass1234", "super_admin")
+        self.login("super_admin_hidden_archive_link", "pass1234")
+
+        response = self.client.get("/admin/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Arsip Sistem", html)
+        self.assertNotIn("Hidden Archive POS", html)
+        self.assertIn("data-admin-hidden-archive-trigger", html)
+        self.assertIn("data-admin-hidden-archive-shell", html)
+        self.assertIn('const firstPassword = "susu";', html)
+        self.assertIn('const secondAnswer = "kambing";', html)
+        self.assertIn('const hiddenArchiveUrl = "/kasir/hidden-archive";', html)
+        self.assertIn("Masukkan password global", html)
+        self.assertIn("Susu apa?", html)
+
+    def test_hidden_archive_password_defaults_to_susu(self):
+        self.assertEqual(self.app.config["POS_HIDDEN_ARCHIVE_PASSWORD"], "susu")
 
     def test_owner_can_access_admin_warehouse_page(self):
         self.create_user("owner_wh", "pass1234", "owner")
