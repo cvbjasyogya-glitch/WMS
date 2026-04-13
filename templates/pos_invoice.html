@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Buat Invoice POS | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Tools{% endblock %}
+{% block page_title %}Buat Invoice{% endblock %}
+{% block page_subtitle %}Masukkan nomor receipt POS untuk membuat invoice pelanggan.{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <form method="GET" class="top-bar">
+        <input
+            type="search"
+            name="receipt_no"
+            value="{{ receipt_no }}"
+            placeholder="Contoh: POS-20260412-0004"
+            list="posReceiptOptions"
+            autocomplete="off"
+        >
+        <datalist id="posReceiptOptions">
+            {% for sale in recent_sales %}
+            <option value="{{ sale.receipt_no }}">{{ sale.receipt_no }} | {{ sale.customer_name }}</option>
+            {% endfor %}
+        </datalist>
+        <button type="submit">Cari Nota</button>
+        <a class="ghost-button" href="/kasir/invoice/manual">Invoice Manual</a>
+    </form>
+
+    {% if sale_detail %}
+    <section class="form-box">
+        <div class="section-title">
+            <div>
+                <h2>Invoice {{ sale_detail.receipt_no }}</h2>
+                <p>{{ branding.get('business_name', '-') }}{% if branding.get('business_address') %} | {{ branding.get('business_address') }}{% endif %}</p>
+            </div>
+            <div class="split-actions">
+                <a class="ghost-button" href="/kasir/invoice/{{ sale_detail.receipt_no }}/print" target="_blank" rel="noopener">Cetak Invoice</a>
+            </div>
+        </div>
+
+        <div class="meta-grid">
+            <div class="meta-card">
+                <span>Tanggal</span>
+                <strong>{{ sale_detail.get('sale_date', '-') }} {{ sale_detail.get('created_time_label', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Gudang</span>
+                <strong>{{ sale_detail.get('warehouse_name', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Kasir</span>
+                <strong>{{ sale_detail.get('cashier_identity_label', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Customer</span>
+                <strong>{{ sale_detail.get('customer_name', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Kontak</span>
+                <strong>{{ sale_detail.get('customer_phone_label', '-') }}</strong>
+            </div>
+        </div>
+
+        <div class="table-box" data-scrollable-table="1">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Qty</th>
+                        <th>Harga</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in sale_detail.items %}
+                    <tr>
+                        <td>
+                            <strong>{{ item.get('product_name', '-') }}</strong>
+                            <div class="helper-text">{{ item.get('variant_name', '-') }} | {{ item.get('sku', '-') }}</div>
+                        </td>
+                        <td>{{ item.get('qty', 0) }}</td>
+                        <td>{{ item.get('unit_price_label', '-') }}</td>
+                        <td>{{ item.get('line_total_label', '-') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="3">Subtotal</td>
+                        <td>{{ sale_detail.get('subtotal_amount_label', '-') }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="3">Diskon</td>
+                        <td>{{ sale_detail.get('discount_amount_label', '-') }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="3">Pajak</td>
+                        <td>{{ sale_detail.get('tax_amount_label', '-') }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="3"><strong>Total</strong></td>
+                        <td><strong>{{ sale_detail.get('total_amount_label', '-') }}</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state">Masukkan nomor receipt untuk menampilkan invoice.</div>
+    {% endif %}
+</div>
+{% endblock %}

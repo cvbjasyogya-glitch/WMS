@@ -35,6 +35,42 @@
                             <small>Lihat log transaksi POS untuk tanggal {{ sale_date }}.</small>
                         </a>
                         <a
+                            href="/kasir/invoice"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Buat Invoice</strong>
+                            <small>Generate invoice dari receipt POS untuk customer.</small>
+                        </a>
+                        <a
+                            href="/kasir/invoice/manual"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Invoice Manual</strong>
+                            <small>Buat invoice dari awal tanpa nota POS.</small>
+                        </a>
+                        <a
+                            href="/kasir/surat-jalan"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Buat Surat Jalan</strong>
+                            <small>Cetak surat jalan dari transaksi POS.</small>
+                        </a>
+                        <a
+                            href="/kasir/surat-jalan/manual"
+                            class="pos-ipos-menu-link"
+                            role="menuitem"
+                            data-pos-header-menu-link
+                        >
+                            <strong>Surat Jalan Manual</strong>
+                            <small>Ikut data yang sudah diisi di invoice manual.</small>
+                        </a>
+                        <a
                             href="/kasir/staff-sales?warehouse={{ selected_warehouse }}&week_date={{ sale_date }}&month={{ sale_date[:7] }}"
                             class="pos-ipos-menu-link"
                             role="menuitem"

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Hidden Archive POS | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Admin Archive{% endblock %}
+{% block page_title %}Hidden Archive POS{% endblock %}
+{% block page_subtitle %}Arsip tersembunyi untuk transaksi POS yang disembunyikan dari log operasional biasa.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a href="/kasir/log?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}" class="btn-link">Kembali ke Log POS</a>
+    {% if archive_unlocked %}
+    <form method="POST" action="/kasir/hidden-archive/lock">
+        <input type="hidden" name="return_url" value="{{ hidden_archive_return_url }}">
+        <button type="submit" class="ghost-button">Kunci Arsip</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <div class="meta-grid">
+        <div class="meta-card">
+            <span>Scope Gudang</span>
+            <strong>{{ selected_warehouse_name }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Periode</span>
+            <strong>{{ date_range.label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Status Arsip</span>
+            <strong>{% if archive_unlocked %}Terbuka{% else %}Terkunci{% endif %}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Sesi Akses</span>
+            <strong>{{ unlock_timeout_minutes }} menit</strong>
+        </div>
+    </div>
+
+    {% if not archive_unlocked %}
+    <section class="form-box">
+        <div class="section-title">
+            <div>
+                <h2>Buka Hidden Archive</h2>
+                <p>Halaman ini hanya tersedia untuk super admin, lalu masih perlu password global terpisah.</p>
+            </div>
+        </div>
+        <form method="POST" action="/kasir/hidden-archive/unlock" class="form-grid">
+            <input type="hidden" name="return_url" value="{{ hidden_archive_return_url }}">
+            <div>
+                <label>Password Global Archive</label>
+                <input type="password" name="archive_password" placeholder="Masukkan password global" required autocomplete="current-password">
+            </div>
+            <div class="span-full split-actions">
+                <button type="submit">Buka Archive</button>
+                <small class="helper-text">Setelah terbuka, akses archive aktif sementara selama {{ unlock_timeout_minutes }} menit pada sesi ini.</small>
+            </div>
+        </form>
+    </section>
+    {% else %}
+    <form method="GET" class="top-bar">
+        <select name="warehouse" {% if scoped_warehouse %}disabled{% endif %}>
+            {% for warehouse in warehouses %}
+            <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+            {% endfor %}
+        </select>
+        {% if scoped_warehouse %}
+        <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+        {% endif %}
+        <input type="date" name="date_from" value="{{ date_range.date_from }}">
+        <input type="date" name="date_to" value="{{ date_range.date_to }}">
+        <select name="cashier_user_id">
+            <option value="">Semua Staff</option>
+            {% for staff in cashier_filter_options %}
+            <option value="{{ staff.id }}" {% if selected_cashier_user_id == staff.id %}selected{% endif %}>{{ staff.label }}</option>
+            {% endfor %}
+        </select>
+        <input type="search" name="search" value="{{ search_query }}" placeholder="Cari receipt, customer, staff, atau catatan arsip">
+        <button type="submit">Tampilkan Archive</button>
+    </form>
+
+    <div class="summary">
+        <div class="card-mini">
+            <p>Total Archive</p>
+            <h3>{{ sales_log_summary.transaction_total }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Total Item</p>
+            <h3>{{ sales_log_summary.total_items }}</h3>
+        </div>
+        <div class="card-mini">
+            <p>Customer</p>
+            <h3>{{ sales_log_summary.customer_total }}</h3>
+        </div>
+        {% if can_view_pos_revenue %}
+        <div class="card-mini">
+            <p>Rata-rata Ticket</p>
+            <h3>{{ sales_log_summary.average_ticket_label }}</h3>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="table-box" data-scrollable-table="1">
+        <div class="section-title">
+            <div>
+                <h2>Daftar Hidden Archive</h2>
+                <p>Transaksi di sini tidak tampil pada log POS biasa sampai dipulihkan.</p>
+            </div>
+            {% if can_view_pos_revenue %}
+            <span class="status-pill">{{ sales_log_summary.total_revenue_label }}</span>
+            {% endif %}
+        </div>
+
+        {% if sales_log_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Receipt</th>
+                    <th>Tanggal</th>
+                    <th>Customer</th>
+                    <th>Staff</th>
+                    <th>Archive</th>
+                    {% if can_view_pos_revenue %}
+                    <th>Total</th>
+                    {% endif %}
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sale in sales_log_rows %}
+                <tr>
+                    <td>
+                        <strong>{{ sale.receipt_no }}</strong>
+                        <div class="helper-text">{{ sale.warehouse_name }}</div>
+                        <div class="helper-text">{{ sale.status_label }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.sale_date }}</strong>
+                        <div class="helper-text">{{ sale.created_time_label }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.customer_name }}</strong>
+                        <div class="helper-text">{{ sale.customer_phone_label }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.cashier_name }}</strong>
+                        <div class="helper-text">{{ sale.cashier_position }}</div>
+                    </td>
+                    <td>
+                        <strong>{{ sale.hidden_archive_at or "-" }}</strong>
+                        <div class="helper-text">Oleh {{ sale.hidden_archive_by_name }}</div>
+                        <div class="helper-text">{{ sale.hidden_archive_note or "Tanpa catatan arsip." }}</div>
+                    </td>
+                    {% if can_view_pos_revenue %}
+                    <td>
+                        <strong>{{ sale.total_amount_label }}</strong>
+                        <div class="helper-text">Bayar {{ sale.paid_amount_label }}</div>
+                        <div class="helper-text">Kembali {{ sale.change_amount_label }}</div>
+                    </td>
+                    {% endif %}
+                    <td class="split-actions">
+                        <a href="/kasir/receipt/{{ sale.receipt_no }}/print" class="ghost-button" target="_blank" rel="noopener">Preview Nota</a>
+                        <a href="/kasir/receipt/{{ sale.receipt_no }}/pdf" class="ghost-button" target="_blank" rel="noopener">PDF Nota</a>
+                        <form method="POST" action="/kasir/sale/{{ sale.id }}/unarchive">
+                            <input type="hidden" name="return_url" value="{{ hidden_archive_return_url }}">
+                            <button type="submit" onclick="return window.confirm('Pulihkan transaksi {{ sale.receipt_no }} ke log POS biasa?');">Pulihkan</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">Belum ada transaksi yang masuk Hidden Archive pada filter ini.</div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

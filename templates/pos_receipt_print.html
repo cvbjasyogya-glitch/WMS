@@ -1490,7 +1490,7 @@ const receiptNativePrintPayload = {{ {
     "sale_datetime": sale.sale_date ~ " " ~ sale.created_time_label,
     "payment_method": sale.payment_method,
     "payment_method_label": sale.payment_method_label,
-    "payment_breakdown_label": sale.payment_breakdown_label,
+    "payment_breakdown_label": sale.get("payment_breakdown_label") or "",
     "total_items": sale.total_items,
     "subtotal_amount_label": sale.subtotal_amount_label,
     "discount_amount_label": sale.discount_amount_label,

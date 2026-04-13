@@ -392,6 +392,46 @@
         lastCallSignalId = Math.max(lastCallSignalId, Number(payload.latest_signal_id || 0));
     }
 
+    function stopRealtimeLoops() {
+        if (pollTimer) {
+            window.clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        if (callPollTimer) {
+            window.clearInterval(callPollTimer);
+            callPollTimer = null;
+        }
+        if (heartbeatTimer) {
+            window.clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+        }
+    }
+
+    function startRealtimeLoops() {
+        if (document.visibilityState === "hidden") {
+            return;
+        }
+
+        if (!window.__WMS_CHAT_PAGE__) {
+            if (!pollTimer) {
+                pollTimer = window.setInterval(pollUnreadOnly, unreadPollIntervalMs);
+            }
+            if (!callPollTimer) {
+                callPollTimer = window.setInterval(pollIncomingCalls, callPollIntervalMs);
+            }
+            pollUnreadOnly();
+            pollIncomingCalls();
+        }
+
+        if (!heartbeatTimer) {
+            heartbeatTimer = window.setInterval(() => {
+                if (document.visibilityState !== "hidden") {
+                    sendHeartbeat();
+                }
+            }, heartbeatIntervalMs);
+        }
+    }
+
     async function sendHeartbeat() {
         try {
             const threadId = typeof window.WmsChatPage?.getCurrentThreadId === "function"
@@ -514,71 +554,29 @@
 
     bindSoundUnlock();
     sendHeartbeat();
-    if (!window.__WMS_CHAT_PAGE__) {
-        pollUnreadOnly();
-        pollIncomingCalls();
-        pollTimer = window.setInterval(pollUnreadOnly, unreadPollIntervalMs);
-        callPollTimer = window.setInterval(pollIncomingCalls, callPollIntervalMs);
-    }
-    heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatIntervalMs);
+    startRealtimeLoops();
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState !== "visible") {
+            stopRealtimeLoops();
             return;
         }
         sendHeartbeat();
-        if (!window.__WMS_CHAT_PAGE__) {
-            pollUnreadOnly();
-            pollIncomingCalls();
-        }
+        startRealtimeLoops();
     });
 
     window.addEventListener("pageshow", () => {
         sendHeartbeat();
-        if (!window.__WMS_CHAT_PAGE__) {
-            if (!pollTimer) {
-                pollTimer = window.setInterval(pollUnreadOnly, unreadPollIntervalMs);
-            }
-            if (!callPollTimer) {
-                callPollTimer = window.setInterval(pollIncomingCalls, callPollIntervalMs);
-            }
-            pollUnreadOnly();
-            pollIncomingCalls();
-        }
-        if (!heartbeatTimer) {
-            heartbeatTimer = window.setInterval(sendHeartbeat, heartbeatIntervalMs);
-        }
+        startRealtimeLoops();
     });
 
     window.addEventListener("pagehide", () => {
-        if (pollTimer) {
-            window.clearInterval(pollTimer);
-            pollTimer = null;
-        }
-        if (callPollTimer) {
-            window.clearInterval(callPollTimer);
-            callPollTimer = null;
-        }
-        if (heartbeatTimer) {
-            window.clearInterval(heartbeatTimer);
-            heartbeatTimer = null;
-        }
+        stopRealtimeLoops();
         stopCallRingtone();
     });
 
     window.addEventListener("beforeunload", () => {
-        if (pollTimer) {
-            window.clearInterval(pollTimer);
-            pollTimer = null;
-        }
-        if (callPollTimer) {
-            window.clearInterval(callPollTimer);
-            callPollTimer = null;
-        }
-        if (heartbeatTimer) {
-            window.clearInterval(heartbeatTimer);
-            heartbeatTimer = null;
-        }
+        stopRealtimeLoops();
         stopCallRingtone();
     });
 })();

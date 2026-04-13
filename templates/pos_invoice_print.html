@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <title>Invoice {{ sale.receipt_no }}</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: "Segoe UI", Arial, sans-serif; margin: 24px; color: #0f172a; }
+        .sheet { border: 1px solid #dbe3f0; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; background: #214e79; color: #ffffff; padding: 14px 18px; }
+        .brand-row { display: flex; align-items: center; gap: 12px; }
+        .logo { width: 48px; height: 48px; object-fit: contain; border-radius: 50%; background: #ffffff; padding: 6px; }
+        .logo-fallback { width: 48px; height: 48px; border-radius: 50%; background: #ffffff; color: #214e79; display: grid; place-items: center; font-weight: 700; }
+        .brand-text { display: grid; gap: 2px; font-size: 12px; }
+        .brand-text strong { font-size: 13px; }
+        .invoice-title { font-size: 16px; letter-spacing: 0.14em; font-weight: 700; }
+        .meta-bar { display: grid; grid-template-columns: 1fr auto; gap: 18px; padding: 14px 18px; border-bottom: 2px solid #214e79; }
+        .address-block { font-size: 12px; color: #334155; display: grid; gap: 4px; }
+        .address-block strong { color: #0f172a; }
+        .invoice-meta { font-size: 12px; color: #1f2937; display: grid; gap: 4px; text-align: right; }
+        .invoice-meta div { display: flex; gap: 8px; justify-content: flex-end; }
+        .invoice-meta span { min-width: 110px; color: #475569; }
+        .bill-box { display: grid; gap: 6px; background: #d6e6f6; padding: 12px 16px; border-radius: 8px; font-weight: 700; text-align: center; }
+        .bill-box small { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #2b3d53; }
+        .content { padding: 16px 18px 10px; }
+        .customer-row { display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+        .customer-box { font-size: 12px; color: #1f2937; }
+        .customer-box strong { display: block; margin-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+        thead th { background: #214e79; color: #ffffff; padding: 8px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; }
+        tbody td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
+        .amounts { display: grid; grid-template-columns: 1fr 260px; gap: 18px; margin-top: 16px; }
+        .pay-info { font-size: 12px; color: #1f2937; }
+        .pay-info strong { display: block; margin-top: 6px; font-size: 13px; }
+        .total-box { border: 1px solid #214e79; background: #214e79; color: #ffffff; }
+        .total-row { display: flex; justify-content: space-between; padding: 6px 10px; font-size: 12px; }
+        .total-row:last-child { border-top: 1px solid rgba(255,255,255,0.3); font-weight: 700; }
+        .signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; margin-top: 24px; text-align: center; font-size: 12px; }
+        .signature-line { margin-top: 50px; border-top: 1px solid #94a3b8; padding-top: 6px; }
+        .footer-bar { height: 8px; background: #214e79; margin-top: 18px; }
+        @media print { body { margin: 0; } }
+    </style>
+</head>
+<body>
+    <div class="sheet">
+        <div class="topbar">
+            <div class="brand-row">
+                {% if branding.get('logo_url') %}
+                <img src="{{ branding.get('logo_url') }}" alt="Logo" class="logo">
+                {% else %}
+                <div class="logo-fallback">CV</div>
+                {% endif %}
+                <div class="brand-text">
+                    <strong>{{ branding.get('business_name', '-') }}</strong>
+                    {% if branding.get('business_address') %}<div>{{ branding.get('business_address') }}</div>{% endif %}
+                    {% if branding.get('customer_service_phone') %}<div>No. WA: {{ branding.get('customer_service_phone') }}</div>{% endif %}
+                </div>
+            </div>
+            <div class="invoice-title">INVOICE</div>
+        </div>
+
+        <div class="meta-bar">
+            <div class="address-block">
+                <strong>Kepada Yth.</strong>
+                <div>{{ sale.get('customer_name', '-') }}</div>
+                <div>{{ sale.get('customer_phone_label', '-') }}</div>
+            </div>
+            <div class="invoice-meta">
+                <div><span>No</span><strong>{{ sale.get('receipt_no', '-') }}</strong></div>
+                <div><span>Tanggal</span><strong>{{ sale.get('sale_date', '-') }}</strong></div>
+                <div><span>Tgl. Jatuh Tempo</span><strong>{{ sale.get('sale_date', '-') }}</strong></div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="customer-row">
+                <div class="customer-box">
+                    <strong>Deskripsi</strong>
+                    Transaksi POS {{ sale.get('receipt_no', '-') }} di {{ sale.get('warehouse_name', '-') }}.
+                </div>
+                <div class="bill-box">
+                    <small>Jumlah yang harus dibayar</small>
+                    <div>{{ sale.get('total_amount_label', '-') }}</div>
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Deskripsi</th>
+                        <th>Jumlah</th>
+                        <th>Harga</th>
+                        <th>Diskon</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in sale.items %}
+                    <tr>
+                        <td>{{ item.get('product_name', '-') }} ({{ item.get('variant_name', '-') }})</td>
+                        <td>{{ item.get('qty', 0) }}</td>
+                        <td>{{ item.get('retail_price_label', '-') }}</td>
+                        <td>{% if item.get('has_discount') %}{{ item.get('total_discount_label', '-') }}{% else %}0{% endif %}</td>
+                        <td>{{ item.get('line_total_label', '-') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="amounts">
+                <div class="pay-info">
+                    Untuk pembayaran bisa transfer ke rekening di bawah ini.
+                    {% if branding.get('footer_note') %}<strong>{{ branding.get('footer_note') }}</strong>{% else %}<strong>-</strong>{% endif %}
+                    {% if branding.get('feedback_line') %}<div>{{ branding.get('feedback_line') }}</div>{% endif %}
+                </div>
+                <div class="total-box">
+                    <div class="total-row"><span>Sub total</span><span>{{ sale.get('subtotal_amount_label', '-') }}</span></div>
+                    <div class="total-row"><span>Diskon total</span><span>{{ sale.get('discount_amount_label', '-') }}</span></div>
+                    <div class="total-row"><span>Total</span><span>{{ sale.get('total_amount_label', '-') }}</span></div>
+                </div>
+            </div>
+
+            <div class="signatures">
+                <div>
+                    <div>HORMAT KAMI</div>
+                    <div class="signature-line">{{ branding.get('business_name', '-') }}</div>
+                </div>
+                <div>
+                    <div>PENERIMA</div>
+                    <div class="signature-line">(........................)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-bar"></div>
+    </div>
+</body>
+</html>

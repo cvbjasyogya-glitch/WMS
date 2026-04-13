@@ -327,16 +327,58 @@ KPI_PROFILE_CATALOG = [
 ]
 
 
+def _clone_profile_with_overrides(source_key, *, key, display_name, summary):
+    for profile in KPI_PROFILE_CATALOG:
+        if profile["key"] != source_key:
+            continue
+        cloned = deepcopy(profile)
+        cloned["key"] = key
+        cloned["display_name"] = display_name
+        cloned["aliases"] = []
+        cloned["summary"] = summary.strip()
+        return cloned
+    raise KeyError(f"KPI profile source '{source_key}' not found")
+
+
+KPI_PROFILE_CATALOG.extend(
+    [
+        _clone_profile_with_overrides(
+            "mataram-naufal",
+            key="mataram-general",
+            display_name="Template KPI Staff Mataram",
+            summary="Template KPI standar Mataram untuk staff yang belum punya target bulanan khusus.",
+        ),
+        _clone_profile_with_overrides(
+            "mega-afif",
+            key="mega-general",
+            display_name="Template KPI Staff Mega",
+            summary="Template KPI standar Mega untuk staff yang belum punya target bulanan khusus.",
+        ),
+        _clone_profile_with_overrides(
+            "stringers-ika",
+            key="stringers-general",
+            display_name="Template KPI Stringers",
+            summary="Template KPI standar stringer untuk staff yang belum punya target bulanan khusus.",
+        ),
+    ]
+)
+
+
 KPI_FALLBACK_PROFILE_KEYS = {
-    "mataram": "mataram-naufal",
-    "mega": "mega-afif",
-    "stringers": "stringers-ika",
+    "mataram": "mataram-general",
+    "mega": "mega-general",
+    "stringers": "stringers-general",
 }
 
 
 def normalize_person_key(value):
     safe_value = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
     return safe_value
+
+
+def _has_specific_person_identity(value):
+    parts = [part for part in re.split(r"\s+", str(value or "").strip()) if part]
+    return len(parts) >= 2
 
 
 def normalize_kpi_period_label(value, fallback_date=None):
@@ -412,14 +454,19 @@ def _resolve_warehouse_group(warehouse_name="", work_location="", position=""):
 
 
 def resolve_kpi_profile(employee_name="", warehouse_name="", work_location="", position=""):
-    employee_key = normalize_person_key(employee_name)
+    raw_employee_name = str(employee_name or "").strip()
+    employee_key = normalize_person_key(raw_employee_name)
+    can_use_alias_match = _has_specific_person_identity(raw_employee_name)
     for profile in KPI_PROFILE_CATALOG:
+        display_key = normalize_person_key(profile.get("display_name"))
         alias_keys = [normalize_person_key(alias) for alias in profile.get("aliases", [])]
-        if employee_key and employee_key in alias_keys:
+        if employee_key and employee_key == display_key:
+            return deepcopy(profile)
+        if can_use_alias_match and employee_key and employee_key in alias_keys:
             return deepcopy(profile)
 
     warehouse_group = _resolve_warehouse_group(warehouse_name, work_location, position)
-    fallback_key = KPI_FALLBACK_PROFILE_KEYS.get(warehouse_group, "mataram-naufal")
+    fallback_key = KPI_FALLBACK_PROFILE_KEYS.get(warehouse_group, "mataram-general")
     return get_kpi_profile_by_key(fallback_key)
 
 

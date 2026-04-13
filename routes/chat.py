@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, flash, jsonify, redirect, render_templ
 from werkzeug.utils import secure_filename
 
 from database import get_db
+from services.notification_retention import cleanup_notification_history
 from services.notification_service import push_user_notification
 from services.rbac import has_permission
 
@@ -1746,6 +1747,7 @@ def send_message(thread_id):
         if thread.get("thread_type") == "group"
         else f"Chat baru dari {current_user['username']}"
     )
+    cleanup_notification_history(db)
     for recipient in recipients:
         try:
             db.execute(

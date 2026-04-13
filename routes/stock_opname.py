@@ -453,25 +453,57 @@ def _apply_so_total_adjustment(
         ),
     )
 
-    db.execute(
-        """
-        INSERT INTO stock_history(
-            product_id, variant_id, warehouse_id,
-            action, type, qty, note, user_id
+    try:
+        db.execute(
+            """
+            INSERT INTO stock_history(
+                product_id, variant_id, warehouse_id,
+                action, type, qty, note, user_id
+            )
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                product_id,
+                variant_id,
+                warehouse_id,
+                "STOCK_OPNAME",
+                "ADJUST",
+                diff_qty,
+                note,
+                user_id,
+            ),
         )
-        VALUES (?,?,?,?,?,?,?,?)
-        """,
-        (
-            product_id,
-            variant_id,
-            warehouse_id,
-            "STOCK_OPNAME",
-            "ADJUST",
-            diff_qty,
-            note,
-            user_id,
-        ),
-    )
+    except sqlite3.IntegrityError as exc:
+        if not (_is_foreign_key_constraint_error(exc) and user_id is not None):
+            raise
+        current_app.logger.warning(
+            "SO stock history insert retried without actor because user FK is stale",
+            extra={
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "warehouse_id": warehouse_id,
+                "stale_user_id": user_id,
+            },
+        )
+        db.execute(
+            """
+            INSERT INTO stock_history(
+                product_id, variant_id, warehouse_id,
+                action, type, qty, note, user_id
+            )
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                product_id,
+                variant_id,
+                warehouse_id,
+                "STOCK_OPNAME",
+                "ADJUST",
+                diff_qty,
+                note,
+                None,
+            ),
+        )
 
 
 def _apply_so_adjustment(db, product_id, variant_id, warehouse_id, system_qty, physical_qty, diff_qty, user_id, note):

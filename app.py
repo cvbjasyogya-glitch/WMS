@@ -9,6 +9,7 @@ from flask.sessions import SecureCookieSessionInterface
 from config import Config
 from database import close_db, get_db
 from datetime import datetime, timezone
+from services.notification_retention import cleanup_notification_history
 from services.notification_service import send_email, send_whatsapp
 from services.rbac import (
     can_access_pos_terminal,
@@ -52,7 +53,6 @@ from routes.leave_portal import leave_portal_bp
 from routes.overtime_portal import overtime_portal_bp
 from routes.account import account_bp
 from routes.announcement_center import announcement_center_bp
-from routes.meetings import meetings_bp
 from routes.notifications import notifications_bp
 
 # ðŸ”¥ TAMBAHAN WAJIB
@@ -268,13 +268,6 @@ def _build_shell_break_timer_state():
 
 
 def _build_security_headers():
-    meeting_domain = (current_app.config.get("JITSI_MEETING_DOMAIN") or "meet.jit.si").strip()
-    meeting_origin = f"https://{meeting_domain}" if meeting_domain else "https://meet.jit.si"
-    meeting_wildcard_origin = ""
-    meeting_wildcard_socket = ""
-    if meeting_domain.endswith("8x8.vc"):
-        meeting_wildcard_origin = " https://*.8x8.vc"
-        meeting_wildcard_socket = " wss://*.8x8.vc"
     return {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "SAMEORIGIN",
@@ -285,14 +278,14 @@ def _build_security_headers():
         "Origin-Agent-Cluster": "?1",
         "X-Permitted-Cross-Domain-Policies": "none",
         "Content-Security-Policy": (
-            f"default-src 'self' data: blob: https://source.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
-            f"img-src 'self' data: blob: https://source.zoom.us https://*.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
-            f"media-src 'self' data: blob: https://*.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
-            f"style-src 'self' 'unsafe-inline' https://source.zoom.us https://fonts.googleapis.com {meeting_origin}{meeting_wildcard_origin}; "
-            f"script-src 'self' 'unsafe-inline' https://source.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
-            f"font-src 'self' data: https://source.zoom.us https://fonts.gstatic.com {meeting_origin}{meeting_wildcard_origin}; "
-            f"connect-src 'self' blob: https://source.zoom.us https://*.zoom.us wss://*.zoom.us {meeting_origin}{meeting_wildcard_origin} wss://*.jit.si{meeting_wildcard_socket}; "
-            f"frame-src 'self' https://*.zoom.us {meeting_origin}{meeting_wildcard_origin}; "
+            "default-src 'self' data: blob:; "
+            "img-src 'self' data: blob:; "
+            "media-src 'self' data: blob:; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' blob:; "
+            "frame-src 'self'; "
             "worker-src 'self' blob:; "
             "frame-ancestors 'self'; "
             "base-uri 'self'; "
@@ -918,7 +911,6 @@ def create_app():
             "icons/workspace/utility-admin.svg",
             "icons/workspace/utility-generic.svg",
             "icons/workspace/coordination-pengumuman.svg",
-            "icons/workspace/coordination-meeting-live.svg",
             "icons/workspace/coordination-absen-foto.svg",
             "icons/workspace/coordination-libur.svg",
             "icons/workspace/coordination-report-harian.svg",
@@ -1151,6 +1143,7 @@ def create_app():
                     if user:
                         subj = "Sesi berakhir - Auto logout"
                         msg = f"Sesi Anda telah berakhir karena tidak aktif sejak {datetime.fromtimestamp(last_active, timezone.utc).isoformat()} UTC. Silakan login kembali jika perlu."
+                        cleanup_notification_history(db)
                         try:
                             if user["email"] and user["notify_email"]:
                                 ok = send_email(user["email"], subj, msg)
@@ -1251,7 +1244,6 @@ def create_app():
     app.register_blueprint(kpi_portal_bp)
     app.register_blueprint(leave_portal_bp)
     app.register_blueprint(overtime_portal_bp)
-    app.register_blueprint(meetings_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(announcement_center_bp)
     app.register_blueprint(notifications_bp)

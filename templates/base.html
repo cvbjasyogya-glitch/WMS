@@ -166,8 +166,7 @@
     } %}
 
     {% set is_workspace_home_active = request.path.startswith('/workspace') %}
-    {% set is_meeting_active = request.path.startswith('/meetings') %}
-    {% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/lembur') or request.path.startswith('/laporan-harian') or request.path.startswith('/kpi-staff') or is_meeting_active %}
+{% set is_coordination_active = request.path.startswith('/schedule') or request.path.startswith('/absen') or request.path.startswith('/libur') or request.path.startswith('/lembur') or request.path.startswith('/laporan-harian') or request.path.startswith('/kpi-staff') %}
     {% set is_announcements_active = request.path.startswith('/announcements') %}
     {% set is_crm_active = request.path.startswith('/crm') %}
     {% set is_product_lookup_active = request.path.startswith('/info-produk') %}
@@ -182,7 +181,7 @@
     {% set is_hris_active = request.path.startswith('/hris') %}
     {% set is_system_active = request.path.startswith('/admin') %}
     {% set is_account_active = request.path.startswith('/account') %}
-    {% set can_view_coordination = can("view_announcements") or can("view_meetings") or can("access_attendance_portal") or can("access_leave_portal") or can("access_overtime_portal") or can("access_daily_report_portal") or can("access_kpi_portal") or can("view_schedule") %}
+{% set can_view_coordination = can("view_announcements") or can("access_attendance_portal") or can("access_leave_portal") or can("access_overtime_portal") or can("access_daily_report_portal") or can("access_kpi_portal") or can("view_schedule") %}
     {% set can_view_workspace = can("view_workspace") or can("view_product_lookup") or can("view_crm") %}
     {% set can_view_wms = can("view_wms") %}
     {% set show_account_settings = session.get("role") != "free_lance" %}
@@ -272,12 +271,6 @@
                         <span>Pengumuman</span>
                     </a>
                     {% endif %}
-                    {% if can("view_meetings") %}
-                    <a href="/meetings/" class="sidebar-subtile {% if is_meeting_active %}active{% endif %}" aria-label="Meeting Live">
-                        <img src="{{ asset_url('icons/workspace/coordination-meeting-live.svg') }}" alt="" class="sidebar-subtile-icon">
-                        <span>Meeting Live</span>
-                    </a>
-                    {% endif %}
                     {% if can("access_attendance_portal") %}
                     <a href="/absen/" class="sidebar-subtile {% if request.path.startswith('/absen') %}active{% endif %}" aria-label="Absen">
                         <img src="{{ asset_url('icons/workspace/coordination-absen-foto.svg') }}" alt="" class="sidebar-subtile-icon">
@@ -364,6 +357,10 @@
                     <a href="/stock" class="sidebar-subtile {% if request.path.startswith('/stock') or request.path.startswith('/products') %}active{% endif %}" aria-label="Stok dan Produk">
                         <img src="{{ asset_url('icons/workspace/wms-stok-produk.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Stok &amp; Produk</span>
+                    </a>
+                    <a href="/stock/barcode" class="sidebar-subtile {% if request.path.startswith('/stock/barcode') %}active{% endif %}" aria-label="Barcode">
+                        <img src="{{ asset_url('icons/workspace/utility-generic.svg') }}" alt="" class="sidebar-subtile-icon">
+                        <span>Barcode</span>
                     </a>
                     {% if can_access_pos_terminal() %}
                     <a href="/kasir/" class="sidebar-subtile {% if is_pos_active %}active{% endif %}" aria-label="Kasir Harian">
@@ -1409,6 +1406,62 @@ if (syncShellBreakTimers()) {
     window.setInterval(syncShellBreakTimers, 1000);
 }
 </script>
+<script>
+window.wmsLoadScript = window.wmsLoadScript || (() => {
+    const cache = new Map();
+
+    return function loadScript(src) {
+        const safeSrc = String(src || "").trim();
+        if (!safeSrc) {
+            return Promise.resolve(null);
+        }
+        if (cache.has(safeSrc)) {
+            return cache.get(safeSrc);
+        }
+
+        const pending = new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[data-wms-src="${safeSrc}"]`);
+            if (existing) {
+                if (existing.dataset.loaded === "1") {
+                    resolve(existing);
+                    return;
+                }
+                existing.addEventListener("load", () => resolve(existing), { once: true });
+                existing.addEventListener("error", () => reject(new Error(`Gagal memuat script ${safeSrc}`)), { once: true });
+                return;
+            }
+
+            const script = document.createElement("script");
+            script.src = safeSrc;
+            script.defer = true;
+            script.dataset.wmsSrc = safeSrc;
+            script.addEventListener("load", () => {
+                script.dataset.loaded = "1";
+                resolve(script);
+            }, { once: true });
+            script.addEventListener("error", () => {
+                cache.delete(safeSrc);
+                reject(new Error(`Gagal memuat script ${safeSrc}`));
+            }, { once: true });
+            document.body.appendChild(script);
+        });
+
+        cache.set(safeSrc, pending);
+        return pending;
+    };
+})();
+
+window.wmsRunWhenIdle = window.wmsRunWhenIdle || function (callback, timeout = 800) {
+    if (typeof callback !== "function") {
+        return;
+    }
+    if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(() => callback(), { timeout });
+        return;
+    }
+    window.setTimeout(callback, Math.max(1, timeout));
+};
+</script>
 
 {% if has_app_shell %}
 <script id="wmsPushConfigData" type="application/json">
@@ -1452,9 +1505,17 @@ window.wmsPushConfig = window.wmsReadJsonScript("wmsPushConfigData");
 window.wmsNotificationCenterConfig = window.wmsReadJsonScript("wmsNotificationCenterConfigData");
 window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
 </script>
-<script src="{{ app_shell_js_url }}"></script>
-<script src="{{ push_notifications_js_url }}"></script>
-<script src="{{ web_notifications_js_url }}"></script>
+<script defer src="{{ app_shell_js_url }}"></script>
+<script defer src="{{ web_notifications_js_url }}"></script>
+<script>
+(() => {
+    const loadScript = window.wmsLoadScript;
+    const runWhenIdle = window.wmsRunWhenIdle;
+    runWhenIdle(() => {
+        void loadScript("{{ push_notifications_js_url }}");
+    }, 1800);
+})();
+</script>
 {% endif %}
 {% if not has_app_shell %}
 <script id="wmsAppShellConfigData" type="application/json">
@@ -1478,7 +1539,7 @@ window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
 };
 window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
 </script>
-<script src="{{ app_shell_js_url }}"></script>
+<script defer src="{{ app_shell_js_url }}"></script>
 {% endif %}
 {% if can("view_chat") %}
 <script id="wmsChatRealtimeConfigData" type="application/json">
@@ -1506,17 +1567,55 @@ window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
 };
 window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigData");
 </script>
-<script src="{{ chat_ui_shared_js_url }}"></script>
-<script src="{{ chat_realtime_js_url }}"></script>
-{% if has_app_shell and not request.path.startswith('/chat') %}
-<script src="{{ chat_widget_js_url }}"></script>
+{% if request.path.startswith('/chat') %}
+<script defer src="{{ chat_ui_shared_js_url }}"></script>
+<script defer src="{{ chat_realtime_js_url }}"></script>
+{% else %}
+<script>
+(() => {
+    const loadScript = window.wmsLoadScript;
+    const runWhenIdle = window.wmsRunWhenIdle;
+    const loadChatShared = () => loadScript("{{ chat_ui_shared_js_url }}");
+    const loadChatRealtime = () => loadChatShared().then(() => loadScript("{{ chat_realtime_js_url }}"));
+
+    runWhenIdle(() => {
+        void loadChatRealtime();
+    }, 1200);
+
+    {% if has_app_shell %}
+    const loadChatWidget = () => loadChatShared().then(() => loadScript("{{ chat_widget_js_url }}"));
+    runWhenIdle(() => {
+        void loadChatWidget();
+    }, 1800);
+
+    const chatWidgetHints = [
+        document.getElementById("chatWidgetLauncher"),
+        document.querySelector("[data-floating-toolbelt-action='chat']")
+    ].filter(Boolean);
+    chatWidgetHints.forEach((node) => {
+        node.addEventListener("pointerdown", () => {
+            void loadChatWidget();
+        }, { once: true, passive: true });
+        node.addEventListener("focus", () => {
+            void loadChatWidget();
+        }, { once: true });
+    });
+    {% endif %}
+})();
+</script>
 {% endif %}
 {% endif %}
 {% if has_app_shell %}
-<script src="{{ floating_toolbelt_js_url }}"></script>
+<script defer src="{{ floating_toolbelt_js_url }}"></script>
 {% endif %}
-<script src="{{ currency_inputs_js_url }}"></script>
-<script src="{{ table_layout_controls_js_url }}"></script>
+<script defer src="{{ currency_inputs_js_url }}"></script>
+<script>
+window.wmsRunWhenIdle(() => {
+    if (document.querySelector(".table-box table")) {
+        void window.wmsLoadScript("{{ table_layout_controls_js_url }}");
+    }
+}, 900);
+</script>
 <script>
 (() => {
     const body = document.body;
@@ -1619,22 +1718,49 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
     document.title = replaceScopeLabel(document.title);
     normalizeElement(body);
 
+    const pendingTextNodes = new Set();
+    const pendingElements = new Set();
+    let normalizeFrame = 0;
+
+    const flushNormalizationQueue = () => {
+        normalizeFrame = 0;
+
+        if (pendingTextNodes.size > 0) {
+            Array.from(pendingTextNodes).forEach((node) => normalizeTextNode(node));
+            pendingTextNodes.clear();
+        }
+
+        if (pendingElements.size > 0) {
+            Array.from(pendingElements).forEach((element) => normalizeElement(element));
+            pendingElements.clear();
+        }
+    };
+
+    const queueNormalization = () => {
+        if (normalizeFrame) {
+            return;
+        }
+        normalizeFrame = window.requestAnimationFrame(flushNormalizationQueue);
+    };
+
     const observer = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
             if (mutation.type === "characterData") {
-                normalizeTextNode(mutation.target);
+                pendingTextNodes.add(mutation.target);
+                queueNormalization();
                 return;
             }
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType === Node.TEXT_NODE) {
-                    normalizeTextNode(node);
+                    pendingTextNodes.add(node);
                     return;
                 }
                 if (node.nodeType === Node.ELEMENT_NODE) {
-                    normalizeElement(node);
+                    pendingElements.add(node);
                 }
             });
         });
+        queueNormalization();
     });
 
     observer.observe(body, {
@@ -1644,7 +1770,13 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
     });
 })();
 </script>
-<script src="{{ searchable_select_js_url }}"></script>
+<script>
+window.wmsRunWhenIdle(() => {
+    if (document.querySelector('select[data-searchable-select="1"]')) {
+        void window.wmsLoadScript("{{ searchable_select_js_url }}");
+    }
+}, 1000);
+</script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

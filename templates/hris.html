@@ -4096,33 +4096,39 @@
                 </td>
                 <td class="biometric-recap-attendance-cell">
                     {% if can_adjust_biometric_status and row.can_edit_attendance_time %}
-                    <form method="POST" action="/hris/biometric/attendance-time" class="biometric-attendance-status-form">
+                    <form method="POST" action="/hris/biometric/attendance-time" class="biometric-attendance-status-form biometric-attendance-time-form">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                         <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
                         <input type="hidden" name="return_to" value="{{ report_return_to }}">
-                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <input
-                                type="time"
-                                name="check_in_time"
-                                value="{{ row.attendance_check_in_value }}"
-                                aria-label="Jam masuk {{ row.full_name }}"
-                                {% if not row.can_edit_check_in_time %}disabled{% endif %}
-                                style="min-width:92px;"
-                            >
-                            <span>-</span>
-                            <input
-                                type="time"
-                                name="check_out_time"
-                                value="{{ row.attendance_check_out_value }}"
-                                aria-label="Jam pulang {{ row.full_name }}"
-                                {% if not row.can_edit_check_out_time %}disabled{% endif %}
-                                style="min-width:92px;"
-                            >
-                            <button type="submit" class="ghost-button" style="padding:6px 10px;">Update</button>
+                        <div class="biometric-attendance-time-stack biometric-attendance-time-inline">
+                            <div class="biometric-attendance-time-pill{% if not row.can_edit_check_in_time or not row.can_edit_check_out_time %} is-disabled{% endif %}">
+                                <input
+                                    type="time"
+                                    name="check_in_time"
+                                    value="{{ row.attendance_check_in_value }}"
+                                    aria-label="Jam masuk {{ row.full_name }}"
+                                    class="biometric-attendance-time-input biometric-attendance-time-inline-input"
+                                    {% if not row.can_edit_check_in_time %}disabled{% endif %}
+                                >
+                                <span class="biometric-attendance-time-divider" aria-hidden="true">|</span>
+                                <input
+                                    type="time"
+                                    name="check_out_time"
+                                    value="{{ row.attendance_check_out_value }}"
+                                    aria-label="Jam pulang {{ row.full_name }}"
+                                    class="biometric-attendance-time-input biometric-attendance-time-inline-input"
+                                    {% if not row.can_edit_check_out_time %}disabled{% endif %}
+                                >
+                            </div>
+                            <button type="submit" class="ghost-button biometric-attendance-time-submit">Update</button>
                         </div>
                     </form>
                     {% else %}
-                    {{ row.attendance_check_in }} - {{ row.attendance_check_out }}
+                    <div class="biometric-attendance-time-readonly">
+                        <strong class="biometric-attendance-time-readonly-value">{{ row.attendance_check_in }}</strong>
+                        <span class="biometric-attendance-time-divider" aria-hidden="true">|</span>
+                        <strong class="biometric-attendance-time-readonly-value">{{ row.attendance_check_out }}</strong>
+                    </div>
                     {% endif %}
                 </td>
                 <td class="biometric-recap-geo-cell">{{ row.geo_check_in }}</td>

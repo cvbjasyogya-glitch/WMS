@@ -24,7 +24,12 @@ from services.event_notification_policy import (
 from app import create_app, repair_restored_data
 from config import Config
 from database import get_db
-from routes.pos import _format_pos_time_label
+from routes.pos import (
+    _build_pos_sale_log_summary,
+    _fetch_pos_sale_logs,
+    _fetch_pos_staff_sales_rows,
+    _format_pos_time_label,
+)
 from routes.chat import _format_timestamp_label
 from routes.schedule import (
     LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
@@ -743,6 +748,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Driver Printer iPOS", html)
         self.assertIn('href="/kasir/printer-drivers"', html)
 
+    def test_pos_page_includes_gratis_badge_helper_for_zero_price_items(self):
+        self.login_pos_user("owner_pos_gratis_badge", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("function getPosCartPriceMetaHtml(item, options = {})", html)
+        self.assertIn('class="pos-cart-price-badge"', html)
+        self.assertIn(">Gratis<", html)
+
+    def test_pos_manual_invoice_and_delivery_note_pages_render_for_pos_user(self):
+        self.login_pos_user("owner_pos_manual_docs", "owner")
+
+        invoice_response = self.client.get("/kasir/invoice/manual")
+        self.assertEqual(invoice_response.status_code, 200)
+        invoice_html = invoice_response.get_data(as_text=True)
+        self.assertIn("Form Invoice Manual", invoice_html)
+        self.assertIn('href="/kasir/surat-jalan/manual"', invoice_html)
+        self.assertIn("/static/js/pos_manual_document_draft.js", invoice_html)
+
+        delivery_response = self.client.get("/kasir/surat-jalan/manual")
+        self.assertEqual(delivery_response.status_code, 200)
+        delivery_html = delivery_response.get_data(as_text=True)
+        self.assertIn("Surat Jalan Manual", delivery_html)
+        self.assertIn("Referensi Invoice", delivery_html)
+        self.assertIn("manualDeliverySyncStatus", delivery_html)
+        self.assertIn("/static/js/pos_manual_document_draft.js", delivery_html)
+
     def test_pos_printer_driver_center_lists_official_driver_links(self):
         self.login_pos_user("owner_pos_driver_center", "owner")
 
@@ -1343,6 +1377,89 @@ class WmsRoutesTestCase(unittest.TestCase):
         admin_response = self.client.get("/kasir/log", follow_redirects=False)
         self.assertEqual(admin_response.status_code, 302)
         self.assertIn("/workspace/", admin_response.headers.get("Location", ""))
+
+    def test_pos_hidden_archive_moves_sale_out_of_regular_log_and_denies_owner_access(self):
+        self.create_user("staff_hidden_archive", "pass1234", "staff", warehouse_id=1)
+        cashier_user_id = self.get_user_id("staff_hidden_archive")
+        self.login_pos_user("super_hidden_archive", "super_admin")
+
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-ARCHIVE-001",
+            qty=6,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-13",
+                "cashier_user_id": cashier_user_id,
+                "customer_name": "Customer Hidden Archive",
+                "customer_phone": "628120009999",
+                "payment_method": "cash",
+                "paid_amount": 175000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 175000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            sale_row = db.execute(
+                "SELECT id, COALESCE(is_hidden_archive, 0) AS is_hidden_archive FROM pos_sales WHERE receipt_no=?",
+                (receipt_no,),
+            ).fetchone()
+            self.assertIsNotNone(sale_row)
+            sale_id = sale_row["id"]
+            self.assertEqual(int(sale_row["is_hidden_archive"]), 0)
+
+        archive_response = self.client.post(
+            f"/kasir/sale/{sale_id}/archive",
+            json={"return_url": "/kasir/log?warehouse=1&date_from=2026-04-13&date_to=2026-04-13"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(archive_response.status_code, 200)
+        archive_payload = archive_response.get_json()
+        self.assertEqual(archive_payload["status"], "success")
+        self.assertEqual(archive_payload["receipt_no"], receipt_no)
+
+        with self.app.app_context():
+            db = get_db()
+            archived_row = db.execute(
+                "SELECT COALESCE(is_hidden_archive, 0) AS is_hidden_archive FROM pos_sales WHERE id=?",
+                (sale_id,),
+            ).fetchone()
+            self.assertEqual(int(archived_row["is_hidden_archive"]), 1)
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-13&date_to=2026-04-13")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertNotIn(receipt_no, log_html)
+
+        hidden_archive_response = self.client.get("/kasir/hidden-archive")
+        self.assertEqual(hidden_archive_response.status_code, 200)
+        hidden_archive_html = hidden_archive_response.get_data(as_text=True)
+        self.assertIn("Hidden Archive POS", hidden_archive_html)
+        self.assertIn("Masukkan password global", hidden_archive_html)
+
+        self.logout()
+        self.login_pos_user("owner_hidden_archive_denied", "owner")
+        owner_response = self.client.get("/kasir/hidden-archive", follow_redirects=False)
+        self.assertEqual(owner_response.status_code, 302)
+        self.assertIn("/kasir/log", owner_response.headers.get("Location", ""))
 
     def test_pos_sales_log_hides_revenue_for_leader_but_shows_for_super_admin(self):
         self.create_user("super_pos_log_revenue", "pass1234", "super_admin")
@@ -2392,8 +2509,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(owner_response.status_code, 200)
         owner_html = owner_response.get_data(as_text=True)
         self.assertIn("Rekap Penjualan Staff", owner_html)
+        self.assertIn("Rekap Penjualan Staff Periode Manual", owner_html)
         self.assertIn("Rekap Penjualan Staff Mingguan", owner_html)
         self.assertIn("Rekap Penjualan Staff Bulanan", owner_html)
+        self.assertIn('data-pos-sales-period="manual"', owner_html)
         self.assertIn('data-pos-sales-period="weekly"', owner_html)
         self.assertIn('data-pos-sales-period="monthly"', owner_html)
         self.assertNotIn(">Semua Gudang<", owner_html)
@@ -2623,6 +2742,97 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(pos_sale["change_amount"]), 10000.0)
         self.assertEqual(pos_sale["payment_method"], "cash")
         self.assertEqual(pos_sale["cashier_user_id"], selected_cashier_user_id)
+
+    def test_pos_checkout_allows_zero_price_item(self):
+        self.create_user("staff_sales_zero_price", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_zero_price")
+        self.login_pos_user("pos_zero_price_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-FREE-001",
+            qty=3,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-13",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Barang Gratis",
+                "customer_phone": "628120009090",
+                "payment_method": "cash",
+                "paid_amount": 0,
+                "note": "Barang promo gratis",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 0,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["total_items"], 1)
+        self.assertAlmostEqual(payload["subtotal_amount"], 0.0)
+        self.assertAlmostEqual(payload["total_amount"], 0.0)
+        self.assertAlmostEqual(payload["paid_amount"], 0.0)
+        self.assertAlmostEqual(payload["change_amount"], 0.0)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            purchase = db.execute(
+                """
+                SELECT id, items_count, total_amount
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+            purchase_item = db.execute(
+                """
+                SELECT qty, retail_price, unit_price, line_total
+                FROM crm_purchase_items
+                WHERE purchase_id=?
+                """,
+                (purchase["id"],),
+            ).fetchone()
+            pos_sale = db.execute(
+                """
+                SELECT subtotal_amount, total_amount, paid_amount, change_amount
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertEqual(stock_after["qty"], 2)
+        self.assertEqual(purchase["items_count"], 1)
+        self.assertAlmostEqual(float(purchase["total_amount"]), 0.0)
+        self.assertEqual(purchase_item["qty"], 1)
+        self.assertAlmostEqual(float(purchase_item["retail_price"]), 120000.0)
+        self.assertAlmostEqual(float(purchase_item["unit_price"]), 0.0)
+        self.assertAlmostEqual(float(purchase_item["line_total"]), 0.0)
+        self.assertAlmostEqual(float(pos_sale["subtotal_amount"]), 0.0)
+        self.assertAlmostEqual(float(pos_sale["total_amount"]), 0.0)
+        self.assertAlmostEqual(float(pos_sale["paid_amount"]), 0.0)
+        self.assertAlmostEqual(float(pos_sale["change_amount"]), 0.0)
 
     def test_pos_checkout_temporarily_allows_zero_stock_item_and_notifies_owner(self):
         self.create_user("staff_sales_negative", "pass1234", "staff", warehouse_id=1)
@@ -3244,6 +3454,125 @@ class WmsRoutesTestCase(unittest.TestCase):
         print_html = print_response.get_data(as_text=True)
         self.assertIn("AFIF", print_html)
         self.assertIn(receipt_no, print_html)
+
+    def test_imported_ipos_sales_reports_follow_source_sales_name_even_when_user_is_mapped(self):
+        self.create_user("ipos_import_mapping_rio", "pass1234", "staff", warehouse_id=1)
+        mapped_user_id = self.get_user_id("ipos_import_mapping_rio")
+        self.login_pos_user("pos_imported_ipos_group_super", "super_admin")
+        super_user_id = self.get_user_id("pos_imported_ipos_group_super")
+
+        with self.app.app_context():
+            db = get_db()
+            for sequence, sales_name in enumerate(("AFIF", "NAUFAL"), start=1):
+                customer_id = db.execute(
+                    """
+                    INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                    VALUES (?, ?, '', 'walk_in')
+                    """,
+                    (1, f"UMUM IPOS {sequence}"),
+                ).lastrowid
+                invoice_no = f"5591{sequence}/KSR/MTR/0426"
+                receipt_no = f"IPOS-MAP-MTR-0426-{sequence}"
+                purchase_id = db.execute(
+                    """
+                    INSERT INTO crm_purchase_records(
+                        customer_id, member_id, warehouse_id, purchase_date, invoice_no, channel,
+                        transaction_type, items_count, total_amount, note, handled_by, created_at, updated_at
+                    )
+                    VALUES (?,?,?,?,?,'store','purchase',?,?,?, ?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        customer_id,
+                        None,
+                        1,
+                        "2026-04-27 10:19:05",
+                        invoice_no,
+                        1,
+                        80000 + (sequence * 1000),
+                        f"Imported from iPOS4: {invoice_no} | source_type=KSR | source_sales={sales_name} | source_cashier=RIO",
+                        mapped_user_id,
+                    ),
+                ).lastrowid
+                db.execute(
+                    """
+                    INSERT INTO pos_sales(
+                        purchase_id, customer_id, warehouse_id, cashier_user_id, sale_date, receipt_no,
+                        source_cashier_name, source_sales_name, payment_method, total_items, subtotal_amount,
+                        discount_type, discount_value, discount_amount, tax_type, tax_value, tax_amount,
+                        total_amount, paid_amount, change_amount, status, note, created_at, updated_at
+                    )
+                    VALUES (
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
+                        'amount', 0, 0, 'amount', 0, 0,
+                        ?, ?, ?, 'posted', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    """,
+                    (
+                        purchase_id,
+                        customer_id,
+                        1,
+                        mapped_user_id,
+                        "2026-04-27",
+                        receipt_no,
+                        "RIO",
+                        sales_name,
+                        "debit",
+                        1,
+                        80000 + (sequence * 1000),
+                        80000 + (sequence * 1000),
+                        80000 + (sequence * 1000),
+                        0,
+                        f"Imported from iPOS4: {invoice_no} | source_sales={sales_name}",
+                    ),
+                )
+            db.commit()
+
+            with self.app.test_request_context("/kasir/log?warehouse=1&date_from=2026-04-27&date_to=2026-04-27"):
+                session["role"] = "super_admin"
+                session["user_id"] = super_user_id
+                session["warehouse_id"] = 1
+
+                rows = _fetch_pos_sale_logs(
+                    db,
+                    "2026-04-27",
+                    "2026-04-27",
+                    selected_warehouse=1,
+                    search_query="IPOS-MAP-MTR-0426",
+                    limit=20,
+                )
+                mapped_rows = [row for row in rows if str(row.get("receipt_no", "")).startswith("IPOS-MAP-MTR-0426-")]
+                self.assertEqual({row["cashier_name"] for row in mapped_rows}, {"AFIF", "NAUFAL"})
+
+                summary = _build_pos_sale_log_summary(mapped_rows, "27 April 2026")
+                self.assertEqual(summary["staff_total"], 2)
+
+                report_rows = _fetch_pos_staff_sales_rows(
+                    db,
+                    "2026-04-27",
+                    "2026-04-27",
+                    selected_warehouse=1,
+                )
+                imported_report_names = {
+                    row["staff_name"]
+                    for row in report_rows
+                    if row.get("staff_name") in {"AFIF", "NAUFAL"}
+                }
+                self.assertEqual(imported_report_names, {"AFIF", "NAUFAL"})
+
+        log_response = self.client.get(
+            "/kasir/log?warehouse=1&date_from=2026-04-27&date_to=2026-04-27&search=IPOS-MAP-MTR-0426"
+        )
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn("AFIF", log_html)
+        self.assertIn("NAUFAL", log_html)
+
+        report_response = self.client.get("/kasir/staff-sales?warehouse=1&week_date=2026-04-27&month=2026-04")
+        self.assertEqual(report_response.status_code, 200)
+        report_html = report_response.get_data(as_text=True)
+        self.assertIn("AFIF", report_html)
+        self.assertIn("NAUFAL", report_html)
 
     def test_pos_checkout_generates_public_receipt_pdf_and_logs_failed_whatsapp_without_blocking_sale(self):
         self.create_user("staff_sales_kirimi", "pass1234", "staff", warehouse_id=1)
@@ -4714,6 +5043,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("sales_old_report", report_html)
         self.assertIn("Rp 150.000", report_html)
         self.assertIn("Rp 240.000", report_html)
+
+        manual_response = self.client.get(
+            "/kasir/staff-sales?warehouse=1&date_from=2026-04-14&date_to=2026-04-14&week_date=2026-04-16&month=2026-04"
+        )
+        self.assertEqual(manual_response.status_code, 200)
+        manual_html = manual_response.get_data(as_text=True)
+        self.assertIn('name="date_from" value="2026-04-14"', manual_html)
+        self.assertIn('name="date_to" value="2026-04-14"', manual_html)
+        manual_section = manual_html.split('data-pos-sales-period="manual"', 1)[1].split('data-pos-sales-period="weekly"', 1)[0]
+        self.assertIn("sales_week_report", manual_section)
+        self.assertNotIn("sales_month_report", manual_section)
 
     def test_role_based_whatsapp_notification_maps_event_to_owner_and_hr(self):
         self.create_user(
@@ -8557,6 +8897,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
             position="Marketing",
         )
+        special_leave_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-SP",
+            full_name="Rara Special",
+            warehouse_id=1,
+            position="Admin",
+        )
         offboarding_employee_id = self.create_employee_record(
             employee_code="EMP-SCD-OF",
             full_name="Dio Offboarding",
@@ -8602,6 +8948,33 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
             db.execute(
                 """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    handled_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    special_leave_employee_id,
+                    1,
+                    "special",
+                    "2026-03-30",
+                    "2026-03-30",
+                    1,
+                    "approved",
+                    "Acara keluarga",
+                    1,
+                ),
+            )
+            db.execute(
+                """
                 INSERT INTO offboarding_records(
                     employee_id,
                     warehouse_id,
@@ -8628,8 +9001,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/schedule/?start=2026-03-30&days=7")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("CUTI", html)
+        self.assertIn("OFF", html)
         self.assertIn("OFFBD", html)
+        self.assertNotIn("CUTI", html)
+        self.assertNotIn("SPECIAL", html)
+        self.assertNotIn("Cuti Khusus", html)
 
     def test_hris_attendance_route_renders_operational_view(self):
         self.login_hr_user()
@@ -9260,6 +9636,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Biometric Legacy Schema", html)
         self.assertIn("/hris/biometric/attendance-time", html)
+        self.assertIn("biometric-attendance-time-stack", html)
+        self.assertIn("biometric-attendance-time-input", html)
 
     def test_owner_can_access_hris_biometric_module(self):
         self.create_user("owner_biometric", "pass1234", "owner")
@@ -13948,6 +14326,25 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('name="metric_live_jam"', html)
         self.assertIn('name="metric_job_8_produk_fb"', html)
 
+    def test_kpi_portal_uses_generic_fallback_profile_for_unmapped_staff(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-KPI-FERANI",
+            full_name="Ferani",
+            warehouse_id=1,
+            position="Marketing Staff",
+        )
+        self.create_user("ferani", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("ferani", "pass1234")
+
+        response = self.client.get("/kpi-staff/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ferani", html)
+        self.assertIn("Template KPI Staff Mataram", html)
+        self.assertNotIn("Muhammad Naufal Ash-Shiddiq", html)
+        self.assertIn('name="metric_live_jam"', html)
+        self.assertIn('name="metric_job_8_produk_fb"', html)
+
     def test_kpi_portal_submits_staff_report_and_hris_review_updates_status(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-KPI-SUBMIT",
@@ -15321,6 +15718,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Ctrl+H", html)
         self.assertIn('id="stockSearchReplacePreviewList"', html)
         self.assertIn("Edit Master", html)
+        self.assertIn('data-stock-filter-form', html)
+        self.assertIn('data-stock-live-search-input', html)
+        self.assertIn('id="stockExportLink"', html)
 
     def test_stock_page_renders_full_except_stock_ipos4_mode_option(self):
         self.login()

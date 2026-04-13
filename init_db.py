@@ -194,6 +194,10 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "pos_sales", "receipt_whatsapp_sent_at", "TIMESTAMP")
     _ensure_column(cursor, "pos_sales", "source_cashier_name", "TEXT")
     _ensure_column(cursor, "pos_sales", "source_sales_name", "TEXT")
+    _ensure_column(cursor, "pos_sales", "is_hidden_archive", "INTEGER DEFAULT 0")
+    _ensure_column(cursor, "pos_sales", "hidden_archive_at", "TIMESTAMP")
+    _ensure_column(cursor, "pos_sales", "hidden_archive_by", "INTEGER")
+    _ensure_column(cursor, "pos_sales", "hidden_archive_note", "TEXT")
 
     _ensure_column(cursor, "requests", "reason", "TEXT")
     _ensure_column(cursor, "requests", "approved_at", "TIMESTAMP")
@@ -1480,6 +1484,10 @@ def init_db(db_path=None, sqlite_options=None):
         receipt_whatsapp_status TEXT DEFAULT 'pending',
         receipt_whatsapp_error TEXT,
         receipt_whatsapp_sent_at TIMESTAMP,
+        is_hidden_archive INTEGER DEFAULT 0,
+        hidden_archive_at TIMESTAMP,
+        hidden_archive_by INTEGER,
+        hidden_archive_note TEXT,
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1487,7 +1495,8 @@ def init_db(db_path=None, sqlite_options=None):
         FOREIGN KEY(customer_id) REFERENCES crm_customers(id) ON DELETE CASCADE,
         FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
         FOREIGN KEY(cashier_user_id) REFERENCES users(id),
-        FOREIGN KEY(voided_by) REFERENCES users(id)
+        FOREIGN KEY(voided_by) REFERENCES users(id),
+        FOREIGN KEY(hidden_archive_by) REFERENCES users(id)
     )
     """)
 
@@ -1791,6 +1800,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user ON user_permission_overrides(user_id, access_state, permission_key)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_main ON pos_sales(warehouse_id, sale_date, cashier_user_id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_receipt ON pos_sales(receipt_no)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pos_sales_hidden_archive ON pos_sales(is_hidden_archive, sale_date, id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_main ON chat_threads(last_message_at, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_threads_group ON chat_threads(thread_type, group_name, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_thread_members(user_id, thread_id, last_read_message_id)")
@@ -1932,8 +1942,10 @@ def init_db(db_path=None, sqlite_options=None):
     """)
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(recipient, channel, subject, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_user_feed ON web_notifications(user_id, is_read, created_at DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_dedupe ON web_notifications(user_id, dedupe_key, created_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_web_notifications_created_at ON web_notifications(created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_notification_event_policy_roles_event ON notification_event_policy_roles(event_type, role)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_notification_event_policy_users_event ON notification_event_policy_users(event_type, user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_lookup ON password_resets(user_id, code, used, expires_at)")

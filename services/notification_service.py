@@ -9,6 +9,7 @@ from flask import current_app, has_request_context, request, session
 from database import get_db
 from services.announcement_center import role_matches_audience, user_matches_scope
 from services.event_notification_policy import row_matches_notification_aliases
+from services.notification_retention import cleanup_notification_history
 from services.private_activity_policy import should_suppress_super_admin_notifications
 from services.whatsapp_service import send_whatsapp_text
 
@@ -36,7 +37,6 @@ NOTIFICATION_BLUEPRINT_LINKS = {
     "hris": "/hris/",
     "inbound": "/approvals",
     "leave_portal": "/libur/",
-    "meetings": "/meetings/",
     "outbound": "/approvals",
     "product_lookup": "/info-produk/",
     "products": "/products/",
@@ -65,7 +65,6 @@ NOTIFICATION_CATEGORY_PREFIXES = [
     ("/products", "inventory"),
     ("/transfers", "request"),
     ("/audit", "audit"),
-    ("/meetings", "meeting"),
 ]
 
 OPERATIONAL_MONITOR_ROLES = ("hr", "admin", "leader", "owner", "super_admin")
@@ -299,6 +298,7 @@ def create_web_notification(
     )
 
     db = get_db()
+    cleanup_notification_history(db)
     if _web_notification_exists_recent(
         db,
         normalized_user_id,
@@ -860,6 +860,7 @@ def _notification_status(ok):
 
 def _insert_notification_record(db, user_id, role, channel, recipient, subject, message, ok):
     try:
+        cleanup_notification_history(db)
         db.execute(
             """
             INSERT INTO notifications(user_id, role, channel, recipient, subject, message, status)

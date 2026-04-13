@@ -53,7 +53,6 @@
         hris: { label: "HRIS", icon: "HR" },
         inventory: { label: "Stok", icon: "ST" },
         leave: { label: "Libur", icon: "LV" },
-        meeting: { label: "Meeting", icon: "MT" },
         owner_request: { label: "Owner", icon: "OW" },
         report: { label: "Report", icon: "RP" },
         request: { label: "Request", icon: "RQ" },
@@ -75,6 +74,7 @@
         shownBrowserIds: new Set(),
         deviceState: null
     };
+    let pollTimer = null;
 
     function escapeHtml(value) {
         return String(value || "")
@@ -581,6 +581,20 @@
         await refreshDeviceState();
     }
 
+    function stopPolling() {
+        if (pollTimer) {
+            window.clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    function startPolling() {
+        if (pollTimer || document.visibilityState === "hidden") {
+            return;
+        }
+        pollTimer = window.setInterval(pollForNewNotifications, 12000);
+    }
+
     if (panelToggle) {
         panelToggle.addEventListener("click", async () => {
             if (root.classList.contains("is-open")) {
@@ -744,10 +758,23 @@
             refreshSurface("panel").catch(() => {});
             refreshSurface("page").catch(() => {});
             refreshDeviceState().catch(() => {});
+            pollForNewNotifications().catch(() => {});
+            startPolling();
+            return;
         }
+
+        stopPolling();
     });
 
     bootstrap().then(() => {
-        window.setInterval(pollForNewNotifications, 12000);
+        startPolling();
+    });
+
+    window.addEventListener("pageshow", () => {
+        startPolling();
+    });
+
+    window.addEventListener("pagehide", () => {
+        stopPolling();
     });
 })();

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Buat Surat Jalan POS | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Tools{% endblock %}
+{% block page_title %}Buat Surat Jalan{% endblock %}
+{% block page_subtitle %}Masukkan nomor receipt POS untuk membuat surat jalan.{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <form method="GET" class="top-bar">
+        <input
+            type="search"
+            name="receipt_no"
+            value="{{ receipt_no }}"
+            placeholder="Contoh: POS-20260412-0004"
+            list="posReceiptOptions"
+            autocomplete="off"
+        >
+        <datalist id="posReceiptOptions">
+            {% for sale in recent_sales %}
+            <option value="{{ sale.receipt_no }}">{{ sale.receipt_no }} | {{ sale.customer_name }}</option>
+            {% endfor %}
+        </datalist>
+        <button type="submit">Cari Nota</button>
+    </form>
+
+    {% if sale_detail %}
+    <section class="form-box">
+        <div class="section-title">
+            <div>
+                <h2>Surat Jalan {{ sale_detail.receipt_no }}</h2>
+                <p>{{ branding.get('business_name', '-') }}{% if branding.get('business_address') %} | {{ branding.get('business_address') }}{% endif %}</p>
+            </div>
+            <div class="split-actions">
+                <a class="ghost-button" href="/kasir/surat-jalan/{{ sale_detail.receipt_no }}/print" target="_blank" rel="noopener">Cetak Surat Jalan</a>
+            </div>
+        </div>
+
+        <div class="meta-grid">
+            <div class="meta-card">
+                <span>Tanggal</span>
+                <strong>{{ sale_detail.get('sale_date', '-') }} {{ sale_detail.get('created_time_label', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Gudang</span>
+                <strong>{{ sale_detail.get('warehouse_name', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Kasir</span>
+                <strong>{{ sale_detail.get('cashier_identity_label', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Customer</span>
+                <strong>{{ sale_detail.get('customer_name', '-') }}</strong>
+            </div>
+            <div class="meta-card">
+                <span>Kontak</span>
+                <strong>{{ sale_detail.get('customer_phone_label', '-') }}</strong>
+            </div>
+        </div>
+
+        <div class="table-box" data-scrollable-table="1">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in sale_detail.items %}
+                    <tr>
+                        <td>
+                            <strong>{{ item.get('product_name', '-') }}</strong>
+                            <div class="helper-text">{{ item.get('variant_name', '-') }} | {{ item.get('sku', '-') }}</div>
+                        </td>
+                        <td>{{ item.get('qty', 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state">Masukkan nomor receipt untuk menampilkan surat jalan.</div>
+    {% endif %}
+</div>
+{% endblock %}

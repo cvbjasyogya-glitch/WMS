@@ -128,6 +128,12 @@
                     <small id="transferDraftMeta" class="helper-text ops-item-meta">Belum ada barang yang dipilih.</small>
                 </div>
 
+                <div>
+                    <label>Scan Barcode</label>
+                    <input type="text" id="transferBarcodeInput" placeholder="Scan barcode lalu Enter" inputmode="numeric">
+                    <small id="transferBarcodeHint" class="helper-text">Scan barcode untuk pilih item otomatis.</small>
+                </div>
+
                 <div class="ops-entry-stock">
                     <label>Stok Gudang Asal</label>
                     <div class="ops-stock-card">
@@ -188,6 +194,8 @@ const transferDraftDisplay = document.getElementById("transferDraftDisplay");
 const transferDraftMeta = document.getElementById("transferDraftMeta");
 const transferDraftStockValue = document.getElementById("transferDraftStockValue");
 const transferDraftStockState = document.getElementById("transferDraftStockState");
+const transferBarcodeInput = document.getElementById("transferBarcodeInput");
+const transferBarcodeHint = document.getElementById("transferBarcodeHint");
 const transferDraftQty = document.getElementById("transferDraftQty");
 const transferDraftFeedback = document.getElementById("transferDraftFeedback");
 const transferSummaryLane = document.getElementById("transferSummaryLane");
@@ -285,6 +293,54 @@ function resetTransferDraft() {
     transferDraftFeedback.textContent = "Isi qty transfer untuk item aktif.";
     transferDraftFeedback.className = "helper-text ops-row-feedback";
     renderTransferDraftStock(0);
+}
+
+async function handleTransferBarcodeScan() {
+    const code = String(transferBarcodeInput?.value || "").trim();
+    if (!code) {
+        if (transferBarcodeHint) transferBarcodeHint.textContent = "Masukkan barcode terlebih dahulu.";
+        return;
+    }
+
+    if (transferBarcodeHint) transferBarcodeHint.textContent = "Mencari barcode...";
+
+    try {
+        const params = new URLSearchParams({
+            q: code,
+            page: "1",
+            page_size: "8",
+            warehouse_id: String(transferFrom.value || ""),
+        });
+        const response = await fetch(`/products/picker?${params.toString()}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Gagal mencari barcode.");
+        }
+
+        const items = data.items || [];
+        const normalized = code.toLowerCase();
+        const exact = items.filter((item) => String(item.gtin || "").trim().toLowerCase() === normalized);
+        const picked = exact.length === 1 ? exact[0] : (items.length === 1 ? items[0] : null);
+
+        if (picked) {
+            populateTransferDraft(picked);
+            transferDraftQty?.focus();
+            if (transferBarcodeHint) transferBarcodeHint.textContent = `Barcode ditemukan: ${picked.sku || "-"}.`;
+            return;
+        }
+
+        const searchInput = document.getElementById("itemPickerSearch");
+        if (searchInput) searchInput.value = code;
+        openTransferPicker();
+        if (transferBarcodeHint) {
+            transferBarcodeHint.textContent = items.length
+                ? "Barcode cocok dengan beberapa item. Silakan pilih di daftar."
+                : "Barcode tidak ditemukan.";
+        }
+    } catch (error) {
+        if (transferBarcodeHint) transferBarcodeHint.textContent = error.message || "Gagal mencari barcode.";
+    }
 }
 
 function populateTransferDraft(item) {
@@ -501,6 +557,13 @@ transferFrom?.addEventListener("change", async () => {
     await refreshTransferQueueStocks();
     transferPicker.refresh();
     renderTransferWorkspaceSummary();
+});
+
+transferBarcodeInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        handleTransferBarcodeScan();
+    }
 });
 
 transferTo?.addEventListener("change", () => {

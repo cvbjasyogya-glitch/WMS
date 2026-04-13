@@ -19,6 +19,7 @@
     <a
         href="/stock/export?q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}"
         class="btn-link"
+        id="stockExportLink"
     >
         Export Stok
     </a>
@@ -101,15 +102,15 @@
     {% endif %}
 </div>
 
-<div class="workspace-switch" aria-label="Pilih panel kerja stok dan produk">
+<div class="workspace-switch" id="stockWorkspaceSwitch" aria-label="Pilih panel kerja stok dan produk">
     <a href="/stock?warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}" class="{% if active_workspace != 'products' %}active{% endif %}">Inventori</a>
     <a href="/stock?workspace=products&warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&product_search={{ product_studio.search }}" class="{% if active_workspace == 'products' %}active{% endif %}">Studio Produk</a>
 </div>
 
 <div class="wms-split-band">
     <div class="wms-filter-band">
-        <form method="GET" class="top-bar stock-filter-bar">
-            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau varian">
+        <form method="GET" class="top-bar stock-filter-bar" data-stock-filter-form>
+            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau varian" autocomplete="off" data-stock-live-search-input>
             <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
                 {% for w in warehouses %}
                 <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -138,7 +139,7 @@
                 <option value="age_desc" {% if sort == 'age_desc' %}selected{% endif %}>Aging Terlama</option>
                 <option value="age_asc" {% if sort == 'age_asc' %}selected{% endif %}>Aging Terbaru</option>
             </select>
-            <button type="submit">Filter</button>
+            <button type="submit" data-stock-filter-submit>Filter</button>
             {% if can('manage_product_master') %}
             <button type="button" class="ghost-button" data-stock-search-replace-open>Search & Replace</button>
             {% endif %}
@@ -146,6 +147,7 @@
             <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
             {% endif %}
         </form>
+        <small class="helper-text" data-stock-live-search-status aria-live="polite"></small>
 
         {% if is_scoped_user %}
         <small class="helper-text">Filter gudang dikunci ke gudang yang terhubung dengan akun Anda.</small>
@@ -812,6 +814,13 @@ const stockPageState = {
     }
 };
 const STOCK_LOW_THRESHOLD = 5;
+const stockFilterForm = document.querySelector("[data-stock-filter-form]");
+const stockLiveSearchInput = stockFilterForm?.querySelector("[data-stock-live-search-input]") || null;
+const stockLiveSearchStatus = document.querySelector("[data-stock-live-search-status]");
+let stockLiveSearchTimer = null;
+let stockLiveSearchStatusTimer = null;
+let stockLiveSearchAbortController = null;
+let stockLiveSearchRequestId = 0;
 
 function notifyStockMessage(message, type = "info") {
     if (typeof window.showToast === "function") {
@@ -1431,6 +1440,23 @@ bindStockCheckAllControl();
 bindStockInlineEditors();
 updateMasterCheckboxState();
 
+if (stockFilterForm && stockFilterForm.dataset.bound !== "1") {
+    stockFilterForm.dataset.bound = "1";
+    stockFilterForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await refreshInventoryView(buildStockFilterUrlFromForm());
+    });
+
+    stockLiveSearchInput?.addEventListener("input", () => {
+        if (stockLiveSearchTimer) {
+            window.clearTimeout(stockLiveSearchTimer);
+        }
+        stockLiveSearchTimer = window.setTimeout(() => {
+            void refreshInventoryView(buildStockFilterUrlFromForm());
+        }, 320);
+    });
+}
+
 const DEFAULT_VARIANT_ROWS = [
     { variant: "39", qty: "1" },
     { variant: "40", qty: "1" },
@@ -1494,6 +1520,48 @@ function bindProductCheckAllControl() {
     });
 }
 
+function setStockLiveSearchStatus(message = "", tone = "") {
+    if (!stockLiveSearchStatus) {
+        return;
+    }
+
+    stockLiveSearchStatus.textContent = message;
+    stockLiveSearchStatus.dataset.state = tone || "";
+
+    if (stockLiveSearchStatusTimer) {
+        window.clearTimeout(stockLiveSearchStatusTimer);
+        stockLiveSearchStatusTimer = null;
+    }
+
+    if (message && tone === "success") {
+        stockLiveSearchStatusTimer = window.setTimeout(() => {
+            if (!stockLiveSearchStatus) {
+                return;
+            }
+            stockLiveSearchStatus.textContent = "";
+            stockLiveSearchStatus.dataset.state = "";
+        }, 1800);
+    }
+}
+
+function buildStockFilterUrlFromForm() {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    const formData = new FormData(stockFilterForm || undefined);
+
+    ["q", "warehouse", "start_date", "end_date", "stock_state", "sort"].forEach((key) => {
+        const value = String(formData.get(key) || "").trim();
+        if (value) {
+            params.set(key, value);
+        } else {
+            params.delete(key);
+        }
+    });
+
+    params.delete("page");
+    return url.toString();
+}
+
 function parseStockPageConfigFromDocument(doc) {
     const script = doc?.getElementById("stockPageConfigData");
     if (!script) {
@@ -1503,6 +1571,150 @@ function parseStockPageConfigFromDocument(doc) {
         return JSON.parse(script.textContent || "{}");
     } catch (error) {
         return null;
+    }
+}
+
+function syncStockFilterFormFromUrl(urlString) {
+    if (!stockFilterForm) {
+        return;
+    }
+
+    const url = new URL(urlString, window.location.origin);
+    const params = url.searchParams;
+    stockFilterForm.querySelectorAll("input[name], select[name]").forEach((field) => {
+        const key = field.name;
+        if (!key || field.type === "hidden") {
+            return;
+        }
+        const nextValue = params.get(key) || "";
+        if (field.value !== nextValue) {
+            field.value = nextValue;
+        }
+    });
+}
+
+function syncStockNavigationFromDocument(nextDocument) {
+    const nextWorkspaceSwitch = nextDocument.getElementById("stockWorkspaceSwitch");
+    const currentWorkspaceSwitch = document.getElementById("stockWorkspaceSwitch");
+    if (nextWorkspaceSwitch && currentWorkspaceSwitch) {
+        currentWorkspaceSwitch.outerHTML = nextWorkspaceSwitch.outerHTML;
+    }
+
+    const nextExportLink = nextDocument.getElementById("stockExportLink");
+    const currentExportLink = document.getElementById("stockExportLink");
+    if (nextExportLink && currentExportLink) {
+        currentExportLink.href = nextExportLink.href;
+    }
+}
+
+async function refreshInventoryView(urlString, options = {}) {
+    const nextUrl = String(urlString || "").trim();
+    if (!nextUrl) {
+        return;
+    }
+
+    stockLiveSearchRequestId += 1;
+    const requestId = stockLiveSearchRequestId;
+    stockLiveSearchAbortController?.abort();
+    stockLiveSearchAbortController = new AbortController();
+
+    const submitButton = stockFilterForm?.querySelector("[data-stock-filter-submit]") || null;
+    if (stockFilterForm) {
+        stockFilterForm.dataset.loading = "1";
+        stockFilterForm.setAttribute("aria-busy", "true");
+    }
+    if (submitButton) {
+        submitButton.disabled = true;
+    }
+    setStockLiveSearchStatus("Mencari produk...", "loading");
+
+    try {
+        const response = await fetch(nextUrl, {
+            headers: {
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            signal: stockLiveSearchAbortController.signal
+        });
+
+        if (!response.ok) {
+            throw new Error("Inventori gagal dimuat ulang.");
+        }
+
+        const html = await response.text();
+        if (requestId !== stockLiveSearchRequestId) {
+            return;
+        }
+
+        const parser = new DOMParser();
+        const nextDocument = parser.parseFromString(html, "text/html");
+        const nextConfig = parseStockPageConfigFromDocument(nextDocument);
+        const nextStockSummary = nextDocument.getElementById("stockSummaryGrid");
+        const nextStockMeta = nextDocument.getElementById("stockMetaGrid");
+        const nextStockDetail = nextDocument.getElementById("stockDetailBox");
+        const currentStockSummary = document.getElementById("stockSummaryGrid");
+        const currentStockMeta = document.getElementById("stockMetaGrid");
+        const currentStockDetail = document.getElementById("stockDetailBox");
+
+        if (nextStockSummary && currentStockSummary) {
+            currentStockSummary.outerHTML = nextStockSummary.outerHTML;
+        }
+
+        if (nextStockMeta && currentStockMeta) {
+            currentStockMeta.outerHTML = nextStockMeta.outerHTML;
+        }
+
+        if (nextStockDetail && currentStockDetail) {
+            currentStockDetail.outerHTML = nextStockDetail.outerHTML;
+        }
+
+        syncStockNavigationFromDocument(nextDocument);
+
+        if (nextConfig) {
+            stockPageState.filter = nextConfig.filter || stockPageState.filter;
+            stockPageState.summary = {
+                totalVariants: Number(nextConfig.summary?.totalVariants || 0),
+                totalQty: Number(nextConfig.summary?.totalQty || 0),
+                inventoryValue: Number(nextConfig.summary?.inventoryValue || 0),
+                zeroCount: Number(nextConfig.summary?.zeroCount || 0),
+                lowCount: Number(nextConfig.summary?.lowCount || 0),
+                readyCount: Number(nextConfig.summary?.readyCount || 0)
+            };
+        }
+
+        document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
+            renderGroupSummary(groupSummaryRow);
+        });
+        bindStockCheckAllControl();
+        bindStockInlineEditors();
+        updateMasterCheckboxState();
+        ensureStockEmptyState();
+        refreshStockCurrencyInputs(document.getElementById("stockDetailBox"));
+        syncStockFilterFormFromUrl(nextUrl);
+
+        if (options.updateHistory !== false) {
+            window.history.replaceState({}, "", nextUrl);
+        }
+
+        const activeQuery = String(stockFilterForm?.querySelector('[name="q"]')?.value || "").trim();
+        setStockLiveSearchStatus(
+            activeQuery ? `Menampilkan hasil untuk "${activeQuery}".` : "Daftar inventori diperbarui.",
+            "success"
+        );
+    } catch (error) {
+        if (error?.name === "AbortError") {
+            return;
+        }
+        setStockLiveSearchStatus("Pencarian gagal dimuat. Coba lagi.", "error");
+    } finally {
+        if (requestId === stockLiveSearchRequestId) {
+            if (stockFilterForm) {
+                delete stockFilterForm.dataset.loading;
+                stockFilterForm.removeAttribute("aria-busy");
+            }
+            if (submitButton) {
+                submitButton.disabled = false;
+            }
+        }
     }
 }
 

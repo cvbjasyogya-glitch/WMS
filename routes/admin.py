@@ -67,7 +67,7 @@ ROLE_GUIDE = [
         "role": "intern",
         "label": "Intern",
         "scope": "1 Gudang",
-        "summary": "Fokus pada menu koordinasi tanpa akses WMS, CRM, chat, atau meeting live.",
+        "summary": "Fokus pada menu koordinasi tanpa akses WMS, CRM, atau chat.",
     },
     {
         "role": "free_lance",

@@ -1,0 +1,687 @@
+{% extends "base.html" %}
+
+{% block title %}Barcode | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}WMS Tools{% endblock %}
+{% block page_title %}Pembuatan Barcode{% endblock %}
+{% block page_subtitle %}Susun label barcode, pilih template, lalu preview dan cetak sesuai kebutuhan rak atau barang.{% endblock %}
+
+{% block extra_head %}
+<style>
+    .barcode-shell { display: grid; gap: 18px; }
+    .barcode-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .barcode-toolbar .top-bar { flex: 1 1 420px; }
+    .barcode-toolbar .top-bar select,
+    .barcode-toolbar .top-bar input { min-width: 0; }
+    .barcode-layout { display: grid; grid-template-columns: minmax(240px, 0.42fr) minmax(320px, 0.9fr) minmax(280px, 0.6fr); gap: 18px; }
+    .barcode-panel { background: rgba(9, 18, 32, 0.85); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 16px; padding: 16px; display: grid; gap: 16px; }
+    .barcode-panel h3 { margin: 0; font-size: 16px; }
+    .barcode-options { display: grid; gap: 10px; }
+    .barcode-options label { display: flex; gap: 10px; align-items: center; font-size: 13px; color: rgba(226, 232, 240, 0.9); }
+    .barcode-options input[type="radio"] { accent-color: #60a5fa; }
+    .barcode-template-list { display: grid; gap: 8px; max-height: 220px; overflow: auto; padding-right: 4px; }
+    .barcode-template-card { border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+    .barcode-template-card.active { border-color: rgba(59, 130, 246, 0.7); background: rgba(37, 99, 235, 0.12); }
+    .barcode-template-card span { font-size: 13px; }
+    .barcode-template-actions { display: flex; gap: 8px; }
+
+    .barcode-search-row { display: grid; gap: 10px; grid-template-columns: 130px minmax(0, 1fr) auto; }
+    .barcode-search-row select,
+    .barcode-search-row input { border-radius: 12px; padding: 10px 12px; background: rgba(8, 16, 28, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
+    .barcode-search-row button { border-radius: 999px; padding: 8px 14px; }
+
+    .barcode-item-list { display: grid; gap: 10px; }
+    .barcode-item-row { display: grid; grid-template-columns: 1fr 90px 120px 50px; gap: 8px; align-items: center; background: rgba(8, 16, 28, 0.7); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; padding: 8px; }
+    .barcode-item-row input { border-radius: 8px; padding: 6px 8px; background: rgba(8, 16, 28, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
+    .barcode-item-row button { border-radius: 999px; padding: 6px 10px; }
+
+    .barcode-meta-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .barcode-meta-grid label { display: grid; gap: 6px; font-size: 12px; color: rgba(226, 232, 240, 0.8); }
+    .barcode-meta-grid input,
+    .barcode-meta-grid select { border-radius: 12px; padding: 8px 10px; background: rgba(8, 16, 28, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
+
+    .barcode-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .barcode-actions .ghost-button.primary { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.45); color: #dbeafe; }
+    .barcode-radio-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: rgba(226, 232, 240, 0.85); }
+    .barcode-radio-row label { display: flex; gap: 6px; align-items: center; }
+
+    .barcode-preview { background: #ffffff; color: #111827; border-radius: 16px; padding: 12px; }
+    .barcode-preview .preview-sheet { background: #ffffff; border: 1px solid #cbd5f5; padding: 10px; display: grid; place-items: start; overflow: auto; }
+    .barcode-preview-grid { display: grid; gap: var(--barcode-gap, 6mm); grid-template-columns: repeat(var(--barcode-cols, 2), var(--barcode-label-width, 50mm)); }
+    .barcode-label { border: 1px solid #d1d5db; padding: 6px; border-radius: 6px; display: grid; gap: 2px; font-size: 10px; color: #111827; min-height: var(--barcode-label-height, 25mm); }
+    .barcode-label strong { font-size: 10px; font-weight: 600; }
+    .barcode-label .barcode-code { font-size: 9px; letter-spacing: 0.1em; }
+    .barcode-label svg { width: 100%; height: 32px; }
+    .barcode-label .barcode-price { font-weight: 600; font-size: 10px; }
+
+    .barcode-print-area { position: fixed; inset: 0; background: #ffffff; color: #111827; padding: 0; display: none; }
+    .barcode-print-sheet { width: var(--barcode-paper-width, 210mm); min-height: var(--barcode-paper-height, 297mm); padding: var(--barcode-margin, 6mm); display: grid; place-items: start; }
+    .barcode-print-grid { display: grid; gap: var(--barcode-gap, 6mm); grid-template-columns: repeat(var(--barcode-cols, 2), var(--barcode-label-width, 50mm)); }
+
+    .barcode-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .barcode-modal .modal-backdrop { position: absolute; inset: 0; background: rgba(3, 7, 18, 0.6); }
+    .barcode-modal .modal-panel { position: relative; background: #0f172a; border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 16px; padding: 16px; width: min(760px, 92vw); display: grid; gap: 12px; }
+    .barcode-design-grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .barcode-design-preview { background: #ffffff; color: #111827; border-radius: 12px; padding: 12px; border: 1px solid #cbd5f5; }
+    .barcode-design-label { border: 1px dashed #94a3b8; border-radius: 8px; padding: 6px; display: grid; gap: 2px; align-content: start; }
+    .barcode-design-label svg { width: 100%; }
+
+    @media (max-width: 1200px) {
+        .barcode-layout { grid-template-columns: 1fr; }
+        .barcode-preview { order: 3; }
+    }
+
+    @media print {
+        body { background: #ffffff !important; }
+        .layout,
+        .barcode-shell { display: none !important; }
+        .barcode-print-area { display: block !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack barcode-shell">
+    <div class="barcode-toolbar">
+        <form method="GET" class="top-bar">
+            <select id="barcodeWarehouse" name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
+                {% for w in warehouses %}
+                <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                {% endfor %}
+            </select>
+            {% if is_scoped_user %}
+            <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
+            {% endif %}
+            <input type="text" value="{{ selected_warehouse_name }}" readonly>
+            <button type="button" class="ghost-button" id="barcodePickItem">Pilih Item Cetak</button>
+        </form>
+    </div>
+
+    <div class="barcode-layout">
+        <section class="barcode-panel">
+            <h3>Opsi Pilihan Cetak</h3>
+            <div class="barcode-options" id="barcodePrintModes">
+                <label><input type="radio" name="barcode_print_mode" value="single" checked> Cetak 1 Item untuk tempel di barang</label>
+                <label><input type="radio" name="barcode_print_mode" value="all"> Cetak Semua Item untuk ditaruh pada rak</label>
+                <label><input type="radio" name="barcode_print_mode" value="multi"> Cetak Beberapa Item tempel di barang</label>
+                <label><input type="radio" name="barcode_print_mode" value="rack"> Tempel Beberapa Item ditaruh pada rak</label>
+            </div>
+
+            <div>
+                <h3>Template Label</h3>
+                <div class="barcode-template-list" id="barcodeTemplateList"></div>
+                <div class="barcode-template-actions">
+                    <button type="button" class="ghost-button" id="barcodeTemplateNew">Baru</button>
+                    <button type="button" class="ghost-button" id="barcodeTemplateEdit">Desain</button>
+                    <button type="button" class="ghost-button danger" id="barcodeTemplateDelete">Hapus</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="barcode-panel">
+            <div class="barcode-search-row">
+                <select id="barcodeSearchField">
+                    <option value="sku">Kode Item</option>
+                    <option value="barcode">Kode Barcode</option>
+                </select>
+                <input type="text" id="barcodeSearchInput" placeholder="Masukkan kode item atau barcode">
+                <button type="button" class="ghost-button" id="barcodeSearchButton">Cari</button>
+            </div>
+
+            <div class="barcode-meta-grid">
+                <label>
+                    Kolom yang diambil
+                    <select id="barcodeCodeField">
+                        <option value="sku">Kode Item</option>
+                        <option value="gtin">Kode Barcode</option>
+                    </select>
+                </label>
+                <label>
+                    Jumlah Barcode (mode 1 item)
+                    <input type="number" id="barcodeSingleQty" value="1" min="1" step="1">
+                </label>
+            </div>
+
+            <div class="barcode-meta-grid">
+                <label>
+                    Jenis
+                    <input type="text" id="barcodeJenis" placeholder="Jenis item" readonly>
+                </label>
+                <label>
+                    Satuan
+                    <input type="text" id="barcodeSatuan" placeholder="Satuan" readonly>
+                </label>
+                <label>
+                    Merek
+                    <input type="text" id="barcodeMerek" placeholder="Merek" readonly>
+                </label>
+                <label>
+                    Catatan Label
+                    <input type="text" id="barcodeNote" placeholder="Opsional, misal: Promo">
+                </label>
+            </div>
+
+            <div>
+                <div class="barcode-radio-row" id="barcodeHargaMode">
+                    <label>Aktif Sandi:</label>
+                    <label><input type="radio" name="barcode_price_mode" value="cost"> Harga Pokok</label>
+                    <label><input type="radio" name="barcode_price_mode" value="sell" checked> Harga Jual</label>
+                    <label><input type="radio" name="barcode_price_mode" value="both"> Aktif Keduanya</label>
+                </div>
+                <div class="barcode-radio-row">
+                    <label>Tipe Harga Jual:</label>
+                    <label><input type="radio" name="barcode_price_type" value="single" checked> Satu Harga</label>
+                    <label><input type="radio" name="barcode_price_type" value="unit"> Satuan</label>
+                    <label><input type="radio" name="barcode_price_type" value="qty"> Jumlah</label>
+                    <label><input type="radio" name="barcode_price_type" value="level"> Level Harga</label>
+                </div>
+            </div>
+
+            <div class="barcode-item-list" id="barcodeItemList">
+                <div class="empty-state">Belum ada item dipilih.</div>
+            </div>
+
+            <div class="barcode-actions">
+                <button type="button" class="ghost-button primary" id="barcodePreviewPrint">Preview + Cetak</button>
+                <button type="button" class="ghost-button" id="barcodeExportCsv">Print dari BarTender</button>
+            </div>
+
+            <small class="helper-text">
+                Gunakan barcode maksimal 10-12 digit untuk hasil paling tajam. Untuk rak, pilih template kertas A4 atau rak A4.
+            </small>
+        </section>
+
+        <aside class="barcode-panel barcode-preview">
+            <h3>Preview Barcode</h3>
+            <div class="preview-sheet">
+                <div class="barcode-preview-grid" id="barcodePreviewGrid"></div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<div class="barcode-modal" id="barcodeTemplateModal">
+    <div class="modal-backdrop" data-template-modal-close></div>
+    <div class="modal-panel">
+        <div class="section-title">
+            <div>
+                <h3>Desain Template Barcode</h3>
+                <p>Atur ukuran label, jumlah kolom, dan margin cetak.</p>
+            </div>
+        </div>
+        <div class="barcode-meta-grid">
+            <label>Nama Template
+                <input type="text" id="templateNameInput">
+            </label>
+            <label>Ukuran Kertas (mm)
+                <input type="text" id="templatePaperInput" placeholder="210x297">
+            </label>
+            <label>Lebar Label (mm)
+                <input type="number" id="templateLabelWidth" value="50" min="10">
+            </label>
+            <label>Tinggi Label (mm)
+                <input type="number" id="templateLabelHeight" value="25" min="10">
+            </label>
+            <label>Jumlah Kolom
+                <input type="number" id="templateColumns" value="2" min="1">
+            </label>
+            <label>Jarak (mm)
+                <input type="number" id="templateGap" value="6" min="0">
+            </label>
+            <label>Margin (mm)
+                <input type="number" id="templateMargin" value="6" min="0">
+            </label>
+        </div>
+        <div class="barcode-actions">
+            <button type="button" class="ghost-button primary" id="templateSaveButton">Simpan</button>
+            <button type="button" class="ghost-button" data-template-modal-close>Batal</button>
+        </div>
+    </div>
+</div>
+
+<div class="barcode-print-area" id="barcodePrintArea">
+    <div class="barcode-print-sheet">
+        <div class="barcode-print-grid" id="barcodePrintGrid"></div>
+    </div>
+</div>
+
+{% include "partials/item_picker_modal.html" %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="/static/js/item_picker.js"></script>
+<script>
+(() => {
+    const templates = [
+        { id: "KERTAS_A4", label: "KERTAS_A4", paper: "210x297", width: 50, height: 25, cols: 2, gap: 6, margin: 6 },
+        { id: "RAK_A4", label: "RAK_A4", paper: "210x297", width: 70, height: 30, cols: 2, gap: 6, margin: 6 },
+        { id: "ROL_106x15", label: "ROL_106x15", paper: "106x200", width: 106, height: 15, cols: 1, gap: 2, margin: 4 },
+        { id: "ROL_106x28", label: "ROL_106x28mm", paper: "106x200", width: 106, height: 28, cols: 1, gap: 2, margin: 4 },
+        { id: "ROL_73x15", label: "ROL_73x15", paper: "73x200", width: 73, height: 15, cols: 1, gap: 2, margin: 4 },
+        { id: "ROL_96x18", label: "ROL_96x18mm", paper: "96x200", width: 96, height: 18, cols: 1, gap: 2, margin: 4 },
+    ];
+
+    const state = {
+        selectedTemplateId: templates[0].id,
+        selectedItems: [],
+        activeItemId: null,
+    };
+
+    const templateList = document.getElementById("barcodeTemplateList");
+    const previewGrid = document.getElementById("barcodePreviewGrid");
+    const printGrid = document.getElementById("barcodePrintGrid");
+    const printArea = document.getElementById("barcodePrintArea");
+    const searchField = document.getElementById("barcodeSearchField");
+    const searchInput = document.getElementById("barcodeSearchInput");
+    const searchButton = document.getElementById("barcodeSearchButton");
+    const itemList = document.getElementById("barcodeItemList");
+    const codeField = document.getElementById("barcodeCodeField");
+    const priceModeInputs = document.querySelectorAll("input[name='barcode_price_mode']");
+    const priceTypeInputs = document.querySelectorAll("input[name='barcode_price_type']");
+    const singleQty = document.getElementById("barcodeSingleQty");
+    const noteInput = document.getElementById("barcodeNote");
+    const barcodeJenis = document.getElementById("barcodeJenis");
+    const barcodeSatuan = document.getElementById("barcodeSatuan");
+    const barcodeMerek = document.getElementById("barcodeMerek");
+    const previewButton = document.getElementById("barcodePreviewPrint");
+    const exportButton = document.getElementById("barcodeExportCsv");
+    const printModes = document.getElementById("barcodePrintModes");
+    const warehouseSelect = document.getElementById("barcodeWarehouse");
+    const pickButton = document.getElementById("barcodePickItem");
+
+    const templateModal = document.getElementById("barcodeTemplateModal");
+    const templateNameInput = document.getElementById("templateNameInput");
+    const templatePaperInput = document.getElementById("templatePaperInput");
+    const templateLabelWidth = document.getElementById("templateLabelWidth");
+    const templateLabelHeight = document.getElementById("templateLabelHeight");
+    const templateColumns = document.getElementById("templateColumns");
+    const templateGap = document.getElementById("templateGap");
+    const templateMargin = document.getElementById("templateMargin");
+    const templateSaveButton = document.getElementById("templateSaveButton");
+    const templateNewButton = document.getElementById("barcodeTemplateNew");
+    const templateEditButton = document.getElementById("barcodeTemplateEdit");
+    const templateDeleteButton = document.getElementById("barcodeTemplateDelete");
+
+    const formatIdr = (value) => `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
+
+    const getSelectedPriceMode = () => (
+        document.querySelector("input[name='barcode_price_mode']:checked")?.value || "sell"
+    );
+
+    const resolvePrice = (item, mode) => {
+        const sell = Number(item.price_retail || 0) || Number(item.price_discount || 0) || Number(item.price_nett || 0);
+        const cost = Number(item.price_nett || 0) || Number(item.price_discount || 0) || Number(item.price_retail || 0);
+        if (mode === "cost") return [{ label: "HPP", value: formatIdr(cost) }];
+        if (mode === "both") return [{ label: "HPP", value: formatIdr(cost) }, { label: "H.Jual", value: formatIdr(sell) }];
+        return [{ label: "Harga", value: formatIdr(sell) }];
+    };
+
+    const getSelectedTemplate = () => templates.find((tpl) => tpl.id === state.selectedTemplateId) || templates[0];
+
+    const renderTemplates = () => {
+        templateList.innerHTML = templates.map((tpl) => `
+            <div class="barcode-template-card ${tpl.id === state.selectedTemplateId ? "active" : ""}" data-template-id="${tpl.id}">
+                <span>${tpl.label}</span>
+                <small>${tpl.paper}</small>
+            </div>
+        `).join("");
+    };
+
+    const setTemplateCSS = (tpl) => {
+        const [paperWidth, paperHeight] = tpl.paper.split("x").map((val) => `${Number(val)}mm`);
+        document.documentElement.style.setProperty("--barcode-paper-width", paperWidth);
+        document.documentElement.style.setProperty("--barcode-paper-height", paperHeight);
+        document.documentElement.style.setProperty("--barcode-label-width", `${tpl.width}mm`);
+        document.documentElement.style.setProperty("--barcode-label-height", `${tpl.height}mm`);
+        document.documentElement.style.setProperty("--barcode-cols", tpl.cols);
+        document.documentElement.style.setProperty("--barcode-gap", `${tpl.gap}mm`);
+        document.documentElement.style.setProperty("--barcode-margin", `${tpl.margin}mm`);
+    };
+
+    const renderItems = () => {
+        if (!state.selectedItems.length) {
+            itemList.innerHTML = `<div class="empty-state">Belum ada item dipilih.</div>`;
+            return;
+        }
+
+        itemList.innerHTML = state.selectedItems.map((item, index) => `
+            <div class="barcode-item-row" data-item-id="${item.id}">
+                <div>
+                    <strong>${item.sku || "-"}</strong>
+                    <div class="helper-text">${item.name} · ${item.variant_label || "Default"}</div>
+                </div>
+                <input type="number" min="1" step="1" value="${item.qty}" data-item-qty>
+                <div class="helper-text">${item.gtin || "-"}<br>${formatIdr(item.price_retail || 0)}</div>
+                <button type="button" class="ghost-button danger" data-remove-item="${index}">Hapus</button>
+            </div>
+        `).join("");
+    };
+
+    const buildLabelPayloads = () => {
+        const mode = document.querySelector("input[name='barcode_print_mode']:checked")?.value || "single";
+        const field = codeField.value;
+        const note = noteInput.value.trim();
+        const priceMode = getSelectedPriceMode();
+
+        const items = mode === "single"
+            ? state.selectedItems.filter((item) => item.id === state.activeItemId).slice(0, 1)
+            : state.selectedItems;
+
+        if (!items.length && state.selectedItems.length) {
+            items.push(state.selectedItems[0]);
+        }
+
+        const labels = [];
+        items.forEach((item) => {
+            const qty = mode === "single"
+                ? Number(singleQty.value || 1)
+                : Number(item.qty || 1);
+            const prices = resolvePrice(item, priceMode);
+            const codeValue = (field === "gtin" ? item.gtin : item.sku) || item.sku || item.gtin || "-";
+            const safeQty = Math.max(1, qty);
+            for (let i = 0; i < safeQty; i += 1) {
+                labels.push({
+                    name: item.name,
+                    code: codeValue,
+                    prices,
+                    note,
+                });
+            }
+        });
+
+        return labels;
+    };
+
+    const renderLabels = () => {
+        const labels = buildLabelPayloads();
+        const renderLabelHtml = (label) => `
+            <div class="barcode-label">
+                <strong>${label.name}</strong>
+                ${label.note ? `<div class="helper-text">${label.note}</div>` : ""}
+                <svg class="barcode-svg" data-code="${label.code}"></svg>
+                <div class="barcode-code">${label.code}</div>
+                ${label.prices.map((price) => `<div class="barcode-price">${price.label}: ${price.value}</div>`).join("")}
+            </div>
+        `;
+
+        previewGrid.innerHTML = labels.length
+            ? labels.map(renderLabelHtml).join("")
+            : `<div class="empty-state">Pilih item untuk melihat preview.</div>`;
+        printGrid.innerHTML = labels.map(renderLabelHtml).join("");
+
+        if (window.JsBarcode) {
+            document.querySelectorAll(".barcode-svg").forEach((svg) => {
+                const code = svg.getAttribute("data-code") || "";
+                try {
+                    window.JsBarcode(svg, code, {
+                        format: "CODE128",
+                        displayValue: false,
+                        width: 1.4,
+                        height: 32,
+                        margin: 0,
+                    });
+                } catch (error) {
+                    svg.replaceWith(document.createTextNode(code));
+                }
+            });
+        }
+    };
+
+    const updateActiveMeta = (item) => {
+        if (!item) return;
+        barcodeJenis.value = item.category || "-";
+        barcodeSatuan.value = item.variant_label || "Default";
+        barcodeMerek.value = item.brand || "";
+    };
+
+    const addItem = (item) => {
+        const existing = state.selectedItems.find((entry) => entry.id === item.variant_id);
+        if (existing) {
+            existing.qty += 1;
+        } else {
+            state.selectedItems.push({
+                id: item.variant_id,
+                sku: item.sku,
+                name: item.name,
+                gtin: item.gtin,
+                price_retail: item.price_retail,
+                price_discount: item.price_discount,
+                price_nett: item.price_nett,
+                variant_label: item.variant_label || "Default",
+                category: item.category || "",
+                brand: item.brand || "",
+                qty: 1,
+            });
+            state.activeItemId = item.variant_id;
+        }
+        updateActiveMeta(item);
+        renderItems();
+        renderLabels();
+    };
+
+    const openTemplateModal = (template) => {
+        const tpl = template || getSelectedTemplate();
+        templateNameInput.value = tpl.label || "";
+        templatePaperInput.value = tpl.paper || "210x297";
+        templateLabelWidth.value = tpl.width || 50;
+        templateLabelHeight.value = tpl.height || 25;
+        templateColumns.value = tpl.cols || 2;
+        templateGap.value = tpl.gap || 6;
+        templateMargin.value = tpl.margin || 6;
+        templateModal.style.display = "flex";
+    };
+
+    const closeTemplateModal = () => {
+        templateModal.style.display = "none";
+    };
+
+    const saveTemplate = () => {
+        const name = templateNameInput.value.trim() || "CUSTOM";
+        const tpl = {
+            id: name.replace(/\s+/g, "_").toUpperCase(),
+            label: name,
+            paper: templatePaperInput.value.trim() || "210x297",
+            width: Number(templateLabelWidth.value || 50),
+            height: Number(templateLabelHeight.value || 25),
+            cols: Number(templateColumns.value || 2),
+            gap: Number(templateGap.value || 6),
+            margin: Number(templateMargin.value || 6),
+        };
+        const existingIndex = templates.findIndex((entry) => entry.id === tpl.id);
+        if (existingIndex >= 0) {
+            templates[existingIndex] = tpl;
+        } else {
+            templates.push(tpl);
+        }
+        state.selectedTemplateId = tpl.id;
+        renderTemplates();
+        setTemplateCSS(tpl);
+        renderLabels();
+        closeTemplateModal();
+    };
+
+    const downloadCsv = () => {
+        const labels = buildLabelPayloads();
+        if (!labels.length) {
+            alert("Pilih item terlebih dahulu.");
+            return;
+        }
+        const rows = [["Nama", "Barcode", "Harga"]];
+        labels.forEach((label) => {
+            const price = label.prices.map((p) => `${p.label} ${p.value}`).join(" | ");
+            rows.push([label.name, label.code, price]);
+        });
+        const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/\"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "barcode_bartender.csv";
+        link.click();
+    };
+
+    const picker = createItemPicker({
+        endpoint: "/products/picker",
+        modalId: "itemPickerModal",
+        bodyId: "itemPickerBody",
+        searchId: "itemPickerSearch",
+        summaryId: "itemPickerSummary",
+        pageId: "itemPickerPage",
+        warehouseIdLabel: "itemPickerWarehouse",
+        prevButtonId: "itemPickerPrev",
+        nextButtonId: "itemPickerNext",
+        getWarehouseId: () => warehouseSelect?.value || "",
+        getWarehouseLabel: () => warehouseSelect?.options[warehouseSelect.selectedIndex]?.text || "",
+        onPick: (row, item) => {
+            addItem(item);
+        },
+    });
+
+    const runSearch = async () => {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        const params = new URLSearchParams({
+            q: query,
+            limit: "60",
+            warehouse: String(warehouseSelect?.value || ""),
+        });
+        const response = await fetch(`/stock/barcode/items?${params.toString()}`);
+        const data = await response.json();
+        const items = data.items || [];
+        const normalized = query.toLowerCase();
+        const field = searchField.value === "barcode" ? "gtin" : "sku";
+        const exactMatches = items.filter((item) => String(item[field] || "").trim().toLowerCase() === normalized);
+        const picked = exactMatches.length === 1 ? exactMatches[0] : (items.length === 1 ? items[0] : null);
+        if (picked) {
+            addItem(picked);
+            return;
+        }
+        const pickerSearch = document.getElementById("itemPickerSearch");
+        if (pickerSearch) pickerSearch.value = query;
+        picker.openForRow(document.body);
+    };
+
+    templateList.addEventListener("click", (event) => {
+        const card = event.target.closest("[data-template-id]");
+        if (!card) return;
+        state.selectedTemplateId = card.dataset.templateId;
+        renderTemplates();
+        setTemplateCSS(getSelectedTemplate());
+        renderLabels();
+    });
+
+    itemList.addEventListener("input", (event) => {
+        const qtyInput = event.target.closest("[data-item-qty]");
+        if (!qtyInput) return;
+        const row = event.target.closest("[data-item-id]");
+        const item = state.selectedItems.find((entry) => String(entry.id) === row.dataset.itemId);
+        if (item) {
+            item.qty = Math.max(1, Number(qtyInput.value || 1));
+            renderLabels();
+        }
+    });
+
+    itemList.addEventListener("click", (event) => {
+        const row = event.target.closest("[data-item-id]");
+        if (row) {
+            const item = state.selectedItems.find((entry) => String(entry.id) === row.dataset.itemId);
+            if (item) {
+                state.activeItemId = item.id;
+                updateActiveMeta(item);
+                renderLabels();
+            }
+        }
+        const removeButton = event.target.closest("[data-remove-item]");
+        if (!removeButton) return;
+        const index = Number(removeButton.dataset.removeItem);
+        state.selectedItems.splice(index, 1);
+        if (state.selectedItems.length) {
+            state.activeItemId = state.selectedItems[0].id;
+            updateActiveMeta(state.selectedItems[0]);
+        } else {
+            state.activeItemId = null;
+        }
+        renderItems();
+        renderLabels();
+    });
+
+    templateNewButton.addEventListener("click", () => openTemplateModal(null));
+    templateEditButton.addEventListener("click", () => openTemplateModal(getSelectedTemplate()));
+    templateDeleteButton.addEventListener("click", () => {
+        if (templates.length <= 1) return;
+        const idx = templates.findIndex((tpl) => tpl.id === state.selectedTemplateId);
+        if (idx >= 0) {
+            templates.splice(idx, 1);
+            state.selectedTemplateId = templates[0].id;
+            renderTemplates();
+            setTemplateCSS(getSelectedTemplate());
+            renderLabels();
+        }
+    });
+
+    templateSaveButton.addEventListener("click", saveTemplate);
+    templateModal.querySelectorAll("[data-template-modal-close]").forEach((btn) => {
+        btn.addEventListener("click", closeTemplateModal);
+    });
+
+    searchButton.addEventListener("click", runSearch);
+    searchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            runSearch();
+        }
+    });
+
+    pickButton.addEventListener("click", () => {
+        picker.openForRow(document.body);
+    });
+
+    previewButton.addEventListener("click", () => {
+        renderLabels();
+        window.print();
+    });
+
+    exportButton.addEventListener("click", downloadCsv);
+
+    printModes.addEventListener("change", async () => {
+        const mode = document.querySelector("input[name='barcode_print_mode']:checked")?.value || "single";
+        if (mode === "all") {
+            const params = new URLSearchParams({
+                limit: "2000",
+                warehouse: String(warehouseSelect?.value || ""),
+            });
+            const response = await fetch(`/stock/barcode/items?${params.toString()}`);
+            const data = await response.json();
+            state.selectedItems = (data.items || []).map((item) => ({
+                id: item.variant_id,
+                sku: item.sku,
+                name: item.name,
+                gtin: item.gtin,
+                price_retail: item.price_retail,
+                price_discount: item.price_discount,
+                price_nett: item.price_nett,
+                variant_label: item.variant_label || "Default",
+                qty: 1,
+                category: item.category || "",
+            }));
+            state.activeItemId = state.selectedItems[0]?.id || null;
+            updateActiveMeta(state.selectedItems[0]);
+            renderItems();
+        }
+        renderLabels();
+    });
+    codeField.addEventListener("change", renderLabels);
+    priceModeInputs.forEach((input) => input.addEventListener("change", renderLabels));
+    priceTypeInputs.forEach((input) => input.addEventListener("change", renderLabels));
+    singleQty.addEventListener("change", renderLabels);
+    noteInput.addEventListener("input", renderLabels);
+    warehouseSelect?.addEventListener("change", () => {
+        picker.refresh();
+    });
+
+    renderTemplates();
+    setTemplateCSS(getSelectedTemplate());
+    renderItems();
+    renderLabels();
+})();
+</script>
+{% endblock %}

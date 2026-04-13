@@ -119,6 +119,12 @@
                     <small id="outboundDraftMeta" class="helper-text ops-item-meta">Belum ada barang yang dipilih.</small>
                 </div>
 
+                <div>
+                    <label>Scan Barcode</label>
+                    <input type="text" id="outboundBarcodeInput" placeholder="Scan barcode lalu Enter" inputmode="numeric">
+                    <small id="outboundBarcodeHint" class="helper-text">Scan barcode untuk pilih item otomatis.</small>
+                </div>
+
                 <div class="ops-entry-stock">
                     <label>Stok Tersedia</label>
                     <div class="ops-stock-card">
@@ -183,6 +189,8 @@ const outboundDraftDisplay = document.getElementById("outboundDraftDisplay");
 const outboundDraftMeta = document.getElementById("outboundDraftMeta");
 const outboundDraftStockValue = document.getElementById("outboundDraftStockValue");
 const outboundDraftStockState = document.getElementById("outboundDraftStockState");
+const outboundBarcodeInput = document.getElementById("outboundBarcodeInput");
+const outboundBarcodeHint = document.getElementById("outboundBarcodeHint");
 const outboundDraftQty = document.getElementById("outboundDraftQty");
 const outboundDraftNote = document.getElementById("outboundDraftNote");
 const outboundDraftFeedback = document.getElementById("outboundDraftFeedback");
@@ -269,6 +277,54 @@ function resetOutboundDraft() {
     outboundDraftFeedback.textContent = "Isi qty keluar untuk item aktif.";
     outboundDraftFeedback.className = "helper-text ops-row-feedback";
     renderOutboundDraftStock(0);
+}
+
+async function handleOutboundBarcodeScan() {
+    const code = String(outboundBarcodeInput?.value || "").trim();
+    if (!code) {
+        if (outboundBarcodeHint) outboundBarcodeHint.textContent = "Masukkan barcode terlebih dahulu.";
+        return;
+    }
+
+    if (outboundBarcodeHint) outboundBarcodeHint.textContent = "Mencari barcode...";
+
+    try {
+        const params = new URLSearchParams({
+            q: code,
+            page: "1",
+            page_size: "8",
+            warehouse_id: String(outboundWarehouse.value || ""),
+        });
+        const response = await fetch(`/products/picker?${params.toString()}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Gagal mencari barcode.");
+        }
+
+        const items = data.items || [];
+        const normalized = code.toLowerCase();
+        const exact = items.filter((item) => String(item.gtin || "").trim().toLowerCase() === normalized);
+        const picked = exact.length === 1 ? exact[0] : (items.length === 1 ? items[0] : null);
+
+        if (picked) {
+            populateOutboundDraft(picked);
+            outboundDraftQty?.focus();
+            if (outboundBarcodeHint) outboundBarcodeHint.textContent = `Barcode ditemukan: ${picked.sku || "-"}.`;
+            return;
+        }
+
+        const searchInput = document.getElementById("itemPickerSearch");
+        if (searchInput) searchInput.value = code;
+        openOutboundPicker();
+        if (outboundBarcodeHint) {
+            outboundBarcodeHint.textContent = items.length
+                ? "Barcode cocok dengan beberapa item. Silakan pilih di daftar."
+                : "Barcode tidak ditemukan.";
+        }
+    } catch (error) {
+        if (outboundBarcodeHint) outboundBarcodeHint.textContent = error.message || "Gagal mencari barcode.";
+    }
 }
 
 function populateOutboundDraft(item) {
@@ -475,6 +531,13 @@ outboundWarehouse?.addEventListener("change", async () => {
     await refreshOutboundQueueStocks();
     outboundPicker.refresh();
     renderOutboundWorkspaceSummary();
+});
+
+outboundBarcodeInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        handleOutboundBarcodeScan();
+    }
 });
 
 resetOutboundDraft();

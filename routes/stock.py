@@ -869,6 +869,90 @@ def stock_table():
     )
 
 
+@stock_bp.route("/barcode")
+def stock_barcode_page():
+    db = get_db()
+    warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
+    warehouse_id = _resolve_stock_warehouse(db)
+    selected_warehouse_name = next(
+        (row["name"] for row in warehouses if int(row["id"]) == int(warehouse_id)),
+        f"WH {warehouse_id}",
+    )
+
+    return render_template(
+        "barcode.html",
+        warehouses=warehouses,
+        warehouse_id=warehouse_id,
+        selected_warehouse_name=selected_warehouse_name,
+        is_scoped_user=is_scoped_role(session.get("role")),
+    )
+
+
+@stock_bp.route("/barcode/items")
+def stock_barcode_items():
+    db = get_db()
+    warehouse_id = _resolve_stock_warehouse(db)
+    search = (request.args.get("q") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 300))
+    except (TypeError, ValueError):
+        limit = 300
+    limit = max(1, min(limit, 2000))
+
+    params = [warehouse_id]
+    conditions = []
+    if search:
+        token = f"%{search}%"
+        conditions.append(
+            "("
+            "p.sku LIKE ? OR "
+            "p.name LIKE ? OR "
+            "COALESCE(v.gtin, '') LIKE ? OR "
+            "COALESCE(v.variant_code, '') LIKE ?"
+            ")"
+        )
+        params.extend([token] * 4)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    rows = db.execute(
+        f"""
+        SELECT
+            v.id AS variant_id,
+            p.sku,
+            p.name,
+            COALESCE(v.variant, 'default') AS variant,
+            COALESCE(v.variant_code, '') AS variant_code,
+            COALESCE(v.gtin, '') AS gtin,
+            COALESCE(c.name, '') AS category,
+            COALESCE(v.price_retail, 0) AS price_retail,
+            COALESCE(v.price_discount, 0) AS price_discount,
+            COALESCE(v.price_nett, 0) AS price_nett,
+            COALESCE(s.qty, 0) AS qty
+        FROM products p
+        JOIN product_variants v ON v.product_id = p.id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN stock s
+            ON s.product_id = p.id
+            AND s.variant_id = v.id
+            AND s.warehouse_id = ?
+        {where_clause}
+        ORDER BY p.name COLLATE NOCASE ASC, v.variant COLLATE NOCASE ASC
+        LIMIT ?
+        """,
+        (*params, limit),
+    ).fetchall()
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        variant = item["variant"] or "default"
+        item["variant_label"] = "Default" if str(variant).lower() == "default" else variant
+        items.append(item)
+
+    return jsonify({"items": items})
+
+
 @stock_bp.route("/export")
 def export_stock():
     db = get_db()

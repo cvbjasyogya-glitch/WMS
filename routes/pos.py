@@ -5,7 +5,7 @@ try:
 except ImportError:  # pragma: no cover - fallback for older Python
     ZoneInfo = None
 from decimal import Decimal, ROUND_HALF_UP
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, session
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 
 from database import get_db
 from services.crm_loyalty import (
@@ -45,32 +45,48 @@ INACTIVE_EMPLOYMENT_STATUSES = ("inactive", "terminated", "resigned", "former", 
 POS_REVENUE_HIDDEN_LABEL = "-"
 POS_DISPLAY_UTC_OFFSET_HOURS = 7
 POS_DISPLAY_TIMEZONE = ZoneInfo("Asia/Jakarta") if ZoneInfo else timezone(timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS))
+POS_HIDDEN_ARCHIVE_SESSION_KEY = "pos_hidden_archive_unlocked_until"
 POS_SOURCE_ACTOR_SQL = (
     "COALESCE("
     "NULLIF(TRIM(ps.source_sales_name), ''), "
     "NULLIF(TRIM(ps.source_cashier_name), '')"
     ")"
 )
-POS_CASHIER_NAME_SQL = (
+POS_LOCAL_ACTOR_SQL = (
     "COALESCE("
     "NULLIF(TRIM(e.full_name), ''), "
-    "NULLIF(TRIM(u.username), ''), "
+    "NULLIF(TRIM(u.username), '')"
+    ")"
+)
+POS_CASHIER_NAME_SQL = (
+    "COALESCE("
     f"{POS_SOURCE_ACTOR_SQL}, "
+    f"{POS_LOCAL_ACTOR_SQL}, "
     "'Tanpa Staff'"
     ")"
 )
+POS_CASHIER_GROUP_KEY_SQL = (
+    "CASE "
+    f"WHEN {POS_SOURCE_ACTOR_SQL} IS NOT NULL THEN 'source:' || LOWER({POS_SOURCE_ACTOR_SQL}) "
+    "WHEN ps.cashier_user_id IS NOT NULL THEN 'user:' || CAST(ps.cashier_user_id AS TEXT) "
+    f"WHEN {POS_LOCAL_ACTOR_SQL} IS NOT NULL THEN 'local:' || LOWER({POS_LOCAL_ACTOR_SQL}) "
+    "ELSE 'none' "
+    "END"
+)
 POS_CASHIER_USERNAME_SQL = (
     "COALESCE("
-    "NULLIF(TRIM(u.username), ''), "
     f"{POS_SOURCE_ACTOR_SQL}, "
+    "NULLIF(TRIM(u.username), ''), "
+    f"{POS_LOCAL_ACTOR_SQL}, "
     "'-'"
     ")"
 )
 POS_CASHIER_POSITION_SQL = (
     "COALESCE("
+    f"CASE WHEN {POS_SOURCE_ACTOR_SQL} IS NOT NULL THEN 'Sales iPOS4' END, "
     "NULLIF(TRIM(e.position), ''), "
     "NULLIF(TRIM(u.role), ''), "
-    f"CASE WHEN {POS_SOURCE_ACTOR_SQL} IS NOT NULL THEN 'Sales iPOS4' ELSE 'Staff' END"
+    "'Staff'"
     ")"
 )
 
@@ -736,6 +752,57 @@ def _can_view_pos_revenue():
     return normalize_role(session.get("role")) in {"owner", "super_admin"}
 
 
+def _can_manage_pos_hidden_archive():
+    return normalize_role(session.get("role")) == "super_admin"
+
+
+def _can_archive_pos_sale():
+    return normalize_role(session.get("role")) == "super_admin"
+
+
+def _get_pos_hidden_archive_password():
+    configured = str(current_app.config.get("POS_HIDDEN_ARCHIVE_PASSWORD") or "").strip()
+    return configured or "123456"
+
+
+def _get_pos_hidden_archive_unlock_seconds():
+    return max(_to_int(current_app.config.get("POS_HIDDEN_ARCHIVE_UNLOCK_SECONDS"), 1800), 300)
+
+
+def _is_pos_hidden_archive_unlocked():
+    if not _can_manage_pos_hidden_archive():
+        return False
+
+    unlocked_until = _to_int(session.get(POS_HIDDEN_ARCHIVE_SESSION_KEY), 0)
+    if unlocked_until <= 0:
+        return False
+    return unlocked_until >= int(datetime.now(timezone.utc).timestamp())
+
+
+def _unlock_pos_hidden_archive():
+    session[POS_HIDDEN_ARCHIVE_SESSION_KEY] = int(datetime.now(timezone.utc).timestamp()) + _get_pos_hidden_archive_unlock_seconds()
+    session.modified = True
+
+
+def _lock_pos_hidden_archive():
+    session.pop(POS_HIDDEN_ARCHIVE_SESSION_KEY, None)
+    session.modified = True
+
+
+def _sanitize_pos_hidden_archive_return_url(raw_value):
+    safe_value = str(raw_value or "").strip()
+    if safe_value.startswith("/kasir/hidden-archive"):
+        return safe_value
+    return "/kasir/hidden-archive"
+
+
+def _sanitize_pos_sales_action_return_url(raw_value):
+    safe_value = str(raw_value or "").strip()
+    if safe_value.startswith("/kasir/log") or safe_value.startswith("/kasir/hidden-archive"):
+        return safe_value
+    return "/kasir/log"
+
+
 def _mask_pos_sale_item_financials(item):
     masked_item = dict(item or {})
     for numeric_key in ("unit_price", "line_total", "void_amount", "active_line_total"):
@@ -1014,7 +1081,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COUNT(*) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided'
+        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided' AND COALESCE(is_hidden_archive, 0)=0
         """,
         (warehouse_id, sale_date),
     ).fetchone()["total"]
@@ -1023,7 +1090,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COALESCE(SUM(total_amount), 0) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided'
+        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided' AND COALESCE(is_hidden_archive, 0)=0
         """,
         (warehouse_id, sale_date),
     ).fetchone()["total"]
@@ -1032,7 +1099,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COALESCE(SUM(total_items), 0) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided'
+        WHERE warehouse_id=? AND sale_date=? AND COALESCE(status, 'posted') <> 'voided' AND COALESCE(is_hidden_archive, 0)=0
         """,
         (warehouse_id, sale_date),
     ).fetchone()["total"]
@@ -1041,7 +1108,7 @@ def _fetch_pos_summary(db, warehouse_id, sale_date):
         """
         SELECT COUNT(*) AS total
         FROM pos_sales
-        WHERE warehouse_id=? AND sale_date=? AND cashier_user_id=? AND COALESCE(status, 'posted') <> 'voided'
+        WHERE warehouse_id=? AND sale_date=? AND cashier_user_id=? AND COALESCE(status, 'posted') <> 'voided' AND COALESCE(is_hidden_archive, 0)=0
         """,
         (warehouse_id, sale_date, session.get("user_id")),
     ).fetchone()["total"]
@@ -1073,6 +1140,7 @@ def _fetch_recent_sales(db, warehouse_id, sale_date):
         LEFT JOIN users u ON u.id = ps.cashier_user_id
         LEFT JOIN employees e ON e.id = u.employee_id
         WHERE ps.warehouse_id=? AND ps.sale_date=?
+          AND COALESCE(ps.is_hidden_archive, 0)=0
         ORDER BY ps.id DESC
         LIMIT 20
         """,
@@ -1301,6 +1369,7 @@ def _fetch_pos_cash_closing_method_totals(db, closing_date, *, warehouse_id=None
             ps.payment_breakdown_json
         FROM pos_sales ps
         WHERE {" AND ".join(where_clauses)}
+          AND COALESCE(ps.is_hidden_archive, 0)=0
         """,
         params,
     ).fetchall()
@@ -1347,6 +1416,7 @@ def _fetch_pos_cash_closing_combined_total(db, closing_date):
         FROM pos_sales ps
         WHERE ps.sale_date=?
           AND ps.warehouse_id IN ({placeholders})
+          AND COALESCE(ps.is_hidden_archive, 0)=0
         """,
         [safe_date, *warehouse_ids],
     ).fetchone()
@@ -1519,6 +1589,94 @@ def _has_pos_cash_closing_report(db, sale_row):
     return row is not None
 
 
+def _sync_pos_cash_closing_report_snapshot(db, sale_row):
+    if not sale_row:
+        return False
+
+    warehouse_id = _to_int(sale_row.get("warehouse_id"), 0)
+    closing_date = _normalize_pos_cash_closing_date(sale_row.get("sale_date"))
+    if warehouse_id <= 0 or not closing_date:
+        return False
+
+    existing_report = db.execute(
+        """
+        SELECT
+            ccr.id,
+            ccr.expense_amount,
+            ccr.note,
+            COALESCE(NULLIF(TRIM(w.name), ''), '') AS warehouse_name
+        FROM cash_closing_reports ccr
+        LEFT JOIN warehouses w ON w.id = ccr.warehouse_id
+        WHERE ccr.warehouse_id=?
+          AND ccr.closing_date=?
+        LIMIT 1
+        """,
+        (warehouse_id, closing_date),
+    ).fetchone()
+    if existing_report is None:
+        return False
+
+    warehouse_name = (
+        str(existing_report["warehouse_name"] or "").strip()
+        or str(sale_row.get("warehouse_name") or "").strip()
+        or f"WH {warehouse_id}"
+    )
+    method_totals = _fetch_pos_cash_closing_method_totals(
+        db,
+        closing_date,
+        warehouse_id=warehouse_id,
+    )
+    combined_total_amount = _fetch_pos_cash_closing_combined_total(db, closing_date)
+    expense_amount = max(_to_int(existing_report["expense_amount"], 0), 0)
+    cash_on_hand_amount = _round_pos_cash_on_hand(
+        max(method_totals["cash_amount"] - expense_amount, 0)
+    )
+    summary_message = _build_pos_cash_closing_summary_message(
+        warehouse_name,
+        closing_date,
+        cash_amount=method_totals["cash_amount"],
+        debit_amount=method_totals["debit_amount"],
+        qris_amount=method_totals["qris_amount"],
+        mb_amount=method_totals["mb_amount"],
+        cv_amount=method_totals["cv_amount"],
+        expense_amount=expense_amount,
+        cash_on_hand_amount=cash_on_hand_amount,
+        combined_total_amount=combined_total_amount,
+        note=str(existing_report["note"] or "").strip(),
+    )
+
+    db.execute(
+        """
+        UPDATE cash_closing_reports
+        SET
+            cash_amount=?,
+            debit_amount=?,
+            qris_amount=?,
+            mb_amount=?,
+            cv_amount=?,
+            reported_total_amount=?,
+            cash_on_hand_amount=?,
+            combined_total_amount=?,
+            summary_message=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            method_totals["cash_amount"],
+            method_totals["debit_amount"],
+            method_totals["qris_amount"],
+            method_totals["mb_amount"],
+            method_totals["cv_amount"],
+            method_totals["reported_total_amount"],
+            cash_on_hand_amount,
+            combined_total_amount,
+            summary_message,
+            existing_report["id"],
+        ),
+    )
+    return True
+
+
 def _fetch_pos_cash_closing_reports(
     db,
     warehouse_id=None,
@@ -1687,6 +1845,7 @@ def _fetch_pos_sale_logs(
     search_query="",
     limit=60,
     receipt_wa_status=None,
+    archive_mode="visible",
 ):
     safe_limit = max(1, min(_to_int(limit, 60), 200))
     params = [date_from, date_to]
@@ -1696,6 +1855,8 @@ def _fetch_pos_sale_logs(
             ps.purchase_id,
             ps.customer_id,
             ps.cashier_user_id,
+            ps.source_cashier_name,
+            ps.source_sales_name,
             ps.warehouse_id,
             ps.sale_date,
             ps.receipt_no,
@@ -1739,9 +1900,10 @@ def _fetch_pos_sale_logs(
                 OR COALESCE(c.phone, '') LIKE ?
                 OR COALESCE(e.full_name, u.username, '') LIKE ?
                 OR COALESCE(ps.note, '') LIKE ?
+                OR COALESCE(ps.hidden_archive_note, '') LIKE ?
             )
         """
-        params.extend([search_pattern] * 5)
+        params.extend([search_pattern] * 6)
 
     safe_receipt_wa_status = str(receipt_wa_status or "").strip().lower()
     if safe_receipt_wa_status:
@@ -1809,7 +1971,13 @@ def _build_pos_sale_log_summary(rows, period_label):
     total_items = sum(int(row.get("total_items") or 0) for row in rows)
     total_revenue = sum(float(row.get("total_amount") or 0) for row in rows)
     customer_total = len({int(row.get("customer_id") or 0) for row in rows if _to_int(row.get("customer_id"), 0) > 0})
-    staff_total = len({int(row.get("cashier_user_id") or 0) for row in rows if _to_int(row.get("cashier_user_id"), 0) > 0})
+    staff_total = len(
+        {
+            str(row.get("staff_group_key") or "").strip().lower()
+            for row in rows
+            if str(row.get("staff_group_key") or "").strip()
+        }
+    )
     return {
         "period_label": period_label,
         "transaction_total": len(rows),
@@ -1834,6 +2002,8 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.purchase_id,
             ps.customer_id,
             ps.cashier_user_id,
+            ps.source_cashier_name,
+            ps.source_sales_name,
             ps.warehouse_id,
             ps.sale_date,
             ps.receipt_no,
@@ -1864,12 +2034,66 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         params.append(session.get("warehouse_id"))
 
     query += " LIMIT 1"
-
-    row = db.execute(query, params).fetchone()
+    try:
+        row = db.execute(query, params).fetchone()
+    except Exception:
+        legacy_query = f"""
+            SELECT
+                ps.id,
+                ps.purchase_id,
+                ps.customer_id,
+                ps.cashier_user_id,
+                ps.warehouse_id,
+                ps.sale_date,
+                ps.receipt_no,
+                ps.payment_method,
+                ps.payment_breakdown_json,
+                ps.total_items,
+                ps.total_amount,
+                ps.paid_amount,
+                ps.change_amount,
+                ps.status,
+                ps.receipt_pdf_path,
+                ps.receipt_pdf_url,
+                ps.receipt_whatsapp_status,
+                ps.receipt_whatsapp_error,
+                ps.receipt_whatsapp_sent_at,
+                ps.note,
+                ps.created_at,
+                pr.member_id,
+                pr.transaction_type,
+                COALESCE(NULLIF(TRIM(m.member_code), ''), '') AS member_code,
+                COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type,
+                COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
+                COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
+                {POS_CASHIER_NAME_SQL} AS cashier_name,
+                {POS_CASHIER_USERNAME_SQL} AS cashier_username,
+                {POS_CASHIER_POSITION_SQL} AS cashier_position,
+                COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
+            FROM pos_sales ps
+            LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
+            LEFT JOIN crm_memberships m ON m.id = pr.member_id
+            JOIN crm_customers c ON c.id = ps.customer_id
+            LEFT JOIN users u ON u.id = ps.cashier_user_id
+            LEFT JOIN employees e ON e.id = u.employee_id
+            LEFT JOIN warehouses w ON w.id = ps.warehouse_id
+            WHERE ps.receipt_no=?
+        """
+        if is_scoped_role(session.get("role")):
+            legacy_query += " AND ps.warehouse_id=?"
+        legacy_query += " LIMIT 1"
+        row = db.execute(legacy_query, params).fetchone()
     if not row:
         return None
 
     sale = dict(row)
+    sale.setdefault("subtotal_amount", sale.get("total_amount") or 0)
+    sale.setdefault("discount_type", "")
+    sale.setdefault("discount_value", 0)
+    sale.setdefault("discount_amount", 0)
+    sale.setdefault("tax_type", "")
+    sale.setdefault("tax_value", 0)
+    sale.setdefault("tax_amount", 0)
     items = _fetch_pos_sale_item_map(db, [sale["purchase_id"]]).get(int(sale["purchase_id"]), [])
     total_amount = _currency(sale.get("total_amount") or 0)
     paid_amount = _currency(sale.get("paid_amount") or 0)
@@ -1974,11 +2198,12 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
     params = [date_from, date_to]
     query = f"""
         SELECT
-            ps.cashier_user_id,
+            {POS_CASHIER_GROUP_KEY_SQL} AS staff_group_key,
+            MIN(ps.cashier_user_id) AS cashier_user_id,
             {POS_CASHIER_NAME_SQL} AS staff_name,
             {POS_CASHIER_USERNAME_SQL} AS username,
             {POS_CASHIER_POSITION_SQL} AS position,
-            COALESCE(NULLIF(TRIM(home_w.name), ''), '-') AS home_warehouse_name,
+            COALESCE(MAX(NULLIF(TRIM(home_w.name), '')), '-') AS home_warehouse_name,
             COUNT(ps.id) AS total_transactions,
             COALESCE(SUM(ps.total_items), 0) AS total_items,
             COALESCE(SUM(ps.total_amount), 0) AS total_revenue,
@@ -2001,11 +2226,10 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
 
     query += """
         GROUP BY
-            ps.cashier_user_id,
+            staff_group_key,
             staff_name,
             username,
-            position,
-            home_warehouse_name
+            position
         ORDER BY total_revenue DESC, total_transactions DESC, staff_name COLLATE NOCASE ASC
     """
 
@@ -2192,7 +2416,10 @@ def _validate_and_build_items(
         product_id = _to_int(raw_item.get("product_id"), 0)
         variant_id = _to_int(raw_item.get("variant_id"), 0)
         qty = _to_int(raw_item.get("qty"), 0)
-        unit_price = _to_decimal(raw_item.get("unit_price"), "0")
+        raw_unit_price = raw_item.get("unit_price")
+        raw_unit_price_text = str(raw_unit_price).strip() if raw_unit_price is not None else ""
+        has_explicit_unit_price = raw_unit_price is not None and raw_unit_price_text != ""
+        unit_price = _to_decimal(raw_unit_price, "0")
         retail_price = _to_decimal(raw_item.get("retail_price"), "0")
 
         if product_id <= 0 or variant_id <= 0 or qty <= 0:
@@ -2245,7 +2472,10 @@ def _validate_and_build_items(
 
         if free_reward_mode:
             unit_price = Decimal("0.00")
-        elif unit_price <= 0:
+        elif has_explicit_unit_price:
+            if unit_price < 0:
+                raise ValueError(f"Harga jual untuk {product['sku']} tidak boleh minus.")
+        else:
             unit_price = _to_decimal(
                 product["price_nett"] or product["price_discount"] or product["price_retail"] or 0,
                 "0",
@@ -2598,31 +2828,58 @@ def _fetch_pos_sale_item_map(db, purchase_ids):
         return {}
 
     placeholders = ",".join("?" for _ in normalized_ids)
-    rows = db.execute(
-        f"""
-        SELECT
-            cpi.id AS item_id,
-            cpi.purchase_id,
-            cpi.product_id,
-            cpi.variant_id,
-            COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
-            COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
-            COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
-            COALESCE(cpi.qty, 0) AS qty,
-            COALESCE(cpi.retail_price, 0) AS retail_price,
-            COALESCE(cpi.unit_price, 0) AS unit_price,
-            COALESCE(cpi.line_total, 0) AS line_total,
-            COALESCE(cpi.void_qty, 0) AS void_qty,
-            COALESCE(cpi.void_amount, 0) AS void_amount,
-            COALESCE(cpi.void_note, '') AS void_note
-        FROM crm_purchase_items cpi
-        LEFT JOIN products p ON p.id = cpi.product_id
-        LEFT JOIN product_variants pv ON pv.id = cpi.variant_id
-        WHERE cpi.purchase_id IN ({placeholders})
-        ORDER BY cpi.purchase_id ASC, cpi.id ASC
-        """,
-        normalized_ids,
-    ).fetchall()
+    try:
+        rows = db.execute(
+            f"""
+            SELECT
+                cpi.id AS item_id,
+                cpi.purchase_id,
+                cpi.product_id,
+                cpi.variant_id,
+                COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
+                COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
+                COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
+                COALESCE(cpi.qty, 0) AS qty,
+                COALESCE(cpi.retail_price, 0) AS retail_price,
+                COALESCE(cpi.unit_price, 0) AS unit_price,
+                COALESCE(cpi.line_total, 0) AS line_total,
+                COALESCE(cpi.void_qty, 0) AS void_qty,
+                COALESCE(cpi.void_amount, 0) AS void_amount,
+                COALESCE(cpi.void_note, '') AS void_note
+            FROM crm_purchase_items cpi
+            LEFT JOIN products p ON p.id = cpi.product_id
+            LEFT JOIN product_variants pv ON pv.id = cpi.variant_id
+            WHERE cpi.purchase_id IN ({placeholders})
+            ORDER BY cpi.purchase_id ASC, cpi.id ASC
+            """,
+            normalized_ids,
+        ).fetchall()
+    except Exception:
+        rows = db.execute(
+            f"""
+            SELECT
+                cpi.id AS item_id,
+                cpi.purchase_id,
+                cpi.product_id,
+                cpi.variant_id,
+                COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
+                COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
+                COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
+                COALESCE(cpi.qty, 0) AS qty,
+                COALESCE(cpi.unit_price, 0) AS retail_price,
+                COALESCE(cpi.unit_price, 0) AS unit_price,
+                COALESCE(cpi.line_total, 0) AS line_total,
+                COALESCE(cpi.void_qty, 0) AS void_qty,
+                COALESCE(cpi.void_amount, 0) AS void_amount,
+                COALESCE(cpi.void_note, '') AS void_note
+            FROM crm_purchase_items cpi
+            LEFT JOIN products p ON p.id = cpi.product_id
+            LEFT JOIN product_variants pv ON pv.id = cpi.variant_id
+            WHERE cpi.purchase_id IN ({placeholders})
+            ORDER BY cpi.purchase_id ASC, cpi.id ASC
+            """,
+            normalized_ids,
+        ).fetchall()
 
     item_map = {}
     for row in rows:
@@ -2691,6 +2948,7 @@ def _fetch_pos_sale_logs(
     search_query="",
     limit=60,
     receipt_wa_status=None,
+    archive_mode="visible",
 ):
     safe_limit = max(1, min(_to_int(limit, 60), 200))
     params = [date_from, date_to]
@@ -2722,6 +2980,9 @@ def _fetch_pos_sale_logs(
             ps.receipt_whatsapp_status,
             ps.receipt_whatsapp_error,
             ps.receipt_whatsapp_sent_at,
+            COALESCE(ps.is_hidden_archive, 0) AS is_hidden_archive,
+            ps.hidden_archive_at,
+            ps.hidden_archive_note,
             ps.note,
             ps.created_at,
             pr.member_id,
@@ -2730,9 +2991,11 @@ def _fetch_pos_sale_logs(
             COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type,
             COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
             COALESCE(NULLIF(TRIM(c.phone), ''), '-') AS customer_phone,
+            {POS_CASHIER_GROUP_KEY_SQL} AS staff_group_key,
             {POS_CASHIER_NAME_SQL} AS cashier_name,
             {POS_CASHIER_USERNAME_SQL} AS cashier_username,
             {POS_CASHIER_POSITION_SQL} AS cashier_position,
+            COALESCE(NULLIF(TRIM(hidden_archive_user.username), ''), 'System') AS hidden_archive_by_name,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
         LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
@@ -2740,9 +3003,16 @@ def _fetch_pos_sale_logs(
         JOIN crm_customers c ON c.id = ps.customer_id
         LEFT JOIN users u ON u.id = ps.cashier_user_id
         LEFT JOIN employees e ON e.id = u.employee_id
+        LEFT JOIN users hidden_archive_user ON hidden_archive_user.id = ps.hidden_archive_by
         LEFT JOIN warehouses w ON w.id = ps.warehouse_id
         WHERE ps.sale_date BETWEEN ? AND ?
     """
+
+    normalized_archive_mode = str(archive_mode or "visible").strip().lower()
+    if normalized_archive_mode == "hidden_only":
+        query += " AND COALESCE(ps.is_hidden_archive, 0)=1"
+    elif normalized_archive_mode != "all":
+        query += " AND COALESCE(ps.is_hidden_archive, 0)=0"
 
     if selected_warehouse:
         query += " AND ps.warehouse_id=?"
@@ -2760,10 +3030,10 @@ def _fetch_pos_sale_logs(
                 ps.receipt_no LIKE ?
                 OR COALESCE(c.customer_name, '') LIKE ?
                 OR COALESCE(c.phone, '') LIKE ?
-                OR COALESCE(e.full_name, u.username, '') LIKE ?
+                OR {actor_name_sql} LIKE ?
                 OR COALESCE(ps.note, '') LIKE ?
             )
-        """
+        """.format(actor_name_sql=POS_CASHIER_NAME_SQL)
         params.extend([search_pattern] * 5)
 
     safe_receipt_wa_status = str(receipt_wa_status or "").strip().lower()
@@ -2782,6 +3052,7 @@ def _fetch_pos_sale_logs(
     normalized_rows = []
 
     for row in header_rows:
+        is_hidden_archive = bool(_to_int(row.get("is_hidden_archive"), 0))
         items = item_map.get(int(row["purchase_id"]), [])
         total_amount = _currency(row.get("total_amount") or 0)
         paid_amount = _currency(row.get("paid_amount") or 0)
@@ -2799,6 +3070,7 @@ def _fetch_pos_sale_logs(
         sale_status = _build_pos_sale_status_payload(row.get("status"))
         can_edit_transaction = (
             has_permission(session.get("role"), "manage_pos")
+            and not is_hidden_archive
             and str(row.get("status") or "posted").strip().lower() == "posted"
             and not any(max(_to_int(item.get("void_qty"), 0), 0) > 0 for item in items)
             and any(max(_to_int(item.get("active_qty"), 0), 0) > 0 for item in items)
@@ -2824,6 +3096,12 @@ def _fetch_pos_sale_logs(
                 "tax_rule_label": _format_pos_adjustment_rule_label(row.get("tax_type"), row.get("tax_value")),
                 "payment_method_label": _format_payment_method_label(row.get("payment_method")),
                 "can_edit_transaction": can_edit_transaction,
+                "is_hidden_archive": is_hidden_archive,
+                "hidden_archive_at": row.get("hidden_archive_at"),
+                "hidden_archive_note": row.get("hidden_archive_note") or "",
+                "hidden_archive_by_name": row.get("hidden_archive_by_name") or "System",
+                "can_hidden_archive": _can_archive_pos_sale() and not is_hidden_archive,
+                "can_restore_hidden_archive": _can_manage_pos_hidden_archive() and is_hidden_archive and _is_pos_hidden_archive_unlocked(),
                 "has_payment_breakdown": payment_meta["has_payment_breakdown"],
                 "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
                 "payment_breakdown_label": payment_meta["payment_breakdown_label"],
@@ -2831,7 +3109,9 @@ def _fetch_pos_sale_logs(
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
                 "cashier_identity_label": f"{row['cashier_name']} - {row['cashier_position']}",
+                "staff_group_key": row.get("staff_group_key") or "",
                 "can_edit_payment_method": has_permission(session.get("role"), "manage_pos")
+                and not is_hidden_archive
                 and str(row.get("status") or "posted").strip().lower() != "voided",
                 "items": items,
                 "item_preview_lines": item_preview_lines,
@@ -2854,10 +3134,14 @@ def _fetch_pos_sale_logs(
     return normalized_rows
 
 
-def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
+def _fetch_pos_sale_detail_by_receipt(db, receipt_no, *, allow_hidden_archive=False):
     safe_receipt = str(receipt_no or "").strip()
     if not safe_receipt:
         return None
+
+    effective_allow_hidden_archive = bool(allow_hidden_archive) or (
+        _can_manage_pos_hidden_archive() and _is_pos_hidden_archive_unlocked()
+    )
 
     params = [safe_receipt]
     query = f"""
@@ -2888,6 +3172,9 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             ps.receipt_whatsapp_status,
             ps.receipt_whatsapp_error,
             ps.receipt_whatsapp_sent_at,
+            COALESCE(ps.is_hidden_archive, 0) AS is_hidden_archive,
+            ps.hidden_archive_at,
+            ps.hidden_archive_note,
             ps.note,
             ps.created_at,
             pr.member_id,
@@ -2899,6 +3186,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
             {POS_CASHIER_NAME_SQL} AS cashier_name,
             {POS_CASHIER_USERNAME_SQL} AS cashier_username,
             {POS_CASHIER_POSITION_SQL} AS cashier_position,
+            COALESCE(NULLIF(TRIM(hidden_archive_user.username), ''), 'System') AS hidden_archive_by_name,
             COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
         FROM pos_sales ps
         LEFT JOIN crm_purchase_records pr ON pr.id = ps.purchase_id
@@ -2906,6 +3194,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         JOIN crm_customers c ON c.id = ps.customer_id
         LEFT JOIN users u ON u.id = ps.cashier_user_id
         LEFT JOIN employees e ON e.id = u.employee_id
+        LEFT JOIN users hidden_archive_user ON hidden_archive_user.id = ps.hidden_archive_by
         LEFT JOIN warehouses w ON w.id = ps.warehouse_id
         WHERE ps.receipt_no=?
     """
@@ -2921,6 +3210,8 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         return None
 
     sale = dict(row)
+    if bool(_to_int(sale.get("is_hidden_archive"), 0)) and not effective_allow_hidden_archive:
+        return None
     items = _fetch_pos_sale_item_map(db, [sale["purchase_id"]]).get(int(sale["purchase_id"]), [])
     total_amount = _currency(sale.get("total_amount") or 0)
     paid_amount = _currency(sale.get("paid_amount") or 0)
@@ -2961,6 +3252,10 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
         "created_datetime_label": f"{sale['sale_date']} {created_time_label}" if created_time_label != "-" else sale["sale_date"],
         "customer_phone_label": sale["customer_phone"] if sale.get("customer_phone") and sale["customer_phone"] != "-" else "Tanpa nomor",
         "cashier_identity_label": f"{sale['cashier_name']} - {sale['cashier_position']}",
+        "is_hidden_archive": bool(_to_int(sale.get("is_hidden_archive"), 0)),
+        "hidden_archive_at": sale.get("hidden_archive_at"),
+        "hidden_archive_note": sale.get("hidden_archive_note") or "",
+        "hidden_archive_by_name": sale.get("hidden_archive_by_name") or "System",
         "receipt_pdf_public_url": sale.get("receipt_pdf_url") or "",
         "receipt_whatsapp_status": str(sale.get("receipt_whatsapp_status") or "pending").strip().lower(),
         "receipt_whatsapp_error": sale.get("receipt_whatsapp_error") or "",
@@ -2970,17 +3265,22 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
     return _attach_pos_loyalty_summary(db, sale_detail)
 
 
-def _fetch_pos_sale_detail_by_id(db, sale_id):
+def _fetch_pos_sale_detail_by_id(db, sale_id, *, allow_hidden_archive=False):
     safe_sale_id = _to_int(sale_id, 0)
     if safe_sale_id <= 0:
         return None
 
+    effective_allow_hidden_archive = bool(allow_hidden_archive) or (
+        _can_manage_pos_hidden_archive() and _is_pos_hidden_archive_unlocked()
+    )
     params = [safe_sale_id]
     query = """
         SELECT receipt_no
         FROM pos_sales
         WHERE id=?
     """
+    if not effective_allow_hidden_archive:
+        query += " AND COALESCE(is_hidden_archive, 0)=0"
     if is_scoped_role(session.get("role")):
         query += " AND warehouse_id=?"
         params.append(session.get("warehouse_id"))
@@ -2989,7 +3289,11 @@ def _fetch_pos_sale_detail_by_id(db, sale_id):
     row = db.execute(query, params).fetchone()
     if not row:
         return None
-    return _fetch_pos_sale_detail_by_receipt(db, row["receipt_no"])
+    return _fetch_pos_sale_detail_by_receipt(
+        db,
+        row["receipt_no"],
+        allow_hidden_archive=effective_allow_hidden_archive,
+    )
 
 
 def _build_pos_stock_allowance_map_from_items(items):
@@ -3162,11 +3466,12 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
     params = [date_from, date_to]
     query = f"""
         SELECT
-            ps.cashier_user_id,
+            {POS_CASHIER_GROUP_KEY_SQL} AS staff_group_key,
+            MIN(ps.cashier_user_id) AS cashier_user_id,
             {POS_CASHIER_NAME_SQL} AS staff_name,
             {POS_CASHIER_USERNAME_SQL} AS username,
             {POS_CASHIER_POSITION_SQL} AS position,
-            COALESCE(NULLIF(TRIM(home_w.name), ''), '-') AS home_warehouse_name,
+            COALESCE(MAX(NULLIF(TRIM(home_w.name), '')), '-') AS home_warehouse_name,
             COUNT(ps.id) AS total_transactions,
             COALESCE(SUM(ps.total_items), 0) AS total_items,
             COALESCE(SUM(ps.total_amount), 0) AS total_revenue,
@@ -3183,6 +3488,7 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
         LEFT JOIN warehouses sale_w ON sale_w.id = ps.warehouse_id
         WHERE ps.sale_date BETWEEN ? AND ?
           AND COALESCE(ps.status, 'posted') <> 'voided'
+          AND COALESCE(ps.is_hidden_archive, 0)=0
     """
     if selected_warehouse:
         query += " AND ps.warehouse_id=?"
@@ -3190,11 +3496,10 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
 
     query += """
         GROUP BY
-            ps.cashier_user_id,
+            staff_group_key,
             staff_name,
             username,
-            position,
-            home_warehouse_name
+            position
         ORDER BY total_revenue DESC, total_transactions DESC, staff_name COLLATE NOCASE ASC
     """
 
@@ -3560,6 +3865,10 @@ def pos_staff_sales_report():
     selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
     week_period = _resolve_week_range(request.args.get("week_date"))
     month_period = _resolve_month_range(request.args.get("month"))
+    manual_period = _normalize_pos_log_date_range(
+        request.args.get("date_from") or week_period["date_from"],
+        request.args.get("date_to") or week_period["date_to"],
+    )
 
     selected_warehouse_name = next(
         (
@@ -3570,6 +3879,12 @@ def pos_staff_sales_report():
         f"WH {selected_warehouse}",
     )
 
+    manual_rows = _fetch_pos_staff_sales_rows(
+        db,
+        manual_period["date_from"],
+        manual_period["date_to"],
+        selected_warehouse=selected_warehouse,
+    )
     weekly_rows = _fetch_pos_staff_sales_rows(
         db,
         week_period["date_from"],
@@ -3582,6 +3897,10 @@ def pos_staff_sales_report():
         month_period["date_to"],
         selected_warehouse=selected_warehouse,
     )
+    manual_summary = _mask_pos_staff_sales_summary(
+        _build_pos_staff_sales_summary(manual_rows, manual_period["label"]),
+        can_view_pos_revenue,
+    )
     weekly_summary = _mask_pos_staff_sales_summary(
         _build_pos_staff_sales_summary(weekly_rows, week_period["label"]),
         can_view_pos_revenue,
@@ -3590,6 +3909,7 @@ def pos_staff_sales_report():
         _build_pos_staff_sales_summary(monthly_rows, month_period["label"]),
         can_view_pos_revenue,
     )
+    manual_rows = _mask_pos_staff_sales_rows(manual_rows, can_view_pos_revenue)
     weekly_rows = _mask_pos_staff_sales_rows(weekly_rows, can_view_pos_revenue)
     monthly_rows = _mask_pos_staff_sales_rows(monthly_rows, can_view_pos_revenue)
 
@@ -3599,11 +3919,14 @@ def pos_staff_sales_report():
         scoped_warehouse=scoped_warehouse,
         selected_warehouse=selected_warehouse,
         selected_warehouse_name=selected_warehouse_name,
+        manual_period=manual_period,
         week_period=week_period,
         month_period=month_period,
         can_view_pos_revenue=can_view_pos_revenue,
+        manual_rows=manual_rows,
         weekly_rows=weekly_rows,
         monthly_rows=monthly_rows,
+        manual_summary=manual_summary,
         weekly_summary=weekly_summary,
         monthly_summary=monthly_summary,
     )
@@ -3683,7 +4006,428 @@ def pos_sales_log_page():
         cash_closing_preview_text=cash_closing_defaults["preview_text"],
         cash_closing_return_url=_build_pos_cash_closing_return_url(),
         can_edit_cash_closing=str(session.get("role") or "").strip().lower() == "super_admin",
+        can_manage_hidden_archive=_can_manage_pos_hidden_archive(),
     )
+
+
+@pos_bp.get("/hidden-archive")
+def pos_hidden_archive_page():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    if not _can_manage_pos_hidden_archive():
+        flash("Hidden Archive POS hanya tersedia untuk super admin.", "error")
+        return redirect("/kasir/log")
+
+    db = get_db()
+    can_view_pos_revenue = _can_view_pos_revenue()
+    warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
+    scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
+    selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
+    date_range = _normalize_pos_log_date_range(request.args.get("date_from"), request.args.get("date_to"))
+    cashier_filter_id = _to_int(request.args.get("cashier_user_id"), 0)
+    selected_cashier_user_id = cashier_filter_id if cashier_filter_id > 0 else None
+    cashier_filter_options = _fetch_pos_staff_options(db, selected_warehouse)
+    if selected_cashier_user_id and not any(option["id"] == selected_cashier_user_id for option in cashier_filter_options):
+        selected_cashier_user_id = None
+
+    selected_warehouse_name = next(
+        (
+            warehouse["name"]
+            for warehouse in warehouses
+            if int(warehouse["id"] or 0) == int(selected_warehouse)
+        ),
+        f"WH {selected_warehouse}",
+    )
+    query_string = request.query_string.decode("utf-8", errors="ignore").strip()
+    current_return_url = f"/kasir/hidden-archive?{query_string}" if query_string else "/kasir/hidden-archive"
+    archive_unlocked = _is_pos_hidden_archive_unlocked()
+    unlock_timeout_minutes = max(_get_pos_hidden_archive_unlock_seconds() // 60, 5)
+
+    sales_log_rows = []
+    sales_log_summary = _mask_pos_sale_log_summary(
+        _build_pos_sale_log_summary([], date_range["label"]),
+        can_view_pos_revenue,
+    )
+    if archive_unlocked:
+        sales_log_rows = _fetch_pos_sale_logs(
+            db,
+            date_range["date_from"],
+            date_range["date_to"],
+            selected_warehouse=selected_warehouse,
+            cashier_user_id=selected_cashier_user_id,
+            search_query=request.args.get("search"),
+            limit=120,
+            archive_mode="hidden_only",
+        )
+        sales_log_summary = _mask_pos_sale_log_summary(
+            _build_pos_sale_log_summary(sales_log_rows, date_range["label"]),
+            can_view_pos_revenue,
+        )
+        sales_log_rows = _mask_pos_sale_log_rows(sales_log_rows, can_view_pos_revenue)
+
+    return render_template(
+        "pos_hidden_archive.html",
+        archive_unlocked=archive_unlocked,
+        unlock_timeout_minutes=unlock_timeout_minutes,
+        hidden_archive_return_url=current_return_url,
+        warehouses=warehouses,
+        scoped_warehouse=scoped_warehouse,
+        selected_warehouse=selected_warehouse,
+        selected_warehouse_name=selected_warehouse_name,
+        cashier_filter_options=cashier_filter_options,
+        selected_cashier_user_id=selected_cashier_user_id,
+        search_query=str(request.args.get("search") or "").strip(),
+        date_range=date_range,
+        can_view_pos_revenue=can_view_pos_revenue,
+        sales_log_rows=sales_log_rows,
+        sales_log_summary=sales_log_summary,
+    )
+
+
+@pos_bp.post("/hidden-archive/unlock")
+def pos_hidden_archive_unlock():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    if not _can_manage_pos_hidden_archive():
+        flash("Hidden Archive POS hanya tersedia untuk super admin.", "error")
+        return redirect("/kasir/log")
+
+    return_url = _sanitize_pos_hidden_archive_return_url(request.form.get("return_url"))
+    archive_password = str(request.form.get("archive_password") or "").strip()
+    if archive_password != _get_pos_hidden_archive_password():
+        _lock_pos_hidden_archive()
+        flash("Password Hidden Archive tidak cocok.", "error")
+        return redirect(return_url)
+
+    _unlock_pos_hidden_archive()
+    flash("Hidden Archive berhasil dibuka.", "success")
+    return redirect(return_url)
+
+
+@pos_bp.post("/hidden-archive/lock")
+def pos_hidden_archive_lock():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    if not _can_manage_pos_hidden_archive():
+        flash("Hidden Archive POS hanya tersedia untuk super admin.", "error")
+        return redirect("/kasir/log")
+
+    _lock_pos_hidden_archive()
+    flash("Hidden Archive dikunci lagi.", "info")
+    return redirect(_sanitize_pos_hidden_archive_return_url(request.form.get("return_url")))
+
+
+@pos_bp.post("/sale/<int:sale_id>/archive")
+def pos_archive_sale(sale_id):
+    denied = _require_pos_access(json_mode=request.is_json)
+    if denied:
+        return denied
+
+    if not _can_archive_pos_sale():
+        if request.is_json:
+            return _json_error("Hanya super admin yang bisa menghapus transaksi ke Hidden Archive.", 403)
+        flash("Hanya super admin yang bisa menghapus transaksi ke Hidden Archive.", "error")
+        return redirect(_sanitize_pos_sales_action_return_url(request.form.get("return_url")))
+
+    request_data = request.get_json(silent=True) or {} if request.is_json else request.form
+    return_url = _sanitize_pos_sales_action_return_url(request_data.get("return_url"))
+    db = get_db()
+    sale = _fetch_pos_sale_detail_by_id(db, sale_id, allow_hidden_archive=True)
+    if sale is None:
+        if request.is_json:
+            return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
+        flash("Transaksi POS tidak ditemukan atau tidak bisa diakses.", "error")
+        return redirect(return_url)
+
+    if sale.get("is_hidden_archive"):
+        message = f"Transaksi {sale['receipt_no']} sudah dihapus dari log penjualan dan ada di Hidden Archive."
+        if request.is_json:
+            return jsonify({"status": "success", "message": message, "sale_id": sale["id"], "receipt_no": sale["receipt_no"], "unchanged": True})
+        return redirect(return_url)
+
+    archive_note = str(request_data.get("note") or "").strip() or None
+    try:
+        db.execute(
+            """
+            UPDATE pos_sales
+            SET
+                is_hidden_archive=1,
+                hidden_archive_at=CURRENT_TIMESTAMP,
+                hidden_archive_by=?,
+                hidden_archive_note=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (_to_int(session.get("user_id"), 0) or None, archive_note, sale["id"]),
+        )
+        _sync_pos_cash_closing_report_snapshot(db, sale)
+        db.commit()
+    except Exception:
+        db.rollback()
+        if request.is_json:
+            return _json_error("Transaksi gagal dipindahkan ke Hidden Archive. Coba lagi beberapa detik.", 500)
+        flash("Transaksi gagal dipindahkan ke Hidden Archive. Coba lagi beberapa detik.", "error")
+        return redirect(return_url)
+
+    success_message = (
+        f"Transaksi {sale['receipt_no']} dihapus dari log penjualan "
+        "dan dipindahkan ke Hidden Archive."
+    )
+    if request.is_json:
+        return jsonify({"status": "success", "message": success_message, "sale_id": sale["id"], "receipt_no": sale["receipt_no"]})
+
+    return redirect(return_url)
+
+
+@pos_bp.post("/sale/<int:sale_id>/unarchive")
+def pos_unarchive_sale(sale_id):
+    denied = _require_pos_access(json_mode=request.is_json)
+    if denied:
+        return denied
+
+    if not _can_manage_pos_hidden_archive():
+        if request.is_json:
+            return _json_error("Hanya super admin yang bisa memulihkan transaksi Hidden Archive.", 403)
+        flash("Hanya super admin yang bisa memulihkan transaksi Hidden Archive.", "error")
+        return redirect(_sanitize_pos_sales_action_return_url(request.form.get("return_url")))
+
+    if not _is_pos_hidden_archive_unlocked():
+        if request.is_json:
+            return _json_error("Hidden Archive masih terkunci. Masukkan password global dulu.", 403)
+        flash("Hidden Archive masih terkunci. Masukkan password global dulu.", "error")
+        return redirect(_sanitize_pos_hidden_archive_return_url(request.form.get("return_url")))
+
+    request_data = request.get_json(silent=True) or {} if request.is_json else request.form
+    return_url = _sanitize_pos_sales_action_return_url(request_data.get("return_url"))
+    db = get_db()
+    sale = _fetch_pos_sale_detail_by_id(db, sale_id, allow_hidden_archive=True)
+    if sale is None:
+        if request.is_json:
+            return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
+        flash("Transaksi POS tidak ditemukan atau tidak bisa diakses.", "error")
+        return redirect(return_url)
+
+    if not sale.get("is_hidden_archive"):
+        message = f"Transaksi {sale['receipt_no']} sudah aktif di log POS biasa."
+        if request.is_json:
+            return jsonify({"status": "success", "message": message, "sale_id": sale["id"], "receipt_no": sale["receipt_no"], "unchanged": True})
+        return redirect(return_url)
+
+    try:
+        db.execute(
+            """
+            UPDATE pos_sales
+            SET
+                is_hidden_archive=0,
+                hidden_archive_at=NULL,
+                hidden_archive_by=NULL,
+                hidden_archive_note=NULL,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (sale["id"],),
+        )
+        _sync_pos_cash_closing_report_snapshot(db, sale)
+        db.commit()
+    except Exception:
+        db.rollback()
+        if request.is_json:
+            return _json_error("Transaksi gagal dipulihkan dari Hidden Archive. Coba lagi beberapa detik.", 500)
+        flash("Transaksi gagal dipulihkan dari Hidden Archive. Coba lagi beberapa detik.", "error")
+        return redirect(return_url)
+
+    success_message = f"Transaksi {sale['receipt_no']} dikembalikan ke log POS biasa."
+    if request.is_json:
+        return jsonify({"status": "success", "message": success_message, "sale_id": sale["id"], "receipt_no": sale["receipt_no"]})
+
+    return redirect(return_url)
+
+
+def _fetch_recent_pos_sales(db, limit=18):
+    safe_limit = max(1, min(_to_int(limit, 18), 50))
+    params = []
+    query = """
+        SELECT
+            ps.receipt_no,
+            ps.sale_date,
+            ps.created_at,
+            COALESCE(NULLIF(TRIM(c.customer_name), ''), 'Walk-in Customer') AS customer_name,
+            COALESCE(NULLIF(TRIM(w.name), ''), '-') AS warehouse_name
+        FROM pos_sales ps
+        LEFT JOIN crm_customers c ON c.id = ps.customer_id
+        LEFT JOIN warehouses w ON w.id = ps.warehouse_id
+        WHERE 1=1
+    """
+    query += " AND COALESCE(ps.is_hidden_archive, 0)=0"
+    if is_scoped_role(session.get("role")):
+        query += " AND ps.warehouse_id=?"
+        params.append(session.get("warehouse_id"))
+    query += " ORDER BY ps.created_at DESC, ps.id DESC LIMIT ?"
+    params.append(safe_limit)
+    rows = db.execute(query, params).fetchall()
+    recent = []
+    for row in rows:
+        recent.append(
+            {
+                "receipt_no": row["receipt_no"],
+                "sale_date": row["sale_date"],
+                "created_time_label": _format_pos_time_label(row["created_at"]),
+                "customer_name": row["customer_name"],
+                "warehouse_name": row["warehouse_name"],
+            }
+        )
+    return recent
+
+
+def _safe_pos_branding(sale_detail):
+    try:
+        return build_pos_receipt_branding(sale_detail or {})
+    except Exception:
+        current_app.logger.exception("Failed to build POS branding payload for invoice/surat jalan")
+        return {
+            "business_name": current_app.config.get("STORE_NAME") or "POS",
+            "business_address": "",
+            "customer_service_phone": current_app.config.get("STORE_PHONE") or "",
+            "footer_note": "",
+            "feedback_line": "",
+            "social_label": "",
+            "social_media_url": "",
+            "logo_url": "/static/brand/mataram-logo.png",
+            "logo_pdf_path": "",
+        }
+
+
+@pos_bp.get("/invoice")
+def pos_invoice_page():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    receipt_no = str(request.args.get("receipt_no") or "").strip()
+    sale_detail = None
+    recent_sales = []
+    if receipt_no:
+        try:
+            sale_detail = _fetch_pos_sale_detail_by_receipt(db, receipt_no)
+        except Exception:
+            current_app.logger.exception("POS invoice: failed to fetch sale detail")
+        if sale_detail is None:
+            flash("Nota POS tidak ditemukan. Pastikan nomor receipt benar.", "error")
+    try:
+        recent_sales = _fetch_recent_pos_sales(db)
+    except Exception:
+        current_app.logger.exception("POS invoice: failed to load recent sales")
+        recent_sales = []
+    branding = _safe_pos_branding(sale_detail)
+
+    return render_template(
+        "pos_invoice.html",
+        receipt_no=receipt_no,
+        sale_detail=sale_detail,
+        recent_sales=recent_sales,
+        branding=branding,
+    )
+
+
+@pos_bp.get("/invoice/manual")
+def pos_invoice_manual_page():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    now = datetime.now(POS_DISPLAY_TIMEZONE)
+    date_label = now.strftime("%Y-%m-%d")
+    branding = _safe_pos_branding({})
+    return render_template(
+        "pos_invoice_manual.html",
+        invoice_date=date_label,
+        due_date=date_label,
+        branding=branding,
+    )
+
+
+@pos_bp.get("/surat-jalan/manual")
+def pos_delivery_note_manual_page():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    now = datetime.now(POS_DISPLAY_TIMEZONE)
+    date_label = now.strftime("%Y-%m-%d")
+    branding = _safe_pos_branding({})
+    return render_template(
+        "pos_delivery_note_manual.html",
+        document_date=date_label,
+        branding=branding,
+    )
+
+
+@pos_bp.get("/invoice/<receipt_no>/print")
+def pos_invoice_print(receipt_no):
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    sale_detail = _fetch_pos_sale_detail_by_receipt(db, receipt_no)
+    if sale_detail is None:
+        abort(404)
+    branding = _safe_pos_branding(sale_detail)
+    return render_template("pos_invoice_print.html", sale=sale_detail, branding=branding)
+
+
+@pos_bp.get("/surat-jalan")
+def pos_delivery_note_page():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    receipt_no = str(request.args.get("receipt_no") or "").strip()
+    sale_detail = None
+    recent_sales = []
+    if receipt_no:
+        try:
+            sale_detail = _fetch_pos_sale_detail_by_receipt(db, receipt_no)
+        except Exception:
+            current_app.logger.exception("POS surat jalan: failed to fetch sale detail")
+        if sale_detail is None:
+            flash("Nota POS tidak ditemukan. Pastikan nomor receipt benar.", "error")
+    try:
+        recent_sales = _fetch_recent_pos_sales(db)
+    except Exception:
+        current_app.logger.exception("POS surat jalan: failed to load recent sales")
+        recent_sales = []
+    branding = _safe_pos_branding(sale_detail)
+
+    return render_template(
+        "pos_delivery_note.html",
+        receipt_no=receipt_no,
+        sale_detail=sale_detail,
+        recent_sales=recent_sales,
+        branding=branding,
+    )
+
+
+@pos_bp.get("/surat-jalan/<receipt_no>/print")
+def pos_delivery_note_print(receipt_no):
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    sale_detail = _fetch_pos_sale_detail_by_receipt(db, receipt_no)
+    if sale_detail is None:
+        abort(404)
+    branding = _safe_pos_branding(sale_detail)
+    return render_template("pos_delivery_note_print.html", sale=sale_detail, branding=branding)
 
 
 @pos_bp.get("/cash-closing/history")

@@ -1610,6 +1610,27 @@ function renderPosCartSummary() {
     updatePosChangePreview();
 }
 
+function getPosCartPriceMetaHtml(item, options = {}) {
+    const safeItem = item || {};
+    const isFreeReward = Boolean(options.isFreeReward);
+    const unitPrice = Number(safeItem.unit_price || 0);
+    const retailPrice = Number(safeItem.retail_price || safeItem.unit_price || 0);
+
+    if (unitPrice <= 0) {
+        const detailParts = ['<span class="pos-cart-price-badge">Gratis</span>'];
+        if (isFreeReward) {
+            detailParts.push("<span>Free Reward Aktif</span>");
+        } else if (retailPrice > 0) {
+            detailParts.push(`<span>Retail ${formatPosCurrency(retailPrice)}</span>`);
+        } else {
+            detailParts.push("<span>Harga item 0 rupiah</span>");
+        }
+        return detailParts.join("");
+    }
+
+    return `<span>Retail ${formatPosCurrency(retailPrice)}</span>`;
+}
+
 function syncPosCartLineDisplay(index, options = {}) {
     if (Number.isNaN(index) || !posCart[index]) {
         return;
@@ -1638,6 +1659,12 @@ function syncPosCartLineDisplay(index, options = {}) {
     const lineTotalTarget = row.querySelector("[data-pos-line-total]");
     if (lineTotalTarget) {
         lineTotalTarget.textContent = formatPosCurrency(roundPosMoney(Number(posCart[index].qty) * Number(posCart[index].unit_price)));
+    }
+    const priceMetaTarget = row.querySelector("[data-pos-price-meta]");
+    if (priceMetaTarget) {
+        priceMetaTarget.innerHTML = getPosCartPriceMetaHtml(posCart[index], {
+            isFreeReward: isPosFreeRewardMode(),
+        });
     }
     row.classList.toggle("is-active", index === posCartFocusedIndex);
     row.setAttribute("aria-selected", index === posCartFocusedIndex ? "true" : "false");
@@ -1675,7 +1702,7 @@ function renderPosCart() {
                     <td>
                         <label class="pos-cart-price-editor" aria-label="Harga jual item ${index + 1}">
                             <input type="number" min="0" step="0.01" value="${item.unit_price}" data-pos-price-index="${index}" class="pos-inline-price" data-wms-currency="currency" ${isFreeReward ? "disabled" : ""}>
-                            <small>${isFreeReward ? "Free Reward Aktif" : "Retail " + formatPosCurrency(item.retail_price || item.unit_price || 0)}</small>
+                            <small class="pos-cart-price-meta" data-pos-price-meta>${getPosCartPriceMetaHtml(item, { isFreeReward })}</small>
                         </label>
                     </td>
                     <td><strong data-pos-line-total>${formatPosCurrency(lineTotal)}</strong></td>

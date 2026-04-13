@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+
+{% block title %}Surat Jalan Manual POS | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}POS Tools{% endblock %}
+{% block page_title %}Surat Jalan Manual{% endblock %}
+{% block page_subtitle %}Surat jalan ini mengikuti data yang diisi di invoice manual.{% endblock %}
+
+{% block extra_head %}
+<style>
+    .manual-delivery-layout { display: grid; grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr); gap: 24px; }
+    .manual-delivery-tools { display: grid; gap: 18px; align-content: start; }
+    .manual-delivery-tools .helper-card { display: grid; gap: 10px; }
+    .manual-delivery-tools .helper-card strong { font-size: 14px; color: #f8fafc; }
+    .manual-delivery-tools .helper-card p,
+    .manual-delivery-tools .helper-card li { color: rgba(226, 232, 240, 0.78); font-size: 13px; }
+    .manual-delivery-tools .helper-card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+    .manual-delivery-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .manual-delivery-actions .ghost-button.primary { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.45); color: #dbeafe; }
+    .manual-delivery-actions .ghost-button.accent { background: rgba(20, 184, 166, 0.16); border: 1px solid rgba(20, 184, 166, 0.4); color: #ccfbf1; }
+    .manual-delivery-meta { display: grid; gap: 10px; }
+    .manual-delivery-meta-card { border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 16px; padding: 14px 16px; background: rgba(9, 18, 32, 0.46); }
+    .manual-delivery-meta-card span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(148, 163, 184, 0.8); }
+    .manual-delivery-meta-card strong { display: block; margin-top: 8px; font-size: 15px; color: #f8fafc; }
+
+    .manual-delivery-preview { background: #ffffff; color: #0f172a; border-radius: 18px; padding: 18px; border: 1px solid rgba(148, 163, 184, 0.25); }
+    .manual-delivery-sheet { border: 1px solid #dbe3f0; }
+    .manual-delivery-topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; background: #214e79; color: #ffffff; }
+    .manual-delivery-brand { display: flex; align-items: center; gap: 12px; }
+    .manual-delivery-logo { width: 52px; height: 52px; object-fit: contain; border-radius: 50%; background: #ffffff; padding: 6px; }
+    .manual-delivery-logo-fallback { width: 52px; height: 52px; border-radius: 50%; background: #ffffff; color: #214e79; display: grid; place-items: center; font-weight: 700; }
+    .manual-delivery-brand-text { display: grid; gap: 3px; font-size: 12px; }
+    .manual-delivery-brand-text strong { font-size: 14px; }
+    .manual-delivery-title { text-align: right; display: grid; gap: 6px; }
+    .manual-delivery-title strong { font-size: 18px; letter-spacing: 0.16em; }
+    .manual-delivery-title span { font-size: 12px; opacity: 0.9; }
+    .manual-delivery-body { padding: 18px 22px 22px; display: grid; gap: 18px; }
+    .manual-delivery-meta-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; }
+    .manual-delivery-box { border: 1px solid #dbe3f0; border-radius: 14px; padding: 14px 16px; }
+    .manual-delivery-box span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
+    .manual-delivery-box strong { display: block; margin-top: 8px; font-size: 14px; }
+    .manual-delivery-box p { margin: 8px 0 0; font-size: 12px; color: #334155; white-space: pre-line; }
+    .manual-delivery-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .manual-delivery-table thead th { padding: 10px 8px; background: #214e79; color: #ffffff; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; }
+    .manual-delivery-table tbody td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    .manual-delivery-table tbody td:last-child { text-align: center; width: 96px; }
+    .manual-delivery-note { display: grid; gap: 8px; font-size: 12px; color: #334155; }
+    .manual-delivery-note strong { font-size: 13px; color: #0f172a; }
+    .manual-delivery-footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 14px; }
+    .manual-delivery-sign { text-align: center; font-size: 12px; color: #334155; }
+    .manual-delivery-sign-line { margin-top: 56px; border-top: 1px solid #94a3b8; padding-top: 6px; }
+    .manual-delivery-bottom-bar { height: 8px; background: #214e79; }
+
+    @media (max-width: 1100px) {
+        .manual-delivery-layout { grid-template-columns: 1fr; }
+        .manual-delivery-meta-grid,
+        .manual-delivery-footer { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+        body { background: #ffffff !important; }
+        .sidebar,
+        .mobile-nav,
+        .layout > header,
+        .mobile-command-deck,
+        .page-hero,
+        .flash-stack,
+        .manual-delivery-tools { display: none !important; }
+        .manual-delivery-preview { box-shadow: none; border: none; padding: 0; }
+        .manual-delivery-sheet { border: none; }
+        .layout { padding: 0 !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wms-page-stack">
+    <div class="manual-delivery-layout">
+        <section class="manual-delivery-tools">
+            <div class="form-box helper-card">
+                <strong>Surat jalan terhubung</strong>
+                <p>Halaman ini membaca draft yang sama dengan invoice manual. Jadi saat kamu isi data customer, nomor invoice, dan item di invoice manual, surat jalan ini langsung ikut.</p>
+                <ul>
+                    <li>Nomor invoice dipakai sebagai referensi dokumen.</li>
+                    <li>Nama customer, kontak, alamat, catatan, dan item ikut sinkron.</li>
+                    <li>Kalau invoice dibuka di tab lain, surat jalan akan ikut refresh otomatis.</li>
+                </ul>
+                <div class="manual-delivery-actions">
+                    <a href="/kasir/invoice/manual" class="ghost-button accent" target="_blank" rel="noopener">Buka Invoice Manual</a>
+                    <button type="button" class="ghost-button" id="manualDeliveryRefresh">Refresh Data</button>
+                    <button type="button" class="ghost-button primary" id="manualDeliveryPrint">Cetak Surat Jalan</button>
+                </div>
+            </div>
+
+            <div class="manual-delivery-meta">
+                <div class="manual-delivery-meta-card">
+                    <span>Status sinkron</span>
+                    <strong id="manualDeliverySyncStatus">Belum ada draft invoice manual.</strong>
+                </div>
+                <div class="manual-delivery-meta-card">
+                    <span>Update terakhir</span>
+                    <strong id="manualDeliveryLastSync">-</strong>
+                </div>
+                <div class="manual-delivery-meta-card">
+                    <span>Total item</span>
+                    <strong id="manualDeliveryItemCount">0 baris / 0 qty</strong>
+                </div>
+            </div>
+        </section>
+
+        <aside class="manual-delivery-preview">
+            <div class="manual-delivery-sheet" id="manualDeliveryPreview">
+                <div class="manual-delivery-topbar">
+                    <div class="manual-delivery-brand">
+                        {% if branding.get('logo_url') %}
+                        <img src="{{ branding.get('logo_url') }}" alt="Logo" class="manual-delivery-logo">
+                        {% else %}
+                        <div class="manual-delivery-logo-fallback">CV</div>
+                        {% endif %}
+                        <div class="manual-delivery-brand-text">
+                            <strong data-preview="business_name">{{ branding.get('business_name', '-') }}</strong>
+                            <div data-preview="business_address">{{ branding.get('business_address', '-') }}</div>
+                            <div data-preview="business_phone">{{ branding.get('customer_service_phone', '-') }}</div>
+                        </div>
+                    </div>
+                    <div class="manual-delivery-title">
+                        <strong>SURAT JALAN</strong>
+                        <span>Referensi Invoice: <b data-preview="invoice_no">-</b></span>
+                    </div>
+                </div>
+
+                <div class="manual-delivery-body">
+                    <div class="manual-delivery-meta-grid">
+                        <div class="manual-delivery-box">
+                            <span>Kepada</span>
+                            <strong data-preview="customer_name">-</strong>
+                            <p data-preview="customer_phone">-</p>
+                            <p data-preview="customer_address">-</p>
+                        </div>
+                        <div class="manual-delivery-box">
+                            <span>Informasi Dokumen</span>
+                            <strong>Tanggal: <span data-preview="document_date">{{ document_date }}</span></strong>
+                            <p>Nomor Invoice: <span data-preview="invoice_no">-</span></p>
+                            <p>Jatuh Tempo Invoice: <span data-preview="due_date">-</span></p>
+                        </div>
+                    </div>
+
+                    <table class="manual-delivery-table">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Deskripsi Barang</th>
+                                <th>Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody id="manualDeliveryItems">
+                            <tr>
+                                <td colspan="3">Belum ada item dari invoice manual.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="manual-delivery-note">
+                        <strong>Catatan / Keterangan</strong>
+                        <div data-preview="description">-</div>
+                    </div>
+
+                    <div class="manual-delivery-footer">
+                        <div class="manual-delivery-sign">
+                            Dibuat oleh
+                            <div class="manual-delivery-sign-line" data-preview="business_name">-</div>
+                        </div>
+                        <div class="manual-delivery-sign">
+                            Bagian Gudang
+                            <div class="manual-delivery-sign-line">(........................)</div>
+                        </div>
+                        <div class="manual-delivery-sign">
+                            Penerima
+                            <div class="manual-delivery-sign-line">(........................)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="manual-delivery-bottom-bar"></div>
+            </div>
+        </aside>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/pos_manual_document_draft.js"></script>
+<script>
+(() => {
+    const draftStore = window.posManualDocumentDraft;
+    const initialDraft = {
+        business_name: {{ branding.get('business_name', '') | tojson }},
+        business_address: {{ branding.get('business_address', '') | tojson }},
+        business_phone: {{ branding.get('customer_service_phone', '') | tojson }},
+        invoice_no: "",
+        invoice_date: {{ document_date | tojson }},
+        due_date: {{ document_date | tojson }},
+        customer_name: "",
+        customer_phone: "",
+        customer_address: "",
+        description: "",
+        payment_note: "",
+        items: [],
+    };
+
+    const previewItems = document.getElementById("manualDeliveryItems");
+    const syncStatus = document.getElementById("manualDeliverySyncStatus");
+    const lastSyncNode = document.getElementById("manualDeliveryLastSync");
+    const itemCountNode = document.getElementById("manualDeliveryItemCount");
+    const refreshButton = document.getElementById("manualDeliveryRefresh");
+    const printButton = document.getElementById("manualDeliveryPrint");
+
+    const escapeHtml = (value) => {
+        return String(value ?? "").replace(/[&<>"']/g, (character) => {
+            const replacements = {
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+            };
+            return replacements[character] || character;
+        });
+    };
+
+    const setPreviewText = (key, value) => {
+        document.querySelectorAll(`[data-preview="${key}"]`).forEach((node) => {
+            node.textContent = String(value || "").trim() || "-";
+        });
+    };
+
+    const formatSyncTime = (timestamp) => {
+        if (!timestamp) {
+            return "-";
+        }
+        try {
+            return new Intl.DateTimeFormat("id-ID", {
+                dateStyle: "medium",
+                timeStyle: "short",
+            }).format(new Date(timestamp));
+        } catch (error) {
+            return new Date(timestamp).toLocaleString("id-ID");
+        }
+    };
+
+    const normalizeItems = (items) => {
+        if (!Array.isArray(items)) {
+            return [];
+        }
+        return items.filter((item) => {
+            return (item && item.desc) || Number(item && item.qty) > 0 || Number(item && item.price) > 0 || Number(item && item.discount) > 0;
+        });
+    };
+
+    const renderPreview = (draft) => {
+        const activeDraft = draftStore ? draftStore.normalizeDraft(draft, initialDraft) : draft;
+        const items = normalizeItems(activeDraft.items);
+
+        setPreviewText("business_name", activeDraft.business_name);
+        setPreviewText("business_address", activeDraft.business_address);
+        setPreviewText("business_phone", activeDraft.business_phone);
+        setPreviewText("invoice_no", activeDraft.invoice_no);
+        setPreviewText("document_date", activeDraft.invoice_date || initialDraft.invoice_date);
+        setPreviewText("due_date", activeDraft.due_date);
+        setPreviewText("customer_name", activeDraft.customer_name);
+        setPreviewText("customer_phone", activeDraft.customer_phone);
+        setPreviewText("customer_address", activeDraft.customer_address);
+        setPreviewText("description", activeDraft.description);
+
+        previewItems.innerHTML = "";
+        if (!items.length) {
+            const row = document.createElement("tr");
+            row.innerHTML = '<td colspan="3">Belum ada item dari invoice manual.</td>';
+            previewItems.appendChild(row);
+        } else {
+            items.forEach((item, index) => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${escapeHtml(item.desc || "-")}</td>
+                    <td>${item.qty || 0}</td>
+                `;
+                previewItems.appendChild(row);
+            });
+        }
+
+        const totalQty = items.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+        itemCountNode.textContent = `${items.length} baris / ${totalQty} qty`;
+
+        if (items.length || activeDraft.customer_name || activeDraft.invoice_no) {
+            syncStatus.textContent = "Terhubung ke draft invoice manual.";
+        } else {
+            syncStatus.textContent = "Belum ada draft invoice manual.";
+        }
+        lastSyncNode.textContent = formatSyncTime(activeDraft.updated_at);
+    };
+
+    const reloadDraft = () => {
+        const latestDraft = draftStore ? draftStore.loadDraft(initialDraft) : initialDraft;
+        renderPreview(latestDraft);
+    };
+
+    refreshButton.addEventListener("click", reloadDraft);
+    printButton.addEventListener("click", () => {
+        reloadDraft();
+        window.print();
+    });
+
+    if (draftStore) {
+        draftStore.subscribe((nextDraft) => {
+            renderPreview(nextDraft);
+        }, initialDraft);
+    }
+
+    window.addEventListener("focus", reloadDraft);
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+            reloadDraft();
+        }
+    });
+
+    reloadDraft();
+})();
+</script>
+{% endblock %}

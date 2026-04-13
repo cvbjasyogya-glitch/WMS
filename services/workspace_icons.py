@@ -21,7 +21,6 @@ HRIS_MODULE_ICON_KEYS = {
 WORKSPACE_ICON_KEYS = frozenset(
     {
         "coordination-pengumuman",
-        "coordination-meeting-live",
         "coordination-absen-foto",
         "coordination-libur",
         "coordination-report-harian",

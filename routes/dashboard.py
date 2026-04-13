@@ -53,18 +53,6 @@ def _build_workspace_sections(role):
             )
         )
 
-    if has_permission(normalized_role, "view_meetings"):
-        coordination_items.append(
-            _workspace_tile(
-                "Meeting Live",
-                "/meetings/",
-                "Masuk room meeting browser yang ringan untuk koordinasi cepat tim.",
-                "Live",
-                "violet",
-                "coordination-meeting-live",
-            )
-        )
-
     if has_permission(normalized_role, "access_attendance_portal"):
         coordination_items.append(
             _workspace_tile(

@@ -18,7 +18,7 @@ _POS_RECEIPT_BRANDS = {
         "accent_dark": "#163f6b",
         "accent_soft": "#eef4fb",
         "ambient_tint": "rgba(31, 90, 151, 0.10)",
-        "logo_relative_path": "",
+        "logo_relative_path": "static/brand/mataram-logo.png",
     },
     "mataram": {
         "business_name": "Mataram Sports",
@@ -405,12 +405,16 @@ def build_pos_receipt_branding(sale=None):
     brand_key = _resolve_pos_receipt_brand_key(sale.get("warehouse_id"), sale.get("warehouse_name"))
     brand = dict(_POS_RECEIPT_BRANDS.get(brand_key) or _POS_RECEIPT_BRANDS["default"])
     logo_relative_path = str(brand.get("logo_relative_path") or "").strip().lstrip("/\\")
+    if not logo_relative_path:
+        logo_relative_path = "static/brand/mataram-logo.png"
     logo_url = f"/{logo_relative_path}" if logo_relative_path else ""
     logo_pdf_path = ""
     if logo_relative_path:
         candidate_path = os.path.join(current_app.root_path, *logo_relative_path.split("/"))
         if os.path.exists(candidate_path):
             logo_pdf_path = candidate_path
+        else:
+            logo_url = ""
 
     homebase_label = format_receipt_homebase_label(sale.get("warehouse_name"))
     business_name = str(brand.get("business_name") or "ERP Core POS").strip()

@@ -54,23 +54,24 @@ LIVE_SCHEDULE_LIGHT_SURFACE = "#F7FAFD"
 LIVE_SCHEDULE_DARK_SURFACE = "#0F1928"
 SCHEDULE_LIGHT_TEXT = "#17304A"
 SCHEDULE_DARK_TEXT = "#F6FBFF"
+SCHEDULE_OFF_STYLE = ("OFF", "Off", "#f59c8b", "#7c1f1f")
 
 LEAVE_OVERRIDE_STYLES = {
-    "annual": ("CUTI", "Cuti Tahunan", "#f8d77f", "#5c3b00"),
-    "sick": ("SAKIT", "Cuti Sakit", "#f3a58f", "#6d2117"),
-    "permit": ("IZIN", "Izin", "#b7d6ff", "#17355a"),
-    "unpaid": ("UNPAID", "Cuti Unpaid", "#e2d2ff", "#4a2d75"),
-    "special": ("SPECIAL", "Cuti Khusus", "#c9f0d2", "#164029"),
+    "annual": SCHEDULE_OFF_STYLE,
+    "sick": SCHEDULE_OFF_STYLE,
+    "permit": SCHEDULE_OFF_STYLE,
+    "unpaid": SCHEDULE_OFF_STYLE,
+    "special": SCHEDULE_OFF_STYLE,
 }
 
 ATTENDANCE_OVERRIDE_STYLES = {
-    "leave": ("LEAVE", "Leave", "#f8d77f", "#5c3b00"),
+    "leave": SCHEDULE_OFF_STYLE,
     "absent": ("ABSEN", "Tidak Hadir", "#f28a8a", "#6e1717"),
     "half_day": ("HALF", "Half Day", "#bde3f7", "#114764"),
 }
 
 EMPLOYMENT_OVERRIDE_STYLES = {
-    "leave": ("OFF", "Status Leave", "#f4a98f", "#6b2216"),
+    "leave": SCHEDULE_OFF_STYLE,
     "inactive": ("NA", "Tidak Aktif", "#d7dee8", "#33465b"),
 }
 
@@ -807,10 +808,7 @@ def _build_override_map(db, employees, start_date, end_date):
             (row["leave_type"] or "").strip().lower(),
             LEAVE_OVERRIDE_STYLES["annual"],
         )
-        extra_note = (row["reason"] or "").strip() or (row["note"] or "").strip()
         title = label
-        if extra_note:
-            title = f"{title} - {extra_note}"
 
         for current_day in _daterange(effective_start, effective_end):
             _set_override(
@@ -823,7 +821,7 @@ def _build_override_map(db, employees, start_date, end_date):
                     "bg_color": bg_color,
                     "text_color": text_color,
                     "source": "leave",
-                    "note": extra_note,
+                    "note": "",
                     "title": title,
                 },
                 300,
@@ -841,10 +839,11 @@ def _build_override_map(db, employees, start_date, end_date):
     ).fetchall()
 
     for row in attendance_rows:
-        style = ATTENDANCE_OVERRIDE_STYLES.get((row["status"] or "").strip().lower())
+        status_key = (row["status"] or "").strip().lower()
+        style = ATTENDANCE_OVERRIDE_STYLES.get(status_key)
         if not style:
             continue
-        note = (row["note"] or "").strip()
+        note = "" if status_key == "leave" else (row["note"] or "").strip()
         title = style[1]
         if note:
             title = f"{title} - {note}"
@@ -1227,8 +1226,7 @@ def schedule_page():
             **_build_schedule_chip_color_tokens(bg_color, text_color),
         }
         for code, label, bg_color, text_color in (
-            ("CUTI", "Approved leave dari HRIS", "#f8d77f", "#5c3b00"),
-            ("SAKIT", "Cuti sakit otomatis", "#f3a58f", "#6d2117"),
+            ("OFF", "Leave / cuti tampil sebagai OFF", "#f59c8b", "#7c1f1f"),
             ("OFFBD", "Offboarding aktif", "#f49797", "#6d1616"),
             ("ABSEN", "Absensi tidak hadir", "#f28a8a", "#6e1717"),
         )

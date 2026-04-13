@@ -8,7 +8,10 @@
 {% block page_actions %}
 <div class="split-actions">
     <a href="/kasir/?warehouse={{ selected_warehouse }}" class="btn-link">Buka Kasir</a>
-    <a href="/kasir/staff-sales?warehouse={{ selected_warehouse }}&week_date={{ date_range.date_from }}&month={{ date_range.date_from[:7] }}" class="ghost-button">Rekap Staff</a>
+    <a href="/kasir/staff-sales?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}&week_date={{ date_range.date_from }}&month={{ date_range.date_from[:7] }}" class="ghost-button">Rekap Staff</a>
+    {% if can_manage_hidden_archive %}
+    <a href="/kasir/hidden-archive?warehouse={{ selected_warehouse }}&date_from={{ date_range.date_from }}&date_to={{ date_range.date_to }}" class="ghost-button">Hidden Archive</a>
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -288,6 +291,8 @@
                     data-wa-status="{{ sale.receipt_whatsapp_status }}"
                     data-wa-error="{{ sale.receipt_whatsapp_error }}"
                     data-return-url="{{ cash_closing_return_url }}"
+                    data-can-archive="{{ 1 if sale.can_hidden_archive else 0 }}"
+                    data-archive-url="/kasir/sale/{{ sale.id }}/archive"
                 >
                     <td>
                         <strong>{{ sale.receipt_no }}</strong>
@@ -464,6 +469,8 @@ function buildPosSalesContextMenu(row) {
     const canEditPayment = Number(row.dataset.canEditPayment || 0) > 0;
     const currentPaymentMethod = String(row.dataset.paymentMethod || "").trim();
     const returnUrl = String(row.dataset.returnUrl || "").trim();
+    const canArchive = Number(row.dataset.canArchive || 0) > 0;
+    const archiveUrl = String(row.dataset.archiveUrl || "").trim();
 
     posSalesContextBody.innerHTML = "";
     const fragment = document.createDocumentFragment();
@@ -492,6 +499,14 @@ function buildPosSalesContextMenu(row) {
             resendButton.dataset.posResendReceiptNo = receiptNo;
             closePosSalesContextMenu();
             submitPosReceiptResendFromLog(resendButton);
+        });
+    }
+
+    if (canArchive && saleId && archiveUrl) {
+        appendPosSalesContextDivider(fragment);
+        appendPosSalesContextButton(fragment, "Hapus Transaksi", () => {
+            closePosSalesContextMenu();
+            submitPosArchiveFromLog(row);
         });
     }
 
@@ -710,6 +725,48 @@ async function submitPosReceiptResendFromLog(button) {
     } finally {
         button.disabled = false;
         button.textContent = originalText;
+    }
+}
+
+async function submitPosArchiveFromLog(row) {
+    if (!(row instanceof HTMLElement)) {
+        return;
+    }
+
+    const saleId = Number(row.dataset.saleId || 0);
+    const receiptNo = String(row.dataset.receiptNo || "").trim();
+    const archiveUrl = String(row.dataset.archiveUrl || "").trim();
+    if (!saleId || !archiveUrl) {
+        return;
+    }
+
+    const confirmed = window.confirm(
+        `Hapus transaksi ${receiptNo || "ini"} dari log penjualan? Transaksi tidak akan kirim notif dan langsung masuk Hidden Archive.`
+    );
+    if (!confirmed) {
+        return;
+    }
+
+    const archiveNote = window.prompt("Catatan arsip opsional", "") ?? "";
+
+    try {
+        const response = await fetch(archiveUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+                note: archiveNote,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || "Transaksi gagal dihapus ke Hidden Archive.");
+        }
+        window.location.reload();
+    } catch (error) {
+        window.alert(error.message || "Transaksi gagal dihapus ke Hidden Archive.");
     }
 }
 

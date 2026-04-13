@@ -9,6 +9,7 @@ from services.event_notification_policy import (
     get_event_notification_policy,
     row_matches_notification_aliases,
 )
+from services.notification_retention import cleanup_notification_history
 from services.private_activity_policy import should_suppress_super_admin_notifications
 from services.rbac import normalize_role
 
@@ -87,6 +88,7 @@ def record_whatsapp_delivery(user_id, role, recipient, subject, message, result,
         return None
 
     db = get_db()
+    cleanup_notification_history(db)
     notification_message = str(message or "").strip()
     error_message = str(result.get("error") or "").strip()
     if error_message and error_message not in notification_message:
