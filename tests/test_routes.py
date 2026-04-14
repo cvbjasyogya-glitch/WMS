@@ -140,6 +140,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("CAST(h.date AS timestamp)", translated)
         self.assertIn("INTERVAL '+7 hours'", translated)
 
+    def test_database_translation_supports_parameterized_datetime_modifier(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT * FROM chat_call_sessions WHERE COALESCE(last_signal_at, started_at) <= datetime('now', ?)"
+        )
+        self.assertIn("CURRENT_TIMESTAMP", translated)
+        self.assertIn("CAST(%s AS interval)", translated)
+
     def test_database_translation_supports_nested_date_expression(self):
         translated = _translate_sqlite_query_to_postgres(
             "SELECT * FROM stock WHERE date(substr(expiry_date, 1, 10)) <= date('now', '+30 day')"

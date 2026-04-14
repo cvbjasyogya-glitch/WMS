@@ -375,8 +375,12 @@ def _build_temporal_base_expression(argument, *, date_only=False):
 def _apply_temporal_modifiers(base_expression, modifiers, *, date_only=False):
     expression = str(base_expression or "").strip()
     for modifier in modifiers:
-        safe_modifier = _normalize_sql_literal(modifier)
-        if not safe_modifier:
+        raw_modifier = str(modifier or "").strip()
+        safe_modifier = _normalize_sql_literal(raw_modifier)
+        if not raw_modifier:
+            continue
+        if raw_modifier == "%s":
+            expression = f"({expression} + CAST(%s AS interval))"
             continue
         expression = f"({expression} + INTERVAL '{safe_modifier}')"
     if date_only:
