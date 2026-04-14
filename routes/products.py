@@ -954,7 +954,7 @@ def build_product_studio_context(
              p.name LIKE ? OR
              p.sku LIKE ? OR
              c.name LIKE ?)
-        GROUP BY p.id
+        GROUP BY p.id, c.name
         ORDER BY age_days DESC
         LIMIT ? OFFSET ?
         """,
