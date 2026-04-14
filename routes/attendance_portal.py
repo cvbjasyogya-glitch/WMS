@@ -533,20 +533,29 @@ def _build_attendance_status_badge(status):
 
 
 def _format_portal_datetime_display(raw_value, include_date=False):
-    safe_value = (raw_value or "").strip()
-    if not safe_value:
+    if raw_value is None:
         return "-"
-    try:
-        parsed = datetime.fromisoformat(safe_value.replace("T", " "))
-    except ValueError:
-        return safe_value
+    if isinstance(raw_value, datetime):
+        parsed = raw_value
+    else:
+        safe_value = str(raw_value or "").strip()
+        if not safe_value:
+            return "-"
+        try:
+            parsed = datetime.fromisoformat(safe_value.replace("T", " "))
+        except ValueError:
+            return safe_value
     if include_date:
         return parsed.strftime("%d %b %Y %H:%M")
     return parsed.strftime("%H:%M")
 
 
 def _parse_attendance_portal_datetime(raw_value):
-    safe_value = (raw_value or "").strip()
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, datetime):
+        return raw_value
+    safe_value = str(raw_value or "").strip()
     if not safe_value:
         return None
     try:

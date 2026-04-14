@@ -31,6 +31,7 @@ from routes.pos import (
     _format_pos_time_label,
 )
 from routes.chat import _format_timestamp_label
+from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
 from routes.schedule import (
     LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
     LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT,
@@ -181,6 +182,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("name ILIKE ?", translated)
         self.assertIn("sku NOT ILIKE ?", translated)
         self.assertIn("'LIKE ?'", translated)
+
+    def test_attendance_portal_datetime_helpers_accept_datetime_objects(self):
+        sample = datetime(2026, 4, 15, 8, 45, 0)
+        self.assertEqual(_format_portal_datetime_display(sample), "08:45")
+        self.assertEqual(_format_portal_datetime_display(sample, include_date=True), "15 Apr 2026 08:45")
+        self.assertEqual(_parse_attendance_portal_datetime(sample), sample)
 
     def test_create_app_skips_sqlite_init_when_postgresql_backend_selected(self):
         original_backend = Config.DATABASE_BACKEND
