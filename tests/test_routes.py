@@ -10668,6 +10668,57 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("1j 00m", html)
         self.assertNotIn("45 mnt", html)
 
+    def test_biometric_recap_counts_early_check_in_as_overtime(self):
+        self.login_hr_user("hr_bio_overtime_early", "pass1234")
+        date_value = "2026-09-05"
+        exact_employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-EARLY-OK",
+            full_name="Biometric Overtime Early Exact",
+            warehouse_id=1,
+        )
+        short_employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-EARLY-SHORT",
+            full_name="Biometric Overtime Early Short",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            for employee_id, check_in_time in [
+                (exact_employee_id, "12:00"),
+                (short_employee_id, "12:15"),
+            ]:
+                db.execute(
+                    """
+                    INSERT INTO attendance_records(
+                        employee_id, warehouse_id, attendance_date, check_in, check_out,
+                        status, shift_code, shift_label, note, updated_at
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        1,
+                        date_value,
+                        check_in_time,
+                        "21:00",
+                        "present",
+                        "siang",
+                        "Shift Siang | 13.00 - 21.00",
+                        "Synced from geotag",
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+            db.commit()
+
+        response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Biometric Overtime Early Exact", html)
+        self.assertNotIn("Biometric Overtime Early Short", html)
+        self.assertIn("1j 00m", html)
+        self.assertNotIn("45 mnt", html)
+
     def test_biometric_page_shows_staff_overtime_balance_recap_and_usage_history(self):
         self.login_hr_user("hr_overtime_recap", "pass1234")
         hr_user_id = self.get_user_id("hr_overtime_recap")
@@ -10739,6 +10790,46 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Saldo Lembur Dua", html)
         self.assertIn("1j 30m", html)
         self.assertIn("Dipakai pulang lebih awal", html)
+
+    def test_biometric_overtime_balance_counts_early_check_in_and_late_check_out(self):
+        self.login_hr_user("hr_overtime_combo", "pass1234")
+        date_value = "2026-09-06"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-COMBO-1",
+            full_name="Saldo Lembur Gabungan",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, check_out,
+                    status, shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    date_value,
+                    "07:00",
+                    "17:00",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Saldo Lembur Gabungan", html)
+        self.assertIn("2j 00m", html)
 
     def test_hr_can_use_overtime_balance_and_reject_request_above_available_minutes(self):
         self.login_hr_user("hr_overtime_use", "pass1234")

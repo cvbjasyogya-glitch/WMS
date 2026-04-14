@@ -1401,17 +1401,28 @@ def _format_duration_minutes_label(total_minutes, zero_label="-"):
     return _format_break_duration_label(safe_minutes * 60, has_break_activity=True)
 
 
-def _summarize_overtime_activity(check_out_time, shift_label, minimum_seconds=3600):
+def _summarize_overtime_activity(check_in_time, check_out_time, shift_label, minimum_seconds=3600):
+    check_in_minutes = _parse_time_of_day_minutes(check_in_time)
+    shift_start_minutes = _extract_shift_start_minutes(shift_label)
+    early_overtime_seconds = 0
+    if (
+        check_in_minutes is not None
+        and shift_start_minutes is not None
+        and check_in_minutes < shift_start_minutes
+    ):
+        early_overtime_seconds = (shift_start_minutes - check_in_minutes) * 60
+
     check_out_minutes = _parse_time_of_day_minutes(check_out_time)
     shift_end_minutes = _extract_shift_end_minutes(shift_label)
-    if check_out_minutes is None or shift_end_minutes is None or check_out_minutes <= shift_end_minutes:
-        return {
-            "qualifies": False,
-            "total_seconds": 0,
-            "duration_label": "-",
-        }
+    late_overtime_seconds = 0
+    if (
+        check_out_minutes is not None
+        and shift_end_minutes is not None
+        and check_out_minutes > shift_end_minutes
+    ):
+        late_overtime_seconds = (check_out_minutes - shift_end_minutes) * 60
 
-    overtime_seconds = (check_out_minutes - shift_end_minutes) * 60
+    overtime_seconds = early_overtime_seconds + late_overtime_seconds
     qualifies = overtime_seconds >= int(max(0, minimum_seconds or 0))
     return {
         "qualifies": qualifies,
@@ -2271,11 +2282,12 @@ def _get_overtime_usage_by_id(db, usage_id):
 
 def _build_employee_overtime_balance(db, employee_id):
     attendance_columns = _get_table_columns(db, "attendance_records")
-    if not {"employee_id", "attendance_date", "check_out"}.issubset(attendance_columns):
+    if not {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
         attendance_rows = []
     else:
         attendance_select = [
             "attendance_date",
+            "check_in",
             "check_out",
             ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
         ]
@@ -2283,7 +2295,7 @@ def _build_employee_overtime_balance(db, employee_id):
             SELECT {", ".join(attendance_select)}
             FROM attendance_records
             WHERE employee_id=?
-              AND COALESCE(check_out, '') <> ''
+              AND (COALESCE(check_in, '') <> '' OR COALESCE(check_out, '') <> '')
         """
         if "shift_label" in attendance_columns:
             attendance_query += " AND COALESCE(shift_label, '') <> ''"
@@ -2296,7 +2308,11 @@ def _build_employee_overtime_balance(db, employee_id):
 
     earned_seconds = 0
     for row in attendance_rows:
-        overtime_summary = _summarize_overtime_activity(row["check_out"], row["shift_label"])
+        overtime_summary = _summarize_overtime_activity(
+            row["check_in"],
+            row["check_out"],
+            row["shift_label"],
+        )
         earned_seconds += overtime_summary["total_seconds"]
 
     added_minutes = sum(max(0, int(row.get("minutes_delta") or 0)) for row in adjustment_rows)
@@ -2339,17 +2355,18 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
 
     if employee_map:
         attendance_columns = _get_table_columns(db, "attendance_records")
-        if {"employee_id", "attendance_date", "check_out"}.issubset(attendance_columns):
+        if {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
             attendance_select = [
                 "employee_id",
                 "attendance_date",
+                "check_in",
                 "check_out",
                 ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
             ]
             attendance_query = f"""
                 SELECT {", ".join(attendance_select)}
                 FROM attendance_records
-                WHERE COALESCE(check_out, '') <> ''
+                WHERE (COALESCE(check_in, '') <> '' OR COALESCE(check_out, '') <> '')
             """
             attendance_params = []
             if "shift_label" in attendance_columns:
@@ -2366,7 +2383,11 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                 if recap_row is None:
                     continue
 
-                overtime_summary = _summarize_overtime_activity(row["check_out"], row["shift_label"])
+                overtime_summary = _summarize_overtime_activity(
+                    row["check_in"],
+                    row["check_out"],
+                    row["shift_label"],
+                )
                 overtime_seconds = overtime_summary["total_seconds"]
                 if overtime_seconds <= 0:
                     continue
@@ -5302,6 +5323,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
             or (check_out_log["punch_time"][11:16] if check_out_log else "")
         )
         overtime_summary = _summarize_overtime_activity(
+            attendance_check_in_value,
             attendance_check_out_value,
             current_shift_label,
         )
