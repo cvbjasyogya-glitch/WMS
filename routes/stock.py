@@ -337,6 +337,7 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         p.name,
         p.unit_label,
         p.variant_mode,
+        c.name,
         v.variant,
         v.price_retail,
         v.price_discount,
