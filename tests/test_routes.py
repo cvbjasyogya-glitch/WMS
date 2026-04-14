@@ -33,6 +33,7 @@ from routes.pos import (
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
+from routes.hris import _format_hris_datetime_display, _normalize_datetime_input, _normalize_time_of_day_input
 from services.announcement_center import parse_iso_date
 from routes.schedule import (
     LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
@@ -185,6 +186,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("sku NOT ILIKE ?", translated)
         self.assertIn("'LIKE ?'", translated)
 
+    def test_database_translation_removes_collate_nocase(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT * FROM products ORDER BY name COLLATE NOCASE ASC, variant COLLATE NOCASE DESC"
+        )
+        self.assertNotIn("COLLATE NOCASE", translated.upper())
+        self.assertIn("ORDER BY name ASC, variant DESC", translated)
+
+    def test_database_translation_supports_group_concat(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT GROUP_CONCAT(DISTINCT p.name || ' / ' || v.variant, ' | ') AS items_summary FROM crm_purchase_items"
+        )
+        self.assertIn("STRING_AGG(DISTINCT p.name || ' / ' || v.variant, ' | ')", translated)
+
     def test_attendance_portal_datetime_helpers_accept_datetime_objects(self):
         sample = datetime(2026, 4, 15, 8, 45, 0)
         self.assertEqual(_format_portal_datetime_display(sample), "08:45")
@@ -195,6 +209,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         sample = datetime(2026, 4, 15, 9, 30, 0)
         self.assertEqual(parse_iso_date(sample), sample.date())
         self.assertEqual(_extract_iso_date_prefix(sample), "2026-04-15")
+
+    def test_hris_datetime_helpers_accept_datetime_objects(self):
+        sample = datetime(2026, 4, 15, 14, 5, 0)
+        self.assertEqual(_format_hris_datetime_display(sample), "14:05")
+        self.assertEqual(_format_hris_datetime_display(sample, include_date=True), "15/04/2026 14:05")
+        self.assertEqual(_normalize_datetime_input(sample), "2026-04-15 14:05:00")
+        self.assertEqual(_normalize_time_of_day_input(sample), "14:05")
 
     def test_create_app_skips_sqlite_init_when_postgresql_backend_selected(self):
         original_backend = Config.DATABASE_BACKEND
@@ -327,12 +348,13 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def create_product(self, sku=None, qty=5, variants="M,L", warehouse_id="1", name="Produk Uji"):
         sku = sku or ("AUTO-" + uuid4().hex[:8].upper())
+        product_name = name if name != "Produk Uji" else f"Produk Uji {sku}"
 
         response = self.client.post(
             "/products/add",
             data={
                 "sku": sku,
-                "name": name,
+                "name": product_name,
                 "category_name": "Testing",
                 "variants": variants,
                 "qty": str(qty),
@@ -7472,7 +7494,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         crm_html = crm_response.get_data(as_text=True)
         self.assertIn("Toko CRM", crm_html)
         self.assertIn("MBR-CRM-001", crm_html)
-        self.assertIn("Produk Uji / 40", crm_html)
+        self.assertIn("CRM-PRD-001", crm_html)
+        self.assertIn("/ 40", crm_html)
 
     def test_crm_membership_programs_track_points_stringing_reward_and_requesting_staff(self):
         self.login()

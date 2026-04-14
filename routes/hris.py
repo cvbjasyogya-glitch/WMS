@@ -611,19 +611,28 @@ def _current_timestamp():
 
 
 def _format_hris_datetime_display(raw_value, include_date=False):
-    safe_value = str(raw_value or "").strip()
-    if not safe_value:
+    if raw_value is None:
         return "-"
-    normalized = safe_value.replace("T", " ")[:19]
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return safe_value
+    if isinstance(raw_value, datetime):
+        parsed = raw_value
+    else:
+        safe_value = str(raw_value or "").strip()
+        if not safe_value:
+            return "-"
+        normalized = safe_value.replace("T", " ")[:19]
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return safe_value
     return parsed.strftime("%d/%m/%Y %H:%M" if include_date else "%H:%M")
 
 
 def _normalize_datetime_input(value):
-    raw_value = (value or "").strip()
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    raw_value = str(value or "").strip()
     if not raw_value:
         return None
 
@@ -636,7 +645,11 @@ def _normalize_datetime_input(value):
 
 
 def _normalize_time_of_day_input(value):
-    safe_value = (value or "").strip()
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%H:%M")
+    safe_value = str(value or "").strip()
     if not safe_value:
         return None
     try:

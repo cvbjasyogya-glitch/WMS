@@ -210,6 +210,7 @@ def _replace_qmark_placeholders(query):
 def _translate_sqlite_query_to_postgres(query):
     translated = _replace_qmark_placeholders(query)
     translated = _replace_like_operators(translated)
+    translated = re.sub(r"\s+COLLATE\s+NOCASE\b", "", translated, flags=re.IGNORECASE)
     translated = re.sub(r"\bBEGIN\s+IMMEDIATE\b", "BEGIN", translated, flags=re.IGNORECASE)
     translated = re.sub(r"\bBEGIN\s+EXCLUSIVE\b", "BEGIN", translated, flags=re.IGNORECASE)
     translated = re.sub(
@@ -218,6 +219,7 @@ def _translate_sqlite_query_to_postgres(query):
         translated,
         flags=re.IGNORECASE,
     )
+    translated = _replace_sql_function_calls(translated, "group_concat", _translate_group_concat_call)
     translated = _replace_sql_function_calls(translated, "julianday", _translate_julianday_call)
     translated = _replace_sql_function_calls(translated, "strftime", _translate_strftime_call)
     translated = _replace_sql_function_calls(translated, "datetime", _translate_datetime_call)
@@ -362,6 +364,25 @@ def _translate_julianday_call(argument_string, raw_call=""):
     if _normalize_sql_literal(argument) == "now":
         return "(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) / 86400.0)"
     return f"(EXTRACT(EPOCH FROM CAST({argument} AS timestamp)) / 86400.0)"
+
+
+def _translate_group_concat_call(argument_string, raw_call=""):
+    arguments = _split_sql_arguments(argument_string)
+    if not arguments:
+        return raw_call
+
+    expression = str(arguments[0] or "").strip()
+    separator = arguments[1] if len(arguments) > 1 else "','"
+    distinct_prefix = ""
+    upper_expression = expression.upper()
+    if upper_expression.startswith("DISTINCT "):
+        distinct_prefix = "DISTINCT "
+        expression = expression[9:].strip()
+
+    if not expression:
+        return raw_call
+
+    return f"STRING_AGG({distinct_prefix}{expression}, {separator})"
 
 
 def _build_temporal_base_expression(argument, *, date_only=False):
