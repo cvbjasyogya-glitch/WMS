@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set stock_opname_js_url = asset_url('js/stock_opname.js') %}
+{% set is_dual_area_mode = area_mode == 'both' %}
 
 {% block title %}Stock Opname | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Kontrol Hitung Fisik{% endblock %}
@@ -8,8 +9,8 @@
 
 {% block page_actions %}
 <div class="split-actions">
-    <a href="/so/export?warehouse={{ warehouse_id }}{% if search %}&q={{ search|urlencode }}{% endif %}" class="btn-link" id="exportSoLink">Ekspor CSV</a>
-    <a href="/so/export_report?warehouse={{ warehouse_id }}{% if search %}&q={{ search|urlencode }}{% endif %}" class="btn-link" id="exportReportLink">Laporan SO</a>
+    <a href="/so/export?warehouse={{ warehouse_id }}&area={{ area_mode }}{% if search %}&q={{ search|urlencode }}{% endif %}" class="btn-link" id="exportSoLink">Ekspor CSV</a>
+    <a href="/so/export_report?warehouse={{ warehouse_id }}&area={{ area_mode }}{% if search %}&q={{ search|urlencode }}{% endif %}" class="btn-link" id="exportReportLink">Laporan SO</a>
     <button type="button" id="saveSoHeroBtn">Simpan Hasil SO</button>
 </div>
 {% endblock %}
@@ -69,7 +70,7 @@
         </div>
         <div class="meta-card">
             <span>Area Dicek</span>
-            <strong>Display + Gudang</strong>
+            <strong id="soAreaModeLabel">{{ area_label }}</strong>
         </div>
         <div class="meta-card">
             <span>Halaman</span>
@@ -90,6 +91,10 @@
         {% if is_scoped_warehouse %}
         <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
         {% endif %}
+        <select name="area" id="areaModeSelect">
+            <option value="display" {% if area_mode == 'display' %}selected{% endif %}>Area Display</option>
+            <option value="gudang" {% if area_mode == 'gudang' %}selected{% endif %}>Area Gudang</option>
+        </select>
         <input type="text" name="q" id="searchInput" placeholder="Cari SKU, nama, atau varian" value="{{ search or '' }}">
         <button type="submit">Cari</button>
         <button type="button" class="ghost-button" id="saveSoTopBtn">Simpan Opname</button>
@@ -101,6 +106,7 @@
     <article class="wms-panel-note stock-opname-note">
         <strong>Flow Retail Satu Toko</strong>
         <p>Qty sistem di halaman ini mengambil total stok toko dari halaman `Stok & Produk`. Split area display mengikuti hasil SO terakhir, lalu sisa qty otomatis dianggap area gudang supaya total produk toko tetap konsisten.</p>
+        <p>{{ area_helper_text }}</p>
     </article>
 
     <div class="table-box stock-opname-table-box" data-scrollable-table="1">
@@ -117,12 +123,18 @@
                     <th>SKU</th>
                     <th>Nama Produk</th>
                     <th>Varian</th>
+                    {% if is_dual_area_mode %}
                     <th>Area Display</th>
                     <th>Display Fisik</th>
                     <th>Selisih</th>
                     <th>Area Gudang</th>
                     <th>Gudang Fisik</th>
                     <th>Selisih</th>
+                    {% else %}
+                    <th>{{ area_system_header }}</th>
+                    <th>{{ area_physical_header }}</th>
+                    <th>Selisih</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody id="soTable">
@@ -134,11 +146,19 @@
                         data-variant-id="{{ item.variant_id }}"
                         data-total-system="{{ item.total_qty }}"
                         data-overdraft-qty="{{ item.overdraft_qty or 0 }}"
+                        data-display-system="{{ item.display_qty }}"
+                        data-gudang-system="{{ item.gudang_qty }}"
                     >
                         <td class="mono">{{ item.sku }}</td>
                         <td class="stock-opname-product-cell">
                             <strong>{{ item.name }}</strong>
                             <small>Bandingkan fisik per variant aktif.</small>
+                            {% if not is_dual_area_mode %}
+                            <small class="helper-text">
+                                Referensi {{ area_counterpart_label|lower }} saat ini:
+                                {{ item.gudang_qty if area_mode == 'display' else item.display_qty }}.
+                            </small>
+                            {% endif %}
                             {% if (item.overdraft_qty or 0) > 0 or (item.total_qty or 0) < 0 %}
                             <small class="helper-text">
                                 {% if (item.total_qty or 0) < 0 %}
@@ -150,6 +170,7 @@
                             {% endif %}
                         </td>
                         <td>{{ item.variant }}</td>
+                        {% if is_dual_area_mode %}
                         <td class="display stock-opname-system-cell">{{ item.display_qty }}</td>
                         <td class="stock-opname-input-cell">
                             <input type="number" min="0" inputmode="numeric" class="physical_display" value="{{ item.display_qty }}">
@@ -160,11 +181,26 @@
                             <input type="number" min="0" inputmode="numeric" class="physical_gudang" value="{{ item.gudang_qty }}">
                         </td>
                         <td class="diff_gudang mono stock-opname-diff-cell" data-state="zero">0</td>
+                        {% else %}
+                        <td class="system_area stock-opname-system-cell">
+                            {{ item.display_qty if area_mode == 'display' else item.gudang_qty }}
+                        </td>
+                        <td class="stock-opname-input-cell">
+                            <input
+                                type="number"
+                                min="0"
+                                inputmode="numeric"
+                                class="physical_area"
+                                value="{{ item.display_qty if area_mode == 'display' else item.gudang_qty }}"
+                            >
+                        </td>
+                        <td class="diff_area mono stock-opname-diff-cell" data-state="zero">0</td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 {% else %}
                     <tr class="so-empty-row">
-                        <td colspan="9" class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</td>
+                        <td colspan="{{ 9 if is_dual_area_mode else 6 }}" class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</td>
                     </tr>
                 {% endif %}
             </tbody>
@@ -197,6 +233,7 @@
     "totalPages": total_pages,
     "search": search or "",
     "warehouseId": warehouse_id,
+    "areaMode": area_mode,
     "listUrl": "/so",
     "submitUrl": "/so/submit",
     "exportUrl": "/so/export",

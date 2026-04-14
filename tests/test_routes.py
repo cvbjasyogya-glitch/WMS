@@ -20259,8 +20259,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-product-id="', html)
         self.assertIn('data-total-system="', html)
         self.assertIn('data-overdraft-qty="', html)
+        self.assertIn('data-display-system="', html)
+        self.assertIn('data-gudang-system="', html)
+        self.assertIn('name="area"', html)
         self.assertNotIn('class="product_id"', html)
         self.assertNotIn('class="variant_id"', html)
+
+    def test_stock_opname_page_switches_columns_based_on_selected_area(self):
+        self.login()
+        response, _, _ = self.create_product(
+            sku="SO-AREA-COL",
+            qty=3,
+            variants="AREA-COL",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        display_response = self.client.get("/so/?warehouse=1&area=display")
+        self.assertEqual(display_response.status_code, 200)
+        display_html = display_response.get_data(as_text=True)
+        self.assertIn("Area Display", display_html)
+        self.assertIn("Display Fisik", display_html)
+        self.assertNotIn("Gudang Fisik</th>", display_html)
+
+        gudang_response = self.client.get("/so/?warehouse=1&area=gudang")
+        self.assertEqual(gudang_response.status_code, 200)
+        gudang_html = gudang_response.get_data(as_text=True)
+        self.assertIn("Area Gudang", gudang_html)
+        self.assertIn("Gudang Fisik", gudang_html)
+        self.assertNotIn("Display Fisik</th>", gudang_html)
 
     def test_stock_opname_mobile_table_css_keeps_horizontal_scroll_enabled(self):
         css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
@@ -20499,6 +20526,106 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertEqual(stock_row["qty"], qty + idx + 1)
                 self.assertEqual(result_rows, 2)
                 self.assertEqual(history_rows, 1)
+
+    def test_stock_opname_submit_updates_display_area_only_when_mode_selected(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=5, variants="SODISPLAYONLY")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "area_mode": "display",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": 2,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 1)
+        self.assertEqual(payload["area_mode"], "display")
+
+        with self.app.app_context():
+            db = get_db()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            display_area = db.execute(
+                """
+                SELECT qty FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='display'
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            gudang_area = db.execute(
+                """
+                SELECT qty FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='gudang'
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(stock_row["qty"], 7)
+        self.assertEqual(display_area["qty"], 2)
+        self.assertIsNone(gudang_area)
+
+    def test_stock_opname_submit_updates_gudang_area_only_when_mode_selected(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=5, variants="SOGUDANGONLY")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "area_mode": "gudang",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "gudang_physical": 3,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 1)
+        self.assertEqual(payload["area_mode"], "gudang")
+
+        with self.app.app_context():
+            db = get_db()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            display_area = db.execute(
+                """
+                SELECT qty FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='display'
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            gudang_area = db.execute(
+                """
+                SELECT qty FROM stock_area_balances
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND area_kind='gudang'
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(stock_row["qty"], 3)
+        self.assertIsNone(display_area)
+        self.assertEqual(gudang_area["qty"], 3)
 
     def test_stock_opname_submit_rejects_blank_physical_values_in_request(self):
         self.login()

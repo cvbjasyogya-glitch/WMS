@@ -16,10 +16,68 @@ SO_DB_LOCK_RETRY_ATTEMPTS = 2
 SO_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
 SO_AREA_DISPLAY = "display"
 SO_AREA_GUDANG = "gudang"
+SO_AREA_BOTH = "both"
 
 
 def _normalize_so_search(value):
     return (value or "").strip()
+
+
+def _normalize_so_area_mode(raw_value, *, default=SO_AREA_DISPLAY, allow_legacy_both=False):
+    value = str(raw_value or "").strip().lower()
+    if value == SO_AREA_DISPLAY:
+        return SO_AREA_DISPLAY
+    if value == SO_AREA_GUDANG:
+        return SO_AREA_GUDANG
+    if allow_legacy_both and value == SO_AREA_BOTH:
+        return SO_AREA_BOTH
+    return SO_AREA_DISPLAY if default == SO_AREA_DISPLAY else default
+
+
+def _build_so_area_meta(area_mode):
+    normalized_area_mode = _normalize_so_area_mode(
+        area_mode,
+        default=SO_AREA_DISPLAY,
+        allow_legacy_both=True,
+    )
+    if normalized_area_mode == SO_AREA_GUDANG:
+        return {
+            "mode": SO_AREA_GUDANG,
+            "label": "Area Gudang",
+            "system_header": "Area Gudang",
+            "physical_header": "Gudang Fisik",
+            "focus_label": "Item Area Gudang",
+            "helper_text": (
+                "Mode area gudang aktif. Saat disimpan, area display tetap memakai angka sistem "
+                "atau hasil SO terakhir yang sudah tersimpan."
+            ),
+            "counterpart_label": "Area Display",
+        }
+    if normalized_area_mode == SO_AREA_BOTH:
+        return {
+            "mode": SO_AREA_BOTH,
+            "label": "Display + Gudang",
+            "system_header": "Area Display",
+            "physical_header": "Display Fisik",
+            "focus_label": "Item Area Display",
+            "helper_text": (
+                "Mode gabungan aktif. Display dan gudang dihitung sekaligus lalu total toko "
+                "langsung disinkronkan."
+            ),
+            "counterpart_label": "Area Gudang",
+        }
+    return {
+        "mode": SO_AREA_DISPLAY,
+        "label": "Area Display",
+        "system_header": "Area Display",
+        "physical_header": "Display Fisik",
+        "focus_label": "Item Area Display",
+        "helper_text": (
+            "Mode area display aktif. Saat disimpan, area gudang tetap memakai angka sistem "
+            "atau hasil SO terakhir yang sudah tersimpan."
+        ),
+        "counterpart_label": "Area Gudang",
+    }
 
 
 def _build_so_search_clause(search, columns):
@@ -93,8 +151,14 @@ def _resolve_so_warehouse(db, warehouse_id=None, legacy_display_id=None, legacy_
     return selected_warehouse_id, available_warehouses, scoped_warehouse
 
 
-def _build_so_summary(rows):
+def _build_so_summary(rows, *, area_mode=SO_AREA_DISPLAY):
+    normalized_area_mode = _normalize_so_area_mode(
+        area_mode,
+        default=SO_AREA_DISPLAY,
+        allow_legacy_both=True,
+    )
     display_item_count = 0
+    gudang_item_count = 0
     total_display = 0
     total_gudang = 0
     total_qty = 0
@@ -108,13 +172,15 @@ def _build_so_summary(rows):
         total_qty += int(row.get("total_qty") or (display_qty + gudang_qty))
         if display_qty > 0:
             display_item_count += 1
+        if gudang_qty > 0:
+            gudang_item_count += 1
 
     return {
         "items": len(rows),
         "display_qty": total_display,
         "gudang_qty": total_gudang,
         "total_qty": total_qty,
-        "gap_count": display_item_count,
+        "gap_count": gudang_item_count if normalized_area_mode == SO_AREA_GUDANG else display_item_count,
     }
 
 
@@ -128,6 +194,8 @@ def _build_so_response_payload(payload, *, message=None, processed=None):
         "warehouse_id": payload["warehouse_id"],
         "warehouse_name": payload["warehouse_name"],
         "is_scoped_warehouse": payload["is_scoped_warehouse"],
+        "area_mode": payload["area_mode"],
+        "area_label": payload["area_label"],
         # Backward-compatible keys for any stale frontend/cache still reading legacy payloads.
         "display_id": payload["warehouse_id"],
         "gudang_id": payload["warehouse_id"],
@@ -159,10 +227,15 @@ def _load_so_request_payload():
     return form_payload if form_payload else {}
 
 
-def _normalize_so_submit_items(raw_items):
+def _normalize_so_submit_items(raw_items, *, area_mode=SO_AREA_BOTH):
     if not isinstance(raw_items, list):
         return [], "Format item stock opname tidak valid"
 
+    normalized_area_mode = _normalize_so_area_mode(
+        area_mode,
+        default=SO_AREA_BOTH,
+        allow_legacy_both=True,
+    )
     normalized_items = []
     seen_keys = set()
 
@@ -170,12 +243,11 @@ def _normalize_so_submit_items(raw_items):
         if not isinstance(raw_item, dict):
             return [], f"Baris produk ke-{index} tidak valid"
 
-        required_keys = (
-            "product_id",
-            "variant_id",
-            "display_physical",
-            "gudang_physical",
-        )
+        required_keys = ["product_id", "variant_id"]
+        if normalized_area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH):
+            required_keys.append("display_physical")
+        if normalized_area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH):
+            required_keys.append("gudang_physical")
         if any(key not in raw_item for key in required_keys):
             return [], f"Baris produk ke-{index} tidak lengkap"
 
@@ -193,23 +265,34 @@ def _normalize_so_submit_items(raw_items):
         if (
             not raw_product_id
             or not raw_variant_id
-            or not raw_display_physical
-            or not raw_gudang_physical
+            or (normalized_area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH) and not raw_display_physical)
+            or (normalized_area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH) and not raw_gudang_physical)
         ):
             return [], f"Baris produk ke-{index} tidak lengkap"
 
         try:
             product_id = int(raw_product_id)
             variant_id = int(raw_variant_id)
-            display_physical = int(raw_display_physical)
-            gudang_physical = int(raw_gudang_physical)
+            display_physical = (
+                int(raw_display_physical)
+                if normalized_area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH)
+                else None
+            )
+            gudang_physical = (
+                int(raw_gudang_physical)
+                if normalized_area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH)
+                else None
+            )
         except (TypeError, ValueError):
             return [], f"Baris produk ke-{index} tidak valid"
 
         if product_id <= 0 or variant_id <= 0:
             return [], f"Baris produk ke-{index} tidak lengkap"
 
-        if display_physical < 0 or gudang_physical < 0:
+        if (
+            (display_physical is not None and display_physical < 0)
+            or (gudang_physical is not None and gudang_physical < 0)
+        ):
             return [], "Stock fisik tidak boleh negatif"
 
         dedupe_key = (product_id, variant_id)
@@ -322,6 +405,7 @@ def _build_so_page_payload(
     page=1,
     limit=20,
     *,
+    area_mode=SO_AREA_DISPLAY,
     scoped_warehouse=False,
     available_warehouses=None,
 ):
@@ -333,8 +417,15 @@ def _build_so_page_payload(
         page = 1
 
     search = _normalize_so_search(search)
+    normalized_area_mode = _normalize_so_area_mode(
+        area_mode,
+        default=SO_AREA_DISPLAY,
+        allow_legacy_both=True,
+    )
+    area_meta = _build_so_area_meta(normalized_area_mode)
     offset = (page - 1) * limit
     inventory_query, params = _build_so_inventory_query(warehouse_id, search)
+    focus_qty_expression = "gudang_qty" if normalized_area_mode == SO_AREA_GUDANG else "display_qty"
 
     total = db.execute(
         f"SELECT COUNT(*) FROM ({inventory_query}) inventory_rows",
@@ -348,7 +439,7 @@ def _build_so_page_payload(
             COALESCE(SUM(display_qty), 0) AS display_qty,
             COALESCE(SUM(gudang_qty), 0) AS gudang_qty,
             COALESCE(SUM(total_qty), 0) AS total_qty,
-            COALESCE(SUM(CASE WHEN display_qty > 0 THEN 1 ELSE 0 END), 0) AS gap_count
+            COALESCE(SUM(CASE WHEN {focus_qty_expression} > 0 THEN 1 ELSE 0 END), 0) AS gap_count
         FROM ({inventory_query}) inventory_rows
         """,
         params,
@@ -366,7 +457,7 @@ def _build_so_page_payload(
 
     warehouses = available_warehouses or [dict(row) for row in db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()]
     warehouse_lookup = {warehouse["id"]: warehouse["name"] for warehouse in warehouses}
-    summary = dict(summary_row) if summary_row else _build_so_summary(rows)
+    summary = dict(summary_row) if summary_row else _build_so_summary(rows, area_mode=normalized_area_mode)
 
     return {
         "data": [dict(row) for row in rows],
@@ -378,6 +469,8 @@ def _build_so_page_payload(
         "warehouse_name": warehouse_lookup.get(warehouse_id, f"Gudang {warehouse_id}"),
         "warehouses": warehouses,
         "is_scoped_warehouse": scoped_warehouse,
+        "area_mode": normalized_area_mode,
+        "area_label": area_meta["label"],
     }
 
 
@@ -713,6 +806,12 @@ def _clear_so_negative_overdrafts(db, product_id, variant_id, warehouse_id):
 def so_page():
     db = get_db()
     search = _normalize_so_search(request.args.get("q"))
+    area_mode = _normalize_so_area_mode(
+        request.args.get("area"),
+        default=SO_AREA_DISPLAY,
+        allow_legacy_both=True,
+    )
+    area_meta = _build_so_area_meta(area_mode)
     warehouse_id, available_warehouses, scoped_warehouse = _resolve_so_warehouse(
         db,
         request.args.get("warehouse"),
@@ -725,6 +824,7 @@ def so_page():
         search=search,
         page=request.args.get("page", 1),
         limit=SO_PAGE_SIZE,
+        area_mode=area_mode,
         scoped_warehouse=scoped_warehouse,
         available_warehouses=available_warehouses,
     )
@@ -743,6 +843,13 @@ def so_page():
         warehouses=payload["warehouses"],
         summary=payload["summary"],
         is_scoped_warehouse=payload["is_scoped_warehouse"],
+        area_mode=payload["area_mode"],
+        area_label=area_meta["label"],
+        area_system_header=area_meta["system_header"],
+        area_physical_header=area_meta["physical_header"],
+        area_focus_label=area_meta["focus_label"],
+        area_helper_text=area_meta["helper_text"],
+        area_counterpart_label=area_meta["counterpart_label"],
     )
 
 
@@ -752,6 +859,12 @@ def submit_so():
     data = _load_so_request_payload()
     search = _normalize_so_search(data.get("q"))
     page = data.get("page", 1)
+    area_mode = _normalize_so_area_mode(
+        data.get("area_mode") or data.get("area"),
+        default=SO_AREA_BOTH,
+        allow_legacy_both=True,
+    )
+    area_meta = _build_so_area_meta(area_mode)
 
     warehouse_id, available_warehouses, scoped_warehouse = _resolve_so_warehouse(
         db,
@@ -759,7 +872,7 @@ def submit_so():
         data.get("display_id"),
         data.get("gudang_id"),
     )
-    items, items_error = _normalize_so_submit_items(data.get("items", []))
+    items, items_error = _normalize_so_submit_items(data.get("items", []), area_mode=area_mode)
     user_id = _resolve_so_actor_user_id(db, session.get("user_id"))
 
     if items_error:
@@ -792,8 +905,8 @@ def submit_so():
             for item in items:
                 product_id = item["product_id"]
                 variant_id = item["variant_id"]
-                display_physical = item["display_physical"]
-                gudang_physical = item["gudang_physical"]
+                requested_display_physical = item.get("display_physical")
+                requested_gudang_physical = item.get("gudang_physical")
 
                 entity = db.execute(
                     """
@@ -809,7 +922,10 @@ def submit_so():
                     _rollback_so_transaction(db)
                     return jsonify({"error": "Produk atau variant tidak valid"}), 400
 
-                if display_physical < 0 or gudang_physical < 0:
+                if (
+                    (requested_display_physical is not None and requested_display_physical < 0)
+                    or (requested_gudang_physical is not None and requested_gudang_physical < 0)
+                ):
                     _rollback_so_transaction(db)
                     return jsonify({"error": "Stock fisik tidak boleh negatif"}), 400
 
@@ -850,36 +966,53 @@ def submit_so():
                 )
                 total_system_raw = int(stock_row["total_qty"] or 0) if stock_row else 0
                 overdraft_qty = max(int(stock_row["overdraft_qty"] or 0), 0) if stock_row else 0
+                display_physical = (
+                    requested_display_physical
+                    if area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH)
+                    else display_system
+                )
+                gudang_physical = (
+                    requested_gudang_physical
+                    if area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH)
+                    else gudang_system
+                )
 
                 display_diff = display_physical - display_system
                 gudang_diff = gudang_physical - gudang_system
                 total_physical = display_physical + gudang_physical
                 total_diff = total_physical - total_system_raw
                 needs_total_resync = total_diff != 0 or overdraft_qty > 0
+                selected_area_changed = (
+                    (area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH) and display_diff != 0)
+                    or (area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH) and gudang_diff != 0)
+                )
 
-                if display_diff == 0 and gudang_diff == 0 and not needs_total_resync:
+                if not selected_area_changed and not needs_total_resync:
                     continue
 
-                _upsert_so_area_balance(
-                    db,
-                    product_id,
-                    variant_id,
-                    warehouse_id,
-                    SO_AREA_DISPLAY,
-                    display_physical,
-                    user_id,
-                )
-                _upsert_so_area_balance(
-                    db,
-                    product_id,
-                    variant_id,
-                    warehouse_id,
-                    SO_AREA_GUDANG,
-                    gudang_physical,
-                    user_id,
-                )
+                if area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH):
+                    _upsert_so_area_balance(
+                        db,
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                        SO_AREA_DISPLAY,
+                        display_physical,
+                        user_id,
+                    )
 
-                if display_diff != 0:
+                if area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH):
+                    _upsert_so_area_balance(
+                        db,
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                        SO_AREA_GUDANG,
+                        gudang_physical,
+                        user_id,
+                    )
+
+                if area_mode in (SO_AREA_DISPLAY, SO_AREA_BOTH) and display_diff != 0:
                     _record_so_result(
                         db,
                         product_id,
@@ -892,7 +1025,7 @@ def submit_so():
                         user_id,
                     )
 
-                if gudang_diff != 0:
+                if area_mode in (SO_AREA_GUDANG, SO_AREA_BOTH) and gudang_diff != 0:
                     _record_so_result(
                         db,
                         product_id,
@@ -913,7 +1046,7 @@ def submit_so():
                         warehouse_id,
                     )
                     total_note = (
-                        "Stock Opname Total Toko "
+                        f"Stock Opname {area_meta['label']} "
                         f"(Display {display_physical}, Gudang {gudang_physical})"
                     )
                     if resolved_overdraft_qty > 0:
@@ -944,13 +1077,17 @@ def submit_so():
                     search=search,
                     page=page,
                     limit=SO_PAGE_SIZE,
+                    area_mode=area_mode,
                     scoped_warehouse=scoped_warehouse,
                     available_warehouses=available_warehouses,
                 )
                 return jsonify(
                     _build_so_response_payload(
                         payload,
-                        message="Tidak ada perubahan baru. Data stok toko sudah sinkron dengan hasil SO.",
+                        message=(
+                            f"Tidak ada perubahan baru. Data {area_meta['label'].lower()} dan stok toko "
+                            "sudah sinkron."
+                        ),
                         processed=0,
                     )
                 )
@@ -962,31 +1099,48 @@ def submit_so():
                 search=search,
                 page=page,
                 limit=SO_PAGE_SIZE,
+                area_mode=area_mode,
                 scoped_warehouse=scoped_warehouse,
                 available_warehouses=available_warehouses,
             )
             response_payload = _build_so_response_payload(
                 payload,
-                message="SO berhasil disimpan dan total stok toko sudah sinkron",
+                message=(
+                    f"SO {area_meta['label']} berhasil disimpan dan stok toko sudah sinkron"
+                ),
                 processed=processed,
             )
             try:
                 notify_operational_event(
-                    f"Stock opname tersimpan: {processed} produk",
+                    f"Stock opname {area_meta['label']} tersimpan: {processed} produk",
                     (
-                        f"Hasil stock opname untuk {payload['warehouse_name']} berhasil disimpan. "
-                        f"{processed} produk diperbarui dan total stok toko sudah disinkronkan."
+                        f"Hasil stock opname {area_meta['label'].lower()} untuk {payload['warehouse_name']} "
+                        f"berhasil disimpan. {processed} produk diperbarui dan total stok toko sudah disinkronkan."
                     ),
                     category="inventory",
-                    link_url=f"/so?warehouse={warehouse_id}",
+                    link_url=f"/so?warehouse={warehouse_id}&area={area_mode}",
                     source_type="stock_opname_session",
                     push_title="Stock opname tersimpan",
-                    push_body=f"{processed} produk | {payload['warehouse_name']}",
+                    push_body=f"{area_meta['label']} | {processed} produk | {payload['warehouse_name']}",
                 )
             except Exception as exc:
                 print("STOCK OPNAME NOTIFICATION ERROR:", exc)
             return jsonify(response_payload)
 
+        except sqlite3.IntegrityError as exc:
+            _rollback_so_transaction(db)
+            if _is_foreign_key_constraint_error(exc):
+                current_app.logger.exception("SO FK ERROR")
+                return jsonify(
+                    {
+                        "error": (
+                            "SO gagal disimpan karena referensi data di server berubah. "
+                            "Refresh halaman lalu coba simpan lagi."
+                        )
+                    }
+                ), 409
+            current_app.logger.exception("SO INTEGRITY ERROR")
+            return jsonify({"error": str(exc)}), 500
         except sqlite3.OperationalError as exc:
             _rollback_so_transaction(db)
             if _is_sqlite_lock_error(exc) and attempt < max_retries:
@@ -1019,6 +1173,11 @@ def submit_so():
 def export_so():
     db = get_db()
     search = _normalize_so_search(request.args.get("q"))
+    area_mode = _normalize_so_area_mode(
+        request.args.get("area"),
+        default=SO_AREA_DISPLAY,
+        allow_legacy_both=True,
+    )
     warehouse_id, available_warehouses, _ = _resolve_so_warehouse(
         db,
         request.args.get("warehouse"),
@@ -1078,6 +1237,11 @@ def export_so():
 def export_so_report():
     db = get_db()
     search = _normalize_so_search(request.args.get("q"))
+    area_mode = _normalize_so_area_mode(
+        request.args.get("area"),
+        default=SO_AREA_DISPLAY,
+        allow_legacy_both=True,
+    )
     warehouse_id, available_warehouses, _ = _resolve_so_warehouse(
         db,
         request.args.get("warehouse"),

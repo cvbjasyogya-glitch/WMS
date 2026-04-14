@@ -10,12 +10,14 @@
         totalPages: Number.parseInt(config.totalPages || 1, 10) || 1,
         search: String(config.search || "").trim(),
         warehouseId: Number.parseInt(config.warehouseId || 0, 10) || 0,
+        areaMode: String(config.areaMode || "display").trim().toLowerCase() || "display",
         saving: false,
     };
 
     const nodes = {
         filterForm: document.getElementById("soFilterForm"),
         warehouseSelect: document.getElementById("warehouseSelect"),
+        areaModeSelect: document.getElementById("areaModeSelect"),
         searchInput: document.getElementById("searchInput"),
         exportSoLink: document.getElementById("exportSoLink"),
         exportReportLink: document.getElementById("exportReportLink"),
@@ -37,6 +39,7 @@
         pageInfo: document.getElementById("pageInfo"),
         metaPage: document.getElementById("soMetaPage"),
         warehouseName: document.getElementById("soWarehouseName"),
+        areaModeLabel: document.getElementById("soAreaModeLabel"),
         prevBtn: document.getElementById("prevBtn"),
         nextBtn: document.getElementById("nextBtn"),
     };
@@ -121,11 +124,26 @@
         return Array.from(nodes.tableBody?.querySelectorAll("tr[data-row='item']") || []);
     }
 
+    function isDualAreaMode() {
+        return state.areaMode === "both";
+    }
+
+    function getAreaModeLabel() {
+        if (state.areaMode === "gudang") {
+            return "Area Gudang";
+        }
+        if (state.areaMode === "both") {
+            return "Display + Gudang";
+        }
+        return "Area Display";
+    }
+
     function buildQuery(extra = {}) {
         const params = new URLSearchParams();
         const nextPage = readInt(extra.page, state.currentPage) || 1;
         params.set("page", String(nextPage));
         params.set("warehouse", String(state.warehouseId || 0));
+        params.set("area", state.areaMode || "display");
         if (state.search) {
             params.set("q", state.search);
         }
@@ -135,6 +153,7 @@
     function syncExportLinks() {
         const exportQuery = new URLSearchParams();
         exportQuery.set("warehouse", String(state.warehouseId || 0));
+        exportQuery.set("area", state.areaMode || "display");
         if (state.search) {
             exportQuery.set("q", state.search);
         }
@@ -171,8 +190,14 @@
         if (nodes.warehouseSelect) {
             nodes.warehouseSelect.value = String(state.warehouseId || "");
         }
+        if (nodes.areaModeSelect) {
+            nodes.areaModeSelect.value = state.areaMode || "display";
+        }
         if (nodes.searchInput) {
             nodes.searchInput.value = state.search;
+        }
+        if (nodes.areaModeLabel) {
+            nodes.areaModeLabel.innerText = getAreaModeLabel();
         }
     }
 
@@ -207,16 +232,25 @@
         const variantId = readInt(row.dataset.variantId);
         const totalSystem = readInt(row.dataset.totalSystem, 0) || 0;
         const overdraftQty = readInt(row.dataset.overdraftQty, 0) || 0;
-        const displaySystem = readInt(row.querySelector(".display")?.textContent, 0) || 0;
-        const gudangSystem = readInt(row.querySelector(".gudang")?.textContent, 0) || 0;
-        const displayPhysical = parseInputValue(row.querySelector(".physical_display"));
-        const gudangPhysical = parseInputValue(row.querySelector(".physical_gudang"));
+        const displaySystem = readInt(row.dataset.displaySystem, 0) || 0;
+        const gudangSystem = readInt(row.dataset.gudangSystem, 0) || 0;
+        const displayPhysical = isDualAreaMode()
+            ? parseInputValue(row.querySelector(".physical_display"))
+            : state.areaMode === "display"
+                ? parseInputValue(row.querySelector(".physical_area"))
+                : displaySystem;
+        const gudangPhysical = isDualAreaMode()
+            ? parseInputValue(row.querySelector(".physical_gudang"))
+            : state.areaMode === "gudang"
+                ? parseInputValue(row.querySelector(".physical_area"))
+                : gudangSystem;
         const displayDiff = (displayPhysical ?? displaySystem) - displaySystem;
         const gudangDiff = (gudangPhysical ?? gudangSystem) - gudangSystem;
         const totalPhysical = displayPhysical === null || gudangPhysical === null
             ? null
             : displayPhysical + gudangPhysical;
         const totalDiff = totalPhysical === null ? 0 : totalPhysical - totalSystem;
+        const selectedAreaDiff = state.areaMode === "gudang" ? gudangDiff : displayDiff;
         const invalid = (
             !productId ||
             !variantId ||
@@ -226,10 +260,18 @@
             gudangPhysical < 0
         );
         const hasChanges = !invalid && (
-            displayDiff !== 0
-            || gudangDiff !== 0
-            || totalDiff !== 0
-            || overdraftQty > 0
+            isDualAreaMode()
+                ? (
+                    displayDiff !== 0
+                    || gudangDiff !== 0
+                    || totalDiff !== 0
+                    || overdraftQty > 0
+                )
+                : (
+                    selectedAreaDiff !== 0
+                    || totalDiff !== 0
+                    || overdraftQty > 0
+                )
         );
 
         return {
@@ -246,6 +288,7 @@
             totalDiff,
             displayDiff,
             gudangDiff,
+            selectedAreaDiff,
             invalid,
             hasChanges,
         };
@@ -253,8 +296,12 @@
 
     function syncRow(row) {
         const snapshot = readRowSnapshot(row);
-        setDiffState(row.querySelector(".diff_display"), snapshot.displayDiff);
-        setDiffState(row.querySelector(".diff_gudang"), snapshot.gudangDiff);
+        if (isDualAreaMode()) {
+            setDiffState(row.querySelector(".diff_display"), snapshot.displayDiff);
+            setDiffState(row.querySelector(".diff_gudang"), snapshot.gudangDiff);
+        } else {
+            setDiffState(row.querySelector(".diff_area"), snapshot.selectedAreaDiff);
+        }
         row.classList.toggle("is-dirty", snapshot.hasChanges);
         row.classList.toggle("is-invalid", snapshot.invalid);
         return snapshot;
@@ -337,21 +384,15 @@
                     : `<small class="helper-text">Ada stok minus sementara ${overdraftQty} unit. Simpan SO untuk rapikan stok fisik toko ini.</small>`
             )
             : "";
-        return `
-            <tr
-                data-row="item"
-                data-product-id="${readInt(item.product_id, 0) || 0}"
-                data-variant-id="${readInt(item.variant_id, 0) || 0}"
-                data-total-system="${totalQty}"
-                data-overdraft-qty="${overdraftQty}"
-            >
-                <td class="mono">${escapeHtml(item.sku)}</td>
-                <td class="stock-opname-product-cell">
-                    <strong>${escapeHtml(item.name)}</strong>
-                    <small>Bandingkan fisik per variant aktif.</small>
-                    ${syncNote}
-                </td>
-                <td>${escapeHtml(item.variant)}</td>
+        const counterpartNote = !isDualAreaMode()
+            ? (
+                state.areaMode === "display"
+                    ? `<small class="helper-text">Referensi area gudang saat ini: ${gudangQty}.</small>`
+                    : `<small class="helper-text">Referensi area display saat ini: ${displayQty}.</small>`
+            )
+            : "";
+        const areaCells = isDualAreaMode()
+            ? `
                 <td class="display stock-opname-system-cell">${displayQty}</td>
                 <td class="stock-opname-input-cell">
                     <input type="number" min="0" inputmode="numeric" class="physical_display" value="${displayQty}">
@@ -362,13 +403,40 @@
                     <input type="number" min="0" inputmode="numeric" class="physical_gudang" value="${gudangQty}">
                 </td>
                 <td class="diff_gudang mono stock-opname-diff-cell" data-state="zero">0</td>
+            `
+            : `
+                <td class="system_area stock-opname-system-cell">${state.areaMode === "gudang" ? gudangQty : displayQty}</td>
+                <td class="stock-opname-input-cell">
+                    <input type="number" min="0" inputmode="numeric" class="physical_area" value="${state.areaMode === "gudang" ? gudangQty : displayQty}">
+                </td>
+                <td class="diff_area mono stock-opname-diff-cell" data-state="zero">0</td>
+            `;
+        return `
+            <tr
+                data-row="item"
+                data-product-id="${readInt(item.product_id, 0) || 0}"
+                data-variant-id="${readInt(item.variant_id, 0) || 0}"
+                data-total-system="${totalQty}"
+                data-overdraft-qty="${overdraftQty}"
+                data-display-system="${displayQty}"
+                data-gudang-system="${gudangQty}"
+            >
+                <td class="mono">${escapeHtml(item.sku)}</td>
+                <td class="stock-opname-product-cell">
+                    <strong>${escapeHtml(item.name)}</strong>
+                    <small>Bandingkan fisik per variant aktif.</small>
+                    ${counterpartNote}
+                    ${syncNote}
+                </td>
+                <td>${escapeHtml(item.variant)}</td>
+                ${areaCells}
             </tr>
         `.trim();
     }
 
     function bindRowInputs() {
         getRows().forEach((row) => {
-            row.querySelectorAll(".physical_display, .physical_gudang").forEach((input) => {
+            row.querySelectorAll(".physical_display, .physical_gudang, .physical_area").forEach((input) => {
                 input.addEventListener("input", updateSaveState);
                 input.addEventListener("change", updateSaveState);
             });
@@ -384,7 +452,7 @@
         }
 
         if (!rows.length) {
-            nodes.tableBody.innerHTML = "<tr class=\"so-empty-row\"><td colspan=\"9\" class=\"empty-state\">Tidak ada item yang cocok untuk stock opname saat ini.</td></tr>";
+            nodes.tableBody.innerHTML = `<tr class="so-empty-row"><td colspan="${isDualAreaMode() ? 9 : 6}" class="empty-state">Tidak ada item yang cocok untuk stock opname saat ini.</td></tr>`;
             updateSaveState();
             window.updateScrollableTableHints?.();
             return;
@@ -404,6 +472,7 @@
         state.warehouseId = readInt(payload.warehouse_id, state.warehouseId)
             || readInt(payload.display_id, state.warehouseId)
             || state.warehouseId;
+        state.areaMode = String(payload.area_mode || state.areaMode || "display").trim().toLowerCase() || "display";
         state.search = String(payload.search ?? state.search).trim();
 
         renderTable(payload.data || []);
@@ -502,6 +571,7 @@
                     warehouse_id: state.warehouseId,
                     q: state.search,
                     page: state.currentPage,
+                    area_mode: state.areaMode,
                     items: pending.items,
                 }),
             });
@@ -527,6 +597,7 @@
     function handleFilterSubmit(event) {
         state.search = String(nodes.searchInput?.value || "").trim();
         state.warehouseId = readInt(nodes.warehouseSelect?.value, state.warehouseId) || state.warehouseId;
+        state.areaMode = String(nodes.areaModeSelect?.value || state.areaMode || "display").trim().toLowerCase() || "display";
         syncExportLinks();
         if (hasUnsavedChanges() && !window.confirm(messages.confirmFilterChange)) {
             event.preventDefault();
@@ -543,6 +614,10 @@
 
         nodes.warehouseSelect?.addEventListener("change", () => {
             state.warehouseId = readInt(nodes.warehouseSelect?.value, state.warehouseId) || state.warehouseId;
+            syncExportLinks();
+        });
+        nodes.areaModeSelect?.addEventListener("change", () => {
+            state.areaMode = String(nodes.areaModeSelect?.value || state.areaMode || "display").trim().toLowerCase() || "display";
             syncExportLinks();
         });
         nodes.searchInput?.addEventListener("input", () => {
