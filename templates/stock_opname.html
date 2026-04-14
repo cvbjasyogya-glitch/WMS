@@ -128,11 +128,26 @@
             <tbody id="soTable">
                 {% if data %}
                     {% for item in data %}
-                    <tr data-row="item" data-product-id="{{ item.product_id }}" data-variant-id="{{ item.variant_id }}">
+                    <tr
+                        data-row="item"
+                        data-product-id="{{ item.product_id }}"
+                        data-variant-id="{{ item.variant_id }}"
+                        data-total-system="{{ item.total_qty }}"
+                        data-overdraft-qty="{{ item.overdraft_qty or 0 }}"
+                    >
                         <td class="mono">{{ item.sku }}</td>
                         <td class="stock-opname-product-cell">
                             <strong>{{ item.name }}</strong>
                             <small>Bandingkan fisik per variant aktif.</small>
+                            {% if (item.overdraft_qty or 0) > 0 or (item.total_qty or 0) < 0 %}
+                            <small class="helper-text">
+                                {% if (item.total_qty or 0) < 0 %}
+                                Stok sistem net sedang minus {{ (item.total_qty or 0) | abs }}. Simpan SO untuk sinkron ke stok fisik.
+                                {% else %}
+                                Ada stok minus sementara {{ item.overdraft_qty or 0 }} unit. Simpan SO untuk rapikan stok fisik toko ini.
+                                {% endif %}
+                            </small>
+                            {% endif %}
                         </td>
                         <td>{{ item.variant }}</td>
                         <td class="display stock-opname-system-cell">{{ item.display_qty }}</td>
@@ -192,6 +207,7 @@
         "saveSuccess": "SO berhasil disimpan.",
         "emptyChanges": "Tidak ada perubahan yang perlu disimpan.",
         "invalidInput": "Cek lagi, stok fisik harus angka dan tidak boleh negatif.",
+        "invalidRow": "Ada baris produk yang tidak lengkap. Refresh halaman lalu coba simpan lagi.",
         "confirmPageChange": "Perubahan SO di halaman ini belum disimpan. Lanjut pindah halaman?",
         "confirmFilterChange": "Perubahan SO di halaman ini belum disimpan. Lanjut ganti filter?"
     }

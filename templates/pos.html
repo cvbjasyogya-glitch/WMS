@@ -557,6 +557,7 @@ const posGrandTotalBox = posGrandTotal?.closest(".pos-ipos-totalbox") || null;
 const POS_QUICK_SEARCH_DEFAULT_SUMMARY = "Smart search aktif. Ketik nama, SKU, warna, atau kata gabungan. Beda spasi tetap bisa dibaca.";
 const POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY = "Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.";
 const POS_CASHIER_SEARCH_DEFAULT_SUMMARY = "Cari kasir/sales lebih cepat tanpa scroll panjang.";
+const POS_STRINGING_PROGRESS_MIN_AMOUNT = {{ stringing_progress_min_amount|default(75000)|tojson }};
 let posSearchTimer = null;
 let posQuickSearchTimer = null;
 let posKeypadTarget = "qty";
@@ -1038,9 +1039,17 @@ function syncPosCashierDisplay() {
 function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     if (!posCustomerLoyaltyHint || !posCustomerId) return;
     const shouldAutoSelectTransactionType = autoSelectTransactionType !== false;
+    const selectedTransactionType = String(posTransactionType?.value || "purchase");
+    const stringingMinAmountLabel = formatPosCurrency(POS_STRINGING_PROGRESS_MIN_AMOUNT);
     const selectedOption = posCustomerId.options[posCustomerId.selectedIndex];
     if (!selectedOption || !posCustomerId.value) {
-        posCustomerLoyaltyHint.textContent = "Customer umum tetap wajib isi nama dan no HP sebelum checkout. Pilih customer member kalau transaksi perlu update loyalty.";
+        if (selectedTransactionType === "stringing_service") {
+            posCustomerLoyaltyHint.textContent = `Customer umum tetap wajib isi nama dan no HP. Jika checkout memakai "Senaran Berbayar", Member Senaran akan dibuat otomatis dan progres bertambah mulai ${stringingMinAmountLabel}.`;
+        } else if (selectedTransactionType === "stringing_reward_redemption") {
+            posCustomerLoyaltyHint.textContent = "Free reward senaran hanya bisa dipakai oleh customer dengan Member Senaran aktif.";
+        } else {
+            posCustomerLoyaltyHint.textContent = "Customer umum tetap wajib isi nama dan no HP sebelum checkout. Untuk transaksi normal, nomor HP customer akan langsung mengaktifkan Member Pembelian.";
+        }
         if (shouldAutoSelectTransactionType && posTransactionType) {
             posTransactionType.value = "purchase";
         }
@@ -1051,7 +1060,13 @@ function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     const memberCode = selectedOption.dataset.memberCode || "";
     const memberType = selectedOption.dataset.memberType || "";
     if (!memberCode || !memberType) {
-        posCustomerLoyaltyHint.textContent = "Customer ini belum punya member aktif. Transaksi tetap tersimpan ke CRM customer.";
+        if (selectedTransactionType === "stringing_service") {
+            posCustomerLoyaltyHint.textContent = `Customer ini belum punya member aktif. Checkout "Senaran Berbayar" akan otomatis membuat Member Senaran. Progress bertambah jika total senaran minimal ${stringingMinAmountLabel}.`;
+        } else if (selectedTransactionType === "stringing_reward_redemption") {
+            posCustomerLoyaltyHint.textContent = "Customer ini belum punya Member Senaran aktif, jadi free reward belum bisa dipakai.";
+        } else {
+            posCustomerLoyaltyHint.textContent = "Customer ini belum punya member aktif. Untuk transaksi normal, nomor HP customer akan langsung membuat Member Pembelian.";
+        }
         if (shouldAutoSelectTransactionType && posTransactionType) {
             posTransactionType.value = "purchase";
         }
@@ -1060,6 +1075,15 @@ function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     }
 
     if (memberType === "stringing") {
+        posCustomerLoyaltyHint.textContent = `${memberCode} - Member Senaran. Pilih "Senaran Berbayar" untuk hitung kunjungan. Progress bertambah jika total senaran minimal ${stringingMinAmountLabel}. Pilih "Senaran Free Reward" saat free dipakai.`;
+        if (shouldAutoSelectTransactionType && posTransactionType && posTransactionType.value === "purchase") {
+            posTransactionType.value = "stringing_service";
+        }
+        syncPosTransactionPricing();
+        return;
+    }
+
+    if (false && memberType === "stringing") {
         posCustomerLoyaltyHint.textContent = `${memberCode} • Member Senaran. Pilih "Senaran Berbayar" untuk hitung kunjungan atau "Senaran Free Reward" saat free dipakai.`;
         if (shouldAutoSelectTransactionType && posTransactionType && posTransactionType.value === "purchase") {
             posTransactionType.value = "stringing_service";
@@ -1069,6 +1093,12 @@ function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     }
 
     posCustomerLoyaltyHint.textContent = `${memberCode} • Member Pembelian. Setiap total Rp 10.000 otomatis menambah 1 poin dari checkout ini.`;
+    if (selectedTransactionType === "stringing_service" || selectedTransactionType === "stringing_reward_redemption") {
+        posCustomerLoyaltyHint.textContent = `${memberCode} - Member Pembelian. Transaksi senaran hanya bisa dipakai untuk Member Senaran. Ganti customer atau ubah jenis transaksi loyalty.`;
+        syncPosTransactionPricing();
+        return;
+    }
+    posCustomerLoyaltyHint.textContent = `${memberCode} - Member Pembelian. Setiap total Rp 10.000 otomatis menambah 1 poin dari checkout ini.`;
     if (shouldAutoSelectTransactionType && posTransactionType) {
         posTransactionType.value = "purchase";
     }
@@ -1156,7 +1186,13 @@ function setPosCartFocusedIndex(index) {
 
 function setPosDraftStockState(stockQty) {
     posDraft.stock = Number(stockQty || 0);
-    posDraftStockValue.textContent = String(posDraft.stock);
+    if (posDraftStockValue) {
+        posDraftStockValue.textContent = String(posDraft.stock);
+    }
+
+    if (!posDraftStockState) {
+        return;
+    }
 
     if (posDraft.stock < 0) {
         posDraftStockState.textContent = "Stok minus sementara. Transaksi tetap bisa diproses.";
@@ -1184,21 +1220,37 @@ function setPosDraftStockState(stockQty) {
 
 function renderPosDraft() {
     const hasSelection = Boolean(posDraft.product_id && posDraft.variant_id);
-    posSelectedCard.classList.toggle("has-selection", hasSelection);
+    posSelectedCard?.classList.toggle("has-selection", hasSelection);
 
     if (!hasSelection) {
-        posDraftDisplay.textContent = "Belum ada barang dipilih";
-        posDraftMeta.textContent = "Buka daftar item, pilih varian, lalu atur jumlah. Harga retail akan masuk otomatis dan bisa diubah di keranjang.";
-        posDraftQty.value = "";
-        setPosCurrencyValue(posDraftPrice, "");
+        if (posDraftDisplay) {
+            posDraftDisplay.textContent = "Belum ada barang dipilih";
+        }
+        if (posDraftMeta) {
+            posDraftMeta.textContent = "Buka daftar item, pilih varian, lalu atur jumlah. Harga retail akan masuk otomatis dan bisa diubah di keranjang.";
+        }
+        if (posDraftQty) {
+            posDraftQty.value = "";
+        }
+        if (posDraftPrice) {
+            setPosCurrencyValue(posDraftPrice, "");
+        }
         setPosDraftStockState(0);
         return;
     }
 
-    posDraftDisplay.textContent = `${posDraft.sku} - ${posDraft.name}`;
-    posDraftMeta.textContent = `${posDraft.variant_label} | ${posDraft.category || "Tanpa kategori"} | GTIN ${posDraft.gtin || "-"} | Ubah harga jual nanti di keranjang.`;
-    posDraftQty.value = posDraftQty.value || "1";
-    setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (posDraft.unit_price > 0 ? posDraft.unit_price : ""));
+    if (posDraftDisplay) {
+        posDraftDisplay.textContent = `${posDraft.sku} - ${posDraft.name}`;
+    }
+    if (posDraftMeta) {
+        posDraftMeta.textContent = `${posDraft.variant_label} | ${posDraft.category || "Tanpa kategori"} | GTIN ${posDraft.gtin || "-"} | Ubah harga jual nanti di keranjang.`;
+    }
+    if (posDraftQty) {
+        posDraftQty.value = posDraftQty.value || "1";
+    }
+    if (posDraftPrice) {
+        setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (posDraft.unit_price > 0 ? posDraft.unit_price : ""));
+    }
     setPosDraftStockState(posDraft.stock);
 }
 
@@ -1341,13 +1393,11 @@ function applyPosQuickSearchItem(index) {
     if (!item) {
         return;
     }
-    fillPosDraftFromItem(item);
-    posDraftQty.value = "1";
-    setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (Number(item.price_retail || 0) > 0 ? Number(item.price_retail || 0) : ""));
-    resetPosQuickSearch({
-        summary: `Produk dipilih: ${item.sku} - ${item.name}. Silakan atur jumlah lalu tambah ke keranjang.`,
+    addPosItemDirectToCart(item, {
+        keepQuickSearchQuery: true,
+        quickSearchSummary: `1 item ditambahkan: ${item.sku} - ${item.name}.`,
+        focusQuickSearch: true,
     });
-    posDraftQty.focus();
 }
 
 async function loadPosQuickSearchResults(query) {
@@ -1771,13 +1821,13 @@ function fillPosDraftFromItem(item) {
     renderPosCatalog();
 }
 
-function validatePosDraft() {
+function validatePosDraft(options = {}) {
     if (!posDraft.product_id || !posDraft.variant_id) {
         alert("Pilih barang dulu.");
         return false;
     }
 
-    const qty = Number(posDraftQty.value || 0);
+    const qty = Number((options.qty ?? posDraftQty?.value) || 0);
     if (qty <= 0) {
         alert("Qty wajib lebih dari 0.");
         return false;
@@ -1791,11 +1841,12 @@ function validatePosDraft() {
     return true;
 }
 
-function addPosDraftToCart() {
-    if (!validatePosDraft()) return;
+function addPosDraftToCart(options = {}) {
+    if (!validatePosDraft(options)) return false;
 
-    const qty = Number(posDraftQty.value || 0);
-    const unitPrice = isPosFreeRewardMode() ? 0 : getPosCurrencyValue(posDraftPrice);
+    const qty = Number((options.qty ?? posDraftQty?.value) || 0);
+    const baseUnitPrice = options.unitPrice ?? (posDraftPrice ? getPosCurrencyValue(posDraftPrice) : Number(posDraft.unit_price || 0));
+    const unitPrice = isPosFreeRewardMode() ? 0 : baseUnitPrice;
     const retailPrice = normalizePosEditableUnitPrice(posDraft.unit_price || unitPrice, unitPrice);
     const key = `${posDraft.product_id}-${posDraft.variant_id}`;
     const existingIndex = posCart.findIndex((item) => item.key === key);
@@ -1839,18 +1890,48 @@ function addPosDraftToCart() {
     renderPosCart();
     setPosCartFocusedIndex(existing ? existingIndex : posCart.length - 1);
     resetPosDraft();
-    resetPosQuickSearch();
+    resetPosQuickSearch(
+        options.keepQuickSearchQuery || options.quickSearchSummary
+            ? {
+                keepQuery: Boolean(options.keepQuickSearchQuery),
+                summary: options.quickSearchSummary || POS_QUICK_SEARCH_DEFAULT_SUMMARY,
+            }
+            : {}
+    );
+    if (options.closePicker) {
+        closePosCatalogPicker();
+    }
+    if (options.focusQuickSearch) {
+        posQuickSearch?.focus();
+    }
+    return true;
 }
 
 function quickAddCatalogItem(index) {
     const item = posCatalog.items[index];
     if (!item) return;
 
-    fillPosDraftFromItem(item);
-    posDraftQty.value = "1";
-    setPosCurrencyValue(posDraftPrice, isPosFreeRewardMode() ? 0 : (posDraft.unit_price > 0 ? posDraft.unit_price : ""));
-    addPosDraftToCart();
-    closePosCatalogPicker();
+    addPosItemDirectToCart(item, { closePicker: true });
+}
+
+function addPosItemDirectToCart(item, options = {}) {
+    const safeItem = item || null;
+    if (!safeItem) {
+        return false;
+    }
+
+    fillPosDraftFromItem(safeItem);
+    const qty = Math.max(Number(options.qty || 1), 1);
+    const priceRetail = Number(safeItem.price_retail || 0);
+    const unitPrice = isPosFreeRewardMode() ? 0 : (priceRetail > 0 ? priceRetail : Number(posDraft.unit_price || 0));
+    return addPosDraftToCart({
+        qty,
+        unitPrice,
+        closePicker: Boolean(options.closePicker),
+        keepQuickSearchQuery: Boolean(options.keepQuickSearchQuery),
+        quickSearchSummary: String(options.quickSearchSummary || ""),
+        focusQuickSearch: Boolean(options.focusQuickSearch),
+    });
 }
 
 function renderPosCatalog() {
@@ -2561,9 +2642,7 @@ posCatalogGrid?.addEventListener("click", (event) => {
     const card = event.target.closest("[data-pos-catalog-index]");
     if (!card) return;
     const index = Number(card.dataset.posCatalogIndex);
-    const item = posCatalog.items[index];
-    if (!item) return;
-    fillPosDraftFromItem(item);
+    quickAddCatalogItem(index);
 });
 
 posCatalogPrev?.addEventListener("click", () => {
@@ -2646,10 +2725,10 @@ document.addEventListener("click", (event) => {
     }
 });
 
-document.getElementById("posAddItemButton").addEventListener("click", addPosDraftToCart);
+document.getElementById("posAddItemButton")?.addEventListener("click", addPosDraftToCart);
 posPaidAmount.addEventListener("input", updatePosChangePreview);
 posPaidAmount.addEventListener("focus", () => setPosKeypadTarget("paid"));
-posDraftQty.addEventListener("focus", () => setPosKeypadTarget("qty"));
+posDraftQty?.addEventListener("focus", () => setPosKeypadTarget("qty"));
 posCheckoutButton.addEventListener("click", checkoutPosTransaction);
 posCustomerName?.addEventListener("input", clearPosCustomerIdentityValidity);
 posCustomerPhone?.addEventListener("input", clearPosCustomerIdentityValidity);

@@ -9635,10 +9635,10 @@ def update_document(document_id):
     return redirect("/hris/documents")
 
 
-@hris_bp.route("/documents/sign/<int:document_id>", methods=["POST"])
-def sign_document(document_id):
+@hris_bp.route("/documents/approval/<int:document_id>")
+def document_approval_sheet(document_id):
     if not can_manage_document_records():
-        flash("Tidak punya akses untuk mengesahkan documents", "error")
+        flash("Tidak punya akses untuk membuka lembar pengesahan documents", "error")
         return redirect("/hris/documents")
 
     db = get_db()
@@ -9647,16 +9647,37 @@ def sign_document(document_id):
         flash("Document tidak ditemukan", "error")
         return redirect("/hris/documents")
 
+    decorated_document = _decorate_document_record(document)
+    return render_template(
+        "document_approval_sheet.html",
+        document=decorated_document,
+        document_return_to=f"/hris/documents/approval/{document_id}",
+    )
+
+
+@hris_bp.route("/documents/sign/<int:document_id>", methods=["POST"])
+def sign_document(document_id):
+    return_to = _safe_hris_return_to("/hris/documents")
+    if not can_manage_document_records():
+        flash("Tidak punya akses untuk mengesahkan documents", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    document = _get_document_by_id(db, document_id)
+    if not document:
+        flash("Document tidak ditemukan", "error")
+        return redirect(return_to)
+
     if not document["attachment_path"]:
         flash("Upload lampiran dokumen dulu sebelum pengesahan digital.", "error")
-        return redirect("/hris/documents")
+        return redirect(return_to)
 
     signature_data = (request.form.get("signature_data") or "").strip()
     try:
         signature_path = _store_document_signature(signature_data)
     except ValueError as exc:
         flash(str(exc), "error")
-        return redirect("/hris/documents")
+        return redirect(return_to)
 
     if document["signature_path"] and document["signature_path"] != signature_path:
         _remove_document_file(document["signature_path"], signature=True)
@@ -9681,7 +9702,7 @@ def sign_document(document_id):
     db.commit()
 
     flash("Document berhasil disahkan dengan tanda tangan digital", "success")
-    return redirect("/hris/documents")
+    return redirect(return_to)
 
 
 @hris_bp.route("/documents/delete/<int:document_id>", methods=["POST"])

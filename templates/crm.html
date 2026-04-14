@@ -952,6 +952,7 @@ const CRM_SMART_SELECT_DEFAULT_SUMMARIES = {
 };
 const CRM_SMART_SELECT_REMOTE_DEBOUNCE_MS = 180;
 const CRM_SMART_SELECT_REMOTE_LIMIT = {{ crm_smart_select_limit|int }};
+const CRM_STRINGING_PROGRESS_MIN_AMOUNT = {{ stringing_progress_min_amount|default(75000)|tojson }};
 const CRM_PAGE_SELECTED_WAREHOUSE = String({{ (selected_warehouse or scoped_crm_warehouse or "")|tojson }});
 
 function normalizeCrmSmartSelectValue(value) {
@@ -1222,12 +1223,13 @@ function syncCrmPurchaseLoyaltyHint() {
     const selectedMember = crmPurchaseMember?.selectedOptions?.[0];
     const memberType = selectedMember?.dataset?.memberType || "";
     const transactionType = crmPurchaseTransactionType?.value || "purchase";
+    const stringingMinAmountLabel = formatCrmCurrency(CRM_STRINGING_PROGRESS_MIN_AMOUNT);
 
     if (memberType === "stringing") {
         if (transactionType === "stringing_reward_redemption") {
             crmPurchaseTransactionHint.textContent = "Member senaran akan memakai 1 free reward pada transaksi ini.";
         } else if (transactionType === "stringing_service") {
-            crmPurchaseTransactionHint.textContent = "Member senaran akan dihitung 1 kunjungan. Setiap 6 kali otomatis membuka free 1x.";
+            crmPurchaseTransactionHint.textContent = `Member senaran akan dihitung 1 kunjungan jika total senaran minimal ${stringingMinAmountLabel}. Setiap 6 kali otomatis membuka free 1x.`;
         } else {
             crmPurchaseTransactionHint.textContent = "Member senaran ini tetap tercatat, tapi transaksi normal tidak menambah kunjungan senaran.";
         }
@@ -1241,6 +1243,16 @@ function syncCrmPurchaseLoyaltyHint() {
 
     if (transactionType === "stringing_reward_redemption") {
         crmPurchaseTransactionHint.textContent = "Pilih member valid dulu kalau ingin mencatat pemakaian free senaran.";
+        return;
+    }
+
+    if (transactionType === "stringing_service") {
+        crmPurchaseTransactionHint.textContent = `Jika customer belum punya member aktif, Member Senaran akan dibuat otomatis saat disimpan. Progress bertambah jika total senaran minimal ${stringingMinAmountLabel}.`;
+        return;
+    }
+
+    if (transactionType === "purchase") {
+        crmPurchaseTransactionHint.textContent = "Untuk transaksi normal, customer bernomor HP akan otomatis dibuatkan Member Pembelian saat disimpan.";
         return;
     }
 

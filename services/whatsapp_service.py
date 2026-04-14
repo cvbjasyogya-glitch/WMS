@@ -519,6 +519,24 @@ def _role_recipients_for_event(roles, usernames=None, user_ids=None, warehouse_i
     )
 
 
+def _describe_attendance_activity(punch_type, punch_label):
+    normalized_punch_type = str(punch_type or "").strip().lower()
+    descriptions = {
+        "check_in": "mulai kerja / check in",
+        "free_attendance": "checkpoint kehadiran di tengah shift, bukan check out",
+        "break_start": "mulai istirahat",
+        "break_finish": "selesai istirahat dan lanjut kerja",
+        "check_out": "akhir kerja / check out",
+    }
+    if normalized_punch_type in descriptions:
+        return descriptions[normalized_punch_type]
+
+    safe_punch_label = str(punch_label or "").strip()
+    if not safe_punch_label:
+        return ""
+    return f"aktivitas {safe_punch_label.lower()}"
+
+
 def _build_event_subject_message(event_type, payload):
     payload = payload or {}
     explicit_subject = str(payload.get("subject") or "").strip()
@@ -541,16 +559,30 @@ def _build_event_subject_message(event_type, payload):
     reason = str(payload.get("reason") or "").strip()
 
     if event_type == "attendance.activity":
+        punch_type = str(payload.get("punch_type") or "").strip().lower()
         punch_label = str(payload.get("punch_label") or "Absensi").strip()
         location_label = str(payload.get("location_label") or "-").strip()
+        shift_label = str(payload.get("shift_label") or "").strip()
+        staff_note = str(payload.get("staff_note") or payload.get("note") or "").strip()
         duration_text = str(payload.get("duration_text") or "").strip()
         subject = explicit_subject or f"Absensi {punch_label}: {employee_name}"
-        message = explicit_message or (
-            f"{employee_name} melakukan {punch_label} di {warehouse_name}"
-            f"{f' pukul {time_label}' if time_label else ''}. Lokasi: {location_label}."
-        )
-        if duration_text:
-            message = f"{message} {duration_text}".strip()
+        message = explicit_message
+        if not message:
+            message_parts = [
+                (
+                    f"{employee_name} merekam {punch_label} di {warehouse_name}"
+                    f"{f' pukul {time_label}' if time_label else ''}."
+                ),
+                f"Keterangan: {_describe_attendance_activity(punch_type, punch_label)}.",
+                f"Lokasi: {location_label}.",
+            ]
+            if shift_label:
+                message_parts.append(f"Shift aktif: {shift_label}.")
+            if duration_text:
+                message_parts.append(duration_text)
+            if staff_note:
+                message_parts.append(f"Catatan staf: {staff_note}.")
+            message = " ".join(part for part in message_parts if part).strip()
         return subject, message
 
     if event_type == "report.live_submitted":

@@ -642,6 +642,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('updatePriceFromCart(index, getPosCurrencyValue(priceInput), { renderFull: false, syncInput: true });', html)
         self.assertIn('posCartBody.addEventListener("change", (event) => {', html)
 
+    def test_pos_page_directly_adds_selected_item_without_draft_panel(self):
+        self.login_pos_user("owner_pos_direct_add", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertNotIn('<span class="pos-ipos-kicker">Produk Pilihan</span>', html)
+        self.assertNotIn('<button type="button" class="pos-vintage-button is-primary" id="posAddItemButton">Tambah Item</button>', html)
+        self.assertIn("function addPosItemDirectToCart(item, options = {})", html)
+        self.assertIn("Barang yang dipilih dari quick search atau daftar item akan langsung masuk ke keranjang.", html)
+
     def test_pos_page_exposes_temp_negative_stock_toggle_in_js(self):
         self.login_pos_user("owner_pos_negative_toggle", "owner")
 
@@ -679,7 +691,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("let posCatalogRequestId = 0;", html)
         self.assertIn("let posQuickSearchActiveIndex = -1;", html)
-        self.assertIn("function syncPosCustomerSelectionState()", html)
+        self.assertIn("function syncPosCustomerSelectionState(options = {})", html)
         self.assertIn("function setPosQuickSearchActiveIndex(index, options = {})", html)
         self.assertIn("function isPosSearchForwardKey(event)", html)
         self.assertIn("function forwardPosSelectKeyToSearch(event, searchInput, filterFn)", html)
@@ -695,6 +707,14 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIn(".pos-ipos-shortcuts .pos-ipos-shortcut-exact", css_text)
         self.assertIn(".pos-ipos-quicksearch-result.is-active", css_text)
+
+    def test_pos_page_template_avoids_invalid_nullish_or_expression_for_ipos_runtime(self):
+        template_path = os.path.join(self.app.root_path, "templates", "pos.html")
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            template_text = template_file.read()
+
+        self.assertNotIn("options.qty ?? posDraftQty?.value || 0", template_text)
+        self.assertIn("Number((options.qty ?? posDraftQty?.value) || 0)", template_text)
 
     def test_pos_page_hides_sales_revenue_preview_for_leader_but_shows_for_owner(self):
         self.create_user("owner_pos_revenue", "pass1234", "owner")
@@ -4751,9 +4771,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
         self.assertIn("Update CRM Customer", pdf_text)
-        self.assertIn("- Member: PDF-SENAR-001", pdf_text)
-        self.assertIn("- Progress senar: 6/6", pdf_text)
-        self.assertIn("- Free senar siap dipakai: 1x", pdf_text)
+        self.assertIn("Member: PDF-SENAR-001", pdf_text)
+        self.assertIn("Progress senar: 6/6", pdf_text)
+        self.assertIn("Free senar siap dipakai: 1x", pdf_text)
         self.assertIn("Rp 75.000", pdf_text)
 
     def test_pos_receipt_pdf_uses_mega_homebase_branding(self):
@@ -7496,6 +7516,217 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(stringing_records[1]["reward_redeemed_delta"], 1)
         self.assertAlmostEqual(float(stringing_records[1]["benefit_value"]), 75000.0)
 
+    def test_crm_purchase_auto_creates_stringing_member_for_non_member_customer(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-AUTO-SENAR-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer Auto Senar CRM",
+                "phone": "628100000188",
+                "customer_type": "retail",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            customer = db.execute(
+                """
+                SELECT id, customer_type
+                FROM crm_customers
+                WHERE customer_name='Customer Auto Senar CRM'
+                """
+            ).fetchone()
+
+        create_purchase = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(customer["id"]),
+                "purchase_date": "2026-04-02",
+                "invoice_no": "INV-AUTO-SENAR-CRM-001",
+                "channel": "store",
+                "transaction_type": "stringing_service",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 75000,
+                            "display_name": "CRM-AUTO-SENAR-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_purchase.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            customer_after = db.execute(
+                """
+                SELECT customer_type
+                FROM crm_customers
+                WHERE id=?
+                """,
+                (customer["id"],),
+            ).fetchone()
+            member = db.execute(
+                """
+                SELECT id, member_code, member_type, status, requested_by_staff_id
+                FROM crm_memberships
+                WHERE customer_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (customer["id"],),
+            ).fetchone()
+            purchase = db.execute(
+                """
+                SELECT member_id, transaction_type
+                FROM crm_purchase_records
+                WHERE invoice_no='INV-AUTO-SENAR-CRM-001'
+                """
+            ).fetchone()
+            record = db.execute(
+                """
+                SELECT record_type, service_count_delta
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (member["id"],),
+            ).fetchone()
+            snapshot = get_member_snapshot(db, member["id"])
+
+        self.assertEqual(customer_after["customer_type"], "member")
+        self.assertEqual(member["member_type"], "stringing")
+        self.assertEqual(member["status"], "active")
+        self.assertTrue(str(member["member_code"]).startswith("CRM-SENAR-01-"))
+        self.assertIsNotNone(member["requested_by_staff_id"])
+        self.assertEqual(purchase["transaction_type"], "stringing_service")
+        self.assertEqual(purchase["member_id"], member["id"])
+        self.assertEqual(record["record_type"], "stringing_service")
+        self.assertEqual(record["service_count_delta"], 1)
+        self.assertEqual(snapshot["total_stringing_visits"], 1)
+        self.assertEqual(snapshot["stringing_progress_count"], 1)
+
+    def test_crm_purchase_auto_creates_purchase_member_for_customer_with_phone(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-AUTO-POINT-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer Auto Poin CRM",
+                "phone": "628100000199",
+                "customer_type": "retail",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            customer = db.execute(
+                """
+                SELECT id
+                FROM crm_customers
+                WHERE customer_name='Customer Auto Poin CRM'
+                """
+            ).fetchone()
+
+        create_purchase = self.client.post(
+            "/crm/purchases/add",
+            data={
+                "warehouse_id": "1",
+                "customer_id": str(customer["id"]),
+                "purchase_date": "2026-04-02",
+                "invoice_no": "INV-AUTO-POINT-CRM-001",
+                "channel": "store",
+                "transaction_type": "purchase",
+                "items_json": json.dumps(
+                    [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 120000,
+                            "display_name": "CRM-AUTO-POINT-001 - Produk Uji",
+                        }
+                    ]
+                ),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_purchase.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            customer_after = db.execute(
+                "SELECT customer_type FROM crm_customers WHERE id=?",
+                (customer["id"],),
+            ).fetchone()
+            member = db.execute(
+                """
+                SELECT id, member_code, member_type, status, requested_by_staff_id
+                FROM crm_memberships
+                WHERE customer_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (customer["id"],),
+            ).fetchone()
+            purchase = db.execute(
+                """
+                SELECT member_id, transaction_type
+                FROM crm_purchase_records
+                WHERE invoice_no='INV-AUTO-POINT-CRM-001'
+                """
+            ).fetchone()
+            record = db.execute(
+                """
+                SELECT record_type, points_delta
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (member["id"],),
+            ).fetchone()
+            snapshot = get_member_snapshot(db, member["id"])
+
+        self.assertEqual(customer_after["customer_type"], "member")
+        self.assertEqual(member["member_type"], "purchase")
+        self.assertEqual(member["status"], "active")
+        self.assertTrue(str(member["member_code"]).startswith("CRM-POINT-01-"))
+        self.assertIsNotNone(member["requested_by_staff_id"])
+        self.assertEqual(purchase["transaction_type"], "purchase")
+        self.assertEqual(purchase["member_id"], member["id"])
+        self.assertEqual(record["record_type"], "purchase")
+        self.assertEqual(record["points_delta"], 12)
+        self.assertEqual(snapshot["current_points"], 12)
+
     def test_crm_purchase_rejects_stringing_transaction_for_purchase_member(self):
         self.login()
         response, product_id, variants_rows = self.create_product(
@@ -7941,6 +8172,266 @@ class WmsRoutesTestCase(unittest.TestCase):
             [row["transaction_type"] for row in stringing_purchase_types],
             ["stringing_service", "stringing_reward_redemption"],
         )
+
+    def test_pos_checkout_auto_creates_purchase_member_for_customer_with_phone(self):
+        self.create_user("staff_sales_auto_point", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_auto_point")
+        self.login_pos_user("pos_auto_point_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-AUTO-POINT-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-14",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Auto Point POS",
+                "customer_phone": "081230007771",
+                "transaction_type": "purchase",
+                "payment_method": "cash",
+                "paid_amount": 121000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 120000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer = db.execute(
+                """
+                SELECT id, customer_type, phone
+                FROM crm_customers
+                WHERE customer_name='Customer Auto Point POS'
+                """
+            ).fetchone()
+            member = db.execute(
+                """
+                SELECT id, member_code, member_type, status, requested_by_staff_id
+                FROM crm_memberships
+                WHERE customer_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (customer["id"],),
+            ).fetchone()
+            purchase = db.execute(
+                """
+                SELECT member_id, transaction_type
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (receipt_no,),
+            ).fetchone()
+            record = db.execute(
+                """
+                SELECT record_type, points_delta
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (member["id"],),
+            ).fetchone()
+            snapshot = get_member_snapshot(db, member["id"])
+
+        self.assertEqual(customer["customer_type"], "member")
+        self.assertEqual(customer["phone"], "6281230007771")
+        self.assertEqual(member["member_type"], "purchase")
+        self.assertEqual(member["status"], "active")
+        self.assertTrue(str(member["member_code"]).startswith("POS-POINT-01-"))
+        self.assertIsNotNone(member["requested_by_staff_id"])
+        self.assertEqual(purchase["transaction_type"], "purchase")
+        self.assertEqual(purchase["member_id"], member["id"])
+        self.assertEqual(record["record_type"], "purchase")
+        self.assertEqual(record["points_delta"], 12)
+        self.assertEqual(snapshot["current_points"], 12)
+
+    def test_pos_checkout_auto_creates_stringing_member_and_applies_75k_progress_threshold(self):
+        self.create_user("staff_sales_auto_senar", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_auto_senar")
+        self.login_pos_user("pos_auto_senar_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-AUTO-SENAR-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Auto Senar Atas', '081230006661', 'retail')
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Auto Senar Bawah', '081230006662', 'retail')
+                """
+            )
+            customer_above = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Auto Senar Atas'"
+            ).fetchone()
+            customer_below = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Auto Senar Bawah'"
+            ).fetchone()
+            db.commit()
+
+        checkout_above = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-14",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": customer_above["id"],
+                "customer_name": "Customer Auto Senar Atas",
+                "customer_phone": "081230006661",
+                "transaction_type": "stringing_service",
+                "payment_method": "cash",
+                "paid_amount": 76000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 75000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout_above.status_code, 200)
+
+        checkout_below = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-14",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": customer_below["id"],
+                "customer_name": "Customer Auto Senar Bawah",
+                "customer_phone": "081230006662",
+                "transaction_type": "stringing_service",
+                "payment_method": "cash",
+                "paid_amount": 74000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 74000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout_below.status_code, 200)
+
+        receipt_above = checkout_above.get_json()["receipt_no"]
+        receipt_below = checkout_below.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            member_above = db.execute(
+                """
+                SELECT m.id, m.member_code, m.member_type, c.customer_type
+                FROM crm_memberships m
+                JOIN crm_customers c ON c.id = m.customer_id
+                WHERE m.customer_id=?
+                ORDER BY m.id DESC
+                LIMIT 1
+                """,
+                (customer_above["id"],),
+            ).fetchone()
+            member_below = db.execute(
+                """
+                SELECT m.id, m.member_code, m.member_type, c.customer_type
+                FROM crm_memberships m
+                JOIN crm_customers c ON c.id = m.customer_id
+                WHERE m.customer_id=?
+                ORDER BY m.id DESC
+                LIMIT 1
+                """,
+                (customer_below["id"],),
+            ).fetchone()
+            snapshot_above = get_member_snapshot(db, member_above["id"])
+            snapshot_below = get_member_snapshot(db, member_below["id"])
+            record_above = db.execute(
+                """
+                SELECT record_type, service_count_delta, note
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (member_above["id"],),
+            ).fetchone()
+            record_below = db.execute(
+                """
+                SELECT record_type, service_count_delta, note
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (member_below["id"],),
+            ).fetchone()
+            purchase_above = db.execute(
+                """
+                SELECT member_id, transaction_type
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (receipt_above,),
+            ).fetchone()
+            purchase_below = db.execute(
+                """
+                SELECT member_id, transaction_type
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (receipt_below,),
+            ).fetchone()
+
+        self.assertEqual(member_above["member_type"], "stringing")
+        self.assertEqual(member_below["member_type"], "stringing")
+        self.assertEqual(member_above["customer_type"], "member")
+        self.assertEqual(member_below["customer_type"], "member")
+        self.assertTrue(str(member_above["member_code"]).startswith("POS-SENAR-01-"))
+        self.assertTrue(str(member_below["member_code"]).startswith("POS-SENAR-01-"))
+        self.assertEqual(purchase_above["transaction_type"], "stringing_service")
+        self.assertEqual(purchase_below["transaction_type"], "stringing_service")
+        self.assertEqual(purchase_above["member_id"], member_above["id"])
+        self.assertEqual(purchase_below["member_id"], member_below["id"])
+        self.assertEqual(record_above["record_type"], "stringing_service")
+        self.assertEqual(record_below["record_type"], "stringing_service")
+        self.assertEqual(record_above["service_count_delta"], 1)
+        self.assertEqual(record_below["service_count_delta"], 0)
+        self.assertEqual(snapshot_above["total_stringing_visits"], 1)
+        self.assertEqual(snapshot_above["stringing_progress_count"], 1)
+        self.assertEqual(snapshot_below["total_stringing_visits"], 0)
+        self.assertEqual(snapshot_below["stringing_progress_count"], 0)
+        self.assertIn("di bawah Rp 75.000", record_below["note"])
 
     def test_chat_module_supports_direct_messages_and_realtime_unread(self):
         self.create_user("leader_chat", "pass1234", "leader", warehouse_id=1)
@@ -12114,9 +12605,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(submit_response.status_code, 302)
         mocked_role_notify.assert_called_once()
         self.assertEqual(mocked_role_notify.call_args.args[0], "attendance.activity")
-        self.assertEqual(mocked_role_notify.call_args.args[1]["warehouse_id"], 1)
-        self.assertEqual(mocked_role_notify.call_args.args[1]["employee_name"], "Portal Attendance WA")
-        self.assertEqual(mocked_role_notify.call_args.args[1]["link_url"], "/absen/")
+        payload = mocked_role_notify.call_args.args[1]
+        self.assertEqual(payload["warehouse_id"], 1)
+        self.assertEqual(payload["employee_name"], "Portal Attendance WA")
+        self.assertEqual(payload["punch_type"], "check_in")
+        self.assertEqual(payload["shift_label"], "Shift Pagi | 08.00 - 16.00")
+        self.assertEqual(payload["staff_note"], "Masuk shift pagi")
+        self.assertEqual(payload["link_url"], "/absen/")
+
+    def test_role_based_whatsapp_notification_clarifies_free_attendance_message(self):
+        self.create_user(
+            "owner_wa_free_attendance",
+            "pass1234",
+            "owner",
+            phone="081288800011",
+            notify_whatsapp=1,
+        )
+
+        with self.app.app_context():
+            with patch(
+                "services.whatsapp_service.send_whatsapp_text",
+                return_value={
+                    "ok": True,
+                    "provider": "kirimi",
+                    "receiver": "6281288800011",
+                    "error": "",
+                },
+            ) as mocked_send:
+                result = whatsapp_service.send_role_based_notification(
+                    "attendance.activity",
+                    {
+                        "warehouse_id": 1,
+                        "employee_name": "Portal Attendance WA",
+                        "warehouse_name": "Gudang Mataram",
+                        "punch_type": "free_attendance",
+                        "punch_label": "Absen Bebas",
+                        "time_label": "10:15",
+                        "location_label": "Event | Booth Lombok Epicentrum",
+                        "shift_label": "Shift Pagi",
+                        "staff_note": "Sedang jaga booth event",
+                    },
+                )
+
+        self.assertEqual(len(result["deliveries"]), 1)
+        self.assertEqual(mocked_send.call_count, 1)
+        sent_message = mocked_send.call_args.args[1]
+        self.assertIn("Keterangan: checkpoint kehadiran di tengah shift, bukan check out.", sent_message)
+        self.assertIn("Lokasi: Event | Booth Lombok Epicentrum.", sent_message)
+        self.assertIn("Shift aktif: Shift Pagi.", sent_message)
+        self.assertIn("Catatan staf: Sedang jaga booth event.", sent_message)
 
     def test_attendance_break_finish_notification_includes_break_duration(self):
         employee_id = self.create_employee_record(
@@ -15232,6 +15769,58 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(document_count, 0)
+
+    def test_document_approval_sheet_renders_and_sign_redirects_back(self):
+        self.login_hr_user()
+
+        create_response = self.client.post(
+            "/hris/documents/add",
+            data={
+                "warehouse_id": "1",
+                "document_title": "Policy Approval Sheet",
+                "document_code": "DOC-APPROVAL-01",
+                "document_type": "policy",
+                "status": "active",
+                "effective_date": "2026-10-05",
+                "owner_name": "HR Manager",
+                "note": "Dokumen dipakai untuk simulasi lembar pengesahan.",
+                "attachment": (BytesIO(b"%PDF-1.4 approval sheet"), "policy-approval.pdf"),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            document = db.execute(
+                "SELECT id FROM document_records WHERE document_code=?",
+                ("DOC-APPROVAL-01",),
+            ).fetchone()
+
+        self.assertIsNotNone(document)
+
+        approval_response = self.client.get(f"/hris/documents/approval/{document['id']}")
+        self.assertEqual(approval_response.status_code, 200)
+        approval_html = approval_response.get_data(as_text=True)
+        self.assertIn("Lembar Pengesahan", approval_html)
+        self.assertIn("Buka Dokumen", approval_html)
+        self.assertIn(f'name="return_to" value="/hris/documents/approval/{document["id"]}"', approval_html)
+        self.assertIn(f'action="/hris/documents/sign/{document["id"]}"', approval_html)
+
+        signature_data = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2X8AAAAASUVORK5CYII="
+        )
+        sign_response = self.client.post(
+            f"/hris/documents/sign/{document['id']}",
+            data={
+                "return_to": f"/hris/documents/approval/{document['id']}",
+                "signature_data": signature_data,
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(sign_response.status_code, 302)
+        self.assertTrue(sign_response.headers["Location"].endswith(f"/hris/documents/approval/{document['id']}"))
 
     def test_add_product_and_get_variants(self):
         self.login()
@@ -19668,8 +20257,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="stockOpnameApp"', html)
         self.assertIn("stock_opname.js", html)
         self.assertIn('data-product-id="', html)
+        self.assertIn('data-total-system="', html)
+        self.assertIn('data-overdraft-qty="', html)
         self.assertNotIn('class="product_id"', html)
         self.assertNotIn('class="variant_id"', html)
+
+    def test_stock_opname_mobile_table_css_keeps_horizontal_scroll_enabled(self):
+        css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
+        with open(css_path, "r", encoding="utf-8") as css_file:
+            css_text = css_file.read()
+
+        self.assertIn("body .stock-opname-table-box {", css_text)
+        self.assertIn("overflow-x: auto;", css_text)
+        self.assertIn("touch-action: pan-x pan-y;", css_text)
 
     def test_stock_opname_export_respects_search_filter(self):
         self.login()
@@ -19837,6 +20437,333 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(gudang_area["qty"], 10)
         self.assertEqual(so_rows, 2)
         self.assertEqual(history_rows, 1)
+
+    def test_stock_opname_submit_updates_multiple_products_in_one_request(self):
+        self.login()
+        payload_items = []
+        created_rows = []
+
+        for idx, qty in enumerate((5, 6, 7), start=1):
+            response, product_id, variants_rows = self.create_product(
+                sku=f"SO-BULK-{idx}",
+                qty=qty,
+                variants=f"SO{idx}",
+                name=f"Produk Bulk {idx}",
+            )
+            self.assertEqual(response.status_code, 302)
+            variant_id = variants_rows[0]["id"]
+            created_rows.append((product_id, variant_id, qty, idx))
+            payload_items.append(
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "display_physical": idx,
+                    "gudang_physical": qty + 1,
+                }
+            )
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "items": payload_items,
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 3)
+
+        with self.app.app_context():
+            db = get_db()
+            for product_id, variant_id, qty, idx in created_rows:
+                stock_row = db.execute(
+                    "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                    (product_id, variant_id),
+                ).fetchone()
+                result_rows = db.execute(
+                    """
+                    SELECT COUNT(*) FROM stock_opname_results
+                    WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                    """,
+                    (product_id, variant_id),
+                ).fetchone()[0]
+                history_rows = db.execute(
+                    """
+                    SELECT COUNT(*) FROM stock_history
+                    WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND action='STOCK_OPNAME'
+                    """,
+                    (product_id, variant_id),
+                ).fetchone()[0]
+
+                self.assertEqual(stock_row["qty"], qty + idx + 1)
+                self.assertEqual(result_rows, 2)
+                self.assertEqual(history_rows, 1)
+
+    def test_stock_opname_submit_rejects_blank_physical_values_in_request(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=8, variants="SOBLANK")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": "",
+                        "gudang_physical": 8,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["error"], "Baris produk ke-1 tidak lengkap")
+
+        with self.app.app_context():
+            db = get_db()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            so_rows = db.execute(
+                """
+                SELECT COUNT(*) FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+            history_rows = db.execute(
+                """
+                SELECT COUNT(*) FROM stock_history
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND action='STOCK_OPNAME'
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+
+        self.assertEqual(stock_row["qty"], 8)
+        self.assertEqual(so_rows, 0)
+        self.assertEqual(history_rows, 0)
+
+    def test_stock_opname_submit_rejects_duplicate_product_rows(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=6, variants="SODUP")
+        variant_id = variants_rows[0]["id"]
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": 1,
+                        "gudang_physical": 5,
+                    },
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": 2,
+                        "gudang_physical": 4,
+                    },
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["error"], "Baris produk ke-2 duplikat")
+
+        with self.app.app_context():
+            db = get_db()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            so_rows = db.execute(
+                """
+                SELECT COUNT(*) FROM stock_opname_results
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+            history_rows = db.execute(
+                """
+                SELECT COUNT(*) FROM stock_history
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND action='STOCK_OPNAME'
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+
+        self.assertEqual(stock_row["qty"], 6)
+        self.assertEqual(so_rows, 0)
+        self.assertEqual(history_rows, 0)
+
+    def test_stock_opname_submit_resolves_negative_stock_minus_to_zero_physical(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=0, variants="SOMINUS")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO pos_negative_stock_overdrafts(
+                    product_id, variant_id, warehouse_id, qty, remaining_qty, source_type, source_id, note
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (product_id, variant_id, 1, 2, 2, "pos_sale", None, "SO minus test"),
+            )
+            db.execute(
+                """
+                INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
+                VALUES (?,?,?,?)
+                ON CONFLICT(product_id, variant_id, warehouse_id)
+                DO UPDATE SET qty=excluded.qty, updated_at=CURRENT_TIMESTAMP
+                """,
+                (product_id, variant_id, 1, -2),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": 0,
+                        "gudang_physical": 0,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 1)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            overdraft_row = db.execute(
+                """
+                SELECT remaining_qty, resolved_at
+                FROM pos_negative_stock_overdrafts
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            batch_qty = db.execute(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0)
+                FROM stock_batches
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+            history_row = db.execute(
+                """
+                SELECT action, qty, note
+                FROM stock_history
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1 AND action='STOCK_OPNAME'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(stock_row["qty"], 0)
+        self.assertEqual(overdraft_row["remaining_qty"], 0)
+        self.assertIsNotNone(overdraft_row["resolved_at"])
+        self.assertEqual(batch_qty, 0)
+        self.assertEqual(history_row["action"], "STOCK_OPNAME")
+        self.assertEqual(history_row["qty"], 2)
+        self.assertIn("pelunasan stok minus sementara 2", history_row["note"].lower())
+
+    def test_stock_opname_submit_rebuilds_physical_stock_when_overdraft_is_open(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=10, variants="SOOVERDRAFT")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO pos_negative_stock_overdrafts(
+                    product_id, variant_id, warehouse_id, qty, remaining_qty, source_type, source_id, note
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (product_id, variant_id, 1, 2, 2, "pos_sale", None, "SO overdraft sync test"),
+            )
+            db.execute(
+                """
+                UPDATE stock
+                SET qty=?, updated_at=CURRENT_TIMESTAMP
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (8, product_id, variant_id),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": 0,
+                        "gudang_physical": 8,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["processed"], 1)
+
+        with self.app.app_context():
+            db = get_db()
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+            overdraft_remaining = db.execute(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0)
+                FROM pos_negative_stock_overdrafts
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+            batch_qty = db.execute(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0)
+                FROM stock_batches
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+
+        self.assertEqual(stock_row["qty"], 8)
+        self.assertEqual(overdraft_remaining, 0)
+        self.assertEqual(batch_qty, 8)
 
     def test_stock_opname_submit_uses_latest_server_stock_and_returns_refresh_payload(self):
         self.login()

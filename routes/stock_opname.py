@@ -159,6 +159,76 @@ def _load_so_request_payload():
     return form_payload if form_payload else {}
 
 
+def _normalize_so_submit_items(raw_items):
+    if not isinstance(raw_items, list):
+        return [], "Format item stock opname tidak valid"
+
+    normalized_items = []
+    seen_keys = set()
+
+    for index, raw_item in enumerate(raw_items, start=1):
+        if not isinstance(raw_item, dict):
+            return [], f"Baris produk ke-{index} tidak valid"
+
+        required_keys = (
+            "product_id",
+            "variant_id",
+            "display_physical",
+            "gudang_physical",
+        )
+        if any(key not in raw_item for key in required_keys):
+            return [], f"Baris produk ke-{index} tidak lengkap"
+
+        def _read_required_raw_number(key):
+            value = raw_item.get(key)
+            if value is None:
+                return ""
+            return str(value).strip()
+
+        raw_product_id = _read_required_raw_number("product_id")
+        raw_variant_id = _read_required_raw_number("variant_id")
+        raw_display_physical = _read_required_raw_number("display_physical")
+        raw_gudang_physical = _read_required_raw_number("gudang_physical")
+
+        if (
+            not raw_product_id
+            or not raw_variant_id
+            or not raw_display_physical
+            or not raw_gudang_physical
+        ):
+            return [], f"Baris produk ke-{index} tidak lengkap"
+
+        try:
+            product_id = int(raw_product_id)
+            variant_id = int(raw_variant_id)
+            display_physical = int(raw_display_physical)
+            gudang_physical = int(raw_gudang_physical)
+        except (TypeError, ValueError):
+            return [], f"Baris produk ke-{index} tidak valid"
+
+        if product_id <= 0 or variant_id <= 0:
+            return [], f"Baris produk ke-{index} tidak lengkap"
+
+        if display_physical < 0 or gudang_physical < 0:
+            return [], "Stock fisik tidak boleh negatif"
+
+        dedupe_key = (product_id, variant_id)
+        if dedupe_key in seen_keys:
+            return [], f"Baris produk ke-{index} duplikat"
+        seen_keys.add(dedupe_key)
+
+        normalized_items.append(
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "display_physical": display_physical,
+                "gudang_physical": gudang_physical,
+            }
+        )
+
+    return normalized_items, None
+
+
 def _is_sqlite_lock_error(exc):
     message = str(exc or "").strip().lower()
     return "locked" in message and "database" in message
@@ -211,6 +281,14 @@ def _build_so_inventory_query(warehouse_id, search):
             pv.id AS variant_id,
             pv.variant,
             COALESCE(s.qty, 0) AS total_qty,
+            COALESCE((
+                SELECT SUM(od.remaining_qty)
+                FROM pos_negative_stock_overdrafts od
+                WHERE od.product_id = p.id
+                  AND od.variant_id = pv.id
+                  AND od.warehouse_id = ?
+                  AND COALESCE(od.remaining_qty, 0) > 0
+            ), 0) AS overdraft_qty,
             {display_qty_expression} AS display_qty,
             {gudang_qty_expression} AS gudang_qty
         FROM products p
@@ -226,7 +304,7 @@ def _build_so_inventory_query(warehouse_id, search):
             AND sad.area_kind = '{SO_AREA_DISPLAY}'
         WHERE 1=1
     """
-    params = [warehouse_id, warehouse_id]
+    params = [warehouse_id, warehouse_id, warehouse_id]
 
     search_clause, search_params = _build_so_search_clause(
         search,
@@ -601,6 +679,36 @@ def _resolve_so_area_system_quantities(total_qty, display_saved_qty):
     return display_qty, gudang_qty, total_qty
 
 
+def _get_so_negative_overdraft_qty(db, product_id, variant_id, warehouse_id):
+    row = db.execute(
+        """
+        SELECT COALESCE(SUM(remaining_qty), 0) AS total
+        FROM pos_negative_stock_overdrafts
+        WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchone()
+    return max(int(row["total"] or 0), 0) if row else 0
+
+
+def _clear_so_negative_overdrafts(db, product_id, variant_id, warehouse_id):
+    resolved_qty = _get_so_negative_overdraft_qty(db, product_id, variant_id, warehouse_id)
+    if resolved_qty <= 0:
+        return 0
+
+    db.execute(
+        """
+        UPDATE pos_negative_stock_overdrafts
+        SET
+            remaining_qty = 0,
+            resolved_at = CURRENT_TIMESTAMP
+        WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+        """,
+        (product_id, variant_id, warehouse_id),
+    )
+    return resolved_qty
+
+
 @so_bp.route("/")
 def so_page():
     db = get_db()
@@ -651,8 +759,11 @@ def submit_so():
         data.get("display_id"),
         data.get("gudang_id"),
     )
-    items = data.get("items", []) if isinstance(data.get("items", []), list) else []
+    items, items_error = _normalize_so_submit_items(data.get("items", []))
     user_id = _resolve_so_actor_user_id(db, session.get("user_id"))
+
+    if items_error:
+        return jsonify({"error": items_error}), 400
 
     if not items:
         return jsonify({"error": "Tidak ada item yang dikirim"}), 400
@@ -679,13 +790,10 @@ def submit_so():
             valid_items = 0
 
             for item in items:
-                try:
-                    product_id = int(item["product_id"])
-                    variant_id = int(item["variant_id"])
-                    display_physical = int(item.get("display_physical", 0) or 0)
-                    gudang_physical = int(item.get("gudang_physical", 0) or 0)
-                except Exception:
-                    continue
+                product_id = item["product_id"]
+                variant_id = item["variant_id"]
+                display_physical = item["display_physical"]
+                gudang_physical = item["gudang_physical"]
 
                 entity = db.execute(
                     """
@@ -711,7 +819,15 @@ def submit_so():
                     f"""
                     SELECT
                         COALESCE(s.qty, 0) AS total_qty,
-                        COALESCE(sad.qty, 0) AS display_saved_qty
+                        COALESCE(sad.qty, 0) AS display_saved_qty,
+                        COALESCE((
+                            SELECT SUM(od.remaining_qty)
+                            FROM pos_negative_stock_overdrafts od
+                            WHERE od.product_id = p.id
+                              AND od.variant_id = pv.id
+                              AND od.warehouse_id = ?
+                              AND COALESCE(od.remaining_qty, 0) > 0
+                        ), 0) AS overdraft_qty
                     FROM products p
                     JOIN product_variants pv ON pv.product_id = p.id
                     LEFT JOIN stock s
@@ -725,20 +841,23 @@ def submit_so():
                         AND sad.area_kind = '{SO_AREA_DISPLAY}'
                     WHERE p.id=? AND pv.id=?
                     """,
-                    (warehouse_id, warehouse_id, product_id, variant_id),
+                    (warehouse_id, warehouse_id, warehouse_id, product_id, variant_id),
                 ).fetchone()
 
                 display_system, gudang_system, total_system = _resolve_so_area_system_quantities(
                     stock_row["total_qty"] if stock_row else 0,
                     stock_row["display_saved_qty"] if stock_row else 0,
                 )
+                total_system_raw = int(stock_row["total_qty"] or 0) if stock_row else 0
+                overdraft_qty = max(int(stock_row["overdraft_qty"] or 0), 0) if stock_row else 0
 
                 display_diff = display_physical - display_system
                 gudang_diff = gudang_physical - gudang_system
                 total_physical = display_physical + gudang_physical
-                total_diff = total_physical - total_system
+                total_diff = total_physical - total_system_raw
+                needs_total_resync = total_diff != 0 or overdraft_qty > 0
 
-                if display_diff == 0 and gudang_diff == 0:
+                if display_diff == 0 and gudang_diff == 0 and not needs_total_resync:
                     continue
 
                 _upsert_so_area_balance(
@@ -786,20 +905,29 @@ def submit_so():
                         user_id,
                     )
 
-                if total_diff != 0:
+                if needs_total_resync:
+                    resolved_overdraft_qty = _clear_so_negative_overdrafts(
+                        db,
+                        product_id,
+                        variant_id,
+                        warehouse_id,
+                    )
+                    total_note = (
+                        "Stock Opname Total Toko "
+                        f"(Display {display_physical}, Gudang {gudang_physical})"
+                    )
+                    if resolved_overdraft_qty > 0:
+                        total_note += f" [pelunasan stok minus sementara {resolved_overdraft_qty}]"
                     _apply_so_total_adjustment(
                         db,
                         product_id,
                         variant_id,
                         warehouse_id,
-                        total_system,
+                        total_system_raw,
                         total_physical,
                         total_diff,
                         user_id,
-                        (
-                            "Stock Opname Total Toko "
-                            f"(Display {display_physical}, Gudang {gudang_physical})"
-                        ),
+                        total_note,
                     )
 
                 processed += 1

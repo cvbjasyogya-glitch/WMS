@@ -8345,7 +8345,13 @@ body .stock-opname-note p {
 }
 
 body .stock-opname-table-box {
-    overflow: hidden;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
+    touch-action: pan-x pan-y;
 }
 
 body .stock-opname-table {

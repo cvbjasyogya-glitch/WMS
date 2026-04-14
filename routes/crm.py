@@ -16,6 +16,8 @@ from services.crm_loyalty import (
     MEMBER_TYPE_LABELS,
     MEMBER_TYPES,
     MEMBERSHIP_STATUSES,
+    STRINGING_PROGRESS_MIN_AMOUNT,
+    STRINGING_REWARD_THRESHOLD,
     build_auto_member_record,
     build_member_snapshot_from_row,
     get_member_snapshot,
@@ -103,6 +105,10 @@ def _normalize_date(value):
         return date_cls.fromisoformat(raw_value).isoformat()
     except ValueError:
         return None
+
+
+def _format_crm_currency_label(value):
+    return "Rp {:,.0f}".format(_to_float(value, 0)).replace(",", ".")
 
 
 def _crm_scope_warehouse():
@@ -363,6 +369,238 @@ def _get_member_by_id(db, member_id):
         """,
         [member_id, *params],
     ).fetchone()
+
+
+def _get_latest_customer_member(db, customer_id, *, active_only=False):
+    scope_clause, params = _build_scope_clause("m")
+    active_filter = " AND m.status='active'" if active_only else ""
+    return db.execute(
+        f"""
+        SELECT m.*
+        FROM crm_memberships m
+        WHERE m.customer_id=? {active_filter} {scope_clause}
+        ORDER BY m.id DESC
+        LIMIT 1
+        """,
+        [customer_id, *params],
+    ).fetchone()
+
+
+def _build_next_crm_member_code(db, warehouse_id, *, member_type):
+    safe_warehouse_id = max(_to_int(warehouse_id, 0), 0)
+    normalized_member_type = _normalize_member_type(member_type)
+    prefix_map = {
+        "purchase": "CRM-POINT",
+        "stringing": "CRM-SENAR",
+    }
+    prefix = f"{prefix_map.get(normalized_member_type, 'CRM-MEMBER')}-{safe_warehouse_id:02d}-"
+    rows = db.execute(
+        "SELECT member_code FROM crm_memberships WHERE member_code LIKE ?",
+        (f"{prefix}%",),
+    ).fetchall()
+
+    latest_sequence = 0
+    for row in rows:
+        member_code = str(row["member_code"] or "").strip().upper()
+        if not member_code.startswith(prefix):
+            continue
+        tail = member_code[len(prefix):]
+        if tail.isdigit():
+            latest_sequence = max(latest_sequence, int(tail))
+
+    return f"{prefix}{latest_sequence + 1:04d}"
+
+
+def _auto_create_crm_purchase_member(db, customer, join_date, *, requested_by_user_id=None):
+    customer_id = _to_int(customer["id"], 0)
+    if customer_id <= 0:
+        raise ValueError("Customer member tidak valid.")
+
+    if not str(customer["phone"] or "").strip():
+        return None
+
+    warehouse_id = _to_int(customer["warehouse_id"], 0)
+    member_code = _build_next_crm_member_code(db, warehouse_id, member_type="purchase")
+    db.execute(
+        """
+        UPDATE crm_customers
+        SET customer_type='member', updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (customer_id,),
+    )
+    cursor = db.execute(
+        """
+        INSERT INTO crm_memberships(
+            customer_id,
+            warehouse_id,
+            member_code,
+            member_type,
+            tier,
+            status,
+            join_date,
+            expiry_date,
+            points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
+            benefit_note,
+            note
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            customer_id,
+            warehouse_id,
+            member_code,
+            "purchase",
+            "regular",
+            "active",
+            join_date,
+            None,
+            0,
+            _to_int(requested_by_user_id, 0) or None,
+            DEFAULT_STRINGING_REWARD_AMOUNT,
+            0,
+            0,
+            "Poin belanja aktif: 1 poin setiap total Rp 10.000.",
+            "Auto-created by CRM purchase member enrollment.",
+        ),
+    )
+    return _get_member_by_id(db, cursor.lastrowid)
+
+
+def _auto_create_crm_stringing_member(db, customer, join_date, *, requested_by_user_id=None):
+    customer_id = _to_int(customer["id"], 0)
+    if customer_id <= 0:
+        raise ValueError("Customer member tidak valid.")
+
+    warehouse_id = _to_int(customer["warehouse_id"], 0)
+    member_code = _build_next_crm_member_code(db, warehouse_id, member_type="stringing")
+    threshold_label = _format_crm_currency_label(STRINGING_PROGRESS_MIN_AMOUNT)
+    db.execute(
+        """
+        UPDATE crm_customers
+        SET customer_type='member', updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (customer_id,),
+    )
+    cursor = db.execute(
+        """
+        INSERT INTO crm_memberships(
+            customer_id,
+            warehouse_id,
+            member_code,
+            member_type,
+            tier,
+            status,
+            join_date,
+            expiry_date,
+            points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
+            benefit_note,
+            note
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            customer_id,
+            warehouse_id,
+            member_code,
+            "stringing",
+            "regular",
+            "active",
+            join_date,
+            None,
+            0,
+            _to_int(requested_by_user_id, 0) or None,
+            DEFAULT_STRINGING_REWARD_AMOUNT,
+            0,
+            0,
+            (
+                f"Free senar 1x setiap {STRINGING_REWARD_THRESHOLD} progres "
+                f"senaran berbayar minimal {threshold_label}."
+            ),
+            "Auto-created by CRM purchase Senaran Berbayar.",
+        ),
+    )
+    return _get_member_by_id(db, cursor.lastrowid)
+
+
+def _ensure_active_stringing_member_for_crm(db, member_id):
+    safe_member_id = _to_int(member_id, 0)
+    if safe_member_id <= 0:
+        return None
+
+    db.execute(
+        """
+        UPDATE crm_memberships
+        SET status='active', updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (safe_member_id,),
+    )
+    member = _get_member_by_id(db, safe_member_id)
+    if member:
+        db.execute(
+            """
+            UPDATE crm_customers
+            SET customer_type='member', updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (member["customer_id"],),
+        )
+    return member
+
+
+def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
+    safe_transaction_type = _normalize_transaction_type(transaction_type)
+
+    latest_active_member = _get_latest_customer_member(db, customer["id"], active_only=True)
+    if latest_active_member:
+        member = _get_member_by_id(db, latest_active_member["id"]) or latest_active_member
+        member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
+        if safe_transaction_type == "purchase":
+            return member, get_member_snapshot(db, member["id"])
+        if member_type != "stringing":
+            raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
+        return member, get_member_snapshot(db, member["id"])
+
+    if safe_transaction_type == "purchase":
+        member = _auto_create_crm_purchase_member(
+            db,
+            customer,
+            purchase_date,
+            requested_by_user_id=session.get("user_id"),
+        )
+        if not member:
+            return None, None
+        return member, get_member_snapshot(db, member["id"])
+
+    if safe_transaction_type == "stringing_reward_redemption":
+        return None, None
+
+    latest_member = _get_latest_customer_member(db, customer["id"], active_only=False)
+    if latest_member:
+        member = _get_member_by_id(db, latest_member["id"]) or latest_member
+        member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
+        if member_type != "stringing":
+            raise ValueError("Customer ini sudah punya member tipe lain. Pilih member yang sesuai dulu.")
+        member = _ensure_active_stringing_member_for_crm(db, member["id"]) or member
+        return member, get_member_snapshot(db, member["id"])
+
+    member = _auto_create_crm_stringing_member(
+        db,
+        customer,
+        purchase_date,
+        requested_by_user_id=session.get("user_id"),
+    )
+    return member, get_member_snapshot(db, member["id"])
 
 
 def _get_purchase_by_id(db, purchase_id):
@@ -1170,6 +1408,7 @@ def crm_page():
         transaction_type_labels=CRM_TRANSACTION_TYPE_LABELS,
         crm_smart_select_limit=CRM_SMART_SELECT_LIMIT,
         default_stringing_reward_amount=DEFAULT_STRINGING_REWARD_AMOUNT,
+        stringing_progress_min_amount=STRINGING_PROGRESS_MIN_AMOUNT,
         scoped_crm_warehouse=_crm_scope_warehouse(),
         can_manage_crm=has_permission(session.get("role"), "manage_crm"),
         can_view_crm_revenue=can_view_crm_revenue,
@@ -1459,20 +1698,20 @@ def add_purchase():
 
     member = None
     member_snapshot = None
+    selected_member = None
+    selected_member_snapshot = None
     if member_id:
-        member = _get_member_by_id(db, member_id)
-        if not member or member["customer_id"] != customer_id:
+        selected_member = _get_member_by_id(db, member_id)
+        if not selected_member or selected_member["customer_id"] != customer_id:
             flash("Member tidak valid untuk customer yang dipilih.", "error")
             return _crm_redirect("purchases")
-        member_snapshot = get_member_snapshot(db, member_id)
-        member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
+        selected_member_snapshot = get_member_snapshot(db, member_id)
+        member_type = _normalize_member_type(
+            selected_member["member_type"] if "member_type" in selected_member.keys() else None
+        )
         if member_type != "stringing" and transaction_type in {"stringing_service", "stringing_reward_redemption"}:
             flash("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.", "error")
             return _crm_redirect("purchases")
-
-    if transaction_type == "stringing_reward_redemption" and not member:
-        flash("Free reward senaran hanya bisa dicatat untuk member yang valid.", "error")
-        return _crm_redirect("purchases")
 
     if not purchase_date:
         flash("Tanggal pembelian wajib valid.", "error")
@@ -1483,6 +1722,22 @@ def add_purchase():
 
     try:
         db.execute("BEGIN")
+        if selected_member:
+            member = selected_member
+            member_snapshot = selected_member_snapshot
+        else:
+            member, member_snapshot = _resolve_crm_purchase_member(
+                db,
+                customer,
+                transaction_type,
+                purchase_date,
+            )
+            if member:
+                member_id = member["id"]
+
+        if transaction_type == "stringing_reward_redemption" and not member:
+            raise ValueError("Free reward senaran hanya bisa dicatat untuk member yang valid.")
+
         cursor = db.execute(
             """
             INSERT INTO crm_purchase_records(
@@ -1592,6 +1847,10 @@ def add_purchase():
             )
 
         db.commit()
+    except ValueError as exc:
+        db.rollback()
+        flash(str(exc), "error")
+        return _crm_redirect("purchases")
     except Exception:
         db.rollback()
         flash("Purchase record gagal disimpan.", "error")

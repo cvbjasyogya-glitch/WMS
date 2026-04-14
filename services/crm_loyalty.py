@@ -32,6 +32,7 @@ CRM_TRANSACTION_TYPE_LABELS = {
 }
 
 DEFAULT_STRINGING_REWARD_AMOUNT = 75000.0
+STRINGING_PROGRESS_MIN_AMOUNT = 75000.0
 PURCHASE_POINTS_DIVISOR = Decimal("10000")
 STRINGING_REWARD_THRESHOLD = 6
 
@@ -176,7 +177,9 @@ def calculate_loyalty_fields(member, amount, transaction_type, *, active=True):
 
     if transaction_type == "stringing_service":
         fields["record_type"] = "stringing_service"
-        fields["service_count_delta"] = 1 if active else 0
+        fields["service_count_delta"] = (
+            1 if active and safe_amount >= STRINGING_PROGRESS_MIN_AMOUNT else 0
+        )
         return fields
 
     if transaction_type == "stringing_reward_redemption":
@@ -222,23 +225,30 @@ def build_auto_member_record(
         else:
             note_parts.append(f"Otomatis dari {source_label}: belum ada tambahan poin.")
     elif fields["record_type"] == "stringing_service":
-        next_visit_total = member_snapshot["total_stringing_visits"] + 1
-        if next_visit_total // STRINGING_REWARD_THRESHOLD > member_snapshot["total_reward_earned"]:
+        if fields["service_count_delta"] <= 0:
             note_parts.append(
                 "Otomatis dari "
-                f"{source_label}: kunjungan senaran ke-{next_visit_total}, free 1x "
-                f"senilai Rp {_format_currency(member_snapshot['reward_unit_amount'])} siap dipakai."
+                f"{source_label}: nominal senaran di bawah Rp {_format_currency(STRINGING_PROGRESS_MIN_AMOUNT)}, "
+                "member tetap aktif tetapi progres belum bertambah."
             )
         else:
-            remaining = (
-                STRINGING_REWARD_THRESHOLD
-                if next_visit_total % STRINGING_REWARD_THRESHOLD == 0
-                else STRINGING_REWARD_THRESHOLD - (next_visit_total % STRINGING_REWARD_THRESHOLD)
-            )
-            note_parts.append(
-                f"Otomatis dari {source_label}: kunjungan senaran ke-{next_visit_total}, "
-                f"sisa {remaining} lagi menuju free 1x."
-            )
+            next_visit_total = member_snapshot["total_stringing_visits"] + fields["service_count_delta"]
+            if next_visit_total // STRINGING_REWARD_THRESHOLD > member_snapshot["total_reward_earned"]:
+                note_parts.append(
+                    "Otomatis dari "
+                    f"{source_label}: kunjungan senaran ke-{next_visit_total}, free 1x "
+                    f"senilai Rp {_format_currency(member_snapshot['reward_unit_amount'])} siap dipakai."
+                )
+            else:
+                remaining = (
+                    STRINGING_REWARD_THRESHOLD
+                    if next_visit_total % STRINGING_REWARD_THRESHOLD == 0
+                    else STRINGING_REWARD_THRESHOLD - (next_visit_total % STRINGING_REWARD_THRESHOLD)
+                )
+                note_parts.append(
+                    f"Otomatis dari {source_label}: kunjungan senaran ke-{next_visit_total}, "
+                    f"sisa {remaining} lagi menuju free 1x."
+                )
     elif fields["record_type"] == "reward_redemption":
         if member_snapshot["available_reward_count"] <= 0:
             raise ValueError("Member senaran ini belum punya free senar yang bisa dipakai.")

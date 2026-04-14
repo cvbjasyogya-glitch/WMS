@@ -4708,6 +4708,7 @@
                                 </div>
                             </div>
                             <div class="split-actions">
+                                <a href="/hris/documents/approval/{{ document.id }}" class="ghost-button">Buka Lembar Pengesahan</a>
                                 {% if document.attachment_url %}
                                 <a href="{{ document.attachment_url }}" class="ghost-button" target="_blank" rel="noopener">Buka Dokumen</a>
                                 {% endif %}
@@ -4775,6 +4776,7 @@
                         {% endif %}
 
                         <form method="POST" action="/hris/documents/sign/{{ document.id }}" class="hris-document-sign-form">
+                            <input type="hidden" name="return_to" value="/hris/documents">
                             <input type="hidden" name="signature_data" value="" data-document-signature-input>
                             <div class="hris-document-sign-pad" data-document-signature-root>
                                 <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>

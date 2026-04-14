@@ -47,6 +47,7 @@
         saveSuccess: config.messages?.saveSuccess || "SO berhasil disimpan.",
         emptyChanges: config.messages?.emptyChanges || "Tidak ada perubahan yang perlu disimpan.",
         invalidInput: config.messages?.invalidInput || "Cek lagi input stok fisik.",
+        invalidRow: config.messages?.invalidRow || "Ada baris produk yang tidak lengkap. Refresh halaman lalu coba simpan lagi.",
         confirmPageChange: config.messages?.confirmPageChange || "Perubahan belum disimpan. Tetap pindah halaman?",
         confirmFilterChange: config.messages?.confirmFilterChange || "Perubahan belum disimpan. Tetap ganti filter?",
     };
@@ -204,28 +205,45 @@
     function readRowSnapshot(row) {
         const productId = readInt(row.dataset.productId);
         const variantId = readInt(row.dataset.variantId);
+        const totalSystem = readInt(row.dataset.totalSystem, 0) || 0;
+        const overdraftQty = readInt(row.dataset.overdraftQty, 0) || 0;
         const displaySystem = readInt(row.querySelector(".display")?.textContent, 0) || 0;
         const gudangSystem = readInt(row.querySelector(".gudang")?.textContent, 0) || 0;
         const displayPhysical = parseInputValue(row.querySelector(".physical_display"));
         const gudangPhysical = parseInputValue(row.querySelector(".physical_gudang"));
         const displayDiff = (displayPhysical ?? displaySystem) - displaySystem;
         const gudangDiff = (gudangPhysical ?? gudangSystem) - gudangSystem;
+        const totalPhysical = displayPhysical === null || gudangPhysical === null
+            ? null
+            : displayPhysical + gudangPhysical;
+        const totalDiff = totalPhysical === null ? 0 : totalPhysical - totalSystem;
         const invalid = (
+            !productId ||
+            !variantId ||
             displayPhysical === null ||
             gudangPhysical === null ||
             displayPhysical < 0 ||
             gudangPhysical < 0
         );
-        const hasChanges = !invalid && (displayDiff !== 0 || gudangDiff !== 0);
+        const hasChanges = !invalid && (
+            displayDiff !== 0
+            || gudangDiff !== 0
+            || totalDiff !== 0
+            || overdraftQty > 0
+        );
 
         return {
             row,
             productId,
             variantId,
+            totalSystem,
+            overdraftQty,
             displaySystem,
             gudangSystem,
             displayPhysical,
             gudangPhysical,
+            totalPhysical,
+            totalDiff,
             displayDiff,
             gudangDiff,
             invalid,
@@ -245,11 +263,15 @@
     function collectPendingItems() {
         const items = [];
         let invalid = false;
+        let hasMissingRowIdentity = false;
 
         getRows().forEach((row) => {
             const snapshot = syncRow(row);
             if (snapshot.invalid) {
                 invalid = true;
+                if (!snapshot.productId || !snapshot.variantId) {
+                    hasMissingRowIdentity = true;
+                }
                 return;
             }
             if (!snapshot.hasChanges) {
@@ -265,7 +287,7 @@
             });
         });
 
-        return { items, invalid };
+        return { items, invalid, hasMissingRowIdentity };
     }
 
     function updateSaveState() {
@@ -280,7 +302,9 @@
         }
         if (nodes.pendingHelp) {
             nodes.pendingHelp.innerText = pending.invalid
-                ? messages.invalidInput
+                ? pending.hasMissingRowIdentity
+                    ? messages.invalidRow
+                    : messages.invalidInput
                 : hasChanges
                     ? "Perubahan di halaman ini siap disimpan ke hasil stock opname toko ini."
                     : "Belum ada perubahan fisik yang perlu disimpan.";
@@ -302,14 +326,30 @@
     }
 
     function buildRowMarkup(item) {
+        const totalQty = readInt(item.total_qty, 0) || 0;
+        const overdraftQty = readInt(item.overdraft_qty, 0) || 0;
         const displayQty = readInt(item.display_qty, 0) || 0;
         const gudangQty = readInt(item.gudang_qty, 0) || 0;
+        const syncNote = overdraftQty > 0 || totalQty < 0
+            ? (
+                totalQty < 0
+                    ? `<small class="helper-text">Stok sistem net sedang minus ${Math.abs(totalQty)}. Simpan SO untuk sinkron ke stok fisik.</small>`
+                    : `<small class="helper-text">Ada stok minus sementara ${overdraftQty} unit. Simpan SO untuk rapikan stok fisik toko ini.</small>`
+            )
+            : "";
         return `
-            <tr data-row="item" data-product-id="${readInt(item.product_id, 0) || 0}" data-variant-id="${readInt(item.variant_id, 0) || 0}">
+            <tr
+                data-row="item"
+                data-product-id="${readInt(item.product_id, 0) || 0}"
+                data-variant-id="${readInt(item.variant_id, 0) || 0}"
+                data-total-system="${totalQty}"
+                data-overdraft-qty="${overdraftQty}"
+            >
                 <td class="mono">${escapeHtml(item.sku)}</td>
                 <td class="stock-opname-product-cell">
                     <strong>${escapeHtml(item.name)}</strong>
                     <small>Bandingkan fisik per variant aktif.</small>
+                    ${syncNote}
                 </td>
                 <td>${escapeHtml(item.variant)}</td>
                 <td class="display stock-opname-system-cell">${displayQty}</td>
@@ -437,7 +477,7 @@
         const pending = updateSaveState();
 
         if (pending.invalid) {
-            notify(messages.invalidInput, true);
+            notify(pending.hasMissingRowIdentity ? messages.invalidRow : messages.invalidInput, true);
             return;
         }
 

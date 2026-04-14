@@ -11,10 +11,12 @@ from database import get_db
 from services.crm_loyalty import (
     CRM_TRANSACTION_TYPE_LABELS,
     DEFAULT_STRINGING_REWARD_AMOUNT,
+    STRINGING_PROGRESS_MIN_AMOUNT,
     STRINGING_REWARD_THRESHOLD,
     build_auto_member_record,
     calculate_loyalty_fields,
     get_member_snapshot,
+    normalize_member_type,
     normalize_transaction_type,
 )
 from services.notification_service import notify_operational_event
@@ -508,6 +510,7 @@ def _build_pos_receipt_loyalty_lines(db, sale):
     progress_label = _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_record)
     available_reward_count = max(_to_int(snapshot.get("available_reward_count"), 0), 0)
     reward_value_label = _format_pos_currency_label(snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
+    service_count_delta = max(_to_int((loyalty_record or {}).get("service_count_delta"), 0), 0)
 
     if transaction_type == "stringing_reward_redemption":
         benefit_value = _currency(loyalty_record.get("benefit_value") or snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
@@ -518,6 +521,10 @@ def _build_pos_receipt_loyalty_lines(db, sale):
         return lines
 
     lines.append(f"- Progress senar: {progress_label}")
+    if transaction_type == "stringing_service" and service_count_delta <= 0:
+        lines.append(
+            f"- Progress belum bertambah karena nominal senaran di bawah {_format_pos_currency_label(STRINGING_PROGRESS_MIN_AMOUNT)}"
+        )
     if available_reward_count > 0:
         lines.append(f"- Free senar siap dipakai: {available_reward_count}x ({reward_value_label})")
     else:
@@ -2381,6 +2388,243 @@ def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, cu
     return created
 
 
+def _resolve_pos_customer_identity(db, warehouse_id, customer_id, customer_name, customer_phone):
+    safe_name = (customer_name or "").strip()
+    safe_phone = _normalize_pos_phone(customer_phone)
+    safe_customer_id = _to_int(customer_id, 0)
+
+    if safe_customer_id > 0 and (not safe_name or not safe_phone):
+        customer = db.execute(
+            """
+            SELECT customer_name, phone
+            FROM crm_customers
+            WHERE id=? AND warehouse_id=?
+            """,
+            (safe_customer_id, warehouse_id),
+        ).fetchone()
+        if customer:
+            if not safe_name:
+                safe_name = str(customer["customer_name"] or "").strip()
+            if not safe_phone:
+                safe_phone = _normalize_pos_phone(customer["phone"])
+
+    return safe_name, safe_phone
+
+
+def _fetch_active_customer_member(db, customer_id):
+    safe_customer_id = _to_int(customer_id, 0)
+    if safe_customer_id <= 0:
+        return None
+    return db.execute(
+        """
+        SELECT *
+        FROM crm_memberships
+        WHERE customer_id=? AND status='active'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (safe_customer_id,),
+    ).fetchone()
+
+
+def _build_next_pos_member_code(db, warehouse_id, *, member_type):
+    safe_warehouse_id = max(_to_int(warehouse_id, 0), 0)
+    normalized_member_type = normalize_member_type(member_type)
+    prefix_map = {
+        "purchase": "POS-POINT",
+        "stringing": "POS-SENAR",
+    }
+    prefix = f"{prefix_map.get(normalized_member_type, 'POS-MEMBER')}-{safe_warehouse_id:02d}-"
+    rows = db.execute(
+        "SELECT member_code FROM crm_memberships WHERE member_code LIKE ?",
+        (f"{prefix}%",),
+    ).fetchall()
+
+    latest_sequence = 0
+    for row in rows:
+        member_code = str(row["member_code"] or "").strip().upper()
+        if not member_code.startswith(prefix):
+            continue
+        tail = member_code[len(prefix):]
+        if tail.isdigit():
+            latest_sequence = max(latest_sequence, int(tail))
+
+    return f"{prefix}{latest_sequence + 1:04d}"
+
+
+def _auto_create_pos_purchase_member(db, customer, warehouse_id, join_date, *, requested_by_user_id=None):
+    safe_customer = dict(customer or {})
+    customer_id = _to_int(safe_customer.get("id"), 0)
+    if customer_id <= 0:
+        raise ValueError("Customer tidak valid untuk auto member pembelian.")
+    if not str(safe_customer.get("phone") or "").strip():
+        return None
+
+    member_code = _build_next_pos_member_code(db, warehouse_id, member_type="purchase")
+    db.execute(
+        """
+        UPDATE crm_customers
+        SET customer_type='member', updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (customer_id,),
+    )
+    cursor = db.execute(
+        """
+        INSERT INTO crm_memberships(
+            customer_id,
+            warehouse_id,
+            member_code,
+            member_type,
+            tier,
+            status,
+            join_date,
+            expiry_date,
+            points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
+            benefit_note,
+            note
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            customer_id,
+            warehouse_id,
+            member_code,
+            "purchase",
+            "regular",
+            "active",
+            join_date,
+            None,
+            0,
+            _to_int(requested_by_user_id, 0) or None,
+            DEFAULT_STRINGING_REWARD_AMOUNT,
+            0,
+            0,
+            "Poin belanja aktif: 1 poin setiap total Rp 10.000.",
+            "Auto-created by POS purchase member enrollment.",
+        ),
+    )
+    return db.execute(
+        """
+        SELECT *
+        FROM crm_memberships
+        WHERE id=?
+        """,
+        (cursor.lastrowid,),
+    ).fetchone()
+
+
+def _auto_create_pos_stringing_member(db, customer, warehouse_id, join_date, *, requested_by_user_id=None):
+    safe_customer = dict(customer or {})
+    customer_id = _to_int(safe_customer.get("id"), 0)
+    if customer_id <= 0:
+        raise ValueError("Customer tidak valid untuk auto member senaran.")
+
+    member_code = _build_next_pos_member_code(db, warehouse_id, member_type="stringing")
+    threshold_label = _format_pos_currency_label(STRINGING_PROGRESS_MIN_AMOUNT)
+    db.execute(
+        """
+        UPDATE crm_customers
+        SET customer_type='member', updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (customer_id,),
+    )
+    cursor = db.execute(
+        """
+        INSERT INTO crm_memberships(
+            customer_id,
+            warehouse_id,
+            member_code,
+            member_type,
+            tier,
+            status,
+            join_date,
+            expiry_date,
+            points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
+            benefit_note,
+            note
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            customer_id,
+            warehouse_id,
+            member_code,
+            "stringing",
+            "regular",
+            "active",
+            join_date,
+            None,
+            0,
+            _to_int(requested_by_user_id, 0) or None,
+            DEFAULT_STRINGING_REWARD_AMOUNT,
+            0,
+            0,
+            (
+                f"Free senar 1x setiap {STRINGING_REWARD_THRESHOLD} progres "
+                f"senaran berbayar minimal {threshold_label}."
+            ),
+            "Auto-created by POS Senaran Berbayar checkout.",
+        ),
+    )
+    return db.execute(
+        """
+        SELECT *
+        FROM crm_memberships
+        WHERE id=?
+        """,
+        (cursor.lastrowid,),
+    ).fetchone()
+
+
+def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transaction_type, *, requested_by_user_id=None):
+    safe_transaction_type = normalize_transaction_type(transaction_type)
+    safe_customer = dict(customer or {})
+    active_member = _fetch_active_customer_member(db, safe_customer.get("id"))
+
+    if active_member:
+        member_type = str(active_member["member_type"] or "").strip().lower()
+        if safe_transaction_type in {"stringing_service", "stringing_reward_redemption"} and member_type != "stringing":
+            raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
+        return active_member, get_member_snapshot(db, active_member["id"])
+
+    if safe_transaction_type == "stringing_reward_redemption":
+        raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
+
+    if safe_transaction_type == "purchase":
+        created_member = _auto_create_pos_purchase_member(
+            db,
+            customer,
+            warehouse_id,
+            sale_date,
+            requested_by_user_id=requested_by_user_id,
+        )
+        if not created_member:
+            return None, None
+        return created_member, get_member_snapshot(db, created_member["id"])
+
+    if safe_transaction_type == "stringing_service":
+        created_member = _auto_create_pos_stringing_member(
+            db,
+            customer,
+            warehouse_id,
+            sale_date,
+            requested_by_user_id=requested_by_user_id,
+        )
+        return created_member, get_member_snapshot(db, created_member["id"])
+
+    return None, None
+
+
 def _is_pos_negative_stock_temp_enabled():
     return bool(current_app.config.get("POS_ALLOW_NEGATIVE_STOCK_TEMP"))
 
@@ -3827,6 +4071,7 @@ def pos_page():
         customer_options=_fetch_pos_customers(db, selected_warehouse),
         transaction_type_labels=CRM_TRANSACTION_TYPE_LABELS,
         default_stringing_reward_amount=DEFAULT_STRINGING_REWARD_AMOUNT,
+        stringing_progress_min_amount=STRINGING_PROGRESS_MIN_AMOUNT,
         pos_staff_options=pos_staff_options,
         selected_pos_staff_id=selected_pos_staff_option["id"],
         selected_pos_staff_label=selected_pos_staff_option["display_name"],
@@ -5133,6 +5378,14 @@ def pos_edit_sale(sale_id):
     except ValueError as exc:
         return _json_error(str(exc), 400)
 
+    customer_name, customer_phone = _resolve_pos_customer_identity(
+        db,
+        warehouse_id,
+        customer_id,
+        customer_name,
+        customer_phone,
+    )
+
     if not customer_name:
         return _json_error("Nama customer wajib diisi.", 400)
     if not customer_phone:
@@ -5214,22 +5467,16 @@ def pos_edit_sale(sale_id):
             (sale["purchase_id"],),
         )
 
-        active_member = db.execute(
-            """
-            SELECT *
-            FROM crm_memberships
-            WHERE customer_id=? AND status='active'
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (customer["id"],),
-        ).fetchone()
+        active_member, member_snapshot = _resolve_pos_loyalty_member(
+            db,
+            customer,
+            warehouse_id,
+            sale_date,
+            transaction_type,
+            requested_by_user_id=session.get("user_id"),
+        )
         if active_member:
             member_id = active_member["id"]
-            member_snapshot = get_member_snapshot(db, member_id)
-
-        if transaction_type == "stringing_reward_redemption" and not member_id:
-            raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
 
         for original_item in original_active_items:
             restore_cost = _resolve_pos_stock_restore_cost(
@@ -5508,6 +5755,14 @@ def pos_checkout():
     except ValueError as exc:
         return _json_error(str(exc), 400)
 
+    customer_name, customer_phone = _resolve_pos_customer_identity(
+        db,
+        warehouse_id,
+        customer_id,
+        customer_name,
+        customer_phone,
+    )
+
     if not customer_name:
         return _json_error("Nama customer wajib diisi.", 400)
     if not customer_phone:
@@ -5572,22 +5827,16 @@ def pos_checkout():
             customer_phone,
         )
 
-        active_member = db.execute(
-            """
-            SELECT *
-            FROM crm_memberships
-            WHERE customer_id=? AND status='active'
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (customer["id"],),
-        ).fetchone()
+        active_member, member_snapshot = _resolve_pos_loyalty_member(
+            db,
+            customer,
+            warehouse_id,
+            sale_date,
+            transaction_type,
+            requested_by_user_id=session.get("user_id"),
+        )
         if active_member:
             member_id = active_member["id"]
-            member_snapshot = get_member_snapshot(db, member_id)
-
-        if transaction_type == "stringing_reward_redemption" and not member_id:
-            raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
 
         if not receipt_no:
             receipt_no = _build_next_receipt_no(db, sale_date)
