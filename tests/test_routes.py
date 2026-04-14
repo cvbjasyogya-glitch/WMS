@@ -20465,6 +20465,92 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(so_rows, 2)
         self.assertEqual(history_rows, 1)
 
+    def test_stock_opname_submit_keeps_batch_history_when_batches_are_referenced(self):
+        self.login()
+        _, product_id, variants_rows = self.create_product(qty=9, variants="SOBATCHFK")
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            batch_row = db.execute(
+                """
+                SELECT id, remaining_qty
+                FROM stock_batches
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+            self.assertIsNotNone(batch_row)
+            movement_count_before = db.execute(
+                """
+                SELECT COUNT(*) FROM stock_movements
+                WHERE batch_id=?
+                """,
+                (batch_row["id"],),
+            ).fetchone()[0]
+            db.execute(
+                """
+                INSERT INTO stock_movements(product_id, variant_id, warehouse_id, batch_id, qty, type)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (product_id, variant_id, 1, batch_row["id"], 1, "IN"),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/so/submit",
+            json={
+                "warehouse_id": 1,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "display_physical": 1,
+                        "gudang_physical": 7,
+                    }
+                ],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            old_batch = db.execute(
+                """
+                SELECT remaining_qty
+                FROM stock_batches
+                WHERE id=?
+                """,
+                (batch_row["id"],),
+            ).fetchone()
+            movement_count = db.execute(
+                """
+                SELECT COUNT(*) FROM stock_movements
+                WHERE batch_id=?
+                """,
+                (batch_row["id"],),
+            ).fetchone()[0]
+            total_batch_qty = db.execute(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0)
+                FROM stock_batches
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (product_id, variant_id),
+            ).fetchone()[0]
+            stock_row = db.execute(
+                "SELECT qty FROM stock WHERE product_id=? AND variant_id=? AND warehouse_id=1",
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(old_batch["remaining_qty"], 0)
+        self.assertEqual(movement_count, movement_count_before + 1)
+        self.assertEqual(total_batch_qty, 8)
+        self.assertEqual(stock_row["qty"], 8)
+
     def test_stock_opname_submit_updates_multiple_products_in_one_request(self):
         self.login()
         payload_items = []

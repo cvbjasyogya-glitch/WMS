@@ -578,7 +578,8 @@ def _apply_so_total_adjustment(
 
     db.execute(
         """
-        DELETE FROM stock_batches
+        UPDATE stock_batches
+        SET remaining_qty = 0
         WHERE product_id=? AND variant_id=? AND warehouse_id=?
         """,
         (product_id, variant_id, warehouse_id),
