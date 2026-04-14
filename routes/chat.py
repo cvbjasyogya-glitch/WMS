@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -243,7 +244,7 @@ def _message_sticker_meta(message):
 
 
 def _build_message_preview(message, limit=120):
-    data = dict(message) if isinstance(message, sqlite3.Row) else (message or {})
+    data = dict(message) if isinstance(message, (sqlite3.Row, Mapping)) else (message or {})
     message_type = (data.get("message_type") or "text").strip().lower()
     if message_type == "attachment":
         attachment_name = data.get("attachment_name") or "Lampiran"

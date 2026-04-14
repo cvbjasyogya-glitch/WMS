@@ -23,7 +23,7 @@ from services.event_notification_policy import (
 )
 from app import create_app, repair_restored_data
 from config import Config
-from database import get_db
+from database import get_db, _replace_qmark_placeholders, _translate_sqlite_query_to_postgres, _replace_like_operators
 from routes.pos import (
     _build_pos_sale_log_summary,
     _fetch_pos_sale_logs,
@@ -104,6 +104,90 @@ class WmsRoutesTestCase(unittest.TestCase):
             shutil.rmtree(self.receipt_pdf_root)
         if os.path.isdir(self.ipos4_runtime_root):
             shutil.rmtree(self.ipos4_runtime_root)
+
+    def test_database_translation_replaces_qmark_and_datetime_now(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "UPDATE approvals SET approved_at=datetime('now') WHERE id=? AND note <> '?'"
+        )
+        self.assertIn("CURRENT_TIMESTAMP", translated)
+        self.assertIn("id=%s", translated)
+        self.assertIn("'?'", translated)
+
+    def test_database_translation_supports_date_modifier(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT * FROM stock WHERE date(updated_at) <= date('now', '+30 day')"
+        )
+        self.assertIn("CAST(updated_at AS date)", translated)
+        self.assertIn("INTERVAL '+30 day'", translated)
+
+    def test_database_translation_supports_begin_immediate_and_datetime_expr(self):
+        translated = _translate_sqlite_query_to_postgres(
+            'BEGIN IMMEDIATE; SELECT * FROM stock_batches ORDER BY datetime(created_at) ASC'
+        )
+        self.assertIn("BEGIN; SELECT", translated)
+        self.assertIn("CAST(created_at AS timestamp)", translated)
+
+    def test_database_translation_supports_double_quote_now_syntax(self):
+        translated = _translate_sqlite_query_to_postgres(
+            'SELECT * FROM password_resets WHERE expires_at > datetime("now")'
+        )
+        self.assertIn("CURRENT_TIMESTAMP", translated)
+
+    def test_database_translation_supports_datetime_modifier_on_expression(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT * FROM audit WHERE datetime(h.date, '+7 hours') IS NOT NULL"
+        )
+        self.assertIn("CAST(h.date AS timestamp)", translated)
+        self.assertIn("INTERVAL '+7 hours'", translated)
+
+    def test_database_translation_supports_nested_date_expression(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT * FROM stock WHERE date(substr(expiry_date, 1, 10)) <= date('now', '+30 day')"
+        )
+        self.assertIn("CAST(substr(expiry_date, 1, 10) AS date)", translated)
+        self.assertIn("CURRENT_DATE", translated)
+
+    def test_database_translation_supports_julianday_math(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT CAST((julianday('now') - julianday(created_at)) AS INTEGER) as age FROM stock_batches"
+        )
+        self.assertIn("EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)", translated)
+        self.assertIn("EXTRACT(EPOCH FROM CAST(created_at AS timestamp))", translated)
+
+    def test_database_translation_supports_strftime_weekday(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT strftime('%w', created_at) as day FROM stock_movements"
+        )
+        self.assertIn("EXTRACT(DOW FROM CAST(created_at AS timestamp))", translated)
+
+    def test_database_translation_supports_insert_or_ignore(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "INSERT OR IGNORE INTO chat_thread_members(thread_id, user_id) VALUES (?, ?)"
+        )
+        self.assertIn("INSERT INTO chat_thread_members", translated)
+        self.assertIn("VALUES (%s, %s) ON CONFLICT DO NOTHING", translated)
+
+    def test_database_translation_converts_like_to_ilike(self):
+        translated = _replace_like_operators(
+            "SELECT * FROM products WHERE name LIKE ? AND sku NOT LIKE ? AND note <> 'LIKE ?'"
+        )
+        self.assertIn("name ILIKE ?", translated)
+        self.assertIn("sku NOT ILIKE ?", translated)
+        self.assertIn("'LIKE ?'", translated)
+
+    def test_create_app_skips_sqlite_init_when_postgresql_backend_selected(self):
+        original_backend = Config.DATABASE_BACKEND
+        original_url = Config.DATABASE_URL
+        Config.DATABASE_BACKEND = "postgresql"
+        Config.DATABASE_URL = "postgresql://user:pass@127.0.0.1:5432/erp_test"
+        try:
+            with patch("app.init_db") as mocked_init_db, patch("app.ensure_super_admin"), patch("app.repair_restored_data"):
+                postgres_app = create_app()
+            self.assertEqual(postgres_app.config["DATABASE_BACKEND"], "postgresql")
+            mocked_init_db.assert_not_called()
+        finally:
+            Config.DATABASE_BACKEND = original_backend
+            Config.DATABASE_URL = original_url
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -16749,6 +16833,36 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["status"], "error")
         self.assertIn("database erp sedang sibuk", payload["message"].lower())
+
+    def test_import_ipos4_returns_clear_error_when_postgresql_backend_selected(self):
+        self.login()
+        with patch("routes.products.is_postgresql_backend", return_value=True):
+            response = self.client.post(
+                "/products/import/ipos4",
+                data={
+                    "mode": "products_only",
+                    "file": (BytesIO(b"ipos4-backup"), "sample.i4bu"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("backend masih sqlite", payload["message"].lower())
+
+    def test_undo_ipos4_returns_clear_error_when_postgresql_backend_selected(self):
+        self.login()
+        with patch("routes.products.is_postgresql_backend", return_value=True):
+            response = self.client.post(
+                "/products/import/ipos4/undo",
+                json={"confirmation_text": "UNDO IMPORT IPOS4"},
+            )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("backend aktif postgresql", payload["message"].lower())
 
     def test_latest_ipos4_import_run_returns_undo_metadata(self):
         self.login()

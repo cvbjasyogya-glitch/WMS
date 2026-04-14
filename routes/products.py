@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from flask import Blueprint, request, redirect, jsonify, flash, session, current_app, g
-from database import get_db, close_db
+from database import get_db, close_db, is_postgresql_backend
 from services.event_notification_policy import get_event_notification_policy
 from services.notification_service import notify_operational_event, notify_roles
 from services.pagination import build_pagination_state
@@ -1680,6 +1680,12 @@ def import_ipos4_products():
     denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
+    if is_postgresql_backend():
+        return _products_json_error(
+            "Import iPOS4 langsung ke database aktif sementara hanya didukung saat backend masih SQLite. "
+            "Selesaikan migrasi PostgreSQL dulu atau gunakan alur import snapshot terpisah.",
+            409,
+        )
 
     file = request.files.get("file")
     if not file or not (file.filename or "").strip():
@@ -1780,6 +1786,11 @@ def undo_latest_ipos4_import():
     denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
+    if is_postgresql_backend():
+        return _products_json_error(
+            "Undo import iPOS4 berbasis snapshot file SQLite tidak tersedia saat backend aktif PostgreSQL.",
+            409,
+        )
 
     payload = request.get_json(silent=True) or {}
     confirmation_text = _normalize_confirmation_text(payload.get("confirmation_text"))
