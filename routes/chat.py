@@ -725,7 +725,7 @@ def _fetch_messages(db, thread_id, current_user_id, after_message_id=0):
                 WHERE cm.thread_id=?
                 ORDER BY cm.id DESC
                 LIMIT ?
-            )
+            ) recent_messages
             ORDER BY id ASC
             """,
             (thread_id, INITIAL_MESSAGE_LIMIT),

@@ -78,7 +78,7 @@ def get_dashboard_data(warehouse_id):
             FROM stock_batches
             WHERE warehouse_id=?
             AND remaining_qty > 0
-        )
+        ) aging_rows
         GROUP BY range
         """,(warehouse_id,)).fetchall()
 

@@ -431,7 +431,7 @@ def get_dashboard_safe(db, warehouse_id):
                 FROM stock_batches
                 WHERE warehouse_id=? AND remaining_qty > 0
                 GROUP BY product_id, variant_id
-            )
+            ) aging_rows
         """, (warehouse_id,)).fetchone()
 
         if aging:
