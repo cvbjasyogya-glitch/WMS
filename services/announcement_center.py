@@ -1,4 +1,4 @@
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime
 
 
 MONTH_NAMES_ID = (
@@ -27,7 +27,13 @@ SCOPED_AUDIENCE_ROLES = {"leader", "admin", "staff"}
 
 
 def parse_iso_date(value):
-    raw_value = (value or "").strip()
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date_cls):
+        return value
+    raw_value = str(value or "").strip()
     if not raw_value:
         return None
 

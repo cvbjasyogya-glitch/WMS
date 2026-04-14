@@ -1,4 +1,4 @@
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
@@ -9,6 +9,16 @@ from services.rbac import is_scoped_role
 
 
 announcement_center_bp = Blueprint("announcement_center", __name__, url_prefix="/announcements")
+
+
+def _extract_iso_date_prefix(value):
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date_cls):
+        return value.isoformat()
+    return str(value or "")[:10]
 
 
 def _current_scope_warehouse():
@@ -113,7 +123,7 @@ def announcement_center_page():
 
     today_value = date_cls.today().isoformat()
     schedule_changes_today = sum(
-        1 for row in all_schedule_changes if (row.get("created_at") or "").startswith(today_value)
+        1 for row in all_schedule_changes if _extract_iso_date_prefix(row.get("created_at")) == today_value
     )
 
     summary = {
