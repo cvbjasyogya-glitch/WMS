@@ -219,6 +219,7 @@ def _translate_sqlite_query_to_postgres(query):
         translated,
         flags=re.IGNORECASE,
     )
+    translated = _replace_sql_function_calls(translated, "substr", _translate_substr_call)
     translated = _replace_sql_function_calls(translated, "group_concat", _translate_group_concat_call)
     translated = _replace_sql_function_calls(translated, "julianday", _translate_julianday_call)
     translated = _replace_sql_function_calls(translated, "strftime", _translate_strftime_call)
@@ -383,6 +384,23 @@ def _translate_group_concat_call(argument_string, raw_call=""):
         return raw_call
 
     return f"STRING_AGG({distinct_prefix}{expression}, {separator})"
+
+
+def _translate_substr_call(argument_string, raw_call=""):
+    arguments = _split_sql_arguments(argument_string)
+    if len(arguments) < 2:
+        return raw_call
+
+    source_expression = str(arguments[0] or "").strip()
+    start_expression = str(arguments[1] or "").strip()
+    length_expression = str(arguments[2] or "").strip() if len(arguments) > 2 else ""
+
+    if not source_expression or not start_expression:
+        return raw_call
+
+    if length_expression:
+        return f"SUBSTRING(CAST({source_expression} AS text) FROM {start_expression} FOR {length_expression})"
+    return f"SUBSTRING(CAST({source_expression} AS text) FROM {start_expression})"
 
 
 def _build_temporal_base_expression(argument, *, date_only=False):

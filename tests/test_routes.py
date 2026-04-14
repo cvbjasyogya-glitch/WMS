@@ -199,6 +199,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertIn("STRING_AGG(DISTINCT p.name || ' / ' || v.variant, ' | ')", translated)
 
+    def test_database_translation_supports_substr_on_timestamp_columns(self):
+        translated = _translate_sqlite_query_to_postgres(
+            "SELECT * FROM stock WHERE date(substr(expiry_date, 1, 10)) <= date('now', '+30 day')"
+        )
+        self.assertIn("SUBSTRING(CAST(expiry_date AS text) FROM 1 FOR 10)", translated)
+        self.assertIn("CAST(SUBSTRING(CAST(expiry_date AS text) FROM 1 FOR 10) AS date)", translated)
+
     def test_attendance_portal_datetime_helpers_accept_datetime_objects(self):
         sample = datetime(2026, 4, 15, 8, 45, 0)
         self.assertEqual(_format_portal_datetime_display(sample), "08:45")
