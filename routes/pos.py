@@ -1,4 +1,6 @@
 import json
+import sqlite3
+import time
 from datetime import date as date_cls, datetime, timedelta, timezone
 try:
     from zoneinfo import ZoneInfo
@@ -48,6 +50,8 @@ POS_REVENUE_HIDDEN_LABEL = "-"
 POS_DISPLAY_UTC_OFFSET_HOURS = 7
 POS_DISPLAY_TIMEZONE = ZoneInfo("Asia/Jakarta") if ZoneInfo else timezone(timedelta(hours=POS_DISPLAY_UTC_OFFSET_HOURS))
 POS_HIDDEN_ARCHIVE_SESSION_KEY = "pos_hidden_archive_unlocked_until"
+POS_DB_LOCK_RETRY_ATTEMPTS = 2
+POS_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
 POS_SOURCE_ACTOR_SQL = (
     "COALESCE("
     "NULLIF(TRIM(ps.source_sales_name), ''), "
@@ -550,6 +554,15 @@ def _normalize_sale_date(raw_value):
         return date_cls.fromisoformat(raw_value).isoformat()
     except ValueError:
         return date_cls.today().isoformat()
+
+
+def _is_sqlite_lock_error(exc):
+    message = str(exc or "").strip().lower()
+    return (
+        "database is locked" in message
+        or "database schema is locked" in message
+        or "database table is locked" in message
+    )
 
 
 def _normalize_payment_method(raw_value, *, allow_split=True):
@@ -5816,235 +5829,268 @@ def pos_checkout():
     member_snapshot = None
     receipt_no = (payload.get("receipt_no") or "").strip()
     negative_stock_alert_items = []
-
-    try:
-        db.execute("BEGIN")
-        customer = _resolve_or_create_customer(
-            db,
-            warehouse_id,
-            customer_id,
-            customer_name,
-            customer_phone,
-        )
-
-        active_member, member_snapshot = _resolve_pos_loyalty_member(
-            db,
-            customer,
-            warehouse_id,
-            sale_date,
-            transaction_type,
-            requested_by_user_id=session.get("user_id"),
-        )
-        if active_member:
-            member_id = active_member["id"]
-
-        if not receipt_no:
-            receipt_no = _build_next_receipt_no(db, sale_date)
-
-        duplicate_receipt = db.execute(
-            "SELECT id FROM pos_sales WHERE receipt_no=? LIMIT 1",
-            (receipt_no,),
-        ).fetchone()
-        if duplicate_receipt:
-            receipt_no = _build_next_receipt_no(db, sale_date)
-
-        purchase_cursor = db.execute(
-            """
-            INSERT INTO crm_purchase_records(
-                customer_id,
-                member_id,
-                warehouse_id,
-                purchase_date,
-                invoice_no,
-                channel,
-                transaction_type,
-                items_count,
-                total_amount,
-                note,
-                handled_by
+    max_retries = max(
+        0,
+        int(current_app.config.get("POS_DB_LOCK_RETRY_ATTEMPTS", POS_DB_LOCK_RETRY_ATTEMPTS) or 0),
+    )
+    retry_delay = max(
+        0.0,
+        float(
+            current_app.config.get(
+                "POS_DB_LOCK_RETRY_DELAY_SECONDS",
+                POS_DB_LOCK_RETRY_DELAY_SECONDS,
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                customer["id"],
-                member_id,
+            or 0.0
+        ),
+    )
+
+    for attempt in range(max_retries + 1):
+        try:
+            negative_stock_alert_items = []
+            db.execute("BEGIN IMMEDIATE")
+            customer = _resolve_or_create_customer(
+                db,
+                warehouse_id,
+                customer_id,
+                customer_name,
+                customer_phone,
+            )
+
+            active_member, member_snapshot = _resolve_pos_loyalty_member(
+                db,
+                customer,
                 warehouse_id,
                 sale_date,
-                receipt_no,
-                "pos",
                 transaction_type,
-                financials["total_items"],
-                _currency(financials["total_amount"]),
-                note,
-                session.get("user_id"),
-            ),
-        )
-        purchase_id = purchase_cursor.lastrowid
-
-        db.executemany(
-            """
-            INSERT INTO crm_purchase_items(
-                purchase_id,
-                product_id,
-                variant_id,
-                qty,
-                retail_price,
-                unit_price,
-                line_total,
-                note
+                requested_by_user_id=session.get("user_id"),
             )
-            VALUES (?,?,?,?,?,?,?,?)
-            """,
-            [
-                (
-                    purchase_id,
-                    item["product_id"],
-                    item["variant_id"],
-                    item["qty"],
-                    _currency(item.get("retail_price") or 0),
-                    _currency(item["unit_price"]),
-                    _currency(item["line_total"]),
-                    "POS Checkout",
-                )
-                for item in items
-            ],
-        )
+            if active_member:
+                member_id = active_member["id"]
 
-        if member_id:
-            auto_record = build_auto_member_record(
-                member_snapshot or dict(active_member),
-                member_snapshot or dict(active_member),
-                purchase_id=purchase_id,
-                warehouse_id=warehouse_id,
-                record_date=sale_date,
-                reference_no=receipt_no,
-                amount=_currency(financials["total_amount"]),
-                transaction_type=transaction_type,
-                note=note or "",
-                handled_by=session.get("user_id"),
-                source_label="POS / iPos",
-            )
-            db.execute(
+            if not receipt_no:
+                receipt_no = _build_next_receipt_no(db, sale_date)
+
+            duplicate_receipt = db.execute(
+                "SELECT id FROM pos_sales WHERE receipt_no=? LIMIT 1",
+                (receipt_no,),
+            ).fetchone()
+            if duplicate_receipt:
+                receipt_no = _build_next_receipt_no(db, sale_date)
+
+            purchase_cursor = db.execute(
                 """
-                INSERT INTO crm_member_records(
+                INSERT INTO crm_purchase_records(
+                    customer_id,
                     member_id,
-                    purchase_id,
                     warehouse_id,
-                    record_date,
-                    record_type,
-                    reference_no,
-                    amount,
-                    points_delta,
-                    service_count_delta,
-                    reward_redeemed_delta,
-                    benefit_value,
+                    purchase_date,
+                    invoice_no,
+                    channel,
+                    transaction_type,
+                    items_count,
+                    total_amount,
                     note,
                     handled_by
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    auto_record["member_id"],
-                    auto_record["purchase_id"],
-                    auto_record["warehouse_id"],
-                    auto_record["record_date"],
-                    auto_record["record_type"],
-                    auto_record["reference_no"],
-                    auto_record["amount"],
-                    auto_record["points_delta"],
-                    auto_record["service_count_delta"],
-                    auto_record["reward_redeemed_delta"],
-                    auto_record["benefit_value"],
-                    auto_record["note"],
-                    auto_record["handled_by"],
+                    customer["id"],
+                    member_id,
+                    warehouse_id,
+                    sale_date,
+                    receipt_no,
+                    "pos",
+                    transaction_type,
+                    financials["total_items"],
+                    _currency(financials["total_amount"]),
+                    note,
+                    session.get("user_id"),
                 ),
             )
+            purchase_id = purchase_cursor.lastrowid
 
-        pos_cursor = db.execute(
-            """
-            INSERT INTO pos_sales(
-                purchase_id,
-                customer_id,
-                warehouse_id,
-                cashier_user_id,
-                sale_date,
-                receipt_no,
-                payment_method,
-                payment_breakdown_json,
-                total_items,
-                subtotal_amount,
-                discount_type,
-                discount_value,
-                discount_amount,
-                tax_type,
-                tax_value,
-                tax_amount,
-                total_amount,
-                paid_amount,
-                change_amount,
-                status,
-                note
-            )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                purchase_id,
-                customer["id"],
-                warehouse_id,
-                selected_cashier["id"],
-                sale_date,
-                receipt_no,
-                payment_method,
-                payment_breakdown_json,
-                financials["total_items"],
-                _currency(financials["subtotal_amount"]),
-                financials["discount_type"],
-                _currency(financials["discount_value"]),
-                _currency(financials["discount_amount"]),
-                financials["tax_type"],
-                _currency(financials["tax_value"]),
-                _currency(financials["tax_amount"]),
-                _currency(financials["total_amount"]),
-                _currency(paid_amount),
-                _currency(change_amount),
-                "posted",
-                note,
-            ),
-        )
-        sale_id = pos_cursor.lastrowid
-
-        for item in items:
-            removed = _remove_pos_stock_for_sale(
-                db,
-                item["product_id"],
-                item["variant_id"],
-                warehouse_id,
-                item["qty"],
-                note=f"POS {receipt_no}",
-            )
-            if not removed.get("ok"):
-                raise ValueError(
-                    removed.get("error")
-                    or f"Gagal memotong stok {item['sku']} / {item['variant_name']}. Silakan refresh data stok."
+            db.executemany(
+                """
+                INSERT INTO crm_purchase_items(
+                    purchase_id,
+                    product_id,
+                    variant_id,
+                    qty,
+                    retail_price,
+                    unit_price,
+                    line_total,
+                    note
                 )
-            if removed.get("used_negative_stock"):
-                negative_stock_alert_items.append(
-                    {
-                        "sku": item["sku"],
-                        "variant_name": item["variant_name"],
-                        "before_qty": removed.get("before_qty"),
-                        "after_qty": removed.get("after_qty"),
-                    }
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        purchase_id,
+                        item["product_id"],
+                        item["variant_id"],
+                        item["qty"],
+                        _currency(item.get("retail_price") or 0),
+                        _currency(item["unit_price"]),
+                        _currency(item["line_total"]),
+                        "POS Checkout",
+                    )
+                    for item in items
+                ],
+            )
+
+            if member_id:
+                auto_record = build_auto_member_record(
+                    member_snapshot or dict(active_member),
+                    member_snapshot or dict(active_member),
+                    purchase_id=purchase_id,
+                    warehouse_id=warehouse_id,
+                    record_date=sale_date,
+                    reference_no=receipt_no,
+                    amount=_currency(financials["total_amount"]),
+                    transaction_type=transaction_type,
+                    note=note or "",
+                    handled_by=session.get("user_id"),
+                    source_label="POS / iPos",
+                )
+                db.execute(
+                    """
+                    INSERT INTO crm_member_records(
+                        member_id,
+                        purchase_id,
+                        warehouse_id,
+                        record_date,
+                        record_type,
+                        reference_no,
+                        amount,
+                        points_delta,
+                        service_count_delta,
+                        reward_redeemed_delta,
+                        benefit_value,
+                        note,
+                        handled_by
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        auto_record["member_id"],
+                        auto_record["purchase_id"],
+                        auto_record["warehouse_id"],
+                        auto_record["record_date"],
+                        auto_record["record_type"],
+                        auto_record["reference_no"],
+                        auto_record["amount"],
+                        auto_record["points_delta"],
+                        auto_record["service_count_delta"],
+                        auto_record["reward_redeemed_delta"],
+                        auto_record["benefit_value"],
+                        auto_record["note"],
+                        auto_record["handled_by"],
+                    ),
                 )
 
-        db.commit()
+            pos_cursor = db.execute(
+                """
+                INSERT INTO pos_sales(
+                    purchase_id,
+                    customer_id,
+                    warehouse_id,
+                    cashier_user_id,
+                    sale_date,
+                    receipt_no,
+                    payment_method,
+                    payment_breakdown_json,
+                    total_items,
+                    subtotal_amount,
+                    discount_type,
+                    discount_value,
+                    discount_amount,
+                    tax_type,
+                    tax_value,
+                    tax_amount,
+                    total_amount,
+                    paid_amount,
+                    change_amount,
+                    status,
+                    note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    purchase_id,
+                    customer["id"],
+                    warehouse_id,
+                    selected_cashier["id"],
+                    sale_date,
+                    receipt_no,
+                    payment_method,
+                    payment_breakdown_json,
+                    financials["total_items"],
+                    _currency(financials["subtotal_amount"]),
+                    financials["discount_type"],
+                    _currency(financials["discount_value"]),
+                    _currency(financials["discount_amount"]),
+                    financials["tax_type"],
+                    _currency(financials["tax_value"]),
+                    _currency(financials["tax_amount"]),
+                    _currency(financials["total_amount"]),
+                    _currency(paid_amount),
+                    _currency(change_amount),
+                    "posted",
+                    note,
+                ),
+            )
+            sale_id = pos_cursor.lastrowid
 
-    except ValueError as exc:
-        db.rollback()
-        return _json_error(str(exc), 400)
-    except Exception:
-        db.rollback()
-        return _json_error("Checkout kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
+            for item in items:
+                removed = _remove_pos_stock_for_sale(
+                    db,
+                    item["product_id"],
+                    item["variant_id"],
+                    warehouse_id,
+                    item["qty"],
+                    note=f"POS {receipt_no}",
+                )
+                if not removed.get("ok"):
+                    raise ValueError(
+                        removed.get("error")
+                        or f"Gagal memotong stok {item['sku']} / {item['variant_name']}. Silakan refresh data stok."
+                    )
+                if removed.get("used_negative_stock"):
+                    negative_stock_alert_items.append(
+                        {
+                            "sku": item["sku"],
+                            "variant_name": item["variant_name"],
+                            "before_qty": removed.get("before_qty"),
+                            "after_qty": removed.get("after_qty"),
+                        }
+                    )
+
+            db.commit()
+            break
+        except ValueError as exc:
+            db.rollback()
+            return _json_error(str(exc), 400)
+        except sqlite3.OperationalError as exc:
+            db.rollback()
+            if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                current_app.logger.warning(
+                    "POS checkout hit SQLite lock, retry %s/%s",
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(retry_delay)
+                continue
+            if _is_sqlite_lock_error(exc):
+                current_app.logger.warning("POS checkout failed after SQLite lock retries")
+                return _json_error(
+                    "Checkout kasir gagal disimpan karena database sedang sibuk di server. Coba ulangi beberapa detik lagi.",
+                    503,
+                )
+            return _json_error("Checkout kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
+        except Exception:
+            db.rollback()
+            return _json_error("Checkout kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
 
     sale_detail = None
     receipt_pdf_meta = None

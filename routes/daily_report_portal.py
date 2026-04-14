@@ -1,11 +1,15 @@
+import os
+import sqlite3
+import time
 from datetime import date as date_cls
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session
 
 from database import get_db
 from routes.hris import (
     _current_timestamp,
     _get_self_service_employee,
+    _get_daily_live_report_upload_folder,
     _get_daily_live_report_attachment_url,
     _normalize_daily_live_report_type,
     _store_daily_live_report_attachment,
@@ -15,6 +19,28 @@ from services.whatsapp_service import send_role_based_notification
 
 
 daily_report_portal_bp = Blueprint("daily_report_portal", __name__, url_prefix="/laporan-harian")
+DAILY_REPORT_DB_LOCK_RETRY_ATTEMPTS = 2
+DAILY_REPORT_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
+
+
+def _is_sqlite_lock_error(exc):
+    message = str(exc or "").strip().lower()
+    return (
+        "database is locked" in message
+        or "database schema is locked" in message
+        or "database table is locked" in message
+    )
+
+
+def _remove_daily_report_attachment(attachment_path):
+    if not attachment_path:
+        return
+    safe_name = os.path.basename(attachment_path)
+    if not safe_name:
+        return
+    file_path = os.path.join(_get_daily_live_report_upload_folder(), safe_name)
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
 
 def _build_daily_report_portal_context(db):
@@ -109,52 +135,102 @@ def submit():
             flash(str(exc), "error")
             return redirect("/laporan-harian/")
 
-    db.execute(
-        """
-        INSERT INTO daily_live_reports(
-            user_id,
-            employee_id,
-            warehouse_id,
-            report_type,
-            report_date,
-            title,
-            summary,
-            blocker_note,
-            follow_up_note,
-            status,
-            hr_note,
-            attachment_name,
-            attachment_path,
-            attachment_mime,
-            attachment_size,
-            handled_by,
-            handled_at,
-            updated_at
-        )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            session.get("user_id"),
-            linked_employee["id"] if linked_employee else session.get("employee_id"),
-            (linked_employee["warehouse_id"] if linked_employee else session.get("warehouse_id")) or 1,
-            report_type,
-            report_date,
-            title,
-            summary,
-            blocker_note or None,
-            follow_up_note or None,
-            "submitted",
-            None,
-            attachment_meta["attachment_name"],
-            attachment_meta["attachment_path"],
-            attachment_meta["attachment_mime"],
-            int(attachment_meta["attachment_size"] or 0),
-            None,
-            None,
-            _current_timestamp(),
+    max_retries = max(
+        0,
+        int(
+            current_app.config.get(
+                "DAILY_REPORT_DB_LOCK_RETRY_ATTEMPTS",
+                DAILY_REPORT_DB_LOCK_RETRY_ATTEMPTS,
+            )
+            or 0
         ),
     )
-    db.commit()
+    retry_delay = max(
+        0.0,
+        float(
+            current_app.config.get(
+                "DAILY_REPORT_DB_LOCK_RETRY_DELAY_SECONDS",
+                DAILY_REPORT_DB_LOCK_RETRY_DELAY_SECONDS,
+            )
+            or 0.0
+        ),
+    )
+
+    for attempt in range(max_retries + 1):
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                """
+                INSERT INTO daily_live_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    report_type,
+                    report_date,
+                    title,
+                    summary,
+                    blocker_note,
+                    follow_up_note,
+                    status,
+                    hr_note,
+                    attachment_name,
+                    attachment_path,
+                    attachment_mime,
+                    attachment_size,
+                    handled_by,
+                    handled_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    session.get("user_id"),
+                    linked_employee["id"] if linked_employee else session.get("employee_id"),
+                    (linked_employee["warehouse_id"] if linked_employee else session.get("warehouse_id")) or 1,
+                    report_type,
+                    report_date,
+                    title,
+                    summary,
+                    blocker_note or None,
+                    follow_up_note or None,
+                    "submitted",
+                    None,
+                    attachment_meta["attachment_name"],
+                    attachment_meta["attachment_path"],
+                    attachment_meta["attachment_mime"],
+                    int(attachment_meta["attachment_size"] or 0),
+                    None,
+                    None,
+                    _current_timestamp(),
+                ),
+            )
+            db.commit()
+            break
+        except sqlite3.OperationalError as exc:
+            db.rollback()
+            if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                current_app.logger.warning(
+                    "Daily report submit hit SQLite lock, retry %s/%s",
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(retry_delay)
+                continue
+            _remove_daily_report_attachment(attachment_meta.get("attachment_path"))
+            if _is_sqlite_lock_error(exc):
+                current_app.logger.warning("Daily report submit failed after SQLite lock retries")
+                flash(
+                    "Report gagal disimpan karena database sedang sibuk di server. Coba ulangi beberapa detik lagi.",
+                    "error",
+                )
+                return redirect("/laporan-harian/")
+            flash("Report gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+            return redirect("/laporan-harian/")
+        except Exception:
+            db.rollback()
+            _remove_daily_report_attachment(attachment_meta.get("attachment_path"))
+            flash("Report gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+            return redirect("/laporan-harian/")
 
     try:
         employee_label = (

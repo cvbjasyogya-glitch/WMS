@@ -1,6 +1,8 @@
+import sqlite3
+import time
 from datetime import date as date_cls, datetime, timedelta
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session
 
 from database import get_db
 from routes.schedule import (
@@ -10,6 +12,7 @@ from routes.schedule import (
 from routes.hris import (
     _build_biometric_handling,
     _current_timestamp,
+    _delete_biometric_photo,
     _get_biometric_photo_url,
     _get_self_service_employee,
     _insert_biometric_log_record,
@@ -28,6 +31,8 @@ from services.whatsapp_service import send_role_based_notification, send_user_wh
 
 
 attendance_portal_bp = Blueprint("attendance_portal", __name__, url_prefix="/absen")
+ATTENDANCE_PORTAL_DB_LOCK_RETRY_ATTEMPTS = 2
+ATTENDANCE_PORTAL_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
 
 
 ATTENDANCE_PORTAL_PUNCH_LABELS = {
@@ -85,6 +90,15 @@ ATTENDANCE_CHECKOUT_REPORT_BYPASS_RULES = (
         "aliases": ("ika", "bu ika", "ibu ika"),
     },
 )
+
+
+def _is_sqlite_lock_error(exc):
+    message = str(exc or "").strip().lower()
+    return (
+        "database is locked" in message
+        or "database schema is locked" in message
+        or "database table is locked" in message
+    )
 
 ATTENDANCE_SHIFT_PROFILE_LABELS = {
     "mataram": "Gudang Mataram",
@@ -1311,26 +1325,76 @@ def submit():
         note_parts.append(f"Shift {shift_label}")
     if attendance_today and attendance_today["attendance_date"]:
         note_parts.append(f"Daily attendance {attendance_today['attendance_date']}")
-
-    biometric_log_id = _insert_biometric_log_record(
-        db,
-        employee_id=linked_employee["id"],
-        warehouse_id=linked_employee["warehouse_id"],
-        device_name="Attendance Photo Portal",
-        device_user_id=session.get("username"),
-        punch_time=punch_time,
-        punch_type=punch_type,
-        sync_status="synced",
-        location_label=location_label,
-        latitude=latitude,
-        longitude=longitude,
-        accuracy_m=accuracy_m,
-        note=" | ".join(note_parts),
-        shift_code=shift_code,
-        shift_label=shift_label,
-        photo_path=photo_path,
+    max_retries = max(
+        0,
+        int(
+            current_app.config.get(
+                "ATTENDANCE_PORTAL_DB_LOCK_RETRY_ATTEMPTS",
+                ATTENDANCE_PORTAL_DB_LOCK_RETRY_ATTEMPTS,
+            )
+            or 0
+        ),
     )
-    db.commit()
+    retry_delay = max(
+        0.0,
+        float(
+            current_app.config.get(
+                "ATTENDANCE_PORTAL_DB_LOCK_RETRY_DELAY_SECONDS",
+                ATTENDANCE_PORTAL_DB_LOCK_RETRY_DELAY_SECONDS,
+            )
+            or 0.0
+        ),
+    )
+
+    biometric_log_id = None
+    for attempt in range(max_retries + 1):
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            biometric_log_id = _insert_biometric_log_record(
+                db,
+                employee_id=linked_employee["id"],
+                warehouse_id=linked_employee["warehouse_id"],
+                device_name="Attendance Photo Portal",
+                device_user_id=session.get("username"),
+                punch_time=punch_time,
+                punch_type=punch_type,
+                sync_status="synced",
+                location_label=location_label,
+                latitude=latitude,
+                longitude=longitude,
+                accuracy_m=accuracy_m,
+                note=" | ".join(note_parts),
+                shift_code=shift_code,
+                shift_label=shift_label,
+                photo_path=photo_path,
+            )
+            db.commit()
+            break
+        except sqlite3.OperationalError as exc:
+            db.rollback()
+            if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                current_app.logger.warning(
+                    "Attendance portal submit hit SQLite lock, retry %s/%s",
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(retry_delay)
+                continue
+            _delete_biometric_photo(photo_path)
+            if _is_sqlite_lock_error(exc):
+                current_app.logger.warning("Attendance portal submit failed after SQLite lock retries")
+                flash(
+                    "Absensi gagal disimpan karena database sedang sibuk di server. Coba ulangi beberapa detik lagi.",
+                    "error",
+                )
+            else:
+                flash("Absensi gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+            return redirect("/absen/")
+        except Exception:
+            db.rollback()
+            _delete_biometric_photo(photo_path)
+            flash("Absensi gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+            return redirect("/absen/")
 
     employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
     warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()

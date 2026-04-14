@@ -360,6 +360,8 @@ class Config:
     # ==========================
     # DATABASE (SINGLE SOURCE)
     # ==========================
+    DATABASE_BACKEND = (os.getenv("DATABASE_BACKEND") or "sqlite").strip().lower()
+    DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
     DATABASE = os.getenv(
         "DATABASE_PATH",
         os.path.join(BASE_DIR, "database.db")

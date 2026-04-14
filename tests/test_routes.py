@@ -2878,6 +2878,70 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertAlmostEqual(float(pos_sale["paid_amount"]), 0.0)
         self.assertAlmostEqual(float(pos_sale["change_amount"]), 0.0)
 
+    def test_pos_checkout_retries_after_transient_sqlite_lock(self):
+        self.create_user("staff_sales_lock_retry", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_lock_retry")
+        self.login_pos_user("pos_lock_retry_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-LOCK-001",
+            qty=5,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        import routes.pos as pos_routes
+
+        original_resolve_customer = pos_routes._resolve_or_create_customer
+        attempts = {"count": 0}
+
+        def flaky_resolve_customer(*args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return original_resolve_customer(*args, **kwargs)
+
+        with patch("routes.pos._resolve_or_create_customer", side_effect=flaky_resolve_customer):
+            with patch("routes.pos.time.sleep", return_value=None):
+                checkout = self.client.post(
+                    "/kasir/checkout",
+                    json={
+                        "warehouse_id": 1,
+                        "sale_date": "2026-04-13",
+                        "cashier_user_id": selected_cashier_user_id,
+                        "customer_name": "Customer Lock Retry",
+                        "customer_phone": "628120001515",
+                        "payment_method": "cash",
+                        "paid_amount": 80000,
+                        "items": [
+                            {
+                                "product_id": product_id,
+                                "variant_id": variant_id,
+                                "qty": 1,
+                                "unit_price": 75000,
+                                "retail_price": 75000,
+                            }
+                        ],
+                    },
+                    headers={"X-Requested-With": "XMLHttpRequest"},
+                )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertGreaterEqual(attempts["count"], 2)
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                "SELECT receipt_no, total_amount FROM pos_sales WHERE receipt_no=?",
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        self.assertAlmostEqual(float(sale["total_amount"]), 75000.0)
+
     def test_pos_checkout_temporarily_allows_zero_stock_item_and_notifies_owner(self):
         self.create_user("staff_sales_negative", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_negative")
@@ -7727,6 +7791,83 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(record["points_delta"], 12)
         self.assertEqual(snapshot["current_points"], 12)
 
+    def test_crm_purchase_retries_after_transient_sqlite_lock(self):
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CRM-LOCK-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        self.client.post(
+            "/crm/customers/add",
+            data={
+                "warehouse_id": "1",
+                "customer_name": "Customer Lock Retry CRM",
+                "phone": "628100000288",
+                "customer_type": "retail",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Lock Retry CRM'"
+            ).fetchone()
+
+        import routes.crm as crm_routes
+
+        original_resolve_member = crm_routes._resolve_crm_purchase_member
+        attempts = {"count": 0}
+
+        def flaky_resolve_member(*args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return original_resolve_member(*args, **kwargs)
+
+        with patch("routes.crm._resolve_crm_purchase_member", side_effect=flaky_resolve_member):
+            with patch("routes.crm.time.sleep", return_value=None):
+                create_purchase = self.client.post(
+                    "/crm/purchases/add",
+                    data={
+                        "warehouse_id": "1",
+                        "customer_id": str(customer["id"]),
+                        "purchase_date": "2026-04-02",
+                        "invoice_no": "INV-LOCK-CRM-001",
+                        "channel": "store",
+                        "transaction_type": "purchase",
+                        "items_json": json.dumps(
+                            [
+                                {
+                                    "product_id": product_id,
+                                    "variant_id": variant_id,
+                                    "qty": 1,
+                                    "unit_price": 75000,
+                                    "display_name": "CRM-LOCK-001 - Produk Uji",
+                                }
+                            ]
+                        ),
+                    },
+                    follow_redirects=False,
+                )
+
+        self.assertEqual(create_purchase.status_code, 302)
+        self.assertGreaterEqual(attempts["count"], 2)
+
+        with self.app.app_context():
+            db = get_db()
+            purchase = db.execute(
+                "SELECT invoice_no, total_amount FROM crm_purchase_records WHERE invoice_no='INV-LOCK-CRM-001'"
+            ).fetchone()
+
+        self.assertIsNotNone(purchase)
+        self.assertAlmostEqual(float(purchase["total_amount"]), 75000.0)
+
     def test_crm_purchase_rejects_stringing_transaction_for_purchase_member(self):
         self.login()
         response, product_id, variants_rows = self.create_product(
@@ -12427,6 +12568,65 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
 
+    def test_attendance_portal_retries_after_transient_sqlite_lock(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-LOCK-001",
+            full_name="Portal Attendance Lock",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_staff_lock", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_staff_lock", "pass1234")
+        today = date_cls.today().isoformat()
+
+        import routes.attendance_portal as attendance_routes
+
+        original_insert = attendance_routes._insert_biometric_log_record
+        attempts = {"count": 0}
+
+        def flaky_insert(*args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return original_insert(*args, **kwargs)
+
+        with patch("routes.attendance_portal._insert_biometric_log_record", side_effect=flaky_insert):
+            with patch("routes.attendance_portal.time.sleep", return_value=None):
+                submit_response = self.client.post(
+                    "/absen/submit",
+                    data={
+                        "shift_code": "pagi",
+                        "location_label": "Gudang Mataram - Pintu Utama",
+                        "latitude": "-8.583140",
+                        "longitude": "116.116798",
+                        "accuracy_m": "7.5",
+                        "punch_time": f"{today}T07:58",
+                        "punch_type": "check_in",
+                        "note": "Masuk shift pagi",
+                        "photo_data_url": self.build_camera_photo_data_url(),
+                    },
+                    follow_redirects=False,
+                )
+
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/absen/", submit_response.headers["Location"])
+        self.assertGreaterEqual(attempts["count"], 2)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT id
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+
     def test_attendance_portal_keeps_human_readable_location_label_for_selected_scope(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-ADDR-001",
@@ -14461,6 +14661,72 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hris_leave.status_code, 302)
         self.assertIn("/libur/", hris_leave.headers["Location"])
 
+    def test_leave_portal_retries_after_transient_sqlite_lock(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVE-LOCK-001",
+            full_name="Portal Leave Lock",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_leave_lock", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_leave_lock", "pass1234")
+
+        db = sqlite3.connect(self.db_path, check_same_thread=False)
+        db.row_factory = sqlite3.Row
+
+        attempts = {"count": 0}
+
+        class ProxyDB:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def execute(self, sql, params=()):
+                if "INSERT INTO leave_requests" in str(sql) and attempts["count"] == 0:
+                    attempts["count"] += 1
+                    raise sqlite3.OperationalError("database is locked")
+                return self._conn.execute(sql, params)
+
+            def commit(self):
+                return self._conn.commit()
+
+            def rollback(self):
+                return self._conn.rollback()
+
+        proxy_db = ProxyDB(db)
+
+        with patch("routes.leave_portal.get_db", return_value=proxy_db):
+            with patch("routes.leave_portal.time.sleep", return_value=None):
+                submit_response = self.client.post(
+                    "/libur/submit",
+                    data={
+                        "leave_type": "sick",
+                        "start_date": "2026-09-10",
+                        "end_date": "2026-09-10",
+                        "reason": "Demam dan perlu istirahat",
+                        "note": "Sudah kabari leader shift pagi",
+                    },
+                    follow_redirects=False,
+                )
+
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertGreaterEqual(attempts["count"], 1)
+
+        with self.app.app_context():
+            db_live = get_db()
+            leave_request = db_live.execute(
+                """
+                SELECT id
+                FROM leave_requests
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(leave_request)
+        db.close()
+
     def test_leave_portal_submission_appears_in_hris_dashboard_alerts(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-LVE-ALERT",
@@ -15803,7 +16069,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(approval_response.status_code, 200)
         approval_html = approval_response.get_data(as_text=True)
         self.assertIn("Lembar Pengesahan", approval_html)
+        self.assertIn("Cetak Lembar", approval_html)
         self.assertIn("Buka Dokumen", approval_html)
+        self.assertIn("Tanda Tangan Pengesahan", approval_html)
         self.assertIn(f'name="return_to" value="/hris/documents/approval/{document["id"]}"', approval_html)
         self.assertIn(f'action="/hris/documents/sign/{document["id"]}"', approval_html)
 
@@ -15821,6 +16089,63 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(sign_response.status_code, 302)
         self.assertTrue(sign_response.headers["Location"].endswith(f"/hris/documents/approval/{document['id']}"))
+
+    def test_document_sign_requires_existing_attachment(self):
+        self.login_hr_user()
+
+        create_response = self.client.post(
+            "/hris/documents/add",
+            data={
+                "warehouse_id": "1",
+                "document_title": "Policy Without Attachment",
+                "document_code": "DOC-APPROVAL-EMPTY",
+                "document_type": "policy",
+                "status": "active",
+                "effective_date": "2026-10-05",
+                "owner_name": "HR Manager",
+                "note": "Dokumen tanpa lampiran untuk cek guard pengesahan.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            document = db.execute(
+                "SELECT id, signature_path FROM document_records WHERE document_code=?",
+                ("DOC-APPROVAL-EMPTY",),
+            ).fetchone()
+
+        self.assertIsNotNone(document)
+        self.assertIsNone(document["signature_path"])
+
+        signature_data = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2X8AAAAASUVORK5CYII="
+        )
+        sign_response = self.client.post(
+            f"/hris/documents/sign/{document['id']}",
+            data={
+                "return_to": f"/hris/documents/approval/{document['id']}",
+                "signature_data": signature_data,
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(sign_response.status_code, 200)
+        self.assertIn(
+            "Upload lampiran dokumen dulu sebelum pengesahan digital.",
+            sign_response.get_data(as_text=True),
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            refreshed_document = db.execute(
+                "SELECT signature_path, signed_at FROM document_records WHERE id=?",
+                (document["id"],),
+            ).fetchone()
+
+        self.assertIsNone(refreshed_document["signature_path"])
+        self.assertIsNone(refreshed_document["signed_at"])
 
     def test_add_product_and_get_variants(self):
         self.login()

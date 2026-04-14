@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from urllib.parse import urlencode
 from datetime import date as date_cls
 
@@ -41,6 +42,8 @@ CRM_SMART_SELECT_MAX_LIMIT = 100
 CRM_PURCHASE_PAGE_SIZE = 25
 CRM_PURCHASE_MAX_PAGE_SIZE = 100
 CRM_PURCHASE_PAGE_SIZE_OPTIONS = (10, 25, 50, 100)
+CRM_DB_LOCK_RETRY_ATTEMPTS = 2
+CRM_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
 
 
 def _to_int(value, default=0):
@@ -1719,142 +1722,179 @@ def add_purchase():
 
     total_amount = round(sum(item["line_total"] for item in items), 2)
     total_qty = sum(item["qty"] for item in items)
-
-    try:
-        db.execute("BEGIN")
-        if selected_member:
-            member = selected_member
-            member_snapshot = selected_member_snapshot
-        else:
-            member, member_snapshot = _resolve_crm_purchase_member(
-                db,
-                customer,
-                transaction_type,
-                purchase_date,
+    max_retries = max(
+        0,
+        int(current_app.config.get("CRM_DB_LOCK_RETRY_ATTEMPTS", CRM_DB_LOCK_RETRY_ATTEMPTS) or 0),
+    )
+    retry_delay = max(
+        0.0,
+        float(
+            current_app.config.get(
+                "CRM_DB_LOCK_RETRY_DELAY_SECONDS",
+                CRM_DB_LOCK_RETRY_DELAY_SECONDS,
             )
-            if member:
-                member_id = member["id"]
+            or 0.0
+        ),
+    )
 
-        if transaction_type == "stringing_reward_redemption" and not member:
-            raise ValueError("Free reward senaran hanya bisa dicatat untuk member yang valid.")
-
-        cursor = db.execute(
-            """
-            INSERT INTO crm_purchase_records(
-                customer_id,
-                member_id,
-                warehouse_id,
-                purchase_date,
-                invoice_no,
-                channel,
-                transaction_type,
-                items_count,
-                total_amount,
-                note,
-                handled_by
-            )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                customer_id,
-                member_id or None,
-                warehouse_id,
-                purchase_date,
-                invoice_no or None,
-                channel,
-                transaction_type,
-                total_qty,
-                total_amount,
-                note or None,
-                session.get("user_id"),
-            ),
-        )
-        purchase_id = cursor.lastrowid
-
-        db.executemany(
-            """
-            INSERT INTO crm_purchase_items(
-                purchase_id,
-                product_id,
-                variant_id,
-                qty,
-                unit_price,
-                line_total
-            )
-            VALUES (?,?,?,?,?,?)
-            """,
-            [
-                (
-                    purchase_id,
-                    item["product_id"],
-                    item["variant_id"],
-                    item["qty"],
-                    item["unit_price"],
-                    item["line_total"],
+    for attempt in range(max_retries + 1):
+        try:
+            member = None
+            member_snapshot = None
+            db.execute("BEGIN IMMEDIATE")
+            if selected_member:
+                member = selected_member
+                member_snapshot = selected_member_snapshot
+            else:
+                member, member_snapshot = _resolve_crm_purchase_member(
+                    db,
+                    customer,
+                    transaction_type,
+                    purchase_date,
                 )
-                for item in items
-            ],
-        )
+                if member:
+                    member_id = member["id"]
 
-        if member:
-            auto_record = build_auto_member_record(
-                member_snapshot or member,
-                member_snapshot or member,
-                purchase_id=purchase_id,
-                warehouse_id=warehouse_id,
-                record_date=purchase_date,
-                reference_no=invoice_no or None,
-                amount=total_amount,
-                transaction_type=transaction_type,
-                note=note,
-                handled_by=session.get("user_id"),
-                source_label="purchase CRM",
-            )
-            db.execute(
+            if transaction_type == "stringing_reward_redemption" and not member:
+                raise ValueError("Free reward senaran hanya bisa dicatat untuk member yang valid.")
+
+            cursor = db.execute(
                 """
-                INSERT INTO crm_member_records(
+                INSERT INTO crm_purchase_records(
+                    customer_id,
                     member_id,
-                    purchase_id,
                     warehouse_id,
-                    record_date,
-                    record_type,
-                    reference_no,
-                    amount,
-                    points_delta,
-                    service_count_delta,
-                    reward_redeemed_delta,
-                    benefit_value,
+                    purchase_date,
+                    invoice_no,
+                    channel,
+                    transaction_type,
+                    items_count,
+                    total_amount,
                     note,
                     handled_by
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    auto_record["member_id"],
-                    auto_record["purchase_id"],
-                    auto_record["warehouse_id"],
-                    auto_record["record_date"],
-                    auto_record["record_type"],
-                    auto_record["reference_no"],
-                    auto_record["amount"],
-                    auto_record["points_delta"],
-                    auto_record["service_count_delta"],
-                    auto_record["reward_redeemed_delta"],
-                    auto_record["benefit_value"],
-                    auto_record["note"],
-                    auto_record["handled_by"],
+                    customer_id,
+                    member_id or None,
+                    warehouse_id,
+                    purchase_date,
+                    invoice_no or None,
+                    channel,
+                    transaction_type,
+                    total_qty,
+                    total_amount,
+                    note or None,
+                    session.get("user_id"),
                 ),
             )
+            purchase_id = cursor.lastrowid
 
-        db.commit()
-    except ValueError as exc:
-        db.rollback()
-        flash(str(exc), "error")
-        return _crm_redirect("purchases")
-    except Exception:
-        db.rollback()
-        flash("Purchase record gagal disimpan.", "error")
-        return _crm_redirect("purchases")
+            db.executemany(
+                """
+                INSERT INTO crm_purchase_items(
+                    purchase_id,
+                    product_id,
+                    variant_id,
+                    qty,
+                    unit_price,
+                    line_total
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        purchase_id,
+                        item["product_id"],
+                        item["variant_id"],
+                        item["qty"],
+                        item["unit_price"],
+                        item["line_total"],
+                    )
+                    for item in items
+                ],
+            )
+
+            if member:
+                auto_record = build_auto_member_record(
+                    member_snapshot or member,
+                    member_snapshot or member,
+                    purchase_id=purchase_id,
+                    warehouse_id=warehouse_id,
+                    record_date=purchase_date,
+                    reference_no=invoice_no or None,
+                    amount=total_amount,
+                    transaction_type=transaction_type,
+                    note=note,
+                    handled_by=session.get("user_id"),
+                    source_label="purchase CRM",
+                )
+                db.execute(
+                    """
+                    INSERT INTO crm_member_records(
+                        member_id,
+                        purchase_id,
+                        warehouse_id,
+                        record_date,
+                        record_type,
+                        reference_no,
+                        amount,
+                        points_delta,
+                        service_count_delta,
+                        reward_redeemed_delta,
+                        benefit_value,
+                        note,
+                        handled_by
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        auto_record["member_id"],
+                        auto_record["purchase_id"],
+                        auto_record["warehouse_id"],
+                        auto_record["record_date"],
+                        auto_record["record_type"],
+                        auto_record["reference_no"],
+                        auto_record["amount"],
+                        auto_record["points_delta"],
+                        auto_record["service_count_delta"],
+                        auto_record["reward_redeemed_delta"],
+                        auto_record["benefit_value"],
+                        auto_record["note"],
+                        auto_record["handled_by"],
+                    ),
+                )
+
+            db.commit()
+            break
+        except ValueError as exc:
+            db.rollback()
+            flash(str(exc), "error")
+            return _crm_redirect("purchases")
+        except sqlite3.OperationalError as exc:
+            db.rollback()
+            if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                current_app.logger.warning(
+                    "CRM purchase save hit SQLite lock, retry %s/%s",
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(retry_delay)
+                continue
+            if _is_sqlite_lock_error(exc):
+                current_app.logger.warning("CRM purchase save failed after SQLite lock retries")
+                flash(
+                    "Purchase record gagal disimpan karena database sedang sibuk di server. Coba ulang beberapa detik lagi.",
+                    "error",
+                )
+                return _crm_redirect("purchases")
+            flash("Purchase record gagal disimpan.", "error")
+            return _crm_redirect("purchases")
+        except Exception:
+            db.rollback()
+            flash("Purchase record gagal disimpan.", "error")
+            return _crm_redirect("purchases")
 
     flash("Purchase record customer berhasil disimpan.", "success")
     return _crm_redirect("purchases")

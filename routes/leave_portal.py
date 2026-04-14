@@ -1,6 +1,8 @@
+import sqlite3
+import time
 from datetime import date as date_cls, timedelta
 
-from flask import Blueprint, flash, redirect, render_template
+from flask import Blueprint, current_app, flash, redirect, render_template
 from flask import request
 
 from database import get_db
@@ -15,6 +17,8 @@ from routes.hris import (
 
 
 leave_portal_bp = Blueprint("leave_portal", __name__, url_prefix="/libur")
+LEAVE_PORTAL_DB_LOCK_RETRY_ATTEMPTS = 2
+LEAVE_PORTAL_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
 
 
 MONTH_NAMES_ID = [
@@ -31,6 +35,15 @@ MONTH_NAMES_ID = [
     "November",
     "Desember",
 ]
+
+
+def _is_sqlite_lock_error(exc):
+    message = str(exc or "").strip().lower()
+    return (
+        "database is locked" in message
+        or "database schema is locked" in message
+        or "database table is locked" in message
+    )
 
 
 def _normalize_leave_log_month(value):
@@ -173,41 +186,88 @@ def submit():
     if duplicate:
         flash("Pengajuan libur dengan tanggal yang sama sudah ada.", "error")
         return redirect("/libur/")
-
-    db.execute(
-        """
-        INSERT INTO leave_requests(
-            employee_id,
-            warehouse_id,
-            leave_type,
-            start_date,
-            end_date,
-            total_days,
-            status,
-            reason,
-            note,
-            handled_by,
-            handled_at,
-            updated_at
-        )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            linked_employee["id"],
-            linked_employee["warehouse_id"],
-            leave_type,
-            start_date,
-            end_date,
-            total_days,
-            "pending",
-            reason,
-            note or None,
-            None,
-            None,
-            _current_timestamp(),
+    max_retries = max(
+        0,
+        int(
+            current_app.config.get(
+                "LEAVE_PORTAL_DB_LOCK_RETRY_ATTEMPTS",
+                LEAVE_PORTAL_DB_LOCK_RETRY_ATTEMPTS,
+            )
+            or 0
         ),
     )
-    db.commit()
+    retry_delay = max(
+        0.0,
+        float(
+            current_app.config.get(
+                "LEAVE_PORTAL_DB_LOCK_RETRY_DELAY_SECONDS",
+                LEAVE_PORTAL_DB_LOCK_RETRY_DELAY_SECONDS,
+            )
+            or 0.0
+        ),
+    )
+
+    for attempt in range(max_retries + 1):
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    note,
+                    handled_by,
+                    handled_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    linked_employee["id"],
+                    linked_employee["warehouse_id"],
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    "pending",
+                    reason,
+                    note or None,
+                    None,
+                    None,
+                    _current_timestamp(),
+                ),
+            )
+            db.commit()
+            break
+        except sqlite3.OperationalError as exc:
+            db.rollback()
+            if _is_sqlite_lock_error(exc) and attempt < max_retries:
+                current_app.logger.warning(
+                    "Leave portal submit hit SQLite lock, retry %s/%s",
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(retry_delay)
+                continue
+            if _is_sqlite_lock_error(exc):
+                current_app.logger.warning("Leave portal submit failed after SQLite lock retries")
+                flash(
+                    "Pengajuan libur gagal disimpan karena database sedang sibuk di server. Coba ulangi beberapa detik lagi.",
+                    "error",
+                )
+                return redirect("/libur/")
+            flash("Pengajuan libur gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+            return redirect("/libur/")
+        except Exception:
+            db.rollback()
+            flash("Pengajuan libur gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+            return redirect("/libur/")
 
     flash("Pengajuan libur berhasil dikirim. Status akan diproses oleh HR atau Super Admin.", "success")
     return redirect("/libur/")
