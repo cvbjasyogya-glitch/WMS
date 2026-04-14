@@ -10,7 +10,7 @@ Notes:
 - The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
 - Keep only one active Nginx server block for `erp.cvbjasyogya.cloud`. If `nginx -t` warns about a conflicting `server_name`, disable the older duplicate site before reloading Nginx.
 - `wms.service` now binds Gunicorn to `/run/wms/gunicorn.sock` instead of TCP port `8000`, so it avoids `Address already in use` conflicts during restart and keeps the app private behind Nginx.
-- `wms.service` also runs a pre-start SQLite backup (`/root/WMS/db_backups`) before launching Gunicorn.
+- `wms.service` runs a configured backup hook before launching Gunicorn. When backend is `sqlite`, it writes file backups to `/root/WMS/db_backups`. When backend is `postgresql`, the hook skips SQLite backup cleanly instead of touching the wrong file.
 - The sample Gunicorn/Nginx config keeps longer timeouts so heavy operations such as iPOS4 import are less likely to be cut off mid-request on the VPS.
 - If you want WhatsApp receipt PDFs to match the browser print layout, install a headless browser on the VPS (for example `chromium-browser`) and set `POS_RECEIPT_PDF_RENDERER=auto` or `html` in `.env`. You can also set `POS_RECEIPT_PDF_BROWSER` explicitly if the binary is in a custom path.
 
@@ -70,7 +70,7 @@ Safe update workflow before `git pull` + restart:
 ```bash
 cd ~/WMS
 sudo systemctl stop wms.service
-python3 scripts/backup_sqlite_db.py --database /root/WMS/database.db --output-dir /root/WMS/db_backups --retain-days 14
+python3 scripts/run_configured_backup.py --output-dir /root/WMS/db_backups --retain-days 14
 git pull
 sudo cp deploy/systemd/wms.service.example /etc/systemd/system/wms.service
 sudo cp deploy/nginx/erp.cvbjasyogya.cloud.conf /etc/nginx/sites-available/erp.cvbjasyogya.cloud.conf
@@ -81,7 +81,7 @@ sudo systemctl reload nginx
 sudo journalctl -u wms.service -n 80 --no-pager
 ```
 
-If `journalctl` shows `sqlite3.DatabaseError: database disk image is malformed`:
+If `journalctl` shows `sqlite3.DatabaseError: database disk image is malformed` while backend is still SQLite:
 
 ```bash
 cd ~/WMS

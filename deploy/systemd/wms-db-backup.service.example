@@ -7,5 +7,5 @@ Type=oneshot
 User=root
 Group=root
 WorkingDirectory=/root/WMS
-ExecStart=/usr/bin/python3 /root/WMS/scripts/backup_sqlite_db.py --database /root/WMS/database.db --output-dir /root/WMS/db_backups --retain-days 14
-
+EnvironmentFile=-/root/WMS/.env
+ExecStart=/usr/bin/python3 /root/WMS/scripts/run_configured_backup.py --output-dir /root/WMS/db_backups --retain-days 14
