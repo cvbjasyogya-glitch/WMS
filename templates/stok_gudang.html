@@ -1445,12 +1445,12 @@ if (stockFilterForm && stockFilterForm.dataset.bound !== "1") {
     stockFilterForm.dataset.bound = "1";
     stockFilterForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        await refreshInventoryView(buildStockFilterUrlFromForm());
+        window.location.assign(buildStockFilterUrlFromForm());
     });
 
     stockAutoApplyFields.forEach((field) => {
         field.addEventListener("change", () => {
-            void refreshInventoryView(buildStockFilterUrlFromForm());
+            window.location.assign(buildStockFilterUrlFromForm());
         });
     });
 }

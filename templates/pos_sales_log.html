@@ -166,7 +166,7 @@
                     </div>
 
                     <div class="split-actions attendance-submit-row">
-                        <button type="submit" data-cash-closing-submit-button>Simpan &amp; Kirim WA Owner</button>
+                        <button type="submit" data-cash-closing-submit-button>Simpan &amp; Kirim WA Leader</button>
                         {% if can_edit_cash_closing %}
                         <button type="button" class="ghost-button" hidden data-cash-closing-cancel-edit>Batal Edit</button>
                         {% endif %}
@@ -819,7 +819,7 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
     const combinedInput = cashClosingPanel.querySelector("[name='combined_total_amount']");
     const expenseInput = cashClosingPanel.querySelector("[name='expense_amount']");
     const cashOnHandInput = cashClosingPanel.querySelector("[name='cash_on_hand_amount']");
-    const defaultSubmitLabel = submitButton?.textContent || "Simpan & Kirim WA Owner";
+    const defaultSubmitLabel = submitButton?.textContent || "Simpan & Kirim WA Leader";
     const editSubmitLabel = "Simpan Perubahan";
 
     const parseAmount = (value) => {

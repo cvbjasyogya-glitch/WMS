@@ -2216,7 +2216,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-cash-closing-preview', html)
         self.assertIn('name="cash_amount"', html)
         self.assertIn('name="qris_amount"', html)
-        self.assertIn("Simpan &amp; Kirim WA Owner", html)
+        self.assertIn("Simpan &amp; Kirim WA Leader", html)
         self.assertIn('data-cash-closing-defaults-url="/kasir/cash-closing/defaults"', html)
         self.assertIn("Petugas Submit", html)
         self.assertIn("Semua kasir / sales", html)
@@ -17331,6 +17331,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('stockFilterForm.addEventListener("submit"', template_text)
         self.assertNotIn('stockLiveSearchInput?.addEventListener("input"', template_text)
         self.assertIn("stockAutoApplyFields.forEach((field) => {", template_text)
+        self.assertIn('window.location.assign(buildStockFilterUrlFromForm())', template_text)
 
     def test_stock_helper_extracts_date_prefix_from_datetime_objects(self):
         sample_datetime = datetime(2026, 4, 15, 10, 30, 45)
