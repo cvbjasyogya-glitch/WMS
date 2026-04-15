@@ -11,7 +11,7 @@ RuntimeDirectory=wms
 RuntimeDirectoryMode=0755
 ExecStartPre=/usr/bin/rm -f /run/wms/gunicorn.sock
 ExecStartPre=/usr/bin/python3 /root/WMS/scripts/run_configured_backup.py --output-dir /root/WMS/db_backups --retain-days 14
-ExecStart=/usr/bin/python3 /usr/local/bin/gunicorn -w 4 --timeout 900 --graceful-timeout 60 --bind unix:/run/wms/gunicorn.sock --umask 007 app:app
+ExecStart=/usr/bin/python3 /usr/local/bin/gunicorn -w 2 --timeout 900 --graceful-timeout 60 --bind unix:/run/wms/gunicorn.sock --umask 007 app:app
 Restart=always
 RestartSec=3
 
