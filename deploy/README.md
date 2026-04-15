@@ -10,7 +10,7 @@ Notes:
 - The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
 - Keep only one active Nginx server block for `erp.cvbjasyogya.cloud`. If `nginx -t` warns about a conflicting `server_name`, disable the older duplicate site before reloading Nginx.
 - `wms.service` now binds Gunicorn to `/run/wms/gunicorn.sock` instead of TCP port `8000`, so it avoids `Address already in use` conflicts during restart and keeps the app private behind Nginx.
-- `wms.service` runs a configured backup hook before launching Gunicorn. When backend is `sqlite`, it writes file backups to `/root/WMS/db_backups`. When backend is `postgresql`, the hook skips SQLite backup cleanly instead of touching the wrong file.
+- `wms.service` runs a configured backup hook before launching Gunicorn. When backend is `sqlite`, it writes file backups to `/root/WMS/db_backups`. When backend is `postgresql`, it writes `pg_dump` backups to `/root/WMS/db_backups/postgresql`.
 - The sample Gunicorn/Nginx config keeps longer timeouts so heavy operations such as iPOS4 import are less likely to be cut off mid-request on the VPS.
 - If you want WhatsApp receipt PDFs to match the browser print layout, install a headless browser on the VPS (for example `chromium-browser`) and set `POS_RECEIPT_PDF_RENDERER=auto` or `html` in `.env`. You can also set `POS_RECEIPT_PDF_BROWSER` explicitly if the binary is in a custom path.
 
@@ -46,7 +46,7 @@ sudo journalctl -u wms.service -n 50 --no-pager
 sudo tail -n 50 /var/log/nginx/error.log
 ```
 
-Set up automatic DB backups (02:00, 14:00, 19:00 server time):
+Set up automatic DB backups (02:00 and 12:00 server time):
 
 ```bash
 cd ~/WMS
@@ -61,8 +61,9 @@ ls -lh /root/WMS/db_backups
 ```
 
 Notes for scheduled backups:
-- Backup files are stored in `/root/WMS/db_backups` using names like `backup_2026-04-03_14-00-00.db`.
-- Old backups older than 14 days are deleted automatically by `scripts/backup_sqlite_db.py` (adjust `--retain-days` in the service file if needed).
+- SQLite backups are stored in `/root/WMS/db_backups` using names like `backup_2026-04-03_14-00-00.db`.
+- PostgreSQL backups are stored in `/root/WMS/db_backups/postgresql` using names like `backup_2026-04-15_03-55-00.dump`.
+- Old backups older than 14 days are deleted automatically by the matching backup script (adjust `--retain-days` in the service file if needed).
 - Schedule follows server local time. Check with `timedatectl` and set timezone if needed.
 
 Safe update workflow before `git pull` + restart:

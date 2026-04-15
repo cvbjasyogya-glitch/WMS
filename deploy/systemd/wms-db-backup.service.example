@@ -1,5 +1,5 @@
 [Unit]
-Description=WMS SQLite backup job
+Description=WMS database backup job
 After=network.target
 
 [Service]

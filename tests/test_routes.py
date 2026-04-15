@@ -7784,13 +7784,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             member = db.execute(
                 """
-                SELECT id, member_code, member_type, status, requested_by_staff_id
-                FROM crm_memberships
-                WHERE customer_id=?
-                ORDER BY id DESC
+                SELECT m.id, m.member_code, m.member_type, m.status, m.requested_by_staff_id
+                FROM crm_memberships m
+                JOIN crm_customers c ON c.id = m.customer_id
+                WHERE c.phone='628100000188' AND m.member_type='stringing'
+                ORDER BY m.id DESC
                 LIMIT 1
                 """,
-                (customer["id"],),
             ).fetchone()
             purchase = db.execute(
                 """
@@ -7888,13 +7888,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             member = db.execute(
                 """
-                SELECT id, member_code, member_type, status, requested_by_staff_id
-                FROM crm_memberships
-                WHERE customer_id=?
-                ORDER BY id DESC
+                SELECT m.id, m.member_code, m.member_type, m.status, m.requested_by_staff_id
+                FROM crm_memberships m
+                JOIN crm_customers c ON c.id = m.customer_id
+                WHERE c.phone='628100000199' AND m.member_type='purchase'
+                ORDER BY m.id DESC
                 LIMIT 1
                 """,
-                (customer["id"],),
             ).fetchone()
             purchase = db.execute(
                 """
@@ -7925,6 +7925,104 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(record["record_type"], "purchase")
         self.assertEqual(record["points_delta"], 12)
         self.assertEqual(snapshot["current_points"], 12)
+
+    def test_crm_page_reconciles_duplicate_purchase_members_by_phone(self):
+        self.login()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'kak fery', '081234560001', 'member')
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Kak Fery', '6281234560001', 'member')
+                """
+            )
+            first_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='kak fery'"
+            ).fetchone()
+            second_customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Kak Fery'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (first_customer["id"], 1, "POS-POINT-02-0015", "purchase", "active", "2026-04-14", 24),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (second_customer["id"], 1, "POS-POINT-02-0025", "purchase", "active", "2026-04-15", 24),
+            )
+            first_member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='POS-POINT-02-0015'"
+            ).fetchone()
+            second_member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='POS-POINT-02-0025'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_member_records(
+                    member_id, warehouse_id, record_date, record_type, points_delta, amount, note
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (first_member["id"], 1, "2026-04-14", "purchase", 24, 240000, "Pembelian A"),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_member_records(
+                    member_id, warehouse_id, record_date, record_type, points_delta, amount, note
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (second_member["id"], 1, "2026-04-15", "purchase", 24, 240000, "Pembelian B"),
+            )
+            db.commit()
+
+        response = self.client.get("/crm/?tab=members")
+        self.assertEqual(response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            merged_count = db.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM crm_memberships
+                WHERE warehouse_id=1 AND member_type='purchase' AND customer_id IN (?, ?)
+                """,
+                (first_customer["id"], second_customer["id"]),
+            ).fetchone()["total"]
+            surviving_member = db.execute(
+                """
+                SELECT id, points
+                FROM crm_memberships
+                WHERE warehouse_id=1 AND member_type='purchase' AND customer_id IN (?, ?)
+                LIMIT 1
+                """,
+                (first_customer["id"], second_customer["id"]),
+            ).fetchone()
+            moved_records = db.execute(
+                "SELECT COUNT(*) AS total FROM crm_member_records WHERE member_id=?",
+                (surviving_member["id"],),
+            ).fetchone()["total"]
+
+        self.assertEqual(merged_count, 1)
+        self.assertEqual(surviving_member["points"], 48)
+        self.assertEqual(moved_records, 2)
 
     def test_crm_purchase_retries_after_transient_sqlite_lock(self):
         self.login()
@@ -8537,6 +8635,103 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(record["record_type"], "purchase")
         self.assertEqual(record["points_delta"], 12)
         self.assertEqual(snapshot["current_points"], 12)
+
+    def test_pos_checkout_reuses_existing_purchase_member_with_same_phone_different_name(self):
+        self.create_user("staff_sales_merge_point", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_merge_point")
+        self.login_pos_user("pos_merge_point_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-MERGE-POINT-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'kak fery', '081234560002', 'member')
+                """
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='kak fery'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (customer["id"], 1, "POS-POINT-EXIST-001", "purchase", "active", "2026-04-14", 24),
+            )
+            existing_member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='POS-POINT-EXIST-001'"
+            ).fetchone()
+            db.commit()
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-15",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Kak Fery",
+                "customer_phone": "6281234560002",
+                "transaction_type": "purchase",
+                "payment_method": "cash",
+                "paid_amount": 121000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 120000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer_after = db.execute(
+                """
+                SELECT id, customer_name, phone
+                FROM crm_customers
+                WHERE id=?
+                """,
+                (customer["id"],),
+            ).fetchone()
+            membership_count = db.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM crm_memberships
+                WHERE warehouse_id=1 AND member_type='purchase'
+                """
+            ).fetchone()["total"]
+            purchase = db.execute(
+                """
+                SELECT member_id, customer_id
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (receipt_no,),
+            ).fetchone()
+            snapshot = get_member_snapshot(db, existing_member["id"])
+
+        self.assertEqual(customer_after["customer_name"], "Kak Fery")
+        self.assertEqual(customer_after["phone"], "6281234560002")
+        self.assertEqual(membership_count, 1)
+        self.assertEqual(purchase["member_id"], existing_member["id"])
+        self.assertEqual(purchase["customer_id"], customer["id"])
+        self.assertEqual(snapshot["current_points"], 36)
 
     def test_pos_checkout_auto_creates_stringing_member_and_applies_75k_progress_threshold(self):
         self.create_user("staff_sales_auto_senar", "pass1234", "staff", warehouse_id=1)

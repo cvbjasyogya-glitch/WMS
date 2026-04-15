@@ -17,9 +17,13 @@ from services.crm_loyalty import (
     STRINGING_REWARD_THRESHOLD,
     build_auto_member_record,
     calculate_loyalty_fields,
+    find_matching_customer_identity,
+    find_matching_member_identity,
     get_member_snapshot,
+    normalize_customer_phone,
     normalize_member_type,
     normalize_transaction_type,
+    reconcile_member_identity_duplicates,
 )
 from services.notification_service import notify_operational_event
 from services.receipt_pdf_service import (
@@ -227,16 +231,7 @@ def _currency(value):
 
 
 def _normalize_pos_phone(value):
-    digits = "".join(char for char in str(value or "") if char.isdigit())
-    if not digits:
-        return ""
-    if digits.startswith("00"):
-        digits = digits[2:]
-    if digits.startswith("0"):
-        digits = f"62{digits[1:]}"
-    elif not digits.startswith("62") and len(digits) >= 8:
-        digits = f"62{digits.lstrip('0')}"
-    return digits
+    return normalize_customer_phone(value)
 
 
 def _record_pos_receipt_delivery_state(
@@ -2352,20 +2347,41 @@ def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, cu
         return customer
 
     safe_name = (customer_name or "").strip() or "Walk-in Customer"
-
-    existing = db.execute(
-        """
-        SELECT id, warehouse_id, customer_name, phone
-        FROM crm_customers
-        WHERE warehouse_id=?
-          AND customer_name=?
-          AND COALESCE(phone, '')=?
-        LIMIT 1
-        """,
-        (warehouse_id, safe_name, safe_phone),
-    ).fetchone()
-    if existing:
-        return existing
+    existing_identity = find_matching_customer_identity(
+        db,
+        warehouse_id,
+        phone=safe_phone,
+        customer_name=safe_name,
+    )
+    if existing_identity:
+        db.execute(
+            """
+            UPDATE crm_customers
+            SET
+                customer_name=?,
+                contact_person=COALESCE(NULLIF(?, ''), contact_person),
+                phone=COALESCE(NULLIF(?, ''), phone),
+                customer_type='member',
+                marketing_channel=COALESCE(NULLIF(marketing_channel, ''), 'pos'),
+                note=COALESCE(NULLIF(note, ''), 'Merged by POS loyalty identity'),
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                safe_name,
+                safe_name,
+                safe_phone,
+                existing_identity["id"],
+            ),
+        )
+        return db.execute(
+            """
+            SELECT id, warehouse_id, customer_name, phone
+            FROM crm_customers
+            WHERE id=?
+            """,
+            (existing_identity["id"],),
+        ).fetchone()
 
     cursor = db.execute(
         """
@@ -2602,6 +2618,7 @@ def _auto_create_pos_stringing_member(db, customer, warehouse_id, join_date, *, 
 def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transaction_type, *, requested_by_user_id=None):
     safe_transaction_type = normalize_transaction_type(transaction_type)
     safe_customer = dict(customer or {})
+    reconcile_member_identity_duplicates(db, warehouse_id=warehouse_id)
     active_member = _fetch_active_customer_member(db, safe_customer.get("id"))
 
     if active_member:
@@ -2612,6 +2629,21 @@ def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transacti
 
     if safe_transaction_type == "stringing_reward_redemption":
         raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
+
+    matching_member = find_matching_member_identity(
+        db,
+        warehouse_id,
+        "stringing" if safe_transaction_type != "purchase" else "purchase",
+        phone=safe_customer.get("phone"),
+        customer_name=safe_customer.get("customer_name"),
+    )
+    if matching_member:
+        member = matching_member
+        if safe_transaction_type in {"stringing_service", "stringing_reward_redemption"}:
+            member_type = str(member["member_type"] or "").strip().lower()
+            if member_type != "stringing":
+                raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
+        return member, get_member_snapshot(db, member["id"])
 
     if safe_transaction_type == "purchase":
         created_member = _auto_create_pos_purchase_member(

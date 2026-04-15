@@ -1,13 +1,11 @@
 [Unit]
-Description=Run WMS SQLite backup 3 times daily (02:00, 14:00, 19:00)
+Description=Run WMS database backup twice daily (02:00, 12:00)
 
 [Timer]
 OnCalendar=*-*-* 02:00:00
-OnCalendar=*-*-* 14:00:00
-OnCalendar=*-*-* 19:00:00
+OnCalendar=*-*-* 12:00:00
 Persistent=true
 Unit=wms-db-backup.service
 
 [Install]
 WantedBy=timers.target
-

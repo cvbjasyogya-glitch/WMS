@@ -21,11 +21,16 @@ from services.crm_loyalty import (
     STRINGING_REWARD_THRESHOLD,
     build_auto_member_record,
     build_member_snapshot_from_row,
+    find_matching_customer_identity,
+    find_matching_member_identity,
     get_member_snapshot,
+    merge_member_identity_records,
     normalize_member_record_type,
     normalize_member_type,
     normalize_membership_status,
+    normalize_customer_phone,
     normalize_transaction_type,
+    reconcile_member_identity_duplicates,
 )
 from services.rbac import has_permission, is_scoped_role, normalize_role
 
@@ -389,6 +394,16 @@ def _get_latest_customer_member(db, customer_id, *, active_only=False):
     ).fetchone()
 
 
+def _resolve_customer_identity_match(db, warehouse_id, customer_name="", phone="", *, exclude_customer_id=0):
+    return find_matching_customer_identity(
+        db,
+        warehouse_id,
+        phone=phone,
+        customer_name=customer_name,
+        exclude_customer_id=exclude_customer_id,
+    )
+
+
 def _build_next_crm_member_code(db, warehouse_id, *, member_type):
     safe_warehouse_id = max(_to_int(warehouse_id, 0), 0)
     normalized_member_type = _normalize_member_type(member_type)
@@ -563,8 +578,10 @@ def _ensure_active_stringing_member_for_crm(db, member_id):
 
 def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
     safe_transaction_type = _normalize_transaction_type(transaction_type)
+    safe_customer = dict(customer or {})
+    reconcile_member_identity_duplicates(db, warehouse_id=safe_customer["warehouse_id"])
 
-    latest_active_member = _get_latest_customer_member(db, customer["id"], active_only=True)
+    latest_active_member = _get_latest_customer_member(db, safe_customer["id"], active_only=True)
     if latest_active_member:
         member = _get_member_by_id(db, latest_active_member["id"]) or latest_active_member
         member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
@@ -574,10 +591,24 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
             raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
         return member, get_member_snapshot(db, member["id"])
 
+    matching_member = find_matching_member_identity(
+        db,
+        safe_customer["warehouse_id"],
+        "stringing" if safe_transaction_type != "purchase" else "purchase",
+        phone=safe_customer.get("phone"),
+        customer_name=safe_customer.get("customer_name"),
+    )
+    if matching_member:
+        member = _get_member_by_id(db, matching_member["id"]) or matching_member
+        if safe_transaction_type == "purchase":
+            return member, get_member_snapshot(db, member["id"])
+        member = _ensure_active_stringing_member_for_crm(db, member["id"]) or member
+        return member, get_member_snapshot(db, member["id"])
+
     if safe_transaction_type == "purchase":
         member = _auto_create_crm_purchase_member(
             db,
-            customer,
+            safe_customer,
             purchase_date,
             requested_by_user_id=session.get("user_id"),
         )
@@ -588,7 +619,7 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
     if safe_transaction_type == "stringing_reward_redemption":
         return None, None
 
-    latest_member = _get_latest_customer_member(db, customer["id"], active_only=False)
+    latest_member = _get_latest_customer_member(db, safe_customer["id"], active_only=False)
     if latest_member:
         member = _get_member_by_id(db, latest_member["id"]) or latest_member
         member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
@@ -599,7 +630,7 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
 
     member = _auto_create_crm_stringing_member(
         db,
-        customer,
+        safe_customer,
         purchase_date,
         requested_by_user_id=session.get("user_id"),
     )
@@ -1305,6 +1336,8 @@ def crm_page():
         return _crm_access_denied_redirect()
 
     db = get_db()
+    reconcile_member_identity_duplicates(db)
+    db.commit()
     can_view_crm_revenue = _can_view_crm_revenue()
     selected_tab = _normalize_tab(request.args.get("tab"))
     search = (request.args.get("search") or "").strip()
@@ -1576,7 +1609,7 @@ def add_customer():
     warehouse_id = _resolve_crm_warehouse(db, request.form.get("warehouse_id"))
     customer_name = (request.form.get("customer_name") or "").strip()
     contact_person = (request.form.get("contact_person") or "").strip()
-    phone = (request.form.get("phone") or "").strip()
+    phone = normalize_customer_phone(request.form.get("phone"))
     email = (request.form.get("email") or "").strip()
     city = (request.form.get("city") or "").strip()
     instagram_handle = (request.form.get("instagram_handle") or "").strip()
@@ -1588,18 +1621,45 @@ def add_customer():
         flash("Gudang dan nama customer wajib diisi.", "error")
         return _crm_redirect("contacts")
 
-    duplicate = db.execute(
-        """
-        SELECT id
-        FROM crm_customers
-        WHERE warehouse_id=?
-          AND customer_name=?
-          AND COALESCE(phone, '')=?
-        """,
-        (warehouse_id, customer_name, phone),
-    ).fetchone()
+    duplicate = _resolve_customer_identity_match(
+        db,
+        warehouse_id,
+        customer_name,
+        phone,
+    )
     if duplicate:
-        flash("Customer dengan nama dan kontak yang sama sudah ada.", "error")
+        db.execute(
+            """
+            UPDATE crm_customers
+            SET
+                customer_name=?,
+                contact_person=COALESCE(NULLIF(?, ''), contact_person),
+                phone=COALESCE(NULLIF(?, ''), phone),
+                email=COALESCE(NULLIF(?, ''), email),
+                city=COALESCE(NULLIF(?, ''), city),
+                instagram_handle=COALESCE(NULLIF(?, ''), instagram_handle),
+                customer_type=?,
+                marketing_channel=COALESCE(NULLIF(?, ''), marketing_channel),
+                note=COALESCE(NULLIF(?, ''), note),
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                customer_name,
+                contact_person,
+                phone,
+                email,
+                city,
+                instagram_handle,
+                customer_type,
+                marketing_channel,
+                note,
+                duplicate["id"],
+            ),
+        )
+        reconcile_member_identity_duplicates(db, warehouse_id=warehouse_id)
+        db.commit()
+        flash("Customer dengan identitas yang sama ditemukan, data digabung ke kontak yang sudah ada.", "info")
         return _crm_redirect("contacts")
 
     db.execute(

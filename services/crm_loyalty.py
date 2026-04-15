@@ -59,6 +59,215 @@ def _format_currency(value):
     return "{:,.0f}".format(_to_float(value, 0)).replace(",", ".")
 
 
+def normalize_customer_phone(value):
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if digits.startswith("0"):
+        digits = f"62{digits[1:]}"
+    elif not digits.startswith("62") and len(digits) >= 8:
+        digits = f"62{digits.lstrip('0')}"
+    return digits
+
+
+def normalize_customer_identity_name(value):
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def find_matching_customer_identity(
+    db,
+    warehouse_id,
+    *,
+    phone="",
+    customer_name="",
+    exclude_customer_id=0,
+):
+    safe_warehouse_id = _to_int(warehouse_id, 0)
+    if safe_warehouse_id <= 0:
+        return None
+
+    normalized_phone = normalize_customer_phone(phone)
+    normalized_name = normalize_customer_identity_name(customer_name)
+    if not normalized_phone and not normalized_name:
+        return None
+
+    rows = db.execute(
+        """
+        SELECT id, warehouse_id, customer_name, phone
+        FROM crm_customers
+        WHERE warehouse_id=?
+          AND id<>?
+        ORDER BY id ASC
+        """,
+        (safe_warehouse_id, _to_int(exclude_customer_id, 0)),
+    ).fetchall()
+
+    for row in rows:
+        row_dict = dict(row)
+        row_phone = normalize_customer_phone(row_dict.get("phone"))
+        row_name = normalize_customer_identity_name(row_dict.get("customer_name"))
+        if normalized_phone and row_phone == normalized_phone:
+            return row_dict
+        if not normalized_phone and normalized_name and row_name == normalized_name:
+            return row_dict
+    return None
+
+
+def find_matching_member_identity(
+    db,
+    warehouse_id,
+    member_type,
+    *,
+    phone="",
+    customer_name="",
+    active_only=True,
+    exclude_member_id=0,
+):
+    safe_warehouse_id = _to_int(warehouse_id, 0)
+    if safe_warehouse_id <= 0:
+        return None
+
+    normalized_phone = normalize_customer_phone(phone)
+    normalized_name = normalize_customer_identity_name(customer_name)
+    if not normalized_phone and not normalized_name:
+        return None
+
+    query = """
+        SELECT
+            m.*,
+            c.customer_name,
+            c.phone
+        FROM crm_memberships m
+        JOIN crm_customers c ON c.id = m.customer_id
+        WHERE m.warehouse_id=?
+          AND m.member_type=?
+          AND m.id<>?
+    """
+    params = [safe_warehouse_id, normalize_member_type(member_type), _to_int(exclude_member_id, 0)]
+    if active_only:
+        query += " AND m.status='active'"
+    query += " ORDER BY m.id ASC"
+    rows = db.execute(query, params).fetchall()
+
+    for row in rows:
+        row_dict = dict(row)
+        row_phone = normalize_customer_phone(row_dict.get("phone"))
+        row_name = normalize_customer_identity_name(row_dict.get("customer_name"))
+        if normalized_phone and row_phone == normalized_phone:
+            return row_dict
+        if not normalized_phone and normalized_name and row_name == normalized_name:
+            return row_dict
+    return None
+
+
+def merge_member_identity_records(db, canonical_member_id, duplicate_member_id):
+    safe_canonical_id = _to_int(canonical_member_id, 0)
+    safe_duplicate_id = _to_int(duplicate_member_id, 0)
+    if safe_canonical_id <= 0 or safe_duplicate_id <= 0 or safe_canonical_id == safe_duplicate_id:
+        return safe_canonical_id or safe_duplicate_id or 0
+
+    canonical = db.execute(
+        """
+        SELECT id, member_type, points, opening_stringing_visits, opening_reward_redeemed, reward_unit_amount
+        FROM crm_memberships
+        WHERE id=?
+        """,
+        (safe_canonical_id,),
+    ).fetchone()
+    duplicate = db.execute(
+        """
+        SELECT id, member_type, points, opening_stringing_visits, opening_reward_redeemed, reward_unit_amount
+        FROM crm_memberships
+        WHERE id=?
+        """,
+        (safe_duplicate_id,),
+    ).fetchone()
+    if not canonical or not duplicate:
+        return safe_canonical_id or safe_duplicate_id or 0
+    if normalize_member_type(canonical["member_type"]) != normalize_member_type(duplicate["member_type"]):
+        return safe_canonical_id
+
+    db.execute(
+        """
+        UPDATE crm_memberships
+        SET
+            points=COALESCE(points, 0) + ?,
+            opening_stringing_visits=COALESCE(opening_stringing_visits, 0) + ?,
+            opening_reward_redeemed=COALESCE(opening_reward_redeemed, 0) + ?,
+            reward_unit_amount=CASE
+                WHEN COALESCE(reward_unit_amount, 0) <= 0 THEN ?
+                ELSE reward_unit_amount
+            END,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            _to_int(duplicate["points"], 0),
+            _to_int(duplicate["opening_stringing_visits"], 0),
+            _to_int(duplicate["opening_reward_redeemed"], 0),
+            _to_float(duplicate["reward_unit_amount"], DEFAULT_STRINGING_REWARD_AMOUNT),
+            safe_canonical_id,
+        ),
+    )
+    db.execute(
+        "UPDATE crm_purchase_records SET member_id=? WHERE member_id=?",
+        (safe_canonical_id, safe_duplicate_id),
+    )
+    db.execute(
+        "UPDATE crm_member_records SET member_id=? WHERE member_id=?",
+        (safe_canonical_id, safe_duplicate_id),
+    )
+    db.execute(
+        "DELETE FROM crm_memberships WHERE id=?",
+        (safe_duplicate_id,),
+    )
+    return safe_canonical_id
+
+
+def reconcile_member_identity_duplicates(db, *, warehouse_id=None, member_type=None):
+    query = """
+        SELECT
+            m.id,
+            m.warehouse_id,
+            m.member_type,
+            c.customer_name,
+            c.phone
+        FROM crm_memberships m
+        JOIN crm_customers c ON c.id = m.customer_id
+        WHERE m.status='active'
+    """
+    params = []
+    if warehouse_id not in (None, "", 0, "0"):
+        query += " AND m.warehouse_id=?"
+        params.append(_to_int(warehouse_id, 0))
+    if member_type:
+        query += " AND m.member_type=?"
+        params.append(normalize_member_type(member_type))
+    query += " ORDER BY m.warehouse_id ASC, m.member_type ASC, m.id ASC"
+
+    canonical_by_key = {}
+    for row in db.execute(query, params).fetchall():
+        row_dict = dict(row)
+        normalized_phone = normalize_customer_phone(row_dict.get("phone"))
+        normalized_name = normalize_customer_identity_name(row_dict.get("customer_name"))
+        identity_key = normalized_phone or (f"name:{normalized_name}" if normalized_name else "")
+        if not identity_key:
+            continue
+        dedupe_key = (
+            _to_int(row_dict.get("warehouse_id"), 0),
+            normalize_member_type(row_dict.get("member_type")),
+            identity_key,
+        )
+        canonical_member_id = canonical_by_key.get(dedupe_key)
+        if not canonical_member_id:
+            canonical_by_key[dedupe_key] = _to_int(row_dict.get("id"), 0)
+            continue
+        merged_id = merge_member_identity_records(db, canonical_member_id, row_dict.get("id"))
+        canonical_by_key[dedupe_key] = merged_id or canonical_member_id
+
+
 def normalize_member_type(value):
     member_type = (value or "").strip().lower()
     return member_type if member_type in MEMBER_TYPES else "purchase"
