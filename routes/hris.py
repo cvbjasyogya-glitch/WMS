@@ -1401,6 +1401,11 @@ def _format_duration_minutes_label(total_minutes, zero_label="-"):
     return _format_break_duration_label(safe_minutes * 60, has_break_activity=True)
 
 
+def _employee_allows_automatic_overtime(employee_name):
+    safe_name = " ".join(str(employee_name or "").strip().lower().split())
+    return bool(safe_name) and "nopal" in safe_name
+
+
 def _summarize_overtime_activity(check_in_time, check_out_time, shift_label, minimum_seconds=3600):
     check_in_minutes = _parse_time_of_day_minutes(check_in_time)
     shift_start_minutes = _extract_shift_start_minutes(shift_label)
@@ -2281,28 +2286,35 @@ def _get_overtime_usage_by_id(db, usage_id):
 
 
 def _build_employee_overtime_balance(db, employee_id):
-    attendance_columns = _get_table_columns(db, "attendance_records")
-    if not {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
+    employee = db.execute(
+        "SELECT full_name FROM employees WHERE id=?",
+        (employee_id,),
+    ).fetchone()
+    if not _employee_allows_automatic_overtime(employee["full_name"] if employee else ""):
         attendance_rows = []
     else:
-        attendance_select = [
-            "attendance_date",
-            "check_in",
-            "check_out",
-            ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
-        ]
-        attendance_query = f"""
-            SELECT {", ".join(attendance_select)}
-            FROM attendance_records
-            WHERE employee_id=?
-              AND (COALESCE(check_in, '') <> '' OR COALESCE(check_out, '') <> '')
-        """
-        if "shift_label" in attendance_columns:
-            attendance_query += " AND COALESCE(shift_label, '') <> ''"
+        attendance_columns = _get_table_columns(db, "attendance_records")
+        if not {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
+            attendance_rows = []
         else:
-            attendance_query += " AND 1=0"
-        attendance_query += " ORDER BY attendance_date ASC, id ASC"
-        attendance_rows = db.execute(attendance_query, (employee_id,)).fetchall()
+            attendance_select = [
+                "attendance_date",
+                "check_in",
+                "check_out",
+                ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
+            ]
+            attendance_query = f"""
+                SELECT {", ".join(attendance_select)}
+                FROM attendance_records
+                WHERE employee_id=?
+                  AND (COALESCE(check_in, '') <> '' OR COALESCE(check_out, '') <> '')
+            """
+            if "shift_label" in attendance_columns:
+                attendance_query += " AND COALESCE(shift_label, '') <> ''"
+            else:
+                attendance_query += " AND 1=0"
+            attendance_query += " ORDER BY attendance_date ASC, id ASC"
+            attendance_rows = db.execute(attendance_query, (employee_id,)).fetchall()
     adjustment_rows = _fetch_overtime_balance_adjustment_records(db, employee_id=employee_id)
     usage_rows = _fetch_overtime_usage_records(db, employee_id=employee_id)
 
@@ -2381,6 +2393,8 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
             for row in db.execute(attendance_query, attendance_params).fetchall():
                 recap_row = employee_map.get(row["employee_id"])
                 if recap_row is None:
+                    continue
+                if not _employee_allows_automatic_overtime(recap_row.get("full_name")):
                     continue
 
                 overtime_summary = _summarize_overtime_activity(
@@ -5323,9 +5337,9 @@ def _build_biometric_recap_rows(db, biometric_logs):
             or (check_out_log["punch_time"][11:16] if check_out_log else "")
         )
         overtime_summary = _summarize_overtime_activity(
-            attendance_check_in_value,
-            attendance_check_out_value,
-            current_shift_label,
+            attendance_check_in_value if _employee_allows_automatic_overtime(latest_log["full_name"]) else "",
+            attendance_check_out_value if _employee_allows_automatic_overtime(latest_log["full_name"]) else "",
+            current_shift_label if _employee_allows_automatic_overtime(latest_log["full_name"]) else "",
         )
         can_edit_check_in_time = bool(check_in_log)
         can_edit_check_out_time = bool(check_out_log)
