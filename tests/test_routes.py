@@ -10568,12 +10568,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         date_value = "2026-09-05"
         exact_employee_id = self.create_employee_record(
             employee_code="EMP-BIO-OT-OK",
-            full_name="Nopal Biometric Overtime Exact",
+            full_name="Naufal Biometric Overtime Exact",
             warehouse_id=1,
         )
         short_employee_id = self.create_employee_record(
             employee_code="EMP-BIO-OT-SHORT",
-            full_name="Nopal Biometric Overtime Short",
+            full_name="Naufal Biometric Overtime Short",
             warehouse_id=1,
         )
 
@@ -10663,8 +10663,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Nopal Biometric Overtime Exact", html)
-        self.assertIn("Nopal Biometric Overtime Short", html)
+        self.assertIn("Naufal Biometric Overtime Exact", html)
+        self.assertIn("Naufal Biometric Overtime Short", html)
         self.assertIn("1j 00m", html)
         self.assertNotIn("45 mnt", html)
 
@@ -10673,12 +10673,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         date_value = "2026-09-05"
         exact_employee_id = self.create_employee_record(
             employee_code="EMP-BIO-OT-EARLY-OK",
-            full_name="Nopal Biometric Overtime Early Exact",
+            full_name="Naufal Biometric Overtime Early Exact",
             warehouse_id=1,
         )
         short_employee_id = self.create_employee_record(
             employee_code="EMP-BIO-OT-EARLY-SHORT",
-            full_name="Nopal Biometric Overtime Early Short",
+            full_name="Naufal Biometric Overtime Early Short",
             warehouse_id=1,
         )
 
@@ -10714,8 +10714,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Nopal Biometric Overtime Early Exact", html)
-        self.assertNotIn("Nopal Biometric Overtime Early Short", html)
+        self.assertIn("Naufal Biometric Overtime Early Exact", html)
+        self.assertNotIn("Naufal Biometric Overtime Early Short", html)
         self.assertIn("1j 00m", html)
         self.assertNotIn("45 mnt", html)
 
@@ -10759,18 +10759,103 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Staff Reguler Overtime", html)
         self.assertNotIn("2j 00m", html)
 
+    def test_biometric_recap_counts_ajeng_as_allowed_automatic_overtime(self):
+        self.login_hr_user("hr_bio_overtime_ajeng", "pass1234")
+        date_value = "2026-09-05"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-AJENG",
+            full_name="Ajeng Fatimah A",
+            warehouse_id=1,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, check_out,
+                    status, shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    date_value,
+                    "07:00",
+                    "16:00",
+                    "present",
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ajeng Fatimah A", html)
+        self.assertIn("1j 00m", html)
+
+    def test_biometric_recap_uses_configured_automatic_overtime_names(self):
+        self.login_hr_user("hr_bio_overtime_config", "pass1234")
+        date_value = "2026-09-05"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-CONFIG",
+            full_name="Custom Overtime Staff",
+            warehouse_id=1,
+        )
+
+        original_names = list(self.app.config.get("AUTOMATIC_OVERTIME_EMPLOYEE_NAMES", []))
+        self.app.config["AUTOMATIC_OVERTIME_EMPLOYEE_NAMES"] = ["Custom Overtime"]
+        try:
+            with self.app.app_context():
+                db = get_db()
+                db.execute(
+                    """
+                    INSERT INTO attendance_records(
+                        employee_id, warehouse_id, attendance_date, check_in, check_out,
+                        status, shift_code, shift_label, note, updated_at
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        1,
+                        date_value,
+                        "07:00",
+                        "16:00",
+                        "present",
+                        "pagi",
+                        "Shift Pagi | 08.00 - 16.00",
+                        "Synced from geotag",
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+                db.commit()
+
+            response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+            self.assertEqual(response.status_code, 200)
+            html = response.get_data(as_text=True)
+            self.assertIn("Custom Overtime Staff", html)
+            self.assertIn("1j 00m", html)
+        finally:
+            self.app.config["AUTOMATIC_OVERTIME_EMPLOYEE_NAMES"] = original_names
+
     def test_biometric_page_shows_staff_overtime_balance_recap_and_usage_history(self):
         self.login_hr_user("hr_overtime_recap", "pass1234")
         hr_user_id = self.get_user_id("hr_overtime_recap")
         date_value = "2026-09-06"
         first_employee_id = self.create_employee_record(
             employee_code="EMP-OT-BAL-1",
-            full_name="Nopal Saldo Lembur Satu",
+            full_name="Naufal Saldo Lembur Satu",
             warehouse_id=1,
         )
         second_employee_id = self.create_employee_record(
             employee_code="EMP-OT-BAL-2",
-            full_name="Nopal Saldo Lembur Dua",
+            full_name="Naufal Saldo Lembur Dua",
             warehouse_id=1,
         )
 
@@ -10826,8 +10911,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Rekap Saldo Lembur Staff", html)
         self.assertIn("Histori Pemakaian Lembur", html)
-        self.assertIn("Nopal Saldo Lembur Satu", html)
-        self.assertIn("Nopal Saldo Lembur Dua", html)
+        self.assertIn("Naufal Saldo Lembur Satu", html)
+        self.assertIn("Naufal Saldo Lembur Dua", html)
         self.assertIn("1j 30m", html)
         self.assertIn("Dipakai pulang lebih awal", html)
 
@@ -10836,7 +10921,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         date_value = "2026-09-06"
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-COMBO-1",
-            full_name="Nopal Saldo Lembur Gabungan",
+            full_name="Naufal Saldo Lembur Gabungan",
             warehouse_id=1,
         )
 
@@ -10868,7 +10953,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Nopal Saldo Lembur Gabungan", html)
+        self.assertIn("Naufal Saldo Lembur Gabungan", html)
         self.assertIn("2j 00m", html)
 
     def test_hr_can_use_overtime_balance_and_reject_request_above_available_minutes(self):
@@ -10876,7 +10961,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         date_value = "2026-09-07"
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-USE",
-            full_name="Nopal Staff Pakai Lembur",
+            full_name="Naufal Staff Pakai Lembur",
             warehouse_id=1,
         )
 
@@ -10960,7 +11045,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         date_value = "2026-09-07"
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-PORTAL",
-            full_name="Nopal Portal Lembur Staff",
+            full_name="Naufal Portal Lembur Staff",
             warehouse_id=1,
         )
         self.create_user("portal_overtime_staff", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)

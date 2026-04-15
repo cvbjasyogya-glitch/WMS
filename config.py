@@ -356,6 +356,10 @@ class Config:
         "RESTORE_BOOTSTRAP_LEADERS",
         "leader",
     )
+    AUTOMATIC_OVERTIME_EMPLOYEE_NAMES = _csv_env(
+        "AUTOMATIC_OVERTIME_EMPLOYEE_NAMES",
+        "Naufal,Ajeng",
+    )
 
     # ==========================
     # DATABASE (SINGLE SOURCE)

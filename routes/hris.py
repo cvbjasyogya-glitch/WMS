@@ -1403,7 +1403,15 @@ def _format_duration_minutes_label(total_minutes, zero_label="-"):
 
 def _employee_allows_automatic_overtime(employee_name):
     safe_name = " ".join(str(employee_name or "").strip().lower().split())
-    return bool(safe_name) and "nopal" in safe_name
+    if not safe_name:
+        return False
+    configured_names = current_app.config.get("AUTOMATIC_OVERTIME_EMPLOYEE_NAMES", [])
+    normalized_names = [
+        " ".join(str(item or "").strip().lower().split())
+        for item in configured_names
+        if str(item or "").strip()
+    ]
+    return any(allowed_name in safe_name for allowed_name in normalized_names)
 
 
 def _summarize_overtime_activity(check_in_time, check_out_time, shift_label, minimum_seconds=3600):
