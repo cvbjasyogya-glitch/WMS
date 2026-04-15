@@ -7,12 +7,15 @@ from flask import request
 
 from database import get_db
 from routes.hris import (
-    LEAVE_TYPE_LABELS,
+    _decorate_leave_record,
     _build_leave_summary,
     _calculate_leave_days,
+    _compose_leave_reason_text,
     _current_timestamp,
     _get_self_service_employee,
-    _normalize_leave_type,
+    _normalize_leave_entry_type,
+    _normalize_special_leave_reason,
+    _strip_special_leave_reason_prefix,
 )
 
 
@@ -122,8 +125,7 @@ def _fetch_leave_portal_history(db, linked_employee, selected_month):
 
     history = []
     for row in history_rows:
-        record = dict(row)
-        record["leave_type_label"] = LEAVE_TYPE_LABELS.get(record.get("leave_type"), "Libur")
+        record = _decorate_leave_record(row)
         record["status_label"] = _format_leave_portal_status_label(record.get("status"))
         record["status_badge_class"] = _build_leave_status_badge_class(record.get("status"))
         record["range_label"] = _build_leave_range_label(record.get("start_date"), record.get("end_date"))
@@ -160,10 +162,22 @@ def submit():
         flash("Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin.", "error")
         return redirect("/libur/")
 
-    leave_type = _normalize_leave_type(request.form.get("leave_type"))
+    raw_leave_type = request.form.get("leave_type")
+    leave_type = _normalize_leave_entry_type(raw_leave_type)
+    special_leave_reason = ""
+    if leave_type == "special":
+        legacy_reason_map = {
+            "annual": "annual",
+            "sick": "sick",
+            "permit": "permit",
+        }
+        special_leave_reason = _normalize_special_leave_reason(
+            request.form.get("special_leave_reason")
+            or legacy_reason_map.get((raw_leave_type or "").strip().lower())
+        )
     start_date = (request.form.get("start_date") or "").strip()
     end_date = (request.form.get("end_date") or "").strip()
-    reason = (request.form.get("reason") or "").strip()
+    reason = _compose_leave_reason_text(leave_type, special_leave_reason, request.form.get("reason"))
     note = (request.form.get("note") or "").strip()
 
     total_days = _calculate_leave_days(start_date, end_date)
@@ -171,7 +185,7 @@ def submit():
         flash("Rentang tanggal libur tidak valid.", "error")
         return redirect("/libur/")
 
-    if not reason:
+    if not _strip_special_leave_reason_prefix(reason):
         flash("Alasan libur wajib diisi.", "error")
         return redirect("/libur/")
 

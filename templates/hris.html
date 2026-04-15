@@ -134,9 +134,9 @@
                         <h3>{{ leave_alert.employee_label }}</h3>
                         <p>{{ leave_alert.warehouse_name or "Semua Gudang" }} | {{ leave_alert.start_date }} s/d {{ leave_alert.end_date }} | {{ leave_alert.total_days }} hari</p>
                     </div>
-                    <span class="badge orange">{{ leave_alert.leave_type_label }}</span>
+                    <span class="badge orange">{{ leave_alert.leave_type_label }}{% if leave_alert.leave_type_detail_label %} • {{ leave_alert.leave_type_detail_label }}{% endif %}</span>
                 </div>
-                <p class="hris-dashboard-leave-body">{{ leave_alert.reason }}</p>
+                <p class="hris-dashboard-leave-body">{{ leave_alert.reason_display }}</p>
                 {% if leave_alert.note %}
                 <div class="hris-dashboard-leave-meta">Catatan: {{ leave_alert.note }}</div>
                 {% endif %}
@@ -933,11 +933,8 @@
     {% endif %}
     <select name="leave_type">
         <option value="all" {% if approval_filters.leave_type == 'all' %}selected{% endif %}>Semua Tipe</option>
-        <option value="annual" {% if approval_filters.leave_type == 'annual' %}selected{% endif %}>Annual Leave</option>
-        <option value="sick" {% if approval_filters.leave_type == 'sick' %}selected{% endif %}>Sick Leave</option>
-        <option value="permit" {% if approval_filters.leave_type == 'permit' %}selected{% endif %}>Permit</option>
-        <option value="unpaid" {% if approval_filters.leave_type == 'unpaid' %}selected{% endif %}>Unpaid Leave</option>
-        <option value="special" {% if approval_filters.leave_type == 'special' %}selected{% endif %}>Special Leave</option>
+        <option value="special" {% if approval_filters.leave_type == 'special' %}selected{% endif %}>Cuti Khusus</option>
+        <option value="unpaid" {% if approval_filters.leave_type == 'unpaid' %}selected{% endif %}>Cuti Tanpa Bayar</option>
     </select>
     <input type="date" name="date_from" value="{{ approval_filters.date_from }}">
     <input type="date" name="date_to" value="{{ approval_filters.date_to }}">
@@ -991,7 +988,7 @@
                 <div class="meta-grid" style="margin-bottom:12px;">
                     <div class="meta-card">
                         <span>Tipe</span>
-                        <strong>{{ leave.leave_type }}</strong>
+                        <strong>{{ leave.leave_type_label }}{% if leave.leave_type_detail_label %} • {{ leave.leave_type_detail_label }}{% endif %}</strong>
                     </div>
                     <div class="meta-card">
                         <span>Rentang</span>
@@ -1008,7 +1005,7 @@
                 </div>
                 <div class="box leave-request-reason-box" style="margin-bottom:12px;">
                     <strong>Alasan</strong>
-                    <p style="margin:8px 0 0;">{{ leave.reason or '-' }}</p>
+                    <p style="margin:8px 0 0;">{{ leave.reason_display }}</p>
                     {% if leave.note %}
                     <p class="helper-text" style="margin-top:10px;">Catatan request: {{ leave.note }}</p>
                     {% endif %}
@@ -1016,20 +1013,22 @@
                 <div class="split-actions">
                     <form method="POST" action="/hris/leave/update/{{ leave.id }}" data-approval-form data-approval-decision="approved" data-approval-confirm="Setujui leave request ini?">
                         <input type="hidden" name="employee_id" value="{{ leave.employee_id }}">
-                        <input type="hidden" name="leave_type" value="{{ leave.leave_type }}">
+                        <input type="hidden" name="leave_type" value="{{ 'unpaid' if leave.leave_type == 'unpaid' else 'special' }}">
+                        <input type="hidden" name="special_leave_reason" value="{{ leave.special_leave_reason_code or 'other' }}">
                         <input type="hidden" name="start_date" value="{{ leave.start_date }}">
                         <input type="hidden" name="end_date" value="{{ leave.end_date }}">
-                        <input type="hidden" name="reason" value="{{ leave.reason or '' }}">
+                        <input type="hidden" name="reason" value="{{ leave.reason_display if leave.reason_display != '-' else '' }}">
                         <input type="hidden" name="note" value="{{ leave.note or '' }}">
                         <input type="hidden" name="status" value="approved">
                         <button type="submit">Setujui</button>
                     </form>
                     <form method="POST" action="/hris/leave/update/{{ leave.id }}" class="table-action-row" style="flex:1 1 340px;">
                         <input type="hidden" name="employee_id" value="{{ leave.employee_id }}">
-                        <input type="hidden" name="leave_type" value="{{ leave.leave_type }}">
+                        <input type="hidden" name="leave_type" value="{{ 'unpaid' if leave.leave_type == 'unpaid' else 'special' }}">
+                        <input type="hidden" name="special_leave_reason" value="{{ leave.special_leave_reason_code or 'other' }}">
                         <input type="hidden" name="start_date" value="{{ leave.start_date }}">
                         <input type="hidden" name="end_date" value="{{ leave.end_date }}">
-                        <input type="hidden" name="reason" value="{{ leave.reason or '' }}">
+                        <input type="hidden" name="reason" value="{{ leave.reason_display if leave.reason_display != '-' else '' }}">
                         <input type="hidden" name="status" value="rejected">
                         <input type="text" name="note" value="{{ leave.note or '' }}" placeholder="Catatan HR saat menolak / revisi">
                         <button type="submit" class="danger-button" onclick="return confirm('Tolak leave request ini?')">Tolak</button>
@@ -1180,10 +1179,10 @@
                     <td class="mono">{{ leave.employee_code }}</td>
                     <td>
                         <strong>{{ leave.full_name }}</strong>
-                        <div class="helper-text">{{ leave.reason or '-' }}</div>
+                        <div class="helper-text">{{ leave.reason_display }}</div>
                     </td>
                     <td>{{ leave.warehouse_name or '-' }}</td>
-                    <td>{{ leave.leave_type }}</td>
+                    <td>{{ leave.leave_type_label }}{% if leave.leave_type_detail_label %} • {{ leave.leave_type_detail_label }}{% endif %}</td>
                     <td>{{ leave.start_date }} s/d {{ leave.end_date }}</td>
                     <td>{{ leave.total_days }}</td>
                     <td><span class="badge {{ 'green' if leave.status == 'approved' else 'red' if leave.status == 'rejected' else 'orange' }}">{{ leave.status }}</span></td>
@@ -1308,11 +1307,8 @@
     {% endif %}
     <select name="leave_type">
         <option value="all" {% if leave_filters.leave_type == 'all' %}selected{% endif %}>Semua Tipe</option>
-        <option value="annual" {% if leave_filters.leave_type == 'annual' %}selected{% endif %}>Annual Leave</option>
-        <option value="sick" {% if leave_filters.leave_type == 'sick' %}selected{% endif %}>Sick Leave</option>
-        <option value="permit" {% if leave_filters.leave_type == 'permit' %}selected{% endif %}>Permit</option>
-        <option value="unpaid" {% if leave_filters.leave_type == 'unpaid' %}selected{% endif %}>Unpaid Leave</option>
-        <option value="special" {% if leave_filters.leave_type == 'special' %}selected{% endif %}>Special Leave</option>
+        <option value="special" {% if leave_filters.leave_type == 'special' %}selected{% endif %}>Cuti Khusus</option>
+        <option value="unpaid" {% if leave_filters.leave_type == 'unpaid' %}selected{% endif %}>Cuti Tanpa Bayar</option>
     </select>
     <select name="status">
         <option value="all" {% if leave_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
@@ -1359,11 +1355,18 @@
             <div>
                 <label>Tipe Leave</label>
                 <select name="leave_type">
-                    <option value="annual">Annual Leave</option>
-                    <option value="sick">Sick Leave</option>
-                    <option value="permit">Permit</option>
-                    <option value="unpaid">Unpaid Leave</option>
-                    <option value="special">Special Leave</option>
+                    <option value="special">Cuti Khusus</option>
+                    <option value="unpaid">Cuti Tanpa Bayar</option>
+                </select>
+            </div>
+            <div>
+                <label>Kategori Cuti Khusus</label>
+                <select name="special_leave_reason">
+                    <option value="annual">Cuti Tahunan</option>
+                    <option value="sick">Sakit</option>
+                    <option value="permit">Izin / Urgent</option>
+                    <option value="family">Keperluan Keluarga</option>
+                    <option value="other">Lainnya</option>
                 </select>
             </div>
             <div>
@@ -1439,11 +1442,18 @@
                         <div>
                             <label>Tipe Leave</label>
                             <select name="leave_type">
-                                <option value="annual" {% if leave.leave_type == 'annual' %}selected{% endif %}>Annual Leave</option>
-                                <option value="sick" {% if leave.leave_type == 'sick' %}selected{% endif %}>Sick Leave</option>
-                                <option value="permit" {% if leave.leave_type == 'permit' %}selected{% endif %}>Permit</option>
-                                <option value="unpaid" {% if leave.leave_type == 'unpaid' %}selected{% endif %}>Unpaid Leave</option>
-                                <option value="special" {% if leave.leave_type == 'special' %}selected{% endif %}>Special Leave</option>
+                                <option value="special" {% if leave.leave_type != 'unpaid' %}selected{% endif %}>Cuti Khusus</option>
+                                <option value="unpaid" {% if leave.leave_type == 'unpaid' %}selected{% endif %}>Cuti Tanpa Bayar</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Kategori Cuti Khusus</label>
+                            <select name="special_leave_reason">
+                                <option value="annual" {% if leave.special_leave_reason_code == 'annual' %}selected{% endif %}>Cuti Tahunan</option>
+                                <option value="sick" {% if leave.special_leave_reason_code == 'sick' %}selected{% endif %}>Sakit</option>
+                                <option value="permit" {% if leave.special_leave_reason_code == 'permit' %}selected{% endif %}>Izin / Urgent</option>
+                                <option value="family" {% if leave.special_leave_reason_code == 'family' %}selected{% endif %}>Keperluan Keluarga</option>
+                                <option value="other" {% if leave.special_leave_reason_code == 'other' or not leave.special_leave_reason_code %}selected{% endif %}>Lainnya</option>
                             </select>
                         </div>
                         <div>
@@ -1469,7 +1479,7 @@
                         </div>
                         <div style="grid-column: 1 / -1;">
                             <label>Alasan</label>
-                            <textarea name="reason" rows="2" required>{{ leave.reason or '' }}</textarea>
+                            <textarea name="reason" rows="2" required>{{ leave.reason_display if leave.reason_display != '-' else '' }}</textarea>
                         </div>
                         <div style="grid-column: 1 / -1;">
                             <label>Catatan Tambahan</label>
@@ -1507,12 +1517,12 @@
                     <td class="mono">{{ leave.employee_code }}</td>
                     <td>{{ leave.full_name }}</td>
                     <td>{{ leave.warehouse_name or '-' }}</td>
-                    <td>{{ leave.leave_type }}</td>
+                    <td>{{ leave.leave_type_label }}{% if leave.leave_type_detail_label %} • {{ leave.leave_type_detail_label }}{% endif %}</td>
                     <td>{{ leave.start_date }}</td>
                     <td>{{ leave.end_date }}</td>
                     <td>{{ leave.total_days }}</td>
                     <td><span class="badge {{ 'green' if leave.status == 'approved' else 'orange' if leave.status == 'pending' else 'red' }}">{{ leave.status }}</span></td>
-                    <td>{{ leave.reason or '-' }}</td>
+                    <td>{{ leave.reason_display }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

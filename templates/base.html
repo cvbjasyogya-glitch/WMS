@@ -493,6 +493,12 @@
     </div>
 </main>
 
+{% if app_version %}
+<div class="app-version-badge" data-preserve-gudang-label aria-label="Versi aplikasi">
+    v{{ app_version }}
+</div>
+{% endif %}
+
 </div>
 
 {% if has_app_shell %}

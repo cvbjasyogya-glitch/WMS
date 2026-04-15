@@ -6074,6 +6074,44 @@ body .pos-sales-context-form select {
     color: var(--text-strong);
 }
 
+html[data-theme="light"] body .pos-sales-context-menu {
+    border-color: rgba(148, 163, 184, 0.26);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(242, 247, 252, 0.975));
+    box-shadow:
+        0 26px 52px rgba(15, 23, 42, 0.18),
+        0 8px 18px rgba(59, 130, 246, 0.08);
+}
+
+html[data-theme="light"] body .pos-sales-context-header {
+    color: #12253c;
+}
+
+html[data-theme="light"] body .pos-sales-context-meta {
+    color: #5f738b;
+}
+
+html[data-theme="light"] body .pos-sales-context-divider {
+    background: rgba(148, 163, 184, 0.2);
+}
+
+html[data-theme="light"] body .pos-sales-context-link,
+html[data-theme="light"] body .pos-sales-context-button {
+    color: #12253c;
+}
+
+html[data-theme="light"] body .pos-sales-context-link:hover,
+html[data-theme="light"] body .pos-sales-context-button:hover {
+    background: rgba(33, 137, 255, 0.12);
+    color: #0b1d33;
+}
+
+html[data-theme="light"] body .pos-sales-context-form select {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(255, 255, 255, 0.96);
+    color: #12253c;
+}
+
 body .stock-edit-modal-open {
     overflow: hidden;
 }
@@ -22838,6 +22876,51 @@ html[data-theme="light"] body .schedule-member-location {
     background: rgba(93, 183, 255, 0.12);
     border-color: rgba(93, 183, 255, 0.16);
     color: #0c4f74;
+}
+
+body .app-version-badge {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 120;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(121, 154, 197, 0.2);
+    background: rgba(7, 17, 31, 0.82);
+    color: rgba(225, 236, 250, 0.84);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    box-shadow: 0 14px 28px rgba(3, 10, 19, 0.24);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    pointer-events: none;
+}
+
+body.has-floating-toolbelt .app-version-badge {
+    bottom: 96px;
+}
+
+html[data-theme="light"] body .app-version-badge {
+    background: rgba(244, 249, 255, 0.92);
+    color: rgba(18, 44, 74, 0.82);
+    border-color: rgba(116, 138, 165, 0.18);
+    box-shadow: 0 14px 28px rgba(41, 73, 112, 0.12);
+}
+
+@media (max-width: 768px) {
+    body .app-version-badge {
+        right: 12px;
+        bottom: 14px;
+        padding: 7px 10px;
+        font-size: 0.68rem;
+        letter-spacing: 0.12em;
+    }
+
+    body.has-floating-toolbelt .app-version-badge {
+        bottom: 86px;
+    }
 }
 
 

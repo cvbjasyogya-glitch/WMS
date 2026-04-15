@@ -75,12 +75,30 @@ ATTENDANCE_STATUSES = {"present", "late", "leave", "absent", "half_day"}
 LEAVE_TYPES = {"annual", "sick", "permit", "unpaid", "special"}
 LEAVE_STATUSES = {"pending", "approved", "rejected", "cancelled"}
 LEAVE_TYPE_LABELS = {
-    "annual": "Cuti",
+    "annual": "Cuti Tahunan",
     "sick": "Sakit",
     "permit": "Izin",
-    "unpaid": "Tanpa Bayar",
-    "special": "Special",
+    "unpaid": "Cuti Tanpa Bayar",
+    "special": "Cuti Khusus",
 }
+LEAVE_ENTRY_TYPES = ("special", "unpaid")
+LEAVE_ENTRY_TYPE_LABELS = {
+    "special": "Cuti Khusus",
+    "unpaid": "Cuti Tanpa Bayar",
+}
+SPECIAL_LEAVE_REASON_OPTIONS = {
+    "annual": "Cuti Tahunan",
+    "sick": "Sakit",
+    "permit": "Izin / Urgent",
+    "family": "Keperluan Keluarga",
+    "other": "Lainnya",
+}
+LEGACY_LEAVE_TYPE_TO_SPECIAL_REASON = {
+    "annual": "annual",
+    "sick": "sick",
+    "permit": "permit",
+}
+SPECIAL_LEAVE_REASON_PREFIX = "[special_reason:"
 PAYROLL_STATUSES = {"draft", "approved", "paid", "cancelled"}
 RECRUITMENT_STAGES = {"applied", "screening", "interview", "offer", "hired"}
 RECRUITMENT_STATUSES = {"active", "on_hold", "rejected", "withdrawn", "closed"}
@@ -353,6 +371,95 @@ def _normalize_attendance_status(value):
 def _normalize_leave_type(value):
     leave_type = (value or "").strip().lower()
     return leave_type if leave_type in LEAVE_TYPES else "annual"
+
+
+def _normalize_leave_entry_type(value):
+    leave_type = (value or "").strip().lower()
+    return "unpaid" if leave_type == "unpaid" else "special"
+
+
+def _normalize_special_leave_reason(value):
+    reason_code = (value or "").strip().lower()
+    return reason_code if reason_code in SPECIAL_LEAVE_REASON_OPTIONS else "other"
+
+
+def _strip_special_leave_reason_prefix(value):
+    text = str(value or "").strip()
+    if not text.startswith(SPECIAL_LEAVE_REASON_PREFIX):
+        return text
+    closing = text.find("]")
+    if closing == -1:
+        return text
+    return text[closing + 1 :].strip()
+
+
+def _extract_special_leave_reason_code(leave_type, reason_text):
+    normalized_leave_type = (leave_type or "").strip().lower()
+    if normalized_leave_type in LEGACY_LEAVE_TYPE_TO_SPECIAL_REASON:
+        return LEGACY_LEAVE_TYPE_TO_SPECIAL_REASON[normalized_leave_type]
+    if normalized_leave_type != "special":
+        return ""
+
+    text = str(reason_text or "").strip()
+    if text.startswith(SPECIAL_LEAVE_REASON_PREFIX):
+        closing = text.find("]")
+        if closing != -1:
+            return _normalize_special_leave_reason(
+                text[len(SPECIAL_LEAVE_REASON_PREFIX) : closing]
+            )
+    return "other" if text else ""
+
+
+def _compose_leave_reason_text(leave_type, special_leave_reason, reason_text):
+    clean_reason = _strip_special_leave_reason_prefix(reason_text)
+    if leave_type != "special":
+        return clean_reason
+    special_reason_code = _normalize_special_leave_reason(special_leave_reason)
+    if clean_reason:
+        return f"{SPECIAL_LEAVE_REASON_PREFIX}{special_reason_code}] {clean_reason}"
+    return f"{SPECIAL_LEAVE_REASON_PREFIX}{special_reason_code}]"
+
+
+def _build_leave_display_labels(leave_type, reason_text):
+    normalized_leave_type = (leave_type or "").strip().lower()
+    if normalized_leave_type == "unpaid":
+        return LEAVE_ENTRY_TYPE_LABELS["unpaid"], ""
+    if normalized_leave_type in LEGACY_LEAVE_TYPE_TO_SPECIAL_REASON or normalized_leave_type == "special":
+        reason_code = _extract_special_leave_reason_code(normalized_leave_type, reason_text)
+        return LEAVE_ENTRY_TYPE_LABELS["special"], SPECIAL_LEAVE_REASON_OPTIONS.get(reason_code, "")
+    return LEAVE_TYPE_LABELS.get(normalized_leave_type, "Libur"), ""
+
+
+def _decorate_leave_record(record):
+    record = dict(record)
+    leave_type_label, leave_type_detail_label = _build_leave_display_labels(
+        record.get("leave_type"),
+        record.get("reason"),
+    )
+    record["leave_type_label"] = leave_type_label
+    record["leave_type_detail_label"] = leave_type_detail_label
+    record["special_leave_reason_code"] = _extract_special_leave_reason_code(
+        record.get("leave_type"),
+        record.get("reason"),
+    )
+    record["special_leave_reason_label"] = SPECIAL_LEAVE_REASON_OPTIONS.get(
+        record["special_leave_reason_code"],
+        "",
+    )
+    record["reason_display"] = _strip_special_leave_reason_prefix(record.get("reason")) or "-"
+    return record
+
+
+def _resolve_leave_submission_payload(leave_type_value, special_leave_reason_value, reason_value):
+    original_leave_type = (leave_type_value or "").strip().lower()
+    leave_type = _normalize_leave_entry_type(original_leave_type)
+    special_leave_reason = ""
+    if leave_type == "special":
+        special_leave_reason = _normalize_special_leave_reason(
+            special_leave_reason_value or LEGACY_LEAVE_TYPE_TO_SPECIAL_REASON.get(original_leave_type)
+        )
+    reason = _compose_leave_reason_text(leave_type, special_leave_reason, reason_value)
+    return leave_type, special_leave_reason, reason
 
 
 def _normalize_leave_status(value):
@@ -695,7 +802,15 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
     ).fetchone()
     recipient_id = recipient["id"] if recipient else None
 
-    leave_type_label = LEAVE_TYPE_LABELS.get(record.get("leave_type"), "Libur")
+    leave_type_label, leave_type_detail_label = _build_leave_display_labels(
+        record.get("leave_type"),
+        record.get("reason"),
+    )
+    leave_type_summary_label = (
+        f"{leave_type_label} ({leave_type_detail_label})"
+        if leave_type_detail_label
+        else leave_type_label
+    )
     range_label = _build_leave_notification_range_label(record.get("start_date"), record.get("end_date"))
     total_days = record.get("total_days") or 0
     approver_label = (
@@ -707,7 +822,7 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
     status_title = "Disetujui" if current_status == "approved" else "Ditolak"
     event_type = f"leave.status_{'approved' if current_status == 'approved' else 'rejected'}"
     status_message = (
-        f"Pengajuan {leave_type_label.lower()} untuk {range_label} "
+        f"Pengajuan {leave_type_summary_label.lower()} untuk {range_label} "
         f"({total_days} hari) telah {status_label} oleh {approver_label}."
     )
     note_reason = str(record.get("note") or "").strip()
@@ -715,7 +830,7 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
     if recipient_id:
         notify_user(
             recipient_id,
-            f"Pengajuan {leave_type_label.lower()} {status_label}",
+            f"Pengajuan {leave_type_summary_label.lower()} {status_label}",
             status_message,
             category="leave",
             link_url="/libur/",
@@ -723,12 +838,12 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
             source_id=f"{record.get('id')}:{current_status}",
             dedupe_key=f"leave_request_status:{record.get('id')}:{current_status}",
             push_title=f"Libur {status_title}",
-            push_body=f"{leave_type_label} | {range_label}",
+            push_body=f"{leave_type_summary_label} | {range_label}",
         )
 
     leave_policy = get_event_notification_policy(event_type)
     notify_operational_event(
-        f"{leave_type_label} {status_title}: {record.get('employee_name') or 'Karyawan'}",
+        f"{leave_type_summary_label} {status_title}: {record.get('employee_name') or 'Karyawan'}",
         status_message,
         warehouse_id=record.get("warehouse_id"),
         include_actor=False,
@@ -741,7 +856,7 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
         source_type="leave_request_status",
         source_id=f"{record.get('id')}:{current_status}",
         dedupe_key=f"leave_request_status:ops:{record.get('id')}:{current_status}",
-        push_title=f"{leave_type_label} {status_title}",
+        push_title=f"{leave_type_summary_label} {status_title}",
         push_body=f"{record.get('employee_name') or 'Karyawan'} | {range_label}",
     )
 
@@ -751,7 +866,7 @@ def _notify_leave_request_status_change(db, leave_request, previous_status=None)
             "warehouse_id": record.get("warehouse_id"),
             "warehouse_name": record.get("warehouse_name") or "Gudang",
             "employee_name": record.get("employee_name") or "Karyawan",
-            "leave_type_label": leave_type_label,
+            "leave_type_label": leave_type_summary_label,
             "range_label": range_label,
             "approver_name": approver_label,
             "reason": note_reason,
@@ -2581,6 +2696,11 @@ def _build_leave_summary(leave_requests):
     }
 
 
+def _is_special_leave_bucket(leave_type):
+    normalized = (leave_type or "").strip().lower()
+    return normalized in {"special", "annual", "sick", "permit"}
+
+
 def _build_approval_summary(approval_requests):
     summary = _build_leave_summary(approval_requests)
     today_iso = date_cls.today().isoformat()
@@ -3924,9 +4044,8 @@ def _fetch_dashboard_leave_alerts(db, selected_warehouse):
     query += " ORDER BY COALESCE(l.updated_at, l.created_at) DESC, l.id DESC LIMIT ?"
     params.append(DASHBOARD_LEAVE_ALERT_LIMIT)
 
-    rows = [dict(row) for row in db.execute(query, params).fetchall()]
+    rows = [_decorate_leave_record(row) for row in db.execute(query, params).fetchall()]
     for row in rows:
-        row["leave_type_label"] = LEAVE_TYPE_LABELS.get(row["leave_type"], row["leave_type"])
         row["employee_label"] = row["full_name"] or row["employee_code"] or "Karyawan"
     return rows
 
@@ -3934,10 +4053,10 @@ def _fetch_dashboard_leave_alerts(db, selected_warehouse):
 def _build_dashboard_leave_alert_summary(rows):
     return {
         "total": len(rows),
-        "sick": sum(1 for row in rows if row["leave_type"] == "sick"),
-        "permit": sum(1 for row in rows if row["leave_type"] == "permit"),
-        "annual": sum(1 for row in rows if row["leave_type"] == "annual"),
-        "special": sum(1 for row in rows if row["leave_type"] == "special"),
+        "sick": sum(1 for row in rows if row.get("special_leave_reason_code") == "sick"),
+        "permit": sum(1 for row in rows if row.get("special_leave_reason_code") == "permit"),
+        "annual": sum(1 for row in rows if row.get("special_leave_reason_code") == "annual"),
+        "special": sum(1 for row in rows if _is_special_leave_bucket(row.get("leave_type"))),
     }
 
 
@@ -4608,7 +4727,10 @@ def _fetch_leave_requests(db):
         like = f"%{search}%"
         params.extend([like, like, like, like])
 
-    if leave_type in LEAVE_TYPES:
+    if leave_type == "special":
+        query += " AND l.leave_type IN (?,?,?,?)"
+        params.extend(["special", "annual", "sick", "permit"])
+    elif leave_type in LEAVE_TYPES:
         query += " AND l.leave_type=?"
         params.append(leave_type)
 
@@ -4638,7 +4760,7 @@ def _fetch_leave_requests(db):
 
     query += " ORDER BY l.start_date DESC, e.full_name COLLATE NOCASE ASC, l.id DESC"
 
-    leave_requests = [dict(row) for row in db.execute(query, params).fetchall()]
+    leave_requests = [_decorate_leave_record(row) for row in db.execute(query, params).fetchall()]
     return leave_requests, search, leave_type, status, selected_warehouse, date_from, date_to
 
 
@@ -6650,11 +6772,14 @@ def add_leave():
         return _portal_redirect_for_module("leave") or redirect("/hris/leave")
 
     db = get_db()
-    leave_type = _normalize_leave_type(request.form.get("leave_type"))
+    leave_type, _special_leave_reason, reason = _resolve_leave_submission_payload(
+        request.form.get("leave_type"),
+        request.form.get("special_leave_reason"),
+        request.form.get("reason"),
+    )
     start_date = (request.form.get("start_date") or "").strip()
     end_date = (request.form.get("end_date") or "").strip()
     status = _normalize_leave_status(request.form.get("status"))
-    reason = (request.form.get("reason") or "").strip()
     note = (request.form.get("note") or "").strip()
 
     employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "leave")
@@ -6668,7 +6793,7 @@ def add_leave():
         flash("Rentang tanggal leave tidak valid", "error")
         return redirect("/hris/leave")
 
-    if not reason:
+    if not _strip_special_leave_reason_prefix(reason):
         flash("Alasan leave wajib diisi", "error")
         return redirect("/hris/leave")
 
@@ -6745,11 +6870,14 @@ def update_leave(leave_id):
         return redirect("/hris/leave")
 
     previous_status = leave_request["status"]
-    leave_type = _normalize_leave_type(request.form.get("leave_type"))
+    leave_type, _special_leave_reason, reason = _resolve_leave_submission_payload(
+        request.form.get("leave_type"),
+        request.form.get("special_leave_reason"),
+        request.form.get("reason"),
+    )
     start_date = (request.form.get("start_date") or "").strip()
     end_date = (request.form.get("end_date") or "").strip()
     status = _normalize_leave_status(request.form.get("status"))
-    reason = (request.form.get("reason") or "").strip()
     note = (request.form.get("note") or "").strip()
 
     employee, employee_error = _resolve_form_employee(db, request.form.get("employee_id"), "leave")
@@ -6763,7 +6891,7 @@ def update_leave(leave_id):
         flash("Rentang tanggal leave tidak valid", "error")
         return redirect("/hris/leave")
 
-    if not reason:
+    if not _strip_special_leave_reason_prefix(reason):
         flash("Alasan leave wajib diisi", "error")
         return redirect("/hris/leave")
 

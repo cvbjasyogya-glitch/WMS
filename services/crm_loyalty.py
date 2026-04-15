@@ -59,6 +59,32 @@ def _format_currency(value):
     return "{:,.0f}".format(_to_float(value, 0)).replace(",", ".")
 
 
+def calculate_stringing_progress_units(items=None, *, amount=0.0, active=True):
+    if not active:
+        return 0
+
+    safe_items = items if isinstance(items, list) else []
+    qualifying_units = 0
+    for item in safe_items:
+        if not isinstance(item, dict):
+            continue
+        qty = max(_to_int(item.get("qty"), 0), 0)
+        if qty <= 0:
+            continue
+        unit_amount = _to_float(item.get("unit_price"), 0.0)
+        if unit_amount <= 0 and qty > 0:
+            line_total = _to_float(item.get("line_total"), 0.0)
+            unit_amount = line_total / qty if qty else 0.0
+        if unit_amount >= STRINGING_PROGRESS_MIN_AMOUNT:
+            qualifying_units += qty
+
+    if qualifying_units > 0:
+        return qualifying_units
+
+    safe_amount = round(_to_float(amount, 0), 2)
+    return 1 if safe_amount >= STRINGING_PROGRESS_MIN_AMOUNT else 0
+
+
 def normalize_customer_phone(value):
     digits = "".join(char for char in str(value or "") if char.isdigit())
     if not digits:
@@ -367,7 +393,7 @@ def get_member_snapshot(db, member_id):
     return build_member_snapshot_from_row(row)
 
 
-def calculate_loyalty_fields(member, amount, transaction_type, *, active=True):
+def calculate_loyalty_fields(member, amount, transaction_type, *, active=True, items=None):
     member_type = normalize_member_type(member.get("member_type"))
     transaction_type = normalize_transaction_type(transaction_type)
     safe_amount = round(_to_float(amount, 0), 2) if active else 0.0
@@ -386,8 +412,10 @@ def calculate_loyalty_fields(member, amount, transaction_type, *, active=True):
 
     if transaction_type == "stringing_service":
         fields["record_type"] = "stringing_service"
-        fields["service_count_delta"] = (
-            1 if active and safe_amount >= STRINGING_PROGRESS_MIN_AMOUNT else 0
+        fields["service_count_delta"] = calculate_stringing_progress_units(
+            items,
+            amount=safe_amount,
+            active=active,
         )
         return fields
 
@@ -420,9 +448,16 @@ def build_auto_member_record(
     note="",
     handled_by=None,
     source_label="CRM",
+    items=None,
 ):
     member_snapshot = build_member_snapshot_from_row({**dict(member or {}), **dict(snapshot or {})})
-    fields = calculate_loyalty_fields(member_snapshot, amount, transaction_type, active=True)
+    fields = calculate_loyalty_fields(
+        member_snapshot,
+        amount,
+        transaction_type,
+        active=True,
+        items=items,
+    )
     note_parts = []
     base_note = (note or "").strip()
     if base_note:
@@ -442,10 +477,15 @@ def build_auto_member_record(
             )
         else:
             next_visit_total = member_snapshot["total_stringing_visits"] + fields["service_count_delta"]
+            unit_label = (
+                f"{fields['service_count_delta']} progres senaran"
+                if fields["service_count_delta"] > 1
+                else f"kunjungan senaran ke-{next_visit_total}"
+            )
             if next_visit_total // STRINGING_REWARD_THRESHOLD > member_snapshot["total_reward_earned"]:
                 note_parts.append(
                     "Otomatis dari "
-                    f"{source_label}: kunjungan senaran ke-{next_visit_total}, free 1x "
+                    f"{source_label}: {unit_label}, total menjadi {next_visit_total}, free 1x "
                     f"senilai Rp {_format_currency(member_snapshot['reward_unit_amount'])} siap dipakai."
                 )
             else:
@@ -455,7 +495,7 @@ def build_auto_member_record(
                     else STRINGING_REWARD_THRESHOLD - (next_visit_total % STRINGING_REWARD_THRESHOLD)
                 )
                 note_parts.append(
-                    f"Otomatis dari {source_label}: kunjungan senaran ke-{next_visit_total}, "
+                    f"Otomatis dari {source_label}: {unit_label}, total menjadi {next_visit_total}, "
                     f"sisa {remaining} lagi menuju free 1x."
                 )
     elif fields["record_type"] == "reward_redemption":

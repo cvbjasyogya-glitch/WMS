@@ -2,7 +2,7 @@
 
 {% block title %}Libur | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Portal Pengajuan Libur{% endblock %}
-{% block page_title %}Form Libur / Cuti / Sakit{% endblock %}
+{% block page_title %}Form Libur / Cuti{% endblock %}
 {% block page_subtitle %}Halaman pengajuan libur mandiri untuk semua akun login. Status pengajuan tidak diatur dari sini dan hanya diproses oleh HR atau Super Admin.{% endblock %}
 
 {% block content %}
@@ -57,7 +57,7 @@
     <div class="section-title">
         <div>
             <h2>Ajukan Libur</h2>
-            <p>Pilih jenis libur, isi rentang tanggal, lalu kirim. Status otomatis masuk sebagai <strong>Pending</strong> dan hanya HR atau Super Admin yang bisa mengubahnya.</p>
+            <p>Pilih tipe libur, lalu tentukan kategori di dalam <strong>Cuti Khusus</strong> bila diperlukan. Status otomatis masuk sebagai <strong>Pending</strong> dan hanya HR atau Super Admin yang bisa mengubahnya.</p>
         </div>
     </div>
 
@@ -66,11 +66,18 @@
             <div>
                 <label>Tipe Libur</label>
                 <select name="leave_type">
-                    <option value="annual">Cuti Tahunan</option>
-                    <option value="sick">Sakit</option>
-                    <option value="permit">Izin</option>
                     <option value="special">Cuti Khusus</option>
                     <option value="unpaid">Cuti Tanpa Bayar</option>
+                </select>
+            </div>
+            <div>
+                <label>Kategori Cuti Khusus</label>
+                <select name="special_leave_reason">
+                    <option value="annual">Cuti Tahunan</option>
+                    <option value="sick">Sakit</option>
+                    <option value="permit">Izin / Urgent</option>
+                    <option value="family">Keperluan Keluarga</option>
+                    <option value="other">Lainnya</option>
                 </select>
             </div>
             <div>
@@ -87,7 +94,7 @@
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Alasan</label>
-                <textarea name="reason" rows="3" placeholder="Contoh: cuti keluarga, izin berobat, recovery, atau keperluan penting lainnya." required></textarea>
+                <textarea name="reason" rows="3" placeholder="Contoh: kontrol ke dokter, ada keperluan keluarga, recovery, atau penjelasan singkat lainnya." required></textarea>
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Catatan Tambahan</label>
@@ -143,7 +150,7 @@
         <div class="box stack-scroll-card" style="margin-bottom:0;">
             <div class="section-title">
                 <div>
-                    <h3>{{ leave.leave_type_label }} • {{ leave.range_label }}</h3>
+                    <h3>{{ leave.leave_type_label }}{% if leave.leave_type_detail_label %} • {{ leave.leave_type_detail_label }}{% endif %} • {{ leave.range_label }}</h3>
                     <p>{{ leave.warehouse_name or "-" }} • Diajukan {{ leave.created_at_label }} • {{ leave.total_days }} hari</p>
                 </div>
                 <span class="badge {{ leave.status_badge_class }}">{{ leave.status_label }}</span>
@@ -171,7 +178,7 @@
             <div class="form-grid">
                 <div style="grid-column: 1 / -1;">
                     <label>Alasan</label>
-                    <div class="empty-state">{{ leave.reason or "-" }}</div>
+                    <div class="empty-state">{{ leave.reason_display }}</div>
                 </div>
                 <div style="grid-column: 1 / -1;">
                     <label>Catatan Tambahan</label>

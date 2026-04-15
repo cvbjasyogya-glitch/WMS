@@ -30,6 +30,7 @@ from routes.pos import (
     _fetch_pos_staff_sales_rows,
     _format_pos_time_label,
 )
+from routes.stock import _extract_stock_date_prefix
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
@@ -829,6 +830,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("function setPosQuickSearchActiveIndex(index, options = {})", html)
         self.assertIn("function isPosSearchForwardKey(event)", html)
         self.assertIn("function forwardPosSelectKeyToSearch(event, searchInput, filterFn)", html)
+        self.assertIn("async function parsePosJsonResponse(response, fallbackMessage = \"Server mengirim respons yang tidak valid.\")", html)
+        self.assertIn("Picker barang sedang bermasalah. Refresh halaman kasir lalu coba lagi.", html)
         self.assertIn('posQuickSearch?.addEventListener("keydown", (event) => {', html)
         self.assertIn('posCatalogSearch?.addEventListener("keydown", (event) => {', html)
         self.assertIn('posCustomerId?.addEventListener("keydown", (event) => {', html)
@@ -1528,6 +1531,32 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('if (input.dataset.wmsCurrencyPrepared !== "1") {', script)
         self.assertIn("if (ensurePreparedInput(input)) {", script)
         self.assertIn("if (!ensurePreparedInput(input)) {", script)
+
+    def test_pos_page_schedules_change_preview_after_currency_input_updates(self):
+        template_path = os.path.join(self.app.root_path, "templates", "pos.html")
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            html = template_file.read()
+
+        self.assertIn("function schedulePosChangePreviewSync() {", html)
+        self.assertIn("window.requestAnimationFrame(() => {", html)
+        self.assertIn('posPaidAmount.addEventListener("input", schedulePosChangePreviewSync);', html)
+        self.assertIn('posPaidAmount.addEventListener("change", schedulePosChangePreviewSync);', html)
+        self.assertIn('posPaidAmount.addEventListener("blur", schedulePosChangePreviewSync);', html)
+
+    def test_pos_page_schedules_discount_and_tax_preview_after_currency_input_updates(self):
+        template_path = os.path.join(self.app.root_path, "templates", "pos.html")
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            html = template_file.read()
+
+        self.assertIn("function schedulePosAdjustmentPreviewSync() {", html)
+        self.assertIn('posDiscountInput?.addEventListener("input", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posDiscountInput?.addEventListener("change", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posDiscountInput?.addEventListener("blur", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posDiscountType?.addEventListener("change", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posTaxInput?.addEventListener("input", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posTaxInput?.addEventListener("change", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posTaxInput?.addEventListener("blur", schedulePosAdjustmentPreviewSync);', html)
+        self.assertIn('posTaxType?.addEventListener("change", schedulePosAdjustmentPreviewSync);', html)
 
     def test_pos_sales_log_page_is_scoped_to_selected_warehouse_and_denies_non_pos_roles(self):
         self.login_pos_user("super_pos_log", "super_admin")
@@ -2321,7 +2350,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("QRIS", defaults["preview_text"])
         self.assertEqual(defaults["combined_total_amount_label"], "1.850.000")
 
-    def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_owner_whatsapp(self):
+    def test_pos_sales_log_cash_closing_submit_stores_report_and_sends_leader_whatsapp(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-POS-CLOSE-001",
             full_name="Rio Kasir",
@@ -2363,8 +2392,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         mocked_role_notify.assert_called_once()
         self.assertEqual(mocked_role_notify.call_args.args[0], "attendance.cash_closing")
         payload = mocked_role_notify.call_args.args[1]
-        self.assertEqual(payload["roles"], ("owner",))
-        self.assertEqual(payload["usernames"], ("edi", "akmal"))
+        self.assertEqual(payload["roles"], ("leader",))
+        self.assertNotIn("usernames", payload)
         self.assertEqual(payload["warehouse_id"], 1)
         self.assertIn("/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08#tutup-kasir", payload["link_url"])
         self.assertIn('Laporan "Mataram" 08/04/2026', payload["message"])
@@ -2405,11 +2434,67 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(report["debit_amount"], 5380000)
         self.assertEqual(report["qris_amount"], 20000)
         self.assertEqual(report["reported_total_amount"], 6154000)
-        self.assertEqual(report["cash_on_hand_amount"], 754000)
+        self.assertEqual(report["cash_on_hand_amount"], 750000)
         self.assertEqual(report["combined_total_amount"], 10919760)
         self.assertIn('Laporan "Mataram" 08/04/2026', report["summary_message"])
         self.assertIn("QRIS", report["summary_message"])
         self.assertIn("5.380.000", report["summary_message"])
+        self.assertEqual(report["wa_status"], "sent")
+        self.assertEqual(report["wa_delivery_count"], 1)
+        self.assertEqual(report["wa_success_count"], 1)
+
+    def test_pos_sales_log_cash_closing_submit_does_not_send_group_whatsapp(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-POS-CLOSE-GRP",
+            full_name="Rio Kasir Grup",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("staff_cash_closing_group", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        cashier_user_id = self.get_user_id("staff_cash_closing_group")
+        self.login_pos_user("super_cash_closing_group", "super_admin")
+        with patch("routes.pos.send_role_based_notification") as mocked_role_notify:
+            mocked_role_notify.return_value = {
+                "deliveries": [
+                    {"ok": True, "error": "", "phone": "628111111111"},
+                ]
+            }
+            response = self.client.post(
+                "/kasir/cash-closing/submit",
+                data={
+                    "warehouse_id": "1",
+                    "cashier_user_id": str(cashier_user_id),
+                    "return_url": "/kasir/log?warehouse=1&date_from=2026-04-08&date_to=2026-04-08",
+                    "closing_date": "2026-04-08",
+                    "cash_amount": "754000",
+                    "debit_amount": "5380000",
+                    "qris_amount": "20000",
+                    "mb_amount": "",
+                    "cv_amount": "",
+                    "expense_amount": "",
+                    "cash_on_hand_amount": "750000",
+                    "combined_total_amount": "10919760",
+                    "note": "Setoran cocok",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                """
+                SELECT wa_status, wa_delivery_count, wa_success_count
+                FROM cash_closing_reports
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cashier_user_id,),
+            ).fetchone()
+
         self.assertEqual(report["wa_status"], "sent")
         self.assertEqual(report["wa_delivery_count"], 1)
         self.assertEqual(report["wa_success_count"], 1)
@@ -8904,6 +8989,90 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(snapshot_below["stringing_progress_count"], 0)
         self.assertIn("di bawah Rp 75.000", record_below["note"])
 
+    def test_pos_checkout_counts_multiple_qualifying_stringing_units_in_one_receipt(self):
+        self.create_user("staff_sales_multi_senar", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_multi_senar")
+        self.login_pos_user("pos_multi_senar_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-MULTI-SENAR-001",
+            qty=10,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Multi Senar', '081230006663', 'member')
+                """
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Multi Senar'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date,
+                    reward_unit_amount, opening_stringing_visits
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (customer["id"], 1, "POS-STR-MULTI-001", "stringing", "active", "2026-04-14", 75000, 1),
+            )
+            member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='POS-STR-MULTI-001'"
+            ).fetchone()
+            db.commit()
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-15",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": customer["id"],
+                "customer_name": "Customer Multi Senar",
+                "customer_phone": "081230006663",
+                "transaction_type": "stringing_service",
+                "payment_method": "cash",
+                "paid_amount": 151000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 2,
+                        "unit_price": 75000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            record = db.execute(
+                """
+                SELECT record_type, service_count_delta, note
+                FROM crm_member_records
+                WHERE member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (member["id"],),
+            ).fetchone()
+            snapshot = get_member_snapshot(db, member["id"])
+
+        self.assertEqual(record["record_type"], "stringing_service")
+        self.assertEqual(record["service_count_delta"], 2)
+        self.assertEqual(snapshot["total_stringing_visits"], 3)
+        self.assertEqual(snapshot["stringing_progress_count"], 3)
+        self.assertIn("2 progres senaran", record["note"])
+
     def test_chat_module_supports_direct_messages_and_realtime_unread(self):
         self.create_user("leader_chat", "pass1234", "leader", warehouse_id=1)
         self.create_user("staff_chat", "pass1234", "staff", warehouse_id=1)
@@ -11777,9 +11946,30 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/libur/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Form Libur / Cuti / Sakit", html)
+        self.assertIn("Form Libur / Cuti", html)
         self.assertIn("HR / Super Admin", html)
         self.assertIn("belum ditautkan ke data karyawan", html.lower())
+
+    def test_leave_portal_with_linked_employee_uses_special_and_unpaid_types(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-LVE-FORM-001",
+            full_name="Portal Leave Form",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_leave_form", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_leave_form", "pass1234")
+
+        response = self.client.get("/libur/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Cuti Khusus", html)
+        self.assertIn("Cuti Tanpa Bayar", html)
+        self.assertIn('name="special_leave_reason"', html)
+        self.assertIn('<option value="special">Cuti Khusus</option>', html)
+        self.assertIn('<option value="unpaid">Cuti Tanpa Bayar</option>', html)
+        self.assertIn("app-version-badge", html)
+        self.assertIn(f"v{self.app.config['APP_VERSION']}", html)
 
     def test_hris_announcement_route_renders_operational_view(self):
         self.login_hr_user()
@@ -12030,7 +12220,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/hris/leave/add",
             data={
                 "employee_id": str(employee["id"]),
-                "leave_type": "annual",
+                "leave_type": "special",
+                "special_leave_reason": "annual",
                 "start_date": "2026-04-10",
                 "end_date": "2026-04-12",
                 "status": "pending",
@@ -12054,16 +12245,18 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(leave_request)
         self.assertEqual(leave_request["warehouse_id"], 2)
-        self.assertEqual(leave_request["leave_type"], "annual")
+        self.assertEqual(leave_request["leave_type"], "special")
         self.assertEqual(leave_request["total_days"], 3)
         self.assertEqual(leave_request["status"], "pending")
-        self.assertEqual(leave_request["reason"], "Cuti keluarga")
+        self.assertIn("[special_reason:annual]", leave_request["reason"])
+        self.assertIn("Cuti keluarga", leave_request["reason"])
 
         update_response = self.client.post(
             f"/hris/leave/update/{leave_request['id']}",
             data={
                 "employee_id": str(employee["id"]),
-                "leave_type": "sick",
+                "leave_type": "special",
+                "special_leave_reason": "sick",
                 "start_date": "2026-04-10",
                 "end_date": "2026-04-11",
                 "status": "approved",
@@ -12085,11 +12278,12 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (leave_request["id"],),
             ).fetchone()
 
-        self.assertEqual(leave_after["leave_type"], "sick")
+        self.assertEqual(leave_after["leave_type"], "special")
         self.assertEqual(leave_after["end_date"], "2026-04-11")
         self.assertEqual(leave_after["total_days"], 2)
         self.assertEqual(leave_after["status"], "approved")
-        self.assertEqual(leave_after["reason"], "Istirahat dokter")
+        self.assertIn("[special_reason:sick]", leave_after["reason"])
+        self.assertIn("Istirahat dokter", leave_after["reason"])
         self.assertIsNotNone(leave_after["handled_by"])
 
         delete_response = self.client.post(
@@ -13358,6 +13552,61 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["shift_label"], "Shift Pagi | 08.00 - 16.00")
         self.assertEqual(payload["staff_note"], "Masuk shift pagi")
         self.assertEqual(payload["link_url"], "/absen/")
+
+    def test_attendance_portal_cash_closing_submit_sends_leader_only_without_group_whatsapp(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-CLOSE-GRP",
+            full_name="Portal Cash Closing Group",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("portal_cash_closing_group", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_cash_closing_group", "pass1234")
+
+        with patch("routes.attendance_portal.send_role_based_notification") as mocked_role_notify:
+            mocked_role_notify.return_value = {
+                "deliveries": [
+                    {"ok": True, "error": "", "phone": "628111111111"},
+                ]
+            }
+            response = self.client.post(
+                "/absen/cash-closing/submit",
+                data={
+                    "closing_date": "2026-04-15",
+                    "cash_amount": "500000",
+                    "debit_amount": "200000",
+                    "qris_amount": "",
+                    "mb_amount": "",
+                    "cv_amount": "",
+                    "expense_amount": "",
+                    "cash_on_hand_amount": "500000",
+                    "combined_total_amount": "700000",
+                    "note": "Setoran grup",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_role_notify.assert_called_once()
+        payload = mocked_role_notify.call_args.args[1]
+        self.assertEqual(payload["roles"], ("leader",))
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                """
+                SELECT wa_status, wa_delivery_count, wa_success_count
+                FROM cash_closing_reports
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(report["wa_status"], "sent")
+        self.assertEqual(report["wa_delivery_count"], 1)
+        self.assertEqual(report["wa_success_count"], 1)
 
     def test_role_based_whatsapp_notification_clarifies_free_attendance_message(self):
         self.create_user(
@@ -15196,10 +15445,11 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(leave_request)
         self.assertEqual(leave_request["employee_id"], employee_id)
-        self.assertEqual(leave_request["leave_type"], "sick")
+        self.assertEqual(leave_request["leave_type"], "special")
         self.assertEqual(leave_request["total_days"], 2)
         self.assertEqual(leave_request["status"], "pending")
-        self.assertEqual(leave_request["reason"], "Butuh istirahat dan kontrol kesehatan")
+        self.assertIn("[special_reason:sick]", leave_request["reason"])
+        self.assertIn("Butuh istirahat dan kontrol kesehatan", leave_request["reason"])
         self.assertEqual(leave_request["note"], "Sudah koordinasi dengan leader")
         self.assertIsNone(leave_request["handled_by"])
 
@@ -16922,6 +17172,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload_two["page"], 2)
         self.assertGreaterEqual(len(payload_two["items"]), 1)
 
+    def test_product_picker_returns_json_error_when_backend_fails(self):
+        self.login()
+
+        with patch("routes.products._resolve_picker_warehouse", side_effect=RuntimeError("picker boom")):
+            response = self.client.get("/products/picker?warehouse_id=1&page=1")
+
+        self.assertEqual(response.status_code, 500)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["message"], "Picker barang sedang bermasalah. Refresh kasir lalu coba lagi.")
+        self.assertEqual(payload["error_code"], "RuntimeError")
+
     def test_product_picker_smart_search_prioritizes_exact_sku_match(self):
         self.login()
         exact_sku = f"SMART-EXACT-{uuid4().hex[:4].upper()}"
@@ -17024,6 +17286,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["items"][0]["product_id"], product_id)
         self.assertEqual(payload["items"][0]["variant_label"], "PRO MATCH")
 
+    def test_product_studio_context_groups_category_for_postgresql_safe_aggregation(self):
+        route_path = os.path.join(self.app.root_path, "routes", "products.py")
+        with open(route_path, "r", encoding="utf-8") as route_file:
+            route_text = route_file.read()
+
+        self.assertIn("GROUP BY p.id, c.name", route_text)
+
     def test_stock_page_uses_10_item_pagination(self):
         self.login()
         for index in range(12):
@@ -17052,6 +17321,23 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_two.status_code, 200)
         self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 2)
         self.assertIn("Page 2 / 2", page_two_html)
+
+    def test_stock_page_search_waits_for_submit_instead_of_refreshing_on_each_keystroke(self):
+        template_path = os.path.join(self.app.root_path, "templates", "stok_gudang.html")
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            template_text = template_file.read()
+
+        self.assertIn('data-stock-live-search-input', template_text)
+        self.assertIn('stockFilterForm.addEventListener("submit"', template_text)
+        self.assertNotIn('stockLiveSearchInput?.addEventListener("input"', template_text)
+        self.assertIn("stockAutoApplyFields.forEach((field) => {", template_text)
+
+    def test_stock_helper_extracts_date_prefix_from_datetime_objects(self):
+        sample_datetime = datetime(2026, 4, 15, 10, 30, 45)
+        self.assertEqual(_extract_stock_date_prefix(sample_datetime), "2026-04-15")
+        self.assertEqual(_extract_stock_date_prefix(sample_datetime.date()), "2026-04-15")
+        self.assertEqual(_extract_stock_date_prefix("2026-04-15 10:30:45"), "2026-04-15")
+        self.assertEqual(_extract_stock_date_prefix(None), "")
 
     def test_stock_page_paginates_by_product_name_but_keeps_all_group_variants_visible(self):
         self.login()
@@ -20180,6 +20466,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         variant_id = variants_rows[0]["id"]
+        with self.app.app_context():
+            db = get_db()
+            original_product_name = db.execute(
+                "SELECT name FROM products WHERE id=?",
+                (product_id,),
+            ).fetchone()["name"]
         self.logout()
 
         self.login("admin_product_edit", "pass1234")
@@ -20237,7 +20529,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(approval["status"], "pending")
         self.assertEqual(approval["type"], "PRODUCT_EDIT")
         self.assertEqual(unchanged_row["sku"], "CTX-PENDING-001")
-        self.assertEqual(unchanged_row["name"], "Produk Uji")
+        self.assertEqual(unchanged_row["name"], original_product_name)
         self.assertEqual(unchanged_row["variant"], "CTX-41")
         approval_payload = json.loads(approval["payload"])
         self.assertEqual(approval_payload["target"]["sku"], "CTX-PENDING-UPDATED")
@@ -20295,6 +20587,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         variant_id = variants_rows[0]["id"]
+        with self.app.app_context():
+            db = get_db()
+            product_row = db.execute(
+                """
+                SELECT
+                    p.sku,
+                    p.name,
+                    p.unit_label,
+                    c.name AS category_name,
+                    v.variant,
+                    v.price_retail,
+                    v.price_discount,
+                    v.price_nett
+                FROM products p
+                LEFT JOIN categories c ON c.id = p.category_id
+                LEFT JOIN product_variants v ON v.product_id = p.id
+                WHERE p.id=? AND v.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
         self.logout()
 
         self.login("admin_product_edit_same", "pass1234")
@@ -20304,13 +20616,14 @@ class WmsRoutesTestCase(unittest.TestCase):
                 data={
                     "product_id": str(product_id),
                     "variant_id": str(variant_id),
-                    "sku": "CTX-NOCHANGE-001",
-                    "name": "Produk Uji",
-                    "category_name": "Testing",
-                    "variant": "CTX-50",
-                    "price_retail": "150000",
-                    "price_discount": "135000",
-                    "price_nett": "120000",
+                    "sku": product_row["sku"],
+                    "name": product_row["name"],
+                    "category_name": product_row["category_name"],
+                    "unit_label": product_row["unit_label"],
+                    "variant": product_row["variant"],
+                    "price_retail": str(product_row["price_retail"]),
+                    "price_discount": str(product_row["price_discount"]),
+                    "price_nett": str(product_row["price_nett"]),
                 },
                 headers={"X-Requested-With": "XMLHttpRequest"},
                 follow_redirects=False,

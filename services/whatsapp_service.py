@@ -58,6 +58,18 @@ def _normalize_phone_number(value):
     return digits
 
 
+def _normalize_whatsapp_target(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return ""
+    if safe_value.lower().startswith("group:"):
+        safe_value = safe_value.split(":", 1)[1].strip()
+    if "@" in safe_value:
+        return safe_value
+    normalized_phone = _normalize_phone_number(safe_value)
+    return normalized_phone or safe_value
+
+
 def _notification_status(result):
     ok = result.get("ok")
     if ok is None:
@@ -83,7 +95,7 @@ def _notification_exists_recent(db, recipient, channel, subject, message):
 
 
 def record_whatsapp_delivery(user_id, role, recipient, subject, message, result, *, channel="wa"):
-    normalized_recipient = _normalize_phone_number(recipient)
+    normalized_recipient = _normalize_whatsapp_target(recipient)
     if not normalized_recipient or not subject:
         return None
 
@@ -183,6 +195,14 @@ def _kirimi_warehouse_aliases(*, warehouse_id=None, warehouse_name=None):
         _push("MEGA")
 
     return aliases
+
+
+def _cash_closing_group_target(*, warehouse_id=None, warehouse_name=None):
+    for alias in _kirimi_warehouse_aliases(warehouse_id=warehouse_id, warehouse_name=warehouse_name):
+        configured_target = _kirimi_config_value(f"CASH_CLOSING_WHATSAPP_GROUP_{alias}")
+        if configured_target:
+            return _normalize_whatsapp_target(configured_target)
+    return _normalize_whatsapp_target(_kirimi_config_value("CASH_CLOSING_WHATSAPP_GROUP"))
 
 
 def _kirimi_credentials(*, warehouse_id=None, warehouse_name=None):
@@ -378,7 +398,7 @@ def _send_text_fallback_fonnte(receiver, message):
 
 
 def send_whatsapp_text(target, message, *, warehouse_id=None, warehouse_name=None):
-    receiver = _normalize_phone_number(target)
+    receiver = _normalize_whatsapp_target(target)
     if not receiver:
         return {
             "ok": None,
@@ -399,7 +419,7 @@ def send_whatsapp_text(target, message, *, warehouse_id=None, warehouse_name=Non
 
 
 def send_whatsapp_document(target, message, document_url, *, warehouse_id=None, warehouse_name=None):
-    receiver = _normalize_phone_number(target)
+    receiver = _normalize_whatsapp_target(target)
     safe_url = str(document_url or "").strip()
     if not receiver:
         return {
@@ -422,6 +442,49 @@ def send_whatsapp_document(target, message, document_url, *, warehouse_id=None, 
         warehouse_id=warehouse_id,
         warehouse_name=warehouse_name,
     )
+
+
+def send_cash_closing_group_notification(subject, message, *, warehouse_id=None, warehouse_name=None):
+    receiver = _cash_closing_group_target(warehouse_id=warehouse_id, warehouse_name=warehouse_name)
+    normalized_subject = str(subject or "").strip()
+    normalized_message = str(message or "").strip()
+    result = {
+        "target": receiver,
+        "subject": normalized_subject,
+        "message": normalized_message,
+        "delivery": None,
+    }
+    if not receiver or not normalized_subject or not normalized_message:
+        return result
+
+    db = get_db()
+    channel = "wa_group_event"
+    if _notification_exists_recent(db, receiver, channel, normalized_subject, normalized_message):
+        result["delivery"] = {
+            "ok": None,
+            "provider": "kirimi",
+            "receiver": receiver,
+            "error": "duplicate_recent_notification",
+        }
+        return result
+
+    delivery = send_whatsapp_text(
+        receiver,
+        f"*{normalized_subject}*\n\n{normalized_message}",
+        warehouse_id=warehouse_id,
+        warehouse_name=warehouse_name,
+    )
+    record_whatsapp_delivery(
+        None,
+        "group",
+        receiver,
+        normalized_subject,
+        normalized_message,
+        delivery,
+        channel=channel,
+    )
+    result["delivery"] = delivery
+    return result
 
 
 def _event_recipients_for_audience(roles, usernames=None, user_ids=None, warehouse_id=None, exclude_user_ids=None):

@@ -27,7 +27,10 @@ from routes.hris import (
 from services.event_notification_policy import get_event_notification_policy
 from services.rbac import normalize_role
 from services.notification_service import notify_operational_event
-from services.whatsapp_service import send_role_based_notification, send_user_whatsapp_notification
+from services.whatsapp_service import (
+    send_role_based_notification,
+    send_user_whatsapp_notification,
+)
 
 
 attendance_portal_bp = Blueprint("attendance_portal", __name__, url_prefix="/absen")

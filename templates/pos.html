@@ -912,11 +912,32 @@ function buildPosCatalogFetchParams(page = 1, pageSize = 24, query = "", categor
     return params;
 }
 
+async function parsePosJsonResponse(response, fallbackMessage = "Server mengirim respons yang tidak valid.") {
+    const responseText = await response.text();
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+
+    try {
+        return JSON.parse(responseText || "{}");
+    } catch (error) {
+        const looksLikeHtml = contentType.includes("text/html")
+            || /^\s*<!doctype/i.test(responseText)
+            || /^\s*<html/i.test(responseText);
+
+        if (!response.ok && response.status === 401) {
+            throw new Error("Sesi kasir sudah berubah. Refresh halaman lalu login lagi.");
+        }
+        if (looksLikeHtml) {
+            throw new Error(fallbackMessage);
+        }
+        throw new Error("Respons pencarian barang tidak valid. Refresh halaman lalu coba lagi.");
+    }
+}
+
 async function fetchPosCatalogData(page = 1, pageSize = 24, query = "", category = "all") {
     const response = await fetch(`/products/picker?${buildPosCatalogFetchParams(page, pageSize, query, category).toString()}`);
-    const data = await response.json();
+    const data = await parsePosJsonResponse(response, "Picker barang sedang bermasalah. Refresh halaman kasir lalu coba lagi.");
     if (!response.ok) {
-        throw new Error(data.error || "Gagal memuat katalog produk.");
+        throw new Error(data.message || data.error || "Gagal memuat katalog produk.");
     }
     return data;
 }
@@ -1280,6 +1301,29 @@ function updatePosChangePreview() {
         posChangeAmountMirror.textContent = formatPosCurrency(changeAmount);
     }
     updatePosSplitPaymentSummary();
+}
+
+let posChangePreviewFrame = 0;
+let posAdjustmentPreviewFrame = 0;
+
+function schedulePosChangePreviewSync() {
+    if (posChangePreviewFrame) {
+        window.cancelAnimationFrame(posChangePreviewFrame);
+    }
+    posChangePreviewFrame = window.requestAnimationFrame(() => {
+        posChangePreviewFrame = 0;
+        updatePosChangePreview();
+    });
+}
+
+function schedulePosAdjustmentPreviewSync() {
+    if (posAdjustmentPreviewFrame) {
+        window.cancelAnimationFrame(posAdjustmentPreviewFrame);
+    }
+    posAdjustmentPreviewFrame = window.requestAnimationFrame(() => {
+        posAdjustmentPreviewFrame = 0;
+        renderPosCart();
+    });
 }
 
 function openPosCatalogPicker() {
@@ -2726,16 +2770,22 @@ document.addEventListener("click", (event) => {
 });
 
 document.getElementById("posAddItemButton")?.addEventListener("click", addPosDraftToCart);
-posPaidAmount.addEventListener("input", updatePosChangePreview);
+posPaidAmount.addEventListener("input", schedulePosChangePreviewSync);
+posPaidAmount.addEventListener("change", schedulePosChangePreviewSync);
+posPaidAmount.addEventListener("blur", schedulePosChangePreviewSync);
 posPaidAmount.addEventListener("focus", () => setPosKeypadTarget("paid"));
 posDraftQty?.addEventListener("focus", () => setPosKeypadTarget("qty"));
 posCheckoutButton.addEventListener("click", checkoutPosTransaction);
 posCustomerName?.addEventListener("input", clearPosCustomerIdentityValidity);
 posCustomerPhone?.addEventListener("input", clearPosCustomerIdentityValidity);
-posDiscountInput?.addEventListener("input", renderPosCart);
-posDiscountType?.addEventListener("change", renderPosCart);
-posTaxInput?.addEventListener("input", renderPosCart);
-posTaxType?.addEventListener("change", renderPosCart);
+posDiscountInput?.addEventListener("input", schedulePosAdjustmentPreviewSync);
+posDiscountInput?.addEventListener("change", schedulePosAdjustmentPreviewSync);
+posDiscountInput?.addEventListener("blur", schedulePosAdjustmentPreviewSync);
+posDiscountType?.addEventListener("change", schedulePosAdjustmentPreviewSync);
+posTaxInput?.addEventListener("input", schedulePosAdjustmentPreviewSync);
+posTaxInput?.addEventListener("change", schedulePosAdjustmentPreviewSync);
+posTaxInput?.addEventListener("blur", schedulePosAdjustmentPreviewSync);
+posTaxType?.addEventListener("change", schedulePosAdjustmentPreviewSync);
 
 posPaidQuickActions?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pos-paid-shortcut]");

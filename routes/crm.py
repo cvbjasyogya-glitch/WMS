@@ -1889,6 +1889,7 @@ def add_purchase():
                     note=note,
                     handled_by=session.get("user_id"),
                     source_label="purchase CRM",
+                    items=items,
                 )
                 db.execute(
                     """

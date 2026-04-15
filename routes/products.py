@@ -1357,87 +1357,94 @@ def get_variants(product_id):
 
 @products_bp.route("/picker")
 def product_picker():
+    try:
+        db = get_db()
+        warehouse_id = _resolve_picker_warehouse(db, request.args.get("warehouse_id"))
+        page = max(_to_int(request.args.get("page"), 1), 1)
+        page_size = max(1, min(_to_int(request.args.get("page_size"), 20), 60))
+        offset = (page - 1) * page_size
+        search = _normalize_picker_query(request.args.get("q"))
+        category = (request.args.get("category") or "").strip()
+        mode = (request.args.get("mode") or "").strip().lower()
 
-    db = get_db()
-    warehouse_id = _resolve_picker_warehouse(db, request.args.get("warehouse_id"))
-    page = max(_to_int(request.args.get("page"), 1), 1)
-    page_size = max(1, min(_to_int(request.args.get("page_size"), 20), 60))
-    offset = (page - 1) * page_size
-    search = _normalize_picker_query(request.args.get("q"))
-    category = (request.args.get("category") or "").strip()
-    mode = (request.args.get("mode") or "").strip().lower()
+        conditions = []
+        params = [warehouse_id]
+        count_params = []
 
-    conditions = []
-    params = [warehouse_id]
-    count_params = []
+        if search:
+            search_clause, search_params = _build_picker_search_conditions(search)
+            conditions.append(search_clause)
+            params.extend(search_params)
+            count_params.extend(search_params)
 
-    if search:
-        search_clause, search_params = _build_picker_search_conditions(search)
-        conditions.append(search_clause)
-        params.extend(search_params)
-        count_params.extend(search_params)
+        if category:
+            conditions.append("COALESCE(c.name, '') = ?")
+            params.append(category)
+            count_params.append(category)
 
-    if category:
-        conditions.append("COALESCE(c.name, '') = ?")
-        params.append(category)
-        count_params.append(category)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        order_by, order_params = _build_picker_order_by(search, mode)
 
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    order_by, order_params = _build_picker_order_by(search, mode)
+        rows = db.execute(f"""
+            SELECT
+                p.id AS product_id,
+                v.id AS variant_id,
+                p.sku,
+                p.name,
+                COALESCE(c.name, '-') AS category,
+                COALESCE(v.variant, 'default') AS variant,
+                COALESCE(v.variant_code, '') AS variant_code,
+                COALESCE(v.color, '') AS color,
+                COALESCE(v.gtin, '') AS gtin,
+                COALESCE(v.price_retail, 0) AS price_retail,
+                COALESCE(v.price_discount, 0) AS price_discount,
+                COALESCE(v.price_nett, 0) AS price_nett,
+                COALESCE(s.qty, 0) AS qty
+            FROM products p
+            JOIN product_variants v ON v.product_id = p.id
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN stock s
+                ON s.product_id = p.id
+                AND s.variant_id = v.id
+                AND s.warehouse_id = ?
+            {where_clause}
+            ORDER BY {order_by}
+            LIMIT ? OFFSET ?
+        """, (*params, *order_params, page_size, offset)).fetchall()
 
-    rows = db.execute(f"""
-        SELECT
-            p.id AS product_id,
-            v.id AS variant_id,
-            p.sku,
-            p.name,
-            COALESCE(c.name, '-') AS category,
-            COALESCE(v.variant, 'default') AS variant,
-            COALESCE(v.variant_code, '') AS variant_code,
-            COALESCE(v.color, '') AS color,
-            COALESCE(v.gtin, '') AS gtin,
-            COALESCE(v.price_retail, 0) AS price_retail,
-            COALESCE(v.price_discount, 0) AS price_discount,
-            COALESCE(v.price_nett, 0) AS price_nett,
-            COALESCE(s.qty, 0) AS qty
-        FROM products p
-        JOIN product_variants v ON v.product_id = p.id
-        LEFT JOIN categories c ON c.id = p.category_id
-        LEFT JOIN stock s
-            ON s.product_id = p.id
-            AND s.variant_id = v.id
-            AND s.warehouse_id = ?
-        {where_clause}
-        ORDER BY {order_by}
-        LIMIT ? OFFSET ?
-    """, (*params, *order_params, page_size, offset)).fetchall()
+        total = db.execute(f"""
+            SELECT COUNT(*) AS total
+            FROM products p
+            JOIN product_variants v ON v.product_id = p.id
+            LEFT JOIN categories c ON c.id = p.category_id
+            {where_clause}
+        """, count_params).fetchone()["total"]
 
-    total = db.execute(f"""
-        SELECT COUNT(*) AS total
-        FROM products p
-        JOIN product_variants v ON v.product_id = p.id
-        LEFT JOIN categories c ON c.id = p.category_id
-        {where_clause}
-    """, count_params).fetchone()["total"]
+        total_pages = max(1, (total + page_size - 1) // page_size)
 
-    total_pages = max(1, (total + page_size - 1) // page_size)
+        items = []
+        for row in rows:
+            item = dict(row)
+            variant = item["variant"] or "default"
+            item["variant_label"] = "Default" if variant.lower() == "default" else variant
+            item["display_name"] = f'{item["sku"]} - {item["name"]}'
+            items.append(item)
 
-    items = []
-    for row in rows:
-        item = dict(row)
-        variant = item["variant"] or "default"
-        item["variant_label"] = "Default" if variant.lower() == "default" else variant
-        item["display_name"] = f'{item["sku"]} - {item["name"]}'
-        items.append(item)
-
-    return jsonify({
-        "items": items,
-        "page": page,
-        "page_size": page_size,
-        "total_items": total,
-        "total_pages": total_pages,
-        "warehouse_id": warehouse_id,
-    })
+        return jsonify({
+            "items": items,
+            "page": page,
+            "page_size": page_size,
+            "total_items": total,
+            "total_pages": total_pages,
+            "warehouse_id": warehouse_id,
+        })
+    except Exception as exc:
+        current_app.logger.exception("PRODUCT PICKER ERROR")
+        return _products_json_error(
+            "Picker barang sedang bermasalah. Refresh kasir lalu coba lagi.",
+            500,
+            error_code=getattr(exc, "__class__", type(exc)).__name__,
+        )
 
 
 @products_bp.route("/")

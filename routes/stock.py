@@ -29,6 +29,19 @@ WORKSPACE_MODES = {"inventory", "products"}
 
 def _can_view_inventory_value():
     return normalize_role(session.get("role")) in {"owner", "super_admin"}
+
+
+def _extract_stock_date_prefix(value):
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())[:10]
+        except Exception:
+            pass
+    return str(value).strip()[:10]
+
+
 DEFAULT_SORT = "qty_asc"
 
 SORT_DEFINITIONS = {
@@ -380,7 +393,7 @@ def _build_stock_summary(rows):
         if expiry_date and qty > 0:
             try:
                 expiry_days = (
-                    datetime.strptime(expiry_date[:10], "%Y-%m-%d").date()
+                    datetime.strptime(_extract_stock_date_prefix(expiry_date), "%Y-%m-%d").date()
                     - datetime.utcnow().date()
                 ).days
                 if expiry_days <= 30:
@@ -554,7 +567,7 @@ def _build_stock_group(rows):
 
         created_at = row.get("created_at")
         if created_at:
-            created_dates.append(created_at[:10])
+            created_dates.append(_extract_stock_date_prefix(created_at))
 
     variant_count = len(rows)
     unique_product_ids = list(dict.fromkeys(product_ids))
@@ -1018,8 +1031,8 @@ def export_stock():
                 row["price_discount"],
                 row["price_nett"],
                 row["age_days"],
-                row["created_at"][:10] if row["created_at"] else "",
-                row["expiry_date"][:10] if row["expiry_date"] else "",
+                _extract_stock_date_prefix(row["created_at"]),
+                _extract_stock_date_prefix(row["expiry_date"]),
             ]
         )
 

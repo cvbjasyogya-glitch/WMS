@@ -17,6 +17,7 @@ from services.crm_loyalty import (
     STRINGING_REWARD_THRESHOLD,
     build_auto_member_record,
     calculate_loyalty_fields,
+    calculate_stringing_progress_units,
     find_matching_customer_identity,
     find_matching_member_identity,
     get_member_snapshot,
@@ -3999,6 +4000,7 @@ def _apply_pos_sale_rollup_updates(db, sale_row, acting_user_id):
                 _currency(financials["total_amount"]),
                 sale_row.get("transaction_type"),
                 active=financials["total_items"] > 0,
+                items=items,
             )
             db.execute(
                 """
@@ -5080,8 +5082,7 @@ def pos_cash_closing_submit():
         wa_result = send_role_based_notification(
             "attendance.cash_closing",
             {
-                "roles": ("owner",),
-                "usernames": ("edi", "akmal"),
+                "roles": ("leader",),
                 "warehouse_id": warehouse_id,
                 "employee_name": cashier_actor["display_name"],
                 "warehouse_name": warehouse_name,
@@ -5136,15 +5137,15 @@ def pos_cash_closing_submit():
     db.commit()
 
     if wa_status == "sent":
-        flash("Tutup kasir tersimpan dan WA owner / super admin berhasil dikirim.", "success")
+        flash("Tutup kasir tersimpan dan WA leader berhasil dikirim.", "success")
     elif wa_status == "partial":
-        flash("Tutup kasir tersimpan, tapi WA owner / super admin hanya terkirim sebagian.", "warning")
+        flash("Tutup kasir tersimpan, tapi WA leader hanya terkirim sebagian.", "warning")
     elif wa_status == "failed":
-        flash("Tutup kasir tersimpan, tapi kirim WA owner / super admin gagal. Cek nomor atau gateway WA.", "error")
+        flash("Tutup kasir tersimpan, tapi kirim WA leader gagal. Cek nomor atau gateway WA.", "error")
     elif wa_status == "suppressed":
         flash("Tutup kasir tersimpan tanpa broadcast WA karena aksi dilakukan oleh super admin.", "success")
     else:
-        flash("Tutup kasir tersimpan. Belum ada owner / super admin tujuan yang menerima WA untuk laporan ini.", "warning")
+        flash("Tutup kasir tersimpan. Belum ada leader tujuan yang menerima WA untuk laporan ini.", "warning")
     return redirect(f"{return_url}#tutup-kasir")
 
 
@@ -5639,6 +5640,7 @@ def pos_edit_sale(sale_id):
                 note=note or "",
                 handled_by=session.get("user_id"),
                 source_label="POS / iPos Edit",
+                items=items,
             )
             db.execute(
                 """
@@ -5984,6 +5986,7 @@ def pos_checkout():
                     note=note or "",
                     handled_by=session.get("user_id"),
                     source_label="POS / iPos",
+                    items=items,
                 )
                 db.execute(
                     """
