@@ -9972,9 +9972,10 @@ def decide_biometric_overtime():
         overtime_summary,
     )
     summary_title = f"{employee['full_name']} - Lembur Otomatis"
+    breakdown_label = str(payload.get("breakdown_label") or "").strip()
     summary_note = (
         f"{payload['duration_label']} pada {attendance_date}"
-        f"{f' | {payload['breakdown_label']}' if payload.get('breakdown_label') else ''}"
+        f"{' | ' + breakdown_label if breakdown_label else ''}"
     )
     decision_note = (
         "Lembur otomatis disetujui dari rekap biometric."
