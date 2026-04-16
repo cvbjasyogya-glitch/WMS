@@ -11598,6 +11598,35 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("1j 30m", html)
         self.assertIn("Dipakai pulang lebih awal", html)
 
+    def test_biometric_recap_keeps_employee_visible_from_approved_overtime_history_even_after_master_warehouse_changes(self):
+        self.login_hr_user("hr_overtime_recap_moved", "pass1234")
+        date_value = "2026-09-06"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-MOVED-1",
+            full_name="Ajeng Mutasi Rekap",
+            warehouse_id=1,
+        )
+
+        self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            60,
+            source_type="manual_request",
+            note="Tambah lembur sebelum pindah gudang",
+            status="approved",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute("UPDATE employees SET warehouse_id=? WHERE id=?", (2, employee_id))
+            db.commit()
+
+        response = self.client.get(f"/hris/biometric?warehouse=1&date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ajeng Mutasi Rekap", html)
+        self.assertIn("1j 00m", html)
+
     def test_biometric_page_gracefully_handles_overtime_schema_errors(self):
         self.login_hr_user("hr_overtime_schema_guard", "pass1234")
 

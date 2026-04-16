@@ -3077,6 +3077,41 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         selected_warehouse=selected_warehouse,
     )
     usage_rows = _fetch_overtime_usage_records(db, selected_warehouse=selected_warehouse)
+    employee_index = {
+        int(employee["id"]): dict(employee)
+        for employee in employees
+        if _to_int(employee.get("id"))
+    }
+
+    def absorb_employee_snapshot(source, *, employee_id_key="employee_id"):
+        safe_employee_id = _to_int(source.get(employee_id_key) or source.get("id"))
+        if not safe_employee_id:
+            return
+
+        merged = employee_index.get(safe_employee_id, {"id": safe_employee_id})
+        employee_code = str(source.get("employee_code") or merged.get("employee_code") or "").strip()
+        full_name = str(source.get("full_name") or merged.get("full_name") or "").strip()
+        warehouse_id = _to_int(source.get("warehouse_id") or merged.get("warehouse_id"))
+        warehouse_name = str(source.get("warehouse_name") or merged.get("warehouse_name") or "").strip()
+        employment_status = str(source.get("employment_status") or merged.get("employment_status") or "active").strip().lower()
+
+        merged.update(
+            {
+                "id": safe_employee_id,
+                "employee_code": employee_code or f"EMP-{safe_employee_id}",
+                "full_name": full_name or f"Staff #{safe_employee_id}",
+                "employment_status": employment_status or "active",
+                "warehouse_id": warehouse_id,
+                "warehouse_name": warehouse_name or "-",
+            }
+        )
+        employee_index[safe_employee_id] = merged
+
+    for overtime_add_row in overtime_add_rows:
+        absorb_employee_snapshot(overtime_add_row)
+    for usage_row in usage_rows:
+        absorb_employee_snapshot(usage_row)
+
     overtime_add_by_employee = {}
     for overtime_add_row in overtime_add_rows:
         overtime_add_by_employee.setdefault(overtime_add_row["employee_id"], []).append(overtime_add_row)
@@ -3085,7 +3120,7 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         usage_by_employee.setdefault(usage_row["employee_id"], []).append(usage_row)
 
     recap_rows = []
-    for employee in employees:
+    for employee in employee_index.values():
         ledger_summary = _summarize_overtime_balance_ledger(
             overtime_add_by_employee.get(employee["id"]),
             usage_by_employee.get(employee["id"]),
