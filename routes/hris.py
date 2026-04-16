@@ -195,6 +195,8 @@ DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
 DASHBOARD_SCHEDULE_PREVIEW_LIMIT = 8
 DASHBOARD_ANNOUNCEMENT_LIMIT = 6
 OVERTIME_USAGE_HISTORY_LIMIT = 12
+OVERTIME_BALANCE_CAP_MINUTES = 4 * 60
+OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES = 2 * 60
 
 
 def _to_int(value, default=None):
@@ -1518,15 +1520,131 @@ def _format_duration_minutes_label(total_minutes, zero_label="-"):
 
 def _employee_allows_automatic_overtime(employee_name):
     safe_name = " ".join(str(employee_name or "").strip().lower().split())
-    if not safe_name:
-        return False
-    configured_names = current_app.config.get("AUTOMATIC_OVERTIME_EMPLOYEE_NAMES", [])
-    normalized_names = [
-        " ".join(str(item or "").strip().lower().split())
-        for item in configured_names
-        if str(item or "").strip()
-    ]
-    return any(allowed_name in safe_name for allowed_name in normalized_names)
+    return bool(safe_name)
+
+
+def _normalize_overtime_add_source_type(value):
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"biometric_auto", "manual_request"} else "manual_request"
+
+
+def _normalize_overtime_usage_mode(value):
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"regular", "cashout_all"} else "regular"
+
+
+def _get_overtime_usage_mode_label(value):
+    normalized = _normalize_overtime_usage_mode(value)
+    return "Uangkan Semua Saldo" if normalized == "cashout_all" else "Pakai Jam Lembur"
+
+
+def _get_overtime_week_range(reference_date=None):
+    safe_reference = (
+        reference_date
+        if isinstance(reference_date, date_cls)
+        else _parse_iso_date(reference_date)
+        if reference_date
+        else date_cls.today()
+    )
+    safe_reference = safe_reference or date_cls.today()
+    week_start = safe_reference - timedelta(days=safe_reference.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start, week_end
+
+
+def _sum_pending_overtime_use_minutes_for_week(db, employee_id, reference_date, exclude_request_id=None):
+    safe_employee_id = _to_int(employee_id)
+    if not safe_employee_id:
+        return 0
+
+    scope_warehouse = get_hris_scope()
+    week_start, week_end = _get_overtime_week_range(reference_date)
+    query = """
+        SELECT id, payload
+        FROM attendance_action_requests
+        WHERE request_type='overtime_use'
+          AND employee_id=?
+          AND status='pending'
+    """
+    params = [safe_employee_id]
+    if scope_warehouse:
+        query += " AND warehouse_id=?"
+        params.append(scope_warehouse)
+
+    total_minutes = 0
+    for row in db.execute(query, params).fetchall():
+        if exclude_request_id and _to_int(row["id"]) == _to_int(exclude_request_id):
+            continue
+        payload = parse_attendance_request_payload(row.get("payload"))
+        if _normalize_overtime_usage_mode(payload.get("usage_mode")) == "cashout_all":
+            continue
+        usage_date = _parse_iso_date(payload.get("usage_date"))
+        minutes_used = max(0, _to_int(payload.get("minutes_used"), 0) or 0)
+        if usage_date is not None and week_start <= usage_date <= week_end:
+            total_minutes += minutes_used
+    return total_minutes
+
+
+def _build_weekly_overtime_usage_meta(
+    db,
+    employee_id,
+    reference_date=None,
+    *,
+    include_pending_requests=False,
+    exclude_request_id=None,
+    usage_rows=None,
+):
+    week_start, week_end = _get_overtime_week_range(reference_date)
+    safe_usage_rows = usage_rows if usage_rows is not None else _fetch_overtime_usage_records(db, employee_id=employee_id)
+    used_minutes = 0
+    for row in safe_usage_rows:
+        usage_date = _parse_iso_date(row.get("usage_date"))
+        if usage_date is None or not (week_start <= usage_date <= week_end):
+            continue
+        if _normalize_overtime_usage_mode(row.get("usage_mode")) == "cashout_all":
+            continue
+        used_minutes += max(0, int(row.get("minutes_used") or 0))
+
+    pending_minutes = (
+        _sum_pending_overtime_use_minutes_for_week(
+            db,
+            employee_id,
+            week_start,
+            exclude_request_id=exclude_request_id,
+        )
+        if include_pending_requests
+        else 0
+    )
+    total_committed_minutes = used_minutes + pending_minutes
+    remaining_minutes = max(0, OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES - total_committed_minutes)
+    return {
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "week_label": f"{week_start.isoformat()} s/d {week_end.isoformat()}",
+        "used_minutes": used_minutes,
+        "used_label": _format_duration_minutes_label(used_minutes, zero_label="0 mnt"),
+        "pending_minutes": pending_minutes,
+        "pending_label": _format_duration_minutes_label(pending_minutes, zero_label="0 mnt"),
+        "committed_minutes": total_committed_minutes,
+        "committed_label": _format_duration_minutes_label(total_committed_minutes, zero_label="0 mnt"),
+        "remaining_minutes": remaining_minutes,
+        "remaining_label": _format_duration_minutes_label(remaining_minutes, zero_label="0 mnt"),
+        "limit_minutes": OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES,
+        "limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
+    }
+
+
+def _build_overtime_breakdown_label(early_overtime_seconds, late_overtime_seconds):
+    segments = []
+    if early_overtime_seconds > 0:
+        segments.append(
+            f"Masuk lebih awal {_format_break_duration_label(early_overtime_seconds, has_break_activity=True)}"
+        )
+    if late_overtime_seconds > 0:
+        segments.append(
+            f"Pulang lewat shift {_format_break_duration_label(late_overtime_seconds, has_break_activity=True)}"
+        )
+    return " + ".join(segments)
 
 
 def _summarize_overtime_activity(check_in_time, check_out_time, shift_label, minimum_seconds=3600):
@@ -1552,10 +1670,14 @@ def _summarize_overtime_activity(check_in_time, check_out_time, shift_label, min
 
     overtime_seconds = early_overtime_seconds + late_overtime_seconds
     qualifies = overtime_seconds >= int(max(0, minimum_seconds or 0))
+    breakdown_label = _build_overtime_breakdown_label(early_overtime_seconds, late_overtime_seconds)
     return {
         "qualifies": qualifies,
         "total_seconds": overtime_seconds if qualifies else 0,
         "duration_label": _format_break_duration_label(overtime_seconds, has_break_activity=True) if qualifies else "-",
+        "early_seconds": early_overtime_seconds,
+        "late_seconds": late_overtime_seconds,
+        "breakdown_label": breakdown_label if qualifies else "",
     }
 
 
@@ -2309,6 +2431,7 @@ def _fetch_overtime_recap_employees(db, selected_warehouse=None):
 def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None, limit=None):
     scope_warehouse = get_hris_scope()
     safe_warehouse = scope_warehouse or selected_warehouse
+    usage_columns = _get_table_columns(db, "overtime_usage_records")
     query = """
         SELECT
             o.*,
@@ -2339,6 +2462,10 @@ def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None,
 
     usage_rows = [dict(row) for row in db.execute(query, params).fetchall()]
     for row in usage_rows:
+        row["usage_mode"] = _normalize_overtime_usage_mode(
+            row.get("usage_mode") if "usage_mode" in usage_columns else "regular"
+        )
+        row["usage_mode_label"] = _get_overtime_usage_mode_label(row["usage_mode"])
         row["minutes_used"] = max(0, int(row.get("minutes_used") or 0))
         row["duration_label"] = _format_duration_minutes_label(row["minutes_used"])
         row["handled_by_name"] = row.get("handled_by_name") or "-"
@@ -2386,8 +2513,192 @@ def _fetch_overtime_balance_adjustment_records(db, selected_warehouse=None, empl
     return adjustment_rows
 
 
+def _fetch_overtime_add_request_records(
+    db,
+    *,
+    status="approved",
+    selected_warehouse=None,
+    employee_id=None,
+    employee_ids=None,
+    limit=None,
+):
+    scope_warehouse = get_hris_scope()
+    safe_warehouse = scope_warehouse or selected_warehouse
+    normalized_status = str(status or "all").strip().lower()
+    safe_employee_ids = [int(item) for item in (employee_ids or []) if _to_int(item)]
+    query = """
+        SELECT
+            r.*,
+            e.employee_code,
+            e.full_name,
+            w.name AS warehouse_name,
+            ru.username AS requested_by_name,
+            hu.username AS handled_by_name
+        FROM attendance_action_requests r
+        LEFT JOIN employees e ON e.id = r.employee_id
+        LEFT JOIN warehouses w ON w.id = r.warehouse_id
+        LEFT JOIN users ru ON ru.id = r.requested_by
+        LEFT JOIN users hu ON hu.id = r.handled_by
+        WHERE r.request_type='overtime_add'
+    """
+    params = []
+
+    if normalized_status in {"pending", "approved", "rejected", "cancelled"}:
+        query += " AND r.status=?"
+        params.append(normalized_status)
+
+    if safe_warehouse:
+        query += " AND r.warehouse_id=?"
+        params.append(safe_warehouse)
+
+    if employee_id:
+        query += " AND r.employee_id=?"
+        params.append(employee_id)
+    elif safe_employee_ids:
+        placeholders = ",".join("?" for _ in safe_employee_ids)
+        query += f" AND r.employee_id IN ({placeholders})"
+        params.extend(safe_employee_ids)
+
+    query += " ORDER BY COALESCE(r.handled_at, r.created_at) DESC, r.id DESC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(int(max(1, limit)))
+
+    request_rows = []
+    for row in db.execute(query, params).fetchall():
+        record = dict(row)
+        payload_map = parse_attendance_request_payload(record.get("payload"))
+        record["payload_map"] = payload_map
+        record["minutes_delta"] = max(0, _to_int(payload_map.get("minutes_delta"), 0) or 0)
+        record["duration_label"] = _format_duration_minutes_label(record["minutes_delta"], zero_label="0 mnt")
+        record["source_type"] = _normalize_overtime_add_source_type(payload_map.get("source_type"))
+        record["attendance_date"] = (
+            str(payload_map.get("attendance_date") or payload_map.get("adjustment_date") or "").strip()
+        )
+        request_rows.append(record)
+    return request_rows
+
+
+def _get_biometric_overtime_request_status_meta(status):
+    normalized = str(status or "").strip().lower()
+    if normalized == "approved":
+        return {
+            "label": "Approved",
+            "badge_class": "green",
+            "helper_text": "Sudah masuk ke saldo lembur.",
+        }
+    if normalized == "rejected":
+        return {
+            "label": "Declined",
+            "badge_class": "red",
+            "helper_text": "Tidak ditambahkan ke saldo lembur.",
+        }
+    if normalized == "pending":
+        return {
+            "label": "Pending",
+            "badge_class": "orange",
+            "helper_text": "Masih menunggu keputusan HR / Super Admin.",
+        }
+    return {
+        "label": "-",
+        "badge_class": "",
+        "helper_text": "",
+    }
+
+
+def _build_biometric_auto_overtime_payload(employee, attendance_date, check_in_time, check_out_time, shift_label, overtime_summary):
+    employee_record = dict(employee or {})
+    safe_attendance_date = str(attendance_date or "").strip()
+    total_seconds = max(0, int(overtime_summary.get("total_seconds") or 0))
+    minutes_delta = total_seconds // 60
+    breakdown_label = str(overtime_summary.get("breakdown_label") or "").strip()
+    note_segments = [f"Lembur otomatis {safe_attendance_date}"]
+    if breakdown_label:
+        note_segments.append(breakdown_label)
+    if check_in_time or check_out_time:
+        note_segments.append(
+            f"Check in {check_in_time or '-'} | Check out {check_out_time or '-'}"
+        )
+    if shift_label:
+        note_segments.append(f"Shift {shift_label}")
+    note_text = " | ".join(segment for segment in note_segments if segment)
+    return {
+        "source_type": "biometric_auto",
+        "employee_id": employee_record.get("id"),
+        "employee_name": employee_record.get("full_name"),
+        "warehouse_id": employee_record.get("warehouse_id"),
+        "attendance_date": safe_attendance_date,
+        "adjustment_date": safe_attendance_date,
+        "minutes_delta": minutes_delta,
+        "duration_label": overtime_summary.get("duration_label") or _format_duration_minutes_label(minutes_delta),
+        "check_in_time": check_in_time or "",
+        "check_out_time": check_out_time or "",
+        "shift_label": shift_label or "",
+        "early_seconds": max(0, int(overtime_summary.get("early_seconds") or 0)),
+        "late_seconds": max(0, int(overtime_summary.get("late_seconds") or 0)),
+        "breakdown_label": breakdown_label,
+        "note": note_text,
+    }
+
+
+def _build_biometric_overtime_request_index(db, employee_ids=None, attendance_dates=None):
+    safe_employee_ids = [int(item) for item in (employee_ids or []) if _to_int(item)]
+    safe_dates = {str(item or "").strip() for item in (attendance_dates or []) if str(item or "").strip()}
+    request_rows = _fetch_overtime_add_request_records(
+        db,
+        status="all",
+        employee_ids=safe_employee_ids,
+    )
+    request_index = {}
+    for row in request_rows:
+        if row.get("source_type") != "biometric_auto":
+            continue
+        attendance_date = str(row.get("attendance_date") or "").strip()
+        if safe_dates and attendance_date not in safe_dates:
+            continue
+        employee_id = _to_int(row.get("employee_id"))
+        if not employee_id or not attendance_date:
+            continue
+        request_index.setdefault((employee_id, attendance_date), row)
+    return request_index
+
+
+def _get_biometric_attendance_record(db, employee_id, attendance_date):
+    safe_employee_id = _to_int(employee_id)
+    safe_attendance_date = str(attendance_date or "").strip()
+    if not safe_employee_id or not safe_attendance_date:
+        return None
+
+    attendance_columns = _get_table_columns(db, "attendance_records")
+    if not {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
+        return None
+
+    query = """
+        SELECT
+            id,
+            employee_id,
+            warehouse_id,
+            attendance_date,
+            check_in,
+            check_out,
+            status,
+            shift_code,
+            shift_label
+        FROM attendance_records
+        WHERE employee_id=? AND attendance_date=?
+    """
+    params = [safe_employee_id, safe_attendance_date]
+    scope_warehouse = get_hris_scope()
+    if scope_warehouse and "warehouse_id" in attendance_columns:
+        query += " AND warehouse_id=?"
+        params.append(scope_warehouse)
+    query += " ORDER BY id DESC LIMIT 1"
+    return db.execute(query, params).fetchone()
+
+
 def _get_overtime_usage_by_id(db, usage_id):
     scope_warehouse = get_hris_scope()
+    usage_columns = _get_table_columns(db, "overtime_usage_records")
     query = """
         SELECT
             o.*,
@@ -2405,211 +2716,300 @@ def _get_overtime_usage_by_id(db, usage_id):
         query += " AND o.warehouse_id=?"
         params.append(scope_warehouse)
 
-    return db.execute(query, params).fetchone()
+    row = db.execute(query, params).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    record["usage_mode"] = _normalize_overtime_usage_mode(
+        record.get("usage_mode") if "usage_mode" in usage_columns else "regular"
+    )
+    record["usage_mode_label"] = _get_overtime_usage_mode_label(record["usage_mode"])
+    return record
 
 
-def _build_employee_overtime_balance(db, employee_id):
-    employee = db.execute(
-        "SELECT full_name FROM employees WHERE id=?",
-        (employee_id,),
-    ).fetchone()
-    if not _employee_allows_automatic_overtime(employee["full_name"] if employee else ""):
-        attendance_rows = []
-    else:
-        attendance_columns = _get_table_columns(db, "attendance_records")
-        if not {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
-            attendance_rows = []
+def _summarize_overtime_balance_ledger(
+    overtime_add_rows=None,
+    usage_rows=None,
+    *,
+    period_date_from=None,
+    period_date_to=None,
+):
+    safe_overtime_add_rows = overtime_add_rows or []
+    safe_usage_rows = usage_rows or []
+    raw_earned_minutes = 0
+    raw_added_minutes = 0
+    raw_used_minutes = 0
+    earned_total_minutes = 0
+    added_total_minutes = 0
+    used_total_minutes = 0
+    earned_period_minutes = 0
+    added_period_minutes = 0
+    used_period_minutes = 0
+    capped_credit_minutes = 0
+    excess_usage_minutes = 0
+    last_overtime_date = ""
+    last_adjustment_date = ""
+    last_usage_date = ""
+    events = []
+
+    for row in safe_overtime_add_rows:
+        source_type = _normalize_overtime_add_source_type(row.get("source_type"))
+        minutes_delta = max(0, int(row.get("minutes_delta") or 0))
+        activity_date = str(row.get("attendance_date") or row.get("adjustment_date") or "").strip()
+        if source_type == "biometric_auto":
+            raw_earned_minutes += minutes_delta
+            if activity_date > last_overtime_date:
+                last_overtime_date = activity_date
         else:
-            attendance_select = [
-                "attendance_date",
-                "check_in",
-                "check_out",
-                ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
-            ]
-            attendance_query = f"""
-                SELECT {", ".join(attendance_select)}
-                FROM attendance_records
-                WHERE employee_id=?
-                  AND (COALESCE(check_in, '') <> '' OR COALESCE(check_out, '') <> '')
-            """
-            if "shift_label" in attendance_columns:
-                attendance_query += " AND COALESCE(shift_label, '') <> ''"
-            else:
-                attendance_query += " AND 1=0"
-            attendance_query += " ORDER BY attendance_date ASC, id ASC"
-            attendance_rows = db.execute(attendance_query, (employee_id,)).fetchall()
-    adjustment_rows = _fetch_overtime_balance_adjustment_records(db, employee_id=employee_id)
-    usage_rows = _fetch_overtime_usage_records(db, employee_id=employee_id)
+            raw_added_minutes += minutes_delta
+            if activity_date > last_adjustment_date:
+                last_adjustment_date = activity_date
 
-    earned_seconds = 0
-    for row in attendance_rows:
-        overtime_summary = _summarize_overtime_activity(
-            row["check_in"],
-            row["check_out"],
-            row["shift_label"],
+        event_timestamp = _normalize_datetime_input(
+            row.get("handled_at") or row.get("updated_at") or row.get("created_at")
         )
-        earned_seconds += overtime_summary["total_seconds"]
+        if not event_timestamp and activity_date:
+            event_timestamp = f"{activity_date} 00:00:00"
 
-    added_minutes = sum(max(0, int(row.get("minutes_delta") or 0)) for row in adjustment_rows)
+        events.append(
+            {
+                "kind": "credit",
+                "id": int(row.get("id") or 0),
+                "minutes": minutes_delta,
+                "source_type": source_type,
+                "activity_date": activity_date,
+                "event_timestamp": event_timestamp or "",
+            }
+        )
+
+    for row in safe_usage_rows:
+        minutes_used = max(0, int(row.get("minutes_used") or 0))
+        usage_date = str(row.get("usage_date") or "").strip()
+        raw_used_minutes += minutes_used
+        if usage_date > last_usage_date:
+            last_usage_date = usage_date
+
+        event_timestamp = _normalize_datetime_input(row.get("updated_at") or row.get("created_at"))
+        if not event_timestamp and usage_date:
+            event_timestamp = f"{usage_date} 00:00:00"
+
+        events.append(
+            {
+                "kind": "usage",
+                "id": int(row.get("id") or 0),
+                "minutes": minutes_used,
+                "activity_date": usage_date,
+                "event_timestamp": event_timestamp or "",
+            }
+        )
+
+    events.sort(
+        key=lambda event: (
+            event.get("event_timestamp") or "",
+            event.get("activity_date") or "",
+            0 if event.get("kind") == "credit" else 1,
+            int(event.get("id") or 0),
+        )
+    )
+
+    available_minutes = 0
+    for event in events:
+        activity_date = event.get("activity_date") or ""
+        is_in_period = _is_iso_date_within_range(activity_date, period_date_from, period_date_to)
+        if event.get("kind") == "credit":
+            credit_minutes = max(0, int(event.get("minutes") or 0))
+            remaining_capacity = max(0, OVERTIME_BALANCE_CAP_MINUTES - available_minutes)
+            applied_minutes = min(credit_minutes, remaining_capacity)
+            capped_credit_minutes += max(0, credit_minutes - applied_minutes)
+            if applied_minutes > 0:
+                available_minutes += applied_minutes
+                if event.get("source_type") == "biometric_auto":
+                    earned_total_minutes += applied_minutes
+                    if is_in_period:
+                        earned_period_minutes += applied_minutes
+                else:
+                    added_total_minutes += applied_minutes
+                    if is_in_period:
+                        added_period_minutes += applied_minutes
+            continue
+
+        usage_minutes = max(0, int(event.get("minutes") or 0))
+        applied_minutes = min(available_minutes, usage_minutes)
+        excess_usage_minutes += max(0, usage_minutes - applied_minutes)
+        if applied_minutes > 0:
+            available_minutes = max(0, available_minutes - applied_minutes)
+            used_total_minutes += applied_minutes
+            if is_in_period:
+                used_period_minutes += applied_minutes
+
+    return {
+        "raw_earned_minutes": raw_earned_minutes,
+        "raw_added_minutes": raw_added_minutes,
+        "raw_used_minutes": raw_used_minutes,
+        "raw_available_minutes": max(0, raw_earned_minutes + raw_added_minutes - raw_used_minutes),
+        "earned_total_minutes": earned_total_minutes,
+        "added_total_minutes": added_total_minutes,
+        "used_total_minutes": used_total_minutes,
+        "earned_period_minutes": earned_period_minutes,
+        "added_period_minutes": added_period_minutes,
+        "used_period_minutes": used_period_minutes,
+        "available_minutes": available_minutes,
+        "capped_credit_minutes": capped_credit_minutes,
+        "excess_usage_minutes": excess_usage_minutes,
+        "last_overtime_date": last_overtime_date,
+        "last_adjustment_date": last_adjustment_date,
+        "last_usage_date": last_usage_date,
+        "has_activity": bool(events),
+    }
+
+
+def _build_employee_overtime_balance(db, employee_id, reference_date=None, *, include_pending_weekly_usage=False):
+    overtime_add_rows = _fetch_overtime_add_request_records(
+        db,
+        status="approved",
+        employee_id=employee_id,
+    )
+    usage_rows = _fetch_overtime_usage_records(db, employee_id=employee_id)
+    ledger_summary = _summarize_overtime_balance_ledger(overtime_add_rows, usage_rows)
+    earned_minutes = ledger_summary["earned_total_minutes"]
+    added_minutes = ledger_summary["added_total_minutes"]
+    earned_seconds = earned_minutes * 60
     added_seconds = added_minutes * 60
-    used_minutes = sum(max(0, int(row.get("minutes_used") or 0)) for row in usage_rows)
+    used_minutes = ledger_summary["used_total_minutes"]
     used_seconds = used_minutes * 60
-    available_seconds = max(0, earned_seconds + added_seconds - used_seconds)
+    raw_available_minutes = ledger_summary["raw_available_minutes"]
+    available_minutes = ledger_summary["available_minutes"]
+    available_seconds = available_minutes * 60
+    weekly_meta = _build_weekly_overtime_usage_meta(
+        db,
+        employee_id,
+        reference_date=reference_date,
+        include_pending_requests=include_pending_weekly_usage,
+        usage_rows=usage_rows,
+    )
     return {
         "earned_seconds": earned_seconds,
         "added_seconds": added_seconds,
         "added_minutes": added_minutes,
         "used_seconds": used_seconds,
         "used_minutes": used_minutes,
+        "raw_earned_minutes": ledger_summary["raw_earned_minutes"],
+        "raw_added_minutes": ledger_summary["raw_added_minutes"],
+        "raw_used_minutes": ledger_summary["raw_used_minutes"],
+        "raw_available_minutes": raw_available_minutes,
         "available_seconds": available_seconds,
-        "available_minutes": available_seconds // 60,
+        "available_minutes": available_minutes,
         "earned_label": _format_duration_minutes_label(earned_seconds // 60, zero_label="0 mnt"),
         "added_label": _format_duration_minutes_label(added_minutes, zero_label="0 mnt"),
         "used_label": _format_duration_minutes_label(used_minutes, zero_label="0 mnt"),
-        "available_label": _format_duration_minutes_label(available_seconds // 60, zero_label="0 mnt"),
+        "available_label": _format_duration_minutes_label(available_minutes, zero_label="0 mnt"),
+        "capped_credit_minutes": ledger_summary["capped_credit_minutes"],
+        "capped_credit_label": _format_duration_minutes_label(
+            ledger_summary["capped_credit_minutes"],
+            zero_label="0 mnt",
+        ),
+        "balance_cap_minutes": OVERTIME_BALANCE_CAP_MINUTES,
+        "balance_cap_label": _format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES),
+        "remaining_capacity_minutes": max(0, OVERTIME_BALANCE_CAP_MINUTES - available_minutes),
+        "remaining_capacity_label": _format_duration_minutes_label(
+            max(0, OVERTIME_BALANCE_CAP_MINUTES - available_minutes),
+            zero_label="0 mnt",
+        ),
+        "weekly_used_minutes": weekly_meta["used_minutes"],
+        "weekly_used_label": weekly_meta["used_label"],
+        "weekly_pending_minutes": weekly_meta["pending_minutes"],
+        "weekly_pending_label": weekly_meta["pending_label"],
+        "weekly_committed_minutes": weekly_meta["committed_minutes"],
+        "weekly_committed_label": weekly_meta["committed_label"],
+        "weekly_remaining_minutes": weekly_meta["remaining_minutes"],
+        "weekly_remaining_label": weekly_meta["remaining_label"],
+        "weekly_limit_minutes": weekly_meta["limit_minutes"],
+        "weekly_limit_label": weekly_meta["limit_label"],
+        "weekly_period_label": weekly_meta["week_label"],
     }
 
 
 def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, period_date_to=None):
     employees = _fetch_overtime_recap_employees(db, selected_warehouse)
-    employee_map = {
-        employee["id"]: {
-            **employee,
-            "earned_total_seconds": 0,
-            "earned_period_seconds": 0,
-            "added_total_seconds": 0,
-            "added_period_seconds": 0,
-            "used_total_seconds": 0,
-            "used_period_seconds": 0,
-            "last_overtime_date": "",
-            "last_adjustment_date": "",
-            "last_usage_date": "",
-        }
-        for employee in employees
-    }
-
-    if employee_map:
-        attendance_columns = _get_table_columns(db, "attendance_records")
-        if {"employee_id", "attendance_date", "check_in", "check_out"}.issubset(attendance_columns):
-            attendance_select = [
-                "employee_id",
-                "attendance_date",
-                "check_in",
-                "check_out",
-                ("shift_label" if "shift_label" in attendance_columns else "NULL AS shift_label"),
-            ]
-            attendance_query = f"""
-                SELECT {", ".join(attendance_select)}
-                FROM attendance_records
-                WHERE (COALESCE(check_in, '') <> '' OR COALESCE(check_out, '') <> '')
-            """
-            attendance_params = []
-            if "shift_label" in attendance_columns:
-                attendance_query += " AND COALESCE(shift_label, '') <> ''"
-            else:
-                attendance_query += " AND 1=0"
-            if selected_warehouse and "warehouse_id" in attendance_columns:
-                attendance_query += " AND warehouse_id=?"
-                attendance_params.append(selected_warehouse)
-            attendance_query += " ORDER BY attendance_date ASC, id ASC"
-
-            for row in db.execute(attendance_query, attendance_params).fetchall():
-                recap_row = employee_map.get(row["employee_id"])
-                if recap_row is None:
-                    continue
-                if not _employee_allows_automatic_overtime(recap_row.get("full_name")):
-                    continue
-
-                overtime_summary = _summarize_overtime_activity(
-                    row["check_in"],
-                    row["check_out"],
-                    row["shift_label"],
-                )
-                overtime_seconds = overtime_summary["total_seconds"]
-                if overtime_seconds <= 0:
-                    continue
-
-                recap_row["earned_total_seconds"] += overtime_seconds
-                if _is_iso_date_within_range(row["attendance_date"], period_date_from, period_date_to):
-                    recap_row["earned_period_seconds"] += overtime_seconds
-                if row["attendance_date"] > recap_row["last_overtime_date"]:
-                    recap_row["last_overtime_date"] = row["attendance_date"]
-
-    adjustment_rows = _fetch_overtime_balance_adjustment_records(db, selected_warehouse=selected_warehouse)
-    for adjustment_row in adjustment_rows:
-        recap_row = employee_map.get(adjustment_row["employee_id"])
-        if recap_row is None:
-            continue
-
-        adjustment_seconds = adjustment_row["minutes_delta"] * 60
-        recap_row["added_total_seconds"] += adjustment_seconds
-        if _is_iso_date_within_range(adjustment_row["adjustment_date"], period_date_from, period_date_to):
-            recap_row["added_period_seconds"] += adjustment_seconds
-        if adjustment_row["adjustment_date"] > recap_row["last_adjustment_date"]:
-            recap_row["last_adjustment_date"] = adjustment_row["adjustment_date"]
-
+    overtime_add_rows = _fetch_overtime_add_request_records(
+        db,
+        status="approved",
+        selected_warehouse=selected_warehouse,
+    )
     usage_rows = _fetch_overtime_usage_records(db, selected_warehouse=selected_warehouse)
+    overtime_add_by_employee = {}
+    for overtime_add_row in overtime_add_rows:
+        overtime_add_by_employee.setdefault(overtime_add_row["employee_id"], []).append(overtime_add_row)
+    usage_by_employee = {}
     for usage_row in usage_rows:
-        recap_row = employee_map.get(usage_row["employee_id"])
-        if recap_row is None:
-            continue
-
-        used_seconds = usage_row["minutes_used"] * 60
-        recap_row["used_total_seconds"] += used_seconds
-        if _is_iso_date_within_range(usage_row["usage_date"], period_date_from, period_date_to):
-            recap_row["used_period_seconds"] += used_seconds
-        if usage_row["usage_date"] > recap_row["last_usage_date"]:
-            recap_row["last_usage_date"] = usage_row["usage_date"]
+        usage_by_employee.setdefault(usage_row["employee_id"], []).append(usage_row)
 
     recap_rows = []
-    for recap_row in employee_map.values():
-        raw_available_seconds = (
-            recap_row["earned_total_seconds"]
-            + recap_row["added_total_seconds"]
-            - recap_row["used_total_seconds"]
+    for employee in employees:
+        ledger_summary = _summarize_overtime_balance_ledger(
+            overtime_add_by_employee.get(employee["id"]),
+            usage_by_employee.get(employee["id"]),
+            period_date_from=period_date_from,
+            period_date_to=period_date_to,
         )
-        available_seconds = max(0, raw_available_seconds)
-        available_minutes = available_seconds // 60
-        if (
-            recap_row["earned_total_seconds"] <= 0
-            and recap_row["added_total_seconds"] <= 0
-            and recap_row["used_total_seconds"] <= 0
-        ):
+        earned_total_seconds = ledger_summary["earned_total_minutes"] * 60
+        earned_period_seconds = ledger_summary["earned_period_minutes"] * 60
+        added_total_seconds = ledger_summary["added_total_minutes"] * 60
+        added_period_seconds = ledger_summary["added_period_minutes"] * 60
+        used_total_seconds = ledger_summary["used_total_minutes"] * 60
+        used_period_seconds = ledger_summary["used_period_minutes"] * 60
+        available_minutes = ledger_summary["available_minutes"]
+        available_seconds = available_minutes * 60
+        if not ledger_summary["has_activity"]:
             continue
         recap_rows.append(
             {
-                **recap_row,
+                **employee,
+                "earned_total_seconds": earned_total_seconds,
+                "earned_period_seconds": earned_period_seconds,
+                "added_total_seconds": added_total_seconds,
+                "added_period_seconds": added_period_seconds,
+                "used_total_seconds": used_total_seconds,
+                "used_period_seconds": used_period_seconds,
+                "last_overtime_date": ledger_summary["last_overtime_date"],
+                "last_adjustment_date": ledger_summary["last_adjustment_date"],
+                "last_usage_date": ledger_summary["last_usage_date"],
                 "earned_total_label": _format_break_duration_label(
-                    recap_row["earned_total_seconds"],
-                    has_break_activity=recap_row["earned_total_seconds"] > 0,
+                    earned_total_seconds,
+                    has_break_activity=earned_total_seconds > 0,
                 ),
                 "earned_period_label": _format_break_duration_label(
-                    recap_row["earned_period_seconds"],
-                    has_break_activity=recap_row["earned_period_seconds"] > 0,
+                    earned_period_seconds,
+                    has_break_activity=earned_period_seconds > 0,
                 ),
                 "added_total_label": _format_break_duration_label(
-                    recap_row["added_total_seconds"],
-                    has_break_activity=recap_row["added_total_seconds"] > 0,
+                    added_total_seconds,
+                    has_break_activity=added_total_seconds > 0,
                 ),
                 "added_period_label": _format_break_duration_label(
-                    recap_row["added_period_seconds"],
-                    has_break_activity=recap_row["added_period_seconds"] > 0,
+                    added_period_seconds,
+                    has_break_activity=added_period_seconds > 0,
                 ),
                 "used_total_label": _format_break_duration_label(
-                    recap_row["used_total_seconds"],
-                    has_break_activity=recap_row["used_total_seconds"] > 0,
+                    used_total_seconds,
+                    has_break_activity=used_total_seconds > 0,
                 ),
                 "used_period_label": _format_break_duration_label(
-                    recap_row["used_period_seconds"],
-                    has_break_activity=recap_row["used_period_seconds"] > 0,
+                    used_period_seconds,
+                    has_break_activity=used_period_seconds > 0,
                 ),
                 "available_seconds": available_seconds,
                 "available_minutes": available_minutes,
                 "available_label": _format_duration_minutes_label(available_minutes, zero_label="0 mnt"),
                 "has_available_balance": available_seconds > 0,
-                "latest_activity_date": recap_row["last_usage_date"] or recap_row["last_adjustment_date"] or recap_row["last_overtime_date"] or "-",
+                "latest_activity_date": (
+                    ledger_summary["last_usage_date"]
+                    or ledger_summary["last_adjustment_date"]
+                    or ledger_summary["last_overtime_date"]
+                    or "-"
+                ),
                 "usage_hint_label": (
-                    f"Maks { _format_duration_minutes_label(available_minutes, zero_label='0 mnt') }"
+                    f"Saldo maks {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)} | Pakai reguler maks {_format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES)} / minggu"
                     if available_seconds > 0
                     else "Belum ada saldo"
                 ),
@@ -3078,6 +3478,7 @@ def _apply_attendance_request(db, request_row):
         adjustment_date = _parse_iso_date(payload.get("adjustment_date"))
         minutes_delta = _to_int(payload.get("minutes_delta"), default=None)
         note = str(payload.get("note") or "").strip()
+        source_type = _normalize_overtime_add_source_type(payload.get("source_type"))
         employee = _get_accessible_employee(db, employee_id)
         if employee is None:
             raise ValueError("Staff untuk penambahan lembur tidak ditemukan.")
@@ -3086,70 +3487,153 @@ def _apply_attendance_request(db, request_row):
             raise ValueError("Tanggal penambahan lembur tidak valid.")
         if minutes_delta is None or minutes_delta <= 0:
             raise ValueError("Durasi penambahan lembur tidak valid.")
-        db.execute(
-            """
-            INSERT INTO overtime_balance_adjustments(
-                employee_id,
-                warehouse_id,
-                adjustment_date,
-                minutes_delta,
-                note,
-                handled_by,
-                updated_at
+        requested_minutes_delta = minutes_delta
+        current_balance = _build_employee_overtime_balance(db, employee["id"])
+        remaining_capacity_minutes = max(0, OVERTIME_BALANCE_CAP_MINUTES - int(current_balance["available_minutes"] or 0))
+        minutes_delta = min(requested_minutes_delta, remaining_capacity_minutes)
+        credited_duration_label = _format_duration_minutes_label(minutes_delta, zero_label="0 mnt")
+        requested_duration_label = _format_duration_minutes_label(requested_minutes_delta)
+        updated_payload = dict(payload)
+        updated_payload["minutes_delta"] = minutes_delta
+        updated_payload["duration_label"] = credited_duration_label
+        if minutes_delta < requested_minutes_delta:
+            updated_payload["requested_minutes_delta"] = requested_minutes_delta
+            updated_payload["requested_duration_label"] = requested_duration_label
+            updated_payload["cap_notice"] = (
+                f"Saldo lembur dibatasi maksimal {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}."
             )
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            (
-                employee["id"],
-                employee["warehouse_id"],
-                adjustment_date.isoformat(),
-                minutes_delta,
-                note,
-                session.get("user_id"),
-                _current_timestamp(),
-            ),
-        )
-        return f"Penambahan lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_delta)} berhasil diterapkan."
+        breakdown_label = str(updated_payload.get("breakdown_label") or "").strip()
+        summary_segments = [f"{credited_duration_label} pada {adjustment_date.isoformat()}"]
+        if breakdown_label:
+            summary_segments.append(breakdown_label)
+        if minutes_delta < requested_minutes_delta:
+            summary_segments.append(
+                f"Request awal {requested_duration_label}, masuk {credited_duration_label} karena batas saldo {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}"
+            )
+        if request_row.get("id"):
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET payload=?,
+                    summary_note=?,
+                    updated_at=?
+                WHERE id=?
+                """,
+                (
+                    json.dumps(updated_payload, sort_keys=True, ensure_ascii=True),
+                    " | ".join(segment for segment in summary_segments if segment),
+                    _current_timestamp(),
+                    request_row["id"],
+                ),
+            )
+        if minutes_delta > 0:
+            db.execute(
+                """
+                INSERT INTO overtime_balance_adjustments(
+                    employee_id,
+                    warehouse_id,
+                    adjustment_date,
+                    minutes_delta,
+                    note,
+                    handled_by,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    employee["id"],
+                    employee["warehouse_id"],
+                    adjustment_date.isoformat(),
+                    minutes_delta,
+                    note,
+                    session.get("user_id"),
+                    _current_timestamp(),
+                ),
+            )
+        if source_type == "biometric_auto":
+            if minutes_delta <= 0:
+                return (
+                    f"Lembur otomatis {employee['full_name']} tidak menambah saldo karena jatah maksimal "
+                    f"{_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)} sudah penuh."
+                )
+            if minutes_delta < requested_minutes_delta:
+                return (
+                    f"Lembur otomatis {employee['full_name']} hanya {credited_duration_label} yang masuk ke saldo "
+                    f"karena jatah maksimal {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}."
+                )
+            return f"Lembur otomatis {employee['full_name']} sebesar {credited_duration_label} berhasil masuk ke saldo."
+        if minutes_delta <= 0:
+            return (
+                f"Penambahan lembur {employee['full_name']} tidak menambah saldo karena jatah maksimal "
+                f"{_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)} sudah penuh."
+            )
+        if minutes_delta < requested_minutes_delta:
+            return (
+                f"Penambahan lembur {employee['full_name']} hanya {credited_duration_label} yang masuk "
+                f"karena jatah maksimal {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}."
+            )
+        return f"Penambahan lembur {employee['full_name']} sebesar {credited_duration_label} berhasil diterapkan."
 
     if request_type == "overtime_use":
         employee_id = _to_int(payload.get("employee_id"))
         usage_date = _parse_iso_date(payload.get("usage_date"))
         minutes_used = _to_int(payload.get("minutes_used"), default=None)
         note = str(payload.get("note") or "").strip()
+        usage_mode = _normalize_overtime_usage_mode(payload.get("usage_mode"))
         employee = _get_accessible_employee(db, employee_id)
         if employee is None:
             raise ValueError("Staff untuk pengurangan lembur tidak ditemukan.")
         employee = dict(employee)
         if usage_date is None:
             raise ValueError("Tanggal pengurangan lembur tidak valid.")
-        if minutes_used is None or minutes_used <= 0:
-            raise ValueError("Durasi pengurangan lembur tidak valid.")
         overtime_balance = _build_employee_overtime_balance(db, employee["id"])
+        if usage_mode == "cashout_all":
+            if minutes_used is None or minutes_used <= 0:
+                minutes_used = int(overtime_balance["available_minutes"] or 0)
+            if minutes_used <= 0:
+                raise ValueError("Saldo lembur saat ini kosong, jadi tidak ada yang bisa diuangkan.")
+        elif minutes_used is None or minutes_used <= 0:
+            raise ValueError("Durasi pengurangan lembur tidak valid.")
         if minutes_used > overtime_balance["available_minutes"]:
             raise ValueError("Saldo lembur saat ini tidak cukup untuk request tersebut.")
+        if usage_mode != "cashout_all":
+            weekly_usage_meta = _build_weekly_overtime_usage_meta(
+                db,
+                employee["id"],
+                reference_date=usage_date,
+            )
+            if minutes_used > weekly_usage_meta["remaining_minutes"]:
+                raise ValueError(
+                    f"Pemakaian lembur reguler maksimal {weekly_usage_meta['limit_label']} per minggu. "
+                    f"Sisa minggu ini hanya {weekly_usage_meta['remaining_label']} untuk periode {weekly_usage_meta['week_label']}."
+                )
         db.execute(
             """
             INSERT INTO overtime_usage_records(
                 employee_id,
                 warehouse_id,
                 usage_date,
+                usage_mode,
                 minutes_used,
                 note,
                 handled_by,
                 updated_at
             )
-            VALUES (?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             (
                 employee["id"],
                 employee["warehouse_id"],
                 usage_date.isoformat(),
+                usage_mode,
                 minutes_used,
                 note,
                 session.get("user_id"),
                 _current_timestamp(),
             ),
         )
+        if usage_mode == "cashout_all":
+            return f"Saldo lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_used)} berhasil diuangkan."
         return f"Pengurangan lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_used)} berhasil diterapkan."
 
     if request_type == "overtime_usage_delete":
@@ -5351,6 +5835,12 @@ def _build_biometric_recap_rows(db, biometric_logs):
         return []
 
     attendance_map = {}
+    overtime_request_index = _build_biometric_overtime_request_index(
+        db,
+        employee_ids=sorted(employee_ids),
+        attendance_dates=sorted(dates),
+    )
+    can_manage_overtime_approval = can_manage_attendance_request_approvals(session.get("role"))
     attendance_columns = _get_table_columns(db, "attendance_records")
     biometric_columns = _get_table_columns(db, "biometric_logs")
     required_columns = {"employee_id", "attendance_date"}
@@ -5467,9 +5957,26 @@ def _build_biometric_recap_rows(db, biometric_logs):
             or (check_out_log["punch_time"][11:16] if check_out_log else "")
         )
         overtime_summary = _summarize_overtime_activity(
-            attendance_check_in_value if _employee_allows_automatic_overtime(latest_log["full_name"]) else "",
-            attendance_check_out_value if _employee_allows_automatic_overtime(latest_log["full_name"]) else "",
-            current_shift_label if _employee_allows_automatic_overtime(latest_log["full_name"]) else "",
+            attendance_check_in_value,
+            attendance_check_out_value,
+            current_shift_label,
+        )
+        overtime_request = overtime_request_index.get((employee_id, attendance_date)) if overtime_summary["qualifies"] else None
+        overtime_request_status = str((overtime_request or {}).get("status") or "").strip().lower()
+        overtime_request_meta = (
+            _get_biometric_overtime_request_status_meta(overtime_request_status)
+            if overtime_request_status in {"approved", "rejected", "pending"}
+            else {
+                "label": "Pending",
+                "badge_class": "orange",
+                "helper_text": "Saldo belum bertambah sampai HR / Super Admin menekan Approve.",
+            }
+            if overtime_summary["qualifies"]
+            else {
+                "label": "",
+                "badge_class": "",
+                "helper_text": "",
+            }
         )
         can_edit_check_in_time = bool(check_in_log)
         can_edit_check_out_time = bool(check_out_log)
@@ -5513,6 +6020,14 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "overtime_qualifies": overtime_summary["qualifies"],
                 "overtime_duration_seconds": overtime_summary["total_seconds"],
                 "overtime_duration_label": overtime_summary["duration_label"],
+                "overtime_breakdown_label": overtime_summary["breakdown_label"],
+                "overtime_request_status": overtime_request_status,
+                "overtime_request_status_label": overtime_request_meta["label"],
+                "overtime_request_badge": overtime_request_meta["badge_class"],
+                "overtime_request_helper_text": overtime_request_meta["helper_text"],
+                "overtime_can_decide": overtime_summary["qualifies"]
+                and can_manage_overtime_approval
+                and overtime_request_status not in {"approved", "rejected"},
                 "status_override_active": bool(attendance.get("status_override")),
                 "attendance_check_in": attendance.get("check_in") or "-",
                 "attendance_check_out": attendance.get("check_out") or "-",
@@ -9134,6 +9649,7 @@ def use_biometric_overtime():
     employee_id = _to_int(request.form.get("employee_id"))
     usage_date = _parse_iso_date((request.form.get("usage_date") or "").strip())
     minutes_used = _to_int(request.form.get("minutes_used"), default=None)
+    usage_mode = _normalize_overtime_usage_mode(request.form.get("usage_mode"))
     note = (request.form.get("note") or "").strip()
 
     employee = _get_accessible_employee(db, employee_id)
@@ -9146,18 +9662,34 @@ def use_biometric_overtime():
         flash("Tanggal pemakaian lembur tidak valid.", "error")
         return redirect(return_to)
 
-    if minutes_used is None or minutes_used <= 0:
-        flash("Durasi pemakaian lembur wajib diisi dalam menit dan lebih dari 0.", "error")
-        return redirect(return_to)
-
     if not note:
         flash("Catatan pemakaian lembur wajib diisi agar histori tetap jelas.", "error")
         return redirect(return_to)
 
-    overtime_balance = _build_employee_overtime_balance(db, employee["id"])
+    overtime_balance = _build_employee_overtime_balance(
+        db,
+        employee["id"],
+        reference_date=usage_date,
+        include_pending_weekly_usage=True,
+    )
+    if usage_mode == "cashout_all":
+        minutes_used = int(overtime_balance["available_minutes"] or 0)
+        if minutes_used <= 0:
+            flash("Saldo lembur staff ini sedang kosong, jadi belum ada yang bisa diuangkan.", "error")
+            return redirect(return_to)
+    elif minutes_used is None or minutes_used <= 0:
+        flash("Durasi pemakaian lembur wajib diisi dalam menit dan lebih dari 0.", "error")
+        return redirect(return_to)
     if minutes_used > overtime_balance["available_minutes"]:
         flash(
             f"Saldo lembur staff ini tidak cukup. Sisa yang tersedia hanya { _format_duration_minutes_label(overtime_balance['available_minutes'], zero_label='0 mnt') }.",
+            "error",
+        )
+        return redirect(return_to)
+    if usage_mode != "cashout_all" and minutes_used > overtime_balance["weekly_remaining_minutes"]:
+        flash(
+            f"Pemakaian lembur reguler maksimal {overtime_balance['weekly_limit_label']} per minggu. "
+            f"Sisa minggu ini hanya {overtime_balance['weekly_remaining_label']} untuk periode {overtime_balance['weekly_period_label']}.",
             "error",
         )
         return redirect(return_to)
@@ -9167,6 +9699,8 @@ def use_biometric_overtime():
         "employee_name": employee["full_name"],
         "warehouse_id": employee["warehouse_id"],
         "usage_date": usage_date.isoformat(),
+        "usage_mode": usage_mode,
+        "usage_mode_label": _get_overtime_usage_mode_label(usage_mode),
         "minutes_used": minutes_used,
         "duration_label": _format_duration_minutes_label(minutes_used),
         "note": note,
@@ -9179,9 +9713,14 @@ def use_biometric_overtime():
             warehouse_id=employee["warehouse_id"],
             employee_id=employee["id"],
             requested_by=session.get("user_id"),
-            summary_title=f"{employee['full_name']} - Pengurangan Lembur",
+            summary_title=(
+                f"{employee['full_name']} - Uangkan Lembur"
+                if usage_mode == "cashout_all"
+                else f"{employee['full_name']} - Pengurangan Lembur"
+            ),
             summary_note=(
                 f"{_format_duration_minutes_label(minutes_used)} pada {usage_date.isoformat()}"
+                f"{' | Uangkan semua saldo' if usage_mode == 'cashout_all' else ''}"
                 f"{f' | {note}' if note else ''}"
             ),
             payload=payload,
@@ -9193,12 +9732,166 @@ def use_biometric_overtime():
         return redirect(return_to)
 
     if queue_result.get("existing"):
-        flash("Permintaan pengurangan saldo lembur yang sama masih menunggu approval.", "info")
+        flash(
+            "Permintaan uangkan lembur yang sama masih menunggu approval."
+            if usage_mode == "cashout_all"
+            else "Permintaan pengurangan saldo lembur yang sama masih menunggu approval.",
+            "info",
+        )
     else:
         flash(
-            f"Permintaan pengurangan lembur {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval.",
+            (
+                f"Permintaan uangkan lembur {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval."
+                if usage_mode == "cashout_all"
+                else f"Permintaan pengurangan lembur {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval."
+            ),
             "success",
         )
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/overtime/decision", methods=["POST"])
+def decide_biometric_overtime():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_manage_attendance_request_approvals(session.get("role")):
+        flash("Hanya HR dan Super Admin yang bisa memutuskan lembur otomatis.", "error")
+        return redirect(return_to)
+
+    decision = (request.form.get("decision") or "").strip().lower()
+    employee_id = _to_int(request.form.get("employee_id"))
+    attendance_date = (request.form.get("attendance_date") or "").strip()
+
+    if decision not in {"approved", "rejected"}:
+        flash("Keputusan lembur otomatis tidak valid.", "error")
+        return redirect(return_to)
+    if not employee_id or not attendance_date:
+        flash("Data staff atau tanggal lembur tidak valid.", "error")
+        return redirect(return_to)
+
+    try:
+        date_cls.fromisoformat(attendance_date)
+    except ValueError:
+        flash("Format tanggal lembur tidak valid.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Staff lembur tidak ditemukan untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    attendance = _get_biometric_attendance_record(db, employee_id, attendance_date)
+    if attendance is None:
+        flash("Data attendance untuk lembur otomatis tidak ditemukan.", "error")
+        return redirect(return_to)
+    attendance = dict(attendance)
+
+    overtime_summary = _summarize_overtime_activity(
+        attendance.get("check_in"),
+        attendance.get("check_out"),
+        attendance.get("shift_label"),
+    )
+    if not overtime_summary["qualifies"]:
+        flash("Attendance ini belum memenuhi syarat lembur untuk diputuskan.", "error")
+        return redirect(return_to)
+
+    latest_request = _build_biometric_overtime_request_index(
+        db,
+        employee_ids=[employee_id],
+        attendance_dates=[attendance_date],
+    ).get((employee_id, attendance_date))
+    latest_status = str((latest_request or {}).get("status") or "").strip().lower()
+    if latest_status == "approved":
+        flash("Lembur otomatis ini sudah pernah disetujui.", "info")
+        return redirect(return_to)
+    if latest_status == "rejected":
+        flash("Lembur otomatis ini sudah pernah ditolak.", "info")
+        return redirect(return_to)
+
+    payload = _build_biometric_auto_overtime_payload(
+        employee,
+        attendance_date,
+        attendance.get("check_in"),
+        attendance.get("check_out"),
+        attendance.get("shift_label"),
+        overtime_summary,
+    )
+    summary_title = f"{employee['full_name']} - Lembur Otomatis"
+    summary_note = (
+        f"{payload['duration_label']} pada {attendance_date}"
+        f"{f' | {payload['breakdown_label']}' if payload.get('breakdown_label') else ''}"
+    )
+    decision_note = (
+        "Lembur otomatis disetujui dari rekap biometric."
+        if decision == "approved"
+        else "Lembur otomatis ditolak dari rekap biometric."
+    )
+    requested_by_user = db.execute(
+        "SELECT id FROM users WHERE employee_id=? ORDER BY id ASC LIMIT 1",
+        (employee_id,),
+    ).fetchone()
+    requested_by = requested_by_user["id"] if requested_by_user else None
+    request_id = 0
+
+    try:
+        cursor = db.execute(
+            """
+            INSERT INTO attendance_action_requests(
+                request_type,
+                warehouse_id,
+                employee_id,
+                summary_title,
+                summary_note,
+                payload,
+                status,
+                requested_by,
+                handled_by,
+                handled_at,
+                decision_note,
+                updated_at
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "overtime_add",
+                employee.get("warehouse_id"),
+                employee_id,
+                summary_title,
+                summary_note,
+                json.dumps(payload, sort_keys=True, ensure_ascii=True),
+                decision,
+                requested_by,
+                session.get("user_id"),
+                _current_timestamp(),
+                decision_note,
+                _current_timestamp(),
+            ),
+        )
+        request_id = int(cursor.lastrowid)
+        request_row = _get_attendance_request_by_id(db, request_id)
+        if decision == "approved":
+            success_message = _apply_attendance_request(db, request_row)
+        else:
+            success_message = f"Lembur otomatis {employee['full_name']} tidak ditambahkan ke saldo."
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        flash(str(exc), "error")
+        return redirect(return_to)
+
+    try:
+        updated_request = _get_attendance_request_by_id(db, request_id)
+        if updated_request is not None:
+            _notify_attendance_request_decision(
+                db,
+                updated_request,
+                approved=decision == "approved",
+            )
+    except Exception as exc:
+        print("BIOMETRIC OVERTIME DECISION NOTIFICATION ERROR:", exc)
+
+    flash(success_message, "success" if decision == "approved" else "info")
     return redirect(return_to)
 
 

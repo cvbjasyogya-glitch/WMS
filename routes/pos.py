@@ -542,14 +542,18 @@ def _attach_pos_loyalty_summary(db, sale):
     return safe_sale
 
 
+def _get_pos_today():
+    return datetime.now(POS_DISPLAY_TIMEZONE).date()
+
+
 def _normalize_sale_date(raw_value):
     raw_value = (raw_value or "").strip()
     if not raw_value:
-        return date_cls.today().isoformat()
+        return _get_pos_today().isoformat()
     try:
         return date_cls.fromisoformat(raw_value).isoformat()
     except ValueError:
-        return date_cls.today().isoformat()
+        return _get_pos_today().isoformat()
 
 
 def _is_sqlite_lock_error(exc):
@@ -737,14 +741,14 @@ def _build_pos_sale_financials(items, discount_type="amount", discount_value=0, 
 def _normalize_sale_month(raw_value):
     safe_value = str(raw_value or "").strip()
     if not safe_value:
-        today = date_cls.today()
+        today = _get_pos_today()
         return f"{today.year:04d}-{today.month:02d}"
 
     try:
         normalized = date_cls.fromisoformat(f"{safe_value}-01")
         return f"{normalized.year:04d}-{normalized.month:02d}"
     except ValueError:
-        today = date_cls.today()
+        today = _get_pos_today()
         return f"{today.year:04d}-{today.month:02d}"
 
 
@@ -1210,11 +1214,11 @@ def _format_pos_time_label(raw_value):
 def _normalize_pos_cash_closing_date(value):
     safe_value = str(value or "").strip()
     if not safe_value:
-        return date_cls.today().isoformat()
+        return _get_pos_today().isoformat()
     try:
         return date_cls.fromisoformat(safe_value).isoformat()
     except ValueError:
-        return date_cls.today().isoformat()
+        return _get_pos_today().isoformat()
 
 
 def _parse_pos_cash_closing_amount(value):
@@ -1328,7 +1332,7 @@ def _build_pos_cash_closing_summary_message(
 def _build_pos_cash_closing_preview_seed(warehouse_name, closing_date=None):
     return _build_pos_cash_closing_summary_message(
         warehouse_name,
-        closing_date or date_cls.today().isoformat(),
+        closing_date or _get_pos_today().isoformat(),
         cash_amount=0,
         debit_amount=0,
         qris_amount=0,
@@ -5408,7 +5412,7 @@ def pos_edit_sale(sale_id):
         return _json_error(str(exc), 400)
 
     warehouse_id = _to_int(sale.get("warehouse_id"), 0)
-    sale_date = str(sale.get("sale_date") or "").strip() or date_cls.today().isoformat()
+    sale_date = str(sale.get("sale_date") or "").strip() or _get_pos_today().isoformat()
     payment_method = _normalize_payment_method(payload.get("payment_method"))
     discount_type = _normalize_adjustment_type(payload.get("discount_type"))
     discount_value = _to_decimal(payload.get("discount_value"), "0")

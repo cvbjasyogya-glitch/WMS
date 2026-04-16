@@ -3827,11 +3827,11 @@
     </div>
     <div class="meta-card">
         <span>Sumber Saldo</span>
-        <strong>Attendance valid - pemakaian lembur</strong>
+        <strong>Approval lembur otomatis / manual - pemakaian lembur</strong>
     </div>
 </div>
 
-<small class="helper-text">Saldo tersedia dihitung kumulatif dari attendance yang benar-benar memenuhi syarat lembur, lalu dikurangi transaksi pemakaian lembur. Kolom periode tetap mengikuti filter tanggal di atas supaya HR bisa review per hari, per minggu, atau per bulan.</small>
+<small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. Saldo aktif tiap staff maksimal 4 jam dan kelebihan approval di atas batas tidak disimpan sebagai saldo. Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
 
 {% if can_manage_biometric %}
 <details class="form-box panel-disclosure">
@@ -3865,7 +3865,14 @@
             <div>
                 <label>Durasi Dipakai (menit)</label>
                 <input type="number" name="minutes_used" min="1" step="1" placeholder="Contoh: 60" required>
-                <small class="helper-text">Masukkan menit yang dipakai. Contoh 60 untuk 1 jam, 90 untuk 1 jam 30 menit.</small>
+                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler maksimal 2 jam per minggu. Kalau pilih uangkan semua, nilai ini akan otomatis diabaikan saat backend memproses request.</small>
+            </div>
+            <div>
+                <label>Mode Pemakaian</label>
+                <select name="usage_mode">
+                    <option value="regular">Pakai Jam Lembur</option>
+                    <option value="cashout_all">Uangkan Semua Saldo</option>
+                </select>
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Catatan</label>
@@ -3885,7 +3892,7 @@
     <div class="section-title">
         <div>
             <h2>Rekap Saldo Lembur Staff</h2>
-            <p>Tabel ini menampilkan lembur semua staff yang terlihat di scope aktif, termasuk saldo tersedia setelah dikurangi pemakaian lembur.</p>
+            <p>Tabel ini menampilkan saldo lembur staff dari approval lembur otomatis, penambahan manual, dan pemakaian lembur yang sudah tercatat pada scope aktif. Batas saldo aktif per staff tetap maksimal 4 jam.</p>
         </div>
     </div>
 
@@ -4097,8 +4104,38 @@
                 <td class="biometric-recap-overtime-cell">
                     {% if row.overtime_qualifies %}
                     <div class="biometric-overtime-stack">
-                        <strong class="biometric-overtime-duration">{{ row.overtime_duration_label }}</strong>
-                        <small class="helper-text">Dihitung dari jam pulang vs akhir shift.</small>
+                        <div class="biometric-overtime-head">
+                            <strong class="biometric-overtime-duration">{{ row.overtime_duration_label }}</strong>
+                            {% if row.overtime_request_status_label %}
+                            <span class="badge{% if row.overtime_request_badge %} {{ row.overtime_request_badge }}{% endif %}">{{ row.overtime_request_status_label }}</span>
+                            {% endif %}
+                        </div>
+                        {% if row.overtime_breakdown_label %}
+                        <small class="helper-text">{{ row.overtime_breakdown_label }}</small>
+                        {% else %}
+                        <small class="helper-text">Dihitung dari check in / check out vs shift aktif.</small>
+                        {% endif %}
+                        {% if row.overtime_request_helper_text %}
+                        <small class="helper-text">{{ row.overtime_request_helper_text }}</small>
+                        {% endif %}
+                        {% if can_manage_attendance_approval and row.overtime_can_decide %}
+                        <div class="split-actions biometric-overtime-actions">
+                            <form method="POST" action="/hris/biometric/overtime/decision" data-approval-form data-approval-decision="approved" data-approval-confirm="Approve lembur otomatis ini dan tambahkan ke saldo?">
+                                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                                <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
+                                <input type="hidden" name="decision" value="approved">
+                                <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                                <button type="submit" class="ghost-button">Approve</button>
+                            </form>
+                            <form method="POST" action="/hris/biometric/overtime/decision" data-approval-form data-approval-decision="rejected" data-approval-confirm="Decline lembur otomatis ini?">
+                                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                                <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
+                                <input type="hidden" name="decision" value="rejected">
+                                <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                                <button type="submit" class="ghost-button danger">Decline</button>
+                            </form>
+                        </div>
+                        {% endif %}
                     </div>
                     {% else %}
                     -

@@ -15188,8 +15188,15 @@ body .biometric-break-reminder-alert {
 
 body .biometric-overtime-stack {
     display: grid;
-    gap: 4px;
-    min-width: 120px;
+    gap: 6px;
+    min-width: 180px;
+}
+
+body .biometric-overtime-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 body .biometric-overtime-duration {
@@ -15200,6 +15207,15 @@ body .biometric-overtime-duration {
     letter-spacing: 0.04em;
     line-height: 1.2;
     white-space: nowrap;
+}
+
+body .biometric-overtime-actions {
+    gap: 8px;
+    margin-top: 2px;
+}
+
+body .biometric-overtime-actions > form {
+    margin: 0;
 }
 
 @media (max-width: 1080px) {

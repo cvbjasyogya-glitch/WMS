@@ -815,8 +815,10 @@ const stockPageState = {
 };
 const STOCK_LOW_THRESHOLD = 5;
 const stockFilterForm = document.querySelector("[data-stock-filter-form]");
+const stockLiveSearchInput = stockFilterForm?.querySelector("[data-stock-live-search-input]") || null;
 const stockLiveSearchStatus = document.querySelector("[data-stock-live-search-status]");
 let stockLiveSearchStatusTimer = null;
+let stockLiveSearchTimer = null;
 let stockLiveSearchAbortController = null;
 let stockLiveSearchRequestId = 0;
 const stockAutoApplyFields = stockFilterForm
@@ -1445,15 +1447,24 @@ if (stockFilterForm && stockFilterForm.dataset.bound !== "1") {
     stockFilterForm.dataset.bound = "1";
     stockFilterForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        window.location.assign(buildStockFilterUrlFromForm());
+        await triggerStockFilterRefresh();
     });
 
     stockAutoApplyFields.forEach((field) => {
-        field.addEventListener("change", () => {
-            window.location.assign(buildStockFilterUrlFromForm());
+        field.addEventListener("change", async () => {
+            await triggerStockFilterRefresh();
         });
     });
 }
+
+stockLiveSearchInput?.addEventListener("input", () => {
+    if (stockLiveSearchTimer) {
+        window.clearTimeout(stockLiveSearchTimer);
+    }
+    stockLiveSearchTimer = window.setTimeout(() => {
+        void refreshInventoryView(buildStockFilterUrlFromForm());
+    }, 220);
+});
 
 const DEFAULT_VARIANT_ROWS = [
     { variant: "39", qty: "1" },
@@ -1558,6 +1569,14 @@ function buildStockFilterUrlFromForm() {
 
     params.delete("page");
     return url.toString();
+}
+
+function triggerStockFilterRefresh(options = {}) {
+    if (stockLiveSearchTimer) {
+        window.clearTimeout(stockLiveSearchTimer);
+        stockLiveSearchTimer = null;
+    }
+    return refreshInventoryView(buildStockFilterUrlFromForm(), options);
 }
 
 function parseStockPageConfigFromDocument(doc) {

@@ -1,4 +1,5 @@
 import csv
+import re
 from datetime import datetime
 from io import StringIO
 from urllib.parse import urlencode
@@ -239,6 +240,54 @@ def _get_stock_result_sort_clause(sort):
     return clause
 
 
+def _normalize_stock_search(value):
+    return " ".join(str(value or "").strip().split())
+
+
+def _normalize_stock_compact_query(raw_query):
+    return re.sub(r"[^a-z0-9]+", "", str(raw_query or "").strip().lower())
+
+
+def _build_stock_compact_expression(expression):
+    compact_expression = f"lower({expression})"
+    for needle in (" ", "-", "/", "_", ".", "+", "(", ")", ","):
+        compact_expression = f"replace({compact_expression}, '{needle}', '')"
+    return compact_expression
+
+
+def _build_stock_search_clause(search):
+    safe_search = _normalize_stock_search(search)
+    if not safe_search:
+        return "", []
+
+    search_fields = [
+        "p.name",
+        "p.sku",
+        "COALESCE(c.name, '')",
+        "COALESCE(v.variant, '')",
+        "COALESCE(v.variant_code, '')",
+        "COALESCE(v.color, '')",
+        "COALESCE(v.gtin, '')",
+    ]
+    compact_search_fields = [_build_stock_compact_expression(field) for field in search_fields]
+    clauses = []
+    params = []
+
+    for term in safe_search.split():
+        raw_token = f"%{term}%"
+        compact_term = _normalize_stock_compact_query(term)
+        term_clauses = [f"{field} LIKE ?" for field in search_fields]
+        term_params = [raw_token] * len(search_fields)
+        if compact_term:
+            term_clauses.extend(f"{field} LIKE ?" for field in compact_search_fields)
+            term_params.extend([f"%{compact_term}%"] * len(compact_search_fields))
+
+        clauses.append("(" + " OR ".join(term_clauses) + ")")
+        params.extend(term_params)
+
+    return "(" + " AND ".join(clauses) + ")", params
+
+
 def _get_sort_state(sort):
     normalized = _normalize_sort(sort)
     config = SORT_DEFINITIONS[normalized]
@@ -326,9 +375,10 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         conditions.append("(b.created_at IS NULL OR date(b.created_at) <= date(?))")
         params.append(end_date)
 
-    if search:
-        conditions.append("(p.name LIKE ? OR p.sku LIKE ? OR v.variant LIKE ?)")
-        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
+    search_clause, search_params = _build_stock_search_clause(search)
+    if search_clause:
+        conditions.append(search_clause)
+        params.extend(search_params)
 
     if stock_state == "zero":
         conditions.append("COALESCE(s.qty, 0) <= 0")
@@ -777,7 +827,7 @@ def _stock_json_error(message, status_code=400):
 def stock_table():
     db = get_db()
 
-    search = (request.args.get("q") or "").strip()
+    search = _normalize_stock_search(request.args.get("q"))
     product_search = (request.args.get("product_search") or "").strip()
     sort = _normalize_sort(request.args.get("sort"))
     stock_state = _get_stock_state()
@@ -906,7 +956,7 @@ def stock_barcode_page():
 def stock_barcode_items():
     db = get_db()
     warehouse_id = _resolve_stock_warehouse(db)
-    search = (request.args.get("q") or "").strip()
+    search = _normalize_stock_search(request.args.get("q"))
     try:
         limit = int(request.args.get("limit", 300))
     except (TypeError, ValueError):
@@ -971,7 +1021,7 @@ def stock_barcode_items():
 def export_stock():
     db = get_db()
 
-    search = (request.args.get("q") or "").strip()
+    search = _normalize_stock_search(request.args.get("q"))
     sort = _normalize_sort(request.args.get("sort"))
     stock_state = _get_stock_state()
     warehouse_id = _resolve_stock_warehouse(db)

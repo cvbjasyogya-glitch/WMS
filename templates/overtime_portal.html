@@ -2,8 +2,8 @@
 
 {% block title %}Lembur | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Portal Pengajuan Lembur{% endblock %}
-{% block page_title %}Form Tambah / Kurangi Lembur{% endblock %}
-{% block page_subtitle %}Halaman ini dipakai staff untuk mengajukan tambah atau kurangi saldo lembur. Approval tetap hanya diproses oleh HR dan Super Admin.{% endblock %}
+{% block page_title %}{% if can_request_overtime_add %}Form Tambah / Kurangi Lembur{% else %}Form Kurangi Lembur{% endif %}{% endblock %}
+{% block page_subtitle %}{% if can_request_overtime_add %}Halaman ini dipakai HR untuk menambah atau mengurangi saldo lembur, sementara role lain hanya bisa mengajukan pengurangan saldo lembur. Saldo aktif dibatasi maksimal {{ overtime_balance_cap_label }}, kelebihan approval di atas batas tidak disimpan sebagai saldo, pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, dan approval tetap hanya diproses oleh HR atau Super Admin.{% else %}Halaman ini dipakai staff untuk mengajukan pengurangan saldo lembur. Penambahan saldo lembur hanya bisa diajukan oleh HR. Saldo aktif dibatasi maksimal {{ overtime_balance_cap_label }}, kelebihan approval di atas batas tidak disimpan sebagai saldo, pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, dan approval tetap hanya diproses oleh HR atau Super Admin.{% endif %}{% endblock %}
 
 {% block content %}
 <div class="summary">
@@ -57,13 +57,25 @@
     <div class="section-title">
         <div>
             <h2>Saldo Lembur Saat Ini</h2>
-            <p>Saldo tersedia dihitung dari lembur otomatis hasil absensi, ditambah adjustment manual yang sudah disetujui, lalu dikurangi pemakaian lembur yang sudah approved.</p>
+            <p>Saldo tersedia dihitung dari lembur otomatis hasil absensi, ditambah adjustment manual yang sudah disetujui, lalu dikurangi pemakaian lembur yang sudah approved. Saldo aktif maksimal {{ overtime_balance_cap_label }}, kelebihan di atas batas tidak masuk ke saldo, dan pemakaian reguler dibatasi {{ overtime_weekly_limit_label }} per minggu.</p>
         </div>
     </div>
     <div class="attendance-identity-grid">
         <div class="meta-card">
             <span>Saldo Tersedia</span>
             <strong>{{ balance.available_label if balance else "0 mnt" }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Batas Saldo</span>
+            <strong>{{ balance.balance_cap_label if balance else overtime_balance_cap_label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Sisa Pakai Minggu Ini</span>
+            <strong>{{ balance.weekly_remaining_label if balance else overtime_weekly_limit_label }}</strong>
+        </div>
+        <div class="meta-card">
+            <span>Minggu Aktif</span>
+            <strong>{{ balance.weekly_period_label if balance else "-" }}</strong>
         </div>
         <div class="meta-card">
             <span>Lembur Otomatis</span>
@@ -80,11 +92,11 @@
     </div>
 </div>
 
-<div class="form-box" data-overtime-portal>
+<div class="form-box" data-overtime-portal data-overtime-available-minutes="{{ balance.available_minutes if balance else 0 }}">
     <div class="section-title">
         <div>
-            <h2>Ajukan Tambah / Kurangi Lembur</h2>
-            <p>Pilih jenis pengajuan, isi tanggal referensi, durasi menit, lalu jelaskan alasannya. Request akan masuk ke approval attendance dan baru memengaruhi saldo setelah disetujui HR atau Super Admin.</p>
+            <h2>{% if can_request_overtime_add %}Ajukan Tambah / Kurangi Lembur{% else %}Ajukan Kurangi Lembur{% endif %}</h2>
+            <p>{% if can_request_overtime_add %}Pilih jenis pengajuan, isi tanggal referensi, durasi menit, lalu jelaskan alasannya. Untuk pengurangan saldo, pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, sedangkan opsi uangkan akan memakai seluruh saldo yang tersedia. Request baru memengaruhi saldo setelah disetujui HR atau Super Admin.{% else %}Isi tanggal referensi, pilih cara pakai saldo, lalu jelaskan alasannya. Pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, sedangkan opsi uangkan akan memakai seluruh saldo yang tersedia. Penambahan saldo lembur hanya bisa dibuat oleh HR.{% endif %}</p>
         </div>
     </div>
 
@@ -93,13 +105,22 @@
             <div>
                 <label>Jenis Pengajuan</label>
                 <select name="request_mode" data-overtime-mode-select required>
+                    {% if can_request_overtime_add %}
                     <option value="add">Tambah Lembur</option>
+                    {% endif %}
                     <option value="reduce">Kurangi Lembur</option>
                 </select>
             </div>
             <div>
                 <label>Tanggal Referensi</label>
                 <input type="date" name="request_date" value="{{ today_value }}" required>
+            </div>
+            <div data-overtime-usage-mode-group>
+                <label>Cara Pakai Saldo</label>
+                <select name="usage_mode" data-overtime-usage-mode-select>
+                    <option value="regular">Pakai Jam Lembur</option>
+                    <option value="cashout_all">Uangkan Semua Saldo</option>
+                </select>
             </div>
             <div>
                 <label>Durasi Menit</label>
@@ -112,7 +133,7 @@
             <div style="grid-column: 1 / -1;">
                 <label>Alasan Pengajuan</label>
                 <textarea name="reason" rows="3" placeholder="Wajib diisi. Contoh: ada lembur event yang belum masuk ke sistem, koreksi saldo lembur, atau pemakaian lembur untuk izin pulang lebih cepat." required></textarea>
-                <small class="helper-text" data-overtime-mode-helper>Tambah lembur dipakai untuk koreksi atau penambahan saldo lembur manual yang butuh approval.</small>
+                <small class="helper-text" data-overtime-mode-helper>{% if can_request_overtime_add %}Tambah lembur dipakai untuk koreksi atau penambahan saldo lembur manual yang butuh approval.{% else %}Kurangi lembur dipakai saat mau mengurangi saldo lembur yang sudah tersedia. Penambahan saldo lembur hanya bisa diajukan oleh HR.{% endif %}</small>
             </div>
         </div>
         <div class="split-actions attendance-submit-row">
@@ -210,9 +231,12 @@
     }
 
     const modeSelect = shell.querySelector("[data-overtime-mode-select]");
+    const usageModeGroup = shell.querySelector("[data-overtime-usage-mode-group]");
+    const usageModeSelect = shell.querySelector("[data-overtime-usage-mode-select]");
     const minutesInput = shell.querySelector("[data-overtime-minutes]");
     const durationPreview = shell.querySelector("[data-overtime-duration-preview]");
     const modeHelper = shell.querySelector("[data-overtime-mode-helper]");
+    const availableMinutes = Math.max(0, Number(shell.dataset.overtimeAvailableMinutes || 0));
 
     const formatMinutes = (value) => {
         const safeMinutes = Math.max(0, Number(value) || 0);
@@ -228,17 +252,36 @@
     };
 
     const syncPreview = () => {
+        const activeMode = modeSelect?.value || "add";
+        const usageMode = usageModeSelect?.value || "regular";
+        const isReduceMode = activeMode === "reduce";
+        const isCashoutMode = isReduceMode && usageMode === "cashout_all";
+
+        if (usageModeGroup) {
+            usageModeGroup.hidden = !isReduceMode;
+        }
+        if (minutesInput) {
+            minutesInput.readOnly = isCashoutMode;
+            if (isCashoutMode) {
+                minutesInput.value = String(availableMinutes);
+            }
+        }
         if (durationPreview) {
             durationPreview.value = formatMinutes(minutesInput?.value);
         }
         if (modeHelper) {
-            modeHelper.textContent = (modeSelect?.value || "add") === "reduce"
-                ? "Kurangi lembur dipakai saat mau mengurangi saldo lembur yang sudah tersedia. Request akan ditolak kalau melebihi saldo saat ini."
-                : "Tambah lembur dipakai untuk koreksi atau penambahan saldo lembur manual yang butuh approval.";
+            if (!isReduceMode) {
+                modeHelper.textContent = "Tambah lembur dipakai untuk koreksi atau penambahan saldo lembur manual yang butuh approval.";
+            } else if (isCashoutMode) {
+                modeHelper.textContent = "Opsi uangkan akan memakai seluruh saldo yang tersedia pada saat request dibuat. Setelah disetujui, saldo itu dianggap habis terpakai.";
+            } else {
+                modeHelper.textContent = "Kurangi lembur dipakai saat mau mengurangi saldo lembur yang sudah tersedia. Pemakaian reguler maksimal 2 jam per minggu dan request akan ditolak kalau melebihi saldo saat ini.";
+            }
         }
     };
 
     modeSelect?.addEventListener("change", syncPreview);
+    usageModeSelect?.addEventListener("change", syncPreview);
     minutesInput?.addEventListener("input", syncPreview);
     syncPreview();
 })();

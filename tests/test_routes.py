@@ -29,12 +29,20 @@ from routes.pos import (
     _fetch_pos_sale_logs,
     _fetch_pos_staff_sales_rows,
     _format_pos_time_label,
+    _normalize_pos_cash_closing_date,
+    _normalize_sale_date,
+    POS_DISPLAY_TIMEZONE,
 )
 from routes.stock import _extract_stock_date_prefix
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
-from routes.hris import _format_hris_datetime_display, _normalize_datetime_input, _normalize_time_of_day_input
+from routes.hris import (
+    _build_employee_overtime_balance,
+    _format_hris_datetime_display,
+    _normalize_datetime_input,
+    _normalize_time_of_day_input,
+)
 from services.announcement_center import parse_iso_date
 from routes.schedule import (
     LEGACY_LIVE_SCHEDULE_DEFAULT_BG,
@@ -353,6 +361,204 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (employee_code,),
             ).fetchone()
         return employee["id"]
+
+    def create_biometric_attendance_day(
+        self,
+        employee_id,
+        attendance_date,
+        check_in_time,
+        check_out_time=None,
+        warehouse_id=1,
+        shift_code="pagi",
+        shift_label="Shift Pagi | 08.00 - 16.00",
+        location_label="Gudang Mataram - Area Test",
+    ):
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, punch_time, punch_type,
+                    sync_status, location_label, latitude, longitude, accuracy_m,
+                    shift_code, shift_label, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    warehouse_id,
+                    "Attendance Photo Portal",
+                    f"{attendance_date}T{check_in_time}",
+                    "check_in",
+                    "synced",
+                    location_label,
+                    -8.58314,
+                    116.116798,
+                    6.0,
+                    shift_code,
+                    shift_label,
+                    "Masuk kerja",
+                ),
+            )
+            if check_out_time:
+                db.execute(
+                    """
+                    INSERT INTO biometric_logs(
+                        employee_id, warehouse_id, device_name, punch_time, punch_type,
+                        sync_status, location_label, latitude, longitude, accuracy_m,
+                        shift_code, shift_label, note
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee_id,
+                        warehouse_id,
+                        "Attendance Photo Portal",
+                        f"{attendance_date}T{check_out_time}",
+                        "check_out",
+                        "synced",
+                        location_label,
+                        -8.58314,
+                        116.116798,
+                        6.0,
+                        shift_code,
+                        shift_label,
+                        "Pulang kerja",
+                    ),
+                )
+
+            db.execute(
+                """
+                INSERT INTO attendance_records(
+                    employee_id, warehouse_id, attendance_date, check_in, check_out,
+                    status, shift_code, shift_label, note, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    warehouse_id,
+                    attendance_date,
+                    check_in_time,
+                    check_out_time,
+                    "present",
+                    shift_code,
+                    shift_label,
+                    "Synced from geotag",
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            db.commit()
+
+    def create_overtime_add_request_record(
+        self,
+        employee_id,
+        request_date,
+        minutes_delta,
+        *,
+        status="approved",
+        source_type="manual_request",
+        note=None,
+        requested_by=None,
+        handled_by=None,
+        create_adjustment=False,
+    ):
+        with self.app.app_context():
+            db = get_db()
+            employee = db.execute(
+                "SELECT id, full_name, warehouse_id FROM employees WHERE id=?",
+                (employee_id,),
+            ).fetchone()
+            self.assertIsNotNone(employee)
+            employee = dict(employee)
+
+            note_text = note or (
+                f"Lembur otomatis {request_date}"
+                if source_type == "biometric_auto"
+                else f"Tambah lembur manual {request_date}"
+            )
+            payload = {
+                "source_type": source_type,
+                "employee_id": employee["id"],
+                "employee_name": employee["full_name"],
+                "warehouse_id": employee["warehouse_id"],
+                "attendance_date": request_date,
+                "adjustment_date": request_date,
+                "minutes_delta": minutes_delta,
+                "note": note_text,
+            }
+            if source_type == "biometric_auto":
+                payload["breakdown_label"] = note_text
+
+            handled_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if status in {"approved", "rejected"} else None
+            decision_note = (
+                "Seed approved overtime request."
+                if status == "approved"
+                else "Seed rejected overtime request."
+                if status == "rejected"
+                else None
+            )
+            cursor = db.execute(
+                """
+                INSERT INTO attendance_action_requests(
+                    request_type,
+                    warehouse_id,
+                    employee_id,
+                    summary_title,
+                    summary_note,
+                    payload,
+                    status,
+                    requested_by,
+                    handled_by,
+                    handled_at,
+                    decision_note,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "overtime_add",
+                    employee["warehouse_id"],
+                    employee["id"],
+                    f"{employee['full_name']} - {'Lembur Otomatis' if source_type == 'biometric_auto' else 'Tambah Lembur'}",
+                    note_text,
+                    json.dumps(payload, sort_keys=True, ensure_ascii=True),
+                    status,
+                    requested_by,
+                    handled_by,
+                    handled_at,
+                    decision_note,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+            request_id = cursor.lastrowid
+
+            if create_adjustment and status == "approved":
+                db.execute(
+                    """
+                    INSERT INTO overtime_balance_adjustments(
+                        employee_id,
+                        warehouse_id,
+                        adjustment_date,
+                        minutes_delta,
+                        note,
+                        handled_by,
+                        updated_at
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                    """,
+                    (
+                        employee["id"],
+                        employee["warehouse_id"],
+                        request_date,
+                        minutes_delta,
+                        note_text,
+                        handled_by,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    ),
+                )
+            db.commit()
+        return request_id
 
     def create_product(self, sku=None, qty=5, variants="M,L", warehouse_id="1", name="Produk Uji"):
         sku = sku or ("AUTO-" + uuid4().hex[:8].upper())
@@ -1691,6 +1897,23 @@ class WmsRoutesTestCase(unittest.TestCase):
     def test_pos_time_label_uses_indonesia_offset(self):
         self.assertEqual(_format_pos_time_label("2026-04-11 02:01:00"), "09:01")
         self.assertEqual(_format_pos_time_label("2026-04-11T02:01:00Z"), "09:01")
+
+    def test_pos_date_fallbacks_use_pos_display_timezone(self):
+        class FixedDateTime(datetime):
+            captured_tz = None
+
+            @classmethod
+            def now(cls, tz=None):
+                cls.captured_tz = tz
+                return cls(2026, 4, 16, 0, 30, 0, tzinfo=tz)
+
+        with patch("routes.pos.datetime", FixedDateTime):
+            self.assertEqual(_normalize_sale_date(""), "2026-04-16")
+            self.assertEqual(_normalize_sale_date("invalid-date"), "2026-04-16")
+            self.assertEqual(_normalize_pos_cash_closing_date(""), "2026-04-16")
+            self.assertEqual(_normalize_pos_cash_closing_date("invalid-date"), "2026-04-16")
+
+        self.assertEqual(FixedDateTime.captured_tz, POS_DISPLAY_TIMEZONE)
 
     def test_super_admin_can_update_processed_pos_payment_method(self):
         self.create_user("staff_payment_edit", "pass1234", "staff", warehouse_id=1)
@@ -11046,44 +11269,29 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
-        with self.app.app_context():
-            db = get_db()
-            for employee_id, check_in_time in [
-                (exact_employee_id, "12:00"),
-                (short_employee_id, "12:15"),
-            ]:
-                db.execute(
-                    """
-                    INSERT INTO attendance_records(
-                        employee_id, warehouse_id, attendance_date, check_in, check_out,
-                        status, shift_code, shift_label, note, updated_at
-                    )
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        employee_id,
-                        1,
-                        date_value,
-                        check_in_time,
-                        "21:00",
-                        "present",
-                        "siang",
-                        "Shift Siang | 13.00 - 21.00",
-                        "Synced from geotag",
-                        datetime.now().isoformat(timespec="seconds"),
-                    ),
-                )
-            db.commit()
+        for employee_id, check_in_time in [
+            (exact_employee_id, "12:00"),
+            (short_employee_id, "12:15"),
+        ]:
+            self.create_biometric_attendance_day(
+                employee_id,
+                date_value,
+                check_in_time,
+                "21:00",
+                shift_code="siang",
+                shift_label="Shift Siang | 13.00 - 21.00",
+                location_label="Gudang Mataram - Shift Siang",
+            )
 
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Naufal Biometric Overtime Early Exact", html)
-        self.assertNotIn("Naufal Biometric Overtime Early Short", html)
+        self.assertIn("Naufal Biometric Overtime Early Short", html)
         self.assertIn("1j 00m", html)
         self.assertNotIn("45 mnt", html)
 
-    def test_biometric_recap_does_not_auto_count_non_nopal_overtime(self):
+    def test_biometric_recap_shows_regular_staff_overtime_with_decision_controls(self):
         self.login_hr_user("hr_bio_overtime_non_nopal", "pass1234")
         date_value = "2026-09-05"
         employee_id = self.create_employee_record(
@@ -11092,38 +11300,26 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
-        with self.app.app_context():
-            db = get_db()
-            db.execute(
-                """
-                INSERT INTO attendance_records(
-                    employee_id, warehouse_id, attendance_date, check_in, check_out,
-                    status, shift_code, shift_label, note, updated_at
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    employee_id,
-                    1,
-                    date_value,
-                    "07:00",
-                    "17:00",
-                    "present",
-                    "pagi",
-                    "Shift Pagi | 08.00 - 16.00",
-                    "Synced from geotag",
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-            db.commit()
+        self.create_biometric_attendance_day(
+            employee_id,
+            date_value,
+            "07:00",
+            "17:00",
+            location_label="Gudang Mataram - Rekap Reguler",
+        )
 
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertNotIn("Staff Reguler Overtime", html)
-        self.assertNotIn("2j 00m", html)
+        self.assertIn("Staff Reguler Overtime", html)
+        self.assertIn("2j 00m", html)
+        self.assertIn("Masuk lebih awal 1j 00m + Pulang lewat shift 1j 00m", html)
+        self.assertIn("/hris/biometric/overtime/decision", html)
+        self.assertIn("Approve", html)
+        self.assertIn("Decline", html)
+        self.assertIn("Saldo belum bertambah sampai HR / Super Admin menekan Approve.", html)
 
-    def test_biometric_recap_counts_ajeng_as_allowed_automatic_overtime(self):
+    def test_hr_can_approve_biometric_overtime_from_recap(self):
         self.login_hr_user("hr_bio_overtime_ajeng", "pass1234")
         date_value = "2026-09-05"
         employee_id = self.create_employee_record(
@@ -11132,38 +11328,65 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
+        self.create_biometric_attendance_day(
+            employee_id,
+            date_value,
+            "07:00",
+            "16:00",
+            location_label="Gudang Mataram - Ajeng",
+        )
+
+        approve_response = self.client.post(
+            "/hris/biometric/overtime/decision",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": date_value,
+                "decision": "approved",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
         with self.app.app_context():
             db = get_db()
-            db.execute(
+            request_row = db.execute(
                 """
-                INSERT INTO attendance_records(
-                    employee_id, warehouse_id, attendance_date, check_in, check_out,
-                    status, shift_code, shift_label, note, updated_at
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                SELECT status, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_add'
+                ORDER BY id DESC
+                LIMIT 1
                 """,
-                (
-                    employee_id,
-                    1,
-                    date_value,
-                    "07:00",
-                    "16:00",
-                    "present",
-                    "pagi",
-                    "Shift Pagi | 08.00 - 16.00",
-                    "Synced from geotag",
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-            db.commit()
+                (employee_id,),
+            ).fetchone()
+            adjustment_row = db.execute(
+                """
+                SELECT minutes_delta, note
+                FROM overtime_balance_adjustments
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(request_row["status"], "approved")
+        payload = json.loads(request_row["payload"])
+        self.assertEqual(payload["source_type"], "biometric_auto")
+        self.assertEqual(payload["minutes_delta"], 60)
+        self.assertEqual(payload["attendance_date"], date_value)
+        self.assertEqual(adjustment_row["minutes_delta"], 60)
+        self.assertIn("Lembur otomatis", adjustment_row["note"])
 
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Ajeng Fatimah A", html)
-        self.assertIn("1j 00m", html)
+        self.assertIn("Approved", html)
+        self.assertIn("Sudah masuk ke saldo lembur.", html)
 
-    def test_biometric_recap_uses_configured_automatic_overtime_names(self):
+    def test_hr_can_decline_biometric_overtime_without_adding_balance(self):
         self.login_hr_user("hr_bio_overtime_config", "pass1234")
         date_value = "2026-09-05"
         employee_id = self.create_employee_record(
@@ -11172,41 +11395,52 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
-        original_names = list(self.app.config.get("AUTOMATIC_OVERTIME_EMPLOYEE_NAMES", []))
-        self.app.config["AUTOMATIC_OVERTIME_EMPLOYEE_NAMES"] = ["Custom Overtime"]
-        try:
-            with self.app.app_context():
-                db = get_db()
-                db.execute(
-                    """
-                    INSERT INTO attendance_records(
-                        employee_id, warehouse_id, attendance_date, check_in, check_out,
-                        status, shift_code, shift_label, note, updated_at
-                    )
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        employee_id,
-                        1,
-                        date_value,
-                        "07:00",
-                        "16:00",
-                        "present",
-                        "pagi",
-                        "Shift Pagi | 08.00 - 16.00",
-                        "Synced from geotag",
-                        datetime.now().isoformat(timespec="seconds"),
-                    ),
-                )
-                db.commit()
+        self.create_biometric_attendance_day(
+            employee_id,
+            date_value,
+            "07:00",
+            "16:00",
+            location_label="Gudang Mataram - Custom",
+        )
 
-            response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
-            self.assertEqual(response.status_code, 200)
-            html = response.get_data(as_text=True)
-            self.assertIn("Custom Overtime Staff", html)
-            self.assertIn("1j 00m", html)
-        finally:
-            self.app.config["AUTOMATIC_OVERTIME_EMPLOYEE_NAMES"] = original_names
+        reject_response = self.client.post(
+            "/hris/biometric/overtime/decision",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": date_value,
+                "decision": "rejected",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(reject_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                """
+                SELECT status
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_add'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            adjustment_count = db.execute(
+                "SELECT COUNT(*) FROM overtime_balance_adjustments WHERE employee_id=?",
+                (employee_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(request_row["status"], "rejected")
+        self.assertEqual(adjustment_count, 0)
+
+        response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Custom Overtime Staff", html)
+        self.assertIn("Declined", html)
+        self.assertIn("Tidak ditambahkan ke saldo lembur.", html)
 
     def test_biometric_page_shows_staff_overtime_balance_recap_and_usage_history(self):
         self.login_hr_user("hr_overtime_recap", "pass1234")
@@ -11223,34 +11457,23 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
+        self.create_overtime_add_request_record(
+            first_employee_id,
+            date_value,
+            120,
+            source_type="biometric_auto",
+            note="Masuk lebih awal 0 mnt + Pulang lewat shift 2j 00m",
+        )
+        self.create_overtime_add_request_record(
+            second_employee_id,
+            date_value,
+            60,
+            source_type="biometric_auto",
+            note="Pulang lewat shift 1j 00m",
+        )
+
         with self.app.app_context():
             db = get_db()
-            for employee_id, check_out_time in [
-                (first_employee_id, "18:00"),
-                (second_employee_id, "17:00"),
-            ]:
-                db.execute(
-                    """
-                    INSERT INTO attendance_records(
-                        employee_id, warehouse_id, attendance_date, check_in, check_out,
-                        status, shift_code, shift_label, note, updated_at
-                    )
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        employee_id,
-                        1,
-                        date_value,
-                        "08:00",
-                        check_out_time,
-                        "present",
-                        "pagi",
-                        "Shift Pagi | 08.00 - 16.00",
-                        "Synced from geotag",
-                        datetime.now().isoformat(timespec="seconds"),
-                    ),
-                )
-
             db.execute(
                 """
                 INSERT INTO overtime_usage_records(
@@ -11277,6 +11500,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Histori Pemakaian Lembur", html)
         self.assertIn("Naufal Saldo Lembur Satu", html)
         self.assertIn("Naufal Saldo Lembur Dua", html)
+        self.assertIn("Approval lembur otomatis / manual - pemakaian lembur", html)
         self.assertIn("1j 30m", html)
         self.assertIn("Dipakai pulang lebih awal", html)
 
@@ -11289,36 +11513,332 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
-        with self.app.app_context():
-            db = get_db()
-            db.execute(
-                """
-                INSERT INTO attendance_records(
-                    employee_id, warehouse_id, attendance_date, check_in, check_out,
-                    status, shift_code, shift_label, note, updated_at
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    employee_id,
-                    1,
-                    date_value,
-                    "07:00",
-                    "17:00",
-                    "present",
-                    "pagi",
-                    "Shift Pagi | 08.00 - 16.00",
-                    "Synced from geotag",
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-            db.commit()
+        self.create_biometric_attendance_day(
+            employee_id,
+            date_value,
+            "07:00",
+            "17:00",
+            location_label="Gudang Mataram - Kombinasi",
+        )
+        approve_response = self.client.post(
+            "/hris/biometric/overtime/decision",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": date_value,
+                "decision": "approved",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
 
         response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Naufal Saldo Lembur Gabungan", html)
         self.assertIn("2j 00m", html)
+
+    def test_overtime_balance_caps_at_four_hours_when_approved_addition_exceeds_quota(self):
+        self.login_hr_user("hr_overtime_cap", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-CAP-1",
+            full_name="Naufal Saldo Lembur Cap",
+            warehouse_id=1,
+        )
+
+        self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-08",
+            180,
+            source_type="manual_request",
+            note="Saldo awal 3 jam",
+            status="approved",
+        )
+        pending_request_id = self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-09",
+            120,
+            source_type="manual_request",
+            note="Tambah lagi 2 jam",
+            status="pending",
+        )
+
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{pending_request_id}/process",
+            data={"decision": "approved", "decision_note": "Approve sebagian sesuai kuota."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            approved_request = db.execute(
+                """
+                SELECT status, payload, summary_note
+                FROM attendance_action_requests
+                WHERE id=?
+                """,
+                (pending_request_id,),
+            ).fetchone()
+            adjustment_row = db.execute(
+                """
+                SELECT minutes_delta
+                FROM overtime_balance_adjustments
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(approved_request["status"], "approved")
+        payload = json.loads(approved_request["payload"])
+        self.assertEqual(payload["minutes_delta"], 60)
+        self.assertEqual(payload["requested_minutes_delta"], 120)
+        self.assertIn("Request awal 2j 00m", approved_request["summary_note"])
+        self.assertEqual(adjustment_row["minutes_delta"], 60)
+        self.assertEqual(balance["available_minutes"], 240)
+        self.assertEqual(balance["available_label"], "4j 00m")
+
+    def test_overtime_balance_hard_cap_removes_hidden_surplus_after_usage(self):
+        self.login_hr_user("hr_overtime_cap_legacy", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-CAP-LEGACY",
+            full_name="Naufal Hard Cap Lembur",
+            warehouse_id=1,
+        )
+
+        legacy_request_id = self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-08",
+            300,
+            source_type="manual_request",
+            note="Legacy saldo 5 jam",
+            status="approved",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET handled_at=?, updated_at=?
+                WHERE id=?
+                """,
+                ("2026-09-08 09:00:00", "2026-09-08 09:00:00", legacy_request_id),
+            )
+            db.execute(
+                """
+                INSERT INTO overtime_usage_records(
+                    employee_id,
+                    warehouse_id,
+                    usage_date,
+                    usage_mode,
+                    minutes_used,
+                    note,
+                    handled_by,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-09",
+                    "regular",
+                    60,
+                    "Dipakai 1 jam",
+                    self.get_user_id("hr_overtime_cap_legacy"),
+                    "2026-09-09 10:00:00",
+                    "2026-09-09 10:00:00",
+                ),
+            )
+            db.commit()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(balance["available_minutes"], 180)
+        self.assertEqual(balance["available_label"], "3j 00m")
+
+        response = self.client.post(
+            "/hris/biometric/overtime/use",
+            data={
+                "employee_id": str(employee_id),
+                "usage_date": "2026-09-10",
+                "usage_mode": "regular",
+                "minutes_used": "240",
+                "note": "Coba pakai semua saldo",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Sisa yang tersedia hanya 3j 00m", html)
+
+    def test_hris_regular_overtime_use_respects_two_hour_weekly_limit(self):
+        self.login_hr_user("hr_overtime_weekly_limit", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-WEEK-1",
+            full_name="Naufal Limit Mingguan",
+            warehouse_id=1,
+        )
+
+        self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-08",
+            240,
+            source_type="manual_request",
+            note="Saldo penuh 4 jam",
+            status="approved",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO overtime_usage_records(
+                    employee_id,
+                    warehouse_id,
+                    usage_date,
+                    usage_mode,
+                    minutes_used,
+                    note,
+                    handled_by,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "2026-09-09",
+                    "regular",
+                    90,
+                    "Sudah dipakai 1,5 jam minggu ini",
+                    self.get_user_id("hr_overtime_weekly_limit"),
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/hris/biometric/overtime/use",
+            data={
+                "employee_id": str(employee_id),
+                "usage_date": "2026-09-10",
+                "usage_mode": "regular",
+                "minutes_used": "40",
+                "note": "Coba lewat dari limit mingguan",
+                "return_to": "/hris/biometric",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("maksimal 2j 00m per minggu", html)
+        self.assertIn("Sisa minggu ini hanya 30 mnt", html)
+
+    def test_staff_can_cashout_all_available_overtime_balance(self):
+        date_value = "2026-09-10"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-CASHOUT",
+            full_name="Naufal Cashout Lembur",
+            warehouse_id=1,
+        )
+        self.create_user("portal_overtime_cashout", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+
+        approved_request_id = self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            180,
+            source_type="biometric_auto",
+            note="Pulang lewat shift 3j 00m",
+            status="approved",
+        )
+        initial_credit_timestamp = (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET handled_at=?, updated_at=?
+                WHERE id=?
+                """,
+                (initial_credit_timestamp, initial_credit_timestamp, approved_request_id),
+            )
+            db.commit()
+
+        self.login("portal_overtime_cashout", "pass1234")
+        page_response = self.client.get("/lembur/")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn('<option value="cashout_all">Uangkan Semua Saldo</option>', page_html)
+        self.assertIn("Sisa Pakai Minggu Ini", page_html)
+
+        submit_response = self.client.post(
+            "/lembur/submit",
+            data={
+                "request_mode": "reduce",
+                "usage_mode": "cashout_all",
+                "request_date": date_value,
+                "minutes_amount": "1",
+                "reason": "Minta diuangkan saja.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            cashout_request = db.execute(
+                """
+                SELECT id, request_type, status, summary_title, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(cashout_request["request_type"], "overtime_use")
+        self.assertEqual(cashout_request["status"], "pending")
+        self.assertIn("Uangkan Lembur", cashout_request["summary_title"])
+        cashout_payload = json.loads(cashout_request["payload"])
+        self.assertEqual(cashout_payload["usage_mode"], "cashout_all")
+        self.assertEqual(cashout_payload["minutes_used"], 180)
+
+        self.logout()
+        self.login_hr_user("hr_overtime_cashout_approval", "pass1234")
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{cashout_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Cashout lembur disetujui."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_row = db.execute(
+                """
+                SELECT minutes_used, usage_mode, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(usage_row["minutes_used"], 180)
+        self.assertEqual(usage_row["usage_mode"], "cashout_all")
+        self.assertEqual(usage_row["note"], "Minta diuangkan saja.")
+        self.assertEqual(balance["available_minutes"], 0)
 
     def test_hr_can_use_overtime_balance_and_reject_request_above_available_minutes(self):
         self.login_hr_user("hr_overtime_use", "pass1234")
@@ -11329,28 +11849,23 @@ class WmsRoutesTestCase(unittest.TestCase):
             warehouse_id=1,
         )
 
+        approved_request_id = self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            60,
+            source_type="biometric_auto",
+            note="Pulang lewat shift 1j 00m",
+        )
+        initial_credit_timestamp = (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
         with self.app.app_context():
             db = get_db()
             db.execute(
                 """
-                INSERT INTO attendance_records(
-                    employee_id, warehouse_id, attendance_date, check_in, check_out,
-                    status, shift_code, shift_label, note, updated_at
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                UPDATE attendance_action_requests
+                SET handled_at=?, updated_at=?
+                WHERE id=?
                 """,
-                (
-                    employee_id,
-                    1,
-                    date_value,
-                    "08:00",
-                    "17:00",
-                    "present",
-                    "pagi",
-                    "Shift Pagi | 08.00 - 16.00",
-                    "Synced from geotag",
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
+                (initial_credit_timestamp, initial_credit_timestamp, approved_request_id),
             )
             db.commit()
 
@@ -11366,6 +11881,28 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(success_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_request = db.execute(
+                """
+                SELECT id, request_type, status
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+        self.assertEqual(usage_request["request_type"], "overtime_use")
+        self.assertEqual(usage_request["status"], "pending")
+
+        approve_use_response = self.client.post(
+            f"/hris/approval/attendance-request/{usage_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Pemakaian sesuai izin."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_use_response.status_code, 302)
 
         with self.app.app_context():
             db = get_db()
@@ -11405,7 +11942,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(usage_count, 1)
 
-    def test_overtime_portal_submits_add_and_reduce_requests_then_hr_can_approve_them(self):
+    def test_overtime_portal_restricts_add_requests_to_hr_and_keeps_reduce_for_staff(self):
         date_value = "2026-09-07"
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-PORTAL",
@@ -11414,38 +11951,24 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.create_user("portal_overtime_staff", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
 
-        with self.app.app_context():
-            db = get_db()
-            db.execute(
-                """
-                INSERT INTO attendance_records(
-                    employee_id, warehouse_id, attendance_date, check_in, check_out,
-                    status, shift_code, shift_label, note, updated_at
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    employee_id,
-                    1,
-                    date_value,
-                    "08:00",
-                    "17:00",
-                    "present",
-                    "pagi",
-                    "Shift Pagi | 08.00 - 16.00",
-                    "Synced from geotag",
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
-            )
-            db.commit()
+        self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            60,
+            source_type="biometric_auto",
+            note="Pulang lewat shift 1j 00m",
+        )
 
         self.login("portal_overtime_staff", "pass1234")
 
         page_response = self.client.get("/lembur/")
         self.assertEqual(page_response.status_code, 200)
         page_html = page_response.get_data(as_text=True)
-        self.assertIn("Ajukan Tambah / Kurangi Lembur", page_html)
+        self.assertIn("Ajukan Kurangi Lembur", page_html)
         self.assertIn("1j 00m", page_html)
+        self.assertIn('<option value="reduce">Kurangi Lembur</option>', page_html)
+        self.assertNotIn('<option value="add">Tambah Lembur</option>', page_html)
+        self.assertIn("Penambahan saldo lembur hanya bisa diajukan oleh HR.", page_html)
 
         add_response = self.client.post(
             "/lembur/submit",
@@ -11455,9 +11978,10 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "minutes_amount": "45",
                 "reason": "Koreksi lembur event malam.",
             },
-            follow_redirects=False,
+            follow_redirects=True,
         )
-        self.assertEqual(add_response.status_code, 302)
+        self.assertEqual(add_response.status_code, 200)
+        self.assertIn("Penambahan lembur hanya bisa diajukan oleh HR.", add_response.get_data(as_text=True))
 
         reduce_response = self.client.post(
             "/lembur/submit",
@@ -11477,32 +12001,21 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """
                 SELECT request_type, status, summary_title
                 FROM attendance_action_requests
-                WHERE employee_id=?
+                WHERE employee_id=? AND request_type='overtime_use'
                 ORDER BY id ASC
                 """,
                 (employee_id,),
             ).fetchall()
 
-        self.assertEqual([row["request_type"] for row in request_rows], ["overtime_add", "overtime_use"])
-        self.assertEqual([row["status"] for row in request_rows], ["pending", "pending"])
-        self.assertIn("Tambah Lembur", request_rows[0]["summary_title"])
-        self.assertIn("Kurangi Lembur", request_rows[1]["summary_title"])
+        self.assertEqual([row["request_type"] for row in request_rows], ["overtime_use"])
+        self.assertEqual([row["status"] for row in request_rows], ["pending"])
+        self.assertIn("Kurangi Lembur", request_rows[0]["summary_title"])
 
         self.logout()
         self.login_hr_user("hr_ot_portal_approval", "pass1234")
 
         with self.app.app_context():
             db = get_db()
-            add_request = db.execute(
-                """
-                SELECT id
-                FROM attendance_action_requests
-                WHERE employee_id=? AND request_type='overtime_add'
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (employee_id,),
-            ).fetchone()
             reduce_request = db.execute(
                 """
                 SELECT id
@@ -11514,19 +12027,88 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (employee_id,),
             ).fetchone()
 
-        approve_add_response = self.client.post(
-            f"/hris/approval/attendance-request/{add_request['id']}/process",
-            data={"decision": "approved", "decision_note": "Lembur event valid."},
-            follow_redirects=False,
-        )
-        self.assertEqual(approve_add_response.status_code, 302)
-
         approve_reduce_response = self.client.post(
             f"/hris/approval/attendance-request/{reduce_request['id']}/process",
             data={"decision": "approved", "decision_note": "Pengurangan sesuai izin."},
             follow_redirects=False,
         )
         self.assertEqual(approve_reduce_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_row = db.execute(
+                """
+                SELECT minutes_used, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(usage_row["minutes_used"], 30)
+        self.assertEqual(usage_row["note"], "Dipakai izin pulang lebih awal.")
+        self.assertEqual((60 - 30), 30)
+
+    def test_hr_overtime_portal_can_submit_add_request_and_hr_can_approve_it(self):
+        date_value = "2026-09-08"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-PORTAL-HR",
+            full_name="Nadia Portal Lembur HR",
+            warehouse_id=1,
+            position="HR Staff",
+        )
+        self.create_user("portal_overtime_hr", "pass1234", "hr", warehouse_id=1, employee_id=employee_id)
+        self.create_user("portal_overtime_hr_approver", "pass1234", "hr", warehouse_id=1)
+
+        self.login("portal_overtime_hr", "pass1234")
+
+        page_response = self.client.get("/lembur/")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("Ajukan Tambah / Kurangi Lembur", page_html)
+        self.assertIn('<option value="add">Tambah Lembur</option>', page_html)
+        self.assertIn('<option value="reduce">Kurangi Lembur</option>', page_html)
+
+        add_response = self.client.post(
+            "/lembur/submit",
+            data={
+                "request_mode": "add",
+                "request_date": date_value,
+                "minutes_amount": "45",
+                "reason": "Koreksi lembur event malam.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            add_request = db.execute(
+                """
+                SELECT id, request_type, status, summary_title
+                FROM attendance_action_requests
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(add_request["request_type"], "overtime_add")
+        self.assertEqual(add_request["status"], "pending")
+        self.assertIn("Tambah Lembur", add_request["summary_title"])
+
+        self.logout()
+        self.login("portal_overtime_hr_approver", "pass1234")
+
+        approve_add_response = self.client.post(
+            f"/hris/approval/attendance-request/{add_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Lembur event valid."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_add_response.status_code, 302)
 
         with self.app.app_context():
             db = get_db()
@@ -11540,22 +12122,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (employee_id,),
             ).fetchone()
-            usage_row = db.execute(
-                """
-                SELECT minutes_used, note
-                FROM overtime_usage_records
-                WHERE employee_id=?
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (employee_id,),
-            ).fetchone()
 
         self.assertEqual(adjustment_row["minutes_delta"], 45)
         self.assertEqual(adjustment_row["note"], "Koreksi lembur event malam.")
-        self.assertEqual(usage_row["minutes_used"], 30)
-        self.assertEqual(usage_row["note"], "Dipakai izin pulang lebih awal.")
-        self.assertEqual((60 + 45 - 30), 75)
 
     def test_hr_can_override_biometric_late_status_and_preserve_it_after_resync(self):
         self.login_hr_user("hr_bio_override", "pass1234")
@@ -17322,16 +17891,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 2)
         self.assertIn("Page 2 / 2", page_two_html)
 
-    def test_stock_page_search_waits_for_submit_instead_of_refreshing_on_each_keystroke(self):
+    def test_stock_page_search_uses_ajax_live_refresh_like_ipos5(self):
         template_path = os.path.join(self.app.root_path, "templates", "stok_gudang.html")
         with open(template_path, "r", encoding="utf-8") as template_file:
             template_text = template_file.read()
 
         self.assertIn('data-stock-live-search-input', template_text)
+        self.assertIn('const stockLiveSearchInput = stockFilterForm?.querySelector("[data-stock-live-search-input]") || null;', template_text)
         self.assertIn('stockFilterForm.addEventListener("submit"', template_text)
-        self.assertNotIn('stockLiveSearchInput?.addEventListener("input"', template_text)
+        self.assertIn('stockLiveSearchInput?.addEventListener("input"', template_text)
         self.assertIn("stockAutoApplyFields.forEach((field) => {", template_text)
-        self.assertIn('window.location.assign(buildStockFilterUrlFromForm())', template_text)
+        self.assertIn('await triggerStockFilterRefresh();', template_text)
+        self.assertIn('void refreshInventoryView(buildStockFilterUrlFromForm());', template_text)
+        self.assertIn("}, 220);", template_text)
 
     def test_stock_helper_extracts_date_prefix_from_datetime_objects(self):
         sample_datetime = datetime(2026, 4, 15, 10, 30, 45)
@@ -17421,6 +17993,40 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("black red-35", html)
         self.assertIn("data-stock-group-edit-trigger", html)
         self.assertEqual(html.count('value="AERO COMFORT 4"'), 1)
+
+    def test_stock_page_search_matches_split_and_compact_terms(self):
+        self.login()
+        response, product_id, _ = self.create_product(
+            sku="AERO-COMFORT-4",
+            qty=2,
+            variants="black red-33,black red-34,black red-35",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                "UPDATE products SET name=? WHERE id=?",
+                ("AERO COMFORT 4", product_id),
+            )
+            db.commit()
+
+        split_term_page = self.client.get("/stock/?q=AERO 4", follow_redirects=False)
+        self.assertEqual(split_term_page.status_code, 200)
+        split_term_html = split_term_page.get_data(as_text=True)
+
+        self.assertIn("AERO COMFORT 4", split_term_html)
+        self.assertIn("3 varian", split_term_html)
+        self.assertIn("black red-33", split_term_html)
+        self.assertIn("black red-35", split_term_html)
+
+        compact_term_page = self.client.get("/stock/?q=AEROCOMFORT4", follow_redirects=False)
+        self.assertEqual(compact_term_page.status_code, 200)
+        compact_term_html = compact_term_page.get_data(as_text=True)
+
+        self.assertIn("AERO COMFORT 4", compact_term_html)
+        self.assertIn("3 varian", compact_term_html)
+        self.assertIn("black red-34", compact_term_html)
 
     def test_stock_page_groups_same_name_products_even_when_they_come_from_different_masters(self):
         self.login()

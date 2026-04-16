@@ -526,6 +526,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "overtime_balance_adjustments", "note", "TEXT")
     _ensure_column(cursor, "overtime_balance_adjustments", "handled_by", "INTEGER")
     _ensure_column(cursor, "overtime_balance_adjustments", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cursor, "overtime_usage_records", "usage_mode", "TEXT DEFAULT 'regular'")
     _ensure_column(cursor, "chat_threads", "thread_type", "TEXT DEFAULT 'direct'")
     _ensure_column(cursor, "chat_threads", "group_name", "TEXT")
     _ensure_column(cursor, "chat_threads", "group_description", "TEXT")
@@ -932,6 +933,7 @@ def init_db(db_path=None, sqlite_options=None):
         employee_id INTEGER NOT NULL,
         warehouse_id INTEGER NOT NULL,
         usage_date TEXT NOT NULL,
+        usage_mode TEXT DEFAULT 'regular',
         minutes_used INTEGER NOT NULL DEFAULT 0,
         note TEXT,
         handled_by INTEGER,

@@ -82,7 +82,11 @@ def _build_workspace_sections(role):
             _workspace_tile(
                 "Lembur",
                 "/lembur/",
-                "Ajukan tambah atau kurangi saldo lembur, lalu pantau status approval HR dan Super Admin.",
+                (
+                    "Ajukan tambah atau kurangi saldo lembur, lalu pantau status approval HR dan Super Admin."
+                    if normalized_role == "hr"
+                    else "Ajukan pengurangan saldo lembur dan pantau status approval HR dan Super Admin."
+                ),
                 "Lembur",
                 "teal",
                 "coordination-absen-foto",
