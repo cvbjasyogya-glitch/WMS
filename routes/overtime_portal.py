@@ -1,6 +1,6 @@
 from datetime import date as date_cls
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session
 
 from database import get_db
 from routes.hris import (
@@ -24,6 +24,24 @@ from services.rbac import has_permission, normalize_role
 
 
 overtime_portal_bp = Blueprint("overtime_portal", __name__, url_prefix="/lembur")
+
+
+def _empty_overtime_portal_context():
+    return {
+        "linked_employee": None,
+        "balance": None,
+        "request_history": [],
+        "request_history_summary": {
+            "total": 0,
+            "pending": 0,
+            "approved": 0,
+            "rejected": 0,
+        },
+        "today_value": date_cls.today().isoformat(),
+        "can_request_overtime_add": _can_request_overtime_add(),
+        "overtime_balance_cap_label": _format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES),
+        "overtime_weekly_limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
+    }
 
 
 def _has_overtime_portal_access():
@@ -129,8 +147,17 @@ def index():
         return redirect("/workspace/")
 
     db = get_db()
-    _ensure_overtime_feature_schema(db)
-    return render_template("overtime_portal.html", **_build_overtime_portal_context(db))
+    try:
+        _ensure_overtime_feature_schema(db)
+        context = _build_overtime_portal_context(db)
+    except Exception as exc:
+        current_app.logger.exception("OVERTIME PORTAL INDEX ERROR: %s", exc)
+        flash(
+            "Portal lembur belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+            "error",
+        )
+        context = _empty_overtime_portal_context()
+    return render_template("overtime_portal.html", **context)
 
 
 @overtime_portal_bp.route("/submit", methods=["POST"])
@@ -140,7 +167,15 @@ def submit():
         return redirect("/workspace/")
 
     db = get_db()
-    _ensure_overtime_feature_schema(db)
+    try:
+        _ensure_overtime_feature_schema(db)
+    except Exception as exc:
+        current_app.logger.exception("OVERTIME PORTAL SCHEMA ERROR: %s", exc)
+        flash(
+            "Portal lembur belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+            "error",
+        )
+        return redirect("/lembur/")
     linked_employee = _get_self_service_employee(db)
     if linked_employee is None:
         flash("Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin.", "error")
@@ -172,12 +207,20 @@ def submit():
         flash("Alasan pengajuan lembur wajib diisi.", "error")
         return redirect("/lembur/")
 
-    balance = _build_employee_overtime_balance(
-        db,
-        linked_employee["id"],
-        reference_date=request_date,
-        include_pending_weekly_usage=True,
-    )
+    try:
+        balance = _build_employee_overtime_balance(
+            db,
+            linked_employee["id"],
+            reference_date=request_date,
+            include_pending_weekly_usage=True,
+        )
+    except Exception as exc:
+        current_app.logger.exception("OVERTIME PORTAL BALANCE ERROR: %s", exc)
+        flash(
+            "Portal lembur belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+            "error",
+        )
+        return redirect("/lembur/")
 
     if request_mode == "add":
         if minutes_value is None or minutes_value <= 0:
@@ -265,7 +308,8 @@ def submit():
             payload=payload,
         )
         db.commit()
-    except Exception:
+    except Exception as exc:
+        current_app.logger.exception("OVERTIME PORTAL SUBMIT ERROR: %s", exc)
         db.rollback()
         flash("Pengajuan lembur gagal dikirim ke approval.", "error")
         return redirect("/lembur/")

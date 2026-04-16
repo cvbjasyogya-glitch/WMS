@@ -6556,13 +6556,43 @@ def hris_index(module_slug=None):
     elif selected_module["slug"] == "biometric":
         biometric_logs, search, punch_type, sync_status, selected_warehouse, date_from, date_to = _fetch_biometric_logs(db)
         biometric_summary = _build_biometric_summary(biometric_logs)
-        biometric_recap_rows = _build_biometric_recap_rows(db, biometric_logs)
-        overtime_recap_rows, overtime_recap_summary, overtime_usage_history = _build_overtime_recap(
-            db,
-            selected_warehouse=selected_warehouse,
-            period_date_from=date_from,
-            period_date_to=date_to,
-        )
+        try:
+            biometric_recap_rows = _build_biometric_recap_rows(db, biometric_logs)
+            overtime_recap_rows, overtime_recap_summary, overtime_usage_history = _build_overtime_recap(
+                db,
+                selected_warehouse=selected_warehouse,
+                period_date_from=date_from,
+                period_date_to=date_to,
+            )
+        except Exception as exc:
+            current_app.logger.exception("HRIS BIOMETRIC OVERTIME RENDER ERROR: %s", exc)
+            biometric_recap_rows = []
+            overtime_recap_rows = []
+            overtime_recap_summary = {
+                "staff_total": 0,
+                "staff_with_balance": 0,
+                "earned_period_seconds": 0,
+                "added_period_seconds": 0,
+                "used_period_seconds": 0,
+                "available_total_seconds": 0,
+                "earned_period_label": "-",
+                "added_period_label": "-",
+                "used_period_label": "-",
+                "available_total_label": "-",
+                "history_count": 0,
+                "period_label": (
+                    f"{date_from} s/d {date_to}"
+                    if date_from and date_to
+                    else date_from
+                    or date_to
+                    or "Semua Periode"
+                ),
+            }
+            overtime_usage_history = []
+            flash(
+                "Komponen lembur otomatis belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+                "error",
+            )
         biometric_filters = {
             "search": search,
             "punch_type": punch_type,
@@ -9752,7 +9782,15 @@ def use_biometric_overtime():
         return redirect(return_to)
 
     db = get_db()
-    _ensure_overtime_feature_schema(db)
+    try:
+        _ensure_overtime_feature_schema(db)
+    except Exception as exc:
+        current_app.logger.exception("HRIS BIOMETRIC OVERTIME USE SCHEMA ERROR: %s", exc)
+        flash(
+            "Fitur pemakaian lembur belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+            "error",
+        )
+        return redirect(return_to)
     employee_id = _to_int(request.form.get("employee_id"))
     usage_date = _parse_iso_date((request.form.get("usage_date") or "").strip())
     minutes_used = _to_int(request.form.get("minutes_used"), default=None)
@@ -9882,7 +9920,15 @@ def decide_biometric_overtime():
         return redirect(return_to)
 
     db = get_db()
-    _ensure_overtime_feature_schema(db)
+    try:
+        _ensure_overtime_feature_schema(db)
+    except Exception as exc:
+        current_app.logger.exception("HRIS BIOMETRIC OVERTIME DECISION SCHEMA ERROR: %s", exc)
+        flash(
+            "Fitur approval lembur belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+            "error",
+        )
+        return redirect(return_to)
     employee = _get_accessible_employee(db, employee_id)
     if employee is None:
         flash("Staff lembur tidak ditemukan untuk scope akun ini.", "error")

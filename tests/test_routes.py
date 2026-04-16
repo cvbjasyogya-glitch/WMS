@@ -11504,6 +11504,41 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("1j 30m", html)
         self.assertIn("Dipakai pulang lebih awal", html)
 
+    def test_biometric_page_gracefully_handles_overtime_schema_errors(self):
+        self.login_hr_user("hr_overtime_schema_guard", "pass1234")
+
+        with patch("routes.hris._build_overtime_recap", side_effect=sqlite3.DatabaseError("missing overtime schema")):
+            response = self.client.get("/hris/biometric")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Komponen lembur otomatis belum siap di server", html)
+
+    def test_biometric_overtime_use_gracefully_handles_schema_errors(self):
+        self.login_hr_user("hr_overtime_schema_post", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-SCHEMA-POST",
+            full_name="Naufal Schema Post",
+            warehouse_id=1,
+        )
+
+        with patch("routes.hris._ensure_overtime_feature_schema", side_effect=sqlite3.DatabaseError("permission denied")):
+            response = self.client.post(
+                "/hris/biometric/overtime/use",
+                data={
+                    "employee_id": str(employee_id),
+                    "usage_date": "2026-09-10",
+                    "minutes_used": "30",
+                    "note": "Tes schema",
+                    "return_to": "/hris/biometric",
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Fitur pemakaian lembur belum siap di server", html)
+
     def test_biometric_overtime_balance_counts_early_check_in_and_late_check_out(self):
         self.login_hr_user("hr_overtime_combo", "pass1234")
         date_value = "2026-09-06"
@@ -12050,6 +12085,22 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(usage_row["minutes_used"], 30)
         self.assertEqual(usage_row["note"], "Dipakai izin pulang lebih awal.")
         self.assertEqual((60 - 30), 30)
+
+    def test_overtime_portal_gracefully_handles_schema_errors(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-PORTAL-SCHEMA",
+            full_name="Naufal Portal Schema",
+            warehouse_id=1,
+        )
+        self.create_user("portal_overtime_schema_guard", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_overtime_schema_guard", "pass1234")
+
+        with patch("routes.overtime_portal._ensure_overtime_feature_schema", side_effect=sqlite3.DatabaseError("permission denied")):
+            response = self.client.get("/lembur/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Portal lembur belum siap di server", html)
 
     def test_hr_overtime_portal_can_submit_add_request_and_hr_can_approve_it(self):
         date_value = "2026-09-08"
