@@ -11,7 +11,7 @@ from uuid import uuid4
 from flask import Blueprint, current_app, render_template, request, redirect, flash, session, url_for
 from werkzeug.utils import secure_filename
 
-from database import get_db
+from database import get_db, is_postgresql_backend
 from routes.schedule import (
     LIVE_SCHEDULE_SLOTS,
     _build_board_rows as _build_schedule_board_rows,
@@ -252,6 +252,107 @@ def _get_table_columns(db, table_name):
             if isinstance(row, (list, tuple)) and len(row) > 1:
                 columns.add(row[1])
     return columns
+
+
+def _ensure_overtime_feature_schema(db):
+    runtime_state = current_app.extensions.setdefault("hris_overtime_runtime_state", {})
+    backend = "postgresql" if is_postgresql_backend(current_app.config) else "sqlite"
+    cache_key = f"schema_ready:{backend}"
+    if runtime_state.get(cache_key):
+        return
+
+    if backend == "postgresql":
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS attendance_action_requests(
+                id SERIAL PRIMARY KEY,
+                request_type TEXT,
+                warehouse_id INTEGER,
+                employee_id INTEGER,
+                summary_title TEXT,
+                summary_note TEXT,
+                payload TEXT,
+                status TEXT DEFAULT 'pending',
+                requested_by INTEGER,
+                handled_by INTEGER,
+                handled_at TIMESTAMP,
+                decision_note TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS overtime_balance_adjustments(
+                id SERIAL PRIMARY KEY,
+                employee_id INTEGER,
+                warehouse_id INTEGER,
+                adjustment_date TEXT,
+                minutes_delta INTEGER DEFAULT 0,
+                note TEXT,
+                handled_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS overtime_usage_records(
+                id SERIAL PRIMARY KEY,
+                employee_id INTEGER,
+                warehouse_id INTEGER,
+                usage_date TEXT,
+                usage_mode TEXT DEFAULT 'regular',
+                minutes_used INTEGER DEFAULT 0,
+                note TEXT,
+                handled_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS request_type TEXT",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS employee_id INTEGER",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS summary_title TEXT",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS summary_note TEXT",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS payload TEXT",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS requested_by INTEGER",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS handled_by INTEGER",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS handled_at TIMESTAMP",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS decision_note TEXT",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE attendance_action_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS employee_id INTEGER",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS adjustment_date TEXT",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS minutes_delta INTEGER DEFAULT 0",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS note TEXT",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS handled_by INTEGER",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE overtime_balance_adjustments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS employee_id INTEGER",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS usage_date TEXT",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS usage_mode TEXT DEFAULT 'regular'",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS minutes_used INTEGER DEFAULT 0",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS note TEXT",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS handled_by INTEGER",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE overtime_usage_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "CREATE INDEX IF NOT EXISTS idx_overtime_usage_main ON overtime_usage_records(warehouse_id, usage_date, employee_id)",
+            "CREATE INDEX IF NOT EXISTS idx_overtime_balance_adjustments_main ON overtime_balance_adjustments(warehouse_id, adjustment_date, employee_id)",
+            "CREATE INDEX IF NOT EXISTS idx_attendance_action_requests_main ON attendance_action_requests(status, warehouse_id, request_type, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_attendance_action_requests_employee ON attendance_action_requests(employee_id, status, created_at)",
+        ]
+        for statement in statements:
+            db.execute(statement)
+    else:
+        usage_columns = _get_table_columns(db, "overtime_usage_records")
+        if usage_columns and "usage_mode" not in usage_columns:
+            db.execute(
+                "ALTER TABLE overtime_usage_records ADD COLUMN usage_mode TEXT DEFAULT 'regular'"
+            )
+
+    runtime_state[cache_key] = True
 
 
 def can_view_hris_records(module_slug=None):
@@ -2429,6 +2530,7 @@ def _fetch_overtime_recap_employees(db, selected_warehouse=None):
 
 
 def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None, limit=None):
+    _ensure_overtime_feature_schema(db)
     scope_warehouse = get_hris_scope()
     safe_warehouse = scope_warehouse or selected_warehouse
     usage_columns = _get_table_columns(db, "overtime_usage_records")
@@ -2474,6 +2576,7 @@ def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None,
 
 
 def _fetch_overtime_balance_adjustment_records(db, selected_warehouse=None, employee_id=None, limit=None):
+    _ensure_overtime_feature_schema(db)
     scope_warehouse = get_hris_scope()
     safe_warehouse = scope_warehouse or selected_warehouse
     query = """
@@ -2522,6 +2625,7 @@ def _fetch_overtime_add_request_records(
     employee_ids=None,
     limit=None,
 ):
+    _ensure_overtime_feature_schema(db)
     scope_warehouse = get_hris_scope()
     safe_warehouse = scope_warehouse or selected_warehouse
     normalized_status = str(status or "all").strip().lower()
@@ -2697,6 +2801,7 @@ def _get_biometric_attendance_record(db, employee_id, attendance_date):
 
 
 def _get_overtime_usage_by_id(db, usage_id):
+    _ensure_overtime_feature_schema(db)
     scope_warehouse = get_hris_scope()
     usage_columns = _get_table_columns(db, "overtime_usage_records")
     query = """
@@ -3200,6 +3305,7 @@ def _notify_attendance_request_decision(db, request_row, *, approved):
 
 
 def _apply_attendance_request(db, request_row):
+    _ensure_overtime_feature_schema(db)
     if not request_row:
         raise ValueError("Request attendance tidak ditemukan.")
 
@@ -9646,6 +9752,7 @@ def use_biometric_overtime():
         return redirect(return_to)
 
     db = get_db()
+    _ensure_overtime_feature_schema(db)
     employee_id = _to_int(request.form.get("employee_id"))
     usage_date = _parse_iso_date((request.form.get("usage_date") or "").strip())
     minutes_used = _to_int(request.form.get("minutes_used"), default=None)
@@ -9775,6 +9882,7 @@ def decide_biometric_overtime():
         return redirect(return_to)
 
     db = get_db()
+    _ensure_overtime_feature_schema(db)
     employee = _get_accessible_employee(db, employee_id)
     if employee is None:
         flash("Staff lembur tidak ditemukan untuk scope akun ini.", "error")

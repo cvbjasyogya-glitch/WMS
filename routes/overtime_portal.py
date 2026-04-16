@@ -7,6 +7,7 @@ from routes.hris import (
     OVERTIME_BALANCE_CAP_MINUTES,
     OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES,
     _build_employee_overtime_balance,
+    _ensure_overtime_feature_schema,
     _format_duration_minutes_label,
     _get_overtime_usage_mode_label,
     _get_self_service_employee,
@@ -52,6 +53,7 @@ def _build_request_status_meta(status):
 def _fetch_overtime_request_history(db, linked_employee, limit=20):
     if not linked_employee:
         return []
+    _ensure_overtime_feature_schema(db)
 
     rows = db.execute(
         """
@@ -127,6 +129,7 @@ def index():
         return redirect("/workspace/")
 
     db = get_db()
+    _ensure_overtime_feature_schema(db)
     return render_template("overtime_portal.html", **_build_overtime_portal_context(db))
 
 
@@ -137,6 +140,7 @@ def submit():
         return redirect("/workspace/")
 
     db = get_db()
+    _ensure_overtime_feature_schema(db)
     linked_employee = _get_self_service_employee(db)
     if linked_employee is None:
         flash("Akun ini belum ditautkan ke data karyawan. Hubungkan dulu dari halaman Admin.", "error")

@@ -24,6 +24,19 @@ SMOKE_QUERIES = {
     "warehouses": "SELECT COUNT(*) FROM warehouses",
     "requests_pending": "SELECT COUNT(*) FROM requests WHERE status = 'pending'",
     "latest_stock_movement": "SELECT COUNT(*) FROM stock_movements",
+    "attendance_action_requests": "SELECT COUNT(*) FROM attendance_action_requests",
+    "overtime_usage_records": "SELECT COUNT(*) FROM overtime_usage_records",
+    "overtime_balance_adjustments": "SELECT COUNT(*) FROM overtime_balance_adjustments",
+}
+
+SCHEMA_QUERIES = {
+    "overtime_usage_records.usage_mode": """
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'overtime_usage_records'
+          AND column_name = 'usage_mode'
+    """,
 }
 
 
@@ -48,6 +61,7 @@ def main() -> int:
         "database_backend": Config.DATABASE_BACKEND,
         "database_url_masked": _masked_database_url(database_url),
         "checks": {},
+        "schema_checks": {},
     }
 
     with psycopg.connect(database_url, autocommit=True) as conn:
@@ -56,6 +70,10 @@ def main() -> int:
                 cursor.execute(query)
                 row = cursor.fetchone()
                 payload["checks"][label] = int(row[0] or 0) if row else 0
+            for label, query in SCHEMA_QUERIES.items():
+                cursor.execute(query)
+                row = cursor.fetchone()
+                payload["schema_checks"][label] = bool(int(row[0] or 0)) if row else False
 
     print(json.dumps(payload, indent=2))
     return 0
