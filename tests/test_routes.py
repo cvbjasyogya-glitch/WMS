@@ -39,6 +39,7 @@ from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
 from routes.hris import (
+    _ensure_overtime_feature_schema,
     _build_employee_overtime_balance,
     _format_hris_datetime_display,
     _normalize_datetime_input,
@@ -11632,6 +11633,43 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Fitur pemakaian lembur belum siap di server", html)
 
+    def test_overtime_feature_schema_repairs_missing_postgresql_id_defaults(self):
+        executed_statements = []
+
+        class ProxyDB:
+            def execute(self, sql, params=()):
+                statement = " ".join(str(sql).split())
+                executed_statements.append((statement, params))
+                if "FROM information_schema.columns" in statement:
+                    return Mock(fetchone=Mock(return_value={"column_default": None}))
+                return Mock(fetchone=Mock(return_value=None), fetchall=Mock(return_value=[]))
+
+        proxy_db = ProxyDB()
+
+        with self.app.app_context():
+            self.app.config["DATABASE_BACKEND"] = "postgresql"
+            self.app.extensions.pop("hris_overtime_runtime_state", None)
+            _ensure_overtime_feature_schema(proxy_db)
+
+        self.assertTrue(
+            any(
+                "ALTER TABLE overtime_balance_adjustments ALTER COLUMN id SET DEFAULT nextval('overtime_balance_adjustments_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "ALTER TABLE overtime_usage_records ALTER COLUMN id SET DEFAULT nextval('overtime_usage_records_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "ALTER TABLE attendance_action_requests ALTER COLUMN id SET DEFAULT nextval('attendance_action_requests_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+
     def test_biometric_overtime_balance_counts_early_check_in_and_late_check_out(self):
         self.login_hr_user("hr_overtime_combo", "pass1234")
         date_value = "2026-09-06"
@@ -12138,6 +12176,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual([row["request_type"] for row in request_rows], ["overtime_use"])
         self.assertEqual([row["status"] for row in request_rows], ["pending"])
         self.assertIn("Kurangi Lembur", request_rows[0]["summary_title"])
+
+        refreshed_page = self.client.get("/lembur/")
+        self.assertEqual(refreshed_page.status_code, 200)
+        refreshed_html = refreshed_page.get_data(as_text=True)
+        self.assertIn("Saldo Tersedia", refreshed_html)
+        self.assertIn("1j 00m", refreshed_html)
 
         self.logout()
         self.login_hr_user("hr_ot_portal_approval", "pass1234")

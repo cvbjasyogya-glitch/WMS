@@ -254,6 +254,35 @@ def _get_table_columns(db, table_name):
     return columns
 
 
+def _ensure_postgresql_id_sequence(db, table_name):
+    default_row = db.execute(
+        """
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_schema='public'
+          AND table_name=?
+          AND column_name='id'
+        """,
+        (table_name,),
+    ).fetchone()
+    try:
+        column_default = str(default_row["column_default"] or "").lower()
+    except Exception:
+        column_default = ""
+    if "nextval(" in column_default:
+        return
+
+    sequence_name = f"{table_name}_id_seq"
+    db.execute(f"CREATE SEQUENCE IF NOT EXISTS {sequence_name}")
+    db.execute(f"ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id")
+    db.execute(
+        f"ALTER TABLE {table_name} ALTER COLUMN id SET DEFAULT nextval('{sequence_name}')"
+    )
+    db.execute(
+        f"SELECT setval('{sequence_name}', COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, false)"
+    )
+
+
 def _ensure_overtime_feature_schema(db):
     runtime_state = current_app.extensions.setdefault("hris_overtime_runtime_state", {})
     backend = "postgresql" if is_postgresql_backend(current_app.config) else "sqlite"
@@ -345,6 +374,12 @@ def _ensure_overtime_feature_schema(db):
         ]
         for statement in statements:
             db.execute(statement)
+        for table_name in (
+            "attendance_action_requests",
+            "overtime_balance_adjustments",
+            "overtime_usage_records",
+        ):
+            _ensure_postgresql_id_sequence(db, table_name)
     else:
         usage_columns = _get_table_columns(db, "overtime_usage_records")
         if usage_columns and "usage_mode" not in usage_columns:
@@ -9878,9 +9913,9 @@ def use_biometric_overtime():
 
     if queue_result.get("existing"):
         flash(
-            "Permintaan uangkan lembur yang sama masih menunggu approval."
+            "Permintaan uangkan lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
             if usage_mode == "cashout_all"
-            else "Permintaan pengurangan saldo lembur yang sama masih menunggu approval.",
+            else "Permintaan pengurangan saldo lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui.",
             "info",
         )
     else:

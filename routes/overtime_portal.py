@@ -117,7 +117,7 @@ def _build_overtime_portal_context(db):
         _build_employee_overtime_balance(
             db,
             linked_employee["id"],
-            include_pending_weekly_usage=True,
+            include_pending_weekly_usage=False,
         )
         if linked_employee
         else None
@@ -287,9 +287,9 @@ def submit():
             else f"Pengajuan pengurangan lembur {duration_label} berhasil dikirim ke approval."
         )
         duplicate_message = (
-            "Pengajuan uangkan saldo lembur yang sama masih menunggu approval."
+            "Pengajuan uangkan saldo lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
             if usage_mode == "cashout_all"
-            else "Pengajuan pengurangan lembur yang sama masih menunggu approval."
+            else "Pengajuan pengurangan lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
         )
 
     try:
