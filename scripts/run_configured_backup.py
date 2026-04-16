@@ -31,47 +31,58 @@ def parse_args():
     return parser.parse_args()
 
 
+def _log_non_fatal_backup_error(step_logger, exc):
+    step_logger(f"Backup gagal dijalankan: {exc}")
+    step_logger("Startup service tetap dilanjutkan tanpa menghentikan aplikasi.")
+
+
 def main():
     args = parse_args()
     backend = str(Config.DATABASE_BACKEND or "sqlite").strip().lower()
     output_dir = Path(args.output_dir).expanduser().resolve()
 
     if backend == "sqlite":
-        source_db = Path(Config.DATABASE).expanduser().resolve()
-        ensure_source_exists(source_db)
-        print_step(f"Configured backend: {backend}")
-        print_step(f"Source database: {source_db}")
-        print_step(f"Output directory: {output_dir}")
+        try:
+            source_db = Path(Config.DATABASE).expanduser().resolve()
+            ensure_source_exists(source_db)
+            print_step(f"Configured backend: {backend}")
+            print_step(f"Source database: {source_db}")
+            print_step(f"Output directory: {output_dir}")
 
-        backup_path = backup_database(source_db, output_dir)
-        print_step(f"Backup created: {backup_path}")
+            backup_path = backup_database(source_db, output_dir)
+            print_step(f"Backup created: {backup_path}")
 
-        removed = prune_old_backups(output_dir, args.retain_days)
-        if removed:
-            print_step(f"Removed old backups: {removed}")
-        else:
-            print_step("No old backups removed.")
+            removed = prune_old_backups(output_dir, args.retain_days)
+            if removed:
+                print_step(f"Removed old backups: {removed}")
+            else:
+                print_step("No old backups removed.")
 
-        print_step("Configured backup completed successfully.")
+            print_step("Configured backup completed successfully.")
+        except Exception as exc:
+            _log_non_fatal_backup_error(print_step, exc)
         return 0
 
     if backend == "postgresql":
-        database_url = str(Config.DATABASE_URL or "").strip()
-        if not database_url:
-            raise RuntimeError("DATABASE_URL wajib diisi untuk backup PostgreSQL.")
-        postgres_output_dir = output_dir / "postgresql"
-        print_postgresql_step(f"Configured backend: {backend}")
-        print_postgresql_step(f"Output directory: {postgres_output_dir}")
-        backup_path = backup_postgresql_database(database_url, postgres_output_dir, "custom")
-        print_postgresql_step(f"Backup created: {backup_path}")
+        try:
+            database_url = str(Config.DATABASE_URL or "").strip()
+            if not database_url:
+                raise RuntimeError("DATABASE_URL wajib diisi untuk backup PostgreSQL.")
+            postgres_output_dir = output_dir / "postgresql"
+            print_postgresql_step(f"Configured backend: {backend}")
+            print_postgresql_step(f"Output directory: {postgres_output_dir}")
+            backup_path = backup_postgresql_database(database_url, postgres_output_dir, "custom")
+            print_postgresql_step(f"Backup created: {backup_path}")
 
-        removed = prune_postgresql_backups(postgres_output_dir, args.retain_days)
-        if removed:
-            print_postgresql_step(f"Removed old backups: {removed}")
-        else:
-            print_postgresql_step("No old backups removed.")
+            removed = prune_postgresql_backups(postgres_output_dir, args.retain_days)
+            if removed:
+                print_postgresql_step(f"Removed old backups: {removed}")
+            else:
+                print_postgresql_step("No old backups removed.")
 
-        print_postgresql_step("Configured backup completed successfully.")
+            print_postgresql_step("Configured backup completed successfully.")
+        except Exception as exc:
+            _log_non_fatal_backup_error(print_postgresql_step, exc)
         return 0
 
     print_step(f"Configured backend '{backend}' belum didukung oleh hook backup ini.")

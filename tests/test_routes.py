@@ -15,6 +15,7 @@ import init_db as init_db_module
 import services.notification_service as notification_service
 import services.receipt_pdf_service as receipt_pdf_service
 import services.whatsapp_service as whatsapp_service
+import scripts.run_configured_backup as run_configured_backup_module
 from openpyxl import Workbook
 from flask import session
 from services.event_notification_policy import (
@@ -246,6 +247,30 @@ class WmsRoutesTestCase(unittest.TestCase):
         finally:
             Config.DATABASE_BACKEND = original_backend
             Config.DATABASE_URL = original_url
+
+    def test_run_configured_backup_keeps_service_start_non_fatal_for_postgresql_backup_error(self):
+        original_backend = run_configured_backup_module.Config.DATABASE_BACKEND
+        original_url = run_configured_backup_module.Config.DATABASE_URL
+        run_configured_backup_module.Config.DATABASE_BACKEND = "postgresql"
+        run_configured_backup_module.Config.DATABASE_URL = "postgresql://user:pass@127.0.0.1:5432/erp_test"
+        try:
+            with patch.object(
+                run_configured_backup_module,
+                "parse_args",
+                return_value=Mock(output_dir=self.receipt_pdf_root, retain_days=14),
+            ), patch.object(
+                run_configured_backup_module,
+                "backup_postgresql_database",
+                side_effect=RuntimeError("pg_dump failed"),
+            ), patch.object(run_configured_backup_module, "print_postgresql_step") as mocked_step:
+                result = run_configured_backup_module.main()
+
+            self.assertEqual(result, 0)
+            mocked_step.assert_any_call("Backup gagal dijalankan: pg_dump failed")
+            mocked_step.assert_any_call("Startup service tetap dilanjutkan tanpa menghentikan aplikasi.")
+        finally:
+            run_configured_backup_module.Config.DATABASE_BACKEND = original_backend
+            run_configured_backup_module.Config.DATABASE_URL = original_url
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
