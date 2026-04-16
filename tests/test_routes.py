@@ -11411,6 +11411,74 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Approved", html)
         self.assertIn("Sudah masuk ke saldo lembur.", html)
 
+    def test_hr_can_approve_biometric_overtime_when_balance_near_cap(self):
+        self.login_hr_user("hr_bio_overtime_cap_guard", "pass1234")
+        date_value = "2026-09-06"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OT-CAP",
+            full_name="Naufal Biometric Cap Guard",
+            warehouse_id=1,
+        )
+        self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-04",
+            180,
+            source_type="manual_request",
+            note="Saldo awal 3 jam",
+            status="approved",
+        )
+        self.create_biometric_attendance_day(
+            employee_id,
+            date_value,
+            "07:00",
+            "16:00",
+            location_label="Gudang Mataram - Cap Guard",
+        )
+
+        approve_response = self.client.post(
+            "/hris/biometric/overtime/decision",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": date_value,
+                "decision": "approved",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            approved_request = db.execute(
+                """
+                SELECT status, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_add'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            latest_adjustment = db.execute(
+                """
+                SELECT minutes_delta
+                FROM overtime_balance_adjustments
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(approved_request["status"], "approved")
+        approved_payload = json.loads(approved_request["payload"])
+        self.assertEqual(approved_payload["minutes_delta"], 60)
+        self.assertEqual(latest_adjustment["minutes_delta"], 60)
+        self.assertEqual(balance["available_minutes"], 240)
+        self.assertEqual(balance["available_label"], "4j 00m")
+
     def test_hr_can_decline_biometric_overtime_without_adding_balance(self):
         self.login_hr_user("hr_bio_overtime_config", "pass1234")
         date_value = "2026-09-05"
@@ -17967,19 +18035,67 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 2)
         self.assertIn("Page 2 / 2", page_two_html)
 
-    def test_stock_page_search_uses_ajax_live_refresh_like_ipos5(self):
+    def test_stock_page_search_waits_for_submit_instead_of_refreshing_on_each_keystroke(self):
         template_path = os.path.join(self.app.root_path, "templates", "stok_gudang.html")
         with open(template_path, "r", encoding="utf-8") as template_file:
             template_text = template_file.read()
 
         self.assertIn('data-stock-live-search-input', template_text)
-        self.assertIn('const stockLiveSearchInput = stockFilterForm?.querySelector("[data-stock-live-search-input]") || null;', template_text)
         self.assertIn('stockFilterForm.addEventListener("submit"', template_text)
-        self.assertIn('stockLiveSearchInput?.addEventListener("input"', template_text)
+        self.assertNotIn('stockLiveSearchInput?.addEventListener("input"', template_text)
         self.assertIn("stockAutoApplyFields.forEach((field) => {", template_text)
-        self.assertIn('await triggerStockFilterRefresh();', template_text)
-        self.assertIn('void refreshInventoryView(buildStockFilterUrlFromForm());', template_text)
-        self.assertIn("}, 220);", template_text)
+        self.assertIn("const nextUrl = buildStockFilterUrlFromForm();", template_text)
+        self.assertIn("window.location.assign(nextUrl);", template_text)
+
+    def test_stock_inventory_workspace_skips_product_studio_query(self):
+        self.login()
+
+        with patch("routes.stock.build_product_studio_context") as mocked_product_studio:
+            response = self.client.get("/stock/?q=SAFE-STOCK-SEARCH")
+
+        self.assertEqual(response.status_code, 200)
+        mocked_product_studio.assert_not_called()
+
+    def test_stock_products_workspace_still_builds_product_studio_context(self):
+        self.login()
+
+        with patch(
+            "routes.stock.build_product_studio_context",
+            return_value={
+                "data": [],
+                "search": "",
+                "page": 1,
+                "total_pages": 1,
+                "total_items": 0,
+                "pagination": {},
+            },
+        ) as mocked_product_studio:
+            response = self.client.get("/stock/?workspace=products")
+
+        self.assertEqual(response.status_code, 200)
+        mocked_product_studio.assert_called_once()
+
+    def test_stock_page_clamps_out_of_range_page_to_last_page(self):
+        self.login()
+        for index in range(12):
+            response, product_id, _ = self.create_product(
+                sku=f"STKCLAMP-{index:02d}-{uuid4().hex[:4].upper()}",
+                qty=1,
+                variants=f"CLAMP-{index}",
+            )
+            self.assertEqual(response.status_code, 302)
+            with self.app.app_context():
+                db = get_db()
+                db.execute(
+                    "UPDATE products SET name=? WHERE id=?",
+                    (f"Stock Clamp {index:02d}", product_id),
+                )
+                db.commit()
+
+        response = self.client.get("/stock/?q=STKCLAMP-&page=999")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Page 2 / 2", html)
 
     def test_stock_helper_extracts_date_prefix_from_datetime_objects(self):
         sample_datetime = datetime(2026, 4, 15, 10, 30, 45)

@@ -1445,26 +1445,17 @@ updateMasterCheckboxState();
 
 if (stockFilterForm && stockFilterForm.dataset.bound !== "1") {
     stockFilterForm.dataset.bound = "1";
-    stockFilterForm.addEventListener("submit", async (event) => {
+    stockFilterForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        await triggerStockFilterRefresh();
+        triggerStockFilterRefresh();
     });
 
     stockAutoApplyFields.forEach((field) => {
-        field.addEventListener("change", async () => {
-            await triggerStockFilterRefresh();
+        field.addEventListener("change", () => {
+            triggerStockFilterRefresh();
         });
     });
 }
-
-stockLiveSearchInput?.addEventListener("input", () => {
-    if (stockLiveSearchTimer) {
-        window.clearTimeout(stockLiveSearchTimer);
-    }
-    stockLiveSearchTimer = window.setTimeout(() => {
-        void refreshInventoryView(buildStockFilterUrlFromForm());
-    }, 220);
-});
 
 const DEFAULT_VARIANT_ROWS = [
     { variant: "39", qty: "1" },
@@ -1576,7 +1567,26 @@ function triggerStockFilterRefresh(options = {}) {
         window.clearTimeout(stockLiveSearchTimer);
         stockLiveSearchTimer = null;
     }
-    return refreshInventoryView(buildStockFilterUrlFromForm(), options);
+    const nextUrl = buildStockFilterUrlFromForm();
+    if (!nextUrl) {
+        return;
+    }
+
+    if (stockFilterForm) {
+        stockFilterForm.dataset.loading = "1";
+        stockFilterForm.setAttribute("aria-busy", "true");
+    }
+
+    const submitButton = stockFilterForm?.querySelector("[data-stock-filter-submit]") || null;
+    if (submitButton) {
+        submitButton.disabled = true;
+    }
+
+    if (!options.silent) {
+        setStockLiveSearchStatus("Membuka hasil pencarian stok...", "success");
+    }
+
+    window.location.assign(nextUrl);
 }
 
 function parseStockPageConfigFromDocument(doc) {

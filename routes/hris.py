@@ -10015,11 +10015,11 @@ def decide_biometric_overtime():
                 summary_title,
                 summary_note,
                 json.dumps(payload, sort_keys=True, ensure_ascii=True),
-                decision,
+                "pending",
                 requested_by,
-                session.get("user_id"),
-                _current_timestamp(),
-                decision_note,
+                None,
+                None,
+                None,
                 _current_timestamp(),
             ),
         )
@@ -10029,6 +10029,25 @@ def decide_biometric_overtime():
             success_message = _apply_attendance_request(db, request_row)
         else:
             success_message = f"Lembur otomatis {employee['full_name']} tidak ditambahkan ke saldo."
+        db.execute(
+            """
+            UPDATE attendance_action_requests
+            SET status=?,
+                handled_by=?,
+                handled_at=?,
+                decision_note=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                decision,
+                session.get("user_id"),
+                _current_timestamp(),
+                decision_note,
+                _current_timestamp(),
+                request_id,
+            ),
+        )
         db.commit()
     except Exception as exc:
         db.rollback()

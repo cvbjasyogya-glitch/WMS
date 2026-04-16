@@ -823,6 +823,26 @@ def _stock_json_error(message, status_code=400):
     return jsonify({"status": "error", "message": message}), status_code
 
 
+def _build_empty_product_studio_context(search="", page=1):
+    safe_search = (search or "").strip()
+    safe_page = max(1, int(page or 1))
+    return {
+        "data": [],
+        "search": safe_search,
+        "page": safe_page,
+        "total_pages": 1,
+        "total_items": 0,
+        "pagination": build_pagination_state(
+            "/stock/",
+            1,
+            1,
+            {"workspace": "products", "product_search": safe_search},
+            group_size=5,
+            page_param="product_page",
+        ),
+    }
+
+
 @stock_bp.route("/")
 def stock_table():
     db = get_db()
@@ -852,8 +872,6 @@ def stock_table():
         product_page = 1
 
     limit = 10
-    offset = (page - 1) * limit
-    order_by = _get_stock_result_sort_clause(sort)
 
     base_query, params = _build_stock_query(
         warehouse_id,
@@ -865,13 +883,16 @@ def stock_table():
 
     summary = _fetch_stock_summary(db, base_query, params)
     total_groups = _count_stock_groups(db, base_query, params)
+    total_pages = max(1, (total_groups + limit - 1) // limit)
+    page = min(page, total_pages)
+    offset = (page - 1) * limit
+    order_by = _get_stock_result_sort_clause(sort)
     data = _fetch_stock_page_rows(db, base_query, params, order_by, limit, offset)
     grouped_data = _group_stock_rows(data)
 
     can_view_inventory_value = _can_view_inventory_value()
     if not can_view_inventory_value:
         summary["inventory_value"] = 0
-    total_pages = max(1, (total_groups + limit - 1) // limit)
     pagination = build_pagination_state(
         "/stock/",
         page,
@@ -889,23 +910,26 @@ def stock_table():
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
     can_adjust_stock_ui = _can_render_stock_adjust_controls()
     can_bulk_adjust_ui = has_permission(session.get("role"), "direct_stock_ops")
-    product_studio = build_product_studio_context(
-        db,
-        warehouse_id=warehouse_id,
-        search=product_search,
-        page=product_page,
-        base_path="/stock/",
-        extra_params={
-            "workspace": "products",
-            "warehouse": warehouse_id,
-            "q": search,
-            "sort": sort,
-            "stock_state": stock_state,
-            "start_date": start_date or "",
-            "end_date": end_date or "",
-        },
-        page_param="product_page",
-    )
+    if workspace == "products":
+        product_studio = build_product_studio_context(
+            db,
+            warehouse_id=warehouse_id,
+            search=product_search,
+            page=product_page,
+            base_path="/stock/",
+            extra_params={
+                "workspace": "products",
+                "warehouse": warehouse_id,
+                "q": search,
+                "sort": sort,
+                "stock_state": stock_state,
+                "start_date": start_date or "",
+                "end_date": end_date or "",
+            },
+            page_param="product_page",
+        )
+    else:
+        product_studio = _build_empty_product_studio_context(product_search, product_page)
 
     return render_template(
         "stok_gudang.html",
