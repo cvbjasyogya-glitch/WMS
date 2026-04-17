@@ -248,6 +248,10 @@ def _normalize_stock_compact_query(raw_query):
     return re.sub(r"[^a-z0-9]+", "", str(raw_query or "").strip().lower())
 
 
+def _build_stock_search_text_expression(expression):
+    return f"CAST(COALESCE({expression}, '') AS TEXT)"
+
+
 def _build_stock_compact_expression(expression):
     compact_expression = f"lower({expression})"
     for needle in (" ", "-", "/", "_", ".", "+", "(", ")", ","):
@@ -261,13 +265,13 @@ def _build_stock_search_clause(search):
         return "", []
 
     search_fields = [
-        "p.name",
-        "p.sku",
-        "COALESCE(c.name, '')",
-        "COALESCE(v.variant, '')",
-        "COALESCE(v.variant_code, '')",
-        "COALESCE(v.color, '')",
-        "COALESCE(v.gtin, '')",
+        _build_stock_search_text_expression("p.name"),
+        _build_stock_search_text_expression("p.sku"),
+        _build_stock_search_text_expression("c.name"),
+        _build_stock_search_text_expression("v.variant"),
+        _build_stock_search_text_expression("v.variant_code"),
+        _build_stock_search_text_expression("v.color"),
+        _build_stock_search_text_expression("v.gtin"),
     ]
     compact_search_fields = [_build_stock_compact_expression(field) for field in search_fields]
     clauses = []
@@ -993,10 +997,10 @@ def stock_barcode_items():
         token = f"%{search}%"
         conditions.append(
             "("
-            "p.sku LIKE ? OR "
-            "p.name LIKE ? OR "
-            "COALESCE(v.gtin, '') LIKE ? OR "
-            "COALESCE(v.variant_code, '') LIKE ?"
+            f"{_build_stock_search_text_expression('p.sku')} LIKE ? OR "
+            f"{_build_stock_search_text_expression('p.name')} LIKE ? OR "
+            f"{_build_stock_search_text_expression('v.gtin')} LIKE ? OR "
+            f"{_build_stock_search_text_expression('v.variant_code')} LIKE ?"
             ")"
         )
         params.extend([token] * 4)

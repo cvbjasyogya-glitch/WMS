@@ -459,6 +459,10 @@ def _normalize_picker_query(raw_query):
     return " ".join(str(raw_query or "").strip().split())
 
 
+def _build_picker_search_text_expression(expression):
+    return f"CAST(COALESCE({expression}, '') AS TEXT)"
+
+
 def _normalize_picker_compact_query(raw_query):
     return re.sub(r"[^a-z0-9]+", "", str(raw_query or "").strip().lower())
 
@@ -472,13 +476,13 @@ def _build_picker_compact_expression(expression):
 
 def _get_picker_search_fields():
     return [
-        "p.sku",
-        "p.name",
-        "COALESCE(c.name, '')",
-        "COALESCE(v.variant, '')",
-        "COALESCE(v.variant_code, '')",
-        "COALESCE(v.color, '')",
-        "COALESCE(v.gtin, '')",
+        _build_picker_search_text_expression("p.sku"),
+        _build_picker_search_text_expression("p.name"),
+        _build_picker_search_text_expression("c.name"),
+        _build_picker_search_text_expression("v.variant"),
+        _build_picker_search_text_expression("v.variant_code"),
+        _build_picker_search_text_expression("v.color"),
+        _build_picker_search_text_expression("v.gtin"),
     ]
 
 
@@ -507,32 +511,33 @@ def _build_picker_search_conditions(query):
 
 def _build_picker_order_by(query, mode):
     if query:
+        search_fields = _get_picker_search_fields()
+        lowered_search_fields = [f"lower({field})" for field in search_fields]
+        combined_search_field = " || ' ' || ".join(search_fields)
         compact_query = _normalize_picker_compact_query(query)
         if not compact_query:
             exact_token = query.lower()
             prefix_token = f"{query.lower()}%"
             contains_token = f"%{query.lower()}%"
             return (
-                """
+                f"""
                 CASE
-                    WHEN lower(p.sku) = ? THEN 0
-                    WHEN lower(COALESCE(v.gtin, '')) = ? THEN 1
-                    WHEN lower(COALESCE(v.variant_code, '')) = ? THEN 2
-                    WHEN lower(p.name) = ? THEN 3
-                    WHEN lower(COALESCE(v.variant, '')) = ? THEN 4
-                    WHEN lower(COALESCE(v.color, '')) = ? THEN 5
-                    WHEN lower(COALESCE(c.name, '')) = ? THEN 6
-                    WHEN lower(p.sku) LIKE ? THEN 7
-                    WHEN lower(COALESCE(v.gtin, '')) LIKE ? THEN 8
-                    WHEN lower(COALESCE(v.variant_code, '')) LIKE ? THEN 9
-                    WHEN lower(p.name) LIKE ? THEN 10
-                    WHEN lower(COALESCE(v.variant, '')) LIKE ? THEN 11
-                    WHEN lower(COALESCE(v.color, '')) LIKE ? THEN 12
-                    WHEN lower(COALESCE(c.name, '')) LIKE ? THEN 13
+                    WHEN {lowered_search_fields[0]} = ? THEN 0
+                    WHEN {lowered_search_fields[6]} = ? THEN 1
+                    WHEN {lowered_search_fields[4]} = ? THEN 2
+                    WHEN {lowered_search_fields[1]} = ? THEN 3
+                    WHEN {lowered_search_fields[3]} = ? THEN 4
+                    WHEN {lowered_search_fields[5]} = ? THEN 5
+                    WHEN {lowered_search_fields[2]} = ? THEN 6
+                    WHEN {lowered_search_fields[0]} LIKE ? THEN 7
+                    WHEN {lowered_search_fields[6]} LIKE ? THEN 8
+                    WHEN {lowered_search_fields[4]} LIKE ? THEN 9
+                    WHEN {lowered_search_fields[1]} LIKE ? THEN 10
+                    WHEN {lowered_search_fields[3]} LIKE ? THEN 11
+                    WHEN {lowered_search_fields[5]} LIKE ? THEN 12
+                    WHEN {lowered_search_fields[2]} LIKE ? THEN 13
                     WHEN lower(
-                        p.sku || ' ' || p.name || ' ' || COALESCE(c.name, '') || ' ' ||
-                        COALESCE(v.variant, '') || ' ' || COALESCE(v.variant_code, '') || ' ' ||
-                        COALESCE(v.color, '') || ' ' || COALESCE(v.gtin, '')
+                        {combined_search_field}
                     ) LIKE ? THEN 14
                     ELSE 15
                 END,
@@ -544,13 +549,8 @@ def _build_picker_order_by(query, mode):
                 """,
                 [exact_token] * 7 + [prefix_token] * 7 + [contains_token],
             )
-        search_fields = _get_picker_search_fields()
         compact_fields = [_build_picker_compact_expression(field) for field in search_fields]
-        combined_compact_field = _build_picker_compact_expression(
-            "p.sku || ' ' || p.name || ' ' || COALESCE(c.name, '') || ' ' || "
-            "COALESCE(v.variant, '') || ' ' || COALESCE(v.variant_code, '') || ' ' || "
-            "COALESCE(v.color, '') || ' ' || COALESCE(v.gtin, '')"
-        )
+        combined_compact_field = _build_picker_compact_expression(combined_search_field)
         exact_token = compact_query
         prefix_token = f"{compact_query}%"
         contains_token = f"%{compact_query}%"
@@ -923,9 +923,12 @@ def build_product_studio_context(
     limit = 10
     offset = (page - 1) * limit
     search_param = f"%{search}%"
+    product_name_field = _build_picker_search_text_expression("p.name")
+    product_sku_field = _build_picker_search_text_expression("p.sku")
+    product_category_field = _build_picker_search_text_expression("c.name")
 
     data_raw = db.execute(
-        """
+        f"""
         SELECT
             p.id,
             p.sku,
@@ -951,9 +954,9 @@ def build_product_studio_context(
             AND b.remaining_qty > 0
         WHERE
             (? = '' OR
-             p.name LIKE ? OR
-             p.sku LIKE ? OR
-             c.name LIKE ?)
+             {product_name_field} LIKE ? OR
+             {product_sku_field} LIKE ? OR
+             {product_category_field} LIKE ?)
         GROUP BY p.id, c.name
         ORDER BY age_days DESC
         LIMIT ? OFFSET ?
@@ -971,15 +974,15 @@ def build_product_studio_context(
     ).fetchall()
 
     total = db.execute(
-        """
+        f"""
         SELECT COUNT(*) as total
         FROM products p
         LEFT JOIN categories c ON p.category_id = c.id
         WHERE
             (? = '' OR
-             p.name LIKE ? OR
-             p.sku LIKE ? OR
-             c.name LIKE ?)
+             {product_name_field} LIKE ? OR
+             {product_sku_field} LIKE ? OR
+             {product_category_field} LIKE ?)
         """,
         (
             search,

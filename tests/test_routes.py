@@ -34,7 +34,7 @@ from routes.pos import (
     _normalize_sale_date,
     POS_DISPLAY_TIMEZONE,
 )
-from routes.stock import _extract_stock_date_prefix
+from routes.stock import _extract_stock_date_prefix, _build_stock_search_clause
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
@@ -18398,12 +18398,29 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["items"][0]["product_id"], product_id)
         self.assertEqual(payload["items"][0]["variant_label"], "PRO MATCH")
 
+    def test_product_picker_search_casts_metadata_fields_to_text_for_postgresql_safety(self):
+        products_module = importlib.import_module("routes.products")
+
+        search_fields = products_module._get_picker_search_fields()
+        self.assertIn("CAST(COALESCE(v.variant_code, '') AS TEXT)", search_fields)
+        self.assertIn("CAST(COALESCE(v.gtin, '') AS TEXT)", search_fields)
+
+        order_by, order_params = products_module._build_picker_order_by("DIPA", "outbound")
+        self.assertIn("lower(CAST(COALESCE(v.variant_code, '') AS TEXT))", order_by)
+        self.assertIn("lower(CAST(COALESCE(v.gtin, '') AS TEXT))", order_by)
+        self.assertTrue(order_params)
+
     def test_product_studio_context_groups_category_for_postgresql_safe_aggregation(self):
         route_path = os.path.join(self.app.root_path, "routes", "products.py")
         with open(route_path, "r", encoding="utf-8") as route_file:
             route_text = route_file.read()
 
         self.assertIn("GROUP BY p.id, c.name", route_text)
+        products_module = importlib.import_module("routes.products")
+        self.assertEqual(
+            products_module._build_picker_search_text_expression("c.name"),
+            "CAST(COALESCE(c.name, '') AS TEXT)",
+        )
 
     def test_stock_page_uses_10_item_pagination(self):
         self.login()
@@ -18640,6 +18657,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("AERO COMFORT 4", compact_term_html)
         self.assertIn("3 varian", compact_term_html)
         self.assertIn("black red-34", compact_term_html)
+
+    def test_stock_search_clause_casts_variant_metadata_to_text_for_postgresql_safety(self):
+        clause, params = _build_stock_search_clause("DIPA")
+
+        self.assertIn("CAST(COALESCE(v.variant_code, '') AS TEXT) LIKE ?", clause)
+        self.assertIn("CAST(COALESCE(v.gtin, '') AS TEXT) LIKE ?", clause)
+        self.assertIn("CAST(COALESCE(p.name, '') AS TEXT) LIKE ?", clause)
+        self.assertTrue(params)
 
     def test_stock_page_groups_same_name_products_even_when_they_come_from_different_masters(self):
         self.login()
