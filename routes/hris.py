@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta
 from uuid import uuid4
 
-from flask import Blueprint, current_app, render_template, request, redirect, flash, session, url_for
+from flask import Blueprint, current_app, has_app_context, render_template, request, redirect, flash, session, url_for
 from werkzeug.utils import secure_filename
 
 from database import get_db, is_postgresql_backend
@@ -195,7 +195,7 @@ DASHBOARD_SCHEDULE_DAY_OPTIONS = {7, 14, 21}
 DASHBOARD_SCHEDULE_PREVIEW_LIMIT = 8
 DASHBOARD_ANNOUNCEMENT_LIMIT = 6
 OVERTIME_USAGE_HISTORY_LIMIT = 12
-OVERTIME_BALANCE_CAP_MINUTES = 4 * 60
+OVERTIME_BALANCE_CAP_MINUTES = 0
 OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES = 2 * 60
 
 
@@ -386,6 +386,86 @@ def _ensure_overtime_feature_schema(db):
             db.execute(
                 "ALTER TABLE overtime_usage_records ADD COLUMN usage_mode TEXT DEFAULT 'regular'"
             )
+
+    runtime_state[cache_key] = True
+
+
+def _ensure_attendance_shift_override_schema(db):
+    runtime_state = current_app.extensions.setdefault("hris_shift_override_runtime_state", {})
+    backend = "postgresql" if is_postgresql_backend(current_app.config) else "sqlite"
+    cache_key = f"schema_ready:{backend}"
+    if runtime_state.get(cache_key):
+        return
+
+    if backend == "postgresql":
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS attendance_shift_overrides(
+                id SERIAL PRIMARY KEY,
+                employee_id INTEGER NOT NULL,
+                warehouse_id INTEGER,
+                attendance_date TEXT NOT NULL,
+                original_shift_code TEXT,
+                original_shift_label TEXT,
+                override_start_time TEXT,
+                override_end_time TEXT,
+                override_shift_code TEXT,
+                override_shift_label TEXT,
+                note TEXT,
+                approved_by INTEGER,
+                approved_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS employee_id INTEGER",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS attendance_date TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS original_shift_code TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS original_shift_label TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS override_start_time TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS override_end_time TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS override_shift_code TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS override_shift_label TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS note TEXT",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS approved_by INTEGER",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE attendance_shift_overrides ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_shift_overrides_employee_date ON attendance_shift_overrides(employee_id, attendance_date)",
+            "CREATE INDEX IF NOT EXISTS idx_attendance_shift_overrides_scope ON attendance_shift_overrides(warehouse_id, attendance_date, employee_id)",
+        ]
+        for statement in statements:
+            db.execute(statement)
+        _ensure_postgresql_id_sequence(db, "attendance_shift_overrides")
+    else:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS attendance_shift_overrides(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id INTEGER NOT NULL,
+                warehouse_id INTEGER,
+                attendance_date TEXT NOT NULL,
+                original_shift_code TEXT,
+                original_shift_label TEXT,
+                override_start_time TEXT,
+                override_end_time TEXT,
+                override_shift_code TEXT,
+                override_shift_label TEXT,
+                note TEXT,
+                approved_by INTEGER,
+                approved_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_shift_overrides_employee_date ON attendance_shift_overrides(employee_id, attendance_date)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attendance_shift_overrides_scope ON attendance_shift_overrides(warehouse_id, attendance_date, employee_id)"
+        )
 
     runtime_state[cache_key] = True
 
@@ -1329,6 +1409,13 @@ def _insert_biometric_log_record(
     shift_label=None,
     photo_path=None,
 ):
+    override_snapshot = _build_attendance_shift_override_snapshot(
+        _fetch_attendance_shift_override(db, employee_id, punch_time[:10])
+    )
+    if override_snapshot:
+        shift_code = override_snapshot["shift_code"]
+        shift_label = override_snapshot["shift_label"]
+
     handled_by, handled_at = _build_biometric_handling(sync_status)
     photo_captured_at = _current_timestamp() if photo_path else None
     cursor = db.execute(
@@ -1475,6 +1562,269 @@ def _build_biometric_shift_label(schedule_item):
     if not schedule_item:
         return "-"
     return f"{schedule_item['label']} | {schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}"
+
+
+def _normalize_shift_override_time(value):
+    safe_value = str(value or "").strip().replace(".", ":")
+    safe_minutes = _parse_time_of_day_minutes(safe_value)
+    if safe_minutes is None:
+        return None
+    hours, minutes = divmod(safe_minutes, 60)
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def _build_shift_time_display_label(start_time, end_time):
+    safe_start = _normalize_shift_override_time(start_time)
+    safe_end = _normalize_shift_override_time(end_time)
+    if not safe_start or not safe_end:
+        return "-"
+    return f"{safe_start.replace(':', '.')} - {safe_end.replace(':', '.')}"
+
+
+def _build_attendance_shift_override_label(start_time, end_time):
+    return f"Override Shift | {_build_shift_time_display_label(start_time, end_time)}"
+
+
+def _build_attendance_shift_override_snapshot(override_row):
+    safe_row = (
+        dict(override_row)
+        if override_row is not None and not isinstance(override_row, dict)
+        else (override_row or {})
+    )
+    start_time = _normalize_shift_override_time(safe_row.get("override_start_time"))
+    end_time = _normalize_shift_override_time(safe_row.get("override_end_time"))
+    if not start_time or not end_time:
+        return None
+
+    shift_label = (safe_row.get("override_shift_label") or "").strip()
+    if not shift_label:
+        shift_label = _build_attendance_shift_override_label(start_time, end_time)
+
+    return {
+        "shift_code": (safe_row.get("override_shift_code") or "override").strip() or "override",
+        "shift_label": shift_label,
+        "time_label": _build_shift_time_display_label(start_time, end_time),
+        "start_time": start_time,
+        "end_time": end_time,
+        "note": (safe_row.get("note") or "").strip(),
+        "original_shift_code": (safe_row.get("original_shift_code") or "").strip() or None,
+        "original_shift_label": (safe_row.get("original_shift_label") or "").strip() or None,
+        "approved_by": safe_row.get("approved_by"),
+        "approved_by_name": (safe_row.get("approved_by_name") or "").strip(),
+        "approved_at": safe_row.get("approved_at"),
+    }
+
+
+def _fetch_attendance_shift_override(db, employee_id, attendance_date):
+    safe_employee_id = _to_int(employee_id)
+    safe_date = (attendance_date or "").strip()
+    if not safe_employee_id or not safe_date:
+        return None
+
+    _ensure_attendance_shift_override_schema(db)
+    row = db.execute(
+        """
+        SELECT
+            o.*,
+            u.username AS approved_by_name
+        FROM attendance_shift_overrides o
+        LEFT JOIN users u ON u.id = o.approved_by
+        WHERE o.employee_id=?
+          AND o.attendance_date=?
+        ORDER BY o.id DESC
+        LIMIT 1
+        """,
+        (safe_employee_id, safe_date),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def _build_attendance_shift_override_index(db, employee_ids, attendance_dates):
+    safe_employee_ids = [int(employee_id) for employee_id in employee_ids if _to_int(employee_id)]
+    safe_dates = sorted({str(attendance_date or "").strip() for attendance_date in attendance_dates if str(attendance_date or "").strip()})
+    if not safe_employee_ids or not safe_dates:
+        return {}
+
+    _ensure_attendance_shift_override_schema(db)
+    placeholders = ",".join(["?"] * len(safe_employee_ids))
+    rows = db.execute(
+        f"""
+        SELECT
+            o.*,
+            u.username AS approved_by_name
+        FROM attendance_shift_overrides o
+        LEFT JOIN users u ON u.id = o.approved_by
+        WHERE o.employee_id IN ({placeholders})
+          AND o.attendance_date BETWEEN ? AND ?
+        ORDER BY o.attendance_date DESC, o.id DESC
+        """,
+        safe_employee_ids + [safe_dates[0], safe_dates[-1]],
+    ).fetchall()
+
+    override_map = {}
+    for row in rows:
+        key = (int(row["employee_id"] or 0), str(row["attendance_date"] or "").strip())
+        if key[0] and key[1] and key not in override_map:
+            override_map[key] = dict(row)
+    return override_map
+
+
+def _resolve_attendance_shift_original_snapshot(
+    db,
+    employee,
+    attendance_date,
+    *,
+    attendance=None,
+    day_logs=None,
+    existing_override=None,
+):
+    safe_employee = (
+        dict(employee)
+        if employee is not None and not isinstance(employee, dict)
+        else (employee or {})
+    )
+    if existing_override:
+        original_label = (existing_override.get("original_shift_label") or "").strip()
+        original_code = (existing_override.get("original_shift_code") or "").strip() or None
+        if original_label or original_code:
+            return {
+                "shift_code": original_code,
+                "shift_label": original_label or None,
+            }
+
+    schedule_snapshot = resolve_employee_schedule_for_date(
+        db,
+        safe_employee.get("id"),
+        attendance_date,
+    )
+    schedule_label = str((schedule_snapshot or {}).get("label") or "").strip()
+    schedule_code = str((schedule_snapshot or {}).get("shift_code") or (schedule_snapshot or {}).get("code") or "").strip().lower() or None
+    if schedule_label:
+        return {
+            "shift_code": schedule_code,
+            "shift_label": schedule_label,
+        }
+
+    safe_attendance = (
+        dict(attendance)
+        if attendance is not None and not isinstance(attendance, dict)
+        else (attendance or {})
+    )
+    safe_logs = day_logs or []
+    current_shift_label = (
+        safe_attendance.get("shift_label")
+        or next(
+            (
+                str(log.get("shift_label") or "").strip()
+                for log in safe_logs
+                if str(log.get("shift_label") or "").strip()
+            ),
+            "",
+        )
+    )
+    current_shift_code = (
+        _normalize_biometric_shift_code(safe_attendance.get("shift_code"))
+        or next(
+            (
+                _normalize_biometric_shift_code(log.get("shift_code"))
+                for log in safe_logs
+                if _normalize_biometric_shift_code(log.get("shift_code"))
+            ),
+            None,
+        )
+    )
+
+    if not current_shift_label and current_shift_code:
+        current_shift_label = next(
+            (
+                option["label"]
+                for option in _build_biometric_shift_options(safe_employee)
+                if option["value"] == current_shift_code
+            ),
+            "",
+        )
+
+    return {
+        "shift_code": current_shift_code,
+        "shift_label": current_shift_label or None,
+    }
+
+
+def _fetch_recent_attendance_shift_overrides(
+    db,
+    *,
+    selected_warehouse=None,
+    date_from=None,
+    date_to=None,
+    limit=20,
+):
+    _ensure_attendance_shift_override_schema(db)
+    scope_warehouse = get_hris_scope()
+    safe_warehouse = scope_warehouse or selected_warehouse
+    safe_limit = max(1, _to_int(limit, default=20) or 20)
+    query = """
+        SELECT
+            o.*,
+            e.employee_code,
+            e.full_name,
+            w.name AS warehouse_name,
+            u.username AS approved_by_name
+        FROM attendance_shift_overrides o
+        LEFT JOIN employees e ON e.id = o.employee_id
+        LEFT JOIN warehouses w ON w.id = o.warehouse_id
+        LEFT JOIN users u ON u.id = o.approved_by
+        WHERE 1=1
+    """
+    params = []
+    if safe_warehouse:
+        query += " AND o.warehouse_id=?"
+        params.append(safe_warehouse)
+    if date_from:
+        query += " AND o.attendance_date>=?"
+        params.append(date_from)
+    if date_to:
+        query += " AND o.attendance_date<=?"
+        params.append(date_to)
+    query += " ORDER BY o.attendance_date DESC, o.id DESC LIMIT ?"
+    params.append(safe_limit)
+
+    rows = []
+    for row in db.execute(query, params).fetchall():
+        row_map = dict(row)
+        snapshot = _build_attendance_shift_override_snapshot(row_map)
+        if snapshot is None:
+            continue
+        rows.append(
+            {
+                "id": row_map["id"],
+                "attendance_date": row_map["attendance_date"],
+                "employee_id": row_map["employee_id"],
+                "employee_code": row_map.get("employee_code") or "-",
+                "full_name": row_map.get("full_name") or "Staff",
+                "warehouse_name": row_map.get("warehouse_name") or "-",
+                "original_shift_label": snapshot.get("original_shift_label") or "-",
+                "override_shift_label": snapshot["shift_label"],
+                "override_time_label": snapshot["time_label"],
+                "note": snapshot.get("note") or "-",
+                "approved_by_name": snapshot.get("approved_by_name") or "-",
+                "approved_at_label": _format_hris_datetime_display(snapshot.get("approved_at"), include_date=True),
+            }
+        )
+    return rows
+
+
+def _build_attendance_shift_override_helper_text(override_snapshot):
+    if not override_snapshot:
+        return ""
+
+    helper_parts = [f"Shift hari ini dioverride HR ke {override_snapshot['time_label']}."]
+    original_shift_label = str(override_snapshot.get("original_shift_label") or "").strip()
+    if original_shift_label:
+        helper_parts.append(f"Shift asli: {original_shift_label}.")
+    note = str(override_snapshot.get("note") or "").strip()
+    if note:
+        helper_parts.append(note)
+    return " ".join(helper_parts)
 
 
 def _build_biometric_special_shift_option(rule):
@@ -1652,6 +2002,37 @@ def _format_duration_minutes_label(total_minutes, zero_label="-"):
     if safe_minutes <= 0:
         return zero_label
     return _format_break_duration_label(safe_minutes * 60, has_break_activity=True)
+
+
+def _get_overtime_balance_cap_minutes():
+    configured_minutes = OVERTIME_BALANCE_CAP_MINUTES
+    if has_app_context():
+        configured_minutes = current_app.config.get(
+            "OVERTIME_BALANCE_CAP_MINUTES",
+            OVERTIME_BALANCE_CAP_MINUTES,
+        )
+    return max(0, _to_int(configured_minutes, default=OVERTIME_BALANCE_CAP_MINUTES))
+
+
+def _is_overtime_balance_cap_enabled():
+    return _get_overtime_balance_cap_minutes() > 0
+
+
+def _get_overtime_balance_cap_label():
+    cap_minutes = _get_overtime_balance_cap_minutes()
+    return _format_duration_minutes_label(cap_minutes) if cap_minutes > 0 else "Tanpa Batas"
+
+
+def _get_overtime_balance_usage_hint_label(available_seconds=0):
+    if available_seconds <= 0:
+        return "Belum ada saldo"
+    weekly_limit_label = _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES)
+    if _is_overtime_balance_cap_enabled():
+        return (
+            f"Saldo maks {_get_overtime_balance_cap_label()} | "
+            f"Pakai reguler maks {weekly_limit_label} / minggu"
+        )
+    return f"Saldo tanpa batas | Pakai reguler maks {weekly_limit_label} / minggu"
 
 
 def _employee_allows_automatic_overtime(employee_name):
@@ -2410,6 +2791,8 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
         """,
         (employee_id, attendance_date),
     ).fetchone()
+    shift_override = _fetch_attendance_shift_override(db, employee_id, attendance_date)
+    shift_override_snapshot = _build_attendance_shift_override_snapshot(shift_override)
 
     if not logs:
         if existing and (existing["note"] or "") in {"Synced from biometric", GEO_ATTENDANCE_NOTE}:
@@ -2432,19 +2815,26 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
         ),
         None,
     )
-    shift_snapshot = next(
-        (
-            {
-                "shift_code": (log.get("shift_code") or "").strip().lower() or None,
-                "shift_label": (log.get("shift_label") or "").strip() or None,
-            }
-            for log in logs
-            if (log.get("shift_code") or "").strip() or (log.get("shift_label") or "").strip()
-        ),
+    shift_snapshot = (
         {
-            "shift_code": (existing["shift_code"] if existing and existing["shift_code"] else None),
-            "shift_label": (existing["shift_label"] if existing and existing["shift_label"] else None),
-        },
+            "shift_code": shift_override_snapshot["shift_code"],
+            "shift_label": shift_override_snapshot["shift_label"],
+        }
+        if shift_override_snapshot
+        else next(
+            (
+                {
+                    "shift_code": (log.get("shift_code") or "").strip().lower() or None,
+                    "shift_label": (log.get("shift_label") or "").strip() or None,
+                }
+                for log in logs
+                if (log.get("shift_code") or "").strip() or (log.get("shift_label") or "").strip()
+            ),
+            {
+                "shift_code": (existing["shift_code"] if existing and existing["shift_code"] else None),
+                "shift_label": (existing["shift_label"] if existing and existing["shift_label"] else None),
+            },
+        )
     )
     derived_status = _derive_biometric_attendance_status_with_shift(
         check_in,
@@ -2876,6 +3266,8 @@ def _summarize_overtime_balance_ledger(
 ):
     safe_overtime_add_rows = overtime_add_rows or []
     safe_usage_rows = usage_rows or []
+    balance_cap_minutes = _get_overtime_balance_cap_minutes()
+    balance_cap_enabled = balance_cap_minutes > 0
     raw_earned_minutes = 0
     raw_added_minutes = 0
     raw_used_minutes = 0
@@ -2958,9 +3350,12 @@ def _summarize_overtime_balance_ledger(
         is_in_period = _is_iso_date_within_range(activity_date, period_date_from, period_date_to)
         if event.get("kind") == "credit":
             credit_minutes = max(0, int(event.get("minutes") or 0))
-            remaining_capacity = max(0, OVERTIME_BALANCE_CAP_MINUTES - available_minutes)
-            applied_minutes = min(credit_minutes, remaining_capacity)
-            capped_credit_minutes += max(0, credit_minutes - applied_minutes)
+            if balance_cap_enabled:
+                remaining_capacity = max(0, balance_cap_minutes - available_minutes)
+                applied_minutes = min(credit_minutes, remaining_capacity)
+                capped_credit_minutes += max(0, credit_minutes - applied_minutes)
+            else:
+                applied_minutes = credit_minutes
             if applied_minutes > 0:
                 available_minutes += applied_minutes
                 if event.get("source_type") == "biometric_auto":
@@ -3020,6 +3415,13 @@ def _build_employee_overtime_balance(db, employee_id, reference_date=None, *, in
     raw_available_minutes = ledger_summary["raw_available_minutes"]
     available_minutes = ledger_summary["available_minutes"]
     available_seconds = available_minutes * 60
+    balance_cap_minutes = _get_overtime_balance_cap_minutes()
+    balance_cap_enabled = balance_cap_minutes > 0
+    remaining_capacity_minutes = (
+        max(0, balance_cap_minutes - available_minutes)
+        if balance_cap_enabled
+        else 0
+    )
     weekly_meta = _build_weekly_overtime_usage_meta(
         db,
         employee_id,
@@ -3048,12 +3450,14 @@ def _build_employee_overtime_balance(db, employee_id, reference_date=None, *, in
             ledger_summary["capped_credit_minutes"],
             zero_label="0 mnt",
         ),
-        "balance_cap_minutes": OVERTIME_BALANCE_CAP_MINUTES,
-        "balance_cap_label": _format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES),
-        "remaining_capacity_minutes": max(0, OVERTIME_BALANCE_CAP_MINUTES - available_minutes),
-        "remaining_capacity_label": _format_duration_minutes_label(
-            max(0, OVERTIME_BALANCE_CAP_MINUTES - available_minutes),
-            zero_label="0 mnt",
+        "balance_cap_enabled": balance_cap_enabled,
+        "balance_cap_minutes": balance_cap_minutes,
+        "balance_cap_label": _get_overtime_balance_cap_label(),
+        "remaining_capacity_minutes": remaining_capacity_minutes,
+        "remaining_capacity_label": (
+            _format_duration_minutes_label(remaining_capacity_minutes, zero_label="0 mnt")
+            if balance_cap_enabled
+            else "Tanpa Batas"
         ),
         "weekly_used_minutes": weekly_meta["used_minutes"],
         "weekly_used_label": weekly_meta["used_label"],
@@ -3183,11 +3587,7 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                     or ledger_summary["last_overtime_date"]
                     or "-"
                 ),
-                "usage_hint_label": (
-                    f"Saldo maks {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)} | Pakai reguler maks {_format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES)} / minggu"
-                    if available_seconds > 0
-                    else "Belum ada saldo"
-                ),
+                "usage_hint_label": _get_overtime_balance_usage_hint_label(available_seconds),
             }
         )
 
@@ -3665,26 +4065,39 @@ def _apply_attendance_request(db, request_row):
             raise ValueError("Durasi penambahan lembur tidak valid.")
         requested_minutes_delta = minutes_delta
         current_balance = _build_employee_overtime_balance(db, employee["id"])
-        remaining_capacity_minutes = max(0, OVERTIME_BALANCE_CAP_MINUTES - int(current_balance["available_minutes"] or 0))
-        minutes_delta = min(requested_minutes_delta, remaining_capacity_minutes)
+        balance_cap_enabled = _is_overtime_balance_cap_enabled()
+        balance_cap_label = _get_overtime_balance_cap_label()
+        if balance_cap_enabled:
+            remaining_capacity_minutes = max(
+                0,
+                _get_overtime_balance_cap_minutes() - int(current_balance["available_minutes"] or 0),
+            )
+            minutes_delta = min(requested_minutes_delta, remaining_capacity_minutes)
+        else:
+            remaining_capacity_minutes = 0
+            minutes_delta = requested_minutes_delta
         credited_duration_label = _format_duration_minutes_label(minutes_delta, zero_label="0 mnt")
         requested_duration_label = _format_duration_minutes_label(requested_minutes_delta)
         updated_payload = dict(payload)
         updated_payload["minutes_delta"] = minutes_delta
         updated_payload["duration_label"] = credited_duration_label
-        if minutes_delta < requested_minutes_delta:
+        if balance_cap_enabled and minutes_delta < requested_minutes_delta:
             updated_payload["requested_minutes_delta"] = requested_minutes_delta
             updated_payload["requested_duration_label"] = requested_duration_label
             updated_payload["cap_notice"] = (
-                f"Saldo lembur dibatasi maksimal {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}."
+                f"Saldo lembur dibatasi maksimal {balance_cap_label}."
             )
+        else:
+            updated_payload.pop("requested_minutes_delta", None)
+            updated_payload.pop("requested_duration_label", None)
+            updated_payload.pop("cap_notice", None)
         breakdown_label = str(updated_payload.get("breakdown_label") or "").strip()
         summary_segments = [f"{credited_duration_label} pada {adjustment_date.isoformat()}"]
         if breakdown_label:
             summary_segments.append(breakdown_label)
-        if minutes_delta < requested_minutes_delta:
+        if balance_cap_enabled and minutes_delta < requested_minutes_delta:
             summary_segments.append(
-                f"Request awal {requested_duration_label}, masuk {credited_duration_label} karena batas saldo {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}"
+                f"Request awal {requested_duration_label}, masuk {credited_duration_label} karena batas saldo {balance_cap_label}"
             )
         if request_row.get("id"):
             db.execute(
@@ -3728,25 +4141,29 @@ def _apply_attendance_request(db, request_row):
             )
         if source_type == "biometric_auto":
             if minutes_delta <= 0:
+                if not balance_cap_enabled:
+                    return f"Lembur otomatis {employee['full_name']} tidak menambah saldo."
                 return (
                     f"Lembur otomatis {employee['full_name']} tidak menambah saldo karena jatah maksimal "
-                    f"{_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)} sudah penuh."
+                    f"{balance_cap_label} sudah penuh."
                 )
-            if minutes_delta < requested_minutes_delta:
+            if balance_cap_enabled and minutes_delta < requested_minutes_delta:
                 return (
                     f"Lembur otomatis {employee['full_name']} hanya {credited_duration_label} yang masuk ke saldo "
-                    f"karena jatah maksimal {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}."
+                    f"karena jatah maksimal {balance_cap_label}."
                 )
             return f"Lembur otomatis {employee['full_name']} sebesar {credited_duration_label} berhasil masuk ke saldo."
         if minutes_delta <= 0:
+            if not balance_cap_enabled:
+                return f"Penambahan lembur {employee['full_name']} tidak menambah saldo."
             return (
                 f"Penambahan lembur {employee['full_name']} tidak menambah saldo karena jatah maksimal "
-                f"{_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)} sudah penuh."
+                f"{balance_cap_label} sudah penuh."
             )
-        if minutes_delta < requested_minutes_delta:
+        if balance_cap_enabled and minutes_delta < requested_minutes_delta:
             return (
                 f"Penambahan lembur {employee['full_name']} hanya {credited_duration_label} yang masuk "
-                f"karena jatah maksimal {_format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES)}."
+                f"karena jatah maksimal {balance_cap_label}."
             )
         return f"Penambahan lembur {employee['full_name']} sebesar {credited_duration_label} berhasil diterapkan."
 
@@ -6011,6 +6428,11 @@ def _build_biometric_recap_rows(db, biometric_logs):
         return []
 
     attendance_map = {}
+    shift_override_index = _build_attendance_shift_override_index(
+        db,
+        employee_ids=sorted(employee_ids),
+        attendance_dates=sorted(dates),
+    )
     overtime_request_index = _build_biometric_overtime_request_index(
         db,
         employee_ids=sorted(employee_ids),
@@ -6062,6 +6484,8 @@ def _build_biometric_recap_rows(db, biometric_logs):
         check_out_log = next((log for log in reversed(logs_sorted) if log["punch_type"] == "check_out"), None)
         latest_log = logs_sorted[-1]
         attendance = attendance_map.get((employee_id, attendance_date), {})
+        shift_override = shift_override_index.get((employee_id, attendance_date))
+        shift_override_snapshot = _build_attendance_shift_override_snapshot(shift_override)
 
         # Rekap geotag hanya menampilkan hari yang benar-benar punya absensi inti.
         # Log tambahan seperti break tanpa check-in/check-out tidak perlu muncul sendiri.
@@ -6096,34 +6520,40 @@ def _build_biometric_recap_rows(db, biometric_logs):
         syncable_logs = [
             log for log in logs_sorted if (log.get("sync_status") or "").strip().lower() in {"synced", "manual"}
         ]
-        current_shift_label = (
-            attendance.get("shift_label")
-            or (check_out_log.get("shift_label") if check_out_log else None)
-            or (check_in_log.get("shift_label") if check_in_log else None)
-        )
-        current_shift_code = _normalize_biometric_shift_code(
-            attendance.get("shift_code")
-            or (check_out_log.get("shift_code") if check_out_log else None)
-            or (check_in_log.get("shift_code") if check_in_log else None)
-        ) or _resolve_biometric_shift_code_from_label(current_shift_label, latest_log)
-        shift_options = _build_biometric_shift_options(latest_log, current_shift_label)
-        shift_options = [
-            {
-                **option,
-                "selected": option["value"] == current_shift_code,
-            }
-            for option in shift_options
-        ]
-        if not current_shift_label and current_shift_code:
-            current_shift_label = next(
-                (
-                    option["label"]
-                    for option in shift_options
-                    if option["value"] == current_shift_code
-                ),
-                None,
+        if shift_override_snapshot:
+            current_shift_label = shift_override_snapshot["shift_label"]
+            current_shift_code = shift_override_snapshot["shift_code"]
+            shift_options = []
+            shift_display_label = current_shift_label or "-"
+        else:
+            current_shift_label = (
+                attendance.get("shift_label")
+                or (check_out_log.get("shift_label") if check_out_log else None)
+                or (check_in_log.get("shift_label") if check_in_log else None)
             )
-        shift_display_label = current_shift_label or "-"
+            current_shift_code = _normalize_biometric_shift_code(
+                attendance.get("shift_code")
+                or (check_out_log.get("shift_code") if check_out_log else None)
+                or (check_in_log.get("shift_code") if check_in_log else None)
+            ) or _resolve_biometric_shift_code_from_label(current_shift_label, latest_log)
+            shift_options = _build_biometric_shift_options(latest_log, current_shift_label)
+            shift_options = [
+                {
+                    **option,
+                    "selected": option["value"] == current_shift_code,
+                }
+                for option in shift_options
+            ]
+            if not current_shift_label and current_shift_code:
+                current_shift_label = next(
+                    (
+                        option["label"]
+                        for option in shift_options
+                        if option["value"] == current_shift_code
+                    ),
+                    None,
+                )
+            shift_display_label = current_shift_label or "-"
         attendance_check_in_value = (
             attendance.get("check_in")
             or (check_in_log["punch_time"][11:16] if check_in_log else "")
@@ -6171,7 +6601,13 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "can_edit_shift": can_adjust_biometric_attendance_status()
                 and can_edit_shift_storage
                 and bool(syncable_logs)
-                and bool(shift_options),
+                and bool(shift_options)
+                and not bool(shift_override_snapshot),
+                "shift_override_active": bool(shift_override_snapshot),
+                "shift_override_note": (shift_override_snapshot or {}).get("note") or "",
+                "shift_override_original_label": (shift_override_snapshot or {}).get("original_shift_label") or "",
+                "shift_override_approved_by_name": (shift_override_snapshot or {}).get("approved_by_name") or "",
+                "shift_override_time_label": (shift_override_snapshot or {}).get("time_label") or "",
                 "attendance_status": (attendance.get("status") or "-"),
                 "attendance_status_value": (attendance.get("status") or "present"),
                 "attendance_status_label": attendance_display["label"],
@@ -6446,6 +6882,7 @@ def hris_index(module_slug=None):
     biometric_filters = None
     biometric_employees = []
     biometric_recap_rows = []
+    biometric_shift_override_rows = []
     overtime_recap_rows = []
     overtime_recap_summary = None
     overtime_usage_history = []
@@ -6628,6 +7065,12 @@ def hris_index(module_slug=None):
         biometric_summary = _build_biometric_summary(biometric_logs)
         try:
             biometric_recap_rows = _build_biometric_recap_rows(db, biometric_logs)
+            biometric_shift_override_rows = _fetch_recent_attendance_shift_overrides(
+                db,
+                selected_warehouse=selected_warehouse,
+                date_from=date_from,
+                date_to=date_to,
+            )
             overtime_recap_rows, overtime_recap_summary, overtime_usage_history = _build_overtime_recap(
                 db,
                 selected_warehouse=selected_warehouse,
@@ -6758,9 +7201,12 @@ def hris_index(module_slug=None):
         biometric_filters=biometric_filters,
         biometric_employees=biometric_employees,
         biometric_recap_rows=biometric_recap_rows,
+        biometric_shift_override_rows=biometric_shift_override_rows,
         overtime_recap_rows=overtime_recap_rows,
         overtime_recap_summary=overtime_recap_summary,
         overtime_usage_history=overtime_usage_history,
+        overtime_balance_cap_enabled=_is_overtime_balance_cap_enabled(),
+        overtime_balance_cap_label=_get_overtime_balance_cap_label(),
         announcements=announcements,
         announcement_summary=announcement_summary,
         announcement_filters=announcement_filters,
@@ -9841,6 +10287,164 @@ def update_biometric_attendance_shift():
     db.commit()
 
     flash(f"Shift geotag {employee['full_name']} berhasil diperbarui ke {requested_shift_label}.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/attendance-shift-override", methods=["POST"])
+def update_biometric_attendance_shift_override():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_adjust_biometric_attendance_status():
+        flash("Hanya HR dan Super Admin yang bisa membuat override shift harian.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    _ensure_attendance_shift_override_schema(db)
+
+    employee_id = _to_int(request.form.get("employee_id"))
+    attendance_date = (request.form.get("attendance_date") or "").strip()
+    override_start_time = _normalize_shift_override_time(request.form.get("override_start_time"))
+    override_end_time = _normalize_shift_override_time(request.form.get("override_end_time"))
+    note = (request.form.get("note") or "").strip()
+
+    if not employee_id or not attendance_date:
+        flash("Staff dan tanggal override shift wajib diisi.", "error")
+        return redirect(return_to)
+
+    try:
+        date_cls.fromisoformat(attendance_date)
+    except ValueError:
+        flash("Tanggal override shift tidak valid.", "error")
+        return redirect(return_to)
+
+    if not override_start_time or not override_end_time:
+        flash("Jam override mulai dan selesai wajib diisi.", "error")
+        return redirect(return_to)
+
+    if _parse_time_of_day_minutes(override_end_time) <= _parse_time_of_day_minutes(override_start_time):
+        flash("Jam override selesai harus lebih besar dari jam mulai.", "error")
+        return redirect(return_to)
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Staff override shift tidak ditemukan untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    attendance = _get_attendance_by_employee_date(db, employee_id, attendance_date)
+    attendance = dict(attendance) if attendance is not None else {}
+    day_logs = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT id, warehouse_id, punch_time, punch_type, sync_status, shift_code, shift_label
+            FROM biometric_logs
+            WHERE employee_id=?
+              AND substr(punch_time, 1, 10)=?
+            ORDER BY punch_time ASC, id ASC
+            """,
+            (employee_id, attendance_date),
+        ).fetchall()
+    ]
+    existing_override = _fetch_attendance_shift_override(db, employee_id, attendance_date)
+    original_shift_snapshot = _resolve_attendance_shift_original_snapshot(
+        db,
+        employee,
+        attendance_date,
+        attendance=attendance,
+        day_logs=day_logs,
+        existing_override=existing_override,
+    )
+    override_shift_label = _build_attendance_shift_override_label(
+        override_start_time,
+        override_end_time,
+    )
+    handled_by = _to_int(session.get("user_id"))
+    handled_at = _current_timestamp()
+    update_timestamp = _current_timestamp()
+
+    db.execute(
+        """
+        INSERT INTO attendance_shift_overrides(
+            employee_id,
+            warehouse_id,
+            attendance_date,
+            original_shift_code,
+            original_shift_label,
+            override_start_time,
+            override_end_time,
+            override_shift_code,
+            override_shift_label,
+            note,
+            approved_by,
+            approved_at,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(employee_id, attendance_date) DO UPDATE SET
+            warehouse_id=excluded.warehouse_id,
+            original_shift_code=excluded.original_shift_code,
+            original_shift_label=excluded.original_shift_label,
+            override_start_time=excluded.override_start_time,
+            override_end_time=excluded.override_end_time,
+            override_shift_code=excluded.override_shift_code,
+            override_shift_label=excluded.override_shift_label,
+            note=excluded.note,
+            approved_by=excluded.approved_by,
+            approved_at=excluded.approved_at,
+            updated_at=excluded.updated_at
+        """,
+        (
+            employee_id,
+            employee.get("warehouse_id"),
+            attendance_date,
+            original_shift_snapshot.get("shift_code"),
+            original_shift_snapshot.get("shift_label"),
+            override_start_time,
+            override_end_time,
+            "override",
+            override_shift_label,
+            note or None,
+            handled_by,
+            handled_at,
+            update_timestamp,
+        ),
+    )
+
+    if day_logs:
+        for log in day_logs:
+            db.execute(
+                """
+                UPDATE biometric_logs
+                SET shift_code=?,
+                    shift_label=?,
+                    sync_status=?,
+                    handled_by=?,
+                    handled_at=?,
+                    updated_at=?
+                WHERE id=?
+                """,
+                (
+                    "override",
+                    override_shift_label,
+                    "manual",
+                    handled_by,
+                    handled_at,
+                    update_timestamp,
+                    log["id"],
+                ),
+            )
+        warehouse_id = next(
+            (log.get("warehouse_id") for log in day_logs if log.get("warehouse_id")),
+            employee.get("warehouse_id"),
+        )
+        _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance_date)
+
+    db.commit()
+
+    flash(
+        f"Override shift {employee['full_name']} berhasil disimpan ke {override_shift_label}.",
+        "success",
+    )
     return redirect(return_to)
 
 

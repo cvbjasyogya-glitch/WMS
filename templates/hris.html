@@ -3831,9 +3831,100 @@
     </div>
 </div>
 
-<small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. Saldo aktif tiap staff maksimal 4 jam dan kelebihan approval di atas batas tidak disimpan sebagai saldo. Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
+<small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. {% if overtime_balance_cap_enabled %}Saldo aktif tiap staff maksimal {{ overtime_balance_cap_label }} dan kelebihan approval di atas batas tidak disimpan sebagai saldo.{% else %}Saldo aktif tiap staff tidak dibatasi maksimal.{% endif %} Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
 
 {% if can_manage_biometric %}
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Override Shift Harian</h2>
+                <p>Gunakan panel ini kalau atasan menggeser jam masuk-pulang staff pada tanggal tertentu. Shift override akan dipakai untuk hitung telat, pulang cepat, dan lembur pada hari itu.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+    <form method="POST" action="/hris/biometric/attendance-shift-override">
+        <div class="form-grid">
+            <div>
+                <label>Staff</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih staff</option>
+                    {% for employee in biometric_employees %}
+                    <option value="{{ employee.id }}">{{ employee.full_name }}{% if employee.employee_code %} · {{ employee.employee_code }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Override</label>
+                <input type="date" name="attendance_date" value="{{ biometric_filters.date_to }}" required>
+            </div>
+            <div>
+                <label>Jam Override Mulai</label>
+                <input type="time" name="override_start_time" required>
+            </div>
+            <div>
+                <label>Jam Override Selesai</label>
+                <input type="time" name="override_end_time" required>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan / Alasan</label>
+                <textarea name="note" rows="2" placeholder="Contoh: briefing supplier, permintaan leader masuk siang, atau penyesuaian operasional event."></textarea>
+                <small class="helper-text">Shift asli, siapa yang menyetujui, dan waktu approval akan dicatat otomatis di server.</small>
+            </div>
+        </div>
+        <input type="hidden" name="return_to" value="{{ report_return_to }}">
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Simpan Override Shift</button>
+        </div>
+    </form>
+    </div>
+</details>
+
+<div class="table-box">
+    <div class="section-title">
+        <div>
+            <h2>Riwayat Override Shift</h2>
+            <p>Semua pergeseran shift harian yang sudah disetujui HR / Super Admin disimpan di sini supaya audit absensi tetap jelas.</p>
+        </div>
+    </div>
+    {% if biometric_shift_override_rows %}
+    <table>
+        <thead>
+            <tr>
+                <th>Tanggal</th>
+                <th>Code</th>
+                <th>Nama</th>
+                <th>Gudang</th>
+                <th>Shift Asli</th>
+                <th>Override</th>
+                <th>Catatan</th>
+                <th>Disetujui Oleh</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in biometric_shift_override_rows %}
+            <tr>
+                <td>{{ row.attendance_date }}</td>
+                <td class="mono">{{ row.employee_code }}</td>
+                <td>{{ row.full_name }}</td>
+                <td>{{ row.warehouse_name }}</td>
+                <td>{{ row.original_shift_label }}</td>
+                <td><strong class="biometric-overtime-duration">{{ row.override_shift_label }}</strong></td>
+                <td>{{ row.note }}</td>
+                <td>{{ row.approved_by_name }}{% if row.approved_at_label and row.approved_at_label != '-' %}<div><small class="helper-text">{{ row.approved_at_label }}</small></div>{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada override shift harian pada filter ini.</div>
+    {% endif %}
+</div>
+
 <details class="form-box panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
@@ -3892,7 +3983,7 @@
     <div class="section-title">
         <div>
             <h2>Rekap Saldo Lembur Staff</h2>
-            <p>Tabel ini menampilkan saldo lembur staff dari approval lembur otomatis, penambahan manual, dan pemakaian lembur yang sudah tercatat pada scope aktif. Batas saldo aktif per staff tetap maksimal 4 jam.</p>
+            <p>Tabel ini menampilkan saldo lembur staff dari approval lembur otomatis, penambahan manual, dan pemakaian lembur yang sudah tercatat pada scope aktif. {% if overtime_balance_cap_enabled %}Batas saldo aktif per staff maksimal {{ overtime_balance_cap_label }}.{% else %}Saldo aktif per staff saat ini tidak dibatasi maksimal.{% endif %}</p>
         </div>
     </div>
 
@@ -4051,6 +4142,12 @@
                     </form>
                     {% else %}
                     {{ row.shift_display_label }}
+                    {% if row.shift_override_active %}
+                    <div><small class="helper-text">Override HR{% if row.shift_override_original_label %} · shift asli {{ row.shift_override_original_label }}{% endif %}</small></div>
+                    {% if row.shift_override_note %}
+                    <div><small class="helper-text">{{ row.shift_override_note }}</small></div>
+                    {% endif %}
+                    {% endif %}
                     {% endif %}
                 </td>
                 <td class="biometric-recap-status-cell">

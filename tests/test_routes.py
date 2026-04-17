@@ -39,6 +39,7 @@ from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
 from routes.hris import (
+    _ensure_attendance_shift_override_schema,
     _ensure_overtime_feature_schema,
     _build_employee_overtime_balance,
     _format_hris_datetime_display,
@@ -10880,6 +10881,125 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["shift_label"], "Shift Pagi | 08.00 - 16.00")
         self.assertEqual(attendance["status"], "late")
 
+    def test_hr_can_apply_biometric_shift_override_and_resync_attendance_without_false_late_or_overtime(self):
+        self.login_hr_user("hr_bio_shift_override", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OVERRIDE-001",
+            full_name="Biometric Shift Override",
+            warehouse_id=1,
+        )
+
+        self.create_biometric_attendance_day(
+            employee_id,
+            "2026-09-03",
+            "09:00",
+            check_out_time="17:00",
+            shift_code="pagi",
+            shift_label="Shift Pagi | 08.00 - 16.00",
+        )
+
+        update_response = self.client.post(
+            "/hris/biometric/attendance-shift-override",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-03",
+                "override_start_time": "09:00",
+                "override_end_time": "17:00",
+                "note": "Geser jam kerja karena briefing supplier",
+                "return_to": "/hris/biometric?date_from=2026-09-03&date_to=2026-09-03",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            override_row = db.execute(
+                """
+                SELECT original_shift_label, override_shift_code, override_shift_label, note
+                FROM attendance_shift_overrides
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+            biometric_rows = db.execute(
+                """
+                SELECT shift_code, shift_label, sync_status
+                FROM biometric_logs
+                WHERE employee_id=? AND substr(punch_time, 1, 10)=?
+                ORDER BY id ASC
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchall()
+
+        self.assertIsNotNone(override_row)
+        self.assertEqual(override_row["original_shift_label"], "Shift Pagi | 08.00 - 16.00")
+        self.assertEqual(override_row["override_shift_code"], "override")
+        self.assertEqual(override_row["override_shift_label"], "Override Shift | 09.00 - 17.00")
+        self.assertEqual(override_row["note"], "Geser jam kerja karena briefing supplier")
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "override")
+        self.assertEqual(attendance["shift_label"], "Override Shift | 09.00 - 17.00")
+        self.assertTrue(all(row["shift_code"] == "override" for row in biometric_rows))
+        self.assertTrue(all(row["shift_label"] == "Override Shift | 09.00 - 17.00" for row in biometric_rows))
+        self.assertTrue(all(row["sync_status"] == "manual" for row in biometric_rows))
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-03&date_to=2026-09-03")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Override Shift | 09.00 - 17.00", html)
+        self.assertIn("Override HR", html)
+        self.assertNotIn("/hris/biometric/overtime/decision", html)
+
+    def test_hr_shift_override_for_earlier_hours_prevents_false_overtime(self):
+        self.login_hr_user("hr_bio_shift_override_early", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-OVERRIDE-002",
+            full_name="Biometric Shift Override Early",
+            warehouse_id=1,
+        )
+
+        self.create_biometric_attendance_day(
+            employee_id,
+            "2026-09-04",
+            "06:00",
+            check_out_time="14:00",
+            shift_code="pagi",
+            shift_label="Shift Pagi | 08.00 - 16.00",
+        )
+
+        update_response = self.client.post(
+            "/hris/biometric/attendance-shift-override",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-04",
+                "override_start_time": "06:00",
+                "override_end_time": "14:00",
+                "note": "Shift dimajukan untuk bongkar barang pagi",
+                "return_to": "/hris/biometric?date_from=2026-09-04&date_to=2026-09-04",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        response = self.client.get("/hris/biometric?date_from=2026-09-04&date_to=2026-09-04")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Override Shift | 06.00 - 14.00", html)
+        self.assertNotIn("/hris/biometric/overtime/decision", html)
+
     def test_non_hr_cannot_update_biometric_shift(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-BIO-SHIFT-003",
@@ -11413,6 +11533,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Sudah masuk ke saldo lembur.", html)
 
     def test_hr_can_approve_biometric_overtime_when_balance_near_cap(self):
+        self.app.config["OVERTIME_BALANCE_CAP_MINUTES"] = 240
         self.login_hr_user("hr_bio_overtime_cap_guard", "pass1234")
         date_value = "2026-09-06"
         employee_id = self.create_employee_record(
@@ -11734,6 +11855,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("2j 00m", html)
 
     def test_overtime_balance_caps_at_four_hours_when_approved_addition_exceeds_quota(self):
+        self.app.config["OVERTIME_BALANCE_CAP_MINUTES"] = 240
         self.login_hr_user("hr_overtime_cap", "pass1234")
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-CAP-1",
@@ -11798,6 +11920,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(balance["available_label"], "4j 00m")
 
     def test_overtime_balance_hard_cap_removes_hidden_surplus_after_usage(self):
+        self.app.config["OVERTIME_BALANCE_CAP_MINUTES"] = 240
         self.login_hr_user("hr_overtime_cap_legacy", "pass1234")
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-CAP-LEGACY",
@@ -11872,6 +11995,70 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Sisa yang tersedia hanya 3j 00m", html)
+
+    def test_overtime_balance_is_unlimited_by_default_after_approved_addition(self):
+        self.login_hr_user("hr_overtime_unlimited", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-UNLIMITED-1",
+            full_name="Ajeng Saldo Lembur Tanpa Batas",
+            warehouse_id=1,
+        )
+
+        self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-08",
+            300,
+            source_type="manual_request",
+            note="Saldo awal 5 jam",
+            status="approved",
+        )
+        pending_request_id = self.create_overtime_add_request_record(
+            employee_id,
+            "2026-09-09",
+            120,
+            source_type="manual_request",
+            note="Tambah lagi 2 jam",
+            status="pending",
+        )
+
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{pending_request_id}/process",
+            data={"decision": "approved", "decision_note": "Approve penuh tanpa batas saldo."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            approved_request = db.execute(
+                """
+                SELECT status, payload, summary_note
+                FROM attendance_action_requests
+                WHERE id=?
+                """,
+                (pending_request_id,),
+            ).fetchone()
+            adjustment_row = db.execute(
+                """
+                SELECT minutes_delta
+                FROM overtime_balance_adjustments
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(approved_request["status"], "approved")
+        payload = json.loads(approved_request["payload"])
+        self.assertEqual(payload["minutes_delta"], 120)
+        self.assertNotIn("requested_minutes_delta", payload)
+        self.assertNotIn("Request awal", approved_request["summary_note"])
+        self.assertEqual(adjustment_row["minutes_delta"], 120)
+        self.assertEqual(balance["available_minutes"], 420)
+        self.assertEqual(balance["available_label"], "7j 00m")
 
     def test_hris_regular_overtime_use_respects_two_hour_weekly_limit(self):
         self.login_hr_user("hr_overtime_weekly_limit", "pass1234")
@@ -14093,6 +14280,111 @@ class WmsRoutesTestCase(unittest.TestCase):
         hris_page = self.client.get("/hris/biometric", follow_redirects=False)
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
+
+    def test_attendance_portal_uses_daily_shift_override_for_selected_staff(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-OVERRIDE-001",
+            full_name="Portal Attendance Override",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_staff_override", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_staff_override", "pass1234")
+        today = date_cls.today().isoformat()
+
+        with self.app.app_context():
+            db = get_db()
+            _ensure_attendance_shift_override_schema(db)
+            db.execute(
+                """
+                INSERT INTO attendance_shift_overrides(
+                    employee_id,
+                    warehouse_id,
+                    attendance_date,
+                    original_shift_code,
+                    original_shift_label,
+                    override_start_time,
+                    override_end_time,
+                    override_shift_code,
+                    override_shift_label,
+                    note,
+                    approved_by,
+                    approved_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    today,
+                    "pagi",
+                    "Shift Pagi | 08.00 - 16.00",
+                    "09:00",
+                    "17:00",
+                    "override",
+                    "Override Shift | 09.00 - 17.00",
+                    "Masuk siang karena briefing supplier",
+                    1,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+            db.commit()
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("Override Shift | 09.00 - 17.00", portal_html)
+        self.assertIn("dioverride HR ke 09.00 - 17.00", portal_html)
+        self.assertNotIn('name="shift_profile_key"', portal_html)
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Pintu Utama",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T09:00",
+                "punch_type": "check_in",
+                "note": "Masuk shift override",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT check_in, status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertEqual(biometric["shift_code"], "override")
+        self.assertEqual(biometric["shift_label"], "Override Shift | 09.00 - 17.00")
+        self.assertEqual(attendance["check_in"], "09:00")
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "override")
+        self.assertEqual(attendance["shift_label"], "Override Shift | 09.00 - 17.00")
 
     def test_attendance_portal_retries_after_transient_sqlite_lock(self):
         employee_id = self.create_employee_record(

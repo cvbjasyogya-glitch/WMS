@@ -363,6 +363,7 @@ class Config:
         "AUTOMATIC_OVERTIME_EMPLOYEE_NAMES",
         "Naufal,Ajeng",
     )
+    OVERTIME_BALANCE_CAP_MINUTES = _int_env("OVERTIME_BALANCE_CAP_MINUTES", 0)
 
     # ==========================
     # DATABASE (SINGLE SOURCE)

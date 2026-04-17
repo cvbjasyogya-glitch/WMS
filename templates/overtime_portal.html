@@ -3,7 +3,7 @@
 {% block title %}Lembur | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Portal Pengajuan Lembur{% endblock %}
 {% block page_title %}{% if can_request_overtime_add %}Form Tambah / Kurangi Lembur{% else %}Form Kurangi Lembur{% endif %}{% endblock %}
-{% block page_subtitle %}{% if can_request_overtime_add %}Halaman ini dipakai HR untuk menambah atau mengurangi saldo lembur, sementara role lain hanya bisa mengajukan pengurangan saldo lembur. Saldo aktif dibatasi maksimal {{ overtime_balance_cap_label }}, kelebihan approval di atas batas tidak disimpan sebagai saldo, pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, dan approval tetap hanya diproses oleh HR atau Super Admin.{% else %}Halaman ini dipakai staff untuk mengajukan pengurangan saldo lembur. Penambahan saldo lembur hanya bisa diajukan oleh HR. Saldo aktif dibatasi maksimal {{ overtime_balance_cap_label }}, kelebihan approval di atas batas tidak disimpan sebagai saldo, pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, dan approval tetap hanya diproses oleh HR atau Super Admin.{% endif %}{% endblock %}
+{% block page_subtitle %}{% if can_request_overtime_add %}Halaman ini dipakai HR untuk menambah atau mengurangi saldo lembur, sementara role lain hanya bisa mengajukan pengurangan saldo lembur. {% if overtime_balance_cap_enabled %}Saldo aktif dibatasi maksimal {{ overtime_balance_cap_label }}, kelebihan approval di atas batas tidak disimpan sebagai saldo, {% else %}Saldo aktif tidak dibatasi maksimal, {% endif %}pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, dan approval tetap hanya diproses oleh HR atau Super Admin.{% else %}Halaman ini dipakai staff untuk mengajukan pengurangan saldo lembur. Penambahan saldo lembur hanya bisa diajukan oleh HR. {% if overtime_balance_cap_enabled %}Saldo aktif dibatasi maksimal {{ overtime_balance_cap_label }}, kelebihan approval di atas batas tidak disimpan sebagai saldo, {% else %}Saldo aktif tidak dibatasi maksimal, {% endif %}pemakaian reguler maksimal {{ overtime_weekly_limit_label }} per minggu, dan approval tetap hanya diproses oleh HR atau Super Admin.{% endif %}{% endblock %}
 
 {% block content %}
 <div class="summary">
@@ -57,7 +57,7 @@
     <div class="section-title">
         <div>
             <h2>Saldo Lembur Saat Ini</h2>
-            <p>Saldo tersedia dihitung dari lembur otomatis hasil absensi, ditambah adjustment manual yang sudah disetujui, lalu dikurangi pemakaian lembur yang sudah approved. Saldo aktif maksimal {{ overtime_balance_cap_label }}, kelebihan di atas batas tidak masuk ke saldo, dan pemakaian reguler dibatasi {{ overtime_weekly_limit_label }} per minggu.</p>
+            <p>Saldo tersedia dihitung dari lembur otomatis hasil absensi, ditambah adjustment manual yang sudah disetujui, lalu dikurangi pemakaian lembur yang sudah approved. {% if overtime_balance_cap_enabled %}Saldo aktif maksimal {{ overtime_balance_cap_label }}, kelebihan di atas batas tidak masuk ke saldo,{% else %}Saldo aktif tidak dibatasi maksimal,{% endif %} dan pemakaian reguler dibatasi {{ overtime_weekly_limit_label }} per minggu.</p>
         </div>
     </div>
     <div class="attendance-identity-grid">

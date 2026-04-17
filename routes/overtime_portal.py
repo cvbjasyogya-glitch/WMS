@@ -4,11 +4,12 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from database import get_db
 from routes.hris import (
-    OVERTIME_BALANCE_CAP_MINUTES,
     OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES,
     _build_employee_overtime_balance,
     _ensure_overtime_feature_schema,
     _format_duration_minutes_label,
+    _get_overtime_balance_cap_label,
+    _is_overtime_balance_cap_enabled,
     _get_overtime_usage_mode_label,
     _get_self_service_employee,
     _normalize_overtime_usage_mode,
@@ -39,7 +40,8 @@ def _empty_overtime_portal_context():
         },
         "today_value": date_cls.today().isoformat(),
         "can_request_overtime_add": _can_request_overtime_add(),
-        "overtime_balance_cap_label": _format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES),
+        "overtime_balance_cap_enabled": _is_overtime_balance_cap_enabled(),
+        "overtime_balance_cap_label": _get_overtime_balance_cap_label(),
         "overtime_weekly_limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
     }
 
@@ -135,7 +137,8 @@ def _build_overtime_portal_context(db):
         },
         "today_value": date_cls.today().isoformat(),
         "can_request_overtime_add": _can_request_overtime_add(),
-        "overtime_balance_cap_label": _format_duration_minutes_label(OVERTIME_BALANCE_CAP_MINUTES),
+        "overtime_balance_cap_enabled": _is_overtime_balance_cap_enabled(),
+        "overtime_balance_cap_label": _get_overtime_balance_cap_label(),
         "overtime_weekly_limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
     }
 

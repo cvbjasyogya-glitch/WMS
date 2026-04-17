@@ -10,9 +10,12 @@ from routes.schedule import (
     resolve_employee_schedule_for_date,
 )
 from routes.hris import (
+    _build_attendance_shift_override_helper_text,
+    _build_attendance_shift_override_snapshot,
     _build_biometric_handling,
     _current_timestamp,
     _delete_biometric_photo,
+    _fetch_attendance_shift_override,
     _get_biometric_photo_url,
     _get_self_service_employee,
     _insert_biometric_log_record,
@@ -1100,6 +1103,12 @@ def _fetch_attendance_portal_state(db):
                 (linked_employee["id"], today_date),
             ).fetchall()
         ]
+    shift_override = (
+        _fetch_attendance_shift_override(db, linked_employee["id"], today_date)
+        if linked_employee
+        else None
+    )
+    shift_override_snapshot = _build_attendance_shift_override_snapshot(shift_override)
 
     punch_mode = _resolve_attendance_punch_mode(attendance_today, day_logs)
     punch_options = _build_attendance_punch_options(attendance_today, day_logs)
@@ -1110,9 +1119,17 @@ def _fetch_attendance_portal_state(db):
     selected_shift_code = _normalize_shift_code(selected_shift.get("shift_code"))
     if not selected_shift_code and linked_employee:
         selected_shift_code = _resolve_default_shift_code(linked_employee)
-    selected_shift_option = next(
-        (option for option in shift_options if option["value"] == selected_shift_code),
-        shift_options[0] if shift_options else None,
+    selected_shift_option = (
+        {
+            "value": shift_override_snapshot["shift_code"],
+            "label": shift_override_snapshot["shift_label"],
+            "time_label": shift_override_snapshot["time_label"],
+        }
+        if shift_override_snapshot
+        else next(
+            (option for option in shift_options if option["value"] == selected_shift_code),
+            shift_options[0] if shift_options else None,
+        )
     )
     attendance_history = _fetch_attendance_history(db, linked_employee)
     cash_closing_reports = _fetch_cash_closing_reports(db, linked_employee)
@@ -1136,18 +1153,31 @@ def _fetch_attendance_portal_state(db):
         "selected_shift_code": selected_shift_option["value"] if selected_shift_option else None,
         "selected_shift_label": selected_shift_option["label"] if selected_shift_option else "-",
         "selected_shift_time_label": selected_shift_option["time_label"] if selected_shift_option else "-",
-        "shift_locked": bool(selected_shift.get("shift_code") or (attendance_today and attendance_today.get("check_in"))),
+        "shift_locked": bool(
+            shift_override_snapshot
+            or selected_shift.get("shift_code")
+            or (attendance_today and attendance_today.get("check_in"))
+        ),
         "warehouse_shift_key": _resolve_shift_warehouse_key(linked_employee) if linked_employee else "mataram",
-        "allow_shift_profile_choice": bool(linked_employee and _can_choose_shift_profile()),
+        "allow_shift_profile_choice": bool(linked_employee and _can_choose_shift_profile() and not shift_override_snapshot),
         "shift_profile_key": selected_shift_profile_key,
         "shift_profile_label": ATTENDANCE_SHIFT_PROFILE_LABELS.get(selected_shift_profile_key, "Gudang Mataram"),
         "shift_profile_helper": (
+            _build_attendance_shift_override_helper_text(shift_override_snapshot)
+            if shift_override_snapshot
+            else
             special_shift_rule["helper_text"]
             if special_shift_rule
             else ATTENDANCE_SHIFT_PROFILE_HELPERS.get(selected_shift_profile_key, "")
         ),
+        "shift_lock_helper": (
+            _build_attendance_shift_override_helper_text(shift_override_snapshot)
+            if shift_override_snapshot
+            else "Pilihan jam terkunci mengikuti profil saat check in pertama hari ini."
+        ),
         "shift_profile_options": _build_shift_profile_options(selected_shift_profile_key) if linked_employee and _can_choose_shift_profile() else [],
         "shift_profiles_payload": _build_shift_profiles_payload(linked_employee) if linked_employee else {},
+        "shift_override_snapshot": shift_override_snapshot,
         "location_scope_options": _build_location_scope_options(linked_employee) if linked_employee else [],
         "default_location_scope": _resolve_default_location_scope(linked_employee) if linked_employee else "mataram",
         "attendance_history": attendance_history,
@@ -1188,6 +1218,7 @@ def index():
         portal_selected_shift_label=portal_state["selected_shift_label"],
         portal_selected_shift_time_label=portal_state["selected_shift_time_label"],
         portal_shift_locked=portal_state["shift_locked"],
+        portal_shift_lock_helper=portal_state["shift_lock_helper"],
         portal_warehouse_shift_key=portal_state["warehouse_shift_key"],
         portal_allow_shift_profile_choice=portal_state["allow_shift_profile_choice"],
         portal_selected_shift_profile_key=portal_state["shift_profile_key"],
@@ -1253,18 +1284,32 @@ def submit():
     )
     requested_shift_code = _normalize_shift_code(request.form.get("shift_code"))
     active_shift_options = _build_shift_options(linked_employee, requested_shift_profile_key)
-    if portal_state["shift_locked"] and portal_state["selected_shift_code"]:
+    if portal_state["shift_override_snapshot"]:
+        shift_code = portal_state["shift_override_snapshot"]["shift_code"]
+        shift_label = portal_state["shift_override_snapshot"]["shift_label"]
+    elif portal_state["shift_locked"] and portal_state["selected_shift_code"]:
         shift_code = portal_state["selected_shift_code"]
+        shift_option = next(
+            (option for option in active_shift_options if option["value"] == shift_code),
+            None,
+        )
+        shift_label = portal_state["selected_shift_label"] or (shift_option["label"] if shift_option else None)
     elif requested_shift_code:
         shift_code = requested_shift_code
+        shift_option = next(
+            (option for option in active_shift_options if option["value"] == shift_code),
+            active_shift_options[0] if active_shift_options else None,
+        )
+        shift_code = shift_option["value"] if shift_option else None
+        shift_label = shift_option["label"] if shift_option else None
     else:
         shift_code = _resolve_default_shift_code(linked_employee, normalized_punch_time)
-    shift_option = next(
-        (option for option in active_shift_options if option["value"] == shift_code),
-        active_shift_options[0] if active_shift_options else None,
-    )
-    shift_code = shift_option["value"] if shift_option else None
-    shift_label = shift_option["label"] if shift_option else None
+        shift_option = next(
+            (option for option in active_shift_options if option["value"] == shift_code),
+            active_shift_options[0] if active_shift_options else None,
+        )
+        shift_code = shift_option["value"] if shift_option else None
+        shift_label = shift_option["label"] if shift_option else None
     note = (request.form.get("note") or "").strip()
     photo_data_url = request.form.get("photo_data_url")
 

@@ -62,6 +62,9 @@
         {% if linked_employee %}
         <small class="helper-text">
             Portal ini terkunci ke akun karyawan aktif. Ambil foto, cek lokasi, lalu simpan absensi dari satu layar yang sama.
+            {% if portal_shift_lock_helper %}
+                {{ portal_shift_lock_helper }}
+            {% endif %}
             {% if not portal_check_out_daily_report_required %}
                 Check out untuk {{ portal_check_out_daily_report_bypass_label or linked_employee.full_name }} tidak wajib kirim report harian dulu.
             {% endif %}
@@ -133,7 +136,7 @@
                             {% if portal_shift_locked and portal_selected_shift_profile_key %}
                             <input type="hidden" name="shift_profile_key" value="{{ portal_selected_shift_profile_key }}">
                             <input type="text" value="{{ portal_selected_shift_profile_label }}" readonly>
-                            <small class="helper-text">Pilihan jam terkunci mengikuti profil saat check in pertama hari ini.</small>
+                            <small class="helper-text">{{ portal_shift_lock_helper }}</small>
                             {% else %}
                             <select name="shift_profile_key" data-shift-profile-select {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                                 {% for option in portal_shift_profile_options %}
@@ -149,7 +152,7 @@
                             {% if portal_shift_locked and portal_selected_shift %}
                             <input type="hidden" name="shift_code" value="{{ portal_selected_shift }}">
                             <input type="text" value="{{ portal_selected_shift_label }}" readonly>
-                            <small class="helper-text">Shift terkunci mengikuti pilihan saat check in pertama hari ini.</small>
+                            <small class="helper-text">{{ portal_shift_lock_helper }}</small>
                             {% else %}
                             <select name="shift_code" data-shift-select {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                                 {% for option in portal_shift_options %}
