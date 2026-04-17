@@ -1167,6 +1167,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(invoice_response.status_code, 200)
         invoice_html = invoice_response.get_data(as_text=True)
         self.assertIn("Form Invoice Manual", invoice_html)
+        self.assertIn("Logo Bisnis", invoice_html)
+        self.assertIn("Diskon & Pajak", invoice_html)
+        self.assertIn('id="manualUseGlobalDiscount"', invoice_html)
+        self.assertIn('id="manualUseTax"', invoice_html)
+        self.assertIn('id="manualLogoFile"', invoice_html)
+        self.assertIn("Klik atau seret logo", invoice_html)
+        self.assertIn("data-preview-logo-slot", invoice_html)
+        self.assertIn(".manual-logo-fallback[hidden] { display: none !important; }", invoice_html)
+        self.assertIn("body > *:not(.layout) { display: none !important; }", invoice_html)
+        self.assertIn(".attendance-camera-shortcut-root *,", invoice_html)
+        self.assertIn(".floating-toolbelt *,", invoice_html)
+        self.assertIn(".app-version-badge,", invoice_html)
+        self.assertIn(".floating-toolbelt,", invoice_html)
+        self.assertIn("font-family: Arial", invoice_html)
+        self.assertIn("@page { size: A4 portrait; margin: 10mm; }", invoice_html)
+        self.assertIn(".manual-topbar .manual-brand-text strong,", invoice_html)
+        self.assertIn("color: #ffffff !important;", invoice_html)
+        self.assertIn("background: #ffffff !important;", invoice_html)
+        self.assertIn(".manual-total-box .manual-total-row:last-child {", invoice_html)
+        self.assertIn("background: #eff6ff !important;", invoice_html)
         self.assertIn('href="/kasir/surat-jalan/manual"', invoice_html)
         self.assertIn("/static/js/pos_manual_document_draft.js", invoice_html)
 
@@ -1176,7 +1196,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Surat Jalan Manual", delivery_html)
         self.assertIn("Referensi Invoice", delivery_html)
         self.assertIn("manualDeliverySyncStatus", delivery_html)
+        self.assertIn("data-preview-logo-slot", delivery_html)
+        self.assertIn(".manual-delivery-logo-fallback[hidden] { display: none !important; }", delivery_html)
         self.assertIn("/static/js/pos_manual_document_draft.js", delivery_html)
+
+        draft_js_path = os.path.join(self.app.root_path, "static", "js", "pos_manual_document_draft.js")
+        with open(draft_js_path, "r", encoding="utf-8") as draft_file:
+            draft_js = draft_file.read()
+        self.assertIn("logo_data_url", draft_js)
+        self.assertIn("logo_filename", draft_js)
+        self.assertIn("use_global_discount", draft_js)
+        self.assertIn("tax_value", draft_js)
 
     def test_pos_printer_driver_center_lists_official_driver_links(self):
         self.login_pos_user("owner_pos_driver_center", "owner")
@@ -1920,6 +1950,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         leader_html = leader_response.get_data(as_text=True)
         self.assertNotIn(">Omzet<", leader_html)
         self.assertNotIn("Rata-rata Ticket", leader_html)
+        self.assertNotIn("Total transaksi", leader_html)
 
     def test_pos_time_label_uses_indonesia_offset(self):
         self.assertEqual(_format_pos_time_label("2026-04-11 02:01:00"), "09:01")
@@ -3928,6 +3959,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("POS-NOTA-001", log_html)
         self.assertIn("POSTED", log_html)
         self.assertIn("Void Barang", log_html)
+        self.assertIn("pos-sales-log-item-sale-total", log_html)
+        self.assertIn("Total transaksi", log_html)
+        self.assertIn("Rp 300.000", log_html)
         self.assertIn(f"/kasir/receipt/{receipt_no}/pdf", log_html)
 
         print_response = self.client.get(f"/kasir/receipt/{receipt_no}/print?autoprint=1")
@@ -18411,6 +18445,28 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("stockAutoApplyFields.forEach((field) => {", template_text)
         self.assertIn("const nextUrl = buildStockFilterUrlFromForm();", template_text)
         self.assertIn("window.location.assign(nextUrl);", template_text)
+
+    def test_stock_page_renders_vps_safe_workspace_shell(self):
+        self.login()
+
+        response = self.client.get("/stock/")
+        self.assertEqual(response.status_code, 200)
+
+        html = response.get_data(as_text=True)
+        self.assertIn('class="page-content page-content-bleed', html)
+        self.assertIn('data-stock-filter-shell', html)
+        self.assertIn('data-stock-command-grid', html)
+        self.assertIn('class="stock-quick-action"', html)
+        self.assertNotIn('data-stock-overview-shell', html)
+        self.assertNotIn('class="stock-filter-compact-meta"', html)
+        self.assertNotIn('class="stock-command-icon"', html)
+        self.assertIn("Cari Stok", html)
+
+        css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
+        with open(css_path, "r", encoding="utf-8") as css_file:
+            css_text = css_file.read()
+        self.assertIn("body .wms-split-band.stock-workband {", css_text)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", css_text)
 
     def test_stock_inventory_workspace_skips_product_studio_query(self):
         self.login()

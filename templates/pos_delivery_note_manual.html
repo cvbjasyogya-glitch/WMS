@@ -28,6 +28,8 @@
     .manual-delivery-brand { display: flex; align-items: center; gap: 12px; }
     .manual-delivery-logo { width: 52px; height: 52px; object-fit: contain; border-radius: 50%; background: #ffffff; padding: 6px; }
     .manual-delivery-logo-fallback { width: 52px; height: 52px; border-radius: 50%; background: #ffffff; color: #214e79; display: grid; place-items: center; font-weight: 700; }
+    .manual-delivery-logo[hidden],
+    .manual-delivery-logo-fallback[hidden] { display: none !important; }
     .manual-delivery-brand-text { display: grid; gap: 3px; font-size: 12px; }
     .manual-delivery-brand-text strong { font-size: 14px; }
     .manual-delivery-title { text-align: right; display: grid; gap: 6px; }
@@ -111,11 +113,10 @@
             <div class="manual-delivery-sheet" id="manualDeliveryPreview">
                 <div class="manual-delivery-topbar">
                     <div class="manual-delivery-brand">
-                        {% if branding.get('logo_url') %}
-                        <img src="{{ branding.get('logo_url') }}" alt="Logo" class="manual-delivery-logo">
-                        {% else %}
-                        <div class="manual-delivery-logo-fallback">CV</div>
-                        {% endif %}
+                        <div class="manual-delivery-brand-logo-slot" data-preview-logo-slot>
+                            <img src="{{ branding.get('logo_url') or '' }}" alt="Logo" class="manual-delivery-logo" data-preview-logo {% if not branding.get('logo_url') %}hidden{% endif %}>
+                            <div class="manual-delivery-logo-fallback" data-preview-logo-fallback {% if branding.get('logo_url') %}hidden{% endif %}>CV</div>
+                        </div>
                         <div class="manual-delivery-brand-text">
                             <strong data-preview="business_name">{{ branding.get('business_name', '-') }}</strong>
                             <div data-preview="business_address">{{ branding.get('business_address', '-') }}</div>
@@ -196,6 +197,14 @@
         business_name: {{ branding.get('business_name', '') | tojson }},
         business_address: {{ branding.get('business_address', '') | tojson }},
         business_phone: {{ branding.get('customer_service_phone', '') | tojson }},
+        logo_data_url: "",
+        logo_filename: "",
+        use_global_discount: false,
+        global_discount_type: "amount",
+        global_discount_value: 0,
+        use_tax: false,
+        tax_type: "percent",
+        tax_value: 11,
         invoice_no: "",
         invoice_date: {{ document_date | tojson }},
         due_date: {{ document_date | tojson }},
@@ -213,6 +222,9 @@
     const itemCountNode = document.getElementById("manualDeliveryItemCount");
     const refreshButton = document.getElementById("manualDeliveryRefresh");
     const printButton = document.getElementById("manualDeliveryPrint");
+    const previewLogo = document.querySelector("[data-preview-logo]");
+    const previewLogoFallback = document.querySelector("[data-preview-logo-fallback]");
+    const defaultLogoUrl = {{ (branding.get('logo_url') or '') | tojson }};
 
     const escapeHtml = (value) => {
         return String(value ?? "").replace(/[&<>"']/g, (character) => {
@@ -231,6 +243,17 @@
         document.querySelectorAll(`[data-preview="${key}"]`).forEach((node) => {
             node.textContent = String(value || "").trim() || "-";
         });
+    };
+
+    const renderLogoPreview = (draftLogoUrl) => {
+        const activeLogoUrl = String(draftLogoUrl || "").trim() || defaultLogoUrl;
+        if (previewLogo instanceof HTMLImageElement) {
+            previewLogo.hidden = !activeLogoUrl;
+            previewLogo.src = activeLogoUrl || "";
+        }
+        if (previewLogoFallback) {
+            previewLogoFallback.hidden = Boolean(activeLogoUrl);
+        }
     };
 
     const formatSyncTime = (timestamp) => {
@@ -270,6 +293,7 @@
         setPreviewText("customer_phone", activeDraft.customer_phone);
         setPreviewText("customer_address", activeDraft.customer_address);
         setPreviewText("description", activeDraft.description);
+        renderLogoPreview(activeDraft.logo_data_url);
 
         previewItems.innerHTML = "";
         if (!items.length) {

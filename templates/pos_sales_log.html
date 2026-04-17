@@ -309,6 +309,12 @@
                         <div class="helper-text">{{ sale.cashier_position }}</div>
                     </td>
                     <td class="pos-sales-log-items">
+                        {% if can_view_pos_revenue %}
+                        <div class="pos-sales-log-item-sale-total">
+                            <span>Total transaksi</span>
+                            <strong>{{ sale.total_amount_label }}</strong>
+                        </div>
+                        {% endif %}
                         {% for item in sale["items"] %}
                         <div class="pos-sales-log-itemline" data-item-status="{{ item.status }}">
                             <div>

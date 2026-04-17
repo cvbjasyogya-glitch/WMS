@@ -15,6 +15,100 @@
     .manual-invoice-field input,
     .manual-invoice-field textarea { border-radius: 14px; padding: 10px 12px; background: rgba(9, 18, 32, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
     .manual-invoice-field textarea { min-height: 84px; resize: vertical; }
+    .manual-logo-upload { display: grid; gap: 10px; }
+    .manual-logo-picker {
+        position: relative;
+        display: grid;
+        gap: 8px;
+        place-items: center;
+        min-height: 120px;
+        padding: 16px;
+        border-radius: 16px;
+        border: 1px dashed rgba(148, 163, 184, 0.35);
+        background: rgba(9, 18, 32, 0.56);
+        color: rgba(226, 232, 240, 0.92);
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+    }
+    .manual-logo-picker:hover,
+    .manual-logo-picker.is-dragover {
+        border-color: rgba(96, 165, 250, 0.72);
+        background: rgba(16, 30, 52, 0.9);
+        transform: translateY(-1px);
+    }
+    .manual-logo-picker svg { width: 28px; height: 28px; opacity: 0.9; }
+    .manual-logo-picker strong { font-size: 15px; color: #f8fafc; }
+    .manual-logo-picker small { color: rgba(148, 163, 184, 0.92); }
+    .manual-logo-picker input[type="file"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+    }
+    .manual-logo-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .manual-logo-meta small { color: rgba(148, 163, 184, 0.9); }
+    .manual-logo-meta button { border-radius: 999px; padding: 7px 12px; }
+    .manual-adjustment-card {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(9, 18, 32, 0.46);
+    }
+    .manual-adjustment-card h3 {
+        margin: 0;
+        font-size: 14px;
+        color: #f8fafc;
+    }
+    .manual-adjustment-check {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: rgba(226, 232, 240, 0.96);
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .manual-adjustment-check input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: #3b82f6;
+    }
+    .manual-adjustment-controls {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 110px minmax(0, 1fr);
+    }
+    .manual-adjustment-controls[hidden] { display: none !important; }
+    .manual-adjustment-controls select,
+    .manual-adjustment-controls input {
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(9, 18, 32, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        color: #e2e8f0;
+    }
+    .manual-adjustment-summary {
+        display: grid;
+        gap: 8px;
+        border-top: 1px solid rgba(148, 163, 184, 0.18);
+        padding-top: 12px;
+    }
+    .manual-adjustment-summary-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: rgba(226, 232, 240, 0.94);
+        font-size: 14px;
+    }
+    .manual-adjustment-summary-row.is-total {
+        font-size: 16px;
+        font-weight: 700;
+        color: #f8fafc;
+    }
     .manual-items { display: grid; gap: 10px; }
     .manual-item-row { display: grid; grid-template-columns: 2.2fr 0.6fr 0.9fr 0.9fr auto; gap: 10px; align-items: center; }
     .manual-item-row input { border-radius: 12px; padding: 8px 10px; background: rgba(9, 18, 32, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
@@ -29,6 +123,8 @@
     .manual-brand-row { display: flex; align-items: center; gap: 12px; }
     .manual-logo { width: 48px; height: 48px; object-fit: contain; border-radius: 50%; background: #ffffff; padding: 6px; }
     .manual-logo-fallback { width: 48px; height: 48px; border-radius: 50%; background: #ffffff; color: #214e79; display: grid; place-items: center; font-weight: 700; }
+    .manual-logo[hidden],
+    .manual-logo-fallback[hidden] { display: none !important; }
     .manual-brand-text { display: grid; gap: 2px; font-size: 12px; }
     .manual-brand-text strong { font-size: 13px; }
     .manual-invoice-title { font-size: 16px; letter-spacing: 0.14em; font-weight: 700; }
@@ -63,17 +159,114 @@
     }
 
     @media print {
+        @page { size: A4 portrait; margin: 10mm; }
         body { background: #ffffff !important; }
+        body > *:not(.layout) { display: none !important; }
         .sidebar,
         .mobile-nav,
+        .mobile-sidebar-backdrop,
         .layout > header,
         .mobile-command-deck,
         .page-hero,
         .manual-invoice-form,
-        .flash-stack { display: none !important; }
-        .manual-invoice-preview { box-shadow: none; border: none; padding: 0; }
-        .manual-invoice-sheet { border: none; }
-        .layout { padding: 0 !important; }
+        .flash-stack,
+        .app-version-badge,
+        .floating-toolbelt,
+        .floating-toolbelt *,
+        .notification-center-root,
+        .notification-center-root *,
+        .attendance-camera-shortcut-root,
+        .attendance-camera-shortcut-root *,
+        .chat-widget-root,
+        .chat-widget-root *,
+        .desktop-sidebar-toggle { display: none !important; }
+        html,
+        body { margin: 0 !important; padding: 0 !important; color: #0f172a !important; }
+        body * {
+            text-shadow: none !important;
+            box-shadow: none !important;
+            animation: none !important;
+            transition: none !important;
+        }
+        .layout { padding: 0 !important; display: block !important; }
+        .main { padding: 0 !important; }
+        .page-content { padding: 0 !important; }
+        .wms-page-stack { gap: 0 !important; }
+        .manual-invoice-layout { display: block !important; }
+        .manual-invoice-preview { box-shadow: none; border: none; padding: 0; background: #ffffff !important; }
+        .manual-invoice-sheet {
+            border: none;
+            color: #0f172a !important;
+            font-family: Arial, "Helvetica Neue", sans-serif !important;
+            font-weight: 500 !important;
+        }
+        .manual-topbar,
+        .manual-table thead th,
+        .manual-total-box,
+        .manual-footer-bar {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .manual-topbar,
+        .manual-topbar .manual-brand-text,
+        .manual-topbar .manual-brand-text strong,
+        .manual-topbar .manual-invoice-title {
+            color: #ffffff !important;
+        }
+        .manual-brand-text,
+        .manual-address-block,
+        .manual-invoice-meta,
+        .manual-customer-box,
+        .manual-pay-info,
+        .manual-signatures,
+        .manual-table tbody td {
+            color: #0f172a !important;
+            opacity: 1 !important;
+        }
+        .manual-address-block strong,
+        .manual-customer-box strong,
+        .manual-invoice-title,
+        .manual-bill-box,
+        .manual-total-row:last-child,
+        .manual-brand-text strong {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+        }
+        .manual-invoice-meta span,
+        .manual-pay-info,
+        .manual-table tbody td,
+        .manual-table thead th,
+        .manual-signatures {
+            font-size: 12px !important;
+        }
+        .manual-bill-box {
+            background: #dbeafe !important;
+            color: #0f172a !important;
+        }
+        .manual-bill-box small {
+            color: #334155 !important;
+        }
+        .manual-table thead th {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+        .manual-total-box {
+            border-color: #214e79 !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+        }
+        .manual-total-box .manual-total-row {
+            border-bottom: 1px solid #dbe3f0 !important;
+        }
+        .manual-total-box .manual-total-row:last-child {
+            border-top: 1px solid #214e79 !important;
+            border-bottom: none !important;
+            background: #eff6ff !important;
+            color: #0f172a !important;
+        }
+        .manual-total-box .manual-total-row span {
+            color: #0f172a !important;
+        }
     }
 </style>
 {% endblock %}
@@ -134,6 +327,71 @@
                     Rekening / Informasi Pembayaran
                     <textarea id="manualPaymentNote" placeholder="Contoh: 037-238-4351 (BCA) a/n Daisy Irawati Sutanto"></textarea>
                 </label>
+                <div class="manual-invoice-field full">
+                    <div class="manual-adjustment-card">
+                        <h3>Diskon & Pajak</h3>
+                        <label class="manual-adjustment-check">
+                            <input type="checkbox" id="manualUseGlobalDiscount">
+                            <span>Diskon Global</span>
+                        </label>
+                        <div class="manual-adjustment-controls" id="manualGlobalDiscountControls" hidden>
+                            <select id="manualGlobalDiscountType" aria-label="Tipe diskon global">
+                                <option value="amount">Rp</option>
+                                <option value="percent">%</option>
+                            </select>
+                            <input type="number" id="manualGlobalDiscountValue" min="0" step="0.01" placeholder="0">
+                        </div>
+                        <label class="manual-adjustment-check">
+                            <input type="checkbox" id="manualUseTax">
+                            <span>PPN</span>
+                        </label>
+                        <div class="manual-adjustment-controls" id="manualTaxControls" hidden>
+                            <select id="manualTaxType" aria-label="Tipe PPN">
+                                <option value="percent">%</option>
+                                <option value="amount">Rp</option>
+                            </select>
+                            <input type="number" id="manualTaxValue" min="0" step="0.01" placeholder="11">
+                        </div>
+                        <div class="manual-adjustment-summary">
+                            <div class="manual-adjustment-summary-row">
+                                <span>Subtotal</span>
+                                <strong data-preview="subtotal">Rp 0</strong>
+                            </div>
+                            <div class="manual-adjustment-summary-row">
+                                <span>Diskon</span>
+                                <strong data-preview="discount_total">Rp 0</strong>
+                            </div>
+                            <div class="manual-adjustment-summary-row">
+                                <span>PPN</span>
+                                <strong data-preview="tax_total">Rp 0</strong>
+                            </div>
+                            <div class="manual-adjustment-summary-row is-total">
+                                <span>Total</span>
+                                <strong data-preview="grand_total">Rp 0</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <label class="manual-invoice-field full">
+                    Logo Bisnis
+                    <div class="manual-logo-upload">
+                        <label class="manual-logo-picker" id="manualLogoPicker">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h6.086a2 2 0 0 1 1.414.586l.914.914H17.5A2.5 2.5 0 0 1 20 8v9.5A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-11Z" stroke="currentColor" stroke-width="1.6"/>
+                                <path d="m8 15 2.4-2.4a1.2 1.2 0 0 1 1.697 0L14 14.5l1.4-1.4a1.2 1.2 0 0 1 1.697 0L19 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                <circle cx="9.5" cy="9.5" r="1.2" fill="currentColor"/>
+                                <path d="M12 8V5m0 0-1.5 1.5M12 5l1.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <strong>Klik atau seret logo</strong>
+                            <small>PNG, JPG, atau WEBP. Maksimal 1 MB.</small>
+                            <input type="file" id="manualLogoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml">
+                        </label>
+                        <div class="manual-logo-meta">
+                            <small id="manualLogoFileLabel">Pakai logo default bisnis.</small>
+                            <button type="button" class="ghost-button" id="manualLogoRemove" hidden>Hapus Logo</button>
+                        </div>
+                    </div>
+                </label>
             </div>
 
             <div>
@@ -156,11 +414,10 @@
             <div class="manual-invoice-sheet" id="manualInvoicePreview">
                 <div class="manual-topbar">
                     <div class="manual-brand-row">
-                        {% if branding.get('logo_url') %}
-                        <img src="{{ branding.get('logo_url') }}" alt="Logo" class="manual-logo" data-preview-logo>
-                        {% else %}
-                        <div class="manual-logo-fallback">CV</div>
-                        {% endif %}
+                        <div class="manual-brand-logo-slot" data-preview-logo-slot>
+                            <img src="{{ branding.get('logo_url') or '' }}" alt="Logo" class="manual-logo" data-preview-logo {% if not branding.get('logo_url') %}hidden{% endif %}>
+                            <div class="manual-logo-fallback" data-preview-logo-fallback {% if branding.get('logo_url') %}hidden{% endif %}>CV</div>
+                        </div>
                         <div class="manual-brand-text">
                             <strong data-preview="business_name">{{ branding.get('business_name', '-') }}</strong>
                             <div data-preview="business_address">{{ branding.get('business_address', '-') }}</div>
@@ -221,6 +478,7 @@
                         <div class="manual-total-box">
                             <div class="manual-total-row"><span>Sub total</span><span data-preview="subtotal">Rp 0</span></div>
                             <div class="manual-total-row"><span>Diskon total</span><span data-preview="discount_total">Rp 0</span></div>
+                            <div class="manual-total-row"><span>PPN</span><span data-preview="tax_total">Rp 0</span></div>
                             <div class="manual-total-row"><span>Total</span><span data-preview="grand_total">Rp 0</span></div>
                         </div>
                     </div>
@@ -253,6 +511,14 @@
         business_name: {{ branding.get('business_name', '') | tojson }},
         business_address: {{ branding.get('business_address', '') | tojson }},
         business_phone: {{ branding.get('customer_service_phone', '') | tojson }},
+        logo_data_url: "",
+        logo_filename: "",
+        use_global_discount: false,
+        global_discount_type: "amount",
+        global_discount_value: 0,
+        use_tax: false,
+        tax_type: "percent",
+        tax_value: 11,
         invoice_no: "",
         invoice_date: {{ invoice_date | tojson }},
         due_date: {{ due_date | tojson }},
@@ -276,12 +542,30 @@
         description: document.getElementById("manualDescription"),
         payment_note: document.getElementById("manualPaymentNote"),
     };
+    const adjustmentFields = {
+        use_global_discount: document.getElementById("manualUseGlobalDiscount"),
+        global_discount_type: document.getElementById("manualGlobalDiscountType"),
+        global_discount_value: document.getElementById("manualGlobalDiscountValue"),
+        use_tax: document.getElementById("manualUseTax"),
+        tax_type: document.getElementById("manualTaxType"),
+        tax_value: document.getElementById("manualTaxValue"),
+    };
 
     const itemsWrap = document.getElementById("manualItems");
     const previewItems = document.getElementById("manualPreviewItems");
     const addItemButton = document.getElementById("manualAddItem");
     const printButton = document.getElementById("manualInvoicePrint");
     const deliveryNoteLink = document.getElementById("manualDeliveryNoteLink");
+    const logoFileInput = document.getElementById("manualLogoFile");
+    const logoPicker = document.getElementById("manualLogoPicker");
+    const logoFileLabel = document.getElementById("manualLogoFileLabel");
+    const logoRemoveButton = document.getElementById("manualLogoRemove");
+    const previewLogo = document.querySelector("[data-preview-logo]");
+    const previewLogoFallback = document.querySelector("[data-preview-logo-fallback]");
+    const defaultLogoUrl = {{ (branding.get('logo_url') or '') | tojson }};
+    const MAX_LOGO_FILE_BYTES = 1024 * 1024;
+    const globalDiscountControls = document.getElementById("manualGlobalDiscountControls");
+    const taxControls = document.getElementById("manualTaxControls");
 
     const escapeHtml = (value) => {
         return String(value ?? "").replace(/[&<>"']/g, (character) => {
@@ -310,6 +594,54 @@
         document.querySelectorAll(`[data-preview="${key}"]`).forEach((node) => {
             node.textContent = String(value || "").trim() || "-";
         });
+    };
+
+    const setPreviewCurrency = (key, value) => {
+        document.querySelectorAll(`[data-preview="${key}"]`).forEach((node) => {
+            node.textContent = formatIdr(value);
+        });
+    };
+
+    const renderLogoPreview = (draftLogoUrl) => {
+        const activeLogoUrl = String(draftLogoUrl || "").trim() || defaultLogoUrl;
+        if (previewLogo instanceof HTMLImageElement) {
+            previewLogo.hidden = !activeLogoUrl;
+            previewLogo.src = activeLogoUrl || "";
+        }
+        if (previewLogoFallback) {
+            previewLogoFallback.hidden = Boolean(activeLogoUrl);
+        }
+    };
+
+    const updateLogoFieldState = (draft) => {
+        const customLogoName = String(draft.logo_filename || "").trim();
+        const hasCustomLogo = Boolean(String(draft.logo_data_url || "").trim());
+        if (logoFileLabel) {
+            logoFileLabel.textContent = hasCustomLogo
+                ? `Logo aktif: ${customLogoName || "logo custom"}`
+                : "Pakai logo default bisnis.";
+        }
+        if (logoRemoveButton) {
+            logoRemoveButton.hidden = !hasCustomLogo;
+        }
+    };
+
+    const updateAdjustmentFieldState = (draft) => {
+        if (globalDiscountControls) {
+            globalDiscountControls.hidden = !Boolean(draft.use_global_discount);
+        }
+        if (taxControls) {
+            taxControls.hidden = !Boolean(draft.use_tax);
+        }
+    };
+
+    const resolveAmountByType = (baseAmount, type, rawValue) => {
+        const safeBaseAmount = Number.isFinite(baseAmount) ? baseAmount : 0;
+        const safeRawValue = Number.isFinite(rawValue) ? rawValue : 0;
+        if (type === "percent") {
+            return Math.max((safeBaseAmount * safeRawValue) / 100, 0);
+        }
+        return Math.max(safeRawValue, 0);
     };
 
     const buildItemRow = (initial = {}) => {
@@ -353,6 +685,14 @@
             business_name: formFields.business_name.value,
             business_address: formFields.business_address.value,
             business_phone: formFields.business_phone.value,
+            logo_data_url: buildDraftFromForm.logoDataUrl || "",
+            logo_filename: buildDraftFromForm.logoFilename || "",
+            use_global_discount: Boolean(adjustmentFields.use_global_discount?.checked),
+            global_discount_type: adjustmentFields.global_discount_type?.value || "amount",
+            global_discount_value: parseNumber(adjustmentFields.global_discount_value?.value),
+            use_tax: Boolean(adjustmentFields.use_tax?.checked),
+            tax_type: adjustmentFields.tax_type?.value || "percent",
+            tax_value: parseNumber(adjustmentFields.tax_value?.value),
             invoice_no: formFields.invoice_no.value,
             invoice_date: formFields.invoice_date.value,
             due_date: formFields.due_date.value,
@@ -369,12 +709,42 @@
         Object.entries(formFields).forEach(([key, field]) => {
             field.value = String(draft[key] || "");
         });
+        if (adjustmentFields.use_global_discount) {
+            adjustmentFields.use_global_discount.checked = Boolean(draft.use_global_discount);
+        }
+        if (adjustmentFields.global_discount_type) {
+            adjustmentFields.global_discount_type.value = String(draft.global_discount_type || "amount");
+        }
+        if (adjustmentFields.global_discount_value) {
+            adjustmentFields.global_discount_value.value = Number(draft.global_discount_value || 0) || "";
+        }
+        if (adjustmentFields.use_tax) {
+            adjustmentFields.use_tax.checked = Boolean(draft.use_tax);
+        }
+        if (adjustmentFields.tax_type) {
+            adjustmentFields.tax_type.value = String(draft.tax_type || "percent");
+        }
+        if (adjustmentFields.tax_value) {
+            adjustmentFields.tax_value.value = Number(draft.tax_value || 0) || "";
+        }
+        buildDraftFromForm.logoDataUrl = String(draft.logo_data_url || "");
+        buildDraftFromForm.logoFilename = String(draft.logo_filename || "");
+        if (logoFileInput) {
+            logoFileInput.value = "";
+        }
+        updateLogoFieldState(draft);
+        updateAdjustmentFieldState(draft);
         setItemRows(draft.items || []);
     };
 
     const updatePreview = ({ persist = true } = {}) => {
         Object.entries(formFields).forEach(([key, field]) => {
             setPreviewText(key, field.value);
+        });
+        renderLogoPreview(buildDraftFromForm.logoDataUrl);
+        updateLogoFieldState({
+            logo_data_url: buildDraftFromForm.logoDataUrl,
+            logo_filename: buildDraftFromForm.logoFilename,
         });
 
         let subtotal = 0;
@@ -392,7 +762,16 @@
             return { desc, qty, price, discount: safeDiscount, total: lineTotal };
         });
 
-        const grandTotal = Math.max(subtotal - discountTotal, 0);
+        const netSubtotal = Math.max(subtotal - discountTotal, 0);
+        const globalDiscountAmount = Boolean(adjustmentFields.use_global_discount?.checked)
+            ? Math.min(resolveAmountByType(netSubtotal, adjustmentFields.global_discount_type?.value, parseNumber(adjustmentFields.global_discount_value?.value)), netSubtotal)
+            : 0;
+        const taxableBase = Math.max(netSubtotal - globalDiscountAmount, 0);
+        const taxTotal = Boolean(adjustmentFields.use_tax?.checked)
+            ? resolveAmountByType(taxableBase, adjustmentFields.tax_type?.value, parseNumber(adjustmentFields.tax_value?.value))
+            : 0;
+        const totalDiscountAmount = discountTotal + globalDiscountAmount;
+        const grandTotal = Math.max(taxableBase + taxTotal, 0);
 
         previewItems.innerHTML = "";
         if (!items.length) {
@@ -413,15 +792,10 @@
             });
         }
 
-        document.querySelectorAll('[data-preview="subtotal"]').forEach((node) => {
-            node.textContent = formatIdr(subtotal);
-        });
-        document.querySelectorAll('[data-preview="discount_total"]').forEach((node) => {
-            node.textContent = formatIdr(discountTotal);
-        });
-        document.querySelectorAll('[data-preview="grand_total"]').forEach((node) => {
-            node.textContent = formatIdr(grandTotal);
-        });
+        setPreviewCurrency("subtotal", subtotal);
+        setPreviewCurrency("discount_total", totalDiscountAmount);
+        setPreviewCurrency("tax_total", taxTotal);
+        setPreviewCurrency("grand_total", grandTotal);
 
         if (persist && draftStore) {
             draftStore.saveDraft(buildDraftFromForm(), initialDraft);
@@ -431,6 +805,73 @@
     addItemButton.addEventListener("click", () => {
         itemsWrap.appendChild(buildItemRow());
         updatePreview();
+    });
+
+    const applyLogoFile = (file) => {
+        if (!(file instanceof File)) {
+            return;
+        }
+        if (!String(file.type || "").startsWith("image/")) {
+            window.alert("File logo harus berupa gambar.");
+            return;
+        }
+        if (file.size > MAX_LOGO_FILE_BYTES) {
+            window.alert("Ukuran logo maksimal 1 MB.");
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            buildDraftFromForm.logoDataUrl = typeof reader.result === "string" ? reader.result : "";
+            buildDraftFromForm.logoFilename = file.name || "logo";
+            updatePreview();
+        };
+        reader.readAsDataURL(file);
+    };
+
+    if (logoFileInput) {
+        logoFileInput.addEventListener("change", (event) => {
+            const [file] = Array.from(event.target.files || []);
+            applyLogoFile(file);
+        });
+    }
+
+    if (logoPicker) {
+        ["dragenter", "dragover"].forEach((eventName) => {
+            logoPicker.addEventListener(eventName, (event) => {
+                event.preventDefault();
+                logoPicker.classList.add("is-dragover");
+            });
+        });
+        ["dragleave", "dragend", "drop"].forEach((eventName) => {
+            logoPicker.addEventListener(eventName, (event) => {
+                event.preventDefault();
+                logoPicker.classList.remove("is-dragover");
+            });
+        });
+        logoPicker.addEventListener("drop", (event) => {
+            const [file] = Array.from(event.dataTransfer?.files || []);
+            applyLogoFile(file);
+        });
+    }
+
+    if (logoRemoveButton) {
+        logoRemoveButton.addEventListener("click", () => {
+            buildDraftFromForm.logoDataUrl = "";
+            buildDraftFromForm.logoFilename = "";
+            if (logoFileInput) {
+                logoFileInput.value = "";
+            }
+            updatePreview();
+        });
+    }
+
+    Object.values(adjustmentFields).forEach((field) => {
+        if (field) {
+            field.addEventListener("change", () => {
+                updateAdjustmentFieldState(buildDraftFromForm());
+                updatePreview();
+            });
+        }
     });
 
     itemsWrap.addEventListener("click", (event) => {

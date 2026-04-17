@@ -3,7 +3,8 @@
 {% block title %}Stok & Produk | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Inventori Gudang{% endblock %}
 {% block page_title %}Stok & Produk{% endblock %}
-{% block page_subtitle %}Workspace terpadu untuk memantau kuantitas{% if can_view_inventory_value %}, nilai jual stok{% endif %}, aging batch, dan pengelolaan master produk tanpa pindah halaman.{% endblock %}
+{% block page_subtitle %}Cari stok, filter, lalu aksi.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions">
@@ -27,79 +28,27 @@
 {% endblock %}
 
 {% block content %}
-<div class="wms-page-stack">
+<div class="wms-page-stack stock-page-shell">
 <div class="summary stock-summary-grid" id="stockSummaryGrid">
-    <div class="card-mini">
-        <p>Total Varian</p>
+    <div class="card-mini stock-mini-card">
+        <div class="stock-mini-topline"><p>Total Varian</p></div>
         <h3 data-stock-summary="total_variants">{{ summary.total_variants }}</h3>
-        <small class="helper-text">Item yang lolos dari filter aktif.</small>
     </div>
-    <div class="card-mini">
-        <p>Total Kuantitas</p>
+    <div class="card-mini stock-mini-card">
+        <div class="stock-mini-topline"><p>Total Kuantitas</p></div>
         <h3 data-stock-summary="total_qty">{{ summary.total_qty }}</h3>
-        <small class="helper-text">Akumulasi stok siap operasional.</small>
     </div>
     {% if can_view_inventory_value %}
-    <div class="card-mini">
-        <p>Nilai Jual Stok</p>
+    <div class="card-mini stock-mini-card">
+        <div class="stock-mini-topline"><p>Nilai Jual Stok</p></div>
         <h3 data-stock-summary="inventory_value">Rp {{ "{:,.0f}".format(summary.inventory_value) }}</h3>
-        <small class="helper-text">Menggunakan harga nett lalu fallback ke discount/retail.</small>
     </div>
     {% endif %}
-    <div class="card-mini {% if summary.zero_count or summary.low_count %}warning{% endif %}">
-        <p>Perlu Atensi</p>
+    <div class="card-mini stock-mini-card {% if summary.zero_count or summary.low_count %}warning{% endif %}">
+        <div class="stock-mini-topline"><p>Perlu Atensi</p></div>
         <h3 data-stock-summary="attention_count">{{ summary.zero_count + summary.low_count }}</h3>
-        <small class="helper-text" data-stock-summary="attention_breakdown">{{ summary.zero_count }} kosong, {{ summary.low_count }} menipis.</small>
+        <small class="helper-text" data-stock-summary="attention_breakdown">{{ summary.zero_count }} kosong / {{ summary.low_count }} tipis</small>
     </div>
-</div>
-
-<div class="meta-grid stock-meta-grid" id="stockMetaGrid">
-    <div class="meta-card">
-        <span>Gudang Aktif</span>
-        <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Stok Siap Jual</span>
-        <strong data-stock-summary="ready_count">{{ summary.ready_count }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Stok Habis</span>
-        <strong data-stock-summary="zero_count">{{ summary.zero_count }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Dekati Kedaluwarsa</span>
-        <strong>{{ summary.expiring_count }}</strong>
-    </div>
-</div>
-
-<div class="wms-command-grid">
-    <a href="/inbound" class="wms-command-card">
-        <span>Aksi</span>
-        <strong>Tambah Stok</strong>
-        <p>Buka inbound composer untuk menambah stok baru ke gudang aktif tanpa keluar dari workflow WMS.</p>
-    </a>
-    <a href="/outbound" class="wms-command-card">
-        <span>Aksi</span>
-        <strong>Kurangi Stok</strong>
-        <p>Masuk ke outbound saat item harus segera keluar, dengan validasi qty agar stok tidak minus.</p>
-    </a>
-    <a href="/transfers" class="wms-command-card">
-        <span>Aksi</span>
-        <strong>Pindah Antar Gudang</strong>
-        <p>Gunakan transfer untuk rebalance stok antar gudang saat satu lokasi mulai tipis atau kosong.</p>
-    </a>
-    <a href="/so" class="wms-command-card">
-        <span>Kontrol</span>
-        <strong>Stock Opname</strong>
-        <p>Masuk ke modul hitung fisik untuk memastikan stok sistem tetap sesuai dengan kondisi lapangan.</p>
-    </a>
-    {% if can('manage_product_master') %}
-    <a href="#productStudioPanel" class="wms-command-card">
-        <span>Master</span>
-        <strong>Studio Produk</strong>
-        <p>Tambah produk, import master, dan rapikan data SKU dari workspace yang sama.</p>
-    </a>
-    {% endif %}
 </div>
 
 <div class="workspace-switch" id="stockWorkspaceSwitch" aria-label="Pilih panel kerja stok dan produk">
@@ -107,10 +56,16 @@
     <a href="/stock?workspace=products&warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&product_search={{ product_studio.search }}" class="{% if active_workspace == 'products' %}active{% endif %}">Studio Produk</a>
 </div>
 
-<div class="wms-split-band">
+<div class="wms-split-band stock-workband">
     <div class="wms-filter-band">
+        <div class="stock-filter-shell" data-stock-filter-shell>
+            <div class="stock-filter-head">
+                <div>
+                    <h2>Cari Stok</h2>
+                </div>
+            </div>
         <form method="GET" class="top-bar stock-filter-bar" data-stock-filter-form>
-            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk, SKU, atau varian" autocomplete="off" data-stock-live-search-input>
+            <input type="text" name="q" value="{{ search }}" placeholder="Cari produk / SKU / varian" autocomplete="off" data-stock-live-search-input>
             <select name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
                 {% for w in warehouses %}
                 <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -148,40 +103,25 @@
             {% endif %}
         </form>
         <small class="helper-text" data-stock-live-search-status aria-live="polite"></small>
-
-        {% if is_scoped_user %}
-        <small class="helper-text">Filter gudang dikunci ke gudang yang terhubung dengan akun Anda.</small>
-        {% endif %}
-        {% if not can('manage_product_master') %}
-        <small class="helper-text">Field SKU, nama, variant, dan harga ditampilkan sebagai read only untuk role ini.</small>
-        {% endif %}
-    </div>
-
-    <aside class="wms-panel-note">
-        <strong>Fokus Operasional Hari Ini</strong>
-        <p>Pakai filter status untuk prioritas cepat, lalu arahkan item merah atau kuning ke replenishment, transfer, atau stock opname.</p>
-        <div class="wms-inline-status">
-            <span class="status-pill">Aman {{ summary.ready_count }}</span>
-            <span class="status-pill">Tipis {{ summary.low_count }}</span>
-            <span class="status-pill">Kosong {{ summary.zero_count }}</span>
         </div>
-        <small>Baris stok dengan nama produk yang sama akan digabung ke satu grup agar daftar lebih ringkas. Edit master hanya aktif kalau grup itu memang berasal dari satu master produk.</small>
-    </aside>
+    </div>
 </div>
 
 <div class="table-box stock-detail-box" id="stockDetailBox" data-scrollable-table="1">
     <div class="section-title">
         <div>
-            <h2>Inventori Detail</h2>
-            <p>Produk dengan badge merah atau kuning perlu diprioritaskan untuk replenishment, transfer, atau stock opname ulang.</p>
+            <h2>Daftar Stok</h2>
         </div>
-        <div class="status-row">
-            <span class="status-pill">Aman: {{ summary.ready_count }}</span>
-            <span class="status-pill">Tipis: {{ summary.low_count }}</span>
-            <span class="status-pill">Kosong: {{ summary.zero_count }}</span>
+        <div class="stock-quick-actions" data-stock-command-grid>
+            <a href="/inbound" class="stock-quick-action">Tambah</a>
+            <a href="/outbound" class="stock-quick-action">Kurangi</a>
+            <a href="/transfers" class="stock-quick-action">Pindah</a>
+            <a href="/so" class="stock-quick-action">SO</a>
+            {% if can('manage_product_master') %}
+            <a href="#productStudioPanel" class="stock-quick-action">Produk</a>
+            {% endif %}
         </div>
     </div>
-    <small class="helper-text stock-mobile-hint">Di layar kecil, geser tabel ke samping untuk melihat kolom produk, variant, harga, dan aksi lengkap.</small>
 
     {% if data %}
     <table class="stock-table">

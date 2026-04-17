@@ -10,6 +10,19 @@
         return Number.isFinite(parsed) ? parsed : 0;
     }
 
+    function normalizeBoolean(value, fallback) {
+        if (typeof value === "boolean") {
+            return value;
+        }
+        if (value === "1" || value === 1 || value === "true") {
+            return true;
+        }
+        if (value === "0" || value === 0 || value === "false") {
+            return false;
+        }
+        return Boolean(fallback);
+    }
+
     function normalizeItem(item) {
         return {
             desc: normalizeString(item && item.desc),
@@ -32,6 +45,14 @@
             business_name: normalizeString(safeSource.business_name || safeFallback.business_name),
             business_address: normalizeString(safeSource.business_address || safeFallback.business_address),
             business_phone: normalizeString(safeSource.business_phone || safeFallback.business_phone),
+            logo_data_url: normalizeString(safeSource.logo_data_url || safeFallback.logo_data_url),
+            logo_filename: normalizeString(safeSource.logo_filename || safeFallback.logo_filename),
+            use_global_discount: normalizeBoolean(safeSource.use_global_discount, safeFallback.use_global_discount),
+            global_discount_type: normalizeString(safeSource.global_discount_type || safeFallback.global_discount_type || "amount") || "amount",
+            global_discount_value: normalizeNumber(safeSource.global_discount_value || safeFallback.global_discount_value),
+            use_tax: normalizeBoolean(safeSource.use_tax, safeFallback.use_tax),
+            tax_type: normalizeString(safeSource.tax_type || safeFallback.tax_type || "percent") || "percent",
+            tax_value: normalizeNumber(safeSource.tax_value || safeFallback.tax_value || 11),
             invoice_no: normalizeString(safeSource.invoice_no || safeFallback.invoice_no),
             invoice_date: normalizeString(safeSource.invoice_date || safeFallback.invoice_date),
             due_date: normalizeString(safeSource.due_date || safeFallback.due_date),
