@@ -18542,6 +18542,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(_extract_stock_date_prefix("2026-04-15 10:30:45"), "2026-04-15")
         self.assertEqual(_extract_stock_date_prefix(None), "")
 
+    def test_stock_template_uses_preformatted_created_at_label(self):
+        template_path = os.path.join(self.app.root_path, "templates", "stok_gudang.html")
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            template_text = template_file.read()
+
+        self.assertIn("s.created_at_label", template_text)
+        self.assertNotIn("s.created_at[:10]", template_text)
+
     def test_stock_page_paginates_by_product_name_but_keeps_all_group_variants_visible(self):
         self.login()
         response, product_id, _ = self.create_product(

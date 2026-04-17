@@ -584,7 +584,13 @@ def _fetch_stock_page_rows(db, base_query, params, order_by, limit, offset):
         """,
         (*params, limit, offset),
     ).fetchall()
-    return [dict(row) for row in rows]
+    serialized_rows = []
+    for row in rows:
+        item = dict(row)
+        item["created_at_label"] = _extract_stock_date_prefix(item.get("created_at")) or "-"
+        item["expiry_date_label"] = _extract_stock_date_prefix(item.get("expiry_date")) or "-"
+        serialized_rows.append(item)
+    return serialized_rows
 
 
 def _build_stock_group(rows):

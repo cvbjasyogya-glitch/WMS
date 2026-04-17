@@ -384,7 +384,7 @@
                                             {% endif %}
                                         </td>
                                         <td class="stock-col stock-col-aging">{{ s.age_days }} hari</td>
-                                        <td class="stock-col stock-col-date">{{ s.created_at[:10] if s.created_at else '-' }}</td>
+                                        <td class="stock-col stock-col-date">{{ s.created_at_label or '-' }}</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -505,7 +505,7 @@
                     {% endif %}
                 </td>
                 <td>{{ s.age_days }} hari</td>
-                <td>{{ s.created_at[:10] if s.created_at else '-' }}</td>
+                <td>{{ s.created_at_label or '-' }}</td>
             </tr>
             {% endif %}
             {% endfor %}
