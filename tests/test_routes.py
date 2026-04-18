@@ -43,6 +43,7 @@ from routes.hris import (
     _ensure_overtime_feature_schema,
     _build_employee_overtime_balance,
     _canonicalize_biometric_shift_snapshot,
+    _format_live_report_time_label,
     _format_hris_datetime_display,
     _normalize_datetime_input,
     _normalize_time_of_day_input,
@@ -17786,6 +17787,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Report submitted kemarin", html)
         self.assertNotIn("Report aktif hari ini", html)
         self.assertIn('<option value="all" selected>Semua Status</option>', html)
+
+    def test_live_report_time_label_accepts_datetime_objects(self):
+        self.assertEqual(
+            _format_live_report_time_label(datetime(2026, 9, 6, 13, 15, 0)),
+            "13:15",
+        )
+        self.assertEqual(_format_live_report_time_label("2026-09-06 08:05:00"), "08:05")
+        self.assertEqual(_format_live_report_time_label(None), "-")
 
     def test_daily_report_review_redirect_preserves_active_filter(self):
         self.create_user("report_ops_return", "pass1234", "staff", warehouse_id=1)

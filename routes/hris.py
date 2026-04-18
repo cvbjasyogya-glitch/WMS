@@ -5452,13 +5452,16 @@ def _split_daily_live_report_rows(rows):
 
 
 def _format_live_report_time_label(raw_value):
-    safe_value = (raw_value or "").strip()
-    if not safe_value:
-        return "-"
-    try:
-        parsed = datetime.fromisoformat(safe_value.replace("T", " "))
-    except ValueError:
-        return "-"
+    if isinstance(raw_value, datetime):
+        parsed = raw_value
+    else:
+        safe_value = str(raw_value or "").strip()
+        if not safe_value:
+            return "-"
+        try:
+            parsed = datetime.fromisoformat(safe_value.replace("T", " "))
+        except ValueError:
+            return "-"
     return parsed.strftime("%H:%M")
 
 
