@@ -22326,6 +22326,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Isi yang kosong", html)
         self.assertIn("applyVariantPrices(this, false)", html)
         self.assertIn("applyVariantPrices(this, true)", html)
+        self.assertIn("syncVariantDerivedPrices(row)", html)
+        self.assertIn("Harga nett", html)
 
     def test_owner_can_add_product_with_price_cost(self):
         self.create_user("owner_product_cost", "pass1234", "owner")

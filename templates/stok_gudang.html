@@ -2217,6 +2217,31 @@ function updateVariantPriceSummary(row) {
     summary.textContent = "Isi harga retail, diskon, atau nett sesuai kebutuhan.";
 }
 
+function syncVariantDerivedPrices(row) {
+    if (!row) {
+        return;
+    }
+
+    const retailInput = row.querySelector('[data-field="price_retail"]');
+    const discountInput = row.querySelector('[data-field="price_discount"]');
+    const nettInput = row.querySelector('[data-field="price_nett"]');
+    if (!retailInput || !discountInput || !nettInput) {
+        return;
+    }
+
+    const retailRaw = String(getStockCurrencyRaw(retailInput) || "").trim();
+    const discountRaw = String(getStockCurrencyRaw(discountInput) || "").trim();
+    if (!retailRaw && !discountRaw) {
+        return;
+    }
+
+    const retail = Math.max(0, getStockCurrencyValue(retailInput));
+    const discount = Math.max(0, getStockCurrencyValue(discountInput));
+    const nextNett = Math.max(0, retail - discount);
+    setStockCurrencyValue(nettInput, String(nextNett));
+    refreshStockCurrencyInputs(row);
+}
+
 function getVariantPriceSnapshot(row) {
     if (!row) {
         return null;
@@ -2297,9 +2322,15 @@ function applyVariantPrices(trigger, emptyOnly = false) {
 
 function bindVariantRow(row) {
     row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"], [data-field="price_cost"]').forEach((input) => {
-        input.addEventListener("input", () => updateVariantPriceSummary(row));
+        input.addEventListener("input", () => {
+            if (input.dataset.field === "price_retail" || input.dataset.field === "price_discount") {
+                syncVariantDerivedPrices(row);
+            }
+            updateVariantPriceSummary(row);
+        });
     });
     refreshStockCurrencyInputs(row);
+    syncVariantDerivedPrices(row);
     updateVariantPriceSummary(row);
     syncManualProductUnitLabels();
 }
