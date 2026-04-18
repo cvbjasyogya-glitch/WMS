@@ -2113,6 +2113,10 @@ function createVariantRowMarkup(initial = {}) {
                     </div>
                 </div>
                 <div class="variant-price-summary" data-role="price-summary">Isi harga retail, diskon, atau nett sesuai kebutuhan.</div>
+                <div class="variant-price-actions">
+                    <button type="button" class="ghost-button variant-price-action-button" onclick="applyVariantPrices(this, false)">Terapkan ke varian lain</button>
+                    <button type="button" class="ghost-button variant-price-action-button" onclick="applyVariantPrices(this, true)">Isi yang kosong</button>
+                </div>
             </div>
         </td>
         <td class="variant-stock-cell">
@@ -2211,6 +2215,84 @@ function updateVariantPriceSummary(row) {
     }
 
     summary.textContent = "Isi harga retail, diskon, atau nett sesuai kebutuhan.";
+}
+
+function getVariantPriceSnapshot(row) {
+    if (!row) {
+        return null;
+    }
+    return {
+        price_retail: getStockCurrencyRaw(row.querySelector('[data-field="price_retail"]')),
+        price_discount: getStockCurrencyRaw(row.querySelector('[data-field="price_discount"]')),
+        price_nett: getStockCurrencyRaw(row.querySelector('[data-field="price_nett"]')),
+        price_cost: getStockCurrencyRaw(row.querySelector('[data-field="price_cost"]')),
+    };
+}
+
+function applyVariantPrices(trigger, emptyOnly = false) {
+    const sourceRow = trigger?.closest("tr");
+    const variantRowsBody = document.getElementById("variantRowsBody");
+    if (!sourceRow || !variantRowsBody) {
+        return;
+    }
+
+    const sourcePrices = getVariantPriceSnapshot(sourceRow);
+    const priceFields = ["price_retail", "price_discount", "price_nett", "price_cost"];
+    const hasAnyValue = priceFields.some((field) => String(sourcePrices?.[field] || "").trim() !== "");
+    if (!hasAnyValue) {
+        renderProductStudioStatus("manualProductStatus", "Isi dulu harga di baris sumber sebelum menyalin ke varian lain.", "error");
+        notifyProductStudioMessage("Isi dulu harga di baris sumber sebelum menyalin.");
+        return;
+    }
+
+    let updatedCount = 0;
+    Array.from(variantRowsBody.querySelectorAll("tr")).forEach((row) => {
+        if (row === sourceRow) {
+            return;
+        }
+
+        let rowChanged = false;
+        priceFields.forEach((field) => {
+            const targetInput = row.querySelector(`[data-field="${field}"]`);
+            if (!targetInput) {
+                return;
+            }
+
+            const sourceValue = String(sourcePrices[field] || "").trim();
+            if (!sourceValue) {
+                return;
+            }
+
+            const currentValue = String(getStockCurrencyRaw(targetInput) || "").trim();
+            if (emptyOnly && currentValue) {
+                return;
+            }
+
+            setStockCurrencyValue(targetInput, sourceValue);
+            rowChanged = true;
+        });
+
+        if (rowChanged) {
+            refreshStockCurrencyInputs(row);
+            updateVariantPriceSummary(row);
+            updatedCount += 1;
+        }
+    });
+
+    if (!updatedCount) {
+        const message = emptyOnly
+            ? "Tidak ada varian kosong yang perlu diisi."
+            : "Tidak ada varian lain yang berubah.";
+        renderProductStudioStatus("manualProductStatus", message, "success");
+        notifyProductStudioMessage(message);
+        return;
+    }
+
+    const message = emptyOnly
+        ? `Harga diterapkan ke ${updatedCount} varian yang masih kosong.`
+        : `Harga diterapkan ke ${updatedCount} varian lainnya.`;
+    renderProductStudioStatus("manualProductStatus", message, "success");
+    notifyProductStudioMessage(message);
 }
 
 function bindVariantRow(row) {

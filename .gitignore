@@ -16,3 +16,6 @@ desktop/windows_kasir/dist/
 desktop/windows_kasir/.venv/
 desktop/windows_kasir/*.spec
 desktop/windows_kasir/kasir_config.json
+tmp_career_ref/
+tmp_polaris/
+tmp_ipos_migration/

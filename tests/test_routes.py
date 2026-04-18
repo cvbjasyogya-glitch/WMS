@@ -10720,7 +10720,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/karir")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Halaman Karir", html)
+        self.assertIn("Temukan posisi yang tepat lalu kirim lamaran.", html)
         self.assertIn("Staff Gudang Mataram", html)
         self.assertNotIn("Draft Internal", html)
 
@@ -10792,6 +10792,30 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate["vacancy_id"], opening["id"])
         self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
         self.assertTrue(candidate["resume_path"])
+
+    def test_career_schema_repairs_missing_postgresql_id_defaults(self):
+        with self.app.app_context():
+            db = Mock()
+            default_rows = {
+                "career_openings": {"column_default": None},
+                "recruitment_candidates": {"column_default": None},
+            }
+
+            def execute_side_effect(query, parameters=None):
+                normalized = " ".join(str(query).split()).lower()
+                if "information_schema.columns" in normalized:
+                    table_name = parameters[0]
+                    return Mock(fetchone=Mock(return_value=default_rows.get(table_name)))
+                return Mock(fetchone=Mock(return_value=None), fetchall=Mock(return_value=[]))
+
+            db.execute.side_effect = execute_side_effect
+
+            with patch("services.career_service.is_postgresql_backend", return_value=True):
+                ensure_career_schema(db)
+
+            executed_queries = [str(call.args[0]) for call in db.execute.call_args_list]
+            self.assertTrue(any("career_openings_id_seq" in query for query in executed_queries))
+            self.assertTrue(any("recruitment_candidates_id_seq" in query for query in executed_queries))
 
     def test_hris_onboarding_route_renders_operational_view(self):
         self.login_hr_user()
@@ -22289,6 +22313,19 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertNotIn("Bulk Import Produk", html)
                 self.assertIn("Admin dan leader hanya edit barang lama.", html)
                 self.logout()
+
+    def test_owner_product_workspace_shows_variant_price_apply_actions(self):
+        self.create_user("owner_variant_apply", "pass1234", "owner")
+        self.login("owner_variant_apply", "pass1234")
+
+        response = self.client.get("/stock/?workspace=products")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn("Terapkan ke varian lain", html)
+        self.assertIn("Isi yang kosong", html)
+        self.assertIn("applyVariantPrices(this, false)", html)
+        self.assertIn("applyVariantPrices(this, true)", html)
 
     def test_owner_can_add_product_with_price_cost(self):
         self.create_user("owner_product_cost", "pass1234", "owner")

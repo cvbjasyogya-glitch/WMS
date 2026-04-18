@@ -6781,6 +6781,28 @@ body .variant-stock-hint {
     color: #68778a;
 }
 
+body .variant-price-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+body .variant-price-action-button {
+    min-height: 34px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-main);
+    background: rgba(33, 137, 255, 0.08);
+    border-color: rgba(33, 137, 255, 0.16);
+}
+
+body .variant-price-action-button:hover {
+    background: rgba(33, 137, 255, 0.14);
+    border-color: rgba(33, 137, 255, 0.26);
+}
+
 body .variant-stock-card input {
     max-width: 132px;
 }

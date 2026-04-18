@@ -140,6 +140,7 @@ def ensure_career_schema(db):
         for statement in statements:
             db.execute(statement)
         _ensure_postgresql_id_sequence(db, "career_openings")
+        _ensure_postgresql_id_sequence(db, "recruitment_candidates")
     else:
         db.execute(
             """
