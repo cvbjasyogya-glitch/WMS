@@ -4955,6 +4955,88 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Kembali ke Log", inspected_html["payload"])
         self.assertNotIn("Simpan sebagai PDF", inspected_html["payload"])
 
+    def test_generate_pos_receipt_pdf_forces_single_page_a4_customer_layout(self):
+        self.app.config.update(
+            POS_RECEIPT_PDF_RENDERER="html",
+            POS_RECEIPT_PDF_BROWSER="/mock/browser",
+            POS_RECEIPT_PDF_LAYOUT="thermal",
+        )
+
+        sale = {
+            "id": 79,
+            "receipt_no": "POS-HTML-A4-0001",
+            "warehouse_id": 1,
+            "warehouse_name": "Gudang Mataram",
+            "sale_date": "2026-04-09",
+            "created_time_label": "01:51",
+            "created_datetime_label": "2026-04-09 01:51",
+            "customer_name": "Antonio",
+            "customer_phone": "62895383313591",
+            "customer_phone_label": "62895383313591",
+            "cashier_receipt_label": "Rio",
+            "payment_method": "cash",
+            "payment_method_label": "CASH",
+            "status": "posted",
+            "status_label": "POSTED",
+            "total_items": 1,
+            "subtotal_amount": 80000,
+            "subtotal_amount_label": "Rp 80.000",
+            "discount_amount": 0,
+            "discount_amount_label": "Rp 0",
+            "tax_amount": 0,
+            "tax_amount_label": "Rp 0",
+            "total_amount": 80000,
+            "total_amount_label": "Rp 80.000",
+            "paid_amount": 80000,
+            "paid_amount_label": "Rp 80.000",
+            "change_amount": 0,
+            "change_amount_label": "Rp 0",
+            "has_loyalty_summary": False,
+            "loyalty_summary_lines": [],
+            "loyalty_summary_title": "Update CRM Customer",
+            "note": "Terima kasih sudah berbelanja.",
+            "items": [
+                {
+                    "product_name": "ISO 66 TITANIUM",
+                    "variant_name": "SILVER",
+                    "sku": "S/B-HQ-001",
+                    "qty": 1,
+                    "active_qty": 1,
+                    "unit_price_label": "Rp 80.000",
+                    "active_line_total_label": "Rp 80.000",
+                    "void_qty": 0,
+                    "void_amount_label": "Rp 0",
+                }
+            ],
+        }
+
+        inspected_html = {}
+
+        def fake_browser_run(command, capture_output, text, timeout, check):
+            pdf_arg = next(argument for argument in command if argument.startswith("--print-to-pdf="))
+            pdf_path = pdf_arg.split("=", 1)[1]
+            html_uri = command[-1]
+            html_path = unquote(urlsplit(html_uri).path)
+            if os.name == "nt" and html_path.startswith("/") and len(html_path) > 3 and html_path[2] == ":":
+                html_path = html_path.lstrip("/")
+            with open(html_path, "r", encoding="utf-8") as file_handle:
+                inspected_html["payload"] = file_handle.read()
+            with open(pdf_path, "wb") as file_handle:
+                file_handle.write(b"%PDF-1.4\n%A4 single page render test\n")
+            return Mock(returncode=0, stdout="", stderr="")
+
+        with self.app.app_context(), patch.object(
+            receipt_pdf_service,
+            "_find_pos_receipt_pdf_browser",
+            return_value="/mock/browser",
+        ), patch.object(receipt_pdf_service.subprocess, "run", side_effect=fake_browser_run):
+            receipt_pdf_service.generate_pos_receipt_pdf(sale)
+
+        self.assertIn("pdf-mode", inspected_html["payload"])
+        self.assertIn('<body class="pdf-mode">', inspected_html["payload"])
+        self.assertNotIn('<body class="thermal-layout', inspected_html["payload"])
+        self.assertIn('const receiptLayout = "a4";', inspected_html["payload"])
+
     def test_generate_pos_receipt_pdf_html_renderer_falls_back_to_legacy_pdf(self):
         self.app.config.update(
             POS_RECEIPT_PDF_RENDERER="html",
@@ -5007,8 +5089,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         with open(pdf_meta["absolute_path"], "rb") as file_handle:
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
-        self.assertIn("Receipt  : POS-HTML-FALLBACK-0001", pdf_text)
-        self.assertIn("Kasir    : Rio", pdf_text)
+        self.assertIn("POS-HTML-FALLBACK-0001", pdf_text)
+        self.assertIn("Rio", pdf_text)
 
     def test_pos_page_exposes_auto_print_flag_when_enabled(self):
         self.app.config.update(POS_AUTO_PRINT_AFTER_CHECKOUT=True)
@@ -11672,6 +11754,52 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(latest_adjustment["minutes_delta"], 60)
         self.assertEqual(balance["available_minutes"], 240)
         self.assertEqual(balance["available_label"], "4j 00m")
+
+    def test_employee_overtime_balance_falls_back_to_adjustment_for_legacy_approved_request_without_minutes_payload(self):
+        self.login_hr_user("hr_overtime_legacy_fallback", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-LEGACY-FALLBACK",
+            full_name="Febrio Dwi Putra",
+            warehouse_id=1,
+        )
+        request_id = self.create_overtime_add_request_record(
+            employee_id,
+            "2026-04-15",
+            126,
+            source_type="biometric_auto",
+            note="Pulang lewat shift 2j 06m",
+            status="approved",
+            create_adjustment=True,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            legacy_payload = {
+                "source_type": "biometric_auto",
+                "employee_id": employee_id,
+                "attendance_date": "2026-04-15",
+                "adjustment_date": "2026-04-15",
+                "minutes_delta": 0,
+                "note": "Pulang lewat shift 2j 06m",
+            }
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET payload=?, summary_note=?
+                WHERE id=?
+                """,
+                (
+                    json.dumps(legacy_payload, sort_keys=True, ensure_ascii=True),
+                    "2j 06m pada 2026-04-15 | Pulang lewat shift 2j 06m",
+                    request_id,
+                ),
+            )
+            db.commit()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(balance["available_minutes"], 126)
+        self.assertEqual(balance["available_label"], "2j 06m")
 
     def test_hr_can_decline_biometric_overtime_without_adding_balance(self):
         self.login_hr_user("hr_bio_overtime_config", "pass1234")

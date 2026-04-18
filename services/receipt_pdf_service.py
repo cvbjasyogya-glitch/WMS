@@ -269,10 +269,10 @@ def _render_pos_receipt_pdf_via_browser(sale, absolute_path):
     if not browser_executable:
         return False, "browser_not_found"
 
-    renderer_layout = _normalize_receipt_layout(
-        current_app.config.get("POS_RECEIPT_PDF_LAYOUT") or os.getenv("POS_RECEIPT_PDF_LAYOUT") or "a4",
-        default="a4",
-    )
+    # PDF yang dikirim ke customer selalu dipaksa ke dokumen tunggal A4.
+    # Layout thermal tetap dipakai untuk print kasir interaktif, tapi tidak stabil
+    # untuk file PDF customer karena mudah terpotong / terpecah beberapa halaman.
+    renderer_layout = "a4"
     browser_timeout = max(
         10,
         int(

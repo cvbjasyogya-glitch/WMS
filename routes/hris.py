@@ -2069,6 +2069,17 @@ def _normalize_overtime_add_source_type(value):
     return normalized if normalized in {"biometric_auto", "manual_request"} else "manual_request"
 
 
+def _infer_overtime_add_source_type(raw_value, *context_values):
+    normalized = str(raw_value or "").strip().lower()
+    if normalized in {"biometric_auto", "manual_request"}:
+        return normalized
+
+    context_blob = " ".join(str(item or "").strip().lower() for item in context_values if str(item or "").strip())
+    if "lembur otomatis" in context_blob or "biometric" in context_blob:
+        return "biometric_auto"
+    return "manual_request"
+
+
 def _normalize_overtime_usage_mode(value):
     normalized = str(value or "").strip().lower()
     return normalized if normalized in {"regular", "cashout_all"} else "regular"
@@ -3040,10 +3051,17 @@ def _fetch_overtime_usage_records(db, selected_warehouse=None, employee_id=None,
     return usage_rows
 
 
-def _fetch_overtime_balance_adjustment_records(db, selected_warehouse=None, employee_id=None, limit=None):
+def _fetch_overtime_balance_adjustment_records(
+    db,
+    selected_warehouse=None,
+    employee_id=None,
+    employee_ids=None,
+    limit=None,
+):
     _ensure_overtime_feature_schema(db)
     scope_warehouse = get_hris_scope()
     safe_warehouse = scope_warehouse or selected_warehouse
+    safe_employee_ids = [int(item) for item in (employee_ids or []) if _to_int(item)]
     query = """
         SELECT
             a.*,
@@ -3066,6 +3084,10 @@ def _fetch_overtime_balance_adjustment_records(db, selected_warehouse=None, empl
     if employee_id:
         query += " AND a.employee_id=?"
         params.append(employee_id)
+    elif safe_employee_ids:
+        placeholders = ",".join("?" for _ in safe_employee_ids)
+        query += f" AND a.employee_id IN ({placeholders})"
+        params.extend(safe_employee_ids)
 
     query += " ORDER BY a.adjustment_date DESC, a.created_at DESC, a.id DESC"
     if limit:
@@ -3133,18 +3155,73 @@ def _fetch_overtime_add_request_records(
         query += " LIMIT ?"
         params.append(int(max(1, limit)))
 
+    raw_rows = [dict(row) for row in db.execute(query, params).fetchall()]
     request_rows = []
-    for row in db.execute(query, params).fetchall():
-        record = dict(row)
+    needs_adjustment_fallback = False
+    for record in raw_rows:
         payload_map = parse_attendance_request_payload(record.get("payload"))
+        source_type = _infer_overtime_add_source_type(
+            payload_map.get("source_type"),
+            payload_map.get("note"),
+            record.get("summary_title"),
+            record.get("summary_note"),
+        )
         record["payload_map"] = payload_map
         record["minutes_delta"] = max(0, _to_int(payload_map.get("minutes_delta"), 0) or 0)
         record["duration_label"] = _format_duration_minutes_label(record["minutes_delta"], zero_label="0 mnt")
-        record["source_type"] = _normalize_overtime_add_source_type(payload_map.get("source_type"))
+        record["source_type"] = source_type
         record["attendance_date"] = (
             str(payload_map.get("attendance_date") or payload_map.get("adjustment_date") or "").strip()
         )
+        if str(record.get("status") or "").strip().lower() == "approved" and record["minutes_delta"] <= 0:
+            needs_adjustment_fallback = True
         request_rows.append(record)
+
+    adjustment_index = {}
+    if needs_adjustment_fallback:
+        adjustment_rows = _fetch_overtime_balance_adjustment_records(
+            db,
+            selected_warehouse=safe_warehouse,
+            employee_id=employee_id,
+            employee_ids=safe_employee_ids,
+        )
+        for adjustment_row in adjustment_rows:
+            adjustment_key = (
+                _to_int(adjustment_row.get("employee_id")),
+                str(adjustment_row.get("adjustment_date") or "").strip(),
+            )
+            if not adjustment_key[0] or not adjustment_key[1]:
+                continue
+            adjustment_index.setdefault(adjustment_key, []).append(adjustment_row)
+
+    for record in request_rows:
+        if str(record.get("status") or "").strip().lower() != "approved":
+            continue
+        if int(record.get("minutes_delta") or 0) > 0:
+            continue
+
+        fallback_key = (
+            _to_int(record.get("employee_id")),
+            str(record.get("attendance_date") or "").strip(),
+        )
+        matching_adjustments = adjustment_index.get(fallback_key) or []
+        if not matching_adjustments:
+            continue
+        fallback_adjustment = matching_adjustments.pop(0)
+        fallback_minutes = max(0, int(fallback_adjustment.get("minutes_delta") or 0))
+        if fallback_minutes <= 0:
+            continue
+        record["minutes_delta"] = fallback_minutes
+        record["duration_label"] = _format_duration_minutes_label(fallback_minutes, zero_label="0 mnt")
+        payload_map = dict(record.get("payload_map") or {})
+        payload_map.setdefault("adjustment_date", fallback_adjustment.get("adjustment_date"))
+        payload_map["minutes_delta"] = fallback_minutes
+        payload_map["duration_label"] = record["duration_label"]
+        payload_map["adjustment_fallback"] = True
+        record["payload_map"] = payload_map
+        if not record.get("attendance_date"):
+            record["attendance_date"] = str(fallback_adjustment.get("adjustment_date") or "").strip()
+
     return request_rows
 
 
