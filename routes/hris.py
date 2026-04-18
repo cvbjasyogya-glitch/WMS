@@ -3225,6 +3225,84 @@ def _fetch_overtime_add_request_records(
     return request_rows
 
 
+def _merge_overtime_credit_rows(overtime_add_rows=None, adjustment_rows=None):
+    safe_request_rows = [dict(row) for row in (overtime_add_rows or [])]
+    safe_adjustment_rows = [dict(row) for row in (adjustment_rows or [])]
+    if not safe_adjustment_rows:
+        return safe_request_rows
+
+    covered_keys = set()
+    for row in safe_request_rows:
+        minutes_delta = max(0, int(row.get("minutes_delta") or 0))
+        if minutes_delta <= 0:
+            continue
+        covered_keys.add(
+            (
+                _to_int(row.get("employee_id")),
+                str(row.get("attendance_date") or row.get("adjustment_date") or "").strip(),
+                minutes_delta,
+            )
+        )
+
+    merged_rows = list(safe_request_rows)
+    synthetic_sequence = 0
+    for row in safe_adjustment_rows:
+        minutes_delta = max(0, int(row.get("minutes_delta") or 0))
+        adjustment_date = str(row.get("adjustment_date") or "").strip()
+        employee_id = _to_int(row.get("employee_id"))
+        if not employee_id or not adjustment_date or minutes_delta <= 0:
+            continue
+
+        coverage_key = (employee_id, adjustment_date, minutes_delta)
+        if coverage_key in covered_keys:
+            continue
+
+        synthetic_sequence += 1
+        source_type = _infer_overtime_add_source_type(
+            None,
+            row.get("note"),
+            row.get("full_name"),
+            row.get("handled_by_name"),
+        )
+        merged_rows.append(
+            {
+                "id": -(int(row.get("id") or 0) or synthetic_sequence),
+                "employee_id": employee_id,
+                "employee_code": row.get("employee_code"),
+                "full_name": row.get("full_name"),
+                "warehouse_id": _to_int(row.get("warehouse_id")),
+                "warehouse_name": row.get("warehouse_name"),
+                "requested_by_name": row.get("handled_by_name") or "-",
+                "handled_by_name": row.get("handled_by_name") or "-",
+                "status": "approved",
+                "request_type": "overtime_add",
+                "payload_map": {
+                    "source_type": source_type,
+                    "employee_id": employee_id,
+                    "adjustment_date": adjustment_date,
+                    "attendance_date": adjustment_date,
+                    "minutes_delta": minutes_delta,
+                    "duration_label": _format_duration_minutes_label(minutes_delta, zero_label="0 mnt"),
+                    "note": row.get("note") or "",
+                    "adjustment_only_fallback": True,
+                },
+                "minutes_delta": minutes_delta,
+                "duration_label": _format_duration_minutes_label(minutes_delta, zero_label="0 mnt"),
+                "source_type": source_type,
+                "attendance_date": adjustment_date,
+                "adjustment_date": adjustment_date,
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+                "handled_at": row.get("updated_at"),
+                "summary_title": f"{row.get('full_name') or f'Staff #{employee_id}'} - Penambahan Saldo Lembur",
+                "summary_note": row.get("note") or "",
+                "note": row.get("note") or "",
+            }
+        )
+        covered_keys.add(coverage_key)
+    return merged_rows
+
+
 def _get_biometric_overtime_request_status_meta(status):
     normalized = str(status or "").strip().lower()
     if normalized == "approved":
@@ -3521,8 +3599,10 @@ def _build_employee_overtime_balance(db, employee_id, reference_date=None, *, in
         status="approved",
         employee_id=employee_id,
     )
+    adjustment_rows = _fetch_overtime_balance_adjustment_records(db, employee_id=employee_id)
+    overtime_credit_rows = _merge_overtime_credit_rows(overtime_add_rows, adjustment_rows)
     usage_rows = _fetch_overtime_usage_records(db, employee_id=employee_id)
-    ledger_summary = _summarize_overtime_balance_ledger(overtime_add_rows, usage_rows)
+    ledger_summary = _summarize_overtime_balance_ledger(overtime_credit_rows, usage_rows)
     earned_minutes = ledger_summary["earned_total_minutes"]
     added_minutes = ledger_summary["added_total_minutes"]
     earned_seconds = earned_minutes * 60
@@ -3597,6 +3677,11 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         status="approved",
         selected_warehouse=selected_warehouse,
     )
+    adjustment_rows = _fetch_overtime_balance_adjustment_records(
+        db,
+        selected_warehouse=selected_warehouse,
+    )
+    overtime_credit_rows = _merge_overtime_credit_rows(overtime_add_rows, adjustment_rows)
     usage_rows = _fetch_overtime_usage_records(db, selected_warehouse=selected_warehouse)
     employee_index = {
         int(employee["id"]): dict(employee)
@@ -3628,14 +3713,14 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         )
         employee_index[safe_employee_id] = merged
 
-    for overtime_add_row in overtime_add_rows:
-        absorb_employee_snapshot(overtime_add_row)
+    for overtime_credit_row in overtime_credit_rows:
+        absorb_employee_snapshot(overtime_credit_row)
     for usage_row in usage_rows:
         absorb_employee_snapshot(usage_row)
 
     overtime_add_by_employee = {}
-    for overtime_add_row in overtime_add_rows:
-        overtime_add_by_employee.setdefault(overtime_add_row["employee_id"], []).append(overtime_add_row)
+    for overtime_credit_row in overtime_credit_rows:
+        overtime_add_by_employee.setdefault(overtime_credit_row["employee_id"], []).append(overtime_credit_row)
     usage_by_employee = {}
     for usage_row in usage_rows:
         usage_by_employee.setdefault(usage_row["employee_id"], []).append(usage_row)

@@ -39,6 +39,7 @@ from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
 from routes.hris import (
+    _build_overtime_recap,
     _ensure_attendance_shift_override_schema,
     _ensure_overtime_feature_schema,
     _build_employee_overtime_balance,
@@ -1182,6 +1183,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn(".floating-toolbelt *,", invoice_html)
         self.assertIn(".app-version-badge,", invoice_html)
         self.assertIn(".floating-toolbelt,", invoice_html)
+        self.assertIn(".manual-table thead th {", invoice_html)
+        self.assertIn("background: #ffffff !important;", invoice_html)
+        self.assertIn("border-top: 1px solid #214e79 !important;", invoice_html)
         self.assertIn("font-family: Arial", invoice_html)
         self.assertIn("@page { size: A4 portrait; margin: 10mm; }", invoice_html)
         self.assertIn(".manual-topbar .manual-brand-text strong,", invoice_html)
@@ -1200,6 +1204,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("manualDeliverySyncStatus", delivery_html)
         self.assertIn("data-preview-logo-slot", delivery_html)
         self.assertIn(".manual-delivery-logo-fallback[hidden] { display: none !important; }", delivery_html)
+        self.assertIn("body > *:not(.layout) { display: none !important; }", delivery_html)
+        self.assertIn(".attendance-camera-shortcut-root *,", delivery_html)
+        self.assertIn(".manual-delivery-table thead th {", delivery_html)
+        self.assertIn("background: #ffffff !important;", delivery_html)
+        self.assertIn("border-top: 1px solid #214e79 !important;", delivery_html)
         self.assertIn("/static/js/pos_manual_document_draft.js", delivery_html)
 
         draft_js_path = os.path.join(self.app.root_path, "static", "js", "pos_manual_document_draft.js")
@@ -11800,6 +11809,58 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(balance["available_minutes"], 126)
         self.assertEqual(balance["available_label"], "2j 06m")
+
+    def test_overtime_recap_uses_adjustment_fallback_for_legacy_approved_request_payload(self):
+        self.login_hr_user("hr_overtime_legacy_recap", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-LEGACY-RECAP",
+            full_name="Febrio Dwi Putra",
+            warehouse_id=1,
+        )
+        request_id = self.create_overtime_add_request_record(
+            employee_id,
+            "2026-04-15",
+            126,
+            source_type="biometric_auto",
+            note="Pulang lewat shift 2j 06m",
+            status="approved",
+            create_adjustment=True,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET payload=?, summary_note=?
+                WHERE id=?
+                """,
+                (
+                    json.dumps(
+                        {
+                            "source_type": "biometric_auto",
+                            "employee_id": employee_id,
+                            "attendance_date": "2026-04-15",
+                            "adjustment_date": "2026-04-15",
+                            "minutes_delta": 0,
+                            "note": "Pulang lewat shift 2j 06m",
+                        },
+                        sort_keys=True,
+                        ensure_ascii=True,
+                    ),
+                    "2j 06m pada 2026-04-15 | Pulang lewat shift 2j 06m",
+                    request_id,
+                ),
+            )
+            db.commit()
+            with self.app.test_request_context():
+                recap_rows, recap_summary, _ = _build_overtime_recap(db, selected_warehouse=1)
+
+        febrio_row = next((row for row in recap_rows if row["id"] == employee_id), None)
+        self.assertIsNotNone(febrio_row)
+        self.assertEqual(febrio_row["available_label"], "2j 06m")
+        self.assertEqual(febrio_row["earned_total_label"], "2j 06m")
+        self.assertEqual(recap_summary["available_total_label"], "2j 06m")
 
     def test_hr_can_decline_biometric_overtime_without_adding_balance(self):
         self.login_hr_user("hr_bio_overtime_config", "pass1234")

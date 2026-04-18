@@ -60,16 +60,50 @@
 
     @media print {
         body { background: #ffffff !important; }
+        body > *:not(.layout) { display: none !important; }
         .sidebar,
         .mobile-nav,
         .layout > header,
         .mobile-command-deck,
         .page-hero,
         .flash-stack,
+        .app-version-badge,
+        .floating-toolbelt,
+        .floating-toolbelt *,
+        .notification-center-root,
+        .notification-center-root *,
+        .attendance-camera-shortcut-root,
+        .attendance-camera-shortcut-root *,
+        .chat-widget-root,
+        .chat-widget-root *,
         .manual-delivery-tools { display: none !important; }
         .manual-delivery-preview { box-shadow: none; border: none; padding: 0; }
         .manual-delivery-sheet { border: none; }
         .layout { padding: 0 !important; }
+        .manual-delivery-topbar,
+        .manual-delivery-bottom-bar {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .manual-delivery-table thead th {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            font-weight: 700 !important;
+            border-top: 1px solid #214e79 !important;
+            border-bottom: 1px solid #214e79 !important;
+        }
+        .manual-delivery-table tbody td,
+        .manual-delivery-note,
+        .manual-delivery-sign,
+        .manual-delivery-brand-text,
+        .manual-delivery-title span {
+            color: #0f172a !important;
+            opacity: 1 !important;
+        }
+        .manual-delivery-title strong,
+        .manual-delivery-note strong {
+            color: #0f172a !important;
+        }
     }
 </style>
 {% endblock %}
