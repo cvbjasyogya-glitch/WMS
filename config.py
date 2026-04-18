@@ -171,6 +171,7 @@ class Config:
     PROXY_FIX_X_PROTO = _int_env("PROXY_FIX_X_PROTO", 1)
     PROXY_FIX_X_HOST = _int_env("PROXY_FIX_X_HOST", 1 if IS_PRODUCTION else 0)
     ALLOWED_HOSTS = _csv_env("ALLOWED_HOSTS", "")
+    RECRUITMENT_PUBLIC_HOSTS = _csv_env("RECRUITMENT_PUBLIC_HOSTS", "")
     CANONICAL_HOST = (os.getenv("CANONICAL_HOST") or "").strip()
     CANONICAL_SCHEME = (
         (os.getenv("CANONICAL_SCHEME") or PREFERRED_URL_SCHEME or "https")

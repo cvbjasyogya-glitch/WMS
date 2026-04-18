@@ -438,6 +438,13 @@ def _is_allowed_host(candidate_host, allowed_hosts):
     return False
 
 
+def _is_recruitment_public_host(app, candidate_host):
+    recruitment_hosts = app.config.get("RECRUITMENT_PUBLIC_HOSTS") or []
+    if not recruitment_hosts:
+        return False
+    return _is_allowed_host(candidate_host, recruitment_hosts)
+
+
 def _canonical_request_location(app):
     canonical_host_name, canonical_host_port = _split_host_port(
         app.config.get("CANONICAL_HOST")
@@ -752,6 +759,9 @@ def create_app():
 
     @app.before_request
     def enforce_canonical_host():
+        if _is_recruitment_public_host(app, request.host):
+            return
+
         canonical_location = _canonical_request_location(app)
         if not canonical_location:
             return
@@ -764,6 +774,9 @@ def create_app():
     @app.before_request
     def enforce_allowed_hosts():
         allowed_hosts = app.config.get("ALLOWED_HOSTS") or []
+        recruitment_hosts = app.config.get("RECRUITMENT_PUBLIC_HOSTS") or []
+        if recruitment_hosts:
+            allowed_hosts = list(allowed_hosts) + list(recruitment_hosts)
         canonical_host_name = _normalized_host_name(app.config.get("CANONICAL_HOST"))
         if canonical_host_name and canonical_host_name not in {
             _normalized_host_name(item)
@@ -777,6 +790,30 @@ def create_app():
             return
 
         return "Host tidak diizinkan", 400
+
+    @app.before_request
+    def route_recruitment_public_host():
+        if not _is_recruitment_public_host(app, request.host):
+            return
+
+        request_path = request.path or "/"
+        if request_path == "/":
+            return redirect(url_for("career.index"), code=302)
+
+        if (
+            request_path.startswith("/karir")
+            or request_path.startswith("/static/")
+            or request.endpoint in {"health", "ready", "service_worker"}
+        ):
+            return
+
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            canonical_location = _canonical_request_location(app)
+            if canonical_location:
+                return redirect(canonical_location, code=302)
+            return redirect(url_for("career.index"), code=302)
+
+        return "Endpoint tidak tersedia di domain recruitment", 404
 
     @app.before_request
     def enforce_same_origin_writes():

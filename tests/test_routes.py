@@ -10793,6 +10793,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
         self.assertTrue(candidate["resume_path"])
 
+    def test_recruitment_public_host_redirects_root_to_karir(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+
+        response = self.client.get("/", headers={"Host": "recruitment.test"}, follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/karir"))
+
+    def test_recruitment_public_host_keeps_public_career_and_redirects_internal_pages(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Picker Gudang",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Bantu picking dan stock movement.",
+                    "Teliti dan disiplin.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+
+        public_response = self.client.get("/karir", headers={"Host": "recruitment.test"})
+        self.assertEqual(public_response.status_code, 200)
+        self.assertIn("Picker Gudang", public_response.get_data(as_text=True))
+
+        internal_response = self.client.get("/login", headers={"Host": "recruitment.test"}, follow_redirects=False)
+        self.assertEqual(internal_response.status_code, 302)
+        self.assertEqual(internal_response.headers["Location"], "https://erp.test/login")
+
     def test_career_schema_repairs_missing_postgresql_id_defaults(self):
         with self.app.app_context():
             db = Mock()

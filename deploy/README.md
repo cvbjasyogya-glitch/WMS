@@ -6,6 +6,11 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 4. Pull the latest code, restart `wms.service`, then reload Nginx.
 5. (Optional but recommended) Enable scheduled DB backups with [deploy/systemd/wms-db-backup.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.service.example) and [deploy/systemd/wms-db-backup.timer.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.timer.example).
 
+Public recruitment domain:
+- Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
+- Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
+- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host routes `/` directly to `/karir`.
+
 Notes:
 - The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
 - Keep only one active Nginx server block for `erp.cvbjasyogya.cloud`. If `nginx -t` warns about a conflicting `server_name`, disable the older duplicate site before reloading Nginx.
@@ -24,6 +29,18 @@ sudo cp deploy/systemd/wms.service.example /etc/systemd/system/wms.service
 sudo cp deploy/nginx/erp.cvbjasyogya.cloud.conf /etc/nginx/sites-available/erp.cvbjasyogya.cloud.conf
 sudo ln -sf /etc/nginx/sites-available/erp.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/erp.cvbjasyogya.cloud.conf
 sudo systemctl daemon-reload
+sudo systemctl restart wms.service
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Enable the recruitment domain on the same VPS:
+
+```bash
+cd ~/WMS
+sudo cp deploy/nginx/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf
+sudo ln -sf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/recruitment.cvbjasyogya.cloud.conf
+echo "RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
 sudo systemctl restart wms.service
 sudo nginx -t
 sudo systemctl reload nginx
