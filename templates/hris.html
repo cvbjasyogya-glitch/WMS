@@ -1795,16 +1795,16 @@
 {% elif selected_module.slug == "recruitment" %}
 <div class="summary">
     <div class="card-mini">
-        <p>Total Kandidat</p>
+        <p>Kandidat</p>
         <h3>{{ recruitment_summary.total }}</h3>
+    </div>
+    <div class="card-mini success">
+        <p>Lowongan Live</p>
+        <h3>{{ career_openings_summary.published if career_openings_summary else 0 }}</h3>
     </div>
     <div class="card-mini {% if recruitment_summary.interview %}warning{% endif %}">
         <p>Interview</p>
         <h3>{{ recruitment_summary.interview }}</h3>
-    </div>
-    <div class="card-mini success">
-        <p>Offer + Hired</p>
-        <h3>{{ recruitment_summary.offer + recruitment_summary.hired }}</h3>
     </div>
     <div class="card-mini {% if recruitment_summary.closed %}danger{% endif %}">
         <p>Closed</p>
@@ -1818,27 +1818,21 @@
         <strong>{{ recruitment_summary.active }}</strong>
     </div>
     <div class="meta-card">
-        <span>Posisi Interview</span>
-        <strong>{{ recruitment_summary.interview }}</strong>
+        <span>Lowongan Publik</span>
+        <strong>{{ career_openings_summary.public if career_openings_summary else 0 }}</strong>
     </div>
     <div class="meta-card">
-        <span>Scope Gudang</span>
-        <strong>
-            {% if recruitment_scope_warehouse %}
-                {% for w in warehouses %}{% if w.id == recruitment_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
-            {% else %}
-                Semua Gudang
-            {% endif %}
-        </strong>
+        <span>Halaman Karir</span>
+        <strong><a href="{{ career_public_url }}" target="_blank" rel="noopener">Buka Publik</a></strong>
     </div>
     <div class="meta-card">
         <span>Akses Kelola</span>
-        <strong>{{ "Aktif" if can_manage_recruitment else "View Only" }}</strong>
+        <strong>{{ "HR / Super Admin" if can_manage_recruitment else "View Only" }}</strong>
     </div>
 </div>
 
 <form method="GET" class="top-bar products-filter-bar">
-    <input type="text" name="q" value="{{ recruitment_filters.search }}" placeholder="Cari kandidat, posisi, departemen, atau source">
+    <input type="text" name="q" value="{{ recruitment_filters.search }}" placeholder="Cari kandidat, posisi, departemen, source, atau lowongan">
     <select name="warehouse" {% if recruitment_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Gudang</option>
         {% for w in warehouses %}
@@ -1867,17 +1861,190 @@
     <button type="submit">Filter</button>
 </form>
 
-{% if recruitment_scope_warehouse %}
-<small class="helper-text">Recruitment pipeline dibatasi ke gudang akun Anda, jadi proses hiring tetap fokus ke kebutuhan area sendiri.</small>
-{% endif %}
-
 {% if can_manage_recruitment %}
 <details class="form-box panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
-                <h2>Tambah Kandidat</h2>
-                <p>Modul Recruitment ini dipakai untuk melacak kandidat, posisi yang dilamar, stage hiring, status akhir, dan target join date dalam satu pipeline yang rapi.</p>
+                <h2>Kelola Lowongan Karir</h2>
+                <p>Lowongan yang dipublish di sini akan muncul langsung di halaman publik `/karir`.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ career_openings|length }} lowongan</span>
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        <form method="POST" action="/hris/recruitment/opening/add">
+            <div class="form-grid">
+                <div>
+                    <label>Judul Lowongan</label>
+                    <input name="title" placeholder="Contoh: Staff Gudang Mega" required>
+                </div>
+                <div>
+                    <label>Gudang</label>
+                    <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
+                        <option value="">Pilih Gudang</option>
+                        {% for w in warehouses %}
+                        <option value="{{ w.id }}" {% if recruitment_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if recruitment_scope_warehouse %}
+                    <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+                    {% endif %}
+                </div>
+                <div>
+                    <label>Departemen</label>
+                    <input name="department" placeholder="Warehouse Operation">
+                </div>
+                <div>
+                    <label>Tipe Kerja</label>
+                    <select name="employment_type">
+                        <option value="full_time">Full Time</option>
+                        <option value="part_time">Part Time</option>
+                        <option value="contract">Contract</option>
+                        <option value="internship">Internship</option>
+                        <option value="freelance">Freelance</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Lokasi</label>
+                    <input name="location_label" placeholder="Yogyakarta / WFO">
+                </div>
+                <div>
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="draft">Draft</option>
+                        <option value="published">Published</option>
+                        <option value="closed">Closed</option>
+                        <option value="archived">Archived</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Urutan</label>
+                    <input name="sort_order" type="number" min="0" value="0">
+                </div>
+                <div>
+                    <label style="display:flex;align-items:center;gap:10px;margin-top:28px;">
+                        <input type="checkbox" name="is_public" value="1" checked style="width:auto;">
+                        Publish ke halaman karir
+                    </label>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Deskripsi</label>
+                    <textarea name="description" rows="4" placeholder="Ringkasan posisi dan tanggung jawab utama."></textarea>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <label>Kualifikasi</label>
+                    <textarea name="requirements" rows="4" placeholder="Syarat, pengalaman, atau kemampuan yang dibutuhkan."></textarea>
+                </div>
+            </div>
+            <div class="split-actions" style="margin-top:16px;">
+                <button type="submit">Tambah Lowongan</button>
+            </div>
+        </form>
+    </div>
+</details>
+
+{% if career_openings %}
+<details class="table-box stack-scroll-shell panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Lowongan Dipublikasikan</h2>
+                <p>Edit isi lowongan, status tayang, dan urutan tampil kandidat.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="badge">{{ career_openings|length }} lowongan</span>
+            <span class="panel-summary-state">Buka Daftar</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+        <div class="stack-scroll-list">
+            {% for opening in career_openings %}
+            <div class="box stack-scroll-card" style="margin-bottom:0;">
+                <form method="POST" action="/hris/recruitment/opening/update/{{ opening.id }}">
+                    <div class="form-grid">
+                        <div>
+                            <label>Judul Lowongan</label>
+                            <input name="title" value="{{ opening.title }}" required>
+                        </div>
+                        <div>
+                            <label>Gudang</label>
+                            <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
+                                {% for w in warehouses %}
+                                <option value="{{ w.id }}" {% if opening.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if recruitment_scope_warehouse %}
+                            <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label>Departemen</label>
+                            <input name="department" value="{{ opening.department or '' }}">
+                        </div>
+                        <div>
+                            <label>Tipe Kerja</label>
+                            <select name="employment_type">
+                                {% for employment_type in ['full_time','part_time','contract','internship','freelance'] %}
+                                <option value="{{ employment_type }}" {% if (opening.employment_type or 'full_time') == employment_type %}selected{% endif %}>{{ employment_type|replace('_', ' ')|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Lokasi</label>
+                            <input name="location_label" value="{{ opening.location_label or '' }}">
+                        </div>
+                        <div>
+                            <label>Status</label>
+                            <select name="status">
+                                {% for status in ['draft','published','closed','archived'] %}
+                                <option value="{{ status }}" {% if opening.status == status %}selected{% endif %}>{{ status|replace('_', ' ')|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label>Urutan</label>
+                            <input type="number" name="sort_order" min="0" value="{{ opening.sort_order or 0 }}">
+                        </div>
+                        <div>
+                            <label style="display:flex;align-items:center;gap:10px;margin-top:28px;">
+                                <input type="checkbox" name="is_public" value="1" {% if opening.is_public %}checked{% endif %} style="width:auto;">
+                                Tampil di halaman karir
+                            </label>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Deskripsi</label>
+                            <textarea name="description" rows="4">{{ opening.description or '' }}</textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Kualifikasi</label>
+                            <textarea name="requirements" rows="4">{{ opening.requirements or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="split-actions" style="margin-top:16px;">
+                        <button type="submit">Update Lowongan</button>
+                    </div>
+                </form>
+                <form method="POST" action="/hris/recruitment/opening/delete/{{ opening.id }}" style="margin-top:12px;">
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus lowongan karir ini?')">Hapus Lowongan</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</details>
+{% endif %}
+
+<details class="form-box panel-disclosure">
+    <summary class="panel-summary">
+        <div class="section-title">
+            <div>
+                <h2>Tambah Kandidat Manual</h2>
+                <p>HR tetap bisa input kandidat referral atau walk-in tanpa lewat halaman publik.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
@@ -1894,6 +2061,15 @@
             <div>
                 <label>Posisi</label>
                 <input name="position_title" placeholder="Contoh: Warehouse Supervisor" required>
+            </div>
+            <div>
+                <label>Lowongan Terkait</label>
+                <select name="vacancy_id">
+                    <option value="">Tidak terikat lowongan publik</option>
+                    {% for opening in career_openings %}
+                    <option value="{{ opening.id }}">{{ opening.title }} · {{ opening.warehouse_name or '-' }}</option>
+                    {% endfor %}
+                </select>
             </div>
             <div>
                 <label>Gudang Hiring</label>
@@ -1926,14 +2102,14 @@
                 <select name="status">
                     <option value="active">Active</option>
                     <option value="on_hold">On Hold</option>
-                <option value="rejected">Ditolak</option>
+                    <option value="rejected">Ditolak</option>
                     <option value="withdrawn">Withdrawn</option>
                     <option value="closed">Closed</option>
                 </select>
             </div>
             <div>
                 <label>Source</label>
-                <input name="source" placeholder="Contoh: Referral / Job Portal">
+                <input name="source" placeholder="Contoh: Referral / Walk In">
             </div>
             <div>
                 <label>Telepon</label>
@@ -1942,6 +2118,10 @@
             <div>
                 <label>Email</label>
                 <input name="email" placeholder="candidate@email.com">
+            </div>
+            <div>
+                <label>Portfolio</label>
+                <input name="portfolio_url" placeholder="https://">
             </div>
             <div>
                 <label>Expected Join Date</label>
@@ -1965,11 +2145,11 @@
         <div class="section-title">
             <div>
                 <h2>Hiring Pipeline</h2>
-                <p>Pipeline ini menyiapkan fondasi untuk vacancy management, interview scheduling, dan onboarding kandidat terpilih pada tahap modul berikutnya.</p>
+                <p>Semua lamaran dari halaman karir dan input manual terkumpul di sini.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="badge">{{ recruitment_candidates|length }} data</span>
+            <span class="badge">{{ recruitment_candidates|length }} kandidat</span>
             <span class="panel-summary-state">Buka Daftar</span>
         </div>
     </summary>
@@ -1990,6 +2170,15 @@
                             <input name="position_title" value="{{ candidate.position_title }}" required>
                         </div>
                         <div>
+                            <label>Lowongan Terkait</label>
+                            <select name="vacancy_id">
+                                <option value="">Tidak terikat lowongan publik</option>
+                                {% for opening in career_openings %}
+                                <option value="{{ opening.id }}" {% if candidate.vacancy_id == opening.id %}selected{% endif %}>{{ opening.title }} · {{ opening.warehouse_name or '-' }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
                             <label>Gudang Hiring</label>
                             <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
                                 {% for w in warehouses %}
@@ -2007,21 +2196,17 @@
                         <div>
                             <label>Stage</label>
                             <select name="stage">
-                                <option value="applied" {% if candidate.stage == 'applied' %}selected{% endif %}>Applied</option>
-                                <option value="screening" {% if candidate.stage == 'screening' %}selected{% endif %}>Screening</option>
-                                <option value="interview" {% if candidate.stage == 'interview' %}selected{% endif %}>Interview</option>
-                                <option value="offer" {% if candidate.stage == 'offer' %}selected{% endif %}>Offer</option>
-                                <option value="hired" {% if candidate.stage == 'hired' %}selected{% endif %}>Hired</option>
+                                {% for stage in ['applied','screening','interview','offer','hired'] %}
+                                <option value="{{ stage }}" {% if candidate.stage == stage %}selected{% endif %}>{{ stage|replace('_', ' ')|title }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div>
                             <label>Status</label>
                             <select name="status">
-                                <option value="active" {% if candidate.status == 'active' %}selected{% endif %}>Active</option>
-                                <option value="on_hold" {% if candidate.status == 'on_hold' %}selected{% endif %}>On Hold</option>
-                                        <option value="rejected" {% if candidate.status == 'rejected' %}selected{% endif %}>Ditolak</option>
-                                <option value="withdrawn" {% if candidate.status == 'withdrawn' %}selected{% endif %}>Withdrawn</option>
-                                <option value="closed" {% if candidate.status == 'closed' %}selected{% endif %}>Closed</option>
+                                {% for status in ['active','on_hold','rejected','withdrawn','closed'] %}
+                                <option value="{{ status }}" {% if candidate.status == status %}selected{% endif %}>{{ status|replace('_', ' ')|title }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div>
@@ -2037,8 +2222,20 @@
                             <input name="email" value="{{ candidate.email or '' }}">
                         </div>
                         <div>
+                            <label>Portfolio</label>
+                            <input name="portfolio_url" value="{{ candidate.portfolio_url or '' }}">
+                        </div>
+                        <div>
                             <label>Expected Join Date</label>
                             <input type="date" name="expected_join_date" value="{{ candidate.expected_join_date or '' }}">
+                        </div>
+                        <div>
+                            <label>CV</label>
+                            {% if candidate.resume_path %}
+                            <a href="/hris/recruitment/resume/{{ candidate.id }}" class="ghost-button" target="_blank" rel="noopener">{{ candidate.resume_original_name or 'Buka CV' }}</a>
+                            {% else %}
+                            <span class="helper-text">Belum ada CV tersimpan.</span>
+                            {% endif %}
                         </div>
                         <div style="grid-column: 1 / -1;">
                             <label>Catatan</label>
@@ -2061,12 +2258,11 @@
                 <tr>
                     <th>Nama</th>
                     <th>Posisi</th>
+                    <th>Lowongan</th>
                     <th>Gudang</th>
                     <th>Stage</th>
                     <th>Status</th>
-                    <th>Source</th>
                     <th>Kontak</th>
-                    <th>Join Plan</th>
                 </tr>
             </thead>
             <tbody>
@@ -2074,19 +2270,18 @@
                 <tr>
                     <td>{{ candidate.candidate_name }}</td>
                     <td>{{ candidate.position_title }}</td>
+                    <td>{{ candidate.vacancy_title or '-' }}</td>
                     <td>{{ candidate.warehouse_name or '-' }}</td>
                     <td>{{ candidate.stage }}</td>
                     <td><span class="badge {{ 'green' if candidate.status in ['active', 'closed'] else 'orange' if candidate.status == 'on_hold' else 'red' }}">{{ candidate.status }}</span></td>
-                    <td>{{ candidate.source or '-' }}</td>
                     <td>{{ candidate.email or candidate.phone or '-' }}</td>
-                    <td>{{ candidate.expected_join_date or '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% endif %}
     {% else %}
-    <div class="empty-state">Belum ada kandidat recruitment. Modul Recruitment siap dipakai untuk tracking pipeline hiring.</div>
+    <div class="empty-state">Belum ada kandidat recruitment. Kandidat dari halaman karir akan otomatis masuk ke pipeline ini.</div>
     {% endif %}
     </div>
 </details>

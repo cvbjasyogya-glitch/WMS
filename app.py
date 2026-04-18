@@ -54,6 +54,7 @@ from routes.overtime_portal import overtime_portal_bp
 from routes.account import account_bp
 from routes.announcement_center import announcement_center_bp
 from routes.notifications import notifications_bp
+from routes.career import career_bp
 
 # ðŸ”¥ TAMBAHAN WAJIB
 from routes.stock_opname import so_bp
@@ -1065,6 +1066,9 @@ def create_app():
         if request.endpoint.startswith("auth."):
             return
 
+        if request.endpoint.startswith("career."):
+            return
+
         if request.endpoint in {
             "health",
             "ready",
@@ -1248,6 +1252,7 @@ def create_app():
     app.register_blueprint(account_bp)
     app.register_blueprint(announcement_center_bp)
     app.register_blueprint(notifications_bp)
+    app.register_blueprint(career_bp)
 
     # ðŸ”¥ TAMBAHAN WAJIB
     app.register_blueprint(so_bp)

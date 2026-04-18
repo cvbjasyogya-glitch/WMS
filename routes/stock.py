@@ -21,7 +21,13 @@ from services.product_master_approval_service import (
 from services.whatsapp_service import send_role_based_notification
 from services.pagination import build_pagination_state
 from services.rbac import has_permission, is_scoped_role, normalize_role
-from routes.products import build_product_studio_context
+from routes.products import (
+    build_product_studio_context,
+    _can_edit_existing_product_master,
+    _can_fully_manage_product_master,
+    _can_view_product_cost,
+    _ensure_product_variant_cost_schema,
+)
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/stock")
 LOW_STOCK_THRESHOLD = 5
@@ -337,6 +343,7 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         COALESCE(v.price_retail, 0) as price_retail,
         COALESCE(v.price_discount, 0) as price_discount,
         COALESCE(v.price_nett, 0) as price_nett,
+        COALESCE(v.price_cost, 0) as price_cost,
         COALESCE(s.qty, 0) as qty,
         CASE
             WHEN MIN(CASE WHEN COALESCE(b.remaining_qty, 0) > 0 THEN b.created_at END) IS NOT NULL
@@ -409,6 +416,7 @@ def _build_stock_query(warehouse_id, search, start_date, end_date, stock_state):
         v.price_retail,
         v.price_discount,
         v.price_nett,
+        v.price_cost,
         s.qty
     """
 
@@ -769,7 +777,7 @@ def _get_workspace_mode():
 
 
 def _can_manage_product_master():
-    return has_permission(session.get("role"), "manage_product_master")
+    return _can_edit_existing_product_master()
 
 
 def _queue_product_edit_request(db, payload):
@@ -856,6 +864,7 @@ def _build_empty_product_studio_context(search="", page=1):
 @stock_bp.route("/")
 def stock_table():
     db = get_db()
+    _ensure_product_variant_cost_schema(db)
 
     search = _normalize_stock_search(request.args.get("q"))
     product_search = (request.args.get("product_search") or "").strip()
@@ -920,6 +929,8 @@ def stock_table():
     warehouses = db.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
     can_adjust_stock_ui = _can_render_stock_adjust_controls()
     can_bulk_adjust_ui = has_permission(session.get("role"), "direct_stock_ops")
+    can_full_manage_product_master = _can_fully_manage_product_master()
+    can_view_product_cost = _can_view_product_cost()
     if workspace == "products":
         product_studio = build_product_studio_context(
             db,
@@ -961,6 +972,8 @@ def stock_table():
         pagination=pagination,
         can_adjust_stock_ui=can_adjust_stock_ui,
         can_bulk_adjust_ui=can_bulk_adjust_ui,
+        can_full_manage_product_master=can_full_manage_product_master,
+        can_view_product_cost=can_view_product_cost,
         stock_group_colspan=8 + (1 if can_adjust_stock_ui else 0),
         product_studio=product_studio,
         active_workspace=workspace,
@@ -1026,6 +1039,7 @@ def stock_barcode_items():
             COALESCE(v.price_retail, 0) AS price_retail,
             COALESCE(v.price_discount, 0) AS price_discount,
             COALESCE(v.price_nett, 0) AS price_nett,
+            COALESCE(v.price_cost, 0) AS price_cost,
             COALESCE(s.qty, 0) AS qty
         FROM products p
         JOIN product_variants v ON v.product_id = p.id
@@ -1343,13 +1357,14 @@ def adjust():
 
 @stock_bp.route("/update-field", methods=["POST"])
 def update_field():
-    if not _can_manage_product_master():
+    if not _can_edit_existing_product_master():
         return _stock_json_error(
-            "Akses edit master produk hanya tersedia untuk admin, leader, owner, atau super admin.",
+            "Edit produk hanya tersedia untuk admin, leader, owner, atau super admin.",
             403,
         )
 
     db = get_db()
+    _ensure_product_variant_cost_schema(db)
 
     try:
         product_id = int(request.form.get("product_id") or 0)
@@ -1371,17 +1386,20 @@ def update_field():
             if duplicate:
                 return _stock_json_error("SKU sudah ada")
 
-        elif field in ["price_retail", "price_discount", "price_nett"]:
+        elif field in ["price_retail", "price_discount", "price_nett", "price_cost"]:
             try:
                 float(value)
             except Exception:
                 return _stock_json_error("Harus angka")
 
+        if field == "price_cost" and not _can_view_product_cost():
+            return _stock_json_error("Harga pokok hanya bisa diubah owner atau super admin.", 403)
+
         if can_queue_product_master_approval(session.get("role")):
             updates = {}
             if field in {"sku", "name", "variant"}:
                 updates[field] = value
-            elif field in ["price_retail", "price_discount", "price_nett"]:
+            elif field in ["price_retail", "price_discount", "price_nett", "price_cost"]:
                 try:
                     updates[field] = float(value)
                 except Exception:
@@ -1448,7 +1466,7 @@ def update_field():
         elif field == "variant":
             db.execute("UPDATE product_variants SET variant=? WHERE id=?", (value, variant_id))
 
-        elif field in ["price_retail", "price_discount", "price_nett"]:
+        elif field in ["price_retail", "price_discount", "price_nett", "price_cost"]:
             try:
                 val = float(value)
             except:
@@ -1468,13 +1486,14 @@ def update_field():
 
 @stock_bp.route("/update-detail", methods=["POST"])
 def update_detail():
-    if not _can_manage_product_master():
+    if not _can_edit_existing_product_master():
         return _stock_json_error(
-            "Akses edit master produk hanya tersedia untuk admin, leader, owner, atau super admin.",
+            "Edit produk hanya tersedia untuk admin, leader, owner, atau super admin.",
             403,
         )
 
     db = get_db()
+    _ensure_product_variant_cost_schema(db)
 
     try:
         product_id = int(request.form.get("product_id") or 0)
@@ -1487,14 +1506,17 @@ def update_detail():
         price_retail = float(request.form.get("price_retail") or 0)
         price_discount = float(request.form.get("price_discount") or 0)
         price_nett = float(request.form.get("price_nett") or 0)
+        price_cost = float(request.form.get("price_cost") or 0)
     except (TypeError, ValueError):
         return _stock_json_error("Input detail produk tidak valid")
 
     if not product_id or not sku or not name or not category_name or not unit_label:
         return _stock_json_error("SKU, nama produk, kategori, dan satuan wajib diisi")
 
-    if min(price_retail, price_discount, price_nett) < 0:
+    if min(price_retail, price_discount, price_nett, price_cost) < 0:
         return _stock_json_error("Harga tidak boleh minus")
+    if price_cost and not _can_view_product_cost():
+        return _stock_json_error("Harga pokok hanya bisa diubah owner atau super admin.", 403)
 
     try:
         duplicate = db.execute(
@@ -1521,6 +1543,7 @@ def update_detail():
                     "price_retail": price_retail,
                     "price_discount": price_discount,
                     "price_nett": price_nett,
+                    "price_cost": price_cost,
                 },
             )
             if not payload_has_product_edit_changes(payload):
@@ -1571,10 +1594,10 @@ def update_detail():
             db.execute(
                 """
                 UPDATE product_variants
-                SET variant=?, price_retail=?, price_discount=?, price_nett=?
+                SET variant=?, price_retail=?, price_discount=?, price_nett=?, price_cost=?
                 WHERE id=? AND product_id=?
                 """,
-                (variant, price_retail, price_discount, price_nett, variant_id, product_id),
+                (variant, price_retail, price_discount, price_nett, price_cost, variant_id, product_id),
             )
 
         db.commit()

@@ -1,12 +1,11 @@
 <section
-    class="product-studio-shell {% if active_workspace == 'products' %}is-active{% endif %}"
+    class="product-studio-shell product-clean-shell {% if active_workspace == 'products' %}is-active{% endif %}"
     id="productStudioPanel"
     data-product-studio-panel
 >
-    <div class="section-title">
+    <div class="section-title compact">
         <div>
             <h2>Studio Produk</h2>
-            <p>Master produk, import massal, dan daftar produk sekarang digabung ke workspace stok agar tim tidak perlu pindah halaman.</p>
         </div>
         <div class="status-row">
             <span class="status-pill" data-product-summary-total>{{ product_studio.total_items }} Produk</span>
@@ -16,19 +15,19 @@
 
     <div class="meta-grid products-meta-grid" id="productsMetaGrid">
         <div class="meta-card">
-            <span>Gudang Aktif</span>
+            <span>Gudang</span>
             <strong>{% for w in warehouses %}{% if warehouse_id == w.id %}{{ w.name }}{% endif %}{% endfor %}</strong>
         </div>
         <div class="meta-card">
-            <span>Produk Tampil</span>
+            <span>Tampil</span>
             <strong>{{ product_studio.data|length }}</strong>
         </div>
         <div class="meta-card">
-            <span>Halaman</span>
+            <span>Hal</span>
             <strong>{{ product_studio.page }} / {{ product_studio.total_pages }}</strong>
         </div>
         <div class="meta-card">
-            <span>Pencarian</span>
+            <span>Cari</span>
             <strong>{{ product_studio.search or 'Semua Produk' }}</strong>
         </div>
     </div>
@@ -42,24 +41,25 @@
         <input type="hidden" name="start_date" value="{{ start_date or '' }}">
         <input type="hidden" name="end_date" value="{{ end_date or '' }}">
         <input type="text" name="product_search" value="{{ product_studio.search }}" placeholder="Cari SKU, nama, atau kategori produk">
-        <button type="submit">Terapkan Filter Produk</button>
-        {% if can('manage_product_master') %}
+        <button type="submit">Filter</button>
+        {% if can_full_manage_product_master %}
         <button type="button" class="ghost-button" onclick="requestManualProductForm()">Tambah Produk</button>
         <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
         <button type="button" class="ghost-button danger" onclick="deleteAllProducts()">Hapus Semua Produk</button>
         {% endif %}
     </form>
 
-    {% if not can('manage_product_master') %}
-    <small class="helper-text">Akun ini hanya bisa melihat studio produk. Tambah, import, hapus, dan edit detail hanya tersedia untuk admin, leader, owner, atau super admin.</small>
+    {% if not can_full_manage_product_master and can('manage_product_master') %}
+    <small class="helper-text">Admin dan leader hanya edit barang lama. Tambah, import, hapus, dan pokok khusus owner atau super admin.</small>
+    {% elif not can('manage_product_master') %}
+    <small class="helper-text">Mode lihat saja.</small>
     {% endif %}
 
-    {% if can('manage_product_master') %}
+    {% if can_full_manage_product_master %}
     <div class="import-box product-studio-import-box" id="productStudioImportBox">
-        <div class="section-title">
+        <div class="section-title compact">
             <div>
                 <h3>Bulk Import Produk</h3>
-                <p>Unggah file Excel atau CSV untuk menambahkan banyak produk dari area kerja yang sama.</p>
             </div>
         </div>
 
@@ -72,7 +72,7 @@
         </div>
 
         <small class="helper-text">
-            Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
+            Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett, price_cost</span>.
             Kolom opsional: <span class="mono">color, variant_code, gtin</span>.
         </small>
 
@@ -87,10 +87,9 @@
     </div>
 
     <div id="formBox" class="form-box products-manual-box" {% if active_workspace == 'products' %}style="display:block;"{% else %}style="display:none;"{% endif %}>
-        <div class="section-title">
+        <div class="section-title compact">
             <div>
                 <h3>Tambah Produk Manual</h3>
-                <p>Masukkan data master, lalu susun variasi satu per satu tanpa meninggalkan workspace stok.</p>
             </div>
         </div>
 
@@ -149,10 +148,10 @@
                 <button type="button" class="ghost-button" onclick="openManualProductModeModal()">Pilih Mode Produk</button>
             </div>
 
-            <div class="section-title stack-gap-md">
+            <div class="section-title compact stack-gap-md">
                 <div>
                     <h3 id="manualVariantSectionTitle">Variasi Manual</h3>
-                    <p id="manualVariantSectionHint">Setiap baris mewakili satu size, warna, atau kombinasi variasi produk.</p>
+                    <p id="manualVariantSectionHint">Satu baris = satu variasi.</p>
                 </div>
                 <button type="button" class="ghost-button" id="manualVariantAddRowButton" onclick="addVariantRow()">Tambah Baris</button>
             </div>
@@ -175,6 +174,7 @@
 
             <small class="helper-text">
                 Jika memilih mode non-variant, sistem akan menyimpan satu baris default tanpa size atau warna.
+                Harga pokok hanya terlihat untuk owner atau super admin.
             </small>
 
             <div class="split-actions stack-gap-md">
@@ -185,14 +185,13 @@
     </div>
     {% endif %}
 
-    {% if can('manage_product_master') %}
+    {% if can_full_manage_product_master %}
     <div class="picker-modal" id="manualProductModeModal" hidden>
         <div class="picker-modal-backdrop" data-manual-product-mode-close></div>
         <div class="picker-modal-panel manual-product-mode-modal" role="dialog" aria-modal="true" aria-labelledby="manualProductModeModalTitle">
-            <div class="section-title">
+            <div class="section-title compact">
                 <div>
                     <h2 id="manualProductModeModalTitle">Pilih Mode Produk</h2>
-                    <p>Tentukan dulu apakah produk ini memakai varian terpisah atau cukup satu item non-variant.</p>
                 </div>
             </div>
             <div class="manual-product-mode-grid">
@@ -213,10 +212,9 @@
     {% endif %}
 
     <div class="table-box products-list-box" id="productsListBox" data-scrollable-table="1">
-        <div class="section-title">
+        <div class="section-title compact">
             <div>
                 <h3>Daftar Master Produk</h3>
-                <p>Klik kanan pada baris produk untuk membuka editor detail tanpa keluar dari workspace.</p>
             </div>
         </div>
 
@@ -224,7 +222,7 @@
         <table>
             <thead>
                 <tr>
-                    {% if can('manage_product_master') %}
+                    {% if can_full_manage_product_master %}
                     <th><input type="checkbox" id="productCheckAll"></th>
                     {% endif %}
                     <th>SKU</th>
@@ -232,7 +230,7 @@
                     <th>Kategori</th>
                     <th>Qty</th>
                     <th>Aging</th>
-                    {% if can('manage_product_master') %}
+                    {% if can_full_manage_product_master %}
                     <th>Aksi</th>
                     {% endif %}
                 </tr>
@@ -248,7 +246,7 @@
                     data-product-unit-label="{{ (p.unit_label or 'pcs')|e }}"
                     data-product-variant-mode="{{ (p.variant_mode or 'variant')|e }}"
                 >
-                    {% if can('manage_product_master') %}
+                    {% if can_full_manage_product_master %}
                     <td><input type="checkbox" class="product-row-check" value="{{ p.id }}"></td>
                     {% endif %}
                     <td class="mono">{{ p.sku }}</td>
@@ -276,7 +274,7 @@
                         <span class="badge">{{ age }} hari</span>
                         {% endif %}
                     </td>
-                    {% if can('manage_product_master') %}
+                    {% if can_full_manage_product_master %}
                     <td>
                         <form method="POST" action="/products/delete/{{ p.id }}" onsubmit="return confirm('Hapus produk ini?')">
                             <button type="submit" class="ghost-button">Hapus</button>

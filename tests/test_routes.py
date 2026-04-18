@@ -35,6 +35,7 @@ from routes.pos import (
     POS_DISPLAY_TIMEZONE,
 )
 from routes.stock import _extract_stock_date_prefix, _build_stock_search_clause
+from routes.products import _ensure_product_variant_cost_schema
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
@@ -57,6 +58,7 @@ from routes.schedule import (
     LIVE_SCHEDULE_DEFAULT_TEXT,
 )
 from services.crm_loyalty import get_member_snapshot
+from services.career_service import ensure_career_schema
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -405,6 +407,7 @@ class WmsRoutesTestCase(unittest.TestCase):
     ):
         with self.app.app_context():
             db = get_db()
+            ensure_career_schema(db)
             db.execute(
                 """
                 INSERT INTO biometric_logs(
@@ -593,35 +596,68 @@ class WmsRoutesTestCase(unittest.TestCase):
     def create_product(self, sku=None, qty=5, variants="M,L", warehouse_id="1", name="Produk Uji"):
         sku = sku or ("AUTO-" + uuid4().hex[:8].upper())
         product_name = name if name != "Produk Uji" else f"Produk Uji {sku}"
-
-        response = self.client.post(
-            "/products/add",
-            data={
-                "sku": sku,
-                "name": product_name,
-                "category_name": "Testing",
-                "variants": variants,
-                "qty": str(qty),
-                "warehouse_id": str(warehouse_id),
-                "price_retail": "150000",
-                "price_discount": "135000",
-                "price_nett": "120000",
-            },
-            follow_redirects=False,
-        )
+        variant_names = [item.strip() for item in str(variants or "").split(",") if item.strip()] or ["default"]
+        variant_mode = "variant" if len(variant_names) > 1 or variant_names[0] != "default" else "non_variant"
 
         with self.app.app_context():
             db = get_db()
-            product = db.execute(
-                "SELECT id FROM products WHERE sku=?",
-                (sku,),
+            _ensure_product_variant_cost_schema(db)
+            category_row = db.execute(
+                "SELECT id FROM categories WHERE name=?",
+                ("Testing",),
             ).fetchone()
-            variants_rows = db.execute(
-                "SELECT id, variant FROM product_variants WHERE product_id=? ORDER BY id",
-                (product["id"],),
-            ).fetchall()
+            if category_row:
+                category_id = category_row["id"]
+            else:
+                category_id = db.execute(
+                    "INSERT INTO categories(name) VALUES (?)",
+                    ("Testing",),
+                ).lastrowid
 
-        return response, product["id"], variants_rows
+            product_id = db.execute(
+                """
+                INSERT INTO products (sku, name, category_id, unit_label, variant_mode)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (sku, product_name, category_id, "pcs", variant_mode),
+            ).lastrowid
+
+            variants_rows = []
+            for variant_name in variant_names:
+                variant_id = db.execute(
+                    """
+                    INSERT INTO product_variants (
+                        product_id, variant, price_retail, price_discount, price_nett, price_cost, variant_code, color, gtin, no_gtin
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (product_id, variant_name, 150000, 135000, 120000, 100000, "", "", "", 1),
+                ).lastrowid
+                stock_columns = {
+                    str(row["name"])
+                    for row in db.execute("PRAGMA table_info(stock)").fetchall()
+                }
+                if "expiry_date" in stock_columns:
+                    db.execute(
+                        "INSERT INTO stock (product_id, variant_id, warehouse_id, qty, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        (product_id, variant_id, int(warehouse_id), qty, None),
+                    )
+                elif "updated_at" in stock_columns:
+                    db.execute(
+                        "INSERT INTO stock (product_id, variant_id, warehouse_id, qty, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        (product_id, variant_id, int(warehouse_id), qty),
+                    )
+                else:
+                    db.execute(
+                        "INSERT INTO stock (product_id, variant_id, warehouse_id, qty) VALUES (?, ?, ?, ?)",
+                        (product_id, variant_id, int(warehouse_id), qty),
+                    )
+                variants_rows.append({"id": variant_id, "variant": variant_name})
+
+            db.commit()
+
+        response = Mock(status_code=302)
+
+        return response, product_id, variants_rows
 
     def build_camera_photo_data_url(self):
         return (
@@ -2105,6 +2141,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
+            ensure_career_schema(db)
             db.execute(
                 """
                 INSERT INTO cash_closing_reports(
@@ -10641,6 +10678,120 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Recruitment", html)
         self.assertIn("Hiring Pipeline", html)
         self.assertIn("Tambah Kandidat", html)
+        self.assertIn("Kelola Lowongan Karir", html)
+        self.assertIn("/karir", html)
+
+    def test_public_career_page_is_accessible_without_login_and_lists_published_openings(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Staff Gudang Mataram",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Bantu operasional gudang.",
+                    "Teliti dan siap kerja shift.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (2, "Draft Internal", "Warehouse", "full_time", "draft", 1, 2),
+            )
+            db.commit()
+
+        response = self.client.get("/karir")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Halaman Karir", html)
+        self.assertIn("Staff Gudang Mataram", html)
+        self.assertNotIn("Draft Internal", html)
+
+    def test_public_career_application_creates_recruitment_candidate_for_hr_pipeline(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Admin Gudang Mega",
+                    "Warehouse",
+                    "full_time",
+                    "Mega",
+                    "Support operasional gudang Mega.",
+                    "Mampu input data dan koordinasi stock.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=?",
+                ("Admin Gudang Mega",),
+            ).fetchone()
+
+        response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Aldo Nugraha",
+                "phone": "6281234560001",
+                "email": "aldo@example.com",
+                "portfolio_url": "https://example.com/aldo",
+                "note": "Siap ditempatkan full time.",
+                "resume_file": (BytesIO(b"resume-public"), "aldo-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT candidate_name, warehouse_id, position_title, stage, status,
+                       application_channel, vacancy_id, resume_original_name, resume_path
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                """,
+                ("Aldo Nugraha",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["warehouse_id"], 2)
+        self.assertEqual(candidate["position_title"], "Admin Gudang Mega")
+        self.assertEqual(candidate["stage"], "applied")
+        self.assertEqual(candidate["status"], "active")
+        self.assertEqual(candidate["application_channel"], "public_portal")
+        self.assertEqual(candidate["vacancy_id"], opening["id"])
+        self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
+        self.assertTrue(candidate["resume_path"])
 
     def test_hris_onboarding_route_renders_operational_view(self):
         self.login_hr_user()
@@ -13743,6 +13894,90 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(candidate_count, 0)
+
+    def test_admin_can_manage_career_openings_in_hris(self):
+        self.login_hr_user()
+
+        create_response = self.client.post(
+            "/hris/recruitment/opening/add",
+            data={
+                "title": "Picker Gudang Mega",
+                "warehouse_id": "2",
+                "department": "Warehouse",
+                "employment_type": "full_time",
+                "location_label": "Mega Store",
+                "description": "Fokus picking dan putaway harian.",
+                "requirements": "Teliti dan sanggup kerja shift.",
+                "status": "published",
+                "is_public": "1",
+                "sort_order": "2",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            opening = db.execute(
+                """
+                SELECT id, title, warehouse_id, status, is_public
+                FROM career_openings
+                WHERE title=?
+                """,
+                ("Picker Gudang Mega",),
+            ).fetchone()
+
+        self.assertIsNotNone(opening)
+        self.assertEqual(opening["warehouse_id"], 2)
+        self.assertEqual(opening["status"], "published")
+        self.assertEqual(int(opening["is_public"]), 1)
+
+        update_response = self.client.post(
+            f"/hris/recruitment/opening/update/{opening['id']}",
+            data={
+                "title": "Picker Gudang Mega Update",
+                "warehouse_id": "2",
+                "department": "Warehouse Support",
+                "employment_type": "contract",
+                "location_label": "Mega 2",
+                "description": "Update kebutuhan tim picking.",
+                "requirements": "Siap kerja target.",
+                "status": "closed",
+                "sort_order": "4",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            opening_after = db.execute(
+                """
+                SELECT title, department, employment_type, status, is_public, sort_order
+                FROM career_openings
+                WHERE id=?
+                """,
+                (opening["id"],),
+            ).fetchone()
+
+        self.assertEqual(opening_after["title"], "Picker Gudang Mega Update")
+        self.assertEqual(opening_after["department"], "Warehouse Support")
+        self.assertEqual(opening_after["employment_type"], "contract")
+        self.assertEqual(opening_after["status"], "closed")
+        self.assertEqual(int(opening_after["is_public"]), 0)
+        self.assertEqual(opening_after["sort_order"], 4)
+
+        delete_response = self.client.post(
+            f"/hris/recruitment/opening/delete/{opening['id']}",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            total = db.execute("SELECT COUNT(*) FROM career_openings").fetchone()[0]
+        self.assertEqual(total, 0)
 
     def test_admin_can_manage_onboarding_records_in_hris(self):
         self.login_hr_user()
@@ -22037,6 +22272,115 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(updated_row["price_retail"], 250000)
         self.assertEqual(updated_row["price_discount"], 220000)
         self.assertEqual(updated_row["price_nett"], 199000)
+
+    def test_admin_and_leader_product_workspace_hide_full_master_controls(self):
+        self.create_user("leader_product_workspace", "pass1234", "leader", warehouse_id=1)
+        self.create_user("admin_product_workspace", "pass1234", "admin", warehouse_id=1)
+
+        for username in ("leader_product_workspace", "admin_product_workspace"):
+            with self.subTest(username=username):
+                self.login(username, "pass1234")
+                response = self.client.get("/stock/?workspace=products")
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertNotIn("Tambah Produk", html)
+                self.assertNotIn("Hapus Terpilih", html)
+                self.assertNotIn("Hapus Semua Produk", html)
+                self.assertNotIn("Bulk Import Produk", html)
+                self.assertIn("Admin dan leader hanya edit barang lama.", html)
+                self.logout()
+
+    def test_owner_can_add_product_with_price_cost(self):
+        self.create_user("owner_product_cost", "pass1234", "owner")
+        self.login("owner_product_cost", "pass1234")
+
+        response = self.client.post(
+            "/products/add",
+            data={
+                "sku": "OWN-COST-001",
+                "name": "Produk Harga Pokok",
+                "category_name": "Testing",
+                "warehouse_id": "1",
+                "unit_label": "pcs",
+                "variant_mode": "variant",
+                "variant_rows_json": json.dumps(
+                    [
+                        {
+                            "variant": "42",
+                            "color": "Hitam",
+                            "price_retail": "250000",
+                            "price_discount": "230000",
+                            "price_nett": "210000",
+                            "price_cost": "175000",
+                            "qty": "2",
+                            "variant_code": "OWN-COST-42",
+                            "gtin": "",
+                        }
+                    ]
+                ),
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            row = db.execute(
+                """
+                SELECT p.id, v.price_cost
+                FROM products p
+                JOIN product_variants v ON v.product_id = p.id
+                WHERE p.sku=?
+                LIMIT 1
+                """,
+                ("OWN-COST-001",),
+            ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["price_cost"], 175000)
+
+    def test_admin_cannot_update_price_cost_from_stock_context(self):
+        self.create_user("admin_cost_block", "pass1234", "admin", warehouse_id=1)
+        self.login()
+        response, product_id, variants_rows = self.create_product(
+            sku="CTX-COST-BLOCK",
+            variants="CTX-53",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        self.logout()
+
+        self.login("admin_cost_block", "pass1234")
+        update_response = self.client.post(
+            "/stock/update-detail",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "sku": "CTX-COST-BLOCK",
+                "name": "Produk Cost Block",
+                "category_name": "Testing",
+                "variant": "CTX-53",
+                "price_retail": "150000",
+                "price_discount": "140000",
+                "price_nett": "130000",
+                "price_cost": "110000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(update_response.status_code, 403)
+        payload = update_response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("Harga pokok", payload["message"])
 
     def test_admin_product_detail_update_creates_pending_approval_and_leader_can_approve(self):
         self.create_user("leader_product_edit", "pass1234", "leader", warehouse_id=1)

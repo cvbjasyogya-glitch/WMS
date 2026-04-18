@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta
 from uuid import uuid4
 
-from flask import Blueprint, current_app, has_app_context, render_template, request, redirect, flash, session, url_for
+from flask import Blueprint, current_app, has_app_context, render_template, request, redirect, flash, session, url_for, send_file
 from werkzeug.utils import secure_filename
 
 from database import get_db, is_postgresql_backend
@@ -49,6 +49,13 @@ from services.attendance_request_service import (
     split_attendance_requests,
 )
 from services.event_notification_policy import get_event_notification_policy
+from services.career_service import (
+    build_career_resume_path,
+    ensure_career_schema,
+    normalize_career_application_channel,
+    normalize_career_employment_type,
+    normalize_career_opening_status,
+)
 from services.kpi_catalog import (
     KPI_REPORT_STATUS_LABELS,
     KPI_REPORT_STATUSES,
@@ -102,6 +109,8 @@ SPECIAL_LEAVE_REASON_PREFIX = "[special_reason:"
 PAYROLL_STATUSES = {"draft", "approved", "paid", "cancelled"}
 RECRUITMENT_STAGES = {"applied", "screening", "interview", "offer", "hired"}
 RECRUITMENT_STATUSES = {"active", "on_hold", "rejected", "withdrawn", "closed"}
+CAREER_OPENING_STATUSES = {"draft", "published", "closed", "archived"}
+CAREER_EMPLOYMENT_TYPES = {"full_time", "part_time", "contract", "internship", "freelance"}
 ONBOARDING_STAGES = {"preboarding", "orientation", "system_access", "training", "go_live"}
 ONBOARDING_STATUSES = {"pending", "in_progress", "completed", "blocked"}
 OFFBOARDING_STAGES = {"notice", "clearance", "handover", "exit_complete"}
@@ -698,6 +707,14 @@ def _normalize_recruitment_stage(value):
 def _normalize_recruitment_status(value):
     status = (value or "").strip().lower()
     return status if status in RECRUITMENT_STATUSES else "active"
+
+
+def _normalize_career_opening_status_local(value):
+    return normalize_career_opening_status(value)
+
+
+def _normalize_career_employment_type_local(value):
+    return normalize_career_employment_type(value)
 
 
 def _normalize_onboarding_stage(value):
@@ -2535,13 +2552,16 @@ def _get_payroll_by_id(db, payroll_id):
 
 
 def _get_recruitment_candidate_by_id(db, candidate_id):
+    ensure_career_schema(db)
     scope_warehouse = get_hris_scope()
     query = """
         SELECT
             r.*,
+            o.title AS vacancy_title,
             w.name AS warehouse_name,
             u.username AS handled_by_name
         FROM recruitment_candidates r
+        LEFT JOIN career_openings o ON r.vacancy_id = o.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
         LEFT JOIN users u ON r.handled_by = u.id
         WHERE r.id=?
@@ -4465,6 +4485,16 @@ def _build_recruitment_summary(recruitment_candidates):
     }
 
 
+def _build_career_opening_summary(career_openings):
+    return {
+        "total": len(career_openings),
+        "published": sum(1 for opening in career_openings if opening["status"] == "published"),
+        "draft": sum(1 for opening in career_openings if opening["status"] == "draft"),
+        "closed": sum(1 for opening in career_openings if opening["status"] in {"closed", "archived"}),
+        "public": sum(1 for opening in career_openings if int(opening.get("is_public") or 0) == 1),
+    }
+
+
 def _build_onboarding_summary(onboarding_records):
     return {
         "total": len(onboarding_records),
@@ -6117,6 +6147,7 @@ def _fetch_payroll_runs(db):
 
 
 def _fetch_recruitment_candidates(db):
+    ensure_career_schema(db)
     search = (request.args.get("q") or "").strip()
     stage = (request.args.get("stage") or "all").strip().lower()
     status = (request.args.get("status") or "all").strip().lower()
@@ -6130,9 +6161,11 @@ def _fetch_recruitment_candidates(db):
     query = """
         SELECT
             r.*,
+            o.title AS vacancy_title,
             w.name AS warehouse_name,
             u.username AS handled_by_name
         FROM recruitment_candidates r
+        LEFT JOIN career_openings o ON r.vacancy_id = o.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
         LEFT JOIN users u ON r.handled_by = u.id
         WHERE 1=1
@@ -6146,10 +6179,11 @@ def _fetch_recruitment_candidates(db):
                 OR r.position_title LIKE ?
                 OR COALESCE(r.department, '') LIKE ?
                 OR COALESCE(r.source, '') LIKE ?
+                OR COALESCE(o.title, '') LIKE ?
             )
         """
         like = f"%{search}%"
-        params.extend([like, like, like, like])
+        params.extend([like, like, like, like, like])
 
     if stage in RECRUITMENT_STAGES:
         query += " AND r.stage=?"
@@ -6167,6 +6201,44 @@ def _fetch_recruitment_candidates(db):
 
     recruitment_candidates = [dict(row) for row in db.execute(query, params).fetchall()]
     return recruitment_candidates, search, stage, status, selected_warehouse
+
+
+def _fetch_career_openings(db, selected_warehouse=None):
+    ensure_career_schema(db)
+    query = """
+        SELECT
+            o.*,
+            w.name AS warehouse_name,
+            u.username AS updated_by_name
+        FROM career_openings o
+        LEFT JOIN warehouses w ON o.warehouse_id = w.id
+        LEFT JOIN users u ON o.updated_by = u.id
+        WHERE 1=1
+    """
+    params = []
+    if selected_warehouse:
+        query += " AND o.warehouse_id=?"
+        params.append(selected_warehouse)
+    query += " ORDER BY COALESCE(o.sort_order, 0) ASC, o.created_at DESC, o.id DESC"
+    return [dict(row) for row in db.execute(query, params).fetchall()]
+
+
+def _get_career_opening_by_id(db, opening_id):
+    ensure_career_schema(db)
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT
+            o.*,
+            w.name AS warehouse_name
+        FROM career_openings o
+        LEFT JOIN warehouses w ON o.warehouse_id = w.id
+        WHERE o.id=?
+    """
+    params = [opening_id]
+    if scope_warehouse:
+        query += " AND o.warehouse_id=?"
+        params.append(scope_warehouse)
+    return db.execute(query, params).fetchone()
 
 
 def _fetch_onboarding_records(db):
@@ -7062,6 +7134,8 @@ def hris_index(module_slug=None):
     recruitment_candidates = []
     recruitment_summary = None
     recruitment_filters = None
+    career_openings = []
+    career_openings_summary = None
     onboarding_records = []
     onboarding_summary = None
     onboarding_filters = None
@@ -7199,6 +7273,8 @@ def hris_index(module_slug=None):
     elif selected_module["slug"] == "recruitment":
         recruitment_candidates, search, stage, status, selected_warehouse = _fetch_recruitment_candidates(db)
         recruitment_summary = _build_recruitment_summary(recruitment_candidates)
+        career_openings = _fetch_career_openings(db, selected_warehouse)
+        career_openings_summary = _build_career_opening_summary(career_openings)
         recruitment_filters = {
             "search": search,
             "stage": stage,
@@ -7377,6 +7453,9 @@ def hris_index(module_slug=None):
         recruitment_candidates=recruitment_candidates,
         recruitment_summary=recruitment_summary,
         recruitment_filters=recruitment_filters,
+        career_openings=career_openings,
+        career_openings_summary=career_openings_summary,
+        career_public_url=url_for("career.index"),
         onboarding_records=onboarding_records,
         onboarding_summary=onboarding_summary,
         onboarding_filters=onboarding_filters,
@@ -8556,6 +8635,7 @@ def add_recruitment():
         return redirect("/hris/recruitment")
 
     db = get_db()
+    ensure_career_schema(db)
     candidate_name = (request.form.get("candidate_name") or "").strip()
     position_title = (request.form.get("position_title") or "").strip()
     department = (request.form.get("department") or "").strip()
@@ -8566,6 +8646,8 @@ def add_recruitment():
     email = (request.form.get("email") or "").strip()
     expected_join_date = (request.form.get("expected_join_date") or "").strip()
     note = (request.form.get("note") or "").strip()
+    portfolio_url = (request.form.get("portfolio_url") or "").strip()
+    vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
 
     if not candidate_name or not position_title:
@@ -8574,6 +8656,10 @@ def add_recruitment():
 
     if warehouse_id is None:
         flash("Gudang hiring wajib diisi", "error")
+        return redirect("/hris/recruitment")
+
+    if vacancy_id and _get_career_opening_by_id(db, vacancy_id) is None:
+        flash("Lowongan yang dipilih tidak ditemukan untuk scope akun ini.", "error")
         return redirect("/hris/recruitment")
 
     handled_by, handled_at = _build_recruitment_handling(status)
@@ -8592,11 +8678,14 @@ def add_recruitment():
             email,
             expected_join_date,
             note,
+            vacancy_id,
+            application_channel,
+            portfolio_url,
             handled_by,
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             candidate_name,
@@ -8610,6 +8699,9 @@ def add_recruitment():
             email or None,
             expected_join_date or None,
             note or None,
+            vacancy_id,
+            normalize_career_application_channel("manual_hr"),
+            portfolio_url or None,
             handled_by,
             handled_at,
             _current_timestamp(),
@@ -8628,6 +8720,7 @@ def update_recruitment(candidate_id):
         return redirect("/hris/recruitment")
 
     db = get_db()
+    ensure_career_schema(db)
     candidate = _get_recruitment_candidate_by_id(db, candidate_id)
     if not candidate:
         flash("Data recruitment tidak ditemukan", "error")
@@ -8643,6 +8736,8 @@ def update_recruitment(candidate_id):
     email = (request.form.get("email") or "").strip()
     expected_join_date = (request.form.get("expected_join_date") or "").strip()
     note = (request.form.get("note") or "").strip()
+    portfolio_url = (request.form.get("portfolio_url") or "").strip()
+    vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
 
     if not candidate_name or not position_title:
@@ -8651,6 +8746,10 @@ def update_recruitment(candidate_id):
 
     if warehouse_id is None:
         flash("Gudang hiring wajib diisi", "error")
+        return redirect("/hris/recruitment")
+
+    if vacancy_id and _get_career_opening_by_id(db, vacancy_id) is None:
+        flash("Lowongan yang dipilih tidak ditemukan untuk scope akun ini.", "error")
         return redirect("/hris/recruitment")
 
     handled_by, handled_at = _build_recruitment_handling(status)
@@ -8669,6 +8768,8 @@ def update_recruitment(candidate_id):
             email=?,
             expected_join_date=?,
             note=?,
+            vacancy_id=?,
+            portfolio_url=?,
             handled_by=?,
             handled_at=?,
             updated_at=?
@@ -8686,6 +8787,8 @@ def update_recruitment(candidate_id):
             email or None,
             expected_join_date or None,
             note or None,
+            vacancy_id,
+            portfolio_url or None,
             handled_by,
             handled_at,
             _current_timestamp(),
@@ -8714,6 +8817,180 @@ def delete_recruitment(candidate_id):
     db.commit()
 
     flash("Kandidat recruitment berhasil dihapus", "success")
+    return redirect("/hris/recruitment")
+
+
+@hris_bp.route("/recruitment/resume/<int:candidate_id>")
+def download_recruitment_resume(candidate_id):
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk membuka CV kandidat.", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    candidate = _get_recruitment_candidate_by_id(db, candidate_id)
+    if not candidate:
+        flash("Data recruitment tidak ditemukan", "error")
+        return redirect("/hris/recruitment")
+
+    resume_path = build_career_resume_path(candidate["resume_path"])
+    if not resume_path or not os.path.exists(resume_path):
+        flash("File CV kandidat tidak ditemukan.", "error")
+        return redirect("/hris/recruitment")
+
+    return send_file(
+        resume_path,
+        as_attachment=True,
+        download_name=candidate["resume_original_name"] or os.path.basename(resume_path),
+    )
+
+
+@hris_bp.route("/recruitment/opening/add", methods=["POST"])
+def add_recruitment_opening():
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola lowongan karir.", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    title = (request.form.get("title") or "").strip()
+    department = (request.form.get("department") or "").strip()
+    employment_type = _normalize_career_employment_type_local(request.form.get("employment_type"))
+    location_label = (request.form.get("location_label") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    requirements = (request.form.get("requirements") or "").strip()
+    status = _normalize_career_opening_status_local(request.form.get("status"))
+    is_public = 1 if request.form.get("is_public") == "1" else 0
+    sort_order = _to_int(request.form.get("sort_order"), 0) or 0
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+
+    if not title or warehouse_id is None:
+        flash("Judul lowongan dan gudang wajib diisi.", "error")
+        return redirect("/hris/recruitment")
+
+    db.execute(
+        """
+        INSERT INTO career_openings(
+            warehouse_id,
+            title,
+            department,
+            employment_type,
+            location_label,
+            description,
+            requirements,
+            status,
+            is_public,
+            sort_order,
+            created_by,
+            updated_by,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        """,
+        (
+            warehouse_id,
+            title,
+            department or None,
+            employment_type,
+            location_label or None,
+            description or None,
+            requirements or None,
+            status,
+            is_public,
+            sort_order,
+            session.get("user_id"),
+            session.get("user_id"),
+        ),
+    )
+    db.commit()
+
+    flash("Lowongan karir berhasil ditambahkan.", "success")
+    return redirect("/hris/recruitment")
+
+
+@hris_bp.route("/recruitment/opening/update/<int:opening_id>", methods=["POST"])
+def update_recruitment_opening(opening_id):
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola lowongan karir.", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    opening = _get_career_opening_by_id(db, opening_id)
+    if opening is None:
+        flash("Lowongan karir tidak ditemukan.", "error")
+        return redirect("/hris/recruitment")
+
+    title = (request.form.get("title") or "").strip()
+    department = (request.form.get("department") or "").strip()
+    employment_type = _normalize_career_employment_type_local(request.form.get("employment_type"))
+    location_label = (request.form.get("location_label") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    requirements = (request.form.get("requirements") or "").strip()
+    status = _normalize_career_opening_status_local(request.form.get("status"))
+    is_public = 1 if request.form.get("is_public") == "1" else 0
+    sort_order = _to_int(request.form.get("sort_order"), 0) or 0
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+
+    if not title or warehouse_id is None:
+        flash("Judul lowongan dan gudang wajib diisi.", "error")
+        return redirect("/hris/recruitment")
+
+    db.execute(
+        """
+        UPDATE career_openings
+        SET warehouse_id=?,
+            title=?,
+            department=?,
+            employment_type=?,
+            location_label=?,
+            description=?,
+            requirements=?,
+            status=?,
+            is_public=?,
+            sort_order=?,
+            updated_by=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            warehouse_id,
+            title,
+            department or None,
+            employment_type,
+            location_label or None,
+            description or None,
+            requirements or None,
+            status,
+            is_public,
+            sort_order,
+            session.get("user_id"),
+            opening_id,
+        ),
+    )
+    db.commit()
+
+    flash("Lowongan karir berhasil diupdate.", "success")
+    return redirect("/hris/recruitment")
+
+
+@hris_bp.route("/recruitment/opening/delete/<int:opening_id>", methods=["POST"])
+def delete_recruitment_opening(opening_id):
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola lowongan karir.", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    opening = _get_career_opening_by_id(db, opening_id)
+    if opening is None:
+        flash("Lowongan karir tidak ditemukan.", "error")
+        return redirect("/hris/recruitment")
+
+    db.execute("DELETE FROM career_openings WHERE id=?", (opening_id,))
+    db.commit()
+
+    flash("Lowongan karir berhasil dihapus.", "success")
     return redirect("/hris/recruitment")
 
 

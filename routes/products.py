@@ -111,6 +111,9 @@ IPOS4_IMPORT_UI_MODES = {
     },
 }
 
+PRODUCT_MASTER_FULL_ACCESS_ROLES = {"owner", "super_admin"}
+PRODUCT_MASTER_LIMITED_EDIT_ROLES = {"admin", "leader"}
+
 
 def _resolve_ipos4_path(raw_value, fallback: Path) -> Path:
     candidate = str(raw_value or "").strip()
@@ -167,6 +170,57 @@ def _format_ipos4_import_error(exc: BaseException) -> str:
 
 def _can_manage_product_master():
     return has_permission(session.get("role"), "manage_product_master")
+
+
+def _normalized_product_master_role():
+    return str(session.get("role") or "").strip().lower()
+
+
+def _can_fully_manage_product_master():
+    return _normalized_product_master_role() in PRODUCT_MASTER_FULL_ACCESS_ROLES
+
+
+def _can_limited_edit_product_master():
+    return _normalized_product_master_role() in PRODUCT_MASTER_LIMITED_EDIT_ROLES
+
+
+def _can_edit_existing_product_master():
+    return _can_fully_manage_product_master() or _can_limited_edit_product_master()
+
+
+def _can_view_product_cost():
+    return _can_fully_manage_product_master()
+
+
+def _ensure_product_variant_cost_schema(db):
+    if getattr(g, "_product_variant_cost_schema_ready", False):
+        return
+
+    if is_postgresql_backend():
+        db.execute(
+            """
+            ALTER TABLE product_variants
+            ADD COLUMN IF NOT EXISTS price_cost DOUBLE PRECISION DEFAULT 0
+            """
+        )
+    else:
+        columns = {
+            str(row["name"] or "").strip().lower()
+            for row in db.execute("PRAGMA table_info(product_variants)").fetchall()
+        }
+        if "price_cost" not in columns:
+            db.execute(
+                """
+                ALTER TABLE product_variants
+                ADD COLUMN price_cost REAL DEFAULT 0
+                """
+            )
+
+    try:
+        db.commit()
+    except Exception:
+        pass
+    g._product_variant_cost_schema_ready = True
 
 
 def _product_master_request_warehouse_id():
@@ -374,6 +428,30 @@ def _require_product_master_access(json_mode=False):
         return None
 
     message = "Akses master produk hanya tersedia untuk admin, leader, owner, atau super admin."
+    if json_mode or _is_ajax_request():
+        return _products_json_error(message, 403)
+
+    flash(message, "error")
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
+
+
+def _require_product_master_full_access(json_mode=False):
+    if _can_fully_manage_product_master():
+        return None
+
+    message = "Tambah, import, dan hapus master produk hanya tersedia untuk owner atau super admin."
+    if json_mode or _is_ajax_request():
+        return _products_json_error(message, 403)
+
+    flash(message, "error")
+    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
+
+
+def _require_product_master_edit_access(json_mode=False):
+    if _can_edit_existing_product_master():
+        return None
+
+    message = "Edit produk hanya tersedia untuk admin, leader, owner, atau super admin."
     if json_mode or _is_ajax_request():
         return _products_json_error(message, 403)
 
@@ -750,6 +828,7 @@ def _merge_variant_rows(rows):
         merged_row["price_retail"] = row["price_retail"]
         merged_row["price_discount"] = row["price_discount"]
         merged_row["price_nett"] = row["price_nett"]
+        merged_row["price_cost"] = row.get("price_cost", 0)
         if row["color"]:
             merged_row["color"] = row["color"]
 
@@ -799,6 +878,7 @@ def _build_variant_rows(form, variant_mode="variant"):
             raw_price_retail = item.get("price_retail")
             raw_price_discount = item.get("price_discount")
             raw_price_nett = item.get("price_nett")
+            raw_price_cost = item.get("price_cost")
             variant_code = str(item.get("variant_code") or "").strip()
             color = _normalize_variant_color(item.get("color"))
             gtin = str(item.get("gtin") or "").strip()
@@ -811,6 +891,7 @@ def _build_variant_rows(form, variant_mode="variant"):
                 str(raw_price_retail or "").strip(),
                 str(raw_price_discount or "").strip(),
                 str(raw_price_nett or "").strip(),
+                str(raw_price_cost or "").strip(),
                 variant_code,
                 gtin,
                 no_gtin,
@@ -824,6 +905,7 @@ def _build_variant_rows(form, variant_mode="variant"):
                 "price_retail": _to_float(raw_price_retail),
                 "price_discount": _to_float(raw_price_discount),
                 "price_nett": _to_float(raw_price_nett),
+                "price_cost": _to_float(raw_price_cost),
                 "variant_code": variant_code,
                 "gtin": "" if no_gtin else gtin,
                 "no_gtin": no_gtin,
@@ -847,6 +929,7 @@ def _build_variant_rows(form, variant_mode="variant"):
     price_retail = _to_float(form.get("price_retail"))
     price_discount = _to_float(form.get("price_discount"))
     price_nett = _to_float(form.get("price_nett"))
+    price_cost = _to_float(form.get("price_cost"))
     variant_list = [v.strip() for v in variants.split(",") if v.strip()] or ["default"]
     if safe_variant_mode == "non_variant":
         variant_list = ["default"]
@@ -859,6 +942,7 @@ def _build_variant_rows(form, variant_mode="variant"):
             "price_retail": price_retail,
             "price_discount": price_discount,
             "price_nett": price_nett,
+            "price_cost": price_cost,
             "variant_code": "",
             "gtin": "",
             "no_gtin": 0,
@@ -1219,6 +1303,7 @@ def _upsert_variant(
     price_retail,
     price_discount,
     price_nett,
+    price_cost=0,
     variant_code="",
     color="",
     gtin="",
@@ -1241,6 +1326,7 @@ def _upsert_variant(
             SET price_retail=?,
                 price_discount=?,
                 price_nett=?,
+                price_cost=?,
                 variant_code=?,
                 color=?,
                 gtin=?,
@@ -1250,6 +1336,7 @@ def _upsert_variant(
             price_retail,
             price_discount,
             price_nett,
+            price_cost,
             variant_code,
             color,
             gtin,
@@ -1260,15 +1347,16 @@ def _upsert_variant(
 
     cur = db.execute("""
         INSERT INTO product_variants(
-            product_id, variant, price_retail, price_discount, price_nett, variant_code, color, gtin, no_gtin
+            product_id, variant, price_retail, price_discount, price_nett, price_cost, variant_code, color, gtin, no_gtin
         )
-        VALUES (?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
     """, (
         product_id,
         variant_name,
         price_retail,
         price_discount,
         price_nett,
+        price_cost,
         variant_code,
         color,
         gtin,
@@ -1347,9 +1435,10 @@ def _run_product_delete_batches(db, product_ids, batch_action, *, log_label):
 def get_variants(product_id):
 
     db = get_db()
+    _ensure_product_variant_cost_schema(db)
 
     rows = db.execute("""
-        SELECT id, variant, price_retail, price_discount, price_nett, variant_code, color, gtin, no_gtin
+        SELECT id, variant, price_retail, price_discount, price_nett, COALESCE(price_cost, 0) AS price_cost, variant_code, color, gtin, no_gtin
         FROM product_variants
         WHERE product_id=?
         ORDER BY CASE WHEN LOWER(variant)='default' THEN 0 ELSE 1 END, variant
@@ -1476,7 +1565,7 @@ def products():
 
 @products_bp.route("/bulk-delete", methods=["POST"])
 def bulk_delete():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
 
@@ -1564,7 +1653,7 @@ def bulk_delete():
 
 @products_bp.route("/delete-all", methods=["POST"])
 def delete_all_products():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
 
@@ -1666,7 +1755,7 @@ def delete_all_products():
 
 @products_bp.route("/import/preview", methods=["POST"])
 def preview_import():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
 
@@ -1687,7 +1776,7 @@ def preview_import():
 
 @products_bp.route("/import/ipos4", methods=["POST"])
 def import_ipos4_products():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
     if is_postgresql_backend():
@@ -1782,7 +1871,7 @@ def import_ipos4_products():
 
 @products_bp.route("/import/ipos4/latest", methods=["GET"])
 def latest_ipos4_import_run():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
 
@@ -1793,7 +1882,7 @@ def latest_ipos4_import_run():
 
 @products_bp.route("/import/ipos4/undo", methods=["POST"])
 def undo_latest_ipos4_import():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
     if is_postgresql_backend():
@@ -1887,11 +1976,12 @@ def undo_latest_ipos4_import():
 
 @products_bp.route("/add", methods=["POST"])
 def add_product():
-    denied = _require_product_master_access()
+    denied = _require_product_master_full_access()
     if denied:
         return denied
 
     db = get_db()
+    _ensure_product_variant_cost_schema(db)
 
     try:
         sku = request.form["sku"].strip()
@@ -1989,6 +2079,7 @@ def add_product():
                 row["price_retail"],
                 row["price_discount"],
                 row["price_nett"],
+                row.get("price_cost", 0),
                 variant_code=row["variant_code"],
                 color=row.get("color", ""),
                 gtin=row["gtin"],
@@ -2028,7 +2119,7 @@ def add_product():
 
 @products_bp.route("/delete/<int:id>", methods=["POST"])
 def delete_product(id):
-    denied = _require_product_master_access()
+    denied = _require_product_master_full_access()
     if denied:
         return denied
 
@@ -2069,7 +2160,7 @@ def delete_product(id):
 
 @products_bp.route("/import/progress/<job_id>")
 def import_progress(job_id):
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
 
@@ -2090,7 +2181,7 @@ def import_progress(job_id):
 
 @products_bp.route("/import", methods=["POST"])
 def import_products():
-    denied = _require_product_master_access(json_mode=True)
+    denied = _require_product_master_full_access(json_mode=True)
     if denied:
         return denied
 

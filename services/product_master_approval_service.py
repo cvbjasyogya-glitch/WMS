@@ -42,6 +42,7 @@ def payload_has_product_edit_changes(payload):
         "price_retail",
         "price_discount",
         "price_nett",
+        "price_cost",
     )
     return any(
         _normalize_compare_value(current.get(field)) != _normalize_compare_value(target.get(field))
@@ -143,6 +144,7 @@ def load_product_snapshot(db, product_id, variant_id=0):
             COALESCE(v.price_retail, 0) AS price_retail,
             COALESCE(v.price_discount, 0) AS price_discount,
             COALESCE(v.price_nett, 0) AS price_nett,
+            COALESCE(v.price_cost, 0) AS price_cost,
             COALESCE(v.variant_code, '') AS variant_code,
             COALESCE(v.color, '') AS color,
             COALESCE(v.gtin, '') AS gtin
@@ -176,6 +178,7 @@ def build_product_edit_payload(db, *, product_id, variant_id=0, updates=None):
         "price_retail": _to_float(updates.get("price_retail", snapshot.get("price_retail") or 0)),
         "price_discount": _to_float(updates.get("price_discount", snapshot.get("price_discount") or 0)),
         "price_nett": _to_float(updates.get("price_nett", snapshot.get("price_nett") or 0)),
+        "price_cost": _to_float(updates.get("price_cost", snapshot.get("price_cost") or 0)),
     }
 
     payload = {
@@ -190,6 +193,7 @@ def build_product_edit_payload(db, *, product_id, variant_id=0, updates=None):
             "price_retail": _to_float(snapshot.get("price_retail") or 0),
             "price_discount": _to_float(snapshot.get("price_discount") or 0),
             "price_nett": _to_float(snapshot.get("price_nett") or 0),
+            "price_cost": _to_float(snapshot.get("price_cost") or 0),
         },
         "target": target,
     }
@@ -209,6 +213,7 @@ def summarize_product_edit_payload(payload):
         "price_retail": "Retail",
         "price_discount": "Discount",
         "price_nett": "Nett",
+        "price_cost": "Pokok",
     }
 
     changes = []
@@ -344,10 +349,11 @@ def apply_product_edit_approval(db, approval_row):
     price_retail = _to_float(target.get("price_retail") or 0)
     price_discount = _to_float(target.get("price_discount") or 0)
     price_nett = _to_float(target.get("price_nett") or 0)
+    price_cost = _to_float(target.get("price_cost") or 0)
 
     if not sku or not name or not category_name or not unit_label:
         raise ValueError("Payload edit produk tidak lengkap")
-    if min(price_retail, price_discount, price_nett) < 0:
+    if min(price_retail, price_discount, price_nett, price_cost) < 0:
         raise ValueError("Harga tidak boleh minus")
 
     duplicate = db.execute(
@@ -369,10 +375,10 @@ def apply_product_edit_approval(db, approval_row):
         db.execute(
             """
             UPDATE product_variants
-            SET variant=?, price_retail=?, price_discount=?, price_nett=?
+            SET variant=?, price_retail=?, price_discount=?, price_nett=?, price_cost=?
             WHERE id=? AND product_id=?
             """,
-            (variant, price_retail, price_discount, price_nett, variant_id, product_id),
+            (variant, price_retail, price_discount, price_nett, price_cost, variant_id, product_id),
         )
     return True
 
