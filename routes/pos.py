@@ -1978,7 +1978,7 @@ def _fetch_pos_sale_logs(
                 "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
                 "receipt_thermal_url": (
                     f"/kasir/receipt/{row['receipt_no']}/print"
-                    f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+                    f"?layout=thermal&copy=customer&autoprint=1&autoclose=1"
                 ),
                 "receipt_pdf_url": f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
             }
@@ -2230,7 +2230,7 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
             COALESCE(AVG(ps.total_amount), 0) AS average_ticket,
             COUNT(DISTINCT ps.customer_id) AS total_customers,
             COUNT(DISTINCT ps.warehouse_id) AS total_warehouses,
-            GROUP_CONCAT(DISTINCT sale_w.name) AS warehouse_names,
+            GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(sale_w.name), ''), '-')) AS warehouse_names,
             MIN(ps.sale_date) AS first_sale_date,
             MAX(ps.sale_date) AS last_sale_date
         FROM pos_sales ps
@@ -2246,11 +2246,13 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
 
     query += """
         GROUP BY
-            staff_group_key,
-            staff_name,
-            username,
-            position
-        ORDER BY total_revenue DESC, total_transactions DESC, staff_name COLLATE NOCASE ASC
+    """
+    query += f"""
+            {POS_CASHIER_GROUP_KEY_SQL},
+            {POS_CASHIER_NAME_SQL},
+            {POS_CASHIER_USERNAME_SQL},
+            {POS_CASHIER_POSITION_SQL}
+        ORDER BY total_revenue DESC, total_transactions DESC, LOWER(CAST({POS_CASHIER_NAME_SQL} AS TEXT)) ASC
     """
 
     rows = [dict(row) for row in db.execute(query, params).fetchall()]
@@ -3414,7 +3416,7 @@ def _fetch_pos_sale_logs(
                 "receipt_print_url": f"/kasir/receipt/{row['receipt_no']}/print",
                 "receipt_thermal_url": (
                     f"/kasir/receipt/{row['receipt_no']}/print"
-                    f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+                    f"?layout=thermal&copy=customer&autoprint=1&autoclose=1"
                 ),
                 "receipt_pdf_url": row.get("receipt_pdf_url") or f"/kasir/receipt/{row['receipt_no']}/print?autoprint=1",
                 "receipt_pdf_public_url": row.get("receipt_pdf_url") or "",
@@ -3772,7 +3774,7 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
             COALESCE(AVG(ps.total_amount), 0) AS average_ticket,
             COUNT(DISTINCT ps.customer_id) AS total_customers,
             COUNT(DISTINCT ps.warehouse_id) AS total_warehouses,
-            GROUP_CONCAT(DISTINCT sale_w.name) AS warehouse_names,
+            GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(sale_w.name), ''), '-')) AS warehouse_names,
             MIN(ps.sale_date) AS first_sale_date,
             MAX(ps.sale_date) AS last_sale_date
         FROM pos_sales ps
@@ -3790,11 +3792,13 @@ def _fetch_pos_staff_sales_rows(db, date_from, date_to, selected_warehouse=None)
 
     query += """
         GROUP BY
-            staff_group_key,
-            staff_name,
-            username,
-            position
-        ORDER BY total_revenue DESC, total_transactions DESC, staff_name COLLATE NOCASE ASC
+    """
+    query += f"""
+            {POS_CASHIER_GROUP_KEY_SQL},
+            {POS_CASHIER_NAME_SQL},
+            {POS_CASHIER_USERNAME_SQL},
+            {POS_CASHIER_POSITION_SQL}
+        ORDER BY total_revenue DESC, total_transactions DESC, LOWER(CAST({POS_CASHIER_NAME_SQL} AS TEXT)) ASC
     """
 
     rows = [dict(row) for row in db.execute(query, params).fetchall()]
@@ -5769,7 +5773,7 @@ def pos_edit_sale(sale_id):
             "payment_breakdown_label": _build_pos_payment_breakdown_label(payment_breakdown_entries),
             "receipt_print_url": (
                 f"/kasir/receipt/{sale['receipt_no']}/print"
-                f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+                f"?layout=thermal&copy=customer&autoprint=1&autoclose=1"
             ),
             "receipt_whatsapp_status": "pending",
             "receipt_whatsapp_error": "",
@@ -6211,7 +6215,7 @@ def pos_checkout():
             "payment_breakdown_label": _build_pos_payment_breakdown_label(payment_breakdown_entries),
             "receipt_print_url": (
                 f"/kasir/receipt/{receipt_no}/print"
-                f"?layout=thermal&copy=customer&followup_copy=store&autoprint=1&autoclose=1"
+                f"?layout=thermal&copy=customer&autoprint=1&autoclose=1"
             ),
             "receipt_pdf_public_url": (receipt_pdf_meta or {}).get("public_url") or "",
             "receipt_whatsapp_status": _resolve_pos_receipt_whatsapp_status(receipt_delivery),

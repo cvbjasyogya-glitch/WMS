@@ -1,17 +1,17 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}HRIS | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Pusat HRIS{% endblock %}
+{% block eyebrow %}HRIS{% endblock %}
 {% block page_title %}{% if selected_module.slug == "dashboard" %}Dashboard HRIS{% else %}HRIS Integration Hub{% endif %}{% endblock %}
 {% block page_subtitle %}{% if selected_module.slug == "dashboard" %}Dashboard ini menyorot announcement aktif dan snapshot jadwal tim lintas gudang yang sudah tersambung ke data HRIS. Semua user login bisa memantau ringkasannya, sementara pengaturan detail tetap dipegang HR dan Super Admin.{% else %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endif %}{% endblock %}
+{% block page_content_class %}hris-clean-shell{% endblock %}
 
 {% block content %}
 <details class="table-box hris-module-disclosure">
     <summary class="hris-module-summary">
         <div class="hris-module-summary-copy">
-            <span class="hris-module-summary-kicker">Navigasi HRIS</span>
             <strong>{{ selected_module.label }}</strong>
-            <small>{{ modules|length }} modul tersedia. Buka panel ini kalau ingin pindah modul HRIS lain.</small>
+            <span class="hris-module-summary-note">{{ modules|length }} modul</span>
         </div>
         <div class="hris-module-summary-meta">
             <span class="badge">{{ selected_module.status }}</span>
@@ -25,9 +25,8 @@
                 href="/hris/{{ module.slug }}"
                 class="card hris-module-card {% if selected_module.slug == module.slug %}active{% endif %}"
             >
-                <p>{{ module.status }}</p>
+                <span class="badge">{{ module.status }}</span>
                 <h2>{{ module.label }}</h2>
-                <small class="helper-text">{{ module.summary }}</small>
             </a>
             {% endfor %}
         </div>
@@ -37,28 +36,28 @@
 {% if selected_module.slug == "dashboard" %}
 <div class="summary">
     <div class="card-mini">
-        <p>Pengumuman Aktif</p>
+        <p>Announcement</p>
         <h3>{{ dashboard_announcement_summary.active }}</h3>
     </div>
     <div class="card-mini {% if dashboard_announcement_summary.draft %}warning{% endif %}">
-        <p>Draft Pending</p>
+        <p>Draft</p>
         <h3>{{ dashboard_announcement_summary.draft }}</h3>
     </div>
     <div class="card-mini {% if dashboard_leave_alert_summary.total %}warning{% endif %}">
-        <p>Libur Pending</p>
+        <p>Libur</p>
         <h3>{{ dashboard_leave_alert_summary.total }}</h3>
     </div>
     <div class="card-mini {% if dashboard_schedule.override_cells %}warning{% endif %}">
-        <p>Override HRIS</p>
+        <p>Override</p>
         <h3>{{ dashboard_schedule.override_cells }}</h3>
     </div>
     <div class="card-mini {% if dashboard_schedule.member_total %}success{% endif %}">
-        <p>Staf Terjadwal</p>
+        <p>Staf</p>
         <h3>{{ dashboard_schedule.member_total }}</h3>
     </div>
     {% if can_manage_dashboard_reminders %}
     <div class="card-mini {% if dashboard_reminder_summary.open %}success{% endif %}">
-        <p>Tugas Aktif</p>
+        <p>Tugas</p>
         <h3>{{ dashboard_reminder_summary.open }}</h3>
     </div>
     {% endif %}
@@ -66,7 +65,7 @@
 
 <div class="meta-grid">
     <div class="meta-card">
-        <span>Scope Gudang</span>
+        <span>Gudang</span>
         <strong>
             {% if dashboard_filters.warehouse_id %}
                 {% for w in warehouses %}{% if w.id == dashboard_filters.warehouse_id %}{{ w.name }}{% endif %}{% endfor %}
@@ -76,21 +75,21 @@
         </strong>
     </div>
     <div class="meta-card">
-        <span>Rentang Jadwal</span>
+        <span>Periode</span>
         <strong>{{ dashboard_schedule.start }} s/d {{ dashboard_schedule.end }}</strong>
     </div>
     <div class="meta-card">
-        <span>Catatan Hari</span>
+        <span>Catatan</span>
         <strong>{{ dashboard_schedule.day_notes }}</strong>
     </div>
     {% if can_manage_dashboard_reminders %}
     <div class="meta-card">
-        <span>Pengingat Harian</span>
+        <span>Reminder</span>
         <strong>{{ dashboard_filters.schedule_start }} | {{ dashboard_reminder_summary.total }} item</strong>
     </div>
     {% endif %}
     <div class="meta-card">
-        <span>Akses Custom</span>
+        <span>Akses</span>
         <strong>{{ "HR / Super Admin" if can_manage_dashboard else "Dashboard Global" }}</strong>
     </div>
 </div>
@@ -111,14 +110,11 @@
     <button type="submit">Refresh Dashboard</button>
 </form>
 
-<small class="helper-text">Halaman ini fokus untuk membaca pengumuman yang sedang aktif dan pratinjau board jadwal. Untuk edit detail pengumuman atau board penuh, lanjutkan ke modul Pengumuman atau halaman Penjadwalan.</small>
-
 <div class="cards hris-dashboard-grid">
     <div class="table-box hris-dashboard-panel">
         <div class="section-title">
             <div>
                 <h2>Notifikasi Pengajuan Libur</h2>
-                <p>Begitu ada user mengajukan cuti, izin, atau sakit dari portal libur, notifikasinya langsung masuk ke dashboard ini untuk dipantau HR.</p>
             </div>
             {% if can_manage_leave %}
             <a class="ghost-button" href="/hris/leave">Kelola Libur</a>
@@ -153,7 +149,6 @@
         <div class="section-title">
             <div>
                 <h2>Pengingat Harian</h2>
-                <p>Model todo list ringan untuk briefing, follow up, dan reminder operasional harian yang khusus dipakai HR.</p>
             </div>
         </div>
 
@@ -223,7 +218,6 @@
         <div class="section-title">
             <div>
                 <h2>Announcement Aktif</h2>
-                <p>Broadcast yang masih berlaku dan relevan untuk operasional tim saat ini.</p>
             </div>
             {% if can_manage_announcement %}
             <a class="ghost-button" href="/hris/announcement">Kelola Announcement</a>
@@ -260,7 +254,6 @@
         <div class="section-title">
             <div>
                 <h2>Jadwal Tim</h2>
-<p>Board pratinjau dashboard ini selalu dipisah per gudang, jadi Mataram dan Mega tidak bercampur dalam satu tabel.</p>
             </div>
         </div>
 
@@ -270,7 +263,6 @@
             <div class="section-title">
                 <div>
                     <h3>Jadwal {{ schedule_section.warehouse_name }}</h3>
-<p>Board pratinjau {{ schedule_section.warehouse_name }} lengkap dengan override libur, absen khusus, dan offboarding.</p>
                 </div>
                 <a class="ghost-button" href="{{ schedule_section.board_url }}">Buka Board {{ schedule_section.warehouse_name }}</a>
             </div>
@@ -346,7 +338,7 @@
             </div>
 
             {% if schedule_section.remaining_members %}
-<small class="helper-text">Pratinjau ini menampilkan {{ schedule_section.preview_members|length }} staf pertama. Masih ada {{ schedule_section.remaining_members }} staf lain di board penuh.</small>
+<small class="helper-text">+{{ schedule_section.remaining_members }} staf lain di board penuh.</small>
             {% endif %}
             {% else %}
             <div class="empty-state">Belum ada staf yang tampil di board {{ schedule_section.warehouse_name }}.</div>
@@ -870,7 +862,7 @@
 {% elif selected_module.slug == "approval" %}
 <div class="summary">
     <div class="card-mini">
-        <p>Total Request</p>
+        <p>Request</p>
         <h3>{{ approval_summary.total }}</h3>
     </div>
     <div class="card-mini {% if approval_summary.pending %}warning{% endif %}">
@@ -878,7 +870,7 @@
         <h3>{{ approval_summary.pending }}</h3>
     </div>
     <div class="card-mini success">
-        <p>Disetujui</p>
+        <p>Approve</p>
         <h3>{{ approval_summary.approved }}</h3>
     </div>
     <div class="card-mini {% if approval_summary.rejected or approval_summary.cancelled %}danger{% endif %}">
@@ -1264,22 +1256,22 @@
         <h3>{{ leave_summary.approved }}</h3>
     </div>
     <div class="card-mini {% if leave_summary.rejected or leave_summary.cancelled %}danger{% endif %}">
-        <p>Ditolak + Dibatalkan</p>
+        <p>Tolak/Batal</p>
         <h3>{{ leave_summary.rejected + leave_summary.cancelled }}</h3>
     </div>
 </div>
 
 <div class="meta-grid">
     <div class="meta-card">
-        <span>Total Hari</span>
+        <span>Hari</span>
         <strong>{{ leave_summary.total_days }}</strong>
     </div>
     <div class="meta-card">
-        <span>Pending Approval</span>
+        <span>Pending</span>
         <strong>{{ leave_summary.pending }}</strong>
     </div>
     <div class="meta-card">
-        <span>Scope Gudang</span>
+        <span>Gudang</span>
         <strong>
             {% if leave_scope_warehouse %}
                 {% for w in warehouses %}{% if w.id == leave_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
@@ -1289,7 +1281,7 @@
         </strong>
     </div>
     <div class="meta-card">
-        <span>Akses Kelola</span>
+        <span>Akses</span>
         <strong>{{ "Aktif" if can_manage_leave else "View Only" }}</strong>
     </div>
 </div>
@@ -1322,17 +1314,12 @@
     <button type="submit">Filter</button>
 </form>
 
-{% if leave_scope_warehouse %}
-<small class="helper-text">Leave request di scope akun Anda hanya akan menampilkan karyawan dari gudang sendiri, jadi monitoring approval tetap fokus dan aman.</small>
-{% endif %}
-
 {% if can_manage_leave %}
 <details class="form-box panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
-                <h2>Tambah Leave</h2>
-                <p>Modul Leave ini menyimpan request cuti atau izin per karyawan, lengkap dengan rentang tanggal, status approval, dan total hari yang dihitung otomatis.</p>
+                <h2>Buat Leave</h2>
             </div>
         </div>
         <div class="panel-summary-meta">
@@ -1414,8 +1401,7 @@
     <summary class="panel-summary">
         <div class="section-title">
             <div>
-                <h2>Leave Tracker</h2>
-                <p>Riwayat leave ini menyiapkan fondasi approval leave, payroll impact, dan rekap kebijakan cuti pada modul HRIS berikutnya.</p>
+                <h2>Daftar Leave</h2>
             </div>
         </div>
         <div class="panel-summary-meta">
@@ -1529,7 +1515,7 @@
         </table>
         {% endif %}
     {% else %}
-    <div class="empty-state">Belum ada leave request. Modul Leave siap dipakai untuk tracking cuti dan izin karyawan.</div>
+    <div class="empty-state">Belum ada leave request.</div>
     {% endif %}
     </div>
 </details>

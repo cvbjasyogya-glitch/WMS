@@ -1734,20 +1734,11 @@ def _resolve_attendance_shift_original_snapshot(
         )
     )
 
-    if not current_shift_label and current_shift_code:
-        current_shift_label = next(
-            (
-                option["label"]
-                for option in _build_biometric_shift_options(safe_employee)
-                if option["value"] == current_shift_code
-            ),
-            "",
-        )
-
-    return {
-        "shift_code": current_shift_code,
-        "shift_label": current_shift_label or None,
-    }
+    return _canonicalize_biometric_shift_snapshot(
+        safe_employee,
+        current_shift_code,
+        current_shift_label,
+    )
 
 
 def _fetch_recent_attendance_shift_overrides(
@@ -1934,6 +1925,39 @@ def _resolve_biometric_shift_code_from_label(shift_label, source=None):
         if safe_label == option_label or (time_label and time_label in safe_label):
             return option["value"]
     return None
+
+
+def _canonicalize_biometric_shift_snapshot(source, shift_code=None, shift_label=None):
+    raw_code = str(shift_code or "").strip().lower() or None
+    safe_code = _normalize_biometric_shift_code(shift_code)
+    safe_label = str(shift_label or "").strip() or None
+    if (raw_code and not safe_code) or (safe_label and safe_label.lower().startswith("override shift")):
+        return {
+            "shift_code": raw_code,
+            "shift_label": safe_label,
+        }
+    base_options = _build_biometric_shift_options(source)
+
+    if safe_code:
+        selected_option = next(
+            (option for option in base_options if option["value"] == safe_code),
+            None,
+        )
+        if selected_option:
+            return {
+                "shift_code": safe_code,
+                "shift_label": selected_option["label"],
+            }
+
+    if safe_label:
+        resolved_code = _resolve_biometric_shift_code_from_label(safe_label, source)
+        if resolved_code:
+            return _canonicalize_biometric_shift_snapshot(source, resolved_code, None)
+
+    return {
+        "shift_code": safe_code,
+        "shift_label": safe_label,
+    }
 
 
 def _derive_biometric_attendance_status_with_shift(check_in_time, shift_label=None):
@@ -2793,6 +2817,17 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
     ).fetchone()
     shift_override = _fetch_attendance_shift_override(db, employee_id, attendance_date)
     shift_override_snapshot = _build_attendance_shift_override_snapshot(shift_override)
+    employee_row = db.execute(
+        """
+        SELECT e.full_name, w.name AS warehouse_name
+        FROM employees e
+        LEFT JOIN warehouses w ON w.id = e.warehouse_id
+        WHERE e.id=?
+        LIMIT 1
+        """,
+        (employee_id,),
+    ).fetchone()
+    shift_source = dict(employee_row) if employee_row is not None else {"warehouse_name": "", "full_name": ""}
 
     if not logs:
         if existing and (existing["note"] or "") in {"Synced from biometric", GEO_ATTENDANCE_NOTE}:
@@ -2835,6 +2870,11 @@ def _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance
                 "shift_label": (existing["shift_label"] if existing and existing["shift_label"] else None),
             },
         )
+    )
+    shift_snapshot = _canonicalize_biometric_shift_snapshot(
+        shift_source,
+        shift_snapshot.get("shift_code"),
+        shift_snapshot.get("shift_label"),
     )
     derived_status = _derive_biometric_attendance_status_with_shift(
         check_in,
@@ -5274,7 +5314,7 @@ def _build_document_summary(documents):
 def _fetch_daily_live_reports(db, selected_warehouse):
     search = (request.args.get("daily_q") or "").strip()
     report_type = (request.args.get("daily_type") or "all").strip().lower()
-    status = (request.args.get("daily_status") or "active").strip().lower()
+    raw_status = (request.args.get("daily_status") or "").strip().lower()
     date_from = _parse_iso_date((request.args.get("daily_date_from") or "").strip())
     date_to = _parse_iso_date((request.args.get("daily_date_to") or "").strip())
     today_value = date_cls.today()
@@ -5289,6 +5329,13 @@ def _fetch_daily_live_reports(db, selected_warehouse):
 
     if date_from and date_to and date_from > date_to:
         date_from, date_to = date_to, date_from
+
+    if raw_status:
+        status = raw_status
+    elif date_from == today_value and date_to == today_value:
+        status = "active"
+    else:
+        status = "all"
 
     query = """
         SELECT
@@ -5341,7 +5388,7 @@ def _fetch_daily_live_reports(db, selected_warehouse):
         query += " AND r.status=?"
         params.append(status)
     else:
-        status = "active"
+        status = "active" if date_from == today_value and date_to == today_value else "all"
 
     if date_from:
         query += " AND r.report_date >= ?"
@@ -6536,7 +6583,14 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 or (check_out_log.get("shift_code") if check_out_log else None)
                 or (check_in_log.get("shift_code") if check_in_log else None)
             ) or _resolve_biometric_shift_code_from_label(current_shift_label, latest_log)
-            shift_options = _build_biometric_shift_options(latest_log, current_shift_label)
+            canonical_shift = _canonicalize_biometric_shift_snapshot(
+                latest_log,
+                current_shift_code,
+                current_shift_label,
+            )
+            current_shift_code = canonical_shift.get("shift_code")
+            current_shift_label = canonical_shift.get("shift_label")
+            shift_options = _build_biometric_shift_options(latest_log)
             shift_options = [
                 {
                     **option,
@@ -6544,15 +6598,6 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 }
                 for option in shift_options
             ]
-            if not current_shift_label and current_shift_code:
-                current_shift_label = next(
-                    (
-                        option["label"]
-                        for option in shift_options
-                        if option["value"] == current_shift_code
-                    ),
-                    None,
-                )
             shift_display_label = current_shift_label or "-"
         attendance_check_in_value = (
             attendance.get("check_in")
@@ -9943,9 +9988,14 @@ def update_biometric_attendance_status():
         flash("Data attendance geotag tidak ditemukan.", "error")
         return redirect(return_to)
 
+    attendance_shift = _canonicalize_biometric_shift_snapshot(
+        employee,
+        attendance.get("shift_code"),
+        attendance.get("shift_label"),
+    )
     derived_status = _derive_biometric_attendance_status_with_shift(
         attendance["check_in"],
-        attendance["shift_label"],
+        attendance_shift.get("shift_label"),
     )
     status_override = requested_status if requested_status != derived_status else None
     override_timestamp = _current_timestamp()
@@ -10614,11 +10664,16 @@ def decide_biometric_overtime():
         flash("Data attendance untuk lembur otomatis tidak ditemukan.", "error")
         return redirect(return_to)
     attendance = dict(attendance)
+    attendance_shift = _canonicalize_biometric_shift_snapshot(
+        employee,
+        attendance.get("shift_code"),
+        attendance.get("shift_label"),
+    )
 
     overtime_summary = _summarize_overtime_activity(
         attendance.get("check_in"),
         attendance.get("check_out"),
-        attendance.get("shift_label"),
+        attendance_shift.get("shift_label"),
     )
     if not overtime_summary["qualifies"]:
         flash("Attendance ini belum memenuhi syarat lembur untuk diputuskan.", "error")
@@ -10642,7 +10697,7 @@ def decide_biometric_overtime():
         attendance_date,
         attendance.get("check_in"),
         attendance.get("check_out"),
-        attendance.get("shift_label"),
+        attendance_shift.get("shift_label"),
         overtime_summary,
     )
     summary_title = f"{employee['full_name']} - Lembur Otomatis"

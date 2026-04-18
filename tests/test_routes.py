@@ -42,6 +42,7 @@ from routes.hris import (
     _ensure_attendance_shift_override_schema,
     _ensure_overtime_feature_schema,
     _build_employee_overtime_balance,
+    _canonicalize_biometric_shift_snapshot,
     _format_hris_datetime_display,
     _normalize_datetime_input,
     _normalize_time_of_day_input,
@@ -4524,7 +4525,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = checkout.get_json()
         self.assertIn("layout=thermal", payload["receipt_print_url"])
         self.assertIn("copy=customer", payload["receipt_print_url"])
-        self.assertIn("followup_copy=store", payload["receipt_print_url"])
+        self.assertNotIn("followup_copy=store", payload["receipt_print_url"])
         self.assertIn("autoclose=1", payload["receipt_print_url"])
 
         thermal_response = self.client.get(payload["receipt_print_url"])
@@ -6509,6 +6510,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get(f"/hris/?schedule_start={today}&days=7")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
+        self.assertIn('class="page-content hris-clean-shell"', html)
+        self.assertIn("hris-module-summary-note", html)
         self.assertIn("Dashboard HRIS", html)
         self.assertIn("Announcement Aktif", html)
         self.assertIn("Briefing Gudang Pagi", html)
@@ -10815,6 +10818,40 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('aria-label="Ubah shift Biometric Shift View"', html)
         self.assertIn("Shift Pagi | 08.00 - 16.00", html)
         self.assertIn("Shift Siang | 13.00 - 21.00", html)
+
+    def test_canonicalize_biometric_shift_snapshot_prefers_mega_profile_for_pagi(self):
+        snapshot = _canonicalize_biometric_shift_snapshot(
+            {"warehouse_name": "Gudang Mega"},
+            "pagi",
+            "Shift Pagi | 08.00 - 16.00",
+        )
+        self.assertEqual(snapshot["shift_code"], "pagi")
+        self.assertEqual(snapshot["shift_label"], "Shift Pagi | 09.00 - 17.00")
+
+    def test_hris_biometric_recap_uses_mega_shift_profile_for_legacy_pagi_label(self):
+        self.login_hr_user("hr_bio_shift_mega", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-MEGA-001",
+            full_name="Mega Shift Legacy",
+            warehouse_id=2,
+        )
+        self.create_biometric_attendance_day(
+            employee_id,
+            "2026-09-03",
+            "09:00",
+            "17:04",
+            warehouse_id=2,
+            shift_code="pagi",
+            shift_label="Shift Pagi | 08.00 - 16.00",
+            location_label="Gudang Mega - Area Test",
+        )
+
+        response = self.client.get("/hris/biometric?warehouse=2&date_from=2026-09-03&date_to=2026-09-03")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Shift Pagi | 09.00 - 17.00", html)
+        self.assertNotIn("Shift Pagi | 08.00 - 16.00", html)
+        self.assertNotIn("/hris/biometric/overtime/decision", html)
 
     def test_hr_can_update_biometric_shift_and_resync_attendance_status(self):
         self.login_hr_user("hr_bio_shift_fix", "pass1234")
@@ -17654,6 +17691,101 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Report arsip reviewed", archive_html)
         self.assertNotIn("Report aktif pagi", archive_html)
         self.assertNotIn("Report arsip lama", archive_html)
+
+    def test_daily_report_previous_day_defaults_to_all_statuses(self):
+        today = date_cls.today().isoformat()
+        yesterday = (date_cls.today() - timedelta(days=1)).isoformat()
+        self.create_user("report_ops_previous_day", "pass1234", "staff", warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            ops_user = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("report_ops_previous_day",),
+            ).fetchone()
+            db.executemany(
+                """
+                INSERT INTO daily_live_reports(
+                    user_id,
+                    employee_id,
+                    warehouse_id,
+                    report_type,
+                    report_date,
+                    title,
+                    summary,
+                    blocker_note,
+                    follow_up_note,
+                    status,
+                    hr_note,
+                    handled_by,
+                    handled_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        ops_user["id"],
+                        None,
+                        1,
+                        "daily",
+                        yesterday,
+                        "Report reviewed kemarin",
+                        "Sudah selesai dicek HR.",
+                        None,
+                        None,
+                        "reviewed",
+                        "Oke",
+                        1,
+                        f"{yesterday} 18:00:00",
+                        f"{yesterday} 18:00:00",
+                    ),
+                    (
+                        ops_user["id"],
+                        None,
+                        1,
+                        "live",
+                        yesterday,
+                        "Report submitted kemarin",
+                        "Masih menunggu review.",
+                        None,
+                        None,
+                        "submitted",
+                        None,
+                        None,
+                        None,
+                        f"{yesterday} 15:00:00",
+                    ),
+                    (
+                        ops_user["id"],
+                        None,
+                        1,
+                        "daily",
+                        today,
+                        "Report aktif hari ini",
+                        "Tetap fokus di feed aktif.",
+                        None,
+                        None,
+                        "submitted",
+                        None,
+                        None,
+                        None,
+                        f"{today} 10:00:00",
+                    ),
+                ],
+            )
+            db.commit()
+
+        self.login_hr_user("hr_report_previous_day", "pass1234")
+        response = self.client.get(
+            f"/hris/report?daily_date_from={yesterday}&daily_date_to={yesterday}"
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Report reviewed kemarin", html)
+        self.assertIn("Report submitted kemarin", html)
+        self.assertNotIn("Report aktif hari ini", html)
+        self.assertIn('<option value="all" selected>Semua Status</option>', html)
 
     def test_daily_report_review_redirect_preserves_active_filter(self):
         self.create_user("report_ops_return", "pass1234", "staff", warehouse_id=1)
