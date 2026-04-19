@@ -1,5 +1,7 @@
 from decimal import Decimal, ROUND_FLOOR
 
+from database import is_postgresql_backend
+
 
 MEMBER_TYPES = {"purchase", "stringing"}
 MEMBER_TYPE_LABELS = {
@@ -35,6 +37,146 @@ DEFAULT_STRINGING_REWARD_AMOUNT = 75000.0
 STRINGING_PROGRESS_MIN_AMOUNT = 75000.0
 PURCHASE_POINTS_DIVISOR = Decimal("10000")
 STRINGING_REWARD_THRESHOLD = 6
+
+
+def _sqlite_membership_customer_unique_legacy_enabled(db):
+    row = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='crm_memberships'"
+    ).fetchone()
+    table_sql = str(row["sql"] or "") if row else ""
+    normalized_sql = " ".join(table_sql.lower().split())
+    return "customer_id integer not null unique" in normalized_sql or "customer_id integer unique" in normalized_sql
+
+
+def _postgres_membership_customer_unique_constraint_names(db):
+    rows = db.execute(
+        """
+        SELECT kcu.constraint_name, kcu.column_name, kcu.ordinal_position
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+        WHERE tc.table_name='crm_memberships'
+          AND tc.constraint_type='UNIQUE'
+        ORDER BY kcu.constraint_name ASC, kcu.ordinal_position ASC
+        """
+    ).fetchall()
+    columns_by_constraint = {}
+    for row in rows:
+        constraint_name = str(row["constraint_name"] or "").strip()
+        if not constraint_name:
+            continue
+        columns_by_constraint.setdefault(constraint_name, []).append(str(row["column_name"] or "").strip().lower())
+    return [
+        constraint_name
+        for constraint_name, columns in columns_by_constraint.items()
+        if columns == ["customer_id"]
+    ]
+
+
+def ensure_crm_membership_multi_program_schema(db):
+    if is_postgresql_backend():
+        legacy_constraints = _postgres_membership_customer_unique_constraint_names(db)
+        for constraint_name in legacy_constraints:
+            db.execute(f'ALTER TABLE crm_memberships DROP CONSTRAINT IF EXISTS "{constraint_name}"')
+        db.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_memberships_customer_member_type
+            ON crm_memberships(customer_id, member_type)
+            """
+        )
+        return
+
+    if not _sqlite_membership_customer_unique_legacy_enabled(db):
+        return
+
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_memberships_new(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            warehouse_id INTEGER NOT NULL,
+            member_code TEXT NOT NULL UNIQUE,
+            member_type TEXT DEFAULT 'purchase',
+            tier TEXT DEFAULT 'regular',
+            status TEXT DEFAULT 'active',
+            join_date TEXT NOT NULL,
+            expiry_date TEXT,
+            points INTEGER DEFAULT 0,
+            requested_by_staff_id INTEGER,
+            reward_unit_amount REAL DEFAULT 75000,
+            opening_stringing_visits INTEGER DEFAULT 0,
+            opening_reward_redeemed INTEGER DEFAULT 0,
+            benefit_note TEXT,
+            note TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(customer_id) REFERENCES crm_customers(id),
+            FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+            FOREIGN KEY(requested_by_staff_id) REFERENCES users(id)
+        )
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO crm_memberships_new(
+            id,
+            customer_id,
+            warehouse_id,
+            member_code,
+            member_type,
+            tier,
+            status,
+            join_date,
+            expiry_date,
+            points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
+            benefit_note,
+            note,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            customer_id,
+            warehouse_id,
+            member_code,
+            member_type,
+            tier,
+            status,
+            join_date,
+            expiry_date,
+            points,
+            requested_by_staff_id,
+            reward_unit_amount,
+            opening_stringing_visits,
+            opening_reward_redeemed,
+            benefit_note,
+            note,
+            created_at,
+            updated_at
+        FROM crm_memberships
+        """
+    )
+    db.execute("DROP TABLE crm_memberships")
+    db.execute("ALTER TABLE crm_memberships_new RENAME TO crm_memberships")
+    db.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_memberships_customer_member_type
+        ON crm_memberships(customer_id, member_type)
+        """
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_crm_memberships_main
+        ON crm_memberships(warehouse_id, tier, status, join_date)
+        """
+    )
+    db.execute("PRAGMA foreign_keys=ON")
 
 
 def _to_int(value, default=0):

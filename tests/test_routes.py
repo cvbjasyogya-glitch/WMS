@@ -1088,6 +1088,85 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="posCustomerPhone" placeholder="No HP customer" inputmode="tel" autocomplete="off" required', html)
         self.assertIn("function validateRequiredPosCustomerFields()", html)
         self.assertIn("Customer umum tetap wajib isi nama dan no HP sebelum checkout.", html)
+        self.assertIn('fetch(`/kasir/options/customers?${params.toString()}`', html)
+
+    def test_pos_customer_options_endpoint_finds_member_beyond_initial_dropdown_limit(self):
+        self.login_pos_user("owner_pos_customer_endpoint", "owner")
+
+        with self.app.app_context():
+            db = get_db()
+            for index in range(130):
+                db.execute(
+                    """
+                    INSERT INTO crm_customers(
+                        warehouse_id, customer_name, contact_person, phone, customer_type, marketing_channel, note
+                    )
+                    VALUES (?,?,?,?,?,?,?)
+                    """,
+                    (
+                        1,
+                        f"Customer Seed {index:03d}",
+                        None,
+                        f"62811000{index:03d}",
+                        "retail",
+                        "pos",
+                        "seed",
+                    ),
+                )
+            cursor = db.execute(
+                """
+                INSERT INTO crm_customers(
+                    warehouse_id, customer_name, contact_person, phone, customer_type, marketing_channel, note
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Zeta Damar Nur",
+                    None,
+                    "628123450001",
+                    "member",
+                    "pos",
+                    "target",
+                ),
+            )
+            customer_id = cursor.lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, tier, status, join_date, expiry_date,
+                    points, requested_by_staff_id, reward_unit_amount, opening_stringing_visits,
+                    opening_reward_redeemed, benefit_note, note
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    customer_id,
+                    1,
+                    "POS-TARGET-0001",
+                    "purchase",
+                    "regular",
+                    "active",
+                    "2026-04-19",
+                    None,
+                    0,
+                    None,
+                    75000,
+                    0,
+                    0,
+                    "Test",
+                    "Target member",
+                ),
+            )
+
+        response = self.client.get("/kasir/options/customers?q=POS-TARGET-0001&warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        items = payload["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["customer_name"], "Zeta Damar Nur")
+        self.assertEqual(items[0]["member_code"], "POS-TARGET-0001")
 
     def test_pos_page_includes_hardened_search_helpers_and_exact_cash_shortcut(self):
         self.login_pos_user("owner_pos_search_hardened", "owner")
@@ -4600,7 +4679,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(log_response.status_code, 200)
         log_html = log_response.get_data(as_text=True)
         self.assertIn("Kirim Ulang Nota WA", log_html)
-        self.assertIn(f'data-pos-resend-receipt-sale-id="{sale_id}"', log_html)
+        self.assertIn(f'data-sale-id="{sale_id}"', log_html)
+        self.assertIn(f'data-receipt-no="{checkout_payload["receipt_no"]}"', log_html)
 
         with patch(
             "routes.pos.send_whatsapp_document",
@@ -4632,6 +4712,111 @@ class WmsRoutesTestCase(unittest.TestCase):
                 WHERE id=?
                 """,
                 (sale_id,),
+            ).fetchone()
+
+        self.assertEqual(sale_after["receipt_whatsapp_status"], "sent")
+        self.assertFalse(sale_after["receipt_whatsapp_error"])
+        self.assertIsNotNone(sale_after["receipt_whatsapp_sent_at"])
+
+    def test_pos_sales_log_resend_receipt_falls_back_to_text_when_pdf_regeneration_fails(self):
+        self.create_user("staff_sales_resend_text", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_resend_text")
+        self.login_pos_user("pos_resend_text_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-RESEND-TEXT-001",
+            qty=8,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "628120007777",
+                "error": "",
+            },
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-04",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Resend Text",
+                    "customer_phone": "08120007777",
+                    "payment_method": "cash",
+                    "paid_amount": 155000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 150000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                "SELECT id FROM pos_sales WHERE receipt_no=?",
+                (checkout_payload["receipt_no"],),
+            ).fetchone()
+        self.assertIsNotNone(sale)
+
+        with patch(
+            "routes.pos._generate_backend_pos_receipt_pdf",
+            side_effect=RuntimeError("pdf_backend_down"),
+        ), patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={
+                "ok": False,
+                "provider": "kirimi",
+                "receiver": "628120007777",
+                "error": "kirimi_http_500",
+            },
+        ), patch(
+            "routes.pos.send_whatsapp_text",
+            return_value={
+                "ok": True,
+                "provider": "kirimi",
+                "receiver": "628120007777",
+                "error": "",
+            },
+        ) as mocked_text:
+            resend_response = self.client.post(
+                f"/kasir/sale/{sale['id']}/resend-receipt",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(resend_response.status_code, 200)
+        resend_payload = resend_response.get_json()
+        self.assertEqual(resend_payload["status"], "success")
+        self.assertEqual(resend_payload["receipt_whatsapp_status"], "sent")
+        self.assertEqual(resend_payload["receipt_pdf_regeneration_error"], "pdf_backend_down")
+        mocked_text.assert_called_once()
+        fallback_message = mocked_text.call_args.args[1]
+        self.assertIn("jika file pdf belum muncul otomatis", fallback_message.lower())
+        self.assertIn(f"/kasir/receipt/{checkout_payload['receipt_no']}/print", fallback_message)
+
+        with self.app.app_context():
+            db = get_db()
+            sale_after = db.execute(
+                """
+                SELECT receipt_whatsapp_status, receipt_whatsapp_error, receipt_whatsapp_sent_at
+                FROM pos_sales
+                WHERE id=?
+                """,
+                (sale["id"],),
             ).fetchone()
 
         self.assertEqual(sale_after["receipt_whatsapp_status"], "sent")
@@ -9534,6 +9719,172 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(snapshot_below["stringing_progress_count"], 0)
         self.assertIn("di bawah Rp 75.000", record_below["note"])
 
+    def test_pos_checkout_auto_splits_purchase_points_and_stringing_progress_in_one_receipt(self):
+        self.create_user("staff_sales_mix_loyalty", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_mix_loyalty")
+        self.login_pos_user("pos_mix_loyalty_super", "super_admin")
+
+        response_purchase, purchase_product_id, purchase_variants = self.create_product(
+            sku="POS-MIX-BELANJA-001",
+            qty=10,
+            variants="default",
+            warehouse_id="1",
+            name="Bola Basket Premium",
+        )
+        self.assertEqual(response_purchase.status_code, 302)
+        purchase_variant_id = purchase_variants[0]["id"]
+
+        response_stringing, stringing_product_id, stringing_variants = self.create_product(
+            sku="POS-MIX-SENAR-001",
+            qty=10,
+            variants="default",
+            warehouse_id="1",
+            name="BG 66 Ultimax",
+        )
+        self.assertEqual(response_stringing.status_code, 302)
+        stringing_variant_id = stringing_variants[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            category_row = db.execute(
+                "SELECT id FROM categories WHERE name='Senar Badminton'"
+            ).fetchone()
+            if category_row:
+                stringing_category_id = category_row["id"]
+            else:
+                stringing_category_id = db.execute(
+                    "INSERT INTO categories(name) VALUES (?)",
+                    ("Senar Badminton",),
+                ).lastrowid
+            db.execute(
+                "UPDATE products SET category_id=? WHERE id=?",
+                (stringing_category_id, stringing_product_id),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Mixed Loyalty', '081230006664', 'retail')
+                """
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Mixed Loyalty'"
+            ).fetchone()
+            db.commit()
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-15",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_id": customer["id"],
+                "customer_name": "Customer Mixed Loyalty",
+                "customer_phone": "081230006664",
+                "transaction_type": "purchase",
+                "payment_method": "cash",
+                "paid_amount": 196000,
+                "items": [
+                    {
+                        "product_id": purchase_product_id,
+                        "variant_id": purchase_variant_id,
+                        "qty": 1,
+                        "unit_price": 120000,
+                    },
+                    {
+                        "product_id": stringing_product_id,
+                        "variant_id": stringing_variant_id,
+                        "qty": 1,
+                        "unit_price": 75000,
+                    },
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        with self.app.app_context():
+            db = get_db()
+            customer_after = db.execute(
+                "SELECT customer_type FROM crm_customers WHERE id=?",
+                (customer["id"],),
+            ).fetchone()
+            purchase_member = db.execute(
+                """
+                SELECT id, member_code
+                FROM crm_memberships
+                WHERE customer_id=? AND member_type='purchase'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (customer["id"],),
+            ).fetchone()
+            stringing_member = db.execute(
+                """
+                SELECT id, member_code
+                FROM crm_memberships
+                WHERE customer_id=? AND member_type='stringing'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (customer["id"],),
+            ).fetchone()
+            purchase_record = db.execute(
+                """
+                SELECT record_type, points_delta
+                FROM crm_member_records
+                WHERE purchase_id=? AND member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (
+                    db.execute(
+                        "SELECT id FROM crm_purchase_records WHERE invoice_no=?",
+                        (receipt_no,),
+                    ).fetchone()["id"],
+                    purchase_member["id"],
+                ),
+            ).fetchone()
+            stringing_record = db.execute(
+                """
+                SELECT record_type, service_count_delta
+                FROM crm_member_records
+                WHERE purchase_id=? AND member_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (
+                    db.execute(
+                        "SELECT id FROM crm_purchase_records WHERE invoice_no=?",
+                        (receipt_no,),
+                    ).fetchone()["id"],
+                    stringing_member["id"],
+                ),
+            ).fetchone()
+            purchase_snapshot = get_member_snapshot(db, purchase_member["id"])
+            stringing_snapshot = get_member_snapshot(db, stringing_member["id"])
+            purchase_row = db.execute(
+                """
+                SELECT member_id, transaction_type
+                FROM crm_purchase_records
+                WHERE invoice_no=?
+                """,
+                (receipt_no,),
+            ).fetchone()
+
+        self.assertEqual(customer_after["customer_type"], "member")
+        self.assertTrue(str(purchase_member["member_code"]).startswith("POS-POINT-01-"))
+        self.assertTrue(str(stringing_member["member_code"]).startswith("POS-SENAR-01-"))
+        self.assertEqual(purchase_row["transaction_type"], "purchase")
+        self.assertEqual(purchase_row["member_id"], purchase_member["id"])
+        self.assertEqual(purchase_record["record_type"], "purchase")
+        self.assertEqual(purchase_record["points_delta"], 12)
+        self.assertEqual(stringing_record["record_type"], "stringing_service")
+        self.assertEqual(stringing_record["service_count_delta"], 1)
+        self.assertEqual(purchase_snapshot["current_points"], 12)
+        self.assertEqual(stringing_snapshot["total_stringing_visits"], 1)
+        self.assertEqual(stringing_snapshot["stringing_progress_count"], 1)
+
     def test_pos_checkout_counts_multiple_qualifying_stringing_units_in_one_receipt(self):
         self.create_user("staff_sales_multi_senar", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_multi_senar")
@@ -11029,6 +11380,91 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(float(candidate_after["assessment_auto_score"]), 50.0)
         self.assertEqual(float(candidate_after["assessment_final_score"]), 50.0)
         self.assertEqual(int(candidate_after["assessment_violation_count"]), 1)
+
+    def test_career_assessment_resets_after_three_violations_and_generates_new_code(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Staff Karir Reset",
+                    "HR",
+                    "full_time",
+                    "Mataram",
+                    "Tes reset pelanggaran.",
+                    "Siap tes dasar.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "Ibukota NTB", "Mataram", "Kupang", "Denpasar", "Bima", "a", 100, 1, 1),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Reset",)).fetchone()
+
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Ryo Reset",
+                "phone": "628123450888",
+                "email": "ryo@example.com",
+                "resume_file": (BytesIO(b"resume-ryo"), "ryo-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                "SELECT id, assessment_code FROM recruitment_candidates WHERE candidate_name=? ORDER BY id DESC LIMIT 1",
+                ("Ryo Reset",),
+            ).fetchone()
+        self.assertIsNotNone(candidate)
+        old_code = candidate["assessment_code"]
+
+        violation_response = self.client.post(
+            "/karir/tes/violation",
+            data={"assessment_code": old_code, "violation_count": "3"},
+        )
+        self.assertEqual(violation_response.status_code, 200)
+        violation_payload = violation_response.get_json()
+        self.assertTrue(violation_payload["reset"])
+        self.assertRegex(violation_payload["new_code"], r"^\d{5}$")
+        self.assertNotEqual(violation_payload["new_code"], old_code)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_code, assessment_status, assessment_violation_count, assessment_answers_json
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+        self.assertEqual(candidate_after["assessment_status"], "pending")
+        self.assertEqual(int(candidate_after["assessment_violation_count"]), 0)
+        self.assertFalse(candidate_after["assessment_answers_json"])
+        self.assertEqual(candidate_after["assessment_code"], violation_payload["new_code"])
 
     def test_hr_can_manage_recruitment_assessment_questions_and_manual_candidate_score(self):
         self.login_hr_user()

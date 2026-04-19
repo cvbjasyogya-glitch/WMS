@@ -1,4 +1,6 @@
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+import hashlib
+
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 from database import get_db
 from services.career_service import (
@@ -16,6 +18,7 @@ from services.career_service import (
 
 
 career_bp = Blueprint("career", __name__)
+CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
 
 
 def _fetch_public_openings(db, selected_warehouse=None):
@@ -34,6 +37,30 @@ def _fetch_public_openings(db, selected_warehouse=None):
         params.append(selected_warehouse)
     query += " ORDER BY COALESCE(o.sort_order, 0) ASC, o.created_at DESC, o.id DESC"
     return [dict(row) for row in db.execute(query, params).fetchall()]
+
+
+def _fetch_public_opening_by_id(db, opening_id):
+    try:
+        safe_opening_id = int(opening_id)
+    except (TypeError, ValueError):
+        return None
+    if safe_opening_id <= 0:
+        return None
+    row = db.execute(
+        """
+        SELECT
+            o.*,
+            w.name AS warehouse_name
+        FROM career_openings o
+        LEFT JOIN warehouses w ON o.warehouse_id = w.id
+        WHERE o.id=?
+          AND o.status=?
+          AND COALESCE(o.is_public, 1)=1
+        LIMIT 1
+        """,
+        (safe_opening_id, "published"),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def _fetch_candidate_by_assessment_code(db, code):
@@ -59,7 +86,7 @@ def _fetch_candidate_by_assessment_code(db, code):
     return dict(row) if row else None
 
 
-def _fetch_public_assessment_questions(db, warehouse_id=None):
+def _fetch_public_assessment_questions(db, warehouse_id=None, shuffle_seed=""):
     query = """
         SELECT *
         FROM recruitment_assessment_questions
@@ -72,7 +99,47 @@ def _fetch_public_assessment_questions(db, warehouse_id=None):
     else:
         query += " AND warehouse_id IS NULL"
     query += " ORDER BY COALESCE(sort_order, 0) ASC, id ASC"
-    return [dict(row) for row in db.execute(query, params).fetchall()]
+    questions = [dict(row) for row in db.execute(query, params).fetchall()]
+    safe_seed = str(shuffle_seed or "").strip()
+    if safe_seed:
+        questions.sort(
+            key=lambda question: hashlib.sha1(
+                f"{safe_seed}:{int(question.get('id') or 0)}".encode("utf-8")
+            ).hexdigest()
+        )
+    return questions
+
+
+def _reset_candidate_assessment_session(db, candidate):
+    safe_candidate = dict(candidate or {})
+    candidate_id = int(safe_candidate.get("id") or 0)
+    if candidate_id <= 0:
+        raise ValueError("Kandidat tes tidak valid.")
+
+    new_code = assign_candidate_assessment_code(db, candidate_id)
+    db.execute(
+        """
+        UPDATE recruitment_candidates
+        SET assessment_status=?,
+            assessment_answers_json=NULL,
+            assessment_auto_score=NULL,
+            assessment_manual_score=NULL,
+            assessment_final_score=NULL,
+            assessment_review_notes=NULL,
+            assessment_reviewed_by=NULL,
+            assessment_reviewed_at=NULL,
+            assessment_started_at=NULL,
+            assessment_submitted_at=NULL,
+            assessment_violation_count=0,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            normalize_career_assessment_status("pending"),
+            candidate_id,
+        ),
+    )
+    return new_code
 
 
 @career_bp.route("/karir")
@@ -94,8 +161,6 @@ def index():
     except ValueError:
         selected_opening_id = None
     selected_opening = next((opening for opening in openings if opening["id"] == selected_opening_id), None)
-    if selected_opening is None and openings:
-        selected_opening = openings[0]
     assessment_code = normalize_assessment_code(request.args.get("code"))
     latest_candidate = _fetch_candidate_by_assessment_code(db, assessment_code) if assessment_code else None
 
@@ -105,6 +170,27 @@ def index():
         warehouses=warehouses,
         selected_opening=selected_opening,
         selected_warehouse_id=selected_warehouse_id,
+        latest_assessment_code=assessment_code,
+        latest_candidate=latest_candidate,
+    )
+
+
+@career_bp.route("/karir/lowongan/<int:opening_id>")
+def opening_detail(opening_id):
+    db = get_db()
+    ensure_career_schema(db)
+
+    opening = _fetch_public_opening_by_id(db, opening_id)
+    if not opening:
+        flash("Lowongan yang dipilih tidak tersedia lagi.", "error")
+        return redirect(url_for("career.index"))
+
+    assessment_code = normalize_assessment_code(request.args.get("code"))
+    latest_candidate = _fetch_candidate_by_assessment_code(db, assessment_code) if assessment_code else None
+
+    return render_template(
+        "career_detail.html",
+        opening=opening,
         latest_assessment_code=assessment_code,
         latest_candidate=latest_candidate,
     )
@@ -145,17 +231,17 @@ def apply():
 
     if not candidate_name or (not phone and not email):
         flash("Nama kandidat dan minimal satu kontak wajib diisi.", "error")
-        return redirect(url_for("career.index", vacancy=opening["id"]))
+        return redirect(url_for("career.opening_detail", opening_id=opening["id"]))
 
     try:
         resume_original_name, resume_path = save_career_resume(resume_file)
     except ValueError as exc:
         flash(str(exc), "error")
-        return redirect(url_for("career.index", vacancy=opening["id"]))
+        return redirect(url_for("career.opening_detail", opening_id=opening["id"]))
 
     if not resume_path:
         flash("CV wajib diunggah agar HR bisa review lamaran.", "error")
-        return redirect(url_for("career.index", vacancy=opening["id"]))
+        return redirect(url_for("career.opening_detail", opening_id=opening["id"]))
 
     db.execute(
         """
@@ -218,7 +304,7 @@ def apply():
         f"Lamaran berhasil dikirim. Simpan kode tes Anda: {assessment_code}.",
         "success",
     )
-    return redirect(url_for("career.index", vacancy=opening["id"], code=assessment_code))
+    return redirect(url_for("career.opening_detail", opening_id=opening["id"], code=assessment_code))
 
 
 @career_bp.route("/karir/tes")
@@ -235,7 +321,7 @@ def assessment():
         flash("Kode tes tidak ditemukan.", "error")
         return redirect(url_for("career.index"))
 
-    questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"))
+    questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
     if not questions:
         flash("Soal tes belum disiapkan HR untuk posisi ini.", "error")
         return redirect(url_for("career.index", code=assessment_code))
@@ -280,6 +366,66 @@ def assessment():
         assessment_state="active",
         existing_answers=answers,
         violation_count=int(candidate.get("assessment_violation_count") or 0),
+        max_violation_count=CAREER_ASSESSMENT_MAX_VIOLATIONS,
+    )
+
+
+@career_bp.route("/karir/tes/violation", methods=["POST"])
+def record_assessment_violation():
+    db = get_db()
+    ensure_career_schema(db)
+
+    assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
+    candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
+    if not candidate:
+        return jsonify({"ok": False, "message": "Kode tes tidak ditemukan."}), 404
+
+    if candidate.get("assessment_status") in {"submitted", "reviewed"}:
+        return jsonify(
+            {
+                "ok": True,
+                "reset": False,
+                "violation_count": int(candidate.get("assessment_violation_count") or 0),
+            }
+        )
+
+    violation_count = max(int(request.form.get("violation_count") or 0), 0)
+    if violation_count >= CAREER_ASSESSMENT_MAX_VIOLATIONS:
+        new_code = _reset_candidate_assessment_session(db, candidate)
+        db.commit()
+        return jsonify(
+            {
+                "ok": True,
+                "reset": True,
+                "new_code": new_code,
+                "redirect_url": url_for("career.index"),
+                "message": (
+                    f"Pelanggaran sudah {CAREER_ASSESSMENT_MAX_VIOLATIONS} kali. "
+                    f"Tes direset dari awal. Gunakan kode baru {new_code} untuk memulai lagi."
+                ),
+            }
+        )
+
+    db.execute(
+        """
+        UPDATE recruitment_candidates
+        SET assessment_violation_count=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            violation_count,
+            candidate["id"],
+        ),
+    )
+    db.commit()
+    return jsonify(
+        {
+            "ok": True,
+            "reset": False,
+            "violation_count": violation_count,
+            "max_violation_count": CAREER_ASSESSMENT_MAX_VIOLATIONS,
+        }
     )
 
 
@@ -293,7 +439,7 @@ def submit_assessment():
         flash("Kode tes tidak ditemukan.", "error")
         return redirect(url_for("career.index"))
 
-    questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"))
+    questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
     if not questions:
         flash("Soal tes belum tersedia.", "error")
         return redirect(url_for("career.index", code=assessment_code))
@@ -307,6 +453,18 @@ def submit_assessment():
 
     score_summary = score_assessment_questions(questions, answers)
     violation_count = max(int(request.form.get("violation_count") or 0), 0)
+    if violation_count >= CAREER_ASSESSMENT_MAX_VIOLATIONS:
+        new_code = _reset_candidate_assessment_session(db, candidate)
+        db.commit()
+        flash(
+            (
+                f"Pelanggaran sudah {CAREER_ASSESSMENT_MAX_VIOLATIONS} kali. "
+                f"Tes direset dari awal. Gunakan kode baru {new_code} untuk memulai lagi."
+            ),
+            "error",
+        )
+        return redirect(url_for("career.index"))
+
     answers_json = encode_assessment_answers(answers)
     db.execute(
         """

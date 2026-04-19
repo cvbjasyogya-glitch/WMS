@@ -18,6 +18,7 @@ from services.crm_loyalty import (
     build_auto_member_record,
     calculate_loyalty_fields,
     calculate_stringing_progress_units,
+    ensure_crm_membership_multi_program_schema,
     find_matching_customer_identity,
     find_matching_member_identity,
     get_member_snapshot,
@@ -355,7 +356,36 @@ def _send_pos_receipt_to_customer(db, sale):
         db.commit()
         return result
 
+    receipt_print_url = build_public_file_url(f"/kasir/receipt/{receipt_no}/print")
     if not receipt_url:
+        if receipt_print_url:
+            fallback_message = "\n".join(
+                [
+                    message,
+                    "",
+                    "File PDF belum siap, tetapi nota bisa dibuka melalui link berikut:",
+                    receipt_print_url,
+                ]
+            ).strip()
+            fallback_delivery = send_whatsapp_text(
+                target_phone,
+                fallback_message,
+                warehouse_id=sale.get("warehouse_id"),
+                warehouse_name=sale.get("warehouse_name"),
+            )
+            fallback_error = str(fallback_delivery.get("error") or "").strip()
+            status_value = "sent" if fallback_delivery.get("ok") else ("skipped" if fallback_delivery.get("ok") is None else "failed")
+            _record_pos_receipt_delivery_state(
+                db,
+                sale_id,
+                receipt_whatsapp_status=status_value,
+                receipt_whatsapp_error=(fallback_error if fallback_error else ""),
+                mark_sent=bool(fallback_delivery.get("ok")),
+            )
+            record_whatsapp_delivery(None, None, target_phone, subject, fallback_message, fallback_delivery, channel="wa_text")
+            db.commit()
+            return fallback_delivery
+
         result = {"ok": None, "error": "receipt_public_url_missing", "provider": "kirimi"}
         _record_pos_receipt_delivery_state(
             db,
@@ -376,7 +406,6 @@ def _send_pos_receipt_to_customer(db, sale):
     )
     if delivery.get("ok") is not True:
         fallback_links = [receipt_url]
-        receipt_print_url = build_public_file_url(f"/kasir/receipt/{receipt_no}/print")
         if receipt_print_url and receipt_print_url not in fallback_links:
             fallback_links.append(receipt_print_url)
         fallback_message = "\n".join(
@@ -470,6 +499,35 @@ def _fetch_pos_loyalty_record(db, purchase_id, member_id):
     return dict(row) if row else None
 
 
+def _fetch_pos_loyalty_records_for_purchase(db, purchase_id):
+    safe_purchase_id = _to_int(purchase_id, 0)
+    if safe_purchase_id <= 0:
+        return []
+
+    rows = db.execute(
+        """
+        SELECT
+            mr.member_id,
+            mr.record_type,
+            mr.points_delta,
+            mr.service_count_delta,
+            mr.reward_redeemed_delta,
+            mr.benefit_value,
+            mr.amount,
+            pr.transaction_type,
+            COALESCE(NULLIF(TRIM(m.member_code), ''), '') AS member_code,
+            COALESCE(NULLIF(TRIM(m.member_type), ''), '') AS member_type
+        FROM crm_member_records mr
+        LEFT JOIN crm_purchase_records pr ON pr.id = mr.purchase_id
+        LEFT JOIN crm_memberships m ON m.id = mr.member_id
+        WHERE mr.purchase_id=?
+        ORDER BY mr.id ASC
+        """,
+        (safe_purchase_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_record):
     progress_count = max(_to_int((snapshot or {}).get("stringing_progress_count"), 0), 0)
     if (
@@ -483,53 +541,79 @@ def _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_reco
 
 def _build_pos_receipt_loyalty_lines(db, sale):
     safe_sale = sale or {}
-    member_id = _to_int(safe_sale.get("member_id"), 0)
     purchase_id = _to_int(safe_sale.get("purchase_id"), 0)
-    if member_id <= 0 or purchase_id <= 0:
+    if purchase_id <= 0:
         return []
 
-    snapshot = get_member_snapshot(db, member_id)
-    if not snapshot:
+    loyalty_records = _fetch_pos_loyalty_records_for_purchase(db, purchase_id)
+    if not loyalty_records:
         return []
 
-    loyalty_record = _fetch_pos_loyalty_record(db, purchase_id, member_id) or {}
-    member_type = str(safe_sale.get("member_type") or snapshot.get("member_type") or "").strip().lower()
-    member_code = str(safe_sale.get("member_code") or snapshot.get("member_code") or "").strip()
-    transaction_type = normalize_transaction_type(safe_sale.get("transaction_type"))
     lines = []
-    if member_code:
-        lines.append(f"- Member: {member_code}")
+    for loyalty_record in loyalty_records:
+        member_id = _to_int(loyalty_record.get("member_id"), 0)
+        if member_id <= 0:
+            continue
+        snapshot = get_member_snapshot(db, member_id)
+        if not snapshot:
+            continue
 
-    if member_type == "purchase":
-        earned_points = max(_to_int(loyalty_record.get("points_delta"), 0), 0)
-        current_points = max(_to_int(snapshot.get("current_points"), 0), 0)
-        lines.append(f"- Poin transaksi ini: +{earned_points} poin")
-        lines.append(f"- Total poin aktif: {current_points} poin")
-        return lines
-
-    progress_label = _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_record)
-    available_reward_count = max(_to_int(snapshot.get("available_reward_count"), 0), 0)
-    reward_value_label = _format_pos_currency_label(snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
-    service_count_delta = max(_to_int((loyalty_record or {}).get("service_count_delta"), 0), 0)
-
-    if transaction_type == "stringing_reward_redemption":
-        benefit_value = _currency(loyalty_record.get("benefit_value") or snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
-        lines.append(f"- Free senar terpakai: 1x ({_format_pos_currency_label(benefit_value)})")
-        lines.append(f"- Progress senar berikutnya: {progress_label}")
-        if available_reward_count > 0:
-            lines.append(f"- Free senar tersisa: {available_reward_count}x")
-        return lines
-
-    lines.append(f"- Progress senar: {progress_label}")
-    if transaction_type == "stringing_service" and service_count_delta <= 0:
-        lines.append(
-            f"- Progress belum bertambah karena nominal senaran di bawah {_format_pos_currency_label(STRINGING_PROGRESS_MIN_AMOUNT)}"
+        member_type = str(
+            loyalty_record.get("member_type")
+            or safe_sale.get("member_type")
+            or snapshot.get("member_type")
+            or ""
+        ).strip().lower()
+        member_code = str(
+            loyalty_record.get("member_code")
+            or safe_sale.get("member_code")
+            or snapshot.get("member_code")
+            or ""
+        ).strip()
+        transaction_type = normalize_transaction_type(
+            loyalty_record.get("record_type")
+            if loyalty_record.get("record_type") == "reward_redemption"
+            else loyalty_record.get("transaction_type") or safe_sale.get("transaction_type")
         )
-    if available_reward_count > 0:
-        lines.append(f"- Free senar siap dipakai: {available_reward_count}x ({reward_value_label})")
-    else:
-        remaining_visits = max(_to_int(snapshot.get("stringing_remaining_visits"), STRINGING_REWARD_THRESHOLD), 0)
-        lines.append(f"- Sisa {remaining_visits} lagi menuju free 1x")
+
+        if member_type == "purchase":
+            if member_code:
+                lines.append(f"- Member Pembelian: {member_code}")
+            earned_points = max(_to_int(loyalty_record.get("points_delta"), 0), 0)
+            current_points = max(_to_int(snapshot.get("current_points"), 0), 0)
+            lines.append(f"- Poin transaksi ini: +{earned_points} poin")
+            lines.append(f"- Total poin aktif: {current_points} poin")
+            continue
+
+        if member_code:
+            lines.append(f"- Member Senaran: {member_code}")
+        progress_label = _build_pos_stringing_progress_label(snapshot, transaction_type, loyalty_record)
+        available_reward_count = max(_to_int(snapshot.get("available_reward_count"), 0), 0)
+        reward_value_label = _format_pos_currency_label(snapshot.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT)
+        service_count_delta = max(_to_int((loyalty_record or {}).get("service_count_delta"), 0), 0)
+
+        if transaction_type == "stringing_reward_redemption":
+            benefit_value = _currency(
+                loyalty_record.get("benefit_value")
+                or snapshot.get("reward_unit_amount")
+                or DEFAULT_STRINGING_REWARD_AMOUNT
+            )
+            lines.append(f"- Free senar terpakai: 1x ({_format_pos_currency_label(benefit_value)})")
+            lines.append(f"- Progress senar berikutnya: {progress_label}")
+            if available_reward_count > 0:
+                lines.append(f"- Free senar tersisa: {available_reward_count}x")
+            continue
+
+        lines.append(f"- Progress senar: {progress_label}")
+        if transaction_type == "stringing_service" and service_count_delta <= 0:
+            lines.append(
+                f"- Progress belum bertambah karena nominal senaran di bawah {_format_pos_currency_label(STRINGING_PROGRESS_MIN_AMOUNT)}"
+            )
+        if available_reward_count > 0:
+            lines.append(f"- Free senar siap dipakai: {available_reward_count}x ({reward_value_label})")
+        else:
+            remaining_visits = max(_to_int(snapshot.get("stringing_remaining_visits"), STRINGING_REWARD_THRESHOLD), 0)
+            lines.append(f"- Sisa {remaining_visits} lagi menuju free 1x")
     return lines
 
 
@@ -943,30 +1027,68 @@ def _resolve_pos_report_warehouse(db, raw_warehouse_id):
     return warehouse["id"] if warehouse else None
 
 
-def _fetch_pos_customers(db, warehouse_id):
-    return [
-        dict(row)
-        for row in db.execute(
-            """
-            SELECT
-                c.id,
-                c.customer_name,
-                c.contact_person,
-                c.phone,
-                m.member_code,
-                m.member_type,
-                m.reward_unit_amount
-            FROM crm_customers c
-            LEFT JOIN crm_memberships m
-                ON m.customer_id = c.id
-               AND m.status='active'
-            WHERE c.warehouse_id=?
-            ORDER BY c.customer_name ASC
-            LIMIT 300
-            """,
-            (warehouse_id,),
-        ).fetchall()
-    ]
+POS_CUSTOMER_SMART_SELECT_LIMIT = 80
+POS_CUSTOMER_INITIAL_OPTION_LIMIT = 120
+
+
+def _coerce_pos_customer_option_limit(limit, default=POS_CUSTOMER_SMART_SELECT_LIMIT):
+    safe_limit = _to_int(limit, default)
+    if safe_limit <= 0:
+        safe_limit = default
+    return max(10, min(safe_limit, 250))
+
+
+def _fetch_pos_customers(db, warehouse_id, search="", limit=POS_CUSTOMER_INITIAL_OPTION_LIMIT):
+    safe_warehouse_id = _to_int(warehouse_id, 0)
+    if safe_warehouse_id <= 0:
+        return []
+
+    params = [safe_warehouse_id]
+    query = """
+        SELECT
+            c.id,
+            c.customer_name,
+            c.contact_person,
+            c.phone,
+            m.member_code,
+            m.member_type,
+            m.reward_unit_amount
+        FROM crm_customers c
+        LEFT JOIN crm_memberships m
+            ON m.id = (
+                SELECT cm.id
+                FROM crm_memberships cm
+                WHERE cm.customer_id = c.id
+                  AND cm.status='active'
+                ORDER BY cm.id DESC
+                LIMIT 1
+            )
+        WHERE c.warehouse_id=?
+    """
+
+    search_term = str(search or "").strip()
+    if search_term:
+        like_term = f"%{search_term}%"
+        compact_term = f"%{normalize_customer_phone(search_term) or search_term.replace(' ', '')}%"
+        query += """
+            AND (
+                LOWER(COALESCE(c.customer_name, '')) LIKE LOWER(?)
+                OR LOWER(COALESCE(c.contact_person, '')) LIKE LOWER(?)
+                OR LOWER(COALESCE(c.phone, '')) LIKE LOWER(?)
+                OR LOWER(COALESCE(m.member_code, '')) LIKE LOWER(?)
+                OR REPLACE(REPLACE(REPLACE(LOWER(COALESCE(c.customer_name, '')), ' ', ''), '-', ''), '/', '') LIKE LOWER(?)
+                OR REPLACE(REPLACE(REPLACE(LOWER(COALESCE(m.member_code, '')), ' ', ''), '-', ''), '/', '') LIKE LOWER(?)
+                OR REPLACE(REPLACE(REPLACE(COALESCE(c.phone, ''), ' ', ''), '-', ''), '+', '') LIKE ?
+            )
+        """
+        params.extend([like_term, like_term, like_term, like_term, compact_term, compact_term, compact_term])
+
+    query += " ORDER BY c.customer_name ASC, c.id DESC"
+    if limit:
+        query += " LIMIT ?"
+        params.append(_coerce_pos_customer_option_limit(limit, default=POS_CUSTOMER_INITIAL_OPTION_LIMIT))
+
+    return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
 def _fetch_pos_categories(db, warehouse_id):
@@ -2463,6 +2585,298 @@ def _fetch_active_customer_member(db, customer_id):
     ).fetchone()
 
 
+def _fetch_active_customer_member_by_type(db, customer_id, member_type):
+    safe_customer_id = _to_int(customer_id, 0)
+    normalized_member_type = normalize_member_type(member_type)
+    if safe_customer_id <= 0 or not normalized_member_type:
+        return None
+    return db.execute(
+        """
+        SELECT *
+        FROM crm_memberships
+        WHERE customer_id=? AND member_type=? AND status='active'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (safe_customer_id, normalized_member_type),
+    ).fetchone()
+
+
+POS_STRINGING_CATEGORY_KEYWORDS = (
+    "senar",
+    "string",
+    "stringing",
+)
+
+
+def _normalize_pos_loyalty_keyword_text(value):
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _is_pos_stringing_loyalty_item(item):
+    if not isinstance(item, dict):
+        return False
+    keyword_pool = " ".join(
+        _normalize_pos_loyalty_keyword_text(item.get(field))
+        for field in ("category_name", "product_name", "sku", "variant_name")
+    )
+    if not keyword_pool:
+        return False
+    return any(keyword in keyword_pool for keyword in POS_STRINGING_CATEGORY_KEYWORDS)
+
+
+def _split_pos_loyalty_items(items, transaction_type=None):
+    safe_transaction_type = normalize_transaction_type(transaction_type)
+    safe_items = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    purchase_items = []
+    stringing_items = []
+    for item in safe_items:
+        if _is_pos_stringing_loyalty_item(item):
+            stringing_items.append(item)
+        else:
+            purchase_items.append(item)
+    if (
+        safe_transaction_type == "stringing_service"
+        and safe_items
+        and not stringing_items
+    ):
+        return [], list(safe_items)
+    return purchase_items, stringing_items
+
+
+def _sum_pos_loyalty_item_amount(items):
+    total = Decimal("0.00")
+    for item in items if isinstance(items, list) else []:
+        total += _to_decimal(item.get("line_total") or 0, "0")
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _resolve_pos_member_for_type(
+    db,
+    customer,
+    warehouse_id,
+    sale_date,
+    member_type,
+    *,
+    requested_by_user_id=None,
+    allow_auto_create=True,
+):
+    safe_customer = dict(customer or {})
+    normalized_member_type = normalize_member_type(member_type)
+    if normalized_member_type not in {"purchase", "stringing"}:
+        return None, None
+
+    active_member = _fetch_active_customer_member_by_type(db, safe_customer.get("id"), normalized_member_type)
+    if active_member:
+        return active_member, get_member_snapshot(db, active_member["id"])
+
+    matching_member = find_matching_member_identity(
+        db,
+        warehouse_id,
+        normalized_member_type,
+        phone=safe_customer.get("phone"),
+        customer_name=safe_customer.get("customer_name"),
+    )
+    if matching_member:
+        return matching_member, get_member_snapshot(db, matching_member["id"])
+
+    if not allow_auto_create:
+        return None, None
+
+    if normalized_member_type == "purchase":
+        created_member = _auto_create_pos_purchase_member(
+            db,
+            customer,
+            warehouse_id,
+            sale_date,
+            requested_by_user_id=requested_by_user_id,
+        )
+    else:
+        created_member = _auto_create_pos_stringing_member(
+            db,
+            customer,
+            warehouse_id,
+            sale_date,
+            requested_by_user_id=requested_by_user_id,
+        )
+    if not created_member:
+        return None, None
+    return created_member, get_member_snapshot(db, created_member["id"])
+
+
+def _derive_pos_loyalty_sale_transaction_type(transaction_type, items):
+    safe_transaction_type = normalize_transaction_type(transaction_type)
+    if safe_transaction_type == "stringing_reward_redemption":
+        return safe_transaction_type
+    purchase_items, stringing_items = _split_pos_loyalty_items(items, safe_transaction_type)
+    if stringing_items and not purchase_items:
+        return "stringing_service"
+    return "purchase"
+
+
+def _resolve_pos_loyalty_members_for_sale(
+    db,
+    customer,
+    warehouse_id,
+    sale_date,
+    transaction_type,
+    items,
+    *,
+    requested_by_user_id=None,
+):
+    safe_transaction_type = normalize_transaction_type(transaction_type)
+    safe_customer = dict(customer or {})
+    ensure_crm_membership_multi_program_schema(db)
+    reconcile_member_identity_duplicates(db, warehouse_id=warehouse_id)
+
+    purchase_items, stringing_items = _split_pos_loyalty_items(items, safe_transaction_type)
+    resolved = {
+        "purchase": {"member": None, "snapshot": None, "items": purchase_items},
+        "stringing": {"member": None, "snapshot": None, "items": stringing_items},
+    }
+
+    if safe_transaction_type == "stringing_reward_redemption":
+        stringing_member, stringing_snapshot = _resolve_pos_member_for_type(
+            db,
+            safe_customer,
+            warehouse_id,
+            sale_date,
+            "stringing",
+            requested_by_user_id=requested_by_user_id,
+            allow_auto_create=False,
+        )
+        if not stringing_member:
+            raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan Member Senaran aktif.")
+        resolved["stringing"]["member"] = stringing_member
+        resolved["stringing"]["snapshot"] = stringing_snapshot
+        return resolved
+
+    if purchase_items:
+        purchase_member, purchase_snapshot = _resolve_pos_member_for_type(
+            db,
+            safe_customer,
+            warehouse_id,
+            sale_date,
+            "purchase",
+            requested_by_user_id=requested_by_user_id,
+        )
+        resolved["purchase"]["member"] = purchase_member
+        resolved["purchase"]["snapshot"] = purchase_snapshot
+
+    if stringing_items:
+        stringing_member, stringing_snapshot = _resolve_pos_member_for_type(
+            db,
+            safe_customer,
+            warehouse_id,
+            sale_date,
+            "stringing",
+            requested_by_user_id=requested_by_user_id,
+        )
+        resolved["stringing"]["member"] = stringing_member
+        resolved["stringing"]["snapshot"] = stringing_snapshot
+
+    return resolved
+
+
+def _choose_primary_pos_loyalty_member(loyalty_members, transaction_type):
+    safe_members = loyalty_members if isinstance(loyalty_members, dict) else {}
+    safe_transaction_type = normalize_transaction_type(transaction_type)
+    if safe_transaction_type in {"stringing_service", "stringing_reward_redemption"}:
+        primary = (safe_members.get("stringing") or {}).get("member")
+        if primary:
+            return primary
+    purchase_primary = (safe_members.get("purchase") or {}).get("member")
+    if purchase_primary:
+        return purchase_primary
+    return (safe_members.get("stringing") or {}).get("member")
+
+
+def _build_pos_loyalty_member_records(
+    purchase_id,
+    warehouse_id,
+    sale_date,
+    reference_no,
+    note,
+    handled_by,
+    items,
+    loyalty_members,
+    *,
+    source_label,
+    transaction_type,
+):
+    safe_transaction_type = normalize_transaction_type(transaction_type)
+    safe_loyalty_members = loyalty_members if isinstance(loyalty_members, dict) else {}
+    purchase_items, stringing_items = _split_pos_loyalty_items(items, safe_transaction_type)
+    records = []
+
+    if safe_transaction_type == "stringing_reward_redemption":
+        stringing_state = safe_loyalty_members.get("stringing") or {}
+        stringing_member = stringing_state.get("member")
+        stringing_snapshot = stringing_state.get("snapshot")
+        if stringing_member:
+            records.append(
+                build_auto_member_record(
+                    stringing_snapshot or dict(stringing_member),
+                    stringing_snapshot or dict(stringing_member),
+                    purchase_id=purchase_id,
+                    warehouse_id=warehouse_id,
+                    record_date=sale_date,
+                    reference_no=reference_no,
+                    amount=_currency(_sum_pos_loyalty_item_amount(items)),
+                    transaction_type="stringing_reward_redemption",
+                    note=note or "",
+                    handled_by=handled_by,
+                    source_label=source_label,
+                    items=items,
+                )
+            )
+        return records
+
+    purchase_state = safe_loyalty_members.get("purchase") or {}
+    purchase_member = purchase_state.get("member")
+    purchase_snapshot = purchase_state.get("snapshot")
+    if purchase_member and purchase_items:
+        records.append(
+            build_auto_member_record(
+                purchase_snapshot or dict(purchase_member),
+                purchase_snapshot or dict(purchase_member),
+                purchase_id=purchase_id,
+                warehouse_id=warehouse_id,
+                record_date=sale_date,
+                reference_no=reference_no,
+                amount=_currency(_sum_pos_loyalty_item_amount(purchase_items)),
+                transaction_type="purchase",
+                note=note or "",
+                handled_by=handled_by,
+                source_label=source_label,
+                items=purchase_items,
+            )
+        )
+
+    stringing_state = safe_loyalty_members.get("stringing") or {}
+    stringing_member = stringing_state.get("member")
+    stringing_snapshot = stringing_state.get("snapshot")
+    if stringing_member and stringing_items:
+        records.append(
+            build_auto_member_record(
+                stringing_snapshot or dict(stringing_member),
+                stringing_snapshot or dict(stringing_member),
+                purchase_id=purchase_id,
+                warehouse_id=warehouse_id,
+                record_date=sale_date,
+                reference_no=reference_no,
+                amount=_currency(_sum_pos_loyalty_item_amount(stringing_items)),
+                transaction_type="stringing_service",
+                note=note or "",
+                handled_by=handled_by,
+                source_label=source_label,
+                items=stringing_items,
+            )
+        )
+
+    return records
+
+
 def _build_next_pos_member_code(db, warehouse_id, *, member_type):
     safe_warehouse_id = max(_to_int(warehouse_id, 0), 0)
     normalized_member_type = normalize_member_type(member_type)
@@ -2727,6 +3141,7 @@ def _validate_and_build_items(
                 p.id AS product_id,
                 p.sku,
                 p.name AS product_name,
+                COALESCE(NULLIF(TRIM(c.name), ''), '') AS category_name,
                 v.id AS variant_id,
                 COALESCE(v.variant, 'default') AS variant_name,
                 COALESCE(v.price_nett, 0) AS price_nett,
@@ -2734,6 +3149,7 @@ def _validate_and_build_items(
                 COALESCE(v.price_retail, 0) AS price_retail,
                 COALESCE(s.qty, 0) AS stock_qty
             FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
             JOIN product_variants v
                 ON v.id = ?
                AND v.product_id = p.id
@@ -2787,6 +3203,7 @@ def _validate_and_build_items(
                 "variant_id": int(product["variant_id"]),
                 "sku": product["sku"],
                 "product_name": product["product_name"],
+                "category_name": product["category_name"] or "",
                 "variant_name": product["variant_name"] or "default",
                 "qty": qty,
                 "retail_price": retail_price,
@@ -4140,6 +4557,44 @@ def pos_page():
     )
 
 
+@pos_bp.get("/options/customers")
+def pos_customer_options():
+    denied = _require_pos_access()
+    if denied:
+        return denied
+
+    db = get_db()
+    selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
+    search = str(request.args.get("q") or "").strip()
+    limit = _coerce_pos_customer_option_limit(request.args.get("limit"))
+    customers = _fetch_pos_customers(db, selected_warehouse, search=search, limit=limit)
+
+    return jsonify(
+        {
+            "items": [
+                {
+                    "id": customer["id"],
+                    "label": " | ".join(
+                        part
+                        for part in (
+                            str(customer.get("customer_name") or "").strip(),
+                            str(customer.get("phone") or "").strip(),
+                            str(customer.get("member_code") or "").strip(),
+                        )
+                        if part
+                    ),
+                    "customer_name": customer["customer_name"],
+                    "phone": customer.get("phone") or "",
+                    "member_code": customer.get("member_code") or "",
+                    "member_type": customer.get("member_type") or "",
+                    "reward_unit_amount": customer.get("reward_unit_amount") or DEFAULT_STRINGING_REWARD_AMOUNT,
+                }
+                for customer in customers
+            ]
+        }
+    )
+
+
 @pos_bp.get("/printer-drivers")
 def pos_printer_driver_center():
     denied = _require_pos_access()
@@ -5243,13 +5698,14 @@ def pos_resend_receipt_to_customer(sale_id):
     if sale_detail is None:
         return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
 
+    pdf_regeneration_error = ""
     try:
         regenerated_sale, regenerated_pdf = _generate_backend_pos_receipt_pdf(db, sale_detail["receipt_no"])
         sale_detail = regenerated_sale
         sale_detail["receipt_pdf_public_url"] = regenerated_pdf.get("public_url") or ""
     except Exception as exc:
         print("POS RECEIPT RESEND PDF ERROR:", exc)
-        return _json_error("Gagal menyiapkan PDF nota untuk kirim ulang. Coba lagi beberapa detik.", 500)
+        pdf_regeneration_error = str(exc or "").strip()
 
     try:
         sale_detail = _prepare_pos_receipt_sale(sale_detail)
@@ -5272,6 +5728,7 @@ def pos_resend_receipt_to_customer(sale_id):
             "receipt_pdf_public_url": sale_detail.get("receipt_pdf_public_url") or "",
             "receipt_whatsapp_status": receipt_whatsapp_status,
             "receipt_whatsapp_error": receipt_whatsapp_error,
+            "receipt_pdf_regeneration_error": pdf_regeneration_error,
         }
     )
 
@@ -5504,7 +5961,8 @@ def pos_edit_sale(sale_id):
     ]
 
     member_id = None
-    member_snapshot = None
+    loyalty_members = {}
+    resolved_transaction_type = transaction_type
 
     try:
         db.execute("BEGIN")
@@ -5521,16 +5979,19 @@ def pos_edit_sale(sale_id):
             (sale["purchase_id"],),
         )
 
-        active_member, member_snapshot = _resolve_pos_loyalty_member(
+        loyalty_members = _resolve_pos_loyalty_members_for_sale(
             db,
             customer,
             warehouse_id,
             sale_date,
             transaction_type,
+            items,
             requested_by_user_id=session.get("user_id"),
         )
-        if active_member:
-            member_id = active_member["id"]
+        resolved_transaction_type = _derive_pos_loyalty_sale_transaction_type(transaction_type, items)
+        primary_member = _choose_primary_pos_loyalty_member(loyalty_members, resolved_transaction_type)
+        if primary_member:
+            member_id = primary_member["id"]
 
         for original_item in original_active_items:
             restore_cost = _resolve_pos_stock_restore_cost(
@@ -5626,7 +6087,7 @@ def pos_edit_sale(sale_id):
                 warehouse_id,
                 sale_date,
                 sale["receipt_no"],
-                transaction_type,
+                resolved_transaction_type,
                 financials["total_items"],
                 _currency(financials["total_amount"]),
                 note,
@@ -5635,21 +6096,19 @@ def pos_edit_sale(sale_id):
             ),
         )
 
-        if member_id:
-            auto_record = build_auto_member_record(
-                member_snapshot or dict(active_member),
-                member_snapshot or dict(active_member),
-                purchase_id=sale["purchase_id"],
-                warehouse_id=warehouse_id,
-                record_date=sale_date,
-                reference_no=sale["receipt_no"],
-                amount=_currency(financials["total_amount"]),
-                transaction_type=transaction_type,
-                note=note or "",
-                handled_by=session.get("user_id"),
-                source_label="POS / iPos Edit",
-                items=items,
-            )
+        auto_records = _build_pos_loyalty_member_records(
+            sale["purchase_id"],
+            warehouse_id,
+            sale_date,
+            sale["receipt_no"],
+            note,
+            session.get("user_id"),
+            items,
+            loyalty_members,
+            source_label="POS / iPos Edit",
+            transaction_type=transaction_type,
+        )
+        for auto_record in auto_records:
             db.execute(
                 """
                 INSERT INTO crm_member_records(
@@ -5868,7 +6327,8 @@ def pos_checkout():
         change_amount = (paid_amount - financials["total_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     member_id = None
-    member_snapshot = None
+    loyalty_members = {}
+    resolved_transaction_type = transaction_type
     receipt_no = (payload.get("receipt_no") or "").strip()
     negative_stock_alert_items = []
     max_retries = max(
@@ -5898,16 +6358,19 @@ def pos_checkout():
                 customer_phone,
             )
 
-            active_member, member_snapshot = _resolve_pos_loyalty_member(
+            loyalty_members = _resolve_pos_loyalty_members_for_sale(
                 db,
                 customer,
                 warehouse_id,
                 sale_date,
                 transaction_type,
+                items,
                 requested_by_user_id=session.get("user_id"),
             )
-            if active_member:
-                member_id = active_member["id"]
+            resolved_transaction_type = _derive_pos_loyalty_sale_transaction_type(transaction_type, items)
+            primary_member = _choose_primary_pos_loyalty_member(loyalty_members, resolved_transaction_type)
+            if primary_member:
+                member_id = primary_member["id"]
 
             if not receipt_no:
                 receipt_no = _build_next_receipt_no(db, sale_date)
@@ -5943,7 +6406,7 @@ def pos_checkout():
                     sale_date,
                     receipt_no,
                     "pos",
-                    transaction_type,
+                    resolved_transaction_type,
                     financials["total_items"],
                     _currency(financials["total_amount"]),
                     note,
@@ -5981,21 +6444,19 @@ def pos_checkout():
                 ],
             )
 
-            if member_id:
-                auto_record = build_auto_member_record(
-                    member_snapshot or dict(active_member),
-                    member_snapshot or dict(active_member),
-                    purchase_id=purchase_id,
-                    warehouse_id=warehouse_id,
-                    record_date=sale_date,
-                    reference_no=receipt_no,
-                    amount=_currency(financials["total_amount"]),
-                    transaction_type=transaction_type,
-                    note=note or "",
-                    handled_by=session.get("user_id"),
-                    source_label="POS / iPos",
-                    items=items,
-                )
+            auto_records = _build_pos_loyalty_member_records(
+                purchase_id,
+                warehouse_id,
+                sale_date,
+                receipt_no,
+                note,
+                session.get("user_id"),
+                items,
+                loyalty_members,
+                source_label="POS / iPos",
+                transaction_type=transaction_type,
+            )
+            for auto_record in auto_records:
                 db.execute(
                     """
                     INSERT INTO crm_member_records(

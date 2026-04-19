@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Tes Karir{% endblock %}
+{% block eyebrow %}{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
 {% block page_content_class %}career-public-page{% endblock %}
 
@@ -9,6 +10,9 @@
     display: grid;
     gap: 20px;
     color: #18263b;
+}
+.career-public-shell .page-hero .page-eyebrow {
+    display: none;
 }
 .career-test-hero,
 .career-test-card {
@@ -41,7 +45,8 @@
 }
 .career-test-subtitle {
     margin: 0;
-    color: #5d6a7d;
+    color: #415066;
+    font-weight: 600;
 }
 .career-test-pill {
     display: inline-flex;
@@ -79,6 +84,7 @@
 .career-question-card h3 {
     margin: 0;
     font-size: 1.05rem;
+    color: #17263d;
 }
 .career-question-options {
     display: grid;
@@ -107,6 +113,9 @@
 }
 .career-question-option span {
     min-width: 0;
+    color: #22324a;
+    font-weight: 600;
+    line-height: 1.55;
 }
 .career-question-option.is-correct {
     border-color: #79bf91;
@@ -129,10 +138,19 @@
     display: grid;
     gap: 10px;
 }
+.career-test-sidecard strong,
+.career-test-sidecard span,
+.career-test-sidecard li {
+    color: #22324a;
+}
+.career-test-sidecard strong {
+    font-size: 1rem;
+}
 .career-test-sidecard ul {
     margin: 0;
     padding-left: 18px;
-    color: #5d6a7d;
+    color: #22324a;
+    line-height: 1.6;
 }
 .career-test-submit {
     display: flex;
@@ -291,7 +309,8 @@
                 <strong>Aturan Tes</strong>
                 <ul>
                     <li>Jangan pindah tab, refresh, atau kembali ke halaman lain.</li>
-                    <li>Kalau keluar dari halaman, sesi akan ditandai ke HR.</li>
+                    <li>Maksimal pelanggaran {{ max_violation_count or 3 }} kali.</li>
+                    <li>Kalau sudah {{ max_violation_count or 3 }} kali, tes direset dari awal, soal berubah, dan Anda harus memakai kode baru.</li>
                     <li>Setelah submit, skor otomatis langsung muncul.</li>
                 </ul>
             </section>
@@ -360,24 +379,60 @@
     const form = document.getElementById("careerAssessmentForm");
     const violationInput = document.getElementById("careerAssessmentViolationCount");
     const violationBadge = document.getElementById("careerAssessmentViolationBadge");
+    const assessmentCodeInput = form?.querySelector('input[name="assessment_code"]');
     if (!form || !violationInput) return;
 
     let submitted = false;
     let violationCount = Number(violationInput.value || 0);
+    const maxViolationCount = {{ max_violation_count|default(3)|tojson }};
+    let lastViolationAt = 0;
 
     const syncViolation = () => {
         violationInput.value = String(violationCount);
         if (violationBadge) {
             violationBadge.textContent = violationCount > 0
-                ? `Pelanggaran terdeteksi ${violationCount}x`
+                ? `Pelanggaran ${violationCount}/${maxViolationCount}`
                 : "Jangan keluar dari halaman ini";
         }
     };
 
-    const flagViolation = () => {
+    const flagViolation = async () => {
         if (submitted) return;
+        const now = Date.now();
+        if ((now - lastViolationAt) < 900) {
+            return;
+        }
+        lastViolationAt = now;
         violationCount += 1;
         syncViolation();
+        try {
+            const payload = new URLSearchParams();
+            payload.set("assessment_code", String(assessmentCodeInput?.value || ""));
+            payload.set("violation_count", String(violationCount));
+            const response = await fetch('{{ url_for("career.record_assessment_violation") }}', {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: payload.toString(),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return;
+            }
+            if (typeof data.violation_count === "number") {
+                violationCount = data.violation_count;
+                syncViolation();
+            }
+            if (data.reset) {
+                submitted = true;
+                window.alert(data.message || "Terlalu banyak pelanggaran. Tes direset dari awal.");
+                window.location.href = data.redirect_url || '{{ url_for("career.index") }}';
+            }
+        } catch (error) {
+            // Keep local counter updated even if network request fails.
+        }
     };
 
     syncViolation();

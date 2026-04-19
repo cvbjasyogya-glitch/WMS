@@ -581,6 +581,8 @@ let posGrandTotalLastFitValue = "";
 let posGrandTotalObservedWidth = 0;
 const posCustomerOptionsState = {
     all: [],
+    base: [],
+    requestId: 0,
 };
 const posCashierOptionsState = {
     all: [],
@@ -683,11 +685,129 @@ function buildPosCustomerOptionState(option) {
     };
 }
 
+function buildPosCustomerOptionStateFromPayload(item) {
+    const safeItem = item || {};
+    const label = String(safeItem.label || "").trim();
+    const phone = String(safeItem.phone || "").trim();
+    const memberCode = String(safeItem.member_code || "").trim();
+    const memberType = String(safeItem.member_type || "").trim();
+    const rewardUnitAmount = String(safeItem.reward_unit_amount || "").trim();
+    const dataset = {
+        phone,
+        memberCode,
+        memberType,
+        rewardUnitAmount,
+    };
+    const searchBlob = [label, phone, memberCode, memberType].join(" ");
+    return {
+        value: String(safeItem.id || ""),
+        label,
+        phone,
+        memberCode,
+        memberType,
+        rewardUnitAmount,
+        dataset,
+        plainSearch: searchBlob.toLowerCase(),
+        compactSearch: normalizePosCustomerSearchValue(searchBlob),
+    };
+}
+
 function collectPosCustomerOptions() {
     if (!posCustomerId) {
         return;
     }
-    posCustomerOptionsState.all = Array.from(posCustomerId.options).map(buildPosCustomerOptionState);
+    posCustomerOptionsState.base = Array.from(posCustomerId.options).map(buildPosCustomerOptionState);
+    posCustomerOptionsState.all = [...posCustomerOptionsState.base];
+}
+
+function syncPosCustomerOptionList(optionStates, options = {}) {
+    if (!posCustomerId) {
+        return;
+    }
+
+    const defaultOption = (posCustomerOptionsState.base || []).find((item) => item.value === "") || {
+        value: "",
+        label: "UMUM / walk-in",
+        phone: "",
+        memberCode: "",
+        memberType: "",
+        rewardUnitAmount: "",
+        dataset: {},
+        plainSearch: "umum walk in",
+        compactSearch: "umumwalkin",
+    };
+    const currentValue = String(posCustomerId.value || "");
+    const currentSelectedOption = currentValue ? buildPosCustomerOptionState(posCustomerId.selectedOptions[0]) : null;
+    const nextOptions = [defaultOption];
+    (optionStates || []).forEach((item) => {
+        if (!item || !item.value || nextOptions.some((existing) => existing.value === item.value)) {
+            return;
+        }
+        nextOptions.push(item);
+    });
+    if (
+        options.preserveSelection !== false
+        && currentSelectedOption
+        && currentSelectedOption.value
+        && !nextOptions.some((item) => item.value === currentSelectedOption.value)
+    ) {
+        nextOptions.push(currentSelectedOption);
+    }
+
+    posCustomerOptionsState.all = nextOptions;
+    posCustomerId.replaceChildren(...nextOptions.map(createPosCustomerOptionNode));
+    if (currentSelectedOption && Array.from(posCustomerId.options).some((option) => option.value === currentSelectedOption.value)) {
+        posCustomerId.value = currentSelectedOption.value;
+    }
+    syncPosCustomerSelectionState();
+}
+
+async function requestPosCustomerOptions(query = "") {
+    if (!posCustomerId) {
+        return;
+    }
+    const safeQuery = String(query || "").trim();
+    if (!safeQuery) {
+        syncPosCustomerOptionList((posCustomerOptionsState.base || []).filter((item) => item.value !== ""));
+        setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
+        return;
+    }
+
+    const requestId = ++posCustomerOptionsState.requestId;
+    const params = new URLSearchParams({
+        q: safeQuery,
+        warehouse: String(posWarehouseId || ""),
+        limit: "80",
+    });
+
+    try {
+        const response = await fetch(`/kasir/options/customers?${params.toString()}`, {
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (requestId !== posCustomerOptionsState.requestId) {
+            return;
+        }
+
+        const remoteOptions = Array.isArray(payload?.items)
+            ? payload.items.map(buildPosCustomerOptionStateFromPayload)
+            : [];
+        syncPosCustomerOptionList(remoteOptions);
+
+        if (!remoteOptions.length) {
+            setPosCustomerSearchSummary(`Tidak ada member yang cocok untuk "${safeQuery}". Pilihan walk-in tetap tersedia.`);
+            return;
+        }
+
+        setPosCustomerSearchSummary(`${remoteOptions.length} customer cocok untuk "${safeQuery}".`);
+    } catch (error) {
+        syncPosCustomerOptionList((posCustomerOptionsState.base || []).filter((item) => item.value !== ""));
+        filterPosCustomerOptions(safeQuery);
+        setPosCustomerSearchSummary(`Pencarian member fallback aktif untuk "${safeQuery}".`);
+    }
 }
 
 function optionMatchesPosCustomerQuery(optionState, query) {
@@ -1073,12 +1193,10 @@ function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     const stringingMinAmountLabel = formatPosCurrency(POS_STRINGING_PROGRESS_MIN_AMOUNT);
     const selectedOption = posCustomerId.options[posCustomerId.selectedIndex];
     if (!selectedOption || !posCustomerId.value) {
-        if (selectedTransactionType === "stringing_service") {
-            posCustomerLoyaltyHint.textContent = `Customer umum tetap wajib isi nama dan no HP. Jika checkout memakai "Senaran Berbayar", Member Senaran akan dibuat otomatis dan progres bertambah mulai ${stringingMinAmountLabel}.`;
-        } else if (selectedTransactionType === "stringing_reward_redemption") {
+        if (selectedTransactionType === "stringing_reward_redemption") {
             posCustomerLoyaltyHint.textContent = "Free reward senaran hanya bisa dipakai oleh customer dengan Member Senaran aktif.";
         } else {
-            posCustomerLoyaltyHint.textContent = "Customer umum tetap wajib isi nama dan no HP sebelum checkout. Untuk transaksi normal, nomor HP customer akan langsung mengaktifkan Member Pembelian.";
+            posCustomerLoyaltyHint.textContent = `Customer umum tetap wajib isi nama dan no HP sebelum checkout. Nota campuran akan otomatis dipisah: item belanja menambah poin, item senar menambah progres mulai ${stringingMinAmountLabel}.`;
         }
         if (shouldAutoSelectTransactionType && posTransactionType) {
             posTransactionType.value = "purchase";
@@ -1090,12 +1208,10 @@ function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     const memberCode = selectedOption.dataset.memberCode || "";
     const memberType = selectedOption.dataset.memberType || "";
     if (!memberCode || !memberType) {
-        if (selectedTransactionType === "stringing_service") {
-            posCustomerLoyaltyHint.textContent = `Customer ini belum punya member aktif. Checkout "Senaran Berbayar" akan otomatis membuat Member Senaran. Progress bertambah jika total senaran minimal ${stringingMinAmountLabel}.`;
-        } else if (selectedTransactionType === "stringing_reward_redemption") {
+        if (selectedTransactionType === "stringing_reward_redemption") {
             posCustomerLoyaltyHint.textContent = "Customer ini belum punya Member Senaran aktif, jadi free reward belum bisa dipakai.";
         } else {
-            posCustomerLoyaltyHint.textContent = "Customer ini belum punya member aktif. Untuk transaksi normal, nomor HP customer akan langsung membuat Member Pembelian.";
+            posCustomerLoyaltyHint.textContent = `Customer ini belum punya member aktif. Saat checkout normal, item belanja akan otomatis membuat Member Pembelian dan item senar akan otomatis membuat Member Senaran. Progress senar mulai ${stringingMinAmountLabel}.`;
         }
         if (shouldAutoSelectTransactionType && posTransactionType) {
             posTransactionType.value = "purchase";
@@ -1105,26 +1221,17 @@ function syncPosCustomerLoyaltyHint(autoSelectTransactionType = true) {
     }
 
     if (memberType === "stringing") {
-        posCustomerLoyaltyHint.textContent = `${memberCode} - Member Senaran. Pilih "Senaran Berbayar" untuk hitung kunjungan. Progress bertambah jika total senaran minimal ${stringingMinAmountLabel}. Pilih "Senaran Free Reward" saat free dipakai.`;
-        if (shouldAutoSelectTransactionType && posTransactionType && posTransactionType.value === "purchase") {
-            posTransactionType.value = "stringing_service";
+        posCustomerLoyaltyHint.textContent = `${memberCode} - Member Senaran aktif. Checkout normal akan tetap menghitung poin belanja untuk item biasa, dan item senar akan lanjut progres mulai ${stringingMinAmountLabel}. Pilih "Senaran Free Reward" hanya saat free dipakai.`;
+        if (shouldAutoSelectTransactionType && posTransactionType && posTransactionType.value === "stringing_service") {
+            posTransactionType.value = "purchase";
         }
         syncPosTransactionPricing();
         return;
     }
 
-    if (false && memberType === "stringing") {
-        posCustomerLoyaltyHint.textContent = `${memberCode} • Member Senaran. Pilih "Senaran Berbayar" untuk hitung kunjungan atau "Senaran Free Reward" saat free dipakai.`;
-        if (shouldAutoSelectTransactionType && posTransactionType && posTransactionType.value === "purchase") {
-            posTransactionType.value = "stringing_service";
-        }
-        syncPosTransactionPricing();
-        return;
-    }
-
-    posCustomerLoyaltyHint.textContent = `${memberCode} • Member Pembelian. Setiap total Rp 10.000 otomatis menambah 1 poin dari checkout ini.`;
-    if (selectedTransactionType === "stringing_service" || selectedTransactionType === "stringing_reward_redemption") {
-        posCustomerLoyaltyHint.textContent = `${memberCode} - Member Pembelian. Transaksi senaran hanya bisa dipakai untuk Member Senaran. Ganti customer atau ubah jenis transaksi loyalty.`;
+    posCustomerLoyaltyHint.textContent = `${memberCode} - Member Pembelian aktif. Setiap total Rp 10.000 otomatis menambah 1 poin. Jika cart juga berisi item senar, sistem akan otomatis membuat / memakai Member Senaran untuk progres.`;
+    if (selectedTransactionType === "stringing_reward_redemption") {
+        posCustomerLoyaltyHint.textContent = `${memberCode} - Member Pembelian aktif. Free reward senaran tetap butuh Member Senaran aktif.`;
         syncPosTransactionPricing();
         return;
     }
@@ -2817,21 +2924,27 @@ posKeypadGrid?.addEventListener("click", (event) => {
 posCustomerId.addEventListener("change", () => syncPosCustomerSelectionState({ clearWhenGeneral: true }));
 
 posCustomerSearch?.addEventListener("input", () => {
-    filterPosCustomerOptions(posCustomerSearch.value || "");
+    window.clearTimeout(posSearchTimer);
+    const nextQuery = String(posCustomerSearch.value || "");
+    posSearchTimer = window.setTimeout(() => {
+        requestPosCustomerOptions(nextQuery);
+    }, nextQuery.trim() ? 180 : 0);
 });
 
 posCustomerSearch?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
         event.preventDefault();
         posCustomerSearch.value = "";
-        filterPosCustomerOptions("");
+        requestPosCustomerOptions("");
         return;
     }
     if (event.key !== "Enter" && event.key !== "NumpadEnter") {
         return;
     }
+    window.clearTimeout(posSearchTimer);
     const candidateOptions = Array.from(posCustomerId?.options || []).filter((option) => option.value);
     if (candidateOptions.length !== 1) {
+        requestPosCustomerOptions(posCustomerSearch.value || "");
         return;
     }
     event.preventDefault();
