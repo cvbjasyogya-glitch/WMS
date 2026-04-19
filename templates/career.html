@@ -88,6 +88,7 @@
 
 .career-nav span {
     white-space: nowrap;
+    cursor: default;
 }
 
 .career-nav .is-active {
@@ -107,44 +108,130 @@
     background: var(--career-blue);
 }
 
-.career-hero {
-    position: relative;
+.career-nav-utility {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: 14px;
+    padding-left: 16px;
+    border-left: 1px solid var(--career-line);
+    color: #5f7289;
+    font-size: 0.92rem;
+}
+
+.career-nav-lang {
+    display: inline-flex;
     overflow: hidden;
+    border: 1px solid #cfe0f3;
+    border-radius: 12px;
+}
+
+.career-nav-lang span {
+    min-width: 38px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    background: #fff;
+}
+
+.career-nav-lang .is-active {
+    color: #fff;
+    background: var(--career-blue);
+}
+
+.career-nav-lang .is-active::after {
+    display: none;
+}
+
+.career-home-grid {
     display: grid;
-    gap: 14px;
-    padding: 40px 48px;
-    border-radius: 28px;
-    background:
-        radial-gradient(circle at top right, rgba(255, 255, 255, 0.16), transparent 22%),
-        radial-gradient(circle at left center, rgba(255, 255, 255, 0.1), transparent 20%),
-        linear-gradient(135deg, #0d61ad 0%, #0b63b4 58%, #0b4d8d 100%);
-    color: #fff;
-    box-shadow: 0 22px 44px rgba(13, 97, 173, 0.22);
+    gap: 20px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
 }
 
-.career-kicker {
-    margin: 0;
-    font-size: 0.85rem;
-    letter-spacing: 0.16em;
-    font-weight: 700;
-    text-transform: uppercase;
-    opacity: 0.82;
+.career-home-highlight,
+.career-home-stats {
+    background: #fff;
+    border: 1px solid var(--career-line);
+    border-radius: 24px;
+    box-shadow: var(--career-shadow);
 }
 
-.career-hero h2 {
-    margin: 0;
-    max-width: 760px;
-    font-size: clamp(2rem, 4vw, 3rem);
-    line-height: 1.06;
-    color: #fff;
+.career-home-highlight {
+    display: grid;
+    gap: 18px;
+    padding: 26px 28px;
 }
 
-.career-hero p {
+.career-home-highlight h3,
+.career-home-stats h3 {
     margin: 0;
-    max-width: 880px;
-    font-size: 1.06rem;
+    font-size: 1.22rem;
+    color: #163257;
+}
+
+.career-home-highlight p,
+.career-home-stats p {
+    margin: 0;
+    color: var(--career-muted);
     line-height: 1.7;
-    color: rgba(255, 255, 255, 0.9);
+}
+
+.career-home-points {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.career-home-point {
+    display: grid;
+    gap: 6px;
+    padding: 16px 18px;
+    border-radius: 18px;
+    background: #f7fbff;
+    border: 1px solid #dceaf8;
+}
+
+.career-home-point strong {
+    color: var(--career-blue);
+    font-size: 1.2rem;
+}
+
+.career-home-point span {
+    color: #5d7088;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+.career-home-stats {
+    display: grid;
+    gap: 16px;
+    padding: 24px;
+}
+
+.career-home-stat-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.career-home-stat {
+    display: grid;
+    gap: 6px;
+    padding: 16px 18px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, #f8fbff, #f2f7fd);
+    border: 1px solid #dceaf8;
+}
+
+.career-home-stat strong {
+    color: var(--career-blue);
+    font-size: 1.9rem;
+}
+
+.career-home-stat span {
+    color: #5d7088;
 }
 
 .career-search-bar {
@@ -309,6 +396,13 @@
     background: #fff;
     border: 1px solid var(--career-line);
     box-shadow: var(--career-shadow);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.career-opening-card:hover {
+    transform: translateY(-3px);
+    border-color: #c8dbf0;
+    box-shadow: 0 20px 42px rgba(16, 42, 74, 0.12);
 }
 
 .career-opening-logo {
@@ -360,6 +454,28 @@
     font-size: 1rem;
 }
 
+.career-opening-category {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    color: #73859c;
+    font-size: 0.96rem;
+}
+
+.career-opening-category span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.career-opening-category span::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #d4dfec;
+}
+
 .career-opening-meta {
     display: flex;
     flex-wrap: wrap;
@@ -408,6 +524,11 @@
     font-size: 0.95rem;
 }
 
+.career-opening-footer strong {
+    color: #40566f;
+    font-weight: 700;
+}
+
 .career-opening-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -438,12 +559,34 @@
 }
 
 @media (max-width: 1180px) {
+    .career-home-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .career-topbar {
+        flex-wrap: wrap;
+    }
+
+    .career-nav {
+        justify-content: flex-start;
+    }
+
+    .career-nav-utility {
+        margin-left: 0;
+        padding-left: 0;
+        border-left: 0;
+    }
+
     .career-openings-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 980px) {
+    .career-home-points {
+        grid-template-columns: 1fr;
+    }
+
     .career-search-bar {
         grid-template-columns: 1fr;
     }
@@ -463,14 +606,6 @@
     .career-nav {
         justify-content: flex-start;
         gap: 16px;
-    }
-
-    .career-hero {
-        padding: 30px 24px;
-    }
-
-    .career-hero h2 {
-        font-size: 2.08rem;
     }
 
     .career-opening-card,
@@ -499,15 +634,59 @@
     <nav class="career-nav" aria-label="Navigasi karir">
         <span>Beranda</span>
         <span class="is-active">Lowongan</span>
+        <span>Program Kami</span>
+        <span>Agenda</span>
+        <span>Berita dan Artikel</span>
         <span>Tentang Kami</span>
         <span>Bantuan</span>
+        <span class="career-nav-utility">
+            <span>Daftar</span>
+            <span>Masuk</span>
+            <span class="career-nav-lang">
+                <span class="is-active">ID</span>
+                <span>EN</span>
+            </span>
+        </span>
     </nav>
 </section>
 
-<section class="career-hero">
-    <p class="career-kicker">Lowongan</p>
-    <h2>Temukan peran yang tepat dan kirim lamaran dengan alur yang simpel.</h2>
-    <p>Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit.</p>
+<section class="career-home-grid">
+    <div class="career-home-highlight">
+        <h3>Mulai dari beranda yang sederhana dan jelas</h3>
+        <p>Halaman ini kami arahkan seperti portal karir publik: kandidat bisa langsung lihat lowongan, memahami posisi, kirim lamaran, lalu lanjut ke tes tanpa harus bingung dengan banyak panel yang tidak penting. Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit.</p>
+        <div class="career-home-points">
+            <div class="career-home-point">
+                <strong>1</strong>
+                <span>Pilih posisi yang paling sesuai dari daftar lowongan aktif.</span>
+            </div>
+            <div class="career-home-point">
+                <strong>2</strong>
+                <span>Kirim lamaran dengan data inti dan CV terbaru.</span>
+            </div>
+            <div class="career-home-point">
+                <strong>3</strong>
+                <span>Lanjut tes memakai kode 5 digit dari sistem atau HR.</span>
+            </div>
+        </div>
+    </div>
+    <div class="career-home-stats">
+        <h3>Ringkasan Beranda</h3>
+        <p>Tampilan ini menempatkan info yang benar-benar penting di atas, lalu daftar lowongan di bawah.</p>
+        <div class="career-home-stat-grid">
+            <div class="career-home-stat">
+                <strong>{{ published_openings }}</strong>
+                <span>Lowongan aktif tersedia saat ini</span>
+            </div>
+            <div class="career-home-stat">
+                <strong>5</strong>
+                <span>Kode tes selalu 5 digit untuk akses cepat</span>
+            </div>
+            <div class="career-home-stat">
+                <strong>1</strong>
+                <span>Alur utama kandidat: lihat lowongan, lamar, lalu tes</span>
+            </div>
+        </div>
+    </div>
 </section>
 
 <section class="career-search-bar" aria-label="Filter lowongan">
@@ -545,7 +724,7 @@
 </section>
 
 {% if latest_assessment_code and latest_candidate %}
-<section class="career-latest-code">
+<section class="career-latest-code" id="careerLatestCodeSection">
     <span>Kode tes terakhir untuk {{ latest_candidate.candidate_name or 'kandidat' }}</span>
     <strong>{{ latest_assessment_code }}</strong>
     <p>Simpan kode ini untuk melanjutkan tes kapan pun dibutuhkan.</p>
@@ -575,6 +754,10 @@
             <h3 class="career-opening-title">{{ opening.title }}</h3>
             <p class="career-opening-company">{{ opening.department or 'General Team' }}</p>
         </div>
+        <div class="career-opening-category">
+            <span>{{ opening.department or 'General Team' }}</span>
+            <span>{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</span>
+        </div>
         <div class="career-opening-meta">
             <span class="career-chip">{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</span>
             {% if opening.location_label %}
@@ -593,7 +776,7 @@
             {% endif %}
         </div>
         <div class="career-opening-footer">
-            <div>Batas lamaran: Selama status masih dibuka</div>
+            <div><strong>Batas Lamaran:</strong> Selama status masih dibuka</div>
         </div>
         <div class="career-opening-actions">
             <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Lihat Detail</a>

@@ -64,6 +64,39 @@
 .career-nav span { white-space: nowrap; }
 .career-nav .is-active { color: var(--career-blue); font-weight: 700; }
 
+.career-nav-utility {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: 14px;
+    padding-left: 16px;
+    border-left: 1px solid var(--career-line);
+    color: #5f7289;
+    font-size: 0.92rem;
+}
+
+.career-nav-lang {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid #cfe0f3;
+    border-radius: 12px;
+}
+
+.career-nav-lang span {
+    min-width: 38px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    background: #fff;
+}
+
+.career-nav-lang .is-active {
+    color: #fff;
+    background: var(--career-blue);
+}
+
 .career-breadcrumb {
     color: #6f8298;
     font-size: 0.95rem;
@@ -93,6 +126,35 @@
     line-height: 1.7;
 }
 
+.career-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.career-hero-actions a {
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.career-hero-actions .is-primary {
+    background: #fff;
+    color: var(--career-blue);
+}
+
+.career-hero-actions .is-secondary {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.24);
+}
+
 .career-layout {
     display: grid;
     gap: 28px;
@@ -114,6 +176,24 @@
 .career-card {
     border-radius: 24px;
     padding: 24px;
+}
+
+.career-main-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.career-main-head h2 {
+    margin: 0;
+    color: #163257;
+}
+
+.career-main-head p {
+    margin: 4px 0 0;
+    color: var(--career-muted);
 }
 
 .career-chip {
@@ -298,6 +378,13 @@
 @media (max-width: 1180px) {
     .career-layout { grid-template-columns: 1fr; }
     .career-side { position: static; }
+    .career-topbar { flex-wrap: wrap; }
+    .career-nav { justify-content: flex-start; }
+    .career-nav-utility {
+        margin-left: 0;
+        padding-left: 0;
+        border-left: 0;
+    }
 }
 
 @media (max-width: 760px) {
@@ -309,6 +396,15 @@
 
     .career-hero {
         padding: 28px 24px;
+    }
+
+    .career-hero-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .career-hero-actions a {
+        width: 100%;
     }
 
     .career-detail-grid,
@@ -332,8 +428,19 @@
     <nav class="career-nav" aria-label="Navigasi karir">
         <span>Beranda</span>
         <span class="is-active">Lowongan</span>
+        <span>Program Kami</span>
+        <span>Agenda</span>
+        <span>Berita dan Artikel</span>
         <span>Tentang Kami</span>
         <span>Bantuan</span>
+        <span class="career-nav-utility">
+            <span>Daftar</span>
+            <span>Masuk</span>
+            <span class="career-nav-lang">
+                <span class="is-active">ID</span>
+                <span>EN</span>
+            </span>
+        </span>
     </nav>
 </section>
 
@@ -348,12 +455,22 @@
         <span class="career-chip">{{ opening.location_label or 'Tanpa lokasi' }}</span>
         <span class="career-chip">{{ opening.warehouse_name or 'Umum' }}</span>
     </div>
+    <div class="career-hero-actions">
+        <a href="#careerApplyForm" class="is-primary">Lamar Posisi Ini</a>
+        <a href="{{ url_for('career.index') }}" class="is-secondary">Kembali ke Lowongan</a>
+    </div>
 </section>
 
 <div class="career-layout">
     <div class="career-main">
         <section class="career-card">
-            <a href="{{ url_for('career.index') }}" class="career-back-link">Kembali ke daftar lowongan</a>
+            <div class="career-main-head">
+                <div>
+                    <h2>Informasi Pekerjaan</h2>
+                    <p>Ringkasan posisi yang sedang Anda buka.</p>
+                </div>
+                <a href="{{ url_for('career.index') }}" class="career-back-link">Kembali ke daftar lowongan</a>
+            </div>
             <div class="career-detail-grid">
                 <div class="career-detail-row">
                     <span>Posisi</span>
