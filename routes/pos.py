@@ -2484,13 +2484,15 @@ def _resolve_or_create_customer(db, warehouse_id, customer_id, customer_name, cu
         customer_name=safe_name,
     )
     if existing_identity:
+        persisted_phone = str(existing_identity["phone"] or "").strip() or None
+        next_phone = safe_phone or persisted_phone
         db.execute(
             """
             UPDATE crm_customers
             SET
                 customer_name=?,
-                contact_person=COALESCE(NULLIF(?, ''), contact_person),
-                phone=COALESCE(NULLIF(?, ''), phone),
+                contact_person=?,
+                phone=?,
                 customer_type='member',
                 marketing_channel=COALESCE(NULLIF(marketing_channel, ''), 'pos'),
                 note=COALESCE(NULLIF(note, ''), 'Merged by POS loyalty identity'),

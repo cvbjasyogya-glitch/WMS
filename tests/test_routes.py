@@ -9745,6 +9745,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(purchase["customer_id"], customer["id"])
         self.assertEqual(snapshot["current_points"], 36)
 
+    def test_pos_checkout_customer_identity_update_avoids_nullable_nullif_for_postgresql_safety(self):
+        route_path = os.path.join(self.app.root_path, "routes", "pos.py")
+        with open(route_path, "r", encoding="utf-8") as route_file:
+            route_text = route_file.read()
+
+        self.assertNotIn("contact_person=COALESCE(NULLIF(?, ''), contact_person)", route_text)
+        self.assertNotIn("phone=COALESCE(NULLIF(?, ''), phone)", route_text)
+        self.assertIn("contact_person=?,", route_text)
+        self.assertIn("phone=?,", route_text)
+
     def test_pos_checkout_auto_creates_stringing_member_and_applies_75k_progress_threshold(self):
         self.create_user("staff_sales_auto_senar", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_auto_senar")
