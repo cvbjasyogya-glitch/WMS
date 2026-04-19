@@ -7015,6 +7015,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("__APP_SHELL_ASSETS__", body)
         self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
 
+    def test_public_hosts_get_cleanup_service_worker_script(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+        self.app.config["SMS_PUBLIC_HOSTS"] = ["sms.test"]
+
+        recruitment_response = self.client.get("/service-worker.js", headers={"Host": "recruitment.test"})
+        recruitment_body = recruitment_response.get_data(as_text=True)
+        self.assertEqual(recruitment_response.status_code, 200)
+        self.assertIn('self.registration.unregister()', recruitment_body)
+        self.assertIn('const PUBLIC_HOST_MODE = "recruitment"', recruitment_body)
+        self.assertNotIn('addEventListener("push"', recruitment_body)
+
+        sms_response = self.client.get("/service-worker.js", headers={"Host": "sms.test"})
+        sms_body = sms_response.get_data(as_text=True)
+        self.assertEqual(sms_response.status_code, 200)
+        self.assertIn('const PUBLIC_HOST_MODE = "sms"', sms_body)
+        self.assertIn('self.registration.unregister()', sms_body)
+        self.assertNotIn('OFFLINE_FALLBACK_URL', sms_body)
+
     def test_assetlinks_route_returns_android_app_binding_when_configured(self):
         self.app.config["ANDROID_APP_PACKAGE"] = "cloud.cvbjasyogya.erp"
         self.app.config["ANDROID_SHA256_CERT_FINGERPRINTS"] = [
@@ -12362,14 +12382,22 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         home_response = self.client.get("/beranda", headers={"Host": "recruitment.test"})
         self.assertEqual(home_response.status_code, 200)
-        self.assertIn("Mari Membangun Masa Depan Bersama", home_response.get_data(as_text=True))
-        self.assertIn("Pekerjaan tersedia", home_response.get_data(as_text=True))
+        home_html = home_response.get_data(as_text=True)
+        normalized_home_html = home_html.replace(" ", "")
+        self.assertIn("Mari Membangun Masa Depan Bersama", home_html)
+        self.assertIn("Pekerjaan tersedia", home_html)
+        self.assertIn('"serviceWorkerEnabled":false', normalized_home_html)
+        self.assertIn('"publicHostMode":"recruitment"', normalized_home_html)
+        self.assertNotIn('rel="manifest"', home_html)
 
         public_response = self.client.get("/karir", headers={"Host": "recruitment.test"})
         self.assertEqual(public_response.status_code, 200)
-        self.assertIn("Picker Gudang", public_response.get_data(as_text=True))
-        self.assertIn("Lihat Detail", public_response.get_data(as_text=True))
-        self.assertIn("Punya Kode Tes?", public_response.get_data(as_text=True))
+        public_html = public_response.get_data(as_text=True)
+        normalized_public_html = public_html.replace(" ", "")
+        self.assertIn("Picker Gudang", public_html)
+        self.assertIn("Lihat Detail", public_html)
+        self.assertIn("Punya Kode Tes?", public_html)
+        self.assertIn('"serviceWorkerEnabled":false', normalized_public_html)
 
         detail_response = self.client.get(
             f"/karir/lowongan/{opening['id']}",
@@ -12427,7 +12455,12 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         login_response = self.client.get("/login?next=/sms/", headers={"Host": "sms.test"})
         self.assertEqual(login_response.status_code, 200)
-        self.assertIn("Masuk", login_response.get_data(as_text=True))
+        login_html = login_response.get_data(as_text=True)
+        normalized_login_html = login_html.replace(" ", "")
+        self.assertIn("Masuk", login_html)
+        self.assertIn('"serviceWorkerEnabled":false', normalized_login_html)
+        self.assertIn('"publicHostMode":"sms"', normalized_login_html)
+        self.assertNotIn('rel="manifest"', login_html)
 
         internal_response = self.client.get("/workspace", headers={"Host": "sms.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)

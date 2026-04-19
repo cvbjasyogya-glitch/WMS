@@ -1,6 +1,7 @@
 (function () {
     const config = window.wmsAppShellConfig || {};
     const serviceWorkerUrl = config.serviceWorkerUrl || "/service-worker.js";
+    const serviceWorkerEnabled = config.serviceWorkerEnabled !== false;
     const installButtons = Array.from(document.querySelectorAll("[data-pwa-install-trigger]"));
     const standaloneQuery = window.matchMedia ? window.matchMedia("(display-mode: standalone)") : null;
     let deferredInstallPrompt = null;
@@ -65,6 +66,15 @@
     function syncInstallUi() {
         setBodyAppMode();
         let installContext = "browser";
+
+        if (!serviceWorkerEnabled) {
+            installContext = config.publicHostMode
+                ? `${config.publicHostMode}-public-host`
+                : "disabled";
+            document.body.dataset.installContext = installContext;
+            setInstallButtonState(false, "");
+            return;
+        }
 
         if (isStandaloneMode()) {
             installContext = "standalone";
@@ -146,7 +156,42 @@
         });
     }
 
+    async function unregisterServiceWorkers() {
+        if (!("serviceWorker" in navigator)) {
+            return;
+        }
+
+        try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(
+                registrations.map((registration) => registration.unregister().catch(() => false))
+            );
+        } catch (error) {
+            console.warn("ERP app shell service worker cleanup failed.", error);
+        }
+
+        if (!("caches" in window)) {
+            return;
+        }
+
+        try {
+            const cacheKeys = await caches.keys();
+            await Promise.all(
+                cacheKeys
+                    .filter((key) => key.startsWith("wms-app-shell-") || key.startsWith("wms-static-runtime-"))
+                    .map((key) => caches.delete(key))
+            );
+        } catch (error) {
+            console.warn("ERP app shell cache cleanup failed.", error);
+        }
+    }
+
     async function registerServiceWorker() {
+        if (!serviceWorkerEnabled) {
+            await unregisterServiceWorkers();
+            return;
+        }
+
         if (!("serviceWorker" in navigator)) {
             return;
         }

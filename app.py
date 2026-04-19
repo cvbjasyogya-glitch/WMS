@@ -453,6 +453,14 @@ def _is_sms_public_host(app, candidate_host):
     return _is_allowed_host(candidate_host, sms_hosts)
 
 
+def _get_public_host_mode(app, candidate_host):
+    if _is_recruitment_public_host(app, candidate_host):
+        return "recruitment"
+    if _is_sms_public_host(app, candidate_host):
+        return "sms"
+    return ""
+
+
 def _canonical_request_location(app):
     canonical_host_name, canonical_host_port = _split_host_port(
         app.config.get("CANONICAL_HOST")
@@ -1042,6 +1050,43 @@ def create_app():
 
     @app.get("/service-worker.js")
     def service_worker():
+        public_host_mode = _get_public_host_mode(app, request.host)
+        if public_host_mode:
+            cleanup_script = f"""
+const PUBLIC_HOST_MODE = {json.dumps(public_host_mode)};
+const CACHE_PREFIXES = ["wms-app-shell-", "wms-static-runtime-"];
+
+self.addEventListener("install", (event) => {{
+    event.waitUntil(self.skipWaiting());
+}});
+
+self.addEventListener("activate", (event) => {{
+    event.waitUntil((async () => {{
+        const cacheKeys = await caches.keys();
+        await Promise.all(
+            cacheKeys
+                .filter((key) => CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)))
+                .map((key) => caches.delete(key))
+        );
+        await self.registration.unregister();
+        const clients = await self.clients.matchAll({{ type: "window", includeUncontrolled: true }});
+        await Promise.all(
+            clients.map((client) => (
+                typeof client.navigate === "function"
+                    ? client.navigate(client.url)
+                    : Promise.resolve()
+            ))
+        );
+    }})());
+}});
+
+self.addEventListener("fetch", () => {{}});
+"""
+            response = app.response_class(cleanup_script, mimetype="application/javascript")
+            response.headers["Cache-Control"] = "no-cache, no-store, max-age=0"
+            response.headers["Service-Worker-Allowed"] = "/"
+            return response
+
         service_worker_path = os.path.join(app.static_folder, "js", "push_service_worker.js")
         with open(service_worker_path, "r", encoding="utf-8") as file_handle:
             script_body = file_handle.read()
@@ -1122,6 +1167,8 @@ def create_app():
         role = session.get("role")
         shell_break_timer = _build_shell_break_timer_state() if session.get("user_id") else {"active": False}
         use_homebase_ui = _should_use_homebase_ui(request.path)
+        public_host_mode = _get_public_host_mode(app, request.host)
+        service_worker_enabled = not bool(public_host_mode)
         return {
             "can": lambda permission: has_permission(role, permission),
             "can_access_pos_terminal": lambda: can_access_pos_terminal(role),
@@ -1136,6 +1183,8 @@ def create_app():
             "app_version": app.config.get("APP_VERSION"),
             "shell_break_timer": shell_break_timer,
             "use_homebase_ui": use_homebase_ui,
+            "public_host_mode": public_host_mode,
+            "service_worker_enabled": service_worker_enabled,
             "ui_scope_label": (
                 lambda value: _replace_scope_label_with_homebase(value)
                 if use_homebase_ui

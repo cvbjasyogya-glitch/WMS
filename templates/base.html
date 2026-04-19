@@ -30,7 +30,9 @@
 {% set service_worker_url = url_for('service_worker', v=app_version) %}
 <link rel="icon" type="image/png" href="{{ brand_logo_192_url }}">
 <link rel="apple-touch-icon" href="{{ brand_logo_192_url }}">
+{% if service_worker_enabled %}
 <link rel="manifest" href="{{ manifest_url }}">
+{% endif %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -1492,7 +1494,9 @@ window.wmsRunWhenIdle = window.wmsRunWhenIdle || function (callback, timeout = 8
 {{ {
     "serviceWorkerUrl": service_worker_url,
     "offlineUrl": offline_url,
-    "installPromptTitle": "Install ERP-CV.BJAS"
+    "installPromptTitle": "Install ERP-CV.BJAS",
+    "serviceWorkerEnabled": service_worker_enabled,
+    "publicHostMode": public_host_mode
 }|tojson }}
 </script>
 <script>
@@ -1528,7 +1532,9 @@ window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
 {{ {
     "serviceWorkerUrl": service_worker_url,
     "offlineUrl": offline_url,
-    "installPromptTitle": "Install ERP-CV.BJAS"
+    "installPromptTitle": "Install ERP-CV.BJAS",
+    "serviceWorkerEnabled": service_worker_enabled,
+    "publicHostMode": public_host_mode
 }|tojson }}
 </script>
 <script>
