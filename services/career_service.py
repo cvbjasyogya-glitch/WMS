@@ -1,4 +1,6 @@
+import json
 import os
+import random
 from uuid import uuid4
 
 from flask import current_app
@@ -17,6 +19,8 @@ CAREER_EMPLOYMENT_TYPES = {
 }
 CAREER_RESUME_EXTENSIONS = {".pdf", ".doc", ".docx"}
 CAREER_APPLICATION_CHANNELS = {"public_portal", "manual_hr"}
+CAREER_ASSESSMENT_STATUSES = {"pending", "started", "submitted", "reviewed"}
+CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d"}
 
 
 def normalize_career_opening_status(value):
@@ -32,6 +36,21 @@ def normalize_career_employment_type(value):
 def normalize_career_application_channel(value):
     channel = (value or "").strip().lower()
     return channel if channel in CAREER_APPLICATION_CHANNELS else "manual_hr"
+
+
+def normalize_career_assessment_status(value):
+    status = (value or "").strip().lower()
+    return status if status in CAREER_ASSESSMENT_STATUSES else "pending"
+
+
+def normalize_assessment_code(value):
+    safe_value = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return safe_value if len(safe_value) == 5 else ""
+
+
+def normalize_assessment_option(value):
+    safe_value = (value or "").strip().lower()
+    return safe_value if safe_value in CAREER_ASSESSMENT_CORRECT_OPTIONS else ""
 
 
 def _get_table_columns(db, table_name):
@@ -134,13 +153,61 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS portfolio_url TEXT",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS resume_original_name TEXT",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS resume_path TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_code TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_status TEXT DEFAULT 'pending'",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_started_at TIMESTAMP",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_submitted_at TIMESTAMP",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_answers_json TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_auto_score DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_manual_score DOUBLE PRECISION",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_final_score DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_review_notes TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_reviewed_by INTEGER",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_reviewed_at TIMESTAMP",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_violation_count INTEGER DEFAULT 0",
+            """
+            CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
+                id SERIAL PRIMARY KEY,
+                warehouse_id INTEGER,
+                prompt TEXT NOT NULL,
+                option_a TEXT NOT NULL,
+                option_b TEXT NOT NULL,
+                option_c TEXT NOT NULL,
+                option_d TEXT NOT NULL,
+                correct_option TEXT NOT NULL,
+                score_weight INTEGER DEFAULT 10,
+                sort_order INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_by INTEGER,
+                updated_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS prompt TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_a TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_b TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_c TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_d TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS correct_option TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS score_weight INTEGER DEFAULT 10",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS created_by INTEGER",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS updated_by INTEGER",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "CREATE INDEX IF NOT EXISTS idx_career_openings_public ON career_openings(status, is_public, warehouse_id, sort_order)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_vacancy ON recruitment_candidates(vacancy_id, warehouse_id, created_at)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)",
+            "CREATE INDEX IF NOT EXISTS idx_recruitment_assessment_questions_scope ON recruitment_assessment_questions(is_active, warehouse_id, sort_order)",
         ]
         for statement in statements:
             db.execute(statement)
         _ensure_postgresql_id_sequence(db, "career_openings")
         _ensure_postgresql_id_sequence(db, "recruitment_candidates")
+        _ensure_postgresql_id_sequence(db, "recruitment_assessment_questions")
     else:
         db.execute(
             """
@@ -176,14 +243,173 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "portfolio_url", "TEXT")
         _sqlite_ensure_column(db, "recruitment_candidates", "resume_original_name", "TEXT")
         _sqlite_ensure_column(db, "recruitment_candidates", "resume_path", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_code", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_status", "TEXT DEFAULT 'pending'")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_started_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_submitted_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_answers_json", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_auto_score", "REAL DEFAULT 0")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_manual_score", "REAL")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_final_score", "REAL DEFAULT 0")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_review_notes", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_reviewed_by", "INTEGER")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_reviewed_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_violation_count", "INTEGER DEFAULT 0")
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                warehouse_id INTEGER,
+                prompt TEXT NOT NULL,
+                option_a TEXT NOT NULL,
+                option_b TEXT NOT NULL,
+                option_c TEXT NOT NULL,
+                option_d TEXT NOT NULL,
+                correct_option TEXT NOT NULL,
+                score_weight INTEGER DEFAULT 10,
+                sort_order INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_by INTEGER,
+                updated_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_career_openings_public ON career_openings(status, is_public, warehouse_id, sort_order)"
         )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_vacancy ON recruitment_candidates(vacancy_id, warehouse_id, created_at)"
         )
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recruitment_assessment_questions_scope ON recruitment_assessment_questions(is_active, warehouse_id, sort_order)"
+        )
 
     runtime_state[cache_key] = True
+
+
+def generate_unique_assessment_code(db):
+    for _ in range(120):
+        code = f"{random.randint(0, 99999):05d}"
+        existing = db.execute(
+            "SELECT id FROM recruitment_candidates WHERE assessment_code=? LIMIT 1",
+            (code,),
+        ).fetchone()
+        if not existing:
+            return code
+    raise RuntimeError("Tidak bisa membuat kode tes unik. Coba lagi.")
+
+
+def assign_candidate_assessment_code(db, candidate_id, preferred_code=""):
+    safe_preferred = normalize_assessment_code(preferred_code)
+    if safe_preferred:
+        existing = db.execute(
+            "SELECT id FROM recruitment_candidates WHERE assessment_code=? AND id<>? LIMIT 1",
+            (safe_preferred, candidate_id),
+        ).fetchone()
+        if existing:
+            raise ValueError("Kode tes sudah dipakai kandidat lain.")
+        safe_code = safe_preferred
+    else:
+        safe_code = generate_unique_assessment_code(db)
+
+    db.execute(
+        """
+        UPDATE recruitment_candidates
+        SET assessment_code=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (safe_code, candidate_id),
+    )
+    return safe_code
+
+
+def ensure_candidate_assessment_code(db, candidate_id, current_code=""):
+    safe_current = normalize_assessment_code(current_code)
+    if safe_current:
+        return safe_current
+    return assign_candidate_assessment_code(db, candidate_id)
+
+
+def decode_assessment_answers(raw_value):
+    if not raw_value:
+        return {}
+    try:
+        payload = json.loads(raw_value)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    safe_payload = {}
+    for key, value in payload.items():
+        try:
+            question_id = int(key)
+        except Exception:
+            continue
+        answer = normalize_assessment_option(value)
+        if answer:
+            safe_payload[question_id] = answer
+    return safe_payload
+
+
+def encode_assessment_answers(answers):
+    safe_payload = {}
+    for key, value in (answers or {}).items():
+        try:
+            question_id = int(key)
+        except Exception:
+            continue
+        answer = normalize_assessment_option(value)
+        if answer:
+            safe_payload[str(question_id)] = answer
+    return json.dumps(safe_payload, ensure_ascii=True, sort_keys=True)
+
+
+def score_assessment_questions(questions, answers):
+    safe_answers = decode_assessment_answers(answers) if isinstance(answers, str) else {
+        int(key): normalize_assessment_option(value)
+        for key, value in (answers or {}).items()
+        if str(key).strip().isdigit() and normalize_assessment_option(value)
+    }
+    total_weight = 0
+    earned = 0
+    answered = 0
+    scored_questions = []
+
+    for question in questions or []:
+        question_id = int(question.get("id") or 0)
+        if question_id <= 0:
+            continue
+        weight = max(int(question.get("score_weight") or 0), 0)
+        total_weight += weight
+        correct_option = normalize_assessment_option(question.get("correct_option"))
+        candidate_option = normalize_assessment_option(safe_answers.get(question_id))
+        is_correct = bool(candidate_option and candidate_option == correct_option)
+        if candidate_option:
+            answered += 1
+        if is_correct:
+            earned += weight
+        scored_questions.append(
+            {
+                **question,
+                "candidate_option": candidate_option,
+                "is_correct": is_correct,
+            }
+        )
+
+    percentage = round((earned / total_weight) * 100, 2) if total_weight > 0 else 0.0
+    return {
+        "answered": answered,
+        "earned": earned,
+        "total_weight": total_weight,
+        "percentage": percentage,
+        "questions": scored_questions,
+    }
 
 
 def get_career_resume_root():

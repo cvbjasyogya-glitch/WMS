@@ -97,6 +97,8 @@ def _admin_role_bucket(role):
 
 
 def require_admin():
+    if normalize_role(session.get("role")) == "super_admin":
+        return True
     if not has_permission(session.get("role"), "view_admin"):
         flash("Akses ditolak", "error")
         return False
@@ -795,7 +797,7 @@ def update_user(id):
 
 @admin_bp.route("/delete_user/<int:id>", methods=["POST"])
 def delete_user(id):
-    if not require_admin():
+    if not require_super_admin():
         return redirect("/")
 
     db = get_db()

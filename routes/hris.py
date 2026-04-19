@@ -50,11 +50,18 @@ from services.attendance_request_service import (
 )
 from services.event_notification_policy import get_event_notification_policy
 from services.career_service import (
+    assign_candidate_assessment_code,
     build_career_resume_path,
+    ensure_candidate_assessment_code,
     ensure_career_schema,
+    generate_unique_assessment_code,
+    normalize_assessment_code,
+    normalize_assessment_option,
+    normalize_career_assessment_status,
     normalize_career_application_channel,
     normalize_career_employment_type,
     normalize_career_opening_status,
+    score_assessment_questions,
 )
 from services.kpi_catalog import (
     KPI_REPORT_STATUS_LABELS,
@@ -2376,14 +2383,14 @@ def _build_biometric_status_meta(status):
     return BIOMETRIC_STATUS_LABELS.get(safe_status, safe_status), badge_class
 
 
-def _resolve_employee_warehouse(db, raw_warehouse_id):
+def _resolve_employee_warehouse(db, raw_warehouse_id, allow_empty=False):
     scope_warehouse = get_hris_scope()
     if scope_warehouse:
         return scope_warehouse
 
     warehouse_id = _to_int(raw_warehouse_id)
     if warehouse_id is None:
-        return None
+        return None if allow_empty else None
 
     warehouse = db.execute(
         "SELECT id FROM warehouses WHERE id=?",
@@ -6223,6 +6230,68 @@ def _fetch_career_openings(db, selected_warehouse=None):
     return [dict(row) for row in db.execute(query, params).fetchall()]
 
 
+def _fetch_recruitment_assessment_questions(db, selected_warehouse=None):
+    ensure_career_schema(db)
+    scope_warehouse = get_hris_scope()
+    effective_warehouse = scope_warehouse or selected_warehouse
+    query = """
+        SELECT
+            q.*,
+            w.name AS warehouse_name,
+            u.username AS updated_by_name
+        FROM recruitment_assessment_questions q
+        LEFT JOIN warehouses w ON q.warehouse_id = w.id
+        LEFT JOIN users u ON q.updated_by = u.id
+        WHERE 1=1
+    """
+    params = []
+    if effective_warehouse:
+        query += " AND (q.warehouse_id IS NULL OR q.warehouse_id=?)"
+        params.append(effective_warehouse)
+    query += " ORDER BY COALESCE(q.sort_order, 0) ASC, q.id ASC"
+    return [dict(row) for row in db.execute(query, params).fetchall()]
+
+
+def _get_recruitment_assessment_question_by_id(db, question_id):
+    ensure_career_schema(db)
+    scope_warehouse = get_hris_scope()
+    query = """
+        SELECT q.*
+        FROM recruitment_assessment_questions q
+        WHERE q.id=?
+    """
+    params = [question_id]
+    if scope_warehouse:
+        query += " AND (q.warehouse_id IS NULL OR q.warehouse_id=?)"
+        params.append(scope_warehouse)
+    return db.execute(query, params).fetchone()
+
+
+def _build_recruitment_assessment_summary(recruitment_candidates, assessment_questions):
+    completed = sum(
+        1
+        for candidate in recruitment_candidates
+        if (candidate.get("assessment_status") or "pending") in {"submitted", "reviewed"}
+    )
+    flagged = sum(1 for candidate in recruitment_candidates if int(candidate.get("assessment_violation_count") or 0) > 0)
+    scored = [
+        float(
+            candidate.get("assessment_manual_score")
+            if candidate.get("assessment_manual_score") is not None
+            else candidate.get("assessment_final_score") or 0
+        )
+        for candidate in recruitment_candidates
+        if (candidate.get("assessment_status") or "pending") in {"submitted", "reviewed"}
+    ]
+    avg_score = round(sum(scored) / len(scored), 2) if scored else 0.0
+    return {
+        "questions": len(assessment_questions or []),
+        "completed": completed,
+        "flagged": flagged,
+        "avg_score": avg_score,
+    }
+
+
 def _get_career_opening_by_id(db, opening_id):
     ensure_career_schema(db)
     scope_warehouse = get_hris_scope()
@@ -7136,6 +7205,8 @@ def hris_index(module_slug=None):
     recruitment_filters = None
     career_openings = []
     career_openings_summary = None
+    recruitment_assessment_questions = []
+    recruitment_assessment_summary = None
     onboarding_records = []
     onboarding_summary = None
     onboarding_filters = None
@@ -7275,6 +7346,11 @@ def hris_index(module_slug=None):
         recruitment_summary = _build_recruitment_summary(recruitment_candidates)
         career_openings = _fetch_career_openings(db, selected_warehouse)
         career_openings_summary = _build_career_opening_summary(career_openings)
+        recruitment_assessment_questions = _fetch_recruitment_assessment_questions(db, selected_warehouse)
+        recruitment_assessment_summary = _build_recruitment_assessment_summary(
+            recruitment_candidates,
+            recruitment_assessment_questions,
+        )
         recruitment_filters = {
             "search": search,
             "stage": stage,
@@ -7455,6 +7531,8 @@ def hris_index(module_slug=None):
         recruitment_filters=recruitment_filters,
         career_openings=career_openings,
         career_openings_summary=career_openings_summary,
+        recruitment_assessment_questions=recruitment_assessment_questions,
+        recruitment_assessment_summary=recruitment_assessment_summary,
         career_public_url=url_for("career.index"),
         onboarding_records=onboarding_records,
         onboarding_summary=onboarding_summary,
@@ -8647,6 +8725,7 @@ def add_recruitment():
     expected_join_date = (request.form.get("expected_join_date") or "").strip()
     note = (request.form.get("note") or "").strip()
     portfolio_url = (request.form.get("portfolio_url") or "").strip()
+    assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
     vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
 
@@ -8681,11 +8760,12 @@ def add_recruitment():
             vacancy_id,
             application_channel,
             portfolio_url,
+            assessment_code,
             handled_by,
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             candidate_name,
@@ -8702,14 +8782,30 @@ def add_recruitment():
             vacancy_id,
             normalize_career_application_channel("manual_hr"),
             portfolio_url or None,
+            assessment_code or None,
             handled_by,
             handled_at,
             _current_timestamp(),
         ),
     )
+    created_candidate = db.execute(
+        """
+        SELECT id, assessment_code
+        FROM recruitment_candidates
+        WHERE candidate_name=? AND position_title=? AND warehouse_id=?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (candidate_name, position_title, warehouse_id),
+    ).fetchone()
+    final_assessment_code = ensure_candidate_assessment_code(
+        db,
+        created_candidate["id"],
+        created_candidate["assessment_code"] if created_candidate else assessment_code,
+    )
     db.commit()
 
-    flash("Kandidat recruitment berhasil ditambahkan", "success")
+    flash(f"Kandidat recruitment berhasil ditambahkan. Kode tes: {final_assessment_code}", "success")
     return redirect("/hris/recruitment")
 
 
@@ -8737,8 +8833,19 @@ def update_recruitment(candidate_id):
     expected_join_date = (request.form.get("expected_join_date") or "").strip()
     note = (request.form.get("note") or "").strip()
     portfolio_url = (request.form.get("portfolio_url") or "").strip()
+    assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
+    assessment_status = normalize_career_assessment_status(
+        request.form.get("assessment_status") or candidate.get("assessment_status")
+    )
+    assessment_manual_score_raw = (request.form.get("assessment_manual_score") or "").strip()
+    assessment_review_notes = (request.form.get("assessment_review_notes") or "").strip()
     vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    assessment_manual_score = (
+        _to_float(assessment_manual_score_raw, default=None)
+        if assessment_manual_score_raw
+        else None
+    )
 
     if not candidate_name or not position_title:
         flash("Nama kandidat dan posisi wajib diisi", "error")
@@ -8753,6 +8860,16 @@ def update_recruitment(candidate_id):
         return redirect("/hris/recruitment")
 
     handled_by, handled_at = _build_recruitment_handling(status)
+    if assessment_manual_score is not None:
+        assessment_final_score = assessment_manual_score
+        if assessment_status in {"pending", "started"}:
+            assessment_status = "reviewed"
+        assessment_reviewed_by = session.get("user_id")
+        assessment_reviewed_at = _current_timestamp()
+    else:
+        assessment_final_score = candidate.get("assessment_auto_score") or 0
+        assessment_reviewed_by = candidate.get("assessment_reviewed_by")
+        assessment_reviewed_at = candidate.get("assessment_reviewed_at")
 
     db.execute(
         """
@@ -8770,6 +8887,13 @@ def update_recruitment(candidate_id):
             note=?,
             vacancy_id=?,
             portfolio_url=?,
+            assessment_code=?,
+            assessment_status=?,
+            assessment_manual_score=?,
+            assessment_final_score=?,
+            assessment_review_notes=?,
+            assessment_reviewed_by=?,
+            assessment_reviewed_at=?,
             handled_by=?,
             handled_at=?,
             updated_at=?
@@ -8789,15 +8913,27 @@ def update_recruitment(candidate_id):
             note or None,
             vacancy_id,
             portfolio_url or None,
+            assessment_code or candidate.get("assessment_code"),
+            assessment_status,
+            assessment_manual_score,
+            assessment_final_score,
+            assessment_review_notes or None,
+            assessment_reviewed_by,
+            assessment_reviewed_at,
             handled_by,
             handled_at,
             _current_timestamp(),
             candidate_id,
         ),
     )
+    final_assessment_code = ensure_candidate_assessment_code(
+        db,
+        candidate_id,
+        assessment_code or candidate.get("assessment_code"),
+    )
     db.commit()
 
-    flash("Kandidat recruitment berhasil diupdate", "success")
+    flash(f"Kandidat recruitment berhasil diupdate. Kode tes: {final_assessment_code}", "success")
     return redirect("/hris/recruitment")
 
 
@@ -8991,6 +9127,155 @@ def delete_recruitment_opening(opening_id):
     db.commit()
 
     flash("Lowongan karir berhasil dihapus.", "success")
+    return redirect("/hris/recruitment")
+
+
+@hris_bp.route("/recruitment/question/add", methods=["POST"])
+def add_recruitment_question():
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola soal recruitment", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"), allow_empty=True)
+    prompt = (request.form.get("prompt") or "").strip()
+    option_a = (request.form.get("option_a") or "").strip()
+    option_b = (request.form.get("option_b") or "").strip()
+    option_c = (request.form.get("option_c") or "").strip()
+    option_d = (request.form.get("option_d") or "").strip()
+    correct_option = normalize_assessment_option(request.form.get("correct_option"))
+    score_weight = max(_to_int(request.form.get("score_weight"), 10) or 10, 1)
+    sort_order = max(_to_int(request.form.get("sort_order"), 0) or 0, 0)
+    is_active = 1 if request.form.get("is_active") else 0
+
+    if not prompt or not option_a or not option_b or not option_c or not option_d or not correct_option:
+        flash("Soal, 4 opsi jawaban, dan kunci jawaban wajib diisi.", "error")
+        return redirect("/hris/recruitment")
+
+    db.execute(
+        """
+        INSERT INTO recruitment_assessment_questions(
+            warehouse_id,
+            prompt,
+            option_a,
+            option_b,
+            option_c,
+            option_d,
+            correct_option,
+            score_weight,
+            sort_order,
+            is_active,
+            created_by,
+            updated_by,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        """,
+        (
+            warehouse_id,
+            prompt,
+            option_a,
+            option_b,
+            option_c,
+            option_d,
+            correct_option,
+            score_weight,
+            sort_order,
+            is_active,
+            session.get("user_id"),
+            session.get("user_id"),
+        ),
+    )
+    db.commit()
+
+    flash("Soal tes recruitment berhasil ditambahkan.", "success")
+    return redirect("/hris/recruitment")
+
+
+@hris_bp.route("/recruitment/question/update/<int:question_id>", methods=["POST"])
+def update_recruitment_question(question_id):
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola soal recruitment", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    question = _get_recruitment_assessment_question_by_id(db, question_id)
+    if question is None:
+        flash("Soal recruitment tidak ditemukan.", "error")
+        return redirect("/hris/recruitment")
+
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"), allow_empty=True)
+    prompt = (request.form.get("prompt") or "").strip()
+    option_a = (request.form.get("option_a") or "").strip()
+    option_b = (request.form.get("option_b") or "").strip()
+    option_c = (request.form.get("option_c") or "").strip()
+    option_d = (request.form.get("option_d") or "").strip()
+    correct_option = normalize_assessment_option(request.form.get("correct_option"))
+    score_weight = max(_to_int(request.form.get("score_weight"), question["score_weight"] or 10) or 10, 1)
+    sort_order = max(_to_int(request.form.get("sort_order"), question["sort_order"] or 0) or 0, 0)
+    is_active = 1 if request.form.get("is_active") else 0
+
+    if not prompt or not option_a or not option_b or not option_c or not option_d or not correct_option:
+        flash("Soal, 4 opsi jawaban, dan kunci jawaban wajib diisi.", "error")
+        return redirect("/hris/recruitment")
+
+    db.execute(
+        """
+        UPDATE recruitment_assessment_questions
+        SET warehouse_id=?,
+            prompt=?,
+            option_a=?,
+            option_b=?,
+            option_c=?,
+            option_d=?,
+            correct_option=?,
+            score_weight=?,
+            sort_order=?,
+            is_active=?,
+            updated_by=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            warehouse_id,
+            prompt,
+            option_a,
+            option_b,
+            option_c,
+            option_d,
+            correct_option,
+            score_weight,
+            sort_order,
+            is_active,
+            session.get("user_id"),
+            question_id,
+        ),
+    )
+    db.commit()
+
+    flash("Soal tes recruitment berhasil diupdate.", "success")
+    return redirect("/hris/recruitment")
+
+
+@hris_bp.route("/recruitment/question/delete/<int:question_id>", methods=["POST"])
+def delete_recruitment_question(question_id):
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola soal recruitment", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    question = _get_recruitment_assessment_question_by_id(db, question_id)
+    if question is None:
+        flash("Soal recruitment tidak ditemukan.", "error")
+        return redirect("/hris/recruitment")
+
+    db.execute("DELETE FROM recruitment_assessment_questions WHERE id=?", (question_id,))
+    db.commit()
+
+    flash("Soal tes recruitment berhasil dihapus.", "success")
     return redirect("/hris/recruitment")
 
 

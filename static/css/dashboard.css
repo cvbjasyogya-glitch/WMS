@@ -19683,18 +19683,78 @@ body .pos-classic-browser-table-box {
     box-shadow: none;
 }
 
+body .pos-classic-browser-table-box {
+    position: relative;
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: min(58vh, 720px);
+    padding: 0;
+    margin-top: 12px;
+    overscroll-behavior: contain;
+}
+
+body .pos-classic-browser-columns {
+    display: grid;
+    grid-template-columns: 148px minmax(260px, 41%) 16% 88px 132px 110px;
+    align-items: center;
+    gap: 0;
+    padding: 18px 12px;
+    margin-top: 2px;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: #eef2f7;
+    color: #53657a;
+    box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.18), 0 10px 18px rgba(15, 23, 42, 0.08);
+}
+
+body .pos-classic-browser-columns > span {
+    min-width: 0;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
 body .pos-classic-cart-table,
 body .pos-classic-browser-table {
     min-width: 760px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
-body .pos-classic-cart-table thead th,
 body .pos-classic-browser-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    padding-top: 18px;
+    padding-bottom: 18px;
     background: #eef2f7;
     color: #53657a;
     font-size: 0.74rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.18), 0 10px 18px rgba(15, 23, 42, 0.08);
+    background-clip: padding-box;
+}
+
+body .pos-classic-browser-table thead,
+body .pos-classic-browser-table thead tr {
+    background: #eef2f7;
+}
+
+body .pos-classic-browser-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
 }
 
 body .pos-classic-cart-table tbody tr,
@@ -19702,13 +19762,87 @@ body .pos-classic-browser-table tbody tr {
     background: #ffffff;
 }
 
+body .pos-classic-browser-table th,
+body .pos-classic-browser-table td {
+    position: relative;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+body .pos-classic-browser-table tbody td {
+    z-index: 0;
+    background: #ffffff;
+}
+
+body .pos-classic-browser-table tbody {
+    position: relative;
+    z-index: 0;
+}
+
+body .pos-classic-browser-table tbody tr:nth-child(even) td {
+    background: #fbfcfd;
+}
+
+body .pos-classic-browser-table th:nth-child(1),
+body .pos-classic-browser-table td:nth-child(1) {
+    width: 148px;
+    font-variant-numeric: tabular-nums;
+}
+
+body .pos-classic-browser-table th:nth-child(2),
+body .pos-classic-browser-table td:nth-child(2) {
+    width: 41%;
+    min-width: 260px;
+}
+
+body .pos-classic-browser-table th:nth-child(3),
+body .pos-classic-browser-table td:nth-child(3) {
+    width: 16%;
+}
+
+body .pos-classic-browser-table th:nth-child(4),
+body .pos-classic-browser-table td:nth-child(4) {
+    width: 88px;
+}
+
+body .pos-classic-browser-table th:nth-child(5),
+body .pos-classic-browser-table td:nth-child(5) {
+    width: 132px;
+}
+
+body .pos-classic-browser-table th:nth-child(6),
+body .pos-classic-browser-table td:nth-child(6) {
+    width: 110px;
+}
+
+body .pos-classic-browser-table td strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+    z-index: 1;
+    line-height: 1.25;
+}
+
+body .pos-classic-browser-table td .helper-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+    z-index: 1;
+    line-height: 1.2;
+}
+
 body .pos-classic-browser-row {
     cursor: pointer;
     transition: background 0.16s ease;
 }
 
-body .pos-classic-browser-row:hover,
-body .pos-classic-browser-row.is-active {
+body .pos-classic-browser-row:hover td,
+body .pos-classic-browser-row.is-active td {
     background: #edf5ff;
 }
 
@@ -22089,14 +22223,14 @@ body .pos-terminal-clean .pos-vintage-pickertable td {
     font-size: 0.8rem;
 }
 
-body .pos-terminal-clean .ops-queue-table thead th,
+body .pos-terminal-clean .ops-queue-table:not(.pos-classic-cart-table) thead th,
 body .pos-terminal-clean .pos-vintage-pickertable thead th {
     background: var(--pos-soft-2);
     color: #4f5c69;
     font-weight: 700;
 }
 
-body .pos-terminal-clean .ops-queue-table tbody tr:nth-child(even) td,
+body .pos-terminal-clean .ops-queue-table:not(.pos-classic-cart-table) tbody tr:nth-child(even) td,
 body .pos-terminal-clean .pos-vintage-pickertable tbody tr:nth-child(even) td {
     background: #fbfcfd;
 }
@@ -23089,6 +23223,37 @@ html[data-theme] body :is(
     color: var(--theme-table-header-color);
 }
 
+html[data-theme] body :is(
+    .pos-classic-browser-columns,
+    .pos-classic-browser-table thead,
+    .pos-classic-browser-table thead tr
+) {
+    background: #eef2f7;
+}
+
+html[data-theme="dark"] body :is(
+    .pos-classic-browser-columns,
+    .pos-classic-browser-table thead th,
+    .pos-classic-browser-table thead,
+    .pos-classic-browser-table thead tr
+) {
+    background: #1a2738;
+}
+
+html[data-theme="dark"] body .pos-classic-browser-columns {
+    border-color: rgba(148, 163, 184, 0.14);
+    box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.14), 0 12px 20px rgba(2, 6, 23, 0.26);
+}
+
+html[data-theme="light"] body :is(
+    .pos-classic-browser-columns,
+    .pos-classic-browser-table thead th,
+    .pos-classic-browser-table thead,
+    .pos-classic-browser-table thead tr
+) {
+    background: #eef2f7;
+}
+
 html[data-theme] body .pos-terminal-clean.pos-ipos-refactor .pos-ipos-pickertable thead th {
     background: var(--ipos-table-head-bg);
     color: var(--ipos-table-head-color);
@@ -23097,6 +23262,14 @@ html[data-theme] body .pos-terminal-clean.pos-ipos-refactor .pos-ipos-pickertabl
 html[data-theme] body .pos-classic-cart-table tbody tr,
 html[data-theme] body .pos-classic-browser-table tbody tr {
     background: transparent;
+}
+
+html[data-theme] body .pos-classic-browser-table tbody td {
+    background: var(--theme-card-bg, rgba(9, 18, 31, 0.94));
+}
+
+html[data-theme] body .pos-classic-browser-table tbody tr:nth-child(even) td {
+    background: var(--theme-input-readonly-bg, rgba(16, 29, 49, 0.96));
 }
 
 html[data-theme] body :is(
@@ -23111,6 +23284,15 @@ html[data-theme] body :is(
     .pos-classic-browser-row.is-active,
     .pos-terminal-clean:not(.pos-ipos-refactor) .pos-classic-browser-row:hover,
     .pos-terminal-clean:not(.pos-ipos-refactor) .pos-classic-browser-row.is-active
+) {
+    background: var(--theme-table-hover);
+}
+
+html[data-theme] body :is(
+    .pos-classic-browser-row:hover td,
+    .pos-classic-browser-row.is-active td,
+    .pos-terminal-clean:not(.pos-ipos-refactor) .pos-classic-browser-row:hover td,
+    .pos-terminal-clean:not(.pos-ipos-refactor) .pos-classic-browser-row.is-active td
 ) {
     background: var(--theme-table-hover);
 }

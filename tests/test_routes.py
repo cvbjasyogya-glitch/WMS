@@ -3162,6 +3162,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Fokus pada menu koordinasi tanpa akses WMS", html)
         self.assertIn("Hanya bisa mengakses portal absen operasional", html)
 
+    def test_super_admin_can_access_admin_page_even_if_view_admin_override_denied(self):
+        self.create_user("super_admin_view_admin_denied", "pass1234", "super_admin")
+        self.login("super_admin_view_admin_denied", "pass1234")
+        super_admin_id = self.get_user_id("super_admin_view_admin_denied")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO user_permission_overrides(user_id, permission_key, access_state)
+                VALUES (?,?,?)
+                """,
+                (super_admin_id, "view_admin", "deny"),
+            )
+            db.commit()
+
+        response = self.client.get("/admin/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Kelola User", response.get_data(as_text=True))
+
+    def test_super_admin_can_delete_user_even_if_view_admin_override_denied(self):
+        self.create_user("super_admin_delete_user", "pass1234", "super_admin")
+        self.create_user("delete_target_user", "pass1234", "staff", warehouse_id=1)
+        self.login("super_admin_delete_user", "pass1234")
+        super_admin_id = self.get_user_id("super_admin_delete_user")
+        target_user_id = self.get_user_id("delete_target_user")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO user_permission_overrides(user_id, permission_key, access_state)
+                VALUES (?,?,?)
+                """,
+                (super_admin_id, "view_admin", "deny"),
+            )
+            db.commit()
+
+        response = self.client.post(f"/admin/delete_user/{target_user_id}", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/", response.headers.get("Location", ""))
+
+        with self.app.app_context():
+            db = get_db()
+            deleted_user = db.execute("SELECT id FROM users WHERE id=?", (target_user_id,)).fetchone()
+        self.assertIsNone(deleted_user)
+
     def test_intern_role_only_gets_coordination_without_meeting_live_or_wms(self):
         self.create_user("intern_coord_only", "pass1234", "intern", warehouse_id=1)
         self.login("intern_coord_only", "pass1234")
@@ -10720,7 +10769,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/karir")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Temukan posisi yang tepat lalu kirim lamaran.", html)
+        self.assertIn("Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit.", html)
         self.assertIn("Staff Gudang Mataram", html)
         self.assertNotIn("Draft Internal", html)
 
@@ -10793,6 +10842,206 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
         self.assertTrue(candidate["resume_path"])
 
+    def test_public_career_application_generates_assessment_code_and_candidate_can_submit_test(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Staff Karir Test",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Tes lowongan publik.",
+                    "Siap tes dasar.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "2 + 2 =", "3", "4", "5", "6", "b", 50, 1, 1),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "Huruf setelah A", "C", "D", "B", "E", "c", 50, 2, 1),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Test",)).fetchone()
+
+        response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Bima Tes",
+                "phone": "6281234501234",
+                "email": "bima@example.com",
+                "resume_file": (BytesIO(b"resume-bima"), "bima-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT id, assessment_code
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Bima Tes",),
+            ).fetchone()
+        self.assertIsNotNone(candidate)
+        self.assertRegex(candidate["assessment_code"], r"^\d{5}$")
+
+        test_page = self.client.get(f"/karir/tes?code={candidate['assessment_code']}")
+        self.assertEqual(test_page.status_code, 200)
+        test_html = test_page.get_data(as_text=True)
+        self.assertIn("Tes Karir", test_html)
+        self.assertIn("2 + 2 =", test_html)
+
+        submit_response = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": candidate["assessment_code"],
+                "answer_1": "b",
+                "answer_2": "a",
+                "violation_count": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_status, assessment_auto_score, assessment_final_score, assessment_violation_count
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+        self.assertEqual(candidate_after["assessment_status"], "submitted")
+        self.assertEqual(float(candidate_after["assessment_auto_score"]), 50.0)
+        self.assertEqual(float(candidate_after["assessment_final_score"]), 50.0)
+        self.assertEqual(int(candidate_after["assessment_violation_count"]), 1)
+
+    def test_hr_can_manage_recruitment_assessment_questions_and_manual_candidate_score(self):
+        self.login_hr_user()
+
+        question_create = self.client.post(
+            "/hris/recruitment/question/add",
+            data={
+                "warehouse_id": "2",
+                "prompt": "SOP outbound adalah?",
+                "option_a": "Langsung kirim",
+                "option_b": "Validasi stok dulu",
+                "option_c": "Abaikan sistem",
+                "option_d": "Tutup gudang",
+                "correct_option": "b",
+                "score_weight": "25",
+                "sort_order": "1",
+                "is_active": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(question_create.status_code, 302)
+
+        create_response = self.client.post(
+            "/hris/recruitment/add",
+            data={
+                "candidate_name": "Portal Luar",
+                "position_title": "Admin Warehouse",
+                "warehouse_id": "2",
+                "department": "Warehouse",
+                "stage": "applied",
+                "status": "active",
+                "source": "Job Portal",
+                "phone": "6281111999000",
+                "email": "portal@example.com",
+                "assessment_code": "12345",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT id, assessment_code
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                """,
+                ("Portal Luar",),
+            ).fetchone()
+            question = db.execute(
+                "SELECT id, prompt, correct_option FROM recruitment_assessment_questions WHERE prompt=?",
+                ("SOP outbound adalah?",),
+            ).fetchone()
+
+        self.assertEqual(candidate["assessment_code"], "12345")
+        self.assertIsNotNone(question)
+
+        update_response = self.client.post(
+            f"/hris/recruitment/update/{candidate['id']}",
+            data={
+                "candidate_name": "Portal Luar",
+                "position_title": "Admin Warehouse",
+                "warehouse_id": "2",
+                "department": "Warehouse",
+                "stage": "interview",
+                "status": "active",
+                "source": "Job Portal",
+                "phone": "6281111999000",
+                "email": "portal@example.com",
+                "assessment_code": "12345",
+                "assessment_status": "reviewed",
+                "assessment_manual_score": "88.5",
+                "assessment_review_notes": "Nilai HR dipakai untuk final.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_status, assessment_manual_score, assessment_final_score
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+        self.assertEqual(candidate_after["assessment_status"], "reviewed")
+        self.assertEqual(float(candidate_after["assessment_manual_score"]), 88.5)
+        self.assertEqual(float(candidate_after["assessment_final_score"]), 88.5)
+
     def test_recruitment_public_host_redirects_root_to_karir(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
         self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
@@ -10848,6 +11097,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             default_rows = {
                 "career_openings": {"column_default": None},
                 "recruitment_candidates": {"column_default": None},
+                "recruitment_assessment_questions": {"column_default": None},
             }
 
             def execute_side_effect(query, parameters=None):
@@ -10865,6 +11115,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             executed_queries = [str(call.args[0]) for call in db.execute.call_args_list]
             self.assertTrue(any("career_openings_id_seq" in query for query in executed_queries))
             self.assertTrue(any("recruitment_candidates_id_seq" in query for query in executed_queries))
+            self.assertTrue(any("recruitment_assessment_questions_id_seq" in query for query in executed_queries))
 
     def test_hris_onboarding_route_renders_operational_view(self):
         self.login_hr_user()
