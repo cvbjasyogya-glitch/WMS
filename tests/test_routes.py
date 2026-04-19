@@ -7089,6 +7089,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('browser-mode', html)
         self.assertIn('data-app-mode="browser"', html)
         self.assertIn('/static/js/app_shell.js', html)
+        self.assertIn('/service-worker.js?v=', html)
         self.assertIn('/static/manifest.webmanifest', html)
         self.assertIn('/static/js/app_shell.js?v=', html)
         self.assertIn('/static/manifest.webmanifest?v=', html)

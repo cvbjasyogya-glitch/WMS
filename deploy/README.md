@@ -81,6 +81,29 @@ sudo grep -R "server_name erp.cvbjasyogya.cloud" -n /etc/nginx/sites-available /
 ls -l /etc/nginx/sites-enabled
 ```
 
+Troubleshooting `recruitment.cvbjasyogya.cloud` if it still shows the old offline page:
+
+```bash
+cd ~/WMS
+git pull
+grep -E '^(ALLOWED_HOSTS|RECRUITMENT_PUBLIC_HOSTS|SMS_PUBLIC_HOSTS|CANONICAL_HOST|APP_VERSION)=' /root/WMS/.env
+sudo grep -R "server_name erp.cvbjasyogya.cloud" -n /etc/nginx/sites-available /etc/nginx/sites-enabled
+ls -l /etc/nginx/sites-enabled
+sudo systemctl restart wms.service
+sudo nginx -t
+sudo systemctl reload nginx
+curl -I https://recruitment.cvbjasyogya.cloud/beranda
+curl -I https://recruitment.cvbjasyogya.cloud/service-worker.js
+sudo journalctl -u wms.service -n 80 --no-pager
+```
+
+Expected result:
+- only one active Nginx site should own `server_name erp.cvbjasyogya.cloud`,
+- `.env` should keep `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` and `CANONICAL_HOST=erp.cvbjasyogya.cloud`,
+- the latest recruitment host build no longer shows the old offline CTA text `Kembali ke ERP`; it should use the updated public-host cleanup flow instead.
+
+If the server checks are already healthy but the browser still shows the old offline card, clear site data or unregister the stale service worker for `recruitment.cvbjasyogya.cloud`, then reload the page.
+
 Quick checks:
 
 ```bash

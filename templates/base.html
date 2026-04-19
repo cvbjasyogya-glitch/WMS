@@ -27,7 +27,6 @@
 {% set offline_url = asset_url('offline-app.html') %}
 {% set notification_sound_url = asset_url('notif.mp3') %}
 {% set chat_ringtone_url = asset_url('audio/chat-call-ringtone.mp3') %}
-{% set service_worker_url = url_for('service_worker', v=app_version) %}
 <link rel="icon" type="image/png" href="{{ brand_logo_192_url }}">
 <link rel="apple-touch-icon" href="{{ brand_logo_192_url }}">
 {% if service_worker_enabled %}

@@ -984,6 +984,28 @@ def create_app():
 
         return url_for("static", filename=normalized_filename)
 
+    def build_service_worker_url():
+        version_tokens = [str(app.config.get("APP_VERSION") or "dev").strip() or "dev"]
+        candidate_paths = [
+            os.path.abspath(__file__),
+            os.path.join(app.static_folder or "", "js", "push_service_worker.js"),
+            os.path.join(app.static_folder or "", "js", "app_shell.js"),
+        ]
+
+        for candidate_path in candidate_paths:
+            safe_path = os.path.abspath(str(candidate_path or ""))
+            if not os.path.isfile(safe_path):
+                continue
+            try:
+                version_tokens.append(str(os.stat(safe_path).st_mtime_ns))
+            except OSError:
+                continue
+
+        version_token = "-".join(token for token in version_tokens if token)
+        if version_token:
+            return url_for("service_worker", v=version_token)
+        return url_for("service_worker")
+
     def build_service_worker_asset_urls():
         asset_filenames = [
             "manifest.webmanifest",
@@ -1181,6 +1203,7 @@ self.addEventListener("fetch", () => {{}});
             "show_hris_navigation": role_can_see_hris_navigation(role),
             "asset_url": build_asset_url,
             "app_version": app.config.get("APP_VERSION"),
+            "service_worker_url": build_service_worker_url(),
             "shell_break_timer": shell_break_timer,
             "use_homebase_ui": use_homebase_ui,
             "public_host_mode": public_host_mode,
