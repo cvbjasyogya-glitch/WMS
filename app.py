@@ -831,9 +831,6 @@ def create_app():
             return
 
         if request.method in {"GET", "HEAD", "OPTIONS"}:
-            canonical_location = _canonical_request_location(app)
-            if canonical_location:
-                return redirect(canonical_location, code=302)
             return redirect(url_for("career.home"), code=302)
 
         return "Endpoint tidak tersedia di domain recruitment", 404

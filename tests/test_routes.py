@@ -7081,6 +7081,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         finally:
             response.close()
 
+    def test_offline_page_uses_host_specific_primary_action_copy(self):
+        offline_page_path = os.path.join(os.path.dirname(__file__), "..", "static", "offline-app.html")
+        with open(offline_page_path, "r", encoding="utf-8") as file_handle:
+            body = file_handle.read()
+
+        self.assertIn('label: "Kembali ke Karir"', body)
+        self.assertIn('href: "/beranda"', body)
+        self.assertIn('label: "Kembali ke ERP"', body)
+        self.assertIn('registration.unregister()', body)
+
     def test_login_page_keeps_browser_mode_shell_defaults(self):
         response = self.client.get("/login")
         self.assertEqual(response.status_code, 200)
@@ -12424,7 +12434,11 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         internal_response = self.client.get("/login", headers={"Host": "recruitment.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
-        self.assertEqual(internal_response.headers["Location"], "https://erp.test/login")
+        self.assertEqual(internal_response.headers["Location"], "/beranda")
+
+        workspace_response = self.client.get("/workspace/", headers={"Host": "recruitment.test"}, follow_redirects=False)
+        self.assertEqual(workspace_response.status_code, 302)
+        self.assertEqual(workspace_response.headers["Location"], "/beranda")
 
     def test_public_career_routes_redirect_to_recruitment_domain_when_configured(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"

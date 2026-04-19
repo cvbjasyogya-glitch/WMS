@@ -90,11 +90,82 @@
     <main class="offline-shell">
         <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS">
         <h1>Koneksi sedang terputus</h1>
-        <p>ERP-CV.BJAS masih bisa dibuka sebagai aplikasi, tetapi halaman ini membutuhkan internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang.</p>
+        <p id="offlineMessage">ERP-CV.BJAS masih bisa dibuka sebagai aplikasi, tetapi halaman ini membutuhkan internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang.</p>
         <div class="offline-actions">
-            <a href="/">Buka Portal</a>
+            <a href="/" id="offlinePrimaryAction">Buka Portal</a>
             <button type="button" onclick="window.location.reload()">Coba Lagi</button>
         </div>
     </main>
+    <script>
+        (() => {
+            const hostname = String(window.location.hostname || "").toLowerCase();
+            const primaryAction = document.getElementById("offlinePrimaryAction");
+            const message = document.getElementById("offlineMessage");
+            if (!primaryAction || !message) {
+                return;
+            }
+
+            const resolveHostMode = () => {
+                if (hostname === "recruitment.cvbjasyogya.cloud" || hostname.startsWith("recruitment.")) {
+                    return "recruitment";
+                }
+                if (hostname === "sms.cvbjasyogya.cloud" || hostname.startsWith("sms.")) {
+                    return "sms";
+                }
+                return "erp";
+            };
+
+            const hostMode = resolveHostMode();
+            const hostCopy = {
+                recruitment: {
+                    href: "/beranda",
+                    label: "Kembali ke Karir",
+                    message: "Portal karir membutuhkan koneksi internet untuk memuat lowongan terbaru. Sambungkan lagi jaringan lalu coba buka halaman karir."
+                },
+                sms: {
+                    href: "/sms/",
+                    label: "Buka SMS Storage",
+                    message: "Portal SMS Storage membutuhkan koneksi internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu coba buka ulang penyimpanan cloud."
+                },
+                erp: {
+                    href: "/workspace/",
+                    label: "Kembali ke ERP",
+                    message: "ERP-CV.BJAS masih bisa dibuka sebagai aplikasi, tetapi halaman ini membutuhkan internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang."
+                }
+            };
+
+            const activeCopy = hostCopy[hostMode] || hostCopy.erp;
+            primaryAction.href = activeCopy.href;
+            primaryAction.textContent = activeCopy.label;
+            message.textContent = activeCopy.message;
+            document.title = hostMode === "recruitment"
+                ? "Career Portal Offline"
+                : hostMode === "sms"
+                    ? "SMS Storage Offline"
+                    : "ERP-CV.BJAS Offline";
+
+            if (hostMode === "erp" || !("serviceWorker" in navigator)) {
+                return;
+            }
+
+            navigator.serviceWorker.getRegistrations()
+                .then((registrations) => Promise.all(
+                    registrations.map((registration) => registration.unregister().catch(() => false))
+                ))
+                .catch(() => null);
+
+            if (!("caches" in window)) {
+                return;
+            }
+
+            caches.keys()
+                .then((keys) => Promise.all(
+                    keys
+                        .filter((key) => key.startsWith("wms-app-shell-") || key.startsWith("wms-static-runtime-"))
+                        .map((key) => caches.delete(key))
+                ))
+                .catch(() => null);
+        })();
+    </script>
 </body>
 </html>
