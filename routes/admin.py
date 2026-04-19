@@ -88,6 +88,63 @@ NOTIFICATION_ROLE_LABELS = {
     "free_lance": "Free Lance",
 }
 
+USER_DELETE_NULLIFY_REFERENCES = [
+    ("owner_requests", "requested_by"),
+    ("owner_requests", "handled_by"),
+    ("user_permission_overrides", "updated_by"),
+    ("cash_closing_reports", "user_id"),
+    ("leave_requests", "handled_by"),
+    ("payroll_runs", "handled_by"),
+    ("overtime_usage_records", "handled_by"),
+    ("overtime_balance_adjustments", "handled_by"),
+    ("recruitment_candidates", "handled_by"),
+    ("onboarding_records", "handled_by"),
+    ("offboarding_records", "handled_by"),
+    ("performance_reviews", "handled_by"),
+    ("helpdesk_tickets", "handled_by"),
+    ("asset_records", "handled_by"),
+    ("project_records", "handled_by"),
+    ("biometric_logs", "handled_by"),
+    ("announcement_posts", "handled_by"),
+    ("document_records", "handled_by"),
+    ("document_records", "signed_by"),
+    ("daily_live_reports", "handled_by"),
+    ("kpi_staff_reports", "reviewed_by"),
+    ("kpi_target_plans", "created_by"),
+    ("kpi_target_plans", "updated_by"),
+    ("attendance_action_requests", "requested_by"),
+    ("attendance_action_requests", "handled_by"),
+    ("dashboard_reminders", "created_by"),
+    ("dashboard_reminders", "updated_by"),
+    ("crm_memberships", "requested_by_staff_id"),
+    ("crm_purchase_records", "handled_by"),
+    ("crm_member_records", "handled_by"),
+    ("pos_sales", "cashier_user_id"),
+    ("pos_sales", "voided_by"),
+    ("pos_sales", "hidden_archive_by"),
+    ("chat_threads", "created_by"),
+    ("schedule_entries", "updated_by"),
+    ("schedule_day_notes", "updated_by"),
+    ("schedule_live_entries", "checked_by"),
+    ("schedule_live_entries", "updated_by"),
+    ("schedule_change_events", "created_by"),
+    ("stock_opname_results", "user_id"),
+    ("notification_event_policies", "updated_by"),
+]
+
+USER_DELETE_DELETE_REFERENCES = [
+    ("password_resets", "user_id"),
+    ("web_notifications", "user_id"),
+]
+
+USER_DELETE_BLOCKING_REFERENCES = [
+    (
+        "daily_live_reports",
+        "user_id",
+        "User masih memiliki report harian/live. Hapus atau pindahkan report-nya dulu.",
+    ),
+]
+
 
 def _admin_role_bucket(role):
     normalized = normalize_role(role)
@@ -120,6 +177,56 @@ def _admin_redirect(section="access"):
     if section == "permissions":
         return redirect("/admin/permissions")
     return redirect("/admin/")
+
+
+def _table_columns(db, table_name):
+    rows = db.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] if isinstance(row, dict) else row[1] for row in rows}
+
+
+def _table_exists(db, table_name):
+    row = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def _prepare_user_delete_dependencies(db, user_id):
+    for table_name, column_name, message in USER_DELETE_BLOCKING_REFERENCES:
+        if not _table_exists(db, table_name):
+            continue
+        if column_name not in _table_columns(db, table_name):
+            continue
+        row = db.execute(
+            f"SELECT COUNT(*) AS total FROM {table_name} WHERE {column_name}=?",
+            (user_id,),
+        ).fetchone()
+        total = row["total"] if row else 0
+        if total:
+            return message
+
+    for table_name, column_name in USER_DELETE_NULLIFY_REFERENCES:
+        if not _table_exists(db, table_name):
+            continue
+        if column_name not in _table_columns(db, table_name):
+            continue
+        db.execute(
+            f"UPDATE {table_name} SET {column_name}=NULL WHERE {column_name}=?",
+            (user_id,),
+        )
+
+    for table_name, column_name in USER_DELETE_DELETE_REFERENCES:
+        if not _table_exists(db, table_name):
+            continue
+        if column_name not in _table_columns(db, table_name):
+            continue
+        db.execute(
+            f"DELETE FROM {table_name} WHERE {column_name}=?",
+            (user_id,),
+        )
+
+    return None
 
 
 def _format_notification_user_label(user):
@@ -817,6 +924,11 @@ def delete_user(id):
     user = db.execute("SELECT role FROM users WHERE id=?", (id,)).fetchone()
     if user and user["role"] == "super_admin" and admin_count <= 1:
         flash("Tidak bisa hapus admin terakhir", "error")
+        return _admin_redirect()
+
+    blocking_message = _prepare_user_delete_dependencies(db, id)
+    if blocking_message:
+        flash(blocking_message, "error")
         return _admin_redirect()
 
     db.execute("DELETE FROM users WHERE id=?", (id,))

@@ -3181,7 +3181,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/admin/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Kelola User", response.get_data(as_text=True))
+        html = response.get_data(as_text=True)
+        self.assertIn("Admin Access Center", html)
+        self.assertIn("Manajemen User", html)
 
     def test_super_admin_can_delete_user_even_if_view_admin_override_denied(self):
         self.create_user("super_admin_delete_user", "pass1234", "super_admin")
@@ -3210,6 +3212,84 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             deleted_user = db.execute("SELECT id FROM users WHERE id=?", (target_user_id,)).fetchone()
         self.assertIsNone(deleted_user)
+
+    def test_super_admin_delete_user_clears_biometric_handled_by_reference(self):
+        self.create_user("super_admin_delete_bio", "pass1234", "super_admin")
+        self.create_user("delete_target_bio", "pass1234", "staff", warehouse_id=1)
+        employee_id = self.create_employee_record(full_name="Delete Bio Target", warehouse_id=1)
+        self.login("super_admin_delete_bio", "pass1234")
+        target_user_id = self.get_user_id("delete_target_bio")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO biometric_logs(
+                    employee_id, warehouse_id, device_name, device_user_id, punch_time,
+                    punch_type, sync_status, handled_by
+                ) VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "Test Device",
+                    "DEV-001",
+                    "2026-04-19 08:00:00",
+                    "check_in",
+                    "manual",
+                    target_user_id,
+                ),
+            )
+            db.commit()
+
+        response = self.client.post(f"/admin/delete_user/{target_user_id}", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        with self.app.app_context():
+            db = get_db()
+            deleted_user = db.execute("SELECT id FROM users WHERE id=?", (target_user_id,)).fetchone()
+            handled_by_value = db.execute(
+                "SELECT handled_by FROM biometric_logs WHERE device_user_id=?",
+                ("DEV-001",),
+            ).fetchone()
+        self.assertIsNone(deleted_user)
+        self.assertIsNotNone(handled_by_value)
+        self.assertIsNone(handled_by_value["handled_by"])
+
+    def test_super_admin_delete_user_blocks_when_daily_live_reports_exist(self):
+        self.create_user("super_admin_delete_report", "pass1234", "super_admin")
+        self.create_user("delete_target_report", "pass1234", "staff", warehouse_id=1)
+        self.login("super_admin_delete_report", "pass1234")
+        target_user_id = self.get_user_id("delete_target_report")
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO daily_live_reports(
+                    user_id, warehouse_id, report_date, title, summary, status
+                ) VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    target_user_id,
+                    1,
+                    "2026-04-19",
+                    "Report Target",
+                    "Masih punya laporan harian",
+                    "submitted",
+                ),
+            )
+            db.commit()
+
+        response = self.client.post(f"/admin/delete_user/{target_user_id}", follow_redirects=True)
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("User masih memiliki report harian/live", html)
+        with self.app.app_context():
+            db = get_db()
+            remaining_user = db.execute("SELECT id FROM users WHERE id=?", (target_user_id,)).fetchone()
+        self.assertIsNotNone(remaining_user)
 
     def test_intern_role_only_gets_coordination_without_meeting_live_or_wms(self):
         self.create_user("intern_coord_only", "pass1234", "intern", warehouse_id=1)
