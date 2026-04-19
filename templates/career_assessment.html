@@ -629,6 +629,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
 {% set active_page = 'jobs' %}
 {% set position_label = candidate.position_title or candidate.vacancy_title or 'Posisi Kandidat' %}
 {% set unit_label = candidate.warehouse_name or 'Umum' %}
+{% set duration_label = assessment_duration_minutes ~ ' menit' if assessment_duration_minutes else 'Tanpa batas waktu' %}
+{% set remaining_seconds = assessment_remaining_seconds if assessment_remaining_seconds is not none else none %}
 
 <div class="career-assessment-shell">
     {% include "_career_public_header_astra.html" %}
@@ -679,16 +681,16 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
                     <span>Jumlah soal yang aktif pada sesi ini.</span>
                 </article>
                 <article class="career-assessment-band-card">
+                    <strong>{{ duration_label }}</strong>
+                    <span>Durasi total pengerjaan yang diatur oleh tim HR untuk sesi ini.</span>
+                </article>
+                <article class="career-assessment-band-card">
+                    <strong>{{ assessment_code_expires_label }}</strong>
+                    <span>Masa berlaku kode tes sebelum sesi dimulai.</span>
+                </article>
+                <article class="career-assessment-band-card">
                     <strong>{{ max_violation_count or 3 }}x</strong>
                     <span>Batas pelanggaran sebelum sesi direset dari awal.</span>
-                </article>
-                <article class="career-assessment-band-card">
-                    <strong>{{ candidate.candidate_name }}</strong>
-                    <span>Nama kandidat yang sedang mengerjakan assessment ini.</span>
-                </article>
-                <article class="career-assessment-band-card">
-                    <strong>{{ unit_label }}</strong>
-                    <span>Unit atau area penempatan yang terkait dengan posisi kandidat.</span>
                 </article>
             </div>
             {% else %}
@@ -731,7 +733,11 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
             </section>
 
             {% for question in questions %}
-            <section class="career-question-card">
+            <section
+                class="career-question-card"
+                {% if loop.first %}id="careerAssessmentFirstQuestion"{% endif %}
+                data-question-step="{{ loop.index }}"
+            >
                 <div class="career-question-card-head">
                     <span class="career-question-index">{{ "%02d"|format(loop.index) }}</span>
                     <h3>{{ question.prompt }}</h3>
@@ -747,7 +753,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
             </section>
             {% endfor %}
 
-            <div class="career-test-submit">
+            <div class="career-test-submit" id="careerAssessmentSubmitSection">
                 <button type="submit">Selesaikan Tes</button>
             </div>
         </form>
@@ -763,6 +769,19 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
                     <span><strong id="careerAssessmentRemainingValue">{{ questions|length }}</strong> soal belum terjawab</span>
                     <span><strong id="careerAssessmentProgressValue">0%</strong> selesai</span>
                 </div>
+            </section>
+
+            <section class="career-assessment-sidecard">
+                <span class="career-assessment-card-kicker">Waktu</span>
+                <strong id="careerAssessmentTimerValue">{{ duration_label if remaining_seconds is none else '--:--' }}</strong>
+                <span id="careerAssessmentTimerNote">
+                    {% if remaining_seconds is none %}
+                    Sesi ini tidak memakai countdown. Anda tetap perlu menyelesaikan tes dalam satu sesi yang stabil.
+                    {% else %}
+                    Timer akan terus berjalan sejak tes dimulai. Saat waktu habis, jawaban akan otomatis dikirim.
+                    {% endif %}
+                </span>
+                <span>Kode tes berlaku sampai: {{ assessment_code_expires_label }}</span>
             </section>
 
             <section class="career-assessment-sidecard">
@@ -880,14 +899,41 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     const progressValue = document.getElementById("careerAssessmentProgressValue");
     const answeredValue = document.getElementById("careerAssessmentAnsweredValue");
     const remainingValue = document.getElementById("careerAssessmentRemainingValue");
+    const firstQuestionCard = document.getElementById("careerAssessmentFirstQuestion");
+    const submitSection = document.getElementById("careerAssessmentSubmitSection");
+    const timerValue = document.getElementById("careerAssessmentTimerValue");
+    const timerNote = document.getElementById("careerAssessmentTimerNote");
     if (!form || !violationInput) return;
 
     let submitted = false;
     let violationCount = Number(violationInput.value || 0);
     const maxViolationCount = {{ max_violation_count|default(3)|tojson }};
+    const deadlineIso = {{ assessment_deadline_iso|default("", true)|tojson }};
     const questionInputs = Array.from(form.querySelectorAll('input[type="radio"]'));
     const questionNames = [...new Set(questionInputs.map((input) => input.name))];
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     let lastViolationAt = 0;
+
+    const formatRemaining = (totalSeconds) => {
+        const safeSeconds = Math.max(Number(totalSeconds || 0), 0);
+        const hours = Math.floor(safeSeconds / 3600);
+        const minutes = Math.floor((safeSeconds % 3600) / 60);
+        const seconds = safeSeconds % 60;
+        if (hours > 0) {
+            return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+        }
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    };
+
+    const scrollToBlock = (element) => {
+        if (!element) return;
+        window.requestAnimationFrame(() => {
+            element.scrollIntoView({
+                behavior: prefersReducedMotion ? "auto" : "smooth",
+                block: "start",
+            });
+        });
+    };
 
     const syncProgress = () => {
         const answeredCount = questionNames.filter((name) => form.querySelector(`input[name="${name}"]:checked`)).length;
@@ -959,8 +1005,44 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     syncViolation();
 
     questionInputs.forEach((input) => {
-        input.addEventListener("change", syncProgress);
+        input.addEventListener("change", () => {
+            syncProgress();
+            const currentCard = input.closest(".career-question-card");
+            const nextCard = currentCard?.nextElementSibling?.classList?.contains("career-question-card")
+                ? currentCard.nextElementSibling
+                : null;
+            scrollToBlock(nextCard || submitSection);
+        });
     });
+
+    if (deadlineIso && timerValue) {
+        const deadlineTime = new Date(deadlineIso).getTime();
+        const tickTimer = () => {
+            const remainingMs = deadlineTime - Date.now();
+            const remainingSeconds = Math.max(Math.floor(remainingMs / 1000), 0);
+            timerValue.textContent = formatRemaining(remainingSeconds);
+            if (timerNote) {
+                timerNote.textContent = remainingSeconds > 0
+                    ? `Sisa waktu aktif untuk menyelesaikan seluruh soal pada sesi ini.`
+                    : "Waktu pengerjaan habis. Jawaban sedang dikirim otomatis.";
+            }
+            if (remainingMs <= 0) {
+                if (!submitted) {
+                    submitted = true;
+                    window.setTimeout(() => form.requestSubmit(), 40);
+                }
+                return;
+            }
+            window.setTimeout(tickTimer, 1000);
+        };
+        tickTimer();
+    }
+
+    if (!window.location.hash && firstQuestionCard) {
+        window.setTimeout(() => {
+            scrollToBlock(firstQuestionCard);
+        }, 280);
+    }
 
     history.pushState(null, "", window.location.href);
     window.addEventListener("popstate", () => {

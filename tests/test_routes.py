@@ -12069,6 +12069,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tes Karir", test_html)
         self.assertIn("2 + 2 =", test_html)
         self.assertIn("Punya Kode Tes?", test_html)
+        self.assertIn('id="careerAssessmentFirstQuestion"', test_html)
+        self.assertIn('id="careerAssessmentSubmitSection"', test_html)
 
         submit_response = self.client.post(
             "/karir/tes/submit",
@@ -12325,6 +12327,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "phone": "6281111999000",
                 "email": "portal@example.com",
                 "assessment_code": "12345",
+                "assessment_expires_at": "2026-04-30T16:30",
+                "assessment_duration_minutes": "45",
                 "assessment_status": "reviewed",
                 "assessment_manual_score": "88.5",
                 "assessment_review_notes": "Nilai HR dipakai untuk final.",
@@ -12337,7 +12341,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             candidate_after = db.execute(
                 """
-                SELECT assessment_status, assessment_manual_score, assessment_final_score
+                SELECT assessment_status, assessment_manual_score, assessment_final_score,
+                       assessment_expires_at, assessment_duration_minutes
                 FROM recruitment_candidates
                 WHERE id=?
                 """,
@@ -12346,6 +12351,99 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate_after["assessment_status"], "reviewed")
         self.assertEqual(float(candidate_after["assessment_manual_score"]), 88.5)
         self.assertEqual(float(candidate_after["assessment_final_score"]), 88.5)
+        self.assertEqual(candidate_after["assessment_expires_at"], "2026-04-30 16:30:00")
+        self.assertEqual(int(candidate_after["assessment_duration_minutes"]), 45)
+
+    def test_public_career_assessment_rejects_expired_code_configured_by_hr(self):
+        expired_at = (datetime.now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "1 + 1 =", "1", "2", "3", "4", "b", 10, 1, 1),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, assessment_expires_at, assessment_duration_minutes, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Kode Kedaluwarsa",
+                    1,
+                    "Staff Test",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "54321",
+                    "pending",
+                    expired_at,
+                    30,
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/karir/tes?code=54321", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("masa berlaku", html)
+        self.assertIn("kode baru", html)
+
+    def test_public_career_assessment_rejects_when_duration_has_elapsed(self):
+        started_at = (datetime.now() - timedelta(minutes=16)).strftime("%Y-%m-%d %H:%M:%S")
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "2 + 3 =", "4", "5", "6", "7", "b", 10, 1, 1),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, assessment_started_at, assessment_duration_minutes, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Durasi Habis",
+                    1,
+                    "Staff Timer",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "65432",
+                    "started",
+                    started_at,
+                    15,
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/karir/tes?code=65432", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Waktu pengerjaan tes sudah habis", html)
 
     def test_recruitment_public_host_redirects_root_to_beranda(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"

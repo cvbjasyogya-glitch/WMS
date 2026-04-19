@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 
@@ -13,6 +14,7 @@ from services.career_service import (
     extract_inserted_row_id,
     find_duplicate_public_application,
     normalize_assessment_code,
+    normalize_assessment_duration_minutes,
     normalize_candidate_email,
     normalize_candidate_identity_name,
     normalize_candidate_phone,
@@ -218,6 +220,74 @@ def _fetch_candidate_by_assessment_code(db, code):
         (safe_code,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def _parse_career_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return None
+    normalized = safe_value.replace("T", " ").replace("Z", "")[:19]
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _format_career_datetime_display(value):
+    parsed = _parse_career_datetime(value)
+    if not parsed:
+        return "Tidak dibatasi"
+    return parsed.strftime("%d/%m/%Y %H:%M")
+
+
+def _format_career_datetime_iso(value):
+    parsed = _parse_career_datetime(value)
+    if not parsed:
+        return ""
+    return parsed.isoformat(timespec="seconds")
+
+
+def _get_candidate_assessment_duration_minutes(candidate):
+    return normalize_assessment_duration_minutes((candidate or {}).get("assessment_duration_minutes"))
+
+
+def _get_candidate_assessment_deadline(candidate):
+    started_at = _parse_career_datetime((candidate or {}).get("assessment_started_at"))
+    duration_minutes = _get_candidate_assessment_duration_minutes(candidate)
+    if not started_at or duration_minutes <= 0:
+        return None
+    return started_at + timedelta(minutes=duration_minutes)
+
+
+def _get_candidate_assessment_remaining_seconds(candidate, now_dt=None):
+    deadline = _get_candidate_assessment_deadline(candidate)
+    if not deadline:
+        return None
+    current_dt = now_dt or datetime.now()
+    return max(int((deadline - current_dt).total_seconds()), 0)
+
+
+def _is_candidate_assessment_code_expired(candidate, now_dt=None):
+    safe_candidate = dict(candidate or {})
+    if safe_candidate.get("assessment_started_at"):
+        return False
+    expires_at = _parse_career_datetime(safe_candidate.get("assessment_expires_at"))
+    if not expires_at:
+        return False
+    current_dt = now_dt or datetime.now()
+    return current_dt > expires_at
+
+
+def _is_candidate_assessment_duration_expired(candidate, now_dt=None, grace_seconds=5):
+    deadline = _get_candidate_assessment_deadline(candidate)
+    if not deadline:
+        return False
+    current_dt = now_dt or datetime.now()
+    return current_dt > (deadline + timedelta(seconds=max(int(grace_seconds or 0), 0)))
 
 
 def _parse_public_opening_filters():
@@ -724,6 +794,7 @@ def apply():
 def assessment():
     db = get_db()
     ensure_career_schema(db)
+    current_dt = datetime.now()
     assessment_code = normalize_assessment_code(request.args.get("code"))
     if not assessment_code:
         flash("Masukkan kode tes 5 digit yang valid.", "error")
@@ -754,10 +825,18 @@ def assessment():
             score_summary=score_summary,
             assessment_state="finished",
             final_score=round(float(final_score or 0), 2),
+            assessment_duration_minutes=_get_candidate_assessment_duration_minutes(candidate),
+            assessment_deadline_iso=_format_career_datetime_iso(_get_candidate_assessment_deadline(candidate)),
+            assessment_remaining_seconds=_get_candidate_assessment_remaining_seconds(candidate, current_dt),
+            assessment_code_expires_label=_format_career_datetime_display(candidate.get("assessment_expires_at")),
         )
+    if _is_candidate_assessment_code_expired(candidate, current_dt):
+        flash("Kode tes ini sudah melewati masa berlaku. Silakan hubungi HR untuk kode baru.", "error")
+        return redirect(build_career_public_url("career.index"))
 
     answers = decode_assessment_answers(candidate.get("assessment_answers_json"))
     if candidate.get("assessment_status") != "started":
+        started_at_value = current_dt.strftime("%Y-%m-%d %H:%M:%S")
         db.execute(
             """
             UPDATE recruitment_candidates
@@ -770,6 +849,11 @@ def assessment():
         )
         db.commit()
         candidate["assessment_status"] = "started"
+        candidate["assessment_started_at"] = candidate.get("assessment_started_at") or started_at_value
+
+    if _is_candidate_assessment_duration_expired(candidate, current_dt):
+        flash("Waktu pengerjaan tes sudah habis. Silakan hubungi HR untuk tindak lanjut berikutnya.", "error")
+        return redirect(build_career_public_url("career.index"))
 
     return render_template(
         "career_assessment.html",
@@ -780,6 +864,10 @@ def assessment():
         existing_answers=answers,
         violation_count=int(candidate.get("assessment_violation_count") or 0),
         max_violation_count=CAREER_ASSESSMENT_MAX_VIOLATIONS,
+        assessment_duration_minutes=_get_candidate_assessment_duration_minutes(candidate),
+        assessment_deadline_iso=_format_career_datetime_iso(_get_candidate_assessment_deadline(candidate)),
+        assessment_remaining_seconds=_get_candidate_assessment_remaining_seconds(candidate, current_dt),
+        assessment_code_expires_label=_format_career_datetime_display(candidate.get("assessment_expires_at")),
     )
 
 
@@ -846,6 +934,7 @@ def record_assessment_violation():
 def submit_assessment():
     db = get_db()
     ensure_career_schema(db)
+    current_dt = datetime.now()
     assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
@@ -860,6 +949,12 @@ def submit_assessment():
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
         flash("Assessment ini sudah selesai dan tidak bisa dikirim ulang.", "info")
         return redirect(build_career_public_url("career.assessment", code=assessment_code))
+    if _is_candidate_assessment_code_expired(candidate, current_dt):
+        flash("Kode tes ini sudah melewati masa berlaku. Silakan hubungi HR untuk kode baru.", "error")
+        return redirect(build_career_public_url("career.index"))
+    if _is_candidate_assessment_duration_expired(candidate, current_dt):
+        flash("Waktu pengerjaan tes sudah habis dan jawaban tidak bisa dikirim ulang.", "error")
+        return redirect(build_career_public_url("career.index"))
 
     answers = {}
     for question in questions:

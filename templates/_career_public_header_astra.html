@@ -1,43 +1,96 @@
 {% set header_signin_url = signin_url if signin_url is defined and signin_url else url_for('career.signin_page') %}
 {% set header_register_url = register_url if register_url is defined and register_url else url_for('career.signin_page', flow='signup') %}
-<header class="career-astra-topbar">
-    <a href="{{ url_for('career.home') }}" class="career-astra-brand" aria-label="{{ career_company_name }}">
-        <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
-        <span class="career-astra-brand-copy">
-            <strong>{{ career_company_name }}</strong>
-            <span>Portal rekrutmen resmi perusahaan</span>
-        </span>
-    </a>
+<header class="career-astra-topbar" data-career-mobile-header>
+    <div class="career-astra-topbar-head">
+        <a href="{{ url_for('career.home') }}" class="career-astra-brand" aria-label="{{ career_company_name }}">
+            <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
+            <span class="career-astra-brand-copy">
+                <strong>{{ career_company_name }}</strong>
+                <span>Portal rekrutmen resmi perusahaan</span>
+            </span>
+        </a>
+        <button
+            type="button"
+            class="career-astra-mobile-toggle"
+            aria-expanded="false"
+            aria-controls="careerAstraTopbarPanel"
+        >
+            Menu
+        </button>
+    </div>
 
-    <nav class="career-astra-nav" aria-label="Navigasi karir publik">
-        <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
-        <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
-        <a href="{{ url_for('career.home') }}#program-kami">Program Kami</a>
-        <a href="{{ url_for('career.home') }}#agenda-karir">Agenda</a>
-        <a href="{{ url_for('career.home') }}#berita-karir">Berita dan Artikel</a>
-        <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
-        <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Pusat Bantuan</a>
-    </nav>
+    <div class="career-astra-topbar-panel" id="careerAstraTopbarPanel">
+        <nav class="career-astra-nav" aria-label="Navigasi karir publik">
+            <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
+            <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
+            <a href="{{ url_for('career.home') }}#program-kami">Program Kami</a>
+            <a href="{{ url_for('career.home') }}#agenda-karir">Agenda</a>
+            <a href="{{ url_for('career.home') }}#berita-karir">Berita dan Artikel</a>
+            <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
+            <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Pusat Bantuan</a>
+        </nav>
 
-    <div class="career-astra-topbar-actions">
-        <div class="career-test-shortcut">
-            <details class="career-test-shortcut-panel">
-                <summary>Punya Kode Tes?</summary>
-                <div class="career-test-shortcut-card">
-                    <strong>Masuk Tes Kandidat</strong>
-                    <p>Masukkan kode tes 5 digit untuk lanjut ke halaman assessment tanpa perlu mencari posisi dari awal.</p>
-                    <form method="GET" action="{{ url_for('career.assessment') }}" class="career-test-shortcut-form" id="careerHeaderCodeForm">
-                        <input name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" placeholder="Kode tes 5 digit" required>
-                        <button type="submit">Lanjut</button>
-                    </form>
-                </div>
-            </details>
-        </div>
-        <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
-        <a href="{{ header_signin_url }}" class="career-astra-login-link {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
-        <div class="career-astra-lang" aria-label="Pilihan bahasa">
-            <span class="is-active">ID</span>
-            <span>EN</span>
+        <div class="career-astra-topbar-actions">
+            <div class="career-test-shortcut">
+                <details class="career-test-shortcut-panel">
+                    <summary>Punya Kode Tes?</summary>
+                    <div class="career-test-shortcut-card">
+                        <strong>Masuk Tes Kandidat</strong>
+                        <p>Masukkan kode tes 5 digit untuk lanjut ke halaman assessment tanpa perlu mencari posisi dari awal.</p>
+                        <form method="GET" action="{{ url_for('career.assessment') }}" class="career-test-shortcut-form" id="careerHeaderCodeForm">
+                            <input name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" placeholder="Kode tes 5 digit" required>
+                            <button type="submit">Lanjut</button>
+                        </form>
+                    </div>
+                </details>
+            </div>
+            <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
+            <a href="{{ header_signin_url }}" class="career-astra-login-link {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
+            <div class="career-astra-lang" aria-label="Pilihan bahasa">
+                <span class="is-active">ID</span>
+                <span>EN</span>
+            </div>
         </div>
     </div>
 </header>
+<script>
+(() => {
+    const header = document.querySelector("[data-career-mobile-header]");
+    if (!header) return;
+    const toggle = header.querySelector(".career-astra-mobile-toggle");
+    const panel = header.querySelector(".career-astra-topbar-panel");
+    if (!toggle || !panel) return;
+
+    const syncOpenState = (isOpen) => {
+        header.classList.toggle("is-open", isOpen);
+        toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    };
+
+    syncOpenState(false);
+
+    toggle.addEventListener("click", () => {
+        syncOpenState(!header.classList.contains("is-open"));
+    });
+
+    header.querySelectorAll(".career-astra-nav a, .career-astra-register-link, .career-astra-login-link").forEach((link) => {
+        link.addEventListener("click", () => {
+            if (window.innerWidth <= 920) {
+                syncOpenState(false);
+            }
+        });
+    });
+
+    document.addEventListener("click", (event) => {
+        if (window.innerWidth > 920) return;
+        if (!header.classList.contains("is-open")) return;
+        if (header.contains(event.target)) return;
+        syncOpenState(false);
+    });
+
+    window.addEventListener("resize", () => {
+        if (window.innerWidth > 920) {
+            syncOpenState(false);
+        }
+    });
+})();
+</script>

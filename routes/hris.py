@@ -58,6 +58,7 @@ from services.career_service import (
     extract_inserted_row_id,
     generate_unique_assessment_code,
     normalize_assessment_code,
+    normalize_assessment_duration_minutes,
     normalize_assessment_option,
     normalize_career_assessment_status,
     normalize_career_application_channel,
@@ -993,6 +994,23 @@ def _normalize_datetime_input(value):
         return None
 
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_datetime_local_input(value):
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        safe_value = str(value or "").strip()
+        if not safe_value:
+            return ""
+        normalized = safe_value.replace("T", " ")[:19]
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return ""
+    return parsed.strftime("%Y-%m-%dT%H:%M")
 
 
 def _normalize_time_of_day_input(value):
@@ -6209,6 +6227,15 @@ def _fetch_recruitment_candidates(db):
     query += " ORDER BY r.created_at DESC, r.candidate_name COLLATE NOCASE ASC, r.id DESC"
 
     recruitment_candidates = [dict(row) for row in db.execute(query, params).fetchall()]
+    for candidate in recruitment_candidates:
+        candidate["assessment_expires_at_input"] = _format_datetime_local_input(candidate.get("assessment_expires_at"))
+        candidate["assessment_expires_at_label"] = (
+            _format_hris_datetime_display(candidate.get("assessment_expires_at"), include_date=True)
+            if candidate.get("assessment_expires_at")
+            else "Tanpa batas"
+        )
+        duration_minutes = normalize_assessment_duration_minutes(candidate.get("assessment_duration_minutes"))
+        candidate["assessment_duration_minutes_value"] = duration_minutes if duration_minutes > 0 else ""
     return recruitment_candidates, search, stage, status, selected_warehouse
 
 
@@ -8728,6 +8755,10 @@ def add_recruitment():
     note = (request.form.get("note") or "").strip()
     portfolio_url = (request.form.get("portfolio_url") or "").strip()
     assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
+    assessment_expires_at = _normalize_datetime_input(request.form.get("assessment_expires_at"))
+    assessment_duration_minutes = normalize_assessment_duration_minutes(
+        request.form.get("assessment_duration_minutes")
+    )
     vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
 
@@ -8763,11 +8794,13 @@ def add_recruitment():
             application_channel,
             portfolio_url,
             assessment_code,
+            assessment_expires_at,
+            assessment_duration_minutes,
             handled_by,
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             candidate_name,
@@ -8785,6 +8818,8 @@ def add_recruitment():
             normalize_career_application_channel("manual_hr"),
             portfolio_url or None,
             assessment_code or None,
+            assessment_expires_at,
+            assessment_duration_minutes,
             handled_by,
             handled_at,
             _current_timestamp(),
@@ -8850,6 +8885,10 @@ def update_recruitment(candidate_id):
     note = (request.form.get("note") or "").strip()
     portfolio_url = (request.form.get("portfolio_url") or "").strip()
     assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
+    assessment_expires_at = _normalize_datetime_input(request.form.get("assessment_expires_at"))
+    assessment_duration_minutes = normalize_assessment_duration_minutes(
+        request.form.get("assessment_duration_minutes")
+    )
     assessment_status = normalize_career_assessment_status(
         request.form.get("assessment_status") or candidate.get("assessment_status")
     )
@@ -8904,6 +8943,8 @@ def update_recruitment(candidate_id):
             vacancy_id=?,
             portfolio_url=?,
             assessment_code=?,
+            assessment_expires_at=?,
+            assessment_duration_minutes=?,
             assessment_status=?,
             assessment_manual_score=?,
             assessment_final_score=?,
@@ -8930,6 +8971,8 @@ def update_recruitment(candidate_id):
             vacancy_id,
             portfolio_url or None,
             assessment_code or candidate.get("assessment_code"),
+            assessment_expires_at,
+            assessment_duration_minutes,
             assessment_status,
             assessment_manual_score,
             assessment_final_score,

@@ -111,6 +111,18 @@ def normalize_assessment_option(value):
     return safe_value if safe_value in CAREER_ASSESSMENT_CORRECT_OPTIONS else ""
 
 
+def normalize_assessment_duration_minutes(value, default=0, maximum=720):
+    try:
+        safe_value = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return default
+    if safe_value <= 0:
+        return default
+    if maximum and safe_value > int(maximum):
+        return int(maximum)
+    return safe_value
+
+
 def _get_table_columns(db, table_name):
     safe_name = str(table_name or "").strip()
     if not safe_name:
@@ -282,6 +294,8 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_reviewed_by INTEGER",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_reviewed_at TIMESTAMP",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_violation_count INTEGER DEFAULT 0",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_expires_at TIMESTAMP",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_duration_minutes INTEGER DEFAULT 0",
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
                 id SERIAL PRIMARY KEY,
@@ -392,6 +406,8 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_reviewed_by", "INTEGER")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_reviewed_at", "TIMESTAMP")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_violation_count", "INTEGER DEFAULT 0")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_expires_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_duration_minutes", "INTEGER DEFAULT 0")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
