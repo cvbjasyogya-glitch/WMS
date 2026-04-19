@@ -9,7 +9,7 @@ except ImportError:  # pragma: no cover - fallback for older Python
 from decimal import Decimal, ROUND_HALF_UP
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 
-from database import get_db
+from database import get_db, is_postgresql_backend
 from services.crm_loyalty import (
     CRM_TRANSACTION_TYPE_LABELS,
     DEFAULT_STRINGING_REWARD_AMOUNT,
@@ -210,6 +210,17 @@ POS_PRINTER_DRIVER_RESOURCES = [
     },
 ]
 
+POS_POSTGRESQL_CHECKOUT_SEQUENCE_TABLES = (
+    "crm_customers",
+    "crm_memberships",
+    "crm_purchase_records",
+    "crm_purchase_items",
+    "crm_member_records",
+    "pos_sales",
+    "pos_negative_stock_overdrafts",
+    "stock_history",
+)
+
 
 def _to_int(value, default=0):
     try:
@@ -231,6 +242,50 @@ def _to_decimal(value, default="0"):
 
 def _currency(value):
     return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _ensure_postgresql_id_sequence(db, table_name):
+    default_row = db.execute(
+        """
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_schema='public'
+          AND table_name=?
+          AND column_name='id'
+        """,
+        (table_name,),
+    ).fetchone()
+    try:
+        column_default = str(default_row["column_default"] or "").lower()
+    except Exception:
+        column_default = ""
+    if "nextval(" in column_default:
+        return
+
+    sequence_name = f"{table_name}_id_seq"
+    db.execute(f"CREATE SEQUENCE IF NOT EXISTS {sequence_name}")
+    db.execute(f"ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id")
+    db.execute(
+        f"ALTER TABLE {table_name} ALTER COLUMN id SET DEFAULT nextval('{sequence_name}')"
+    )
+    db.execute(
+        f"SELECT setval('{sequence_name}', COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, false)"
+    )
+
+
+def _ensure_pos_checkout_postgresql_sequences(db):
+    if not is_postgresql_backend(current_app.config):
+        return
+
+    runtime_state = current_app.extensions.setdefault("pos_runtime_state", {})
+    cache_key = "checkout_sequences_ready"
+    if runtime_state.get(cache_key):
+        return
+
+    for table_name in POS_POSTGRESQL_CHECKOUT_SEQUENCE_TABLES:
+        _ensure_postgresql_id_sequence(db, table_name)
+
+    runtime_state[cache_key] = True
 
 
 def _normalize_pos_phone(value):
@@ -6464,6 +6519,7 @@ def pos_checkout():
 
     payload = request.get_json(silent=True) or {}
     db = get_db()
+    _ensure_pos_checkout_postgresql_sequences(db)
 
     warehouse_id = _resolve_pos_warehouse(db, payload.get("warehouse_id"))
     sale_date = _normalize_sale_date(payload.get("sale_date"))
@@ -6813,9 +6869,11 @@ def pos_checkout():
                     "Checkout kasir gagal disimpan karena database sedang sibuk di server. Coba ulangi beberapa detik lagi.",
                     503,
                 )
+            current_app.logger.exception("POS checkout database error")
             return _json_error("Checkout kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
         except Exception:
             db.rollback()
+            current_app.logger.exception("POS checkout failed unexpectedly")
             return _json_error("Checkout kasir gagal disimpan. Coba ulangi beberapa detik lagi.", 500)
 
     sale_detail = None

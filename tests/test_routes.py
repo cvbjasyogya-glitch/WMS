@@ -31,6 +31,7 @@ from routes.pos import (
     _fetch_pos_sale_logs,
     _fetch_pos_stock_balance_map,
     _fetch_pos_staff_sales_rows,
+    _ensure_pos_checkout_postgresql_sequences,
     _format_pos_time_label,
     _normalize_pos_cash_closing_date,
     _normalize_sale_date,
@@ -9754,6 +9755,43 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("phone=COALESCE(NULLIF(?, ''), phone)", route_text)
         self.assertIn("contact_person=?,", route_text)
         self.assertIn("phone=?,", route_text)
+
+    def test_pos_checkout_repairs_missing_postgresql_id_defaults_for_checkout_tables(self):
+        executed_statements = []
+
+        class ProxyDB:
+            def execute(self, sql, params=()):
+                statement = " ".join(str(sql).split())
+                executed_statements.append((statement, params))
+                if "FROM information_schema.columns" in statement:
+                    return Mock(fetchone=Mock(return_value={"column_default": None}))
+                return Mock(fetchone=Mock(return_value=None), fetchall=Mock(return_value=[]))
+
+        proxy_db = ProxyDB()
+
+        with self.app.app_context():
+            self.app.config["DATABASE_BACKEND"] = "postgresql"
+            self.app.extensions.pop("pos_runtime_state", None)
+            _ensure_pos_checkout_postgresql_sequences(proxy_db)
+
+        self.assertTrue(
+            any(
+                "ALTER TABLE crm_customers ALTER COLUMN id SET DEFAULT nextval('crm_customers_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "ALTER TABLE crm_purchase_records ALTER COLUMN id SET DEFAULT nextval('crm_purchase_records_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "ALTER TABLE pos_sales ALTER COLUMN id SET DEFAULT nextval('pos_sales_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
 
     def test_pos_checkout_auto_creates_stringing_member_and_applies_75k_progress_threshold(self):
         self.create_user("staff_sales_auto_senar", "pass1234", "staff", warehouse_id=1)
