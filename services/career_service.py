@@ -21,6 +21,7 @@ CAREER_RESUME_EXTENSIONS = {".pdf", ".doc", ".docx"}
 CAREER_APPLICATION_CHANNELS = {"public_portal", "manual_hr"}
 CAREER_ASSESSMENT_STATUSES = {"pending", "started", "submitted", "reviewed"}
 CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d"}
+CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES = {"pending", "processed", "declined"}
 
 
 def normalize_career_opening_status(value):
@@ -41,6 +42,11 @@ def normalize_career_application_channel(value):
 def normalize_career_assessment_status(value):
     status = (value or "").strip().lower()
     return status if status in CAREER_ASSESSMENT_STATUSES else "pending"
+
+
+def normalize_career_public_account_request_status(value):
+    status = (value or "").strip().lower()
+    return status if status in CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES else "pending"
 
 
 def normalize_assessment_code(value):
@@ -202,12 +208,31 @@ def ensure_career_schema(db):
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_vacancy ON recruitment_candidates(vacancy_id, warehouse_id, created_at)",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_assessment_questions_scope ON recruitment_assessment_questions(is_active, warehouse_id, sort_order)",
+            """
+            CREATE TABLE IF NOT EXISTS career_public_account_requests(
+                id SERIAL PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                source TEXT DEFAULT 'career_public',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS full_name TEXT",
+            "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS email TEXT",
+            "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'",
+            "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'career_public'",
+            "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "CREATE INDEX IF NOT EXISTS idx_career_public_account_requests_email ON career_public_account_requests(email, status, created_at)",
         ]
         for statement in statements:
             db.execute(statement)
         _ensure_postgresql_id_sequence(db, "career_openings")
         _ensure_postgresql_id_sequence(db, "recruitment_candidates")
         _ensure_postgresql_id_sequence(db, "recruitment_assessment_questions")
+        _ensure_postgresql_id_sequence(db, "career_public_account_requests")
     else:
         db.execute(
             """
@@ -288,8 +313,103 @@ def ensure_career_schema(db):
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_recruitment_assessment_questions_scope ON recruitment_assessment_questions(is_active, warehouse_id, sort_order)"
         )
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS career_public_account_requests(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                source TEXT DEFAULT 'career_public',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_career_public_account_requests_email ON career_public_account_requests(email, status, created_at)"
+        )
 
     runtime_state[cache_key] = True
+
+
+def create_public_account_request(db, full_name, email, source="career_public"):
+    safe_name = " ".join(str(full_name or "").strip().split())
+    safe_email = str(email or "").strip().lower()
+    if not safe_name:
+        raise ValueError("Nama lengkap wajib diisi.")
+    if not safe_email or "@" not in safe_email:
+        raise ValueError("Email wajib valid.")
+
+    existing = db.execute(
+        """
+        SELECT id
+        FROM career_public_account_requests
+        WHERE LOWER(email)=LOWER(?)
+          AND status=?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (safe_email, normalize_career_public_account_request_status("pending")),
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            """
+            UPDATE career_public_account_requests
+            SET full_name=?,
+                source=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                safe_name,
+                (source or "career_public").strip() or "career_public",
+                existing["id"],
+            ),
+        )
+        request_id = int(existing["id"])
+    else:
+        db.execute(
+            """
+            INSERT INTO career_public_account_requests(
+                full_name,
+                email,
+                status,
+                source,
+                updated_at
+            )
+            VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+            """,
+            (
+                safe_name,
+                safe_email,
+                normalize_career_public_account_request_status("pending"),
+                (source or "career_public").strip() or "career_public",
+            ),
+        )
+        created = db.execute(
+            """
+            SELECT id
+            FROM career_public_account_requests
+            WHERE LOWER(email)=LOWER(?)
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (safe_email,),
+        ).fetchone()
+        request_id = int(created["id"]) if created else 0
+
+    row = db.execute(
+        """
+        SELECT *
+        FROM career_public_account_requests
+        WHERE id=?
+        LIMIT 1
+        """,
+        (request_id,),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def generate_unique_assessment_code(db):

@@ -36,7 +36,7 @@ from services.receipt_pdf_service import (
     generate_pos_receipt_pdf,
 )
 from services.rbac import can_access_pos_terminal, can_assign_pos_staff, has_permission, is_scoped_role, normalize_role
-from services.stock_service import add_stock, remove_stock
+from services.stock_service import add_stock
 from services.whatsapp_service import (
     record_whatsapp_delivery,
     send_role_based_notification,
@@ -58,6 +58,7 @@ POS_DISPLAY_TIMEZONE = ZoneInfo("Asia/Jakarta") if ZoneInfo else timezone(timede
 POS_HIDDEN_ARCHIVE_SESSION_KEY = "pos_hidden_archive_unlocked_until"
 POS_DB_LOCK_RETRY_ATTEMPTS = 2
 POS_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
+POS_BULK_LOOKUP_CHUNK_SIZE = 400
 POS_SOURCE_ACTOR_SQL = (
     "COALESCE("
     "NULLIF(TRIM(ps.source_sales_name), ''), "
@@ -3107,6 +3108,7 @@ def _validate_and_build_items(
     if not isinstance(raw_items, list) or not raw_items:
         raise ValueError("Keranjang kasir masih kosong.")
 
+    normalized_raw_items = []
     prepared = []
     normalized_stock_allowance_map = {}
     for key, qty in dict(stock_allowance_map or {}).items():
@@ -3135,39 +3137,45 @@ def _validate_and_build_items(
         if product_id <= 0 or variant_id <= 0 or qty <= 0:
             raise ValueError("Item kasir tidak valid. Periksa produk, variant, dan qty.")
 
-        product = db.execute(
-            """
-            SELECT
-                p.id AS product_id,
-                p.sku,
-                p.name AS product_name,
-                COALESCE(NULLIF(TRIM(c.name), ''), '') AS category_name,
-                v.id AS variant_id,
-                COALESCE(v.variant, 'default') AS variant_name,
-                COALESCE(v.price_nett, 0) AS price_nett,
-                COALESCE(v.price_discount, 0) AS price_discount,
-                COALESCE(v.price_retail, 0) AS price_retail,
-                COALESCE(s.qty, 0) AS stock_qty
-            FROM products p
-            LEFT JOIN categories c ON c.id = p.category_id
-            JOIN product_variants v
-                ON v.id = ?
-               AND v.product_id = p.id
-            LEFT JOIN stock s
-                ON s.product_id = p.id
-               AND s.variant_id = v.id
-               AND s.warehouse_id = ?
-            WHERE p.id = ?
-            LIMIT 1
-            """,
-            (variant_id, warehouse_id, product_id),
-        ).fetchone()
+        normalized_raw_items.append(
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "qty": qty,
+                "has_explicit_unit_price": has_explicit_unit_price,
+                "unit_price": unit_price,
+                "retail_price": retail_price,
+            }
+        )
 
+    if not normalized_raw_items:
+        raise ValueError("Keranjang kasir masih kosong.")
+
+    product_snapshot_map = _fetch_pos_product_snapshot_map(
+        db,
+        warehouse_id,
+        [(item["product_id"], item["variant_id"]) for item in normalized_raw_items],
+    )
+    stock_snapshot_map = _fetch_pos_stock_balance_map(
+        db,
+        warehouse_id,
+        [(item["product_id"], item["variant_id"]) for item in normalized_raw_items],
+    )
+
+    for raw_item in normalized_raw_items:
+        product_id = raw_item["product_id"]
+        variant_id = raw_item["variant_id"]
+        qty = raw_item["qty"]
+        unit_price = raw_item["unit_price"]
+        retail_price = raw_item["retail_price"]
+        has_explicit_unit_price = raw_item["has_explicit_unit_price"]
+        product = product_snapshot_map.get((product_id, variant_id))
         if not product:
             raise ValueError("Produk atau variant tidak ditemukan.")
 
         item_key = (product_id, variant_id)
-        available_qty = int(product["stock_qty"] or 0) + max(normalized_stock_allowance_map.get(item_key, 0), 0)
+        stock_snapshot = _normalize_pos_stock_snapshot(stock_snapshot_map.get(item_key))
+        available_qty = stock_snapshot["net_qty"] + max(normalized_stock_allowance_map.get(item_key, 0), 0)
         requested_qty = requested_qty_map.get(item_key, 0) + qty
         if available_qty < requested_qty and not allow_negative_stock:
             label_variant = product["variant_name"] or "default"
@@ -3455,12 +3463,14 @@ def _restore_pos_stock_after_reversal(db, product_id, variant_id, warehouse_id, 
     }
 
 
-def _remove_pos_stock_for_sale(db, product_id, variant_id, warehouse_id, qty, *, note=None):
+def _remove_pos_stock_for_sale(db, product_id, variant_id, warehouse_id, qty, *, note=None, stock_snapshot=None):
     safe_qty = _to_int(qty, 0)
     if safe_qty <= 0:
         return {"ok": False, "error": "Qty stok keluar tidak valid."}
 
-    before_snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    before_snapshot = _normalize_pos_stock_snapshot(stock_snapshot)
+    if not stock_snapshot:
+        before_snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
     qty_from_positive_stock = min(safe_qty, before_snapshot["positive_qty"])
     negative_shortfall_qty = max(safe_qty - qty_from_positive_stock, 0)
 
@@ -3468,15 +3478,16 @@ def _remove_pos_stock_for_sale(db, product_id, variant_id, warehouse_id, qty, *,
         return {"ok": False, "error": "Stok tidak cukup untuk diproses."}
 
     if qty_from_positive_stock > 0:
-        removed = remove_stock(
+        removed = _remove_pos_positive_stock_batches(
+            db,
             product_id,
             variant_id,
             warehouse_id,
             qty_from_positive_stock,
             note=note or "POS checkout",
         )
-        if not removed:
-            return {"ok": False, "error": "Gagal memotong stok positif yang tersedia."}
+        if not removed.get("ok"):
+            return {"ok": False, "error": removed.get("error") or "Gagal memotong stok positif yang tersedia."}
 
     if negative_shortfall_qty > 0:
         _record_pos_negative_stock_shortfall(
@@ -3487,9 +3498,13 @@ def _remove_pos_stock_for_sale(db, product_id, variant_id, warehouse_id, qty, *,
             negative_shortfall_qty,
             note=f"{note or 'POS checkout'} [stok minus sementara]",
         )
-        after_snapshot = _sync_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
-    else:
-        after_snapshot = _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id)
+    after_snapshot = {
+        "positive_qty": max(before_snapshot["positive_qty"] - qty_from_positive_stock, 0),
+        "physical_qty": max(before_snapshot["physical_qty"] - qty_from_positive_stock, 0),
+        "overdraft_qty": before_snapshot["overdraft_qty"] + negative_shortfall_qty,
+    }
+    after_snapshot["net_qty"] = after_snapshot["physical_qty"] - after_snapshot["overdraft_qty"]
+    _upsert_pos_stock_balance(db, product_id, variant_id, warehouse_id, after_snapshot["net_qty"])
 
     return {
         "ok": True,
@@ -3498,6 +3513,7 @@ def _remove_pos_stock_for_sale(db, product_id, variant_id, warehouse_id, qty, *,
         "removed_qty": qty_from_positive_stock,
         "negative_shortfall_qty": negative_shortfall_qty,
         "used_negative_stock": negative_shortfall_qty > 0 or after_snapshot["net_qty"] < 0,
+        "after_snapshot": after_snapshot,
     }
 
 
@@ -4009,6 +4025,27 @@ def _fetch_pos_sale_detail_by_id(db, sale_id, *, allow_hidden_archive=False):
     )
 
 
+def _normalize_pos_item_keys(item_keys):
+    normalized_keys = []
+    seen_keys = set()
+    for item_key in item_keys or []:
+        if not isinstance(item_key, (list, tuple)) or len(item_key) != 2:
+            continue
+        normalized_key = (_to_int(item_key[0], 0), _to_int(item_key[1], 0))
+        if normalized_key[0] <= 0 or normalized_key[1] <= 0 or normalized_key in seen_keys:
+            continue
+        seen_keys.add(normalized_key)
+        normalized_keys.append(normalized_key)
+    return normalized_keys
+
+
+def _chunk_pos_values(values, chunk_size=POS_BULK_LOOKUP_CHUNK_SIZE):
+    safe_values = list(values or [])
+    safe_chunk_size = max(1, _to_int(chunk_size, POS_BULK_LOOKUP_CHUNK_SIZE))
+    for index in range(0, len(safe_values), safe_chunk_size):
+        yield safe_values[index:index + safe_chunk_size]
+
+
 def _build_pos_stock_allowance_map_from_items(items):
     allowance_map = {}
     for item in items or []:
@@ -4023,46 +4060,220 @@ def _build_pos_stock_allowance_map_from_items(items):
 
 
 def _fetch_pos_product_snapshot_map(db, warehouse_id, item_keys):
-    normalized_variant_ids = sorted(
-        {
-            _to_int(item_key[1], 0)
-            for item_key in (item_keys or [])
-            if isinstance(item_key, (list, tuple))
-            and len(item_key) == 2
-            and _to_int(item_key[0], 0) > 0
-            and _to_int(item_key[1], 0) > 0
-        }
-    )
-    if not normalized_variant_ids:
+    normalized_keys = _normalize_pos_item_keys(item_keys)
+    if not normalized_keys:
         return {}
 
-    placeholders = ",".join("?" for _ in normalized_variant_ids)
-    rows = db.execute(
-        f"""
-        SELECT
-            p.id AS product_id,
-            pv.id AS variant_id,
-            COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
-            COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
-            COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
-            COALESCE(pv.price_nett, 0) AS price_nett,
-            COALESCE(pv.price_discount, 0) AS price_discount,
-            COALESCE(pv.price_retail, 0) AS price_retail,
-            COALESCE(s.qty, 0) AS stock_qty
-        FROM product_variants pv
-        JOIN products p ON p.id = pv.product_id
-        LEFT JOIN stock s
-            ON s.product_id = p.id
-           AND s.variant_id = pv.id
-           AND s.warehouse_id = ?
-        WHERE pv.id IN ({placeholders})
-        """,
-        [warehouse_id, *normalized_variant_ids],
-    ).fetchall()
-    return {
-        (int(row["product_id"] or 0), int(row["variant_id"] or 0)): dict(row)
-        for row in rows
+    snapshot_map = {}
+    normalized_variant_ids = [variant_id for _, variant_id in normalized_keys]
+
+    for variant_chunk in _chunk_pos_values(normalized_variant_ids):
+        placeholders = ",".join("?" for _ in variant_chunk)
+        rows = db.execute(
+            f"""
+            SELECT
+                p.id AS product_id,
+                pv.id AS variant_id,
+                COALESCE(NULLIF(TRIM(p.sku), ''), '-') AS sku,
+                COALESCE(NULLIF(TRIM(p.name), ''), 'Produk') AS product_name,
+                COALESCE(NULLIF(TRIM(c.name), ''), '') AS category_name,
+                COALESCE(NULLIF(TRIM(pv.variant), ''), 'default') AS variant_name,
+                COALESCE(pv.price_nett, 0) AS price_nett,
+                COALESCE(pv.price_discount, 0) AS price_discount,
+                COALESCE(pv.price_retail, 0) AS price_retail,
+                COALESCE(s.qty, 0) AS stock_qty
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN stock s
+                ON s.product_id = p.id
+               AND s.variant_id = pv.id
+               AND s.warehouse_id = ?
+            WHERE pv.id IN ({placeholders})
+            """,
+            [warehouse_id, *variant_chunk],
+        ).fetchall()
+        for row in rows:
+            snapshot_map[(int(row["product_id"] or 0), int(row["variant_id"] or 0))] = dict(row)
+
+    return snapshot_map
+
+
+def _fetch_pos_stock_balance_map(db, warehouse_id, item_keys):
+    normalized_keys = _normalize_pos_item_keys(item_keys)
+    if not normalized_keys:
+        return {}
+
+    balance_map = {
+        item_key: {
+            "net_qty": 0,
+            "positive_qty": 0,
+            "physical_qty": 0,
+            "overdraft_qty": 0,
+        }
+        for item_key in normalized_keys
     }
+    normalized_variant_ids = [variant_id for _, variant_id in normalized_keys]
+
+    for variant_chunk in _chunk_pos_values(normalized_variant_ids):
+        placeholders = ",".join("?" for _ in variant_chunk)
+        physical_rows = db.execute(
+            f"""
+            SELECT
+                product_id,
+                variant_id,
+                COALESCE(SUM(remaining_qty), 0) AS physical_qty
+            FROM stock_batches
+            WHERE warehouse_id=? AND variant_id IN ({placeholders})
+            GROUP BY product_id, variant_id
+            """,
+            [warehouse_id, *variant_chunk],
+        ).fetchall()
+        for row in physical_rows:
+            item_key = (int(row["product_id"] or 0), int(row["variant_id"] or 0))
+            if item_key not in balance_map:
+                continue
+            physical_qty = max(_to_int(row["physical_qty"], 0), 0)
+            balance_map[item_key]["positive_qty"] = physical_qty
+            balance_map[item_key]["physical_qty"] = physical_qty
+
+        overdraft_rows = db.execute(
+            f"""
+            SELECT
+                product_id,
+                variant_id,
+                COALESCE(SUM(remaining_qty), 0) AS overdraft_qty
+            FROM pos_negative_stock_overdrafts
+            WHERE warehouse_id=? AND variant_id IN ({placeholders}) AND COALESCE(remaining_qty, 0) > 0
+            GROUP BY product_id, variant_id
+            """,
+            [warehouse_id, *variant_chunk],
+        ).fetchall()
+        for row in overdraft_rows:
+            item_key = (int(row["product_id"] or 0), int(row["variant_id"] or 0))
+            if item_key not in balance_map:
+                continue
+            balance_map[item_key]["overdraft_qty"] = max(_to_int(row["overdraft_qty"], 0), 0)
+
+    for snapshot in balance_map.values():
+        snapshot["net_qty"] = snapshot["positive_qty"] - snapshot["overdraft_qty"]
+
+    return balance_map
+
+
+def _normalize_pos_stock_snapshot(snapshot):
+    safe_snapshot = dict(snapshot or {})
+    positive_qty = max(_to_int(safe_snapshot.get("positive_qty"), safe_snapshot.get("physical_qty", 0)), 0)
+    physical_qty = max(_to_int(safe_snapshot.get("physical_qty"), positive_qty), 0)
+    overdraft_qty = max(_to_int(safe_snapshot.get("overdraft_qty"), 0), 0)
+    default_net_qty = physical_qty - overdraft_qty
+    return {
+        "net_qty": _to_int(safe_snapshot.get("net_qty"), default_net_qty),
+        "positive_qty": positive_qty,
+        "physical_qty": physical_qty,
+        "overdraft_qty": overdraft_qty,
+    }
+
+
+def _upsert_pos_stock_balance(db, product_id, variant_id, warehouse_id, qty):
+    db.execute(
+        """
+        INSERT INTO stock(product_id, variant_id, warehouse_id, qty)
+        VALUES (?,?,?,?)
+        ON CONFLICT(product_id, variant_id, warehouse_id)
+        DO UPDATE SET
+            qty=excluded.qty,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (product_id, variant_id, warehouse_id, qty),
+    )
+
+
+def _remove_pos_positive_stock_batches(db, product_id, variant_id, warehouse_id, qty, *, note=None):
+    safe_qty = _to_int(qty, 0)
+    if safe_qty <= 0:
+        return {"ok": True, "removed_qty": 0}
+
+    acting_user_id = _to_int(session.get("user_id"), 0) or None
+    ip_address = request.remote_addr if request else None
+    user_agent = request.headers.get("User-Agent") if request else None
+    remaining_qty = safe_qty
+
+    batch_rows = db.execute(
+        """
+        SELECT id, remaining_qty
+        FROM stock_batches
+        WHERE product_id=? AND variant_id=? AND warehouse_id=? AND remaining_qty > 0
+        ORDER BY datetime(created_at) ASC, id ASC
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchall()
+
+    for batch_row in batch_rows:
+        if remaining_qty <= 0:
+            break
+        open_qty = max(_to_int(batch_row["remaining_qty"], 0), 0)
+        if open_qty <= 0:
+            continue
+        take_qty = min(open_qty, remaining_qty)
+        db.execute(
+            """
+            UPDATE stock_batches
+            SET remaining_qty = remaining_qty - ?
+            WHERE id=?
+            """,
+            (take_qty, batch_row["id"]),
+        )
+        db.execute(
+            """
+            INSERT INTO stock_movements(
+                product_id,
+                variant_id,
+                warehouse_id,
+                batch_id,
+                qty,
+                type,
+                created_at
+            )
+            VALUES (?,?,?,?,?,'OUT',CURRENT_TIMESTAMP)
+            """,
+            (product_id, variant_id, warehouse_id, batch_row["id"], take_qty),
+        )
+        remaining_qty -= take_qty
+
+    if remaining_qty > 0:
+        return {"ok": False, "error": "Gagal memotong stok positif yang tersedia."}
+
+    db.execute(
+        """
+        INSERT INTO stock_history(
+            product_id,
+            variant_id,
+            warehouse_id,
+            action,
+            type,
+            qty,
+            note,
+            user_id,
+            ip_address,
+            user_agent
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            product_id,
+            variant_id,
+            warehouse_id,
+            "OUTBOUND",
+            "OUT",
+            safe_qty,
+            note or "POS checkout",
+            acting_user_id,
+            ip_address,
+            user_agent,
+        ),
+    )
+    return {"ok": True, "removed_qty": safe_qty}
 
 
 def _build_pos_edit_sale_payload(db, sale_detail):
@@ -6545,8 +6756,14 @@ def pos_checkout():
                 ),
             )
             sale_id = pos_cursor.lastrowid
+            stock_snapshot_map = _fetch_pos_stock_balance_map(
+                db,
+                warehouse_id,
+                [(item["product_id"], item["variant_id"]) for item in items],
+            )
 
             for item in items:
+                item_key = (item["product_id"], item["variant_id"])
                 removed = _remove_pos_stock_for_sale(
                     db,
                     item["product_id"],
@@ -6554,12 +6771,15 @@ def pos_checkout():
                     warehouse_id,
                     item["qty"],
                     note=f"POS {receipt_no}",
+                    stock_snapshot=stock_snapshot_map.get(item_key),
                 )
                 if not removed.get("ok"):
                     raise ValueError(
                         removed.get("error")
                         or f"Gagal memotong stok {item['sku']} / {item['variant_name']}. Silakan refresh data stok."
                     )
+                if removed.get("after_snapshot"):
+                    stock_snapshot_map[item_key] = removed["after_snapshot"]
                 if removed.get("used_negative_stock"):
                     negative_stock_alert_items.append(
                         {

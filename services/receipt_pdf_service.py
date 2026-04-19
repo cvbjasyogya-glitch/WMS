@@ -264,8 +264,8 @@ def _find_pos_receipt_pdf_browser():
     return ""
 
 
-def _render_pos_receipt_pdf_via_browser(sale, absolute_path):
-    browser_executable = _find_pos_receipt_pdf_browser()
+def _render_pos_receipt_pdf_via_browser(sale, absolute_path, browser_executable=None):
+    browser_executable = str(browser_executable or _find_pos_receipt_pdf_browser()).strip()
     if not browser_executable:
         return False, "browser_not_found"
 
@@ -1380,7 +1380,19 @@ def generate_pos_receipt_pdf(sale):
     ).strip().lower()
 
     if renderer_mode != "legacy":
-        rendered, render_error = _render_pos_receipt_pdf_via_browser(sale, absolute_path)
+        browser_executable = ""
+        if renderer_mode == "auto":
+            browser_executable = _find_pos_receipt_pdf_browser()
+            if not browser_executable:
+                renderer_mode = "legacy"
+        rendered = False
+        render_error = ""
+        if renderer_mode != "legacy":
+            rendered, render_error = _render_pos_receipt_pdf_via_browser(
+                sale,
+                absolute_path,
+                browser_executable=browser_executable,
+            )
         if rendered:
             return {
                 "file_name": file_name,
@@ -1389,11 +1401,12 @@ def generate_pos_receipt_pdf(sale):
                 "public_url": build_pos_receipt_pdf_public_url(file_name),
                 "size_bytes": os.path.getsize(absolute_path),
             }
-        current_app.logger.warning(
-            "POS receipt HTML PDF render fallback triggered for %s: %s",
-            receipt_no,
-            render_error,
-        )
+        if renderer_mode != "legacy":
+            current_app.logger.warning(
+                "POS receipt HTML PDF render fallback triggered for %s: %s",
+                receipt_no,
+                render_error,
+            )
 
     pdf_bytes = _build_pdf_document(sale=sale)
     with open(absolute_path, "wb") as file_handle:

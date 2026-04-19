@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SMS Cloud Storage</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sms_storage.css') }}">
+</head>
+<body>
+    <div class="sms-shell">
+        <header class="sms-topbar">
+            <div class="sms-brand">
+                <div class="sms-brand-mark">SMS</div>
+                <div>
+                    <strong>SMS Cloud Storage</strong>
+                    <span>Ruang file internal CV.BJAS</span>
+                </div>
+            </div>
+            <div class="sms-topbar-actions">
+                <button type="button" class="sms-chip-button" id="smsModeDriveButton">My Drive</button>
+                <button type="button" class="sms-chip-button" id="smsModeTrashButton">Trash</button>
+                <a href="{{ url_for('auth.logout') }}" class="sms-logout-link">Keluar</a>
+            </div>
+        </header>
+
+        <main class="sms-main-grid">
+            <aside class="sms-sidebar">
+                <section class="sms-card sms-card-accent">
+                    <p class="sms-eyebrow">Akun aktif</p>
+                    <strong>{{ current_user_label }}</strong>
+                    <span>Domain ini khusus untuk file manager cloud storage.</span>
+                </section>
+
+                <section class="sms-card">
+                    <div class="sms-card-head">
+                        <div>
+                            <p class="sms-eyebrow">Storage</p>
+                            <strong id="smsUsageLabel">{{ storage_stats.total_size_label }}</strong>
+                        </div>
+                        <span class="sms-mini-badge">Live</span>
+                    </div>
+                    <div class="sms-stats-grid">
+                        <article>
+                            <strong id="smsStatFiles">{{ storage_stats.total_files }}</strong>
+                            <span>File</span>
+                        </article>
+                        <article>
+                            <strong id="smsStatFolders">{{ storage_stats.total_folders }}</strong>
+                            <span>Folder</span>
+                        </article>
+                        <article>
+                            <strong id="smsStatTrash">{{ storage_stats.trash_count }}</strong>
+                            <span>Trash</span>
+                        </article>
+                        <article>
+                            <strong id="smsMaxUploadLabel">{{ storage_stats.max_upload_label }}</strong>
+                            <span>Maks / file</span>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="sms-card">
+                    <div class="sms-card-head">
+                        <div>
+                            <p class="sms-eyebrow">Aktivitas</p>
+                            <strong>Log terbaru</strong>
+                        </div>
+                        <button type="button" class="sms-link-button" id="smsRefreshActivityButton">Refresh</button>
+                    </div>
+                    <div class="sms-activity-list" id="smsActivityList">
+                        {% for item in storage_activity %}
+                        <article class="sms-activity-item">
+                            <strong>{{ item.action|default('update')|capitalize }}</strong>
+                            <span>{{ item.target_path or 'Root' }}</span>
+                        </article>
+                        {% else %}
+                        <p class="sms-empty-copy">Belum ada aktivitas.</p>
+                        {% endfor %}
+                    </div>
+                </section>
+            </aside>
+
+            <section class="sms-workspace">
+                <div class="sms-toolbar">
+                    <div class="sms-toolbar-left">
+                        <div class="sms-breadcrumbs" id="smsBreadcrumbs"></div>
+                        <label class="sms-search-shell" for="smsSearchInput">
+                            <input id="smsSearchInput" type="search" placeholder="Cari file atau folder di lokasi aktif">
+                        </label>
+                    </div>
+                    <div class="sms-toolbar-right">
+                        <button type="button" class="sms-primary-button" id="smsUploadButton">Upload File</button>
+                        <button type="button" class="sms-secondary-button" id="smsFolderButton">Folder Baru</button>
+                        <button type="button" class="sms-secondary-button" id="smsRefreshButton">Refresh</button>
+                        <button type="button" class="sms-danger-button hidden" id="smsEmptyTrashButton">Kosongkan Trash</button>
+                    </div>
+                </div>
+
+                <div class="sms-dropzone" id="smsDropzone">
+                    <strong>Tarik file ke sini</strong>
+                    <span>atau gunakan tombol Upload File untuk kirim banyak file sekaligus.</span>
+                </div>
+
+                <div class="sms-feedback hidden" id="smsFeedbackBar"></div>
+
+                <div class="sms-table-shell">
+                    <div class="sms-table-head">
+                        <span>Nama</span>
+                        <span>Tipe</span>
+                        <span>Ukuran</span>
+                        <span>Update</span>
+                        <span>Aksi</span>
+                    </div>
+                    <div class="sms-table-body" id="smsTableBody"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <input id="smsFileInput" type="file" multiple hidden>
+
+    <dialog class="sms-preview-dialog" id="smsPreviewDialog">
+        <form method="dialog" class="sms-preview-shell">
+            <button type="submit" class="sms-preview-close" aria-label="Tutup">&times;</button>
+            <div class="sms-preview-body" id="smsPreviewBody"></div>
+        </form>
+    </dialog>
+
+    <script>
+        window.SMS_STORAGE_BOOTSTRAP = {
+            initialPath: {{ initial_path|tojson }},
+            endpoints: {
+                list: {{ url_for('sms_storage.api_list')|tojson }},
+                stats: {{ url_for('sms_storage.api_stats')|tojson }},
+                activity: {{ url_for('sms_storage.api_activity')|tojson }},
+                trash: {{ url_for('sms_storage.api_trash')|tojson }},
+                folder: {{ url_for('sms_storage.api_create_folder')|tojson }},
+                upload: {{ url_for('sms_storage.upload_files')|tojson }},
+                rename: {{ url_for('sms_storage.api_rename')|tojson }},
+                delete: {{ url_for('sms_storage.api_delete')|tojson }},
+                restore: {{ url_for('sms_storage.api_restore_trash')|tojson }},
+                emptyTrash: {{ url_for('sms_storage.api_empty_trash')|tojson }},
+                download: {{ url_for('sms_storage.api_download')|tojson }},
+                preview: {{ url_for('sms_storage.api_preview')|tojson }}
+            }
+        };
+    </script>
+    <script src="{{ url_for('static', filename='js/sms_storage.js') }}"></script>
+</body>
+</html>

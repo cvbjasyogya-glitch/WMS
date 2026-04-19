@@ -172,6 +172,7 @@ class Config:
     PROXY_FIX_X_HOST = _int_env("PROXY_FIX_X_HOST", 1 if IS_PRODUCTION else 0)
     ALLOWED_HOSTS = _csv_env("ALLOWED_HOSTS", "")
     RECRUITMENT_PUBLIC_HOSTS = _csv_env("RECRUITMENT_PUBLIC_HOSTS", "")
+    SMS_PUBLIC_HOSTS = _csv_env("SMS_PUBLIC_HOSTS", "")
     CANONICAL_HOST = (os.getenv("CANONICAL_HOST") or "").strip()
     CANONICAL_SCHEME = (
         (os.getenv("CANONICAL_SCHEME") or PREFERRED_URL_SCHEME or "https")
@@ -240,6 +241,28 @@ class Config:
     IPOS4_IMPORT_RUNTIME_DIR = os.getenv(
         "IPOS4_IMPORT_RUNTIME_DIR",
         os.path.join(BASE_DIR, "instance", "ipos4_runtime"),
+    )
+    SMS_STORAGE_ROOT = os.getenv(
+        "SMS_STORAGE_ROOT",
+        os.path.join(BASE_DIR, "instance", "sms_storage", "storage"),
+    )
+    SMS_STORAGE_DATA_ROOT = os.getenv(
+        "SMS_STORAGE_DATA_ROOT",
+        os.path.join(BASE_DIR, "instance", "sms_storage", "data"),
+    )
+    SMS_STORAGE_MAX_UPLOAD_BYTES = _int_env(
+        "SMS_STORAGE_MAX_UPLOAD_BYTES",
+        100 * 1024 * 1024 * 1024,
+    )
+    SMS_STORAGE_ACTIVITY_LIMIT = _int_env("SMS_STORAGE_ACTIVITY_LIMIT", 40)
+    SMS_STORAGE_ACTIVITY_FEED_LIMIT = _int_env("SMS_STORAGE_ACTIVITY_FEED_LIMIT", 10)
+    CAREER_HOME_HERO_IMAGE = _first_env_value(
+        "CAREER_HOME_HERO_IMAGE",
+        default="brand/login-hero-crowd.jpeg",
+    )
+    CAREER_PUBLIC_NOTICE_TEXT = _first_env_value(
+        "CAREER_PUBLIC_NOTICE_TEXT",
+        default="ERP-CV.BJAS tidak memungut biaya apa pun selama proses pendaftaran dan seleksi karir berlangsung.",
     )
     IPOS4_MIRROR_DB_PATH = os.getenv(
         "IPOS4_MIRROR_DB_PATH",

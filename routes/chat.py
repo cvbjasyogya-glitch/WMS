@@ -333,7 +333,8 @@ def _serialize_contact(row):
 
 
 def _fetch_contacts(db, current_user):
-    current_warehouse_id = current_user.get("warehouse_id")
+    current_warehouse_id = _to_int(current_user.get("warehouse_id"))
+    has_current_warehouse = 1 if current_warehouse_id else 0
     rows = db.execute(
         """
         SELECT
@@ -345,7 +346,7 @@ def _fetch_contacts(db, current_user):
             w.name AS warehouse_name,
             CASE WHEN up.last_seen_at >= datetime('now', ?) THEN 1 ELSE 0 END AS is_online,
             CASE WHEN u.role='leader' THEN 1 ELSE 0 END AS is_leader,
-            CASE WHEN ? IS NOT NULL AND u.warehouse_id=? THEN 1 ELSE 0 END AS is_same_warehouse,
+            CASE WHEN ? = 1 AND u.warehouse_id=? THEN 1 ELSE 0 END AS is_same_warehouse,
             up.current_path,
             up.last_seen_at
         FROM users u
@@ -355,16 +356,16 @@ def _fetch_contacts(db, current_user):
         ORDER BY
             CASE WHEN u.role='leader' THEN 0 ELSE 1 END,
             CASE WHEN up.last_seen_at >= datetime('now', ?) THEN 0 ELSE 1 END,
-            CASE WHEN ? IS NOT NULL AND u.warehouse_id=? THEN 0 ELSE 1 END,
+            CASE WHEN ? = 1 AND u.warehouse_id=? THEN 0 ELSE 1 END,
             LOWER(u.username) ASC
         """,
         (
             f"-{ONLINE_WINDOW_SECONDS} seconds",
-            current_warehouse_id,
+            has_current_warehouse,
             current_warehouse_id,
             current_user["id"],
             f"-{ONLINE_WINDOW_SECONDS} seconds",
-            current_warehouse_id,
+            has_current_warehouse,
             current_warehouse_id,
         ),
     ).fetchall()
@@ -385,8 +386,7 @@ def _serialize_current_user(current_user):
 
 
 def _fetch_thread_summaries(db, current_user_id, thread_id=None):
-    rows = db.execute(
-        """
+    query = """
         SELECT
             t.id,
             t.direct_key,
@@ -418,7 +418,13 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
               ORDER BY id DESC
               LIMIT 1
           )
-        WHERE (? IS NULL OR t.id = ?)
+    """
+    params = [current_user_id]
+    safe_thread_id = _to_int(thread_id)
+    if safe_thread_id:
+        query += "\nWHERE t.id = ?"
+        params.append(safe_thread_id)
+    query += """
         ORDER BY
             CASE WHEN COALESCE(member.is_pinned, 0) = 1 THEN 0 ELSE 1 END,
             CASE
@@ -426,8 +432,10 @@ def _fetch_thread_summaries(db, current_user_id, thread_id=None):
                 ELSE COALESCE(t.last_message_at, t.created_at)
             END DESC,
             t.id DESC
-        """,
-        (current_user_id, thread_id, thread_id),
+    """
+    rows = db.execute(
+        query,
+        params,
     ).fetchall()
 
     if not rows:

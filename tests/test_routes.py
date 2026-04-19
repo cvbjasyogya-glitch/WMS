@@ -27,7 +27,9 @@ from config import Config
 from database import get_db, _replace_qmark_placeholders, _translate_sqlite_query_to_postgres, _replace_like_operators
 from routes.pos import (
     _build_pos_sale_log_summary,
+    _fetch_pos_product_snapshot_map,
     _fetch_pos_sale_logs,
+    _fetch_pos_stock_balance_map,
     _fetch_pos_staff_sales_rows,
     _format_pos_time_label,
     _normalize_pos_cash_closing_date,
@@ -3543,6 +3545,138 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(pos_sale["payment_method"], "cash")
         self.assertEqual(pos_sale["cashier_user_id"], selected_cashier_user_id)
 
+    def test_pos_snapshot_helpers_support_large_item_key_batches(self):
+        item_keys = []
+        for index in range(1, 406):
+            _, product_id, variants_rows = self.create_product(
+                sku=f"POS-BULK-{index:04d}",
+                qty=5,
+                variants="default",
+                warehouse_id="1",
+                name=f"Produk Bulk {index}",
+            )
+            item_keys.append((product_id, variants_rows[0]["id"]))
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO stock_batches(
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    qty,
+                    remaining_qty,
+                    cost,
+                    created_at
+                )
+                VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                [
+                    (product_id, variant_id, 1, 5, 5, 100000)
+                    for product_id, variant_id in item_keys[:5]
+                ],
+            )
+            db.commit()
+            snapshot_map = _fetch_pos_product_snapshot_map(db, 1, item_keys)
+            balance_map = _fetch_pos_stock_balance_map(db, 1, item_keys)
+
+        self.assertEqual(len(snapshot_map), len(item_keys))
+        self.assertEqual(len(balance_map), len(item_keys))
+        self.assertEqual(balance_map[item_keys[0]]["positive_qty"], 5)
+        self.assertEqual(balance_map[item_keys[-1]]["net_qty"], 0)
+
+    def test_pos_checkout_large_cart_uses_bulk_snapshot_helpers(self):
+        self.create_user("staff_sales_large_cart", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_large_cart")
+        self.login_pos_user("pos_large_cart_super", "super_admin")
+
+        cart_items = []
+        stock_batches = []
+        for index in range(1, 121):
+            _, product_id, variants_rows = self.create_product(
+                sku=f"POS-LARGE-{index:04d}",
+                qty=5,
+                variants="default",
+                warehouse_id="1",
+                name=f"Produk Keranjang {index}",
+            )
+            variant_id = variants_rows[0]["id"]
+            cart_items.append(
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "qty": 1,
+                    "unit_price": 120000,
+                    "retail_price": 150000,
+                }
+            )
+            stock_batches.append((product_id, variant_id, 1, 5, 5, 100000))
+
+        with self.app.app_context():
+            db = get_db()
+            db.executemany(
+                """
+                INSERT INTO stock_batches(
+                    product_id,
+                    variant_id,
+                    warehouse_id,
+                    qty,
+                    remaining_qty,
+                    cost,
+                    created_at
+                )
+                VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                stock_batches,
+            )
+            db.commit()
+
+        with patch("routes.pos._fetch_pos_product_snapshot_map", wraps=_fetch_pos_product_snapshot_map) as mocked_product_snapshots, patch(
+            "routes.pos._fetch_pos_stock_balance_map",
+            wraps=_fetch_pos_stock_balance_map,
+        ) as mocked_stock_snapshots, patch(
+            "routes.pos._generate_backend_pos_receipt_pdf",
+            return_value=(None, None),
+        ), patch(
+            "routes.pos._send_pos_receipt_to_customer",
+            return_value={"status": "skipped", "error": ""},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-19",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Keranjang Besar",
+                    "customer_phone": "628120007777",
+                    "payment_method": "cash",
+                    "paid_amount": 20000000,
+                    "items": cart_items,
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["total_items"], 120)
+        self.assertEqual(mocked_product_snapshots.call_count, 1)
+        self.assertEqual(mocked_stock_snapshots.call_count, 2)
+
+        first_item = cart_items[0]
+        with self.app.app_context():
+            db = get_db()
+            stock_after = db.execute(
+                """
+                SELECT qty
+                FROM stock
+                WHERE product_id=? AND variant_id=? AND warehouse_id=1
+                """,
+                (first_item["product_id"], first_item["variant_id"]),
+            ).fetchone()
+        self.assertEqual(stock_after["qty"], 4)
+
     def test_pos_checkout_allows_zero_price_item(self):
         self.create_user("staff_sales_zero_price", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_sales_zero_price")
@@ -5450,6 +5584,69 @@ class WmsRoutesTestCase(unittest.TestCase):
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
         self.assertIn("POS-HTML-FALLBACK-0001", pdf_text)
+        self.assertIn("Rio", pdf_text)
+
+    def test_generate_pos_receipt_pdf_auto_renderer_skips_browser_attempt_when_unavailable(self):
+        self.app.config.update(
+            POS_RECEIPT_PDF_RENDERER="auto",
+            POS_RECEIPT_PDF_BROWSER="",
+        )
+
+        sale = {
+            "id": 80,
+            "receipt_no": "POS-AUTO-FALLBACK-0001",
+            "warehouse_id": 1,
+            "warehouse_name": "Gudang Mataram",
+            "sale_date": "2026-04-09",
+            "created_time_label": "01:51",
+            "created_datetime_label": "2026-04-09 01:51",
+            "customer_name": "Antonio",
+            "customer_phone": "62895383313591",
+            "customer_phone_label": "62895383313591",
+            "cashier_receipt_label": "Rio",
+            "payment_method": "cash",
+            "payment_method_label": "CASH",
+            "status": "posted",
+            "status_label": "POSTED",
+            "total_items": 1,
+            "subtotal_amount_label": "Rp 80.000",
+            "discount_amount_label": "Rp 0",
+            "discount_rule_label": "-",
+            "tax_amount_label": "Rp 0",
+            "tax_rule_label": "-",
+            "total_amount_label": "Rp 80.000",
+            "paid_amount_label": "Rp 80.000",
+            "change_amount_label": "Rp 0",
+            "items": [
+                {
+                    "product_name": "ISO 66 TITANIUM",
+                    "variant_name": "SILVER",
+                    "sku": "S/B-HQ-001",
+                    "qty": 1,
+                    "active_qty": 1,
+                    "unit_price_label": "Rp 80.000",
+                    "active_line_total_label": "Rp 80.000",
+                    "void_qty": 0,
+                    "void_amount_label": "Rp 0",
+                }
+            ],
+        }
+
+        with self.app.app_context(), patch.object(
+            receipt_pdf_service,
+            "_find_pos_receipt_pdf_browser",
+            return_value="",
+        ), patch.object(
+            receipt_pdf_service,
+            "_render_pos_receipt_pdf_via_browser",
+        ) as mocked_browser_render:
+            pdf_meta = receipt_pdf_service.generate_pos_receipt_pdf(sale)
+
+        mocked_browser_render.assert_not_called()
+        with open(pdf_meta["absolute_path"], "rb") as file_handle:
+            pdf_text = file_handle.read().decode("latin-1", errors="ignore")
+
+        self.assertIn("POS-AUTO-FALLBACK-0001", pdf_text)
         self.assertIn("Rio", pdf_text)
 
     def test_pos_page_exposes_auto_print_flag_when_enabled(self):
@@ -10300,6 +10497,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("stickers", bootstrap_payload)
         self.assertIn("attachment_max_bytes", bootstrap_payload)
 
+    def test_chat_queries_avoid_nullable_parameter_only_predicates_for_postgresql_safety(self):
+        route_path = os.path.join(self.app.root_path, "routes", "chat.py")
+        with open(route_path, "r", encoding="utf-8") as route_file:
+            route_text = route_file.read()
+
+        self.assertNotIn("WHERE (? IS NULL OR t.id = ?)", route_text)
+        self.assertNotIn("CASE WHEN ? IS NOT NULL AND u.warehouse_id=? THEN 1 ELSE 0 END AS is_same_warehouse", route_text)
+        self.assertNotIn("CASE WHEN ? IS NOT NULL AND u.warehouse_id=? THEN 0 ELSE 1 END", route_text)
+        self.assertIn("CASE WHEN ? = 1 AND u.warehouse_id=? THEN 1 ELSE 0 END AS is_same_warehouse", route_text)
+        self.assertIn("CASE WHEN ? = 1 AND u.warehouse_id=? THEN 0 ELSE 1 END", route_text)
+        self.assertIn("safe_thread_id = _to_int(thread_id)", route_text)
+        self.assertIn('query += "\\nWHERE t.id = ?"', route_text)
+
     def test_chat_message_pushes_notification_to_subscribed_recipient(self):
         self.create_user("staff_chat_push", "pass1234", "staff", warehouse_id=1)
         self.create_user("leader_chat_push", "pass1234", "leader", warehouse_id=1)
@@ -11558,7 +11768,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(float(candidate_after["assessment_manual_score"]), 88.5)
         self.assertEqual(float(candidate_after["assessment_final_score"]), 88.5)
 
-    def test_recruitment_public_host_redirects_root_to_karir(self):
+    def test_recruitment_public_host_redirects_root_to_beranda(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
         self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
         self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
@@ -11566,7 +11776,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/", headers={"Host": "recruitment.test"}, follow_redirects=False)
 
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers["Location"].endswith("/karir"))
+        self.assertTrue(response.headers["Location"].endswith("/beranda"))
 
     def test_recruitment_public_host_keeps_public_career_and_redirects_internal_pages(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
@@ -11599,13 +11809,71 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
             db.commit()
 
+        home_response = self.client.get("/beranda", headers={"Host": "recruitment.test"})
+        self.assertEqual(home_response.status_code, 200)
+        self.assertIn("Temukan jalanmu untuk bertumbuh bersama ERP-CV.BJAS.", home_response.get_data(as_text=True))
+
         public_response = self.client.get("/karir", headers={"Host": "recruitment.test"})
         self.assertEqual(public_response.status_code, 200)
         self.assertIn("Picker Gudang", public_response.get_data(as_text=True))
+        self.assertIn("Lihat Detail", public_response.get_data(as_text=True))
+
+        about_response = self.client.get("/about", headers={"Host": "recruitment.test"})
+        self.assertEqual(about_response.status_code, 200)
+        self.assertIn("Tentang Kami", about_response.get_data(as_text=True))
+
+        help_response = self.client.get("/help", headers={"Host": "recruitment.test"})
+        self.assertEqual(help_response.status_code, 200)
+        self.assertIn("Bantuan Kandidat", help_response.get_data(as_text=True))
+
+        signin_response = self.client.get("/signin", headers={"Host": "recruitment.test"})
+        self.assertEqual(signin_response.status_code, 200)
+        self.assertIn("Masuk ke Akun", signin_response.get_data(as_text=True))
 
         internal_response = self.client.get("/login", headers={"Host": "recruitment.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
         self.assertEqual(internal_response.headers["Location"], "https://erp.test/login")
+
+    def test_public_career_signin_page_renders_lightweight_auth_flow(self):
+        response = self.client.get("/signin")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Masuk ke Akun", html)
+        self.assertIn("Daftar Akun", html)
+        self.assertIn("Cari Karir", html)
+
+    def test_public_career_signup_request_redirects_with_success_state(self):
+        response = self.client.post(
+            "/signin/register-request",
+            data={
+                "candidate_name": "Ryo Saputra",
+                "email": "ryo@example.com",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/signin?flow=signup&registered=1&email=ryo@example.com", response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                """
+                SELECT full_name, email, status, source
+                FROM career_public_account_requests
+                WHERE email=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("ryo@example.com",),
+            ).fetchone()
+        self.assertIsNotNone(request_row)
+        self.assertEqual(request_row["full_name"], "Ryo Saputra")
+        self.assertEqual(request_row["status"], "pending")
+        self.assertEqual(request_row["source"], "career_public_signup")
+
+        success_page = self.client.get("/signin?flow=signup&registered=1&email=ryo%40example.com")
+        self.assertEqual(success_page.status_code, 200)
+        self.assertIn("Email Terkirim", success_page.get_data(as_text=True))
 
     def test_career_schema_repairs_missing_postgresql_id_defaults(self):
         with self.app.app_context():
@@ -11614,6 +11882,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "career_openings": {"column_default": None},
                 "recruitment_candidates": {"column_default": None},
                 "recruitment_assessment_questions": {"column_default": None},
+                "career_public_account_requests": {"column_default": None},
             }
 
             def execute_side_effect(query, parameters=None):
@@ -11632,6 +11901,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             self.assertTrue(any("career_openings_id_seq" in query for query in executed_queries))
             self.assertTrue(any("recruitment_candidates_id_seq" in query for query in executed_queries))
             self.assertTrue(any("recruitment_assessment_questions_id_seq" in query for query in executed_queries))
+            self.assertTrue(any("career_public_account_requests_id_seq" in query for query in executed_queries))
 
     def test_hris_onboarding_route_renders_operational_view(self):
         self.login_hr_user()

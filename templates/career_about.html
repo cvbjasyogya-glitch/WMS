@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Tentang Kami | ERP-CV.BJAS Career{% endblock %}
+{% block eyebrow %}{% endblock %}
+{% block page_title %}Tentang Kami{% endblock %}
+{% block main_class %}career-public-shell{% endblock %}
+{% block page_content_class %}career-simple-page{% endblock %}
+
+{% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
+<style>
+.career-public-shell {
+    background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+    color: #17304e;
+}
+.career-public-shell .page-hero { display: none; }
+.career-simple-page { display: grid; gap: 24px; }
+.career-topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px;
+    padding: 18px 26px; border-radius: 26px; background: rgba(255,255,255,0.97);
+    border: 1px solid #dce8f4; box-shadow: 0 18px 40px rgba(17, 42, 73, 0.08);
+}
+.career-brand { display: inline-flex; align-items: center; gap: 16px; }
+.career-brand-mark { width: 64px; height: 40px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, #0066b3, #2e87cf); color: #fff; font: 800 1.12rem/1 "Space Grotesk", sans-serif; letter-spacing: 0.06em; }
+.career-brand-copy strong { color: #17304e; }
+.career-brand-copy span { color: #68809b; font-size: 0.9rem; }
+.career-nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 24px; }
+.career-nav a { color: #415c78; text-decoration: none; font-weight: 600; }
+.career-nav a:hover, .career-nav a.is-active { color: #0066b3; }
+.career-nav .is-active { position: relative; }
+.career-nav .is-active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 3px; border-radius: 999px; background: #0066b3; }
+.career-nav-utility { display: inline-flex; align-items: center; gap: 14px; padding-left: 18px; border-left: 1px solid #dce8f4; }
+.career-simple-card {
+    display: grid; gap: 18px; padding: 28px; border-radius: 28px; background: #fff;
+    border: 1px solid #dce8f4; box-shadow: 0 18px 40px rgba(17, 42, 73, 0.08);
+}
+.career-simple-card h1, .career-simple-card h2, .career-simple-card p { margin: 0; }
+.career-simple-card h1 { font-size: clamp(2rem, 4vw, 3rem); color: #0066b3; }
+.career-simple-card p { color: #627890; line-height: 1.75; }
+.career-simple-grid { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.career-simple-tile { display: grid; gap: 10px; padding: 20px; border-radius: 20px; background: #f7fbff; border: 1px solid #dce8f4; }
+.career-simple-tile h2 { color: #17304e; font-size: 1.08rem; }
+.career-simple-tile p { color: #627890; line-height: 1.7; }
+@media (max-width: 900px) {
+  .career-topbar { flex-direction: column; align-items: flex-start; padding: 18px 20px; }
+  .career-nav { justify-content: flex-start; gap: 18px; }
+  .career-simple-grid { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% set active_page = 'about' %}
+{% include "_career_public_nav.html" %}
+
+<section class="career-simple-card">
+    <h1>Tentang Kami</h1>
+    <p>ERP-CV.BJAS Career adalah portal rekrutmen resmi untuk lowongan aktif perusahaan. Semua posisi yang tampil di halaman ini dikelola langsung oleh HR dan super admin melalui sistem internal, sehingga kandidat mendapatkan informasi yang konsisten, proses apply yang rapi, dan akses tes yang aman.</p>
+    <div class="career-simple-grid">
+        <article class="career-simple-tile">
+            <h2>Penempatan Global</h2>
+            <p>Informasi penempatan di halaman lowongan bersifat global dan mengikuti posisi yang dibuka oleh tim HR.</p>
+        </article>
+        <article class="career-simple-tile">
+            <h2>Seleksi Resmi</h2>
+            <p>Kandidat yang melamar melalui portal ini akan masuk ke pipeline recruitment yang sama dengan kandidat dari kanal lain.</p>
+        </article>
+        <article class="career-simple-tile">
+            <h2>Tes Terkelola</h2>
+            <p>Kode tes 5 digit dan bank soal dikelola HR langsung agar proses seleksi tetap rapi dan terukur.</p>
+        </article>
+    </div>
+</section>
+{% endblock %}

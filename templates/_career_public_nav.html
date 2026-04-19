@@ -1,0 +1,23 @@
+<section class="career-public-notice" role="status" aria-live="polite">
+    <span class="career-public-notice-badge">!</span>
+    <span><strong>PERHATIAN</strong> {{ career_notice_text }}</span>
+</section>
+
+<section class="career-topbar">
+    <div class="career-brand">
+        <span class="career-brand-mark">CV</span>
+        <div class="career-brand-copy">
+            <strong>ERP-CV.BJAS Career</strong>
+            <span>Portal rekrutmen resmi perusahaan</span>
+        </div>
+    </div>
+    <nav class="career-nav" aria-label="Navigasi karir">
+        <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
+        <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
+        <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
+        <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Bantuan</a>
+        <span class="career-nav-utility">
+            <a href="{{ url_for('career.signin_page') }}" class="career-public-login-button {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
+        </span>
+    </nav>
+</section>

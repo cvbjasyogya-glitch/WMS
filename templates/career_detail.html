@@ -8,6 +8,7 @@
 
 {% block extra_head %}
 {{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
 .career-public-shell {
     --career-bg: #f4f7fb;
@@ -417,32 +418,8 @@
 {% endblock %}
 
 {% block content %}
-<section class="career-topbar">
-    <div class="career-brand">
-        <span class="career-brand-mark">CV</span>
-        <div class="career-brand-copy">
-            <strong>ERP-CV.BJAS Career</strong><br>
-            <span>Portal rekrutmen resmi perusahaan</span>
-        </div>
-    </div>
-    <nav class="career-nav" aria-label="Navigasi karir">
-        <span>Beranda</span>
-        <span class="is-active">Lowongan</span>
-        <span>Program Kami</span>
-        <span>Agenda</span>
-        <span>Berita dan Artikel</span>
-        <span>Tentang Kami</span>
-        <span>Bantuan</span>
-        <span class="career-nav-utility">
-            <span>Daftar</span>
-            <span>Masuk</span>
-            <span class="career-nav-lang">
-                <span class="is-active">ID</span>
-                <span>EN</span>
-            </span>
-        </span>
-    </nav>
-</section>
+{% set active_page = 'jobs' %}
+{% include "_career_public_nav.html" %}
 
 <div class="career-breadcrumb">Karir / Lowongan / {{ opening.title }}</div>
 

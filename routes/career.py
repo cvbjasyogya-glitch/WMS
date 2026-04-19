@@ -1,9 +1,10 @@
 import hashlib
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from database import get_db
 from services.career_service import (
+    create_public_account_request,
     assign_candidate_assessment_code,
     decode_assessment_answers,
     encode_assessment_answers,
@@ -15,10 +16,43 @@ from services.career_service import (
     save_career_resume,
     score_assessment_questions,
 )
+from services.notification_service import send_email
 
 
 career_bp = Blueprint("career", __name__)
 CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
+
+
+def _career_public_signin_url():
+    return url_for("career.signin_page")
+
+
+def _career_public_register_url():
+    return url_for("career.signin_page")
+
+
+def _resolve_career_public_media_url(configured_value, default_static_filename):
+    safe_value = str(configured_value or "").strip()
+    if not safe_value:
+        safe_value = str(default_static_filename or "").strip()
+    if safe_value.startswith(("http://", "https://", "data:", "/")):
+        return safe_value
+    return url_for("static", filename=safe_value)
+
+
+@career_bp.context_processor
+def inject_career_public_context():
+    return {
+        "career_notice_text": str(
+            current_app.config.get("CAREER_PUBLIC_NOTICE_TEXT")
+            or "ERP-CV.BJAS tidak memungut biaya apa pun selama proses pendaftaran dan seleksi karir berlangsung."
+        ).strip(),
+        "career_home_hero_image_url": _resolve_career_public_media_url(
+            current_app.config.get("CAREER_HOME_HERO_IMAGE"),
+            "brand/login-hero-crowd.jpeg",
+        ),
+        "career_public_signin_url": url_for("career.signin_page"),
+    }
 
 
 def _fetch_public_openings(db, selected_warehouse=None):
@@ -175,6 +209,117 @@ def index():
     )
 
 
+@career_bp.route("/beranda")
+def home():
+    db = get_db()
+    ensure_career_schema(db)
+    openings = _fetch_public_openings(db)
+    return render_template(
+        "career_home.html",
+        openings=openings,
+        opening_count=len(openings),
+    )
+
+
+@career_bp.route("/about")
+def about_page():
+    db = get_db()
+    ensure_career_schema(db)
+    openings = _fetch_public_openings(db)
+    return render_template(
+        "career_about.html",
+        openings=openings,
+        opening_count=len(openings),
+    )
+
+
+@career_bp.route("/help")
+def help_page():
+    db = get_db()
+    ensure_career_schema(db)
+    return render_template(
+        "career_help.html",
+        signin_url=_career_public_signin_url(),
+    )
+
+
+@career_bp.route("/signin")
+def signin_page():
+    db = get_db()
+    ensure_career_schema(db)
+    flow = str(request.args.get("flow") or "signin").strip().lower()
+    if flow not in {"signin", "signup"}:
+        flow = "signin"
+    registered = str(request.args.get("registered") or "").strip() in {"1", "true", "yes"}
+    email = (request.args.get("email") or "").strip()
+    return render_template(
+        "career_signin.html",
+        signin_url=_career_public_signin_url(),
+        register_url=_career_public_register_url(),
+        active_flow=flow,
+        registration_success=registered,
+        registration_email=email,
+    )
+
+
+@career_bp.route("/signin/auth", methods=["POST"])
+def signin_submit():
+    email = (request.form.get("email") or "").strip()
+    password = (request.form.get("password") or "").strip()
+    if not email or not password:
+        flash("Email dan kata sandi wajib diisi.", "error")
+        return redirect(url_for("career.signin_page", flow="signin"))
+
+    flash(
+        "Login kandidat publik sedang diaktifkan bertahap. Jika Anda sudah melamar, gunakan kode tes 5 digit atau hubungi HR.",
+        "info",
+    )
+    return redirect(url_for("career.signin_page", flow="signin"))
+
+
+@career_bp.route("/signin/register-request", methods=["POST"])
+def signin_register_request():
+    candidate_name = (request.form.get("candidate_name") or "").strip()
+    email = (request.form.get("email") or "").strip()
+    if not candidate_name or not email:
+        flash("Nama lengkap dan email wajib diisi untuk mendaftarkan akun.", "error")
+        return redirect(url_for("career.signin_page", flow="signup"))
+    db = get_db()
+    ensure_career_schema(db)
+    try:
+        create_public_account_request(
+            db,
+            candidate_name,
+            email,
+            source="career_public_signup",
+        )
+        db.commit()
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("career.signin_page", flow="signup"))
+
+    email_subject = "Permintaan akun ERP-CV.BJAS Career diterima"
+    email_body = (
+        f"Halo {candidate_name},\n\n"
+        "Permintaan akun Anda untuk ERP-CV.BJAS Career sudah kami terima.\n"
+        "Tim HR akan meninjau email ini sebelum akses kandidat publik diaktifkan.\n\n"
+        "Sambil menunggu, Anda tetap bisa melihat lowongan aktif dan mengerjakan tes dengan kode 5 digit jika sudah diberikan HR.\n\n"
+        "Salam,\nERP-CV.BJAS Career"
+    )
+    try:
+        send_email(email, email_subject, email_body)
+    except Exception:
+        pass
+    return redirect(
+        url_for(
+            "career.signin_page",
+            flow="signup",
+            registered=1,
+            email=email,
+        )
+    )
+
+
 @career_bp.route("/karir/lowongan/<int:opening_id>")
 def opening_detail(opening_id):
     db = get_db()
@@ -193,6 +338,7 @@ def opening_detail(opening_id):
         opening=opening,
         latest_assessment_code=assessment_code,
         latest_candidate=latest_candidate,
+        signin_url=_career_public_signin_url(),
     )
 
 
