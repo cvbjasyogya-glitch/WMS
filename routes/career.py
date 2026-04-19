@@ -30,6 +30,14 @@ career_bp = Blueprint("career", __name__)
 CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
 
 
+def _get_career_public_company_name():
+    safe_name = str(
+        current_app.config.get("CAREER_PUBLIC_COMPANY_NAME")
+        or "CV Berkah Jaya Abadi Sports"
+    ).strip()
+    return safe_name or "CV Berkah Jaya Abadi Sports"
+
+
 def _get_primary_recruitment_public_host():
     recruitment_hosts = current_app.config.get("RECRUITMENT_PUBLIC_HOSTS") or []
     for host in recruitment_hosts:
@@ -108,11 +116,13 @@ def _resolve_career_public_media_url(configured_value, default_static_filename):
 
 @career_bp.context_processor
 def inject_career_public_context():
+    career_company_name = _get_career_public_company_name()
     return {
         "career_notice_text": str(
             current_app.config.get("CAREER_PUBLIC_NOTICE_TEXT")
-            or "ERP-CV.BJAS tidak memungut biaya apa pun selama proses pendaftaran dan seleksi karir berlangsung."
+            or f"{career_company_name} tidak memungut biaya apa pun selama proses pendaftaran dan seleksi karir berlangsung."
         ).strip(),
+        "career_company_name": career_company_name,
         "career_home_hero_image_url": _resolve_career_public_media_url(
             current_app.config.get("CAREER_HOME_HERO_IMAGE"),
             "brand/login-hero-crowd.jpeg",
@@ -504,13 +514,14 @@ def signin_register_request():
         flash(str(exc), "error")
         return _redirect_career_public("career.signin_page", flow="signup")
 
-    email_subject = "Permintaan akun ERP-CV.BJAS Career diterima"
+    career_company_name = _get_career_public_company_name()
+    email_subject = f"Permintaan akun karir {career_company_name} diterima"
     email_body = (
         f"Halo {candidate_name},\n\n"
-        "Permintaan akun Anda untuk ERP-CV.BJAS Career sudah kami terima.\n"
+        f"Permintaan akun Anda untuk portal karir {career_company_name} sudah kami terima.\n"
         "Tim HR akan meninjau email ini sebelum akses kandidat publik diaktifkan.\n\n"
         "Sambil menunggu, Anda tetap bisa melihat lowongan aktif dan mengerjakan tes dengan kode 5 digit jika sudah diberikan HR.\n\n"
-        "Salam,\nERP-CV.BJAS Career"
+        f"Salam,\n{career_company_name}"
     )
     try:
         send_email(email, email_subject, email_body)

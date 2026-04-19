@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Tentang Kami | ERP-CV.BJAS Career{% endblock %}
+{% block title %}Tentang Kami | {{ career_company_name }}{% endblock %}
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Tentang Kami{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
@@ -487,7 +487,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
             <div class="career-about-hero-copy">
                 <span class="career-about-kicker">Tentang Kami</span>
                 <h1>Portal karir resmi yang menyatukan lowongan, lamaran, dan assessment dalam satu alur yang lebih jelas.</h1>
-                <p>ERP-CV.BJAS Career dibangun sebagai wajah publik dari proses rekrutmen perusahaan, supaya kandidat mendapatkan pengalaman yang lebih meyakinkan sejak pertama kali mencari posisi sampai menyelesaikan tes seleksi.</p>
+                <p>Portal karir {{ career_company_name }} dibangun sebagai wajah publik dari proses rekrutmen perusahaan, supaya kandidat mendapatkan pengalaman yang lebih meyakinkan sejak pertama kali mencari posisi sampai menyelesaikan tes seleksi.</p>
             </div>
         </div>
 
@@ -524,7 +524,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
         <article class="career-about-card">
             <span class="career-about-card-kicker">Mengapa Portal Ini Ada</span>
             <h2>Tentang Kami</h2>
-            <p>ERP-CV.BJAS Career adalah portal rekrutmen resmi untuk lowongan aktif perusahaan. Semua posisi yang tampil di halaman ini dikelola langsung oleh HR dan super admin melalui sistem internal, sehingga kandidat mendapatkan informasi yang konsisten, proses apply yang rapi, dan akses tes yang aman.</p>
+            <p>Portal karir {{ career_company_name }} menampilkan lowongan aktif resmi perusahaan. Semua posisi dikelola langsung oleh HR dan super admin melalui sistem internal, sehingga kandidat mendapatkan informasi yang konsisten, proses apply yang rapi, dan akses tes yang aman.</p>
             <p>Portal ini juga membantu menyambungkan sisi publik dan sisi operasional recruitment. Dari sisi kandidat, prosesnya terasa lebih sederhana. Dari sisi tim HR, seluruh data lamaran, assessment code, dan hasil evaluasi bisa mengalir ke pipeline yang sama tanpa perlu input ulang manual.</p>
         </article>
 
@@ -590,7 +590,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
             {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
             {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
             <article class="career-about-opening-card">
-                <strong>ERP-CV.BJAS Career</strong>
+                <strong>{{ career_company_name }}</strong>
                 <h3>{{ opening.title }}</h3>
                 <div class="career-about-opening-meta">
                     <span>{{ opening.department or 'Operasional' }}</span>

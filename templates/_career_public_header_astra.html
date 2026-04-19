@@ -1,10 +1,10 @@
 {% set header_signin_url = signin_url if signin_url is defined and signin_url else url_for('career.signin_page') %}
 {% set header_register_url = register_url if register_url is defined and register_url else url_for('career.signin_page', flow='signup') %}
 <header class="career-astra-topbar">
-    <a href="{{ url_for('career.home') }}" class="career-astra-brand" aria-label="ERP-CV.BJAS Career">
-        <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="ERP-CV.BJAS logo">
+    <a href="{{ url_for('career.home') }}" class="career-astra-brand" aria-label="{{ career_company_name }}">
+        <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
         <span class="career-astra-brand-copy">
-            <strong>ERP-CV.BJAS Career</strong>
+            <strong>{{ career_company_name }}</strong>
             <span>Portal rekrutmen resmi perusahaan</span>
         </span>
     </a>

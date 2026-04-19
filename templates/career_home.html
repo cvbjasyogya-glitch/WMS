@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Beranda | ERP-CV.BJAS Career{% endblock %}
+{% block title %}Beranda Karir | {{ career_company_name }}{% endblock %}
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Beranda{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
@@ -101,10 +101,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 .career-astra-nav {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 18px;
     min-width: 0;
     overflow-x: auto;
+    padding-inline: 4px 18px;
+    scroll-padding-inline: 18px;
     scrollbar-width: none;
 }
 
@@ -113,6 +115,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 }
 
 .career-astra-nav a {
+    flex: 0 0 auto;
     position: relative;
     padding: 10px 2px;
     color: #475569;
@@ -806,6 +809,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     .career-astra-nav {
         width: 100%;
         justify-content: flex-start;
+        padding-inline: 2px 10px;
     }
 
     .career-astra-topbar-actions {
@@ -846,34 +850,75 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 
 @media (max-width: 860px) {
     body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
-        width: min(100%, calc(100vw - 18px));
+        width: min(100%, calc(100vw - 30px));
     }
 
     .career-astra-shell {
-        gap: 42px;
+        gap: 32px;
         padding-top: 12px;
     }
 
     .career-astra-topbar {
         border-radius: 0 0 18px 18px;
-        gap: 16px;
-        padding: 16px 18px 18px;
+        gap: 14px;
+        padding: 14px 16px 16px;
+    }
+
+    .career-astra-brand {
+        align-items: flex-start;
+        gap: 10px;
     }
 
     .career-astra-brand img {
-        width: 108px;
+        width: 92px;
+    }
+
+    .career-astra-brand-copy strong {
+        font-size: 0.94rem;
+    }
+
+    .career-astra-brand-copy span {
+        font-size: 0.76rem;
+    }
+
+    .career-astra-nav {
+        overflow: visible;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        padding-inline: 0;
+    }
+
+    .career-astra-nav a {
+        flex: 0 0 auto;
+        padding: 6px 0;
+        font-size: 0.94rem;
+    }
+
+    .career-astra-topbar-actions {
+        gap: 8px 12px;
+        align-items: center;
+    }
+
+    .career-astra-topbar .career-test-shortcut,
+    .career-astra-topbar .career-test-shortcut-panel {
+        width: 100%;
+    }
+
+    .career-astra-topbar .career-test-shortcut-panel summary {
+        width: 100%;
+        justify-content: center;
     }
 
     .career-astra-hero-media {
-        min-height: 760px;
+        min-height: 700px;
         border-radius: 0 0 20px 20px;
         background-position: center;
     }
 
     .career-astra-hero-copy {
-        left: 22px;
-        right: 22px;
-        bottom: 146px;
+        left: 18px;
+        right: 18px;
+        bottom: 132px;
         width: auto;
     }
 
@@ -900,7 +945,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     .career-astra-section,
     .career-astra-about,
     .career-astra-helpband {
-        padding-inline: 6px;
+        padding-inline: 0;
     }
 
     .career-astra-feature-card,
@@ -917,6 +962,48 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     .career-astra-section-head {
         flex-direction: column;
         align-items: start;
+    }
+
+    .career-astra-lang span {
+        min-width: 32px;
+        min-height: 26px;
+        padding: 0 8px;
+    }
+}
+
+@media (max-width: 680px) {
+    body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
+        width: min(100%, calc(100vw - 34px));
+    }
+
+    .career-astra-topbar {
+        padding: 12px 14px 14px;
+        gap: 12px;
+    }
+
+    .career-astra-brand img {
+        width: 84px;
+    }
+
+    .career-astra-nav {
+        gap: 6px 16px;
+    }
+
+    .career-astra-nav a,
+    .career-astra-topbar-actions a,
+    .career-astra-topbar .career-test-shortcut-panel summary {
+        font-size: 0.92rem;
+    }
+
+    .career-astra-searchband {
+        width: calc(100% - 12px);
+        padding: 16px 14px 18px;
+    }
+
+    .career-astra-feature-card,
+    .career-astra-about,
+    .career-astra-helpband {
+        padding: 20px 16px;
     }
 }
 </style>
@@ -955,7 +1042,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 {% else %}
     {% set spotlight_location = 'Penempatan fleksibel' %}
     {% set spotlight_type = 'Full Time' %}
-    {% set spotlight_summary = 'Landing page ini dirancang ulang supaya kandidat langsung melihat visual hero, band pencarian, dan konten sorotan seperti portal karir korporat modern.' %}
+    {% set spotlight_summary = 'Portal karir ini menampilkan hero utama, pencarian cepat, dan sorotan lowongan agar kandidat dapat langsung memulai proses.' %}
 {% endif %}
 
 <div class="career-astra-shell">
@@ -964,9 +1051,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     <section class="career-astra-hero" aria-label="Hero karir">
         <div class="career-astra-hero-media">
             <div class="career-astra-hero-copy">
-                <span class="career-astra-eyebrow">ERP-CV.BJAS Career</span>
+                <span class="career-astra-eyebrow">{{ career_company_name }}</span>
                 <h1>Mari Membangun Masa Depan Bersama</h1>
-                <p>Bersama ERP-CV.BJAS untuk hari ini dan masa depan Indonesia.</p>
+                <p>Bersama {{ career_company_name }} untuk hari ini dan masa depan Indonesia.</p>
             </div>
         </div>
 
@@ -1028,7 +1115,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
                 <p>{{ spotlight_summary }}</p>
                 {% else %}
                 <h2>Portal Karir yang lebih fokus, rapi, dan siap tumbuh.</h2>
-                <p>Halaman ini dibentuk ulang supaya ritme visualnya lebih dekat ke portal karir korporat: hero kuat, pencarian cepat, dan CTA yang langsung terbaca.</p>
+                <p>Tampilan beranda dirancang untuk menonjolkan hero utama, pencarian cepat, dan CTA yang mudah ditemukan.</p>
                 {% endif %}
             </div>
         </article>
@@ -1048,7 +1135,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
                 <a href="{{ url_for('career.opening_detail', opening_id=spotlight_opening.id) }}#careerApplyForm" class="career-astra-inline-link">Lamar sekarang</a>
             </div>
             {% else %}
-            <h2>Landing page karir kini punya struktur yang jauh lebih dekat ke referensi korporat.</h2>
+            <h2>Beranda karir kini memiliki struktur yang lebih dekat dengan portal korporat modern.</h2>
             <div class="career-astra-meta-list">
                 <span>Hero full-width</span>
                 <span>Band pencarian terintegrasi</span>
@@ -1067,8 +1154,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
         <div class="career-astra-section-head">
             <div>
                 <span>Program Kami</span>
-                <h2>Alur kandidat yang terasa lebih terarah sejak layar pertama.</h2>
-                <p>Strukturnya saya pecah jadi blok yang mudah dipindai supaya kandidat bisa langsung paham apa yang bisa dijelajahi, apa yang perlu dilakukan, dan ke mana harus lanjut.</p>
+                <h2>Alur calon pelamar yang lebih jelas sejak langkah pertama.</h2>
+                <p>Informasi utama disusun dalam beberapa bagian agar calon pelamar lebih mudah memahami posisi yang tersedia dan langkah berikutnya.</p>
             </div>
             <a href="{{ url_for('career.index') }}">Jelajahi lowongan</a>
         </div>
@@ -1076,23 +1163,23 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
         <div class="career-astra-card-grid">
             <article class="career-astra-card">
                 <div class="career-astra-card-mark">01</div>
-                <span>Explore</span>
-                <h3>Eksplorasi peran lebih cepat</h3>
-                <p>{{ ns.departments|length or 1 }} jalur fungsi tersusun lebih jelas supaya kandidat bisa memindai area karir tanpa harus membaca halaman yang terlalu padat.</p>
+                <span>Jelajahi</span>
+                <h3>Temukan posisi yang sesuai lebih cepat</h3>
+                <p>{{ ns.departments|length or 1 }} jalur fungsi tersusun lebih jelas agar calon pelamar dapat menelusuri pilihan karir tanpa harus membaca halaman yang terlalu padat.</p>
             </article>
 
             <article class="career-astra-card">
                 <div class="career-astra-card-mark">02</div>
-                <span>Apply</span>
-                <h3>Lamaran langsung ke posisi yang relevan</h3>
-                <p>Band pencarian di hero diarahkan ke halaman lowongan dengan filter awal, jadi ritme dari landing page ke daftar posisi terasa jauh lebih menyatu.</p>
+                <span>Lamar</span>
+                <h3>Kirim lamaran ke posisi yang relevan</h3>
+                <p>Pencarian di beranda langsung mengarah ke daftar lowongan dengan filter awal, sehingga proses memilih posisi terasa lebih ringkas dan terarah.</p>
             </article>
 
             <article class="career-astra-card">
                 <div class="career-astra-card-mark">03</div>
-                <span>Progress</span>
-                <h3>Proses kandidat lebih konsisten</h3>
-                <p>Setelah memilih posisi, kandidat tetap masuk ke detail lowongan dan assessment lewat alur yang sudah ada, tapi sekarang titik masuknya lebih enterprise dan lebih meyakinkan.</p>
+                <span>Tahapan</span>
+                <h3>Proses lamaran lebih mudah diikuti</h3>
+                <p>Setelah memilih posisi, calon pelamar dapat langsung melanjutkan ke detail lowongan dan tes seleksi melalui alur yang konsisten.</p>
             </article>
         </div>
     </section>
@@ -1102,7 +1189,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
             <div>
                 <span>Berita dan Artikel</span>
                 <h2>Konten sorotan yang memanfaatkan data lowongan yang sudah aktif.</h2>
-                <p>Bagian ini saya pakai untuk meniru ritme konten editorial di landing page referensi, tapi tetap memakai data nyata dari portal karir yang sudah tersedia di sistem.</p>
+                <p>Bagian ini menampilkan sorotan yang memanfaatkan data lowongan aktif dari portal karir yang tersedia di sistem.</p>
             </div>
             <a href="{{ url_for('career.index') }}">Lihat semua posisi</a>
         </div>
@@ -1125,7 +1212,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
             <article class="career-astra-story-card">
                 <span>UI Refresh</span>
                 <h3>Visual sekarang lebih dekat ke pola portal karir korporat.</h3>
-                <p>Header tipis, hero tinggi, band pencarian, dan kartu sorotan saya susun ulang agar nuansanya tidak lagi seperti halaman utilitas biasa.</p>
+                <p>Header ringkas, hero tinggi, band pencarian, dan kartu sorotan memberi pengalaman yang lebih rapi dan mudah dipindai.</p>
                 <a href="{{ url_for('career.index') }}">Buka lowongan</a>
             </article>
             <article class="career-astra-story-card">
@@ -1142,7 +1229,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
         <div class="career-astra-about-copy">
             <span>Tentang Kami</span>
             <h2>Portal karir yang lebih siap merepresentasikan citra perusahaan.</h2>
-            <p>Selain mengejar kemiripan visual dengan referensi Astra, saya tetap jaga supaya arah halaman ini relevan dengan kebutuhan ERP-CV.BJAS: cepat dibuka, CTA jelas, dan mudah disambungkan ke lowongan yang benar-benar tersedia.</p>
+            <p>Portal karir ini dirancang agar tetap relevan dengan kebutuhan {{ career_company_name }}: cepat dibuka, CTA jelas, dan terhubung langsung ke lowongan yang tersedia.</p>
             <p>{{ career_notice_text }}</p>
             <div class="career-astra-about-actions">
                 <a href="{{ url_for('career.about_page') }}" class="career-astra-button">Tentang perusahaan</a>

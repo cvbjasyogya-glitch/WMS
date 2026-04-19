@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Lowongan | ERP-CV.BJAS Career{% endblock %}
+{% block title %}Lowongan Karir | {{ career_company_name }}{% endblock %}
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Lowongan{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
@@ -676,7 +676,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
             >
                 <div class="career-job-card-head">
                     <div class="career-job-card-brand">
-                        <span>ERP-CV.BJAS Career</span>
+                        <span>{{ career_company_name }}</span>
                         <h3>{{ opening.title }}</h3>
                         <p>{{ opening.department or 'Operasional Perusahaan' }}</p>
                     </div>

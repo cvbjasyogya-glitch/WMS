@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ opening.title }} | Lowongan | ERP-CV.BJAS Career{% endblock %}
+{% block title %}{{ opening.title }} | Lowongan Karir | {{ career_company_name }}{% endblock %}
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Detail Lowongan{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
@@ -668,7 +668,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
 {% set department_label = (opening.department or 'Operasional Perusahaan')|trim %}
 {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
 {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
-{% set warehouse_label = opening.warehouse_name or 'ERP-CV.BJAS' %}
+{% set warehouse_label = opening.warehouse_name or career_company_name %}
 {% set description_preview = (opening.description or "Posisi aktif resmi perusahaan. Baca gambaran peran, pahami kualifikasi, lalu kirim lamaran dari panel yang sudah disediakan.")|striptags|truncate(220, True) %}
 
 <div class="career-detail-shell">
@@ -701,7 +701,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <div class="career-detail-summary-head">
                 <div>
                     <strong>Masuk ke overview posisi, proses kandidat, dan form lamaran dalam satu alur yang lebih rapi.</strong>
-                    <p>Halaman ini saya susun ulang supaya kandidat bisa paham peran lebih cepat, tahu apa yang perlu disiapkan, lalu langsung mengirim CV tanpa bingung pindah-pindah panel.</p>
+                    <p>Informasi posisi, persiapan yang dibutuhkan, dan langkah lamaran disusun dalam satu alur agar kandidat lebih mudah memahami proses.</p>
                 </div>
                 <div class="career-detail-actions">
                     <a href="#careerApplyForm" class="is-primary">Lamar Posisi Ini</a>
@@ -789,7 +789,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <div>
                         <span class="career-apply-kicker">Apply Now</span>
                         <h2>Kirim Lamaran</h2>
-                        <p>Form saya buat tetap ringkas supaya kandidat bisa fokus mengisi informasi yang benar-benar penting untuk tahap awal.</p>
+                        <p>Form lamaran difokuskan pada informasi utama yang dibutuhkan pada tahap awal seleksi.</p>
                     </div>
                 </div>
 

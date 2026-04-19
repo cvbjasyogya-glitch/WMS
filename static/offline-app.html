@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#07111f">
-    <title>ERP-CV.BJAS Offline</title>
+    <title>CV Berkah Jaya Abadi Sports Offline</title>
     <style>
         :root {
             color-scheme: dark;
@@ -88,9 +88,9 @@
 </head>
 <body>
     <main class="offline-shell">
-        <img src="/static/brand/mataram-logo.png" alt="ERP-CV.BJAS">
+        <img src="/static/brand/mataram-logo.png" alt="CV Berkah Jaya Abadi Sports">
         <h1>Koneksi sedang terputus</h1>
-        <p id="offlineMessage">ERP-CV.BJAS masih bisa dibuka sebagai aplikasi, tetapi halaman ini membutuhkan internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang.</p>
+        <p id="offlineMessage">CV Berkah Jaya Abadi Sports masih membutuhkan koneksi internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang.</p>
         <div class="offline-actions">
             <a href="/" id="offlinePrimaryAction">Buka Portal</a>
             <button type="button" onclick="window.location.reload()">Coba Lagi</button>
@@ -129,8 +129,8 @@
                 },
                 erp: {
                     href: "/workspace/",
-                    label: "Kembali ke ERP",
-                    message: "ERP-CV.BJAS masih bisa dibuka sebagai aplikasi, tetapi halaman ini membutuhkan internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang."
+                    label: "Kembali ke Portal",
+                    message: "CV Berkah Jaya Abadi Sports masih membutuhkan koneksi internet untuk memuat data terbaru. Sambungkan lagi jaringan lalu muat ulang."
                 }
             };
 
@@ -142,7 +142,7 @@
                 ? "Career Portal Offline"
                 : hostMode === "sms"
                     ? "SMS Storage Offline"
-                    : "ERP-CV.BJAS Offline";
+                    : "CV Berkah Jaya Abadi Sports Offline";
 
             if (hostMode === "erp" || !("serviceWorker" in navigator)) {
                 return;

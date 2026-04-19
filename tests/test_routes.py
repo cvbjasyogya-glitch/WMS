@@ -7088,7 +7088,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIn('label: "Kembali ke Karir"', body)
         self.assertIn('href: "/beranda"', body)
-        self.assertIn('label: "Kembali ke ERP"', body)
+        self.assertIn('label: "Kembali ke Portal"', body)
+        self.assertIn("CV Berkah Jaya Abadi Sports Offline", body)
         self.assertIn('registration.unregister()', body)
 
     def test_login_page_keeps_browser_mode_shell_defaults(self):

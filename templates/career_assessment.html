@@ -489,35 +489,61 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
 
 @media (max-width: 860px) {
     body.minimal-shell .main.career-public-shell > .page-content.career-assessment-page {
-        width: min(100%, calc(100vw - 18px));
+        width: min(100%, calc(100vw - 30px));
     }
 
     .career-assessment-shell {
-        gap: 36px;
+        gap: 28px;
         padding-top: 12px;
     }
 
     .career-assessment-breadcrumb,
     .career-assessment-content {
-        padding-inline: 6px;
+        padding-inline: 0;
     }
 
     .career-assessment-hero-banner {
-        min-height: 620px;
+        min-height: 540px;
         border-radius: 0 0 18px 18px;
     }
 
     .career-assessment-hero-copy {
-        left: 22px;
-        right: 22px;
-        bottom: 188px;
+        left: 18px;
+        right: 18px;
+        bottom: 156px;
         width: auto;
+        gap: 10px;
+    }
+
+    .career-assessment-hero-copy h1 {
+        font-size: clamp(1.7rem, 6.6vw, 2.5rem);
+    }
+
+    .career-assessment-hero-copy p {
+        font-size: 0.98rem;
+        line-height: 1.6;
+    }
+
+    .career-assessment-pill {
+        min-height: 32px;
+        padding: 0 10px;
+        font-size: 0.78rem;
     }
 
     .career-assessment-band {
-        width: calc(100% - 18px);
-        margin-top: -72px;
-        padding: 18px;
+        width: calc(100% - 14px);
+        margin-top: -58px;
+        gap: 16px;
+        padding: 16px 16px 18px;
+    }
+
+    .career-assessment-band-card {
+        min-height: 0;
+        padding: 14px;
+    }
+
+    .career-assessment-band-card strong {
+        font-size: 1.05rem;
     }
 
     .career-assessment-band-head,
@@ -533,16 +559,67 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
         grid-template-columns: 1fr;
     }
 
+    .career-assessment-main,
+    .career-assessment-side,
+    .career-assessment-form {
+        gap: 18px;
+    }
+
     .career-test-submit button {
         width: 100%;
     }
 }
 
 @media (max-width: 680px) {
+    body.minimal-shell .main.career-public-shell > .page-content.career-assessment-page {
+        width: min(100%, calc(100vw - 34px));
+    }
+
+    .career-assessment-shell {
+        gap: 22px;
+    }
+
     .career-assessment-card,
     .career-assessment-sidecard,
     .career-question-card {
-        padding: 22px 20px;
+        padding: 18px 16px;
+        border-radius: 16px;
+    }
+
+    .career-question-card {
+        gap: 12px;
+    }
+
+    .career-question-card-head {
+        gap: 10px;
+        grid-template-columns: 36px minmax(0, 1fr);
+    }
+
+    .career-question-index {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        font-size: 0.88rem;
+    }
+
+    .career-question-card h3 {
+        font-size: 0.98rem;
+        line-height: 1.55;
+    }
+
+    .career-question-options {
+        gap: 8px;
+    }
+
+    .career-question-option {
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 14px;
+    }
+
+    .career-question-option span {
+        font-size: 0.96rem;
+        line-height: 1.55;
     }
 }
 </style>
@@ -587,10 +664,10 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
                 <div>
                     {% if assessment_state == "active" %}
                     <strong>Kerjakan assessment dalam satu sesi yang fokus dan stabil.</strong>
-                    <p>Halaman ini saya rapikan supaya kandidat langsung paham status tes, jumlah soal, progres jawaban, dan batas pelanggaran tanpa perlu mencari informasinya di banyak panel.</p>
+                    <p>Status tes, jumlah soal, progres jawaban, dan batas pelanggaran ditampilkan dalam satu tampilan agar mudah dipantau selama sesi berlangsung.</p>
                     {% else %}
                     <strong>Hasil assessment sudah tersimpan dan siap direview tim HR.</strong>
-                    <p>Skor akhir, jawaban, dan ringkasan sesi tetap ditampilkan di halaman ini supaya kandidat tahu tesnya benar-benar selesai dan tercatat di sistem.</p>
+                    <p>Skor akhir, jawaban, dan ringkasan sesi tetap ditampilkan agar kandidat dapat memastikan tes telah selesai dan tercatat di sistem.</p>
                     {% endif %}
                 </div>
             </div>
