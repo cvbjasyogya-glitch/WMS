@@ -1,10 +1,11 @@
 Production deploy checklist for `erp.cvbjasyogya.cloud`.
 
 1. Copy [.env.production.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/.env.production.example) to your VPS `.env` or `EnvironmentFile`.
-2. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
-3. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
-4. Pull the latest code, restart `wms.service`, then reload Nginx.
-5. (Optional but recommended) Enable scheduled DB backups with [deploy/systemd/wms-db-backup.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.service.example) and [deploy/systemd/wms-db-backup.timer.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.timer.example).
+2. Copy [deploy/nginx/wms_upstream.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/wms_upstream.conf) to `/etc/nginx/conf.d/wms_upstream.conf`.
+3. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
+4. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
+5. Pull the latest code, restart `wms.service`, then reload Nginx.
+6. (Optional but recommended) Enable scheduled DB backups with [deploy/systemd/wms-db-backup.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.service.example) and [deploy/systemd/wms-db-backup.timer.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.timer.example).
 
 Public recruitment domain:
 - Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
@@ -32,6 +33,7 @@ sudo hostnamectl set-hostname erp.cvbjasyogya.cloud
 cd ~/WMS
 cp .env.production.example .env
 sudo cp deploy/systemd/wms.service.example /etc/systemd/system/wms.service
+sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
 sudo cp deploy/nginx/erp.cvbjasyogya.cloud.conf /etc/nginx/sites-available/erp.cvbjasyogya.cloud.conf
 sudo ln -sf /etc/nginx/sites-available/erp.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/erp.cvbjasyogya.cloud.conf
 sudo systemctl daemon-reload
@@ -46,6 +48,7 @@ Enable the recruitment domain on the same VPS:
 cd ~/WMS
 sudo cp deploy/nginx/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf
 sudo ln -sf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/recruitment.cvbjasyogya.cloud.conf
+sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
 echo "RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
 sudo systemctl restart wms.service
 sudo nginx -t
@@ -58,6 +61,7 @@ Enable the SMS cloud storage domain on the same VPS:
 cd ~/WMS
 sudo cp deploy/nginx/sms.cvbjasyogya.cloud.conf /etc/nginx/sites-available/sms.cvbjasyogya.cloud.conf
 sudo ln -sf /etc/nginx/sites-available/sms.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/sms.cvbjasyogya.cloud.conf
+sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
 grep -q '^SMS_PUBLIC_HOSTS=' /root/WMS/.env \
   && sudo sed -i 's/^SMS_PUBLIC_HOSTS=.*/SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud/' /root/WMS/.env \
   || echo "SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
@@ -111,6 +115,7 @@ sudo systemctl stop wms.service
 python3 scripts/run_configured_backup.py --output-dir /root/WMS/db_backups --retain-days 14
 git pull
 sudo cp deploy/systemd/wms.service.example /etc/systemd/system/wms.service
+sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
 sudo cp deploy/nginx/erp.cvbjasyogya.cloud.conf /etc/nginx/sites-available/erp.cvbjasyogya.cloud.conf
 sudo systemctl daemon-reload
 sudo systemctl restart wms.service

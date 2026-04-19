@@ -12047,6 +12047,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(internal_response.status_code, 302)
         self.assertEqual(internal_response.headers["Location"], "https://erp.test/login")
 
+    def test_public_career_routes_redirect_to_recruitment_domain_when_configured(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["CANONICAL_SCHEME"] = "https"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+
+        response = self.client.get(
+            "/karir?code=12345",
+            headers={"Host": "erp.test"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "https://recruitment.test/karir?code=12345")
+
     def test_sms_public_host_redirects_root_and_keeps_storage_workspace(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
         self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
@@ -12067,6 +12082,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         internal_response = self.client.get("/workspace", headers={"Host": "sms.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
         self.assertTrue(internal_response.headers["Location"].endswith("/sms/"))
+
+    def test_sms_routes_redirect_to_sms_domain_when_configured(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["CANONICAL_SCHEME"] = "https"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["SMS_PUBLIC_HOSTS"] = ["sms.test"]
+
+        response = self.client.get(
+            "/sms/?path=Finance",
+            headers={"Host": "erp.test"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "https://sms.test/sms/?path=Finance")
 
     def test_public_career_signin_page_renders_lightweight_auth_flow(self):
         response = self.client.get("/signin")

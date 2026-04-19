@@ -55,7 +55,7 @@ from routes.account import account_bp
 from routes.announcement_center import announcement_center_bp
 from routes.notifications import notifications_bp
 from routes.career import career_bp
-from routes.sms_storage import sms_storage_bp
+from routes.sms_storage import build_sms_public_current_url, sms_storage_bp
 
 # ðŸ”¥ TAMBAHAN WAJIB
 from routes.stock_opname import so_bp
@@ -854,6 +854,21 @@ def create_app():
             return redirect(url_for("sms_storage.home"), code=302)
 
         return "Endpoint tidak tersedia di domain sms", 404
+
+    @app.before_request
+    def redirect_sms_storage_to_public_host():
+        if request.endpoint is None or not request.endpoint.startswith("sms_storage."):
+            return
+
+        if _is_sms_public_host(app, request.host):
+            return
+
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            return
+
+        target_url = build_sms_public_current_url()
+        if target_url:
+            return redirect(target_url, code=302)
 
     @app.before_request
     def enforce_same_origin_writes():

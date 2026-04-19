@@ -30,6 +30,57 @@ from services.sms_storage_service import (
 sms_storage_bp = Blueprint("sms_storage", __name__, url_prefix="/sms")
 
 
+def _get_primary_sms_public_host():
+    sms_hosts = current_app.config.get("SMS_PUBLIC_HOSTS") or []
+    for host in sms_hosts:
+        safe_host = str(host or "").strip().lstrip(".").rstrip(".")
+        if safe_host:
+            return safe_host
+    return ""
+
+
+def build_sms_public_url(endpoint, **values):
+    target_path = url_for(endpoint, **values)
+    sms_host = _get_primary_sms_public_host()
+    if not sms_host:
+        return target_path
+
+    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
+    if current_host == sms_host.lower():
+        return target_path
+
+    target_scheme = (
+        str(current_app.config.get("CANONICAL_SCHEME") or request.scheme or "https")
+        .strip()
+        .lower()
+        or "https"
+    )
+    return f"{target_scheme}://{sms_host}{target_path}"
+
+
+def build_sms_public_current_url():
+    sms_host = _get_primary_sms_public_host()
+    if not sms_host:
+        return ""
+
+    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
+    if current_host == sms_host.lower():
+        return ""
+
+    target_scheme = (
+        str(current_app.config.get("CANONICAL_SCHEME") or request.scheme or "https")
+        .strip()
+        .lower()
+        or "https"
+    )
+    target_path = request.full_path if request.query_string else request.path
+    if target_path.endswith("?"):
+        target_path = target_path[:-1]
+    if not target_path.startswith("/"):
+        target_path = f"/{target_path}"
+    return f"{target_scheme}://{sms_host}{target_path or '/'}"
+
+
 def _json_payload():
     payload = request.get_json(silent=True)
     if isinstance(payload, dict):
@@ -193,4 +244,3 @@ def _handle_sms_file_exists(error):
 @sms_storage_bp.errorhandler(ValueError)
 def _handle_sms_value_error(error):
     return jsonify({"status": "error", "message": str(error) or "Permintaan tidak valid."}), 400
-

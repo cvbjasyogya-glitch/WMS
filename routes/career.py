@@ -23,12 +23,67 @@ career_bp = Blueprint("career", __name__)
 CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
 
 
+def _get_primary_recruitment_public_host():
+    recruitment_hosts = current_app.config.get("RECRUITMENT_PUBLIC_HOSTS") or []
+    for host in recruitment_hosts:
+        safe_host = str(host or "").strip().lstrip(".").rstrip(".")
+        if safe_host:
+            return safe_host
+    return ""
+
+
+def build_career_public_url(endpoint, **values):
+    target_path = url_for(endpoint, **values)
+    recruitment_host = _get_primary_recruitment_public_host()
+    if not recruitment_host:
+        return target_path
+
+    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
+    if current_host == recruitment_host.lower():
+        return target_path
+
+    target_scheme = (
+        str(current_app.config.get("CANONICAL_SCHEME") or request.scheme or "https")
+        .strip()
+        .lower()
+        or "https"
+    )
+    return f"{target_scheme}://{recruitment_host}{target_path}"
+
+
+@career_bp.before_request
+def enforce_career_public_host():
+    recruitment_host = _get_primary_recruitment_public_host()
+    if not recruitment_host:
+        return
+
+    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
+    if current_host == recruitment_host.lower():
+        return
+
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return
+
+    target_scheme = (
+        str(current_app.config.get("CANONICAL_SCHEME") or request.scheme or "https")
+        .strip()
+        .lower()
+        or "https"
+    )
+    target_path = request.full_path if request.query_string else request.path
+    if target_path.endswith("?"):
+        target_path = target_path[:-1]
+    if not target_path.startswith("/"):
+        target_path = f"/{target_path}"
+    return redirect(f"{target_scheme}://{recruitment_host}{target_path or '/'}", code=302)
+
+
 def _career_public_signin_url():
-    return url_for("career.signin_page")
+    return build_career_public_url("career.signin_page")
 
 
 def _career_public_register_url():
-    return url_for("career.signin_page")
+    return build_career_public_url("career.signin_page")
 
 
 def _resolve_career_public_media_url(configured_value, default_static_filename):
@@ -51,7 +106,7 @@ def inject_career_public_context():
             current_app.config.get("CAREER_HOME_HERO_IMAGE"),
             "brand/login-hero-crowd.jpeg",
         ),
-        "career_public_signin_url": url_for("career.signin_page"),
+        "career_public_signin_url": build_career_public_url("career.signin_page"),
     }
 
 
@@ -328,7 +383,7 @@ def opening_detail(opening_id):
     opening = _fetch_public_opening_by_id(db, opening_id)
     if not opening:
         flash("Lowongan yang dipilih tidak tersedia lagi.", "error")
-        return redirect(url_for("career.index"))
+        return redirect(build_career_public_url("career.index"))
 
     assessment_code = normalize_assessment_code(request.args.get("code"))
     latest_candidate = _fetch_candidate_by_assessment_code(db, assessment_code) if assessment_code else None
@@ -366,7 +421,7 @@ def apply():
 
     if not opening or opening["status"] != "published" or int(opening["is_public"] or 0) != 1:
         flash("Lowongan yang dipilih tidak tersedia lagi.", "error")
-        return redirect(url_for("career.index"))
+        return redirect(build_career_public_url("career.index"))
 
     candidate_name = (request.form.get("candidate_name") or "").strip()
     phone = (request.form.get("phone") or "").strip()
@@ -377,17 +432,17 @@ def apply():
 
     if not candidate_name or (not phone and not email):
         flash("Nama kandidat dan minimal satu kontak wajib diisi.", "error")
-        return redirect(url_for("career.opening_detail", opening_id=opening["id"]))
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 
     try:
         resume_original_name, resume_path = save_career_resume(resume_file)
     except ValueError as exc:
         flash(str(exc), "error")
-        return redirect(url_for("career.opening_detail", opening_id=opening["id"]))
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 
     if not resume_path:
         flash("CV wajib diunggah agar HR bisa review lamaran.", "error")
-        return redirect(url_for("career.opening_detail", opening_id=opening["id"]))
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 
     db.execute(
         """
@@ -450,7 +505,7 @@ def apply():
         "Lamaran berhasil dikirim. Simpan kode tes dari pop-up yang muncul setelah halaman terbuka.",
         "success",
     )
-    return redirect(url_for("career.opening_detail", opening_id=opening["id"], code=assessment_code))
+    return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"], code=assessment_code))
 
 
 @career_bp.route("/karir/tes")
@@ -460,17 +515,17 @@ def assessment():
     assessment_code = normalize_assessment_code(request.args.get("code"))
     if not assessment_code:
         flash("Masukkan kode tes 5 digit yang valid.", "error")
-        return redirect(url_for("career.index"))
+        return redirect(build_career_public_url("career.index"))
 
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
         flash("Kode tes tidak ditemukan.", "error")
-        return redirect(url_for("career.index"))
+        return redirect(build_career_public_url("career.index"))
 
     questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
     if not questions:
         flash("Soal tes belum disiapkan HR untuk posisi ini.", "error")
-        return redirect(url_for("career.index", code=assessment_code))
+        return redirect(build_career_public_url("career.index", code=assessment_code))
 
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
         score_summary = score_assessment_questions(questions, candidate.get("assessment_answers_json"))
@@ -544,7 +599,7 @@ def record_assessment_violation():
                 "ok": True,
                 "reset": True,
                 "new_code": new_code,
-                "redirect_url": url_for("career.index"),
+                "redirect_url": build_career_public_url("career.index"),
                 "message": (
                     f"Pelanggaran sudah {CAREER_ASSESSMENT_MAX_VIOLATIONS} kali. "
                     f"Tes direset dari awal. Gunakan kode baru {new_code} untuk memulai lagi."
@@ -583,12 +638,12 @@ def submit_assessment():
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
         flash("Kode tes tidak ditemukan.", "error")
-        return redirect(url_for("career.index"))
+        return redirect(build_career_public_url("career.index"))
 
     questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
     if not questions:
         flash("Soal tes belum tersedia.", "error")
-        return redirect(url_for("career.index", code=assessment_code))
+        return redirect(build_career_public_url("career.index", code=assessment_code))
 
     answers = {}
     for question in questions:
@@ -609,7 +664,7 @@ def submit_assessment():
             ),
             "error",
         )
-        return redirect(url_for("career.index"))
+        return redirect(build_career_public_url("career.index"))
 
     answers_json = encode_assessment_answers(answers)
     db.execute(
@@ -637,4 +692,4 @@ def submit_assessment():
         ),
     )
     db.commit()
-    return redirect(url_for("career.assessment", code=assessment_code))
+    return redirect(build_career_public_url("career.assessment", code=assessment_code))

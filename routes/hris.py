@@ -12,6 +12,7 @@ from flask import Blueprint, current_app, has_app_context, render_template, requ
 from werkzeug.utils import secure_filename
 
 from database import get_db, is_postgresql_backend
+from routes.career import build_career_public_url
 from routes.schedule import (
     LIVE_SCHEDULE_SLOTS,
     _build_board_rows as _build_schedule_board_rows,
@@ -7533,7 +7534,7 @@ def hris_index(module_slug=None):
         career_openings_summary=career_openings_summary,
         recruitment_assessment_questions=recruitment_assessment_questions,
         recruitment_assessment_summary=recruitment_assessment_summary,
-        career_public_url=url_for("career.index"),
+        career_public_url=build_career_public_url("career.index"),
         onboarding_records=onboarding_records,
         onboarding_summary=onboarding_summary,
         onboarding_filters=onboarding_filters,
