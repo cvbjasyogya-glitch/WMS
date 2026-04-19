@@ -6131,6 +6131,8 @@ def pos_edit_sale(sale_id):
 
     payload = request.get_json(silent=True) or {}
     db = get_db()
+    _ensure_pos_checkout_postgresql_sequences(db)
+    ensure_crm_membership_multi_program_schema(db)
     sale = _fetch_pos_sale_detail_by_id(db, sale_id)
     if sale is None:
         return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
@@ -6520,6 +6522,7 @@ def pos_checkout():
     payload = request.get_json(silent=True) or {}
     db = get_db()
     _ensure_pos_checkout_postgresql_sequences(db)
+    ensure_crm_membership_multi_program_schema(db)
 
     warehouse_id = _resolve_pos_warehouse(db, payload.get("warehouse_id"))
     sale_date = _normalize_sale_date(payload.get("sale_date"))

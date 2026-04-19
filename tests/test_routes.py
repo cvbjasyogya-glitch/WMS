@@ -60,7 +60,7 @@ from routes.schedule import (
     LIVE_SCHEDULE_DEFAULT_BG,
     LIVE_SCHEDULE_DEFAULT_TEXT,
 )
-from services.crm_loyalty import get_member_snapshot
+from services.crm_loyalty import ensure_crm_membership_multi_program_schema, get_member_snapshot
 from services.career_service import ensure_career_schema
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -9789,6 +9789,98 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(
             any(
                 "ALTER TABLE pos_sales ALTER COLUMN id SET DEFAULT nextval('pos_sales_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+
+    def test_ensure_crm_membership_multi_program_schema_postgresql_drops_legacy_customer_unique_index(self):
+        executed_statements = []
+
+        class ProxyDB:
+            def execute(self, sql, params=()):
+                statement = " ".join(str(sql).split())
+                executed_statements.append((statement, params))
+                if "FROM information_schema.table_constraints" in statement:
+                    return Mock(fetchall=Mock(return_value=[]))
+                if "FROM pg_indexes" in statement:
+                    return Mock(
+                        fetchall=Mock(
+                            return_value=[
+                                {
+                                    "indexname": "idx_19730_sqlite_autoindex_crm_memberships_1",
+                                    "indexdef": (
+                                        "CREATE UNIQUE INDEX idx_19730_sqlite_autoindex_crm_memberships_1 "
+                                        "ON public.crm_memberships USING btree (customer_id)"
+                                    ),
+                                },
+                                {
+                                    "indexname": "idx_crm_memberships_main",
+                                    "indexdef": (
+                                        "CREATE INDEX idx_crm_memberships_main "
+                                        "ON public.crm_memberships USING btree (warehouse_id, tier, status, join_date)"
+                                    ),
+                                },
+                            ]
+                        )
+                    )
+                return Mock(fetchone=Mock(return_value=None), fetchall=Mock(return_value=[]))
+
+        with self.app.app_context():
+            self.app.config["DATABASE_BACKEND"] = "postgresql"
+            self.app.extensions.pop("crm_loyalty_runtime_state", None)
+            ensure_crm_membership_multi_program_schema(ProxyDB())
+
+        self.assertTrue(
+            any(
+                'DROP INDEX IF EXISTS "idx_19730_sqlite_autoindex_crm_memberships_1"' in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_memberships_customer_member_type" in statement
+                for statement, _ in executed_statements
+            )
+        )
+
+    def test_ensure_crm_membership_multi_program_schema_postgresql_caches_ready_schema(self):
+        executed_statements = []
+
+        class ProxyDB:
+            def execute(self, sql, params=()):
+                statement = " ".join(str(sql).split())
+                executed_statements.append((statement, params))
+                if "FROM information_schema.table_constraints" in statement:
+                    return Mock(fetchall=Mock(return_value=[]))
+                if "FROM pg_indexes" in statement:
+                    return Mock(
+                        fetchall=Mock(
+                            return_value=[
+                                {
+                                    "indexname": "idx_crm_memberships_customer_member_type",
+                                    "indexdef": (
+                                        "CREATE UNIQUE INDEX idx_crm_memberships_customer_member_type "
+                                        "ON public.crm_memberships USING btree (customer_id, member_type)"
+                                    ),
+                                }
+                            ]
+                        )
+                    )
+                return Mock(fetchone=Mock(return_value=None), fetchall=Mock(return_value=[]))
+
+        with self.app.app_context():
+            self.app.config["DATABASE_BACKEND"] = "postgresql"
+            self.app.extensions.pop("crm_loyalty_runtime_state", None)
+            proxy_db = ProxyDB()
+            ensure_crm_membership_multi_program_schema(proxy_db)
+            ensure_crm_membership_multi_program_schema(proxy_db)
+
+        self.assertEqual(len(executed_statements), 2)
+        self.assertFalse(
+            any(
+                "DROP INDEX IF EXISTS" in statement
+                or "DROP CONSTRAINT IF EXISTS" in statement
+                or "CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_memberships_customer_member_type" in statement
                 for statement, _ in executed_statements
             )
         )

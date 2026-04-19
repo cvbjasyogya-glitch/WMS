@@ -1,5 +1,7 @@
+import re
 from decimal import Decimal, ROUND_FLOOR
 
+from flask import current_app
 from database import is_postgresql_backend
 
 
@@ -74,20 +76,86 @@ def _postgres_membership_customer_unique_constraint_names(db):
     ]
 
 
+def _parse_postgres_index_columns(indexdef):
+    match = re.search(r"\(([^()]+)\)", str(indexdef or ""))
+    if not match:
+        return []
+
+    columns = []
+    for fragment in match.group(1).split(","):
+        normalized = str(fragment or "").strip().strip('"')
+        if not normalized:
+            continue
+        normalized = normalized.split()[0].strip('"').lower()
+        if normalized:
+            columns.append(normalized)
+    return columns
+
+
+def _postgres_membership_unique_indexes(db):
+    rows = db.execute(
+        """
+        SELECT indexname, indexdef
+        FROM pg_indexes
+        WHERE schemaname='public'
+          AND tablename='crm_memberships'
+        ORDER BY indexname ASC
+        """
+    ).fetchall()
+    unique_indexes = []
+    for row in rows:
+        index_name = str(row["indexname"] or "").strip()
+        indexdef = str(row["indexdef"] or "").strip()
+        if not index_name or not re.search(r"\bcreate\s+unique\s+index\b", indexdef, flags=re.IGNORECASE):
+            continue
+        unique_indexes.append(
+            {
+                "name": index_name,
+                "columns": _parse_postgres_index_columns(indexdef),
+            }
+        )
+    return unique_indexes
+
+
 def ensure_crm_membership_multi_program_schema(db):
-    if is_postgresql_backend():
+    runtime_state = current_app.extensions.setdefault("crm_loyalty_runtime_state", {})
+    backend = "postgresql" if is_postgresql_backend(current_app.config) else "sqlite"
+    cache_key = f"membership_multi_program_ready:{backend}"
+    if runtime_state.get(cache_key):
+        return
+
+    if backend == "postgresql":
         legacy_constraints = _postgres_membership_customer_unique_constraint_names(db)
+        unique_indexes = _postgres_membership_unique_indexes(db)
+        legacy_unique_indexes = [
+            index["name"]
+            for index in unique_indexes
+            if index.get("columns") == ["customer_id"]
+        ]
+        has_multi_program_index = any(
+            index.get("columns") == ["customer_id", "member_type"]
+            for index in unique_indexes
+        )
+
+        if not legacy_constraints and not legacy_unique_indexes and has_multi_program_index:
+            runtime_state[cache_key] = True
+            return
+
         for constraint_name in legacy_constraints:
             db.execute(f'ALTER TABLE crm_memberships DROP CONSTRAINT IF EXISTS "{constraint_name}"')
+        for index_name in legacy_unique_indexes:
+            db.execute(f'DROP INDEX IF EXISTS "{index_name}"')
         db.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_memberships_customer_member_type
             ON crm_memberships(customer_id, member_type)
             """
         )
+        runtime_state[cache_key] = True
         return
 
     if not _sqlite_membership_customer_unique_legacy_enabled(db):
+        runtime_state[cache_key] = True
         return
 
     db.execute("PRAGMA foreign_keys=OFF")
@@ -177,6 +245,7 @@ def ensure_crm_membership_multi_program_schema(db):
         """
     )
     db.execute("PRAGMA foreign_keys=ON")
+    runtime_state[cache_key] = True
 
 
 def _to_int(value, default=0):
