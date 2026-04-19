@@ -8821,6 +8821,7 @@ def update_recruitment(candidate_id):
     if not candidate:
         flash("Data recruitment tidak ditemukan", "error")
         return redirect("/hris/recruitment")
+    candidate = dict(candidate)
 
     candidate_name = (request.form.get("candidate_name") or "").strip()
     position_title = (request.form.get("position_title") or "").strip()

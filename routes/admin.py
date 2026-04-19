@@ -1,7 +1,7 @@
 from flask import Blueprint, flash, redirect, render_template, request, session
 from werkzeug.security import generate_password_hash
 
-from database import get_db
+from database import get_db, is_postgresql_backend
 from services.event_notification_policy import (
     ALLOWED_NOTIFICATION_RECIPIENT_ROLES,
     list_event_notification_policies,
@@ -180,11 +180,36 @@ def _admin_redirect(section="access"):
 
 
 def _table_columns(db, table_name):
+    if is_postgresql_backend():
+        rows = db.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=?
+            """,
+            (table_name,),
+        ).fetchall()
+        return {
+            str(row["column_name"] if "column_name" in row else row[0])
+            for row in rows
+        }
+
     rows = db.execute(f"PRAGMA table_info({table_name})").fetchall()
     return {row["name"] if isinstance(row, dict) else row[1] for row in rows}
 
 
 def _table_exists(db, table_name):
+    if is_postgresql_backend():
+        row = db.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema='public' AND table_name=?
+            """,
+            (table_name,),
+        ).fetchone()
+        return bool(row)
+
     row = db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         (table_name,),

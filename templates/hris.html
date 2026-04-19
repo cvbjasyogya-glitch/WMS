@@ -1873,8 +1873,73 @@
     <button type="submit">Filter</button>
 </form>
 
+<section class="recruitment-workspace">
+    <div class="section-title">
+        <div>
+            <h2>Workspace Recruitment</h2>
+            <p>Klik kartu yang dibutuhkan saja. Form dan daftar detail baru dibuka saat perlu.</p>
+        </div>
+    </div>
+    <div class="recruitment-workspace-grid">
+        {% if can_manage_recruitment %}
+        <button type="button" class="recruitment-workspace-card accent-sky" data-recruitment-target="recruitmentPanelQuestionBank">
+            <span class="recruitment-workspace-icon">?</span>
+            <div class="recruitment-workspace-copy">
+                <strong>Bank Soal Tes Karir</strong>
+                <small>Buat soal tes kandidat tanpa menumpuk halaman utama.</small>
+            </div>
+            <span class="recruitment-workspace-badge">{{ recruitment_assessment_questions|length }} soal</span>
+        </button>
+        {% if recruitment_assessment_questions %}
+        <button type="button" class="recruitment-workspace-card accent-indigo" data-recruitment-target="recruitmentPanelQuestionList">
+            <span class="recruitment-workspace-icon">L</span>
+            <div class="recruitment-workspace-copy">
+                <strong>Daftar Soal Tes</strong>
+                <small>Edit urutan, kunci jawaban, dan status aktif.</small>
+            </div>
+            <span class="recruitment-workspace-badge">{{ recruitment_assessment_questions|length }} soal</span>
+        </button>
+        {% endif %}
+        <button type="button" class="recruitment-workspace-card accent-emerald" data-recruitment-target="recruitmentPanelOpeningForm">
+            <span class="recruitment-workspace-icon">+</span>
+            <div class="recruitment-workspace-copy">
+                <strong>Kelola Lowongan Karir</strong>
+                <small>Buat lowongan baru untuk halaman karir publik.</small>
+            </div>
+            <span class="recruitment-workspace-badge">{{ career_openings|length }} lowongan</span>
+        </button>
+        {% if career_openings %}
+        <button type="button" class="recruitment-workspace-card accent-teal" data-recruitment-target="recruitmentPanelOpeningList">
+            <span class="recruitment-workspace-icon">O</span>
+            <div class="recruitment-workspace-copy">
+                <strong>Lowongan Dipublikasikan</strong>
+                <small>Review lowongan live tanpa scroll panel panjang.</small>
+            </div>
+            <span class="recruitment-workspace-badge">{{ career_openings|length }} lowongan</span>
+        </button>
+        {% endif %}
+        <button type="button" class="recruitment-workspace-card accent-amber" data-recruitment-target="recruitmentPanelCandidateForm">
+            <span class="recruitment-workspace-icon">M</span>
+            <div class="recruitment-workspace-copy">
+                <strong>Tambah Kandidat</strong>
+                <small>Input kandidat referral, walk-in, atau job portal lain.</small>
+            </div>
+            <span class="recruitment-workspace-badge">Manual</span>
+        </button>
+        {% endif %}
+        <button type="button" class="recruitment-workspace-card accent-blue" data-recruitment-target="recruitmentPanelPipeline">
+            <span class="recruitment-workspace-icon">P</span>
+            <div class="recruitment-workspace-copy">
+                <strong>Hiring Pipeline</strong>
+                <small>Lihat kandidat, skor tes, dan progress hiring.</small>
+            </div>
+            <span class="recruitment-workspace-badge">{{ recruitment_candidates|length }} kandidat</span>
+        </button>
+    </div>
+</section>
+
 {% if can_manage_recruitment %}
-<details class="form-box panel-disclosure">
+<details id="recruitmentPanelQuestionBank" class="form-box panel-disclosure recruitment-workspace-panel">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -1888,6 +1953,12 @@
         </div>
     </summary>
     <div class="panel-content">
+        <div class="section-title recruitment-workspace-head">
+            <div>
+                <h2>Bank Soal Tes Karir</h2>
+                <p>Buka area ini saat ingin menambah soal baru ke bank tes kandidat.</p>
+            </div>
+        </div>
         <form method="POST" action="/hris/recruitment/question/add">
             <div class="form-grid">
                 <div>
@@ -1954,7 +2025,7 @@
 </details>
 
 {% if recruitment_assessment_questions %}
-<details class="table-box stack-scroll-shell panel-disclosure">
+<details id="recruitmentPanelQuestionList" class="table-box stack-scroll-shell panel-disclosure recruitment-workspace-panel">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -1968,6 +2039,12 @@
         </div>
     </summary>
     <div class="panel-content">
+        <div class="section-title recruitment-workspace-head">
+            <div>
+                <h2>Daftar Soal Tes</h2>
+                <p>Semua soal tetap ada di sini, tapi tidak lagi menuh-menuhin halaman utama.</p>
+            </div>
+        </div>
         <div class="stack-scroll-list">
             {% for question in recruitment_assessment_questions %}
             <div class="box stack-scroll-card" style="margin-bottom:0;">
@@ -2042,7 +2119,7 @@
 </details>
 {% endif %}
 
-<details class="form-box panel-disclosure">
+<details id="recruitmentPanelOpeningForm" class="form-box panel-disclosure recruitment-workspace-panel">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -2056,6 +2133,12 @@
         </div>
     </summary>
     <div class="panel-content">
+        <div class="section-title recruitment-workspace-head">
+            <div>
+                <h2>Kelola Lowongan Karir</h2>
+                <p>Gunakan area ini untuk menambah lowongan baru ke portal karir.</p>
+            </div>
+        </div>
         <form method="POST" action="/hris/recruitment/opening/add">
             <div class="form-grid">
                 <div>
@@ -2128,7 +2211,7 @@
 </details>
 
 {% if career_openings %}
-<details class="table-box stack-scroll-shell panel-disclosure">
+<details id="recruitmentPanelOpeningList" class="table-box stack-scroll-shell panel-disclosure recruitment-workspace-panel">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -2142,6 +2225,12 @@
         </div>
     </summary>
     <div class="panel-content">
+        <div class="section-title recruitment-workspace-head">
+            <div>
+                <h2>Lowongan Dipublikasikan</h2>
+                <p>Review lowongan live dan ubah statusnya hanya saat diperlukan.</p>
+            </div>
+        </div>
         <div class="stack-scroll-list">
             {% for opening in career_openings %}
             <div class="box stack-scroll-card" style="margin-bottom:0;">
@@ -2219,7 +2308,7 @@
 </details>
 {% endif %}
 
-<details class="form-box panel-disclosure">
+<details id="recruitmentPanelCandidateForm" class="form-box panel-disclosure recruitment-workspace-panel">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -2232,6 +2321,12 @@
         </div>
     </summary>
     <div class="panel-content">
+    <div class="section-title recruitment-workspace-head">
+        <div>
+            <h2>Tambah Kandidat Manual</h2>
+            <p>Form ini tetap tersedia untuk referral, walk-in, dan kandidat dari portal lain.</p>
+        </div>
+    </div>
     <form method="POST" action="/hris/recruitment/add">
         <div class="form-grid">
             <div>
@@ -2324,7 +2419,7 @@
 </details>
 {% endif %}
 
-<details class="table-box stack-scroll-shell panel-disclosure">
+<details id="recruitmentPanelPipeline" class="table-box stack-scroll-shell panel-disclosure recruitment-workspace-panel">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -2338,6 +2433,12 @@
         </div>
     </summary>
     <div class="panel-content">
+    <div class="section-title recruitment-workspace-head">
+        <div>
+            <h2>Hiring Pipeline</h2>
+            <p>Semua kandidat dan hasil tes tetap terkumpul di satu panel saat dibutuhkan.</p>
+        </div>
+    </div>
     {% if recruitment_candidates %}
         {% if can_manage_recruitment %}
         <div class="stack-scroll-list">
@@ -2505,6 +2606,66 @@
     {% endif %}
     </div>
 </details>
+<script>
+(() => {
+    const workspace = document.querySelector(".recruitment-workspace");
+    if (!workspace) {
+        return;
+    }
+
+    const cards = Array.from(workspace.querySelectorAll("[data-recruitment-target]"));
+    const panels = cards
+        .map((card) => document.getElementById(card.dataset.recruitmentTarget || ""))
+        .filter(Boolean);
+
+    const syncCardState = () => {
+        cards.forEach((card) => {
+            const panel = document.getElementById(card.dataset.recruitmentTarget || "");
+            const isOpen = Boolean(panel && panel.open);
+            card.classList.toggle("active", isOpen);
+            card.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        });
+    };
+
+    const openPanel = (targetId) => {
+        let currentPanel = null;
+        panels.forEach((panel) => {
+            const shouldOpen = panel.id === targetId;
+            panel.open = shouldOpen;
+            if (shouldOpen) {
+                currentPanel = panel;
+            }
+        });
+        syncCardState();
+        if (currentPanel) {
+            currentPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    };
+
+    cards.forEach((card) => {
+        card.addEventListener("click", () => {
+            const targetId = card.dataset.recruitmentTarget || "";
+            const panel = document.getElementById(targetId);
+            if (!panel) {
+                return;
+            }
+            if (panel.open) {
+                panel.open = false;
+                syncCardState();
+                return;
+            }
+            openPanel(targetId);
+        });
+    });
+
+    const initialHash = String(window.location.hash || "").replace(/^#/, "");
+    if (initialHash && document.getElementById(initialHash)) {
+        openPanel(initialHash);
+    } else {
+        syncCardState();
+    }
+})();
+</script>
 {% elif selected_module.slug == "onboarding" %}
 <div class="summary">
     <div class="card-mini">
