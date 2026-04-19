@@ -11,6 +11,12 @@ Public recruitment domain:
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
 - Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host routes `/` directly to `/karir`.
 
+Public SMS cloud storage domain:
+- Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) if you want `sms.cvbjasyogya.cloud` to point to the same Gunicorn socket.
+- Add `SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud` to `.env`.
+- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the SMS host routes `/` directly to `/sms/`.
+- Point DNS `sms.cvbjasyogya.cloud` to the same VPS as the main ERP before requesting the TLS certificate.
+
 Notes:
 - The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
 - Keep only one active Nginx server block for `erp.cvbjasyogya.cloud`. If `nginx -t` warns about a conflicting `server_name`, disable the older duplicate site before reloading Nginx.
@@ -41,6 +47,20 @@ cd ~/WMS
 sudo cp deploy/nginx/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf
 sudo ln -sf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/recruitment.cvbjasyogya.cloud.conf
 echo "RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
+sudo systemctl restart wms.service
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Enable the SMS cloud storage domain on the same VPS:
+
+```bash
+cd ~/WMS
+sudo cp deploy/nginx/sms.cvbjasyogya.cloud.conf /etc/nginx/sites-available/sms.cvbjasyogya.cloud.conf
+sudo ln -sf /etc/nginx/sites-available/sms.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/sms.cvbjasyogya.cloud.conf
+grep -q '^SMS_PUBLIC_HOSTS=' /root/WMS/.env \
+  && sudo sed -i 's/^SMS_PUBLIC_HOSTS=.*/SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud/' /root/WMS/.env \
+  || echo "SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
 sudo systemctl restart wms.service
 sudo nginx -t
 sudo systemctl reload nginx

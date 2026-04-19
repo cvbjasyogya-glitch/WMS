@@ -11731,6 +11731,79 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(float(candidate_after["assessment_final_score"]), 50.0)
         self.assertEqual(int(candidate_after["assessment_violation_count"]), 1)
 
+    def test_public_career_test_code_entry_moves_to_header_and_apply_shows_modal(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Staff Header Code",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Posisi untuk uji modal kode tes.",
+                    "Teliti dan komunikatif.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Header Code",)).fetchone()
+
+        jobs_response = self.client.get("/karir")
+        self.assertEqual(jobs_response.status_code, 200)
+        jobs_html = jobs_response.get_data(as_text=True)
+        self.assertIn("Punya Kode Tes?", jobs_html)
+        self.assertIn("careerHeaderCodeForm", jobs_html)
+        self.assertNotIn("Kode tes terakhir untuk", jobs_html)
+
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Modal Kode Tes",
+                "phone": "628123000111",
+                "email": "modal-kode@example.com",
+                "resume_file": (BytesIO(b"resume-modal-kode"), "modal-kode.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT id, assessment_code
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Modal Kode Tes",),
+            ).fetchone()
+        self.assertIsNotNone(candidate)
+        self.assertIn(f"code={candidate['assessment_code']}", apply_response.headers["Location"])
+
+        detail_response = self.client.get(apply_response.headers["Location"])
+        self.assertEqual(detail_response.status_code, 200)
+        detail_html = detail_response.get_data(as_text=True)
+        self.assertIn('id="careerCodeModal"', detail_html)
+        self.assertIn(candidate["assessment_code"], detail_html)
+        self.assertIn("Punya Kode Tes?", detail_html)
+        self.assertNotIn("Masuk Tes Dengan Kode", detail_html)
+        self.assertNotIn("Kode Tes Terakhir", detail_html)
+
     def test_career_assessment_resets_after_three_violations_and_generates_new_code(self):
         with self.app.app_context():
             db = get_db()
@@ -11973,6 +12046,27 @@ class WmsRoutesTestCase(unittest.TestCase):
         internal_response = self.client.get("/login", headers={"Host": "recruitment.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
         self.assertEqual(internal_response.headers["Location"], "https://erp.test/login")
+
+    def test_sms_public_host_redirects_root_and_keeps_storage_workspace(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["SMS_PUBLIC_HOSTS"] = ["sms.test"]
+
+        root_response = self.client.get("/", headers={"Host": "sms.test"}, follow_redirects=False)
+        self.assertEqual(root_response.status_code, 302)
+        self.assertTrue(root_response.headers["Location"].endswith("/sms/"))
+
+        storage_response = self.client.get("/sms/", headers={"Host": "sms.test"})
+        self.assertEqual(storage_response.status_code, 302)
+        self.assertEqual(storage_response.headers["Location"], "/login?next=/sms/")
+
+        login_response = self.client.get("/login?next=/sms/", headers={"Host": "sms.test"})
+        self.assertEqual(login_response.status_code, 200)
+        self.assertIn("Masuk", login_response.get_data(as_text=True))
+
+        internal_response = self.client.get("/workspace", headers={"Host": "sms.test"}, follow_redirects=False)
+        self.assertEqual(internal_response.status_code, 302)
+        self.assertTrue(internal_response.headers["Location"].endswith("/sms/"))
 
     def test_public_career_signin_page_renders_lightweight_auth_flow(self):
         response = self.client.get("/signin")

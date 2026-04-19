@@ -1,232 +1,491 @@
 {% extends "base.html" %}
+
 {% block title %}Tes Karir{% endblock %}
 {% block eyebrow %}{% endblock %}
+{% block page_title %}Tes Karir{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-public-page{% endblock %}
+{% block page_content_class %}career-assessment-page career-page-surface{% endblock %}
 
 {% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
-.career-test-shell {
+.career-public-shell {
+    background:
+        radial-gradient(circle at top left, rgba(11, 99, 182, 0.1), transparent 24%),
+        linear-gradient(180deg, #f8fbff 0%, #eef4fa 48%, #edf3f8 100%);
+    color: var(--career-ink);
+}
+
+.career-assessment-page {
     display: grid;
-    gap: 20px;
-    color: #18263b;
+    gap: 24px;
 }
-.career-public-shell .page-hero .page-eyebrow {
-    display: none;
+
+.career-assessment-breadcrumb {
+    color: #688099;
+    font-size: 0.94rem;
 }
-.career-test-hero,
-.career-test-card {
-    background: #fff;
-    border: 1px solid #d8e0ec;
+
+.career-assessment-hero {
+    display: grid;
+    gap: 22px;
+    grid-template-columns: minmax(0, 1.06fr) minmax(320px, 0.94fr);
+    align-items: stretch;
+    padding: 14px;
+    border-radius: 32px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+    border: 1px solid #dbe7f3;
+    box-shadow: 0 24px 52px rgba(17, 42, 73, 0.08);
+}
+
+.career-assessment-hero-main,
+.career-assessment-hero-side {
     border-radius: 24px;
-    padding: 24px;
 }
-.career-test-hero {
+
+.career-assessment-hero-main {
+    position: relative;
+    overflow: hidden;
     display: grid;
-    gap: 10px;
+    gap: 18px;
+    padding: 34px;
+    background:
+        radial-gradient(circle at 88% 18%, rgba(255,255,255,0.14), transparent 24%),
+        linear-gradient(135deg, #0e5f9d 0%, #0d74bb 52%, #1f8ed8 100%);
+    color: #fff;
 }
-.career-test-meta {
+
+.career-assessment-hero-main::after {
+    content: "";
+    position: absolute;
+    right: -58px;
+    bottom: -84px;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    border: 28px solid rgba(255,255,255,0.14);
+    pointer-events: none;
+}
+
+.career-assessment-hero-main > * {
+    position: relative;
+    z-index: 1;
+}
+
+.career-assessment-kicker,
+.career-assessment-side-kicker,
+.career-assessment-section-kicker {
+    width: max-content;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 800;
+}
+
+.career-assessment-kicker {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: rgba(255,255,255,0.82);
+}
+
+.career-assessment-hero-main h1,
+.career-assessment-hero-main p,
+.career-assessment-hero-side h2,
+.career-assessment-hero-side p,
+.career-assessment-sidecard p {
+    margin: 0;
+}
+
+.career-assessment-hero-main h1 {
+    font: 700 clamp(2.3rem, 4.7vw, 3.95rem)/0.98 "Space Grotesk", sans-serif;
+    letter-spacing: -0.04em;
+    color: #fff;
+}
+
+.career-assessment-hero-description {
+    max-width: 760px;
+    line-height: 1.75;
+    color: rgba(255,255,255,0.9);
+    font-size: 1.02rem;
+}
+
+.career-assessment-meta {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
 }
-.career-test-kicker {
-    margin: 0;
-    font-size: 0.78rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #5d6a7d;
-    font-weight: 800;
-}
-.career-test-title {
-    margin: 0;
-    font-size: clamp(1.5rem, 2vw, 2.3rem);
-    line-height: 1.08;
-}
-.career-test-subtitle {
-    margin: 0;
-    color: #415066;
-    font-weight: 600;
-}
-.career-test-pill {
+
+.career-assessment-pill {
     display: inline-flex;
     align-items: center;
     min-height: 36px;
     padding: 0 14px;
     border-radius: 999px;
-    background: #f4f7fb;
-    border: 1px solid #d8e0ec;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: rgba(255,255,255,0.9);
     font-size: 0.88rem;
     font-weight: 700;
 }
-.career-test-warning {
-    background: #fff4e8;
-    border-color: #ffd9aa;
-    color: #8b4e00;
+
+.career-assessment-pill.is-warning {
+    background: rgba(255, 232, 203, 0.16);
+    border-color: rgba(255, 214, 162, 0.3);
+    color: #fff6ea;
 }
-.career-test-grid {
+
+.career-assessment-hero-note {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 8px;
+    padding: 16px 18px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.14);
+}
+
+.career-assessment-hero-note strong {
+    color: #fff;
+}
+
+.career-assessment-hero-note span {
+    color: rgba(255,255,255,0.84);
+    line-height: 1.6;
+}
+
+.career-assessment-hero-side {
+    display: grid;
+    gap: 16px;
+    padding: 26px 24px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    border: 1px solid #e1ecf6;
+}
+
+.career-assessment-side-kicker,
+.career-assessment-section-kicker {
+    background: #edf5fe;
+    border: 1px solid #d7e7f8;
+    color: var(--career-blue);
+}
+
+.career-assessment-hero-side h2 {
+    font: 700 1.45rem/1.15 "Space Grotesk", sans-serif;
+    color: var(--career-ink);
+    letter-spacing: -0.03em;
+}
+
+.career-assessment-hero-side p {
+    color: var(--career-muted);
+    line-height: 1.7;
+}
+
+.career-assessment-hero-score {
+    display: grid;
+    gap: 6px;
+}
+
+.career-assessment-hero-score strong {
+    color: var(--career-blue);
+    font: 700 clamp(2.2rem, 6vw, 3.3rem)/0.9 "Space Grotesk", sans-serif;
+    letter-spacing: -0.04em;
+}
+
+.career-assessment-overview-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.career-assessment-overview-card {
+    display: grid;
+    gap: 4px;
+    min-height: 96px;
+    padding: 16px;
+    border-radius: 18px;
+    background: #f7fbff;
+    border: 1px solid #dce8f4;
+}
+
+.career-assessment-overview-card strong {
+    color: var(--career-blue);
+    font: 700 clamp(1.3rem, 3vw, 1.8rem)/1 "Space Grotesk", sans-serif;
+}
+
+.career-assessment-overview-card span {
+    color: #5a748d;
+    line-height: 1.55;
+    font-size: 0.9rem;
+}
+
+.career-assessment-layout {
+    display: grid;
+    gap: 24px;
+    grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
+    align-items: start;
+}
+
+.career-assessment-main,
+.career-assessment-side {
+    display: grid;
     gap: 20px;
 }
-.career-test-form {
+
+.career-assessment-side {
+    position: sticky;
+    top: 18px;
+}
+
+.career-assessment-form,
+.career-assessment-card,
+.career-assessment-sidecard {
     display: grid;
     gap: 18px;
 }
+
+.career-assessment-card,
+.career-assessment-sidecard {
+    padding: 24px;
+    border-radius: 28px;
+    background: rgba(255,255,255,0.98);
+    border: 1px solid var(--career-line);
+    box-shadow: var(--career-shadow);
+}
+
+.career-assessment-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.career-assessment-section-head h2,
+.career-assessment-section-head p {
+    margin: 0;
+}
+
+.career-assessment-section-head h2,
+.career-assessment-sidecard strong,
+.career-question-card h3 {
+    color: var(--career-ink);
+}
+
+.career-assessment-section-head h2 {
+    font: 700 1.5rem/1.1 "Space Grotesk", sans-serif;
+    letter-spacing: -0.03em;
+}
+
+.career-assessment-section-head p,
+.career-assessment-sidecard span,
+.career-assessment-sidecard li {
+    color: var(--career-muted);
+    line-height: 1.7;
+}
+
+.career-assessment-sidecard strong {
+    font: 700 1.1rem/1.1 "Space Grotesk", sans-serif;
+}
+
+.career-assessment-sidecard ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.career-assessment-progress {
+    height: 10px;
+    border-radius: 999px;
+    background: #eaf2fa;
+    overflow: hidden;
+}
+
+.career-assessment-progress span {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--career-blue), #47a6f3);
+    transition: width 0.2s ease;
+}
+
+.career-assessment-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.92rem;
+    color: #5c7590;
+}
+
+.career-assessment-progress-meta strong {
+    font: inherit;
+    color: inherit;
+}
+
 .career-question-card {
     display: grid;
     gap: 14px;
-    padding: 20px;
-    border-radius: 20px;
-    border: 1px solid #d8e0ec;
-    background: #fbfcfe;
+    padding: 22px;
+    border-radius: 24px;
+    background: rgba(255,255,255,0.98);
+    border: 1px solid var(--career-line);
+    box-shadow: var(--career-shadow);
 }
+
+.career-question-card-head {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: auto 1fr;
+    align-items: start;
+}
+
+.career-question-index {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: #edf5fe;
+    border: 1px solid #d7e7f8;
+    color: var(--career-blue);
+    font: 700 0.95rem/1 "Space Grotesk", sans-serif;
+}
+
 .career-question-card h3 {
     margin: 0;
-    font-size: 1.05rem;
-    color: #17263d;
+    font-size: 1.06rem;
+    line-height: 1.55;
 }
+
 .career-question-options {
     display: grid;
     gap: 10px;
 }
+
 .career-question-option {
     display: grid;
     grid-template-columns: 20px minmax(0, 1fr);
     align-items: start;
-    gap: 10px;
-    padding: 12px 14px;
-    border-radius: 16px;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 18px;
     border: 1px solid #d8e0ec;
-    background: #fff;
+    background: #fbfdff;
     transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
+
 .career-question-option:has(input:checked) {
     border-color: #2f80ed;
-    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.14);
+    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12);
     background: #f7fbff;
 }
+
 .career-question-option input {
     width: 18px;
     height: 18px;
-    margin: 1px 0 0;
+    margin: 2px 0 0;
 }
+
 .career-question-option span {
     min-width: 0;
     color: #22324a;
     font-weight: 600;
-    line-height: 1.55;
+    line-height: 1.6;
 }
+
 .career-question-option.is-correct {
     border-color: #79bf91;
     background: #eefaf1;
 }
+
 .career-question-option.is-wrong {
     border-color: #e6a0a0;
     background: #fff1f1;
 }
-.career-test-side {
-    display: grid;
-    gap: 16px;
-    align-content: start;
+
+.career-question-option strong {
+    margin-top: 2px;
+    color: #36506f;
 }
-.career-test-sidecard {
-    padding: 18px;
-    border-radius: 20px;
-    border: 1px solid #d8e0ec;
-    background: #fff;
-    display: grid;
-    gap: 10px;
-}
-.career-test-sidecard strong,
-.career-test-sidecard span,
-.career-test-sidecard li {
-    color: #22324a;
-}
-.career-test-sidecard strong {
-    font-size: 1rem;
-}
-.career-test-sidecard ul {
-    margin: 0;
-    padding-left: 18px;
-    color: #22324a;
-    line-height: 1.6;
-}
+
 .career-test-submit {
     display: flex;
     justify-content: flex-end;
 }
+
 .career-test-submit button {
     min-height: 52px;
     padding: 0 22px;
     border-radius: 16px;
+    border: 0;
+    background: linear-gradient(135deg, var(--career-blue), #1575cf);
+    color: #fff;
     font-size: 1rem;
     font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 14px 28px rgba(13, 97, 173, 0.18);
 }
-.career-score-value {
-    font-size: 2.1rem;
-    font-weight: 800;
-    color: #d84d57;
+
+.career-assessment-score-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-@media (max-width: 980px) {
-    .career-test-grid {
+
+.career-assessment-score-card {
+    display: grid;
+    gap: 8px;
+    padding: 18px;
+    border-radius: 22px;
+    background: #f7fbff;
+    border: 1px solid #dce8f4;
+}
+
+.career-assessment-score-card span {
+    color: #69819a;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.career-assessment-score-card strong {
+    color: var(--career-blue);
+    font: 700 clamp(1.45rem, 4vw, 2.2rem)/1 "Space Grotesk", sans-serif;
+}
+
+@media (max-width: 1180px) {
+    .career-assessment-hero,
+    .career-assessment-layout {
         grid-template-columns: 1fr;
     }
-    .career-test-side {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        align-content: stretch;
+
+    .career-assessment-side {
+        position: static;
     }
 }
-@media (max-width: 720px) {
-    .career-test-shell {
-        gap: 16px;
+
+@media (max-width: 760px) {
+    .career-assessment-hero {
+        padding: 12px;
+        border-radius: 28px;
     }
-    .career-test-hero,
-    .career-test-card {
-        padding: 18px;
-        border-radius: 20px;
-    }
-    .career-test-title {
-        font-size: 1.7rem;
-    }
-    .career-test-subtitle {
-        font-size: 0.94rem;
-        line-height: 1.5;
-    }
-    .career-test-grid {
-        gap: 16px;
-    }
-    .career-test-form {
-        gap: 14px;
-    }
+
+    .career-assessment-hero-main,
+    .career-assessment-hero-side,
+    .career-assessment-card,
+    .career-assessment-sidecard,
     .career-question-card {
-        padding: 16px;
-        border-radius: 18px;
+        padding: 22px;
+        border-radius: 24px;
     }
-    .career-question-card h3 {
-        font-size: 0.98rem;
-        line-height: 1.45;
-    }
-    .career-question-option {
-        grid-template-columns: 22px minmax(0, 1fr);
-        gap: 12px;
-        padding: 14px;
-        border-radius: 14px;
-    }
-    .career-test-side {
+
+    .career-assessment-overview-grid,
+    .career-assessment-score-grid {
         grid-template-columns: 1fr;
-        gap: 12px;
     }
-    .career-test-sidecard {
-        padding: 16px;
-        border-radius: 18px;
-        gap: 8px;
-    }
-    .career-test-sidecard ul {
-        padding-left: 16px;
-        font-size: 0.92rem;
-        line-height: 1.5;
-    }
+
     .career-test-submit {
         position: sticky;
         bottom: calc(14px + env(safe-area-inset-bottom, 0px));
@@ -234,142 +493,240 @@
         justify-content: stretch;
         padding-top: 4px;
     }
+
     .career-test-submit button {
         width: 100%;
         min-height: 56px;
-        box-shadow: 0 14px 28px rgba(16, 24, 40, 0.14);
-    }
-    .career-score-value {
-        font-size: 2rem;
-    }
-}
-@media (max-width: 480px) {
-    .career-test-hero,
-    .career-test-card,
-    .career-question-card,
-    .career-test-sidecard {
-        padding-left: 14px;
-        padding-right: 14px;
-    }
-    .career-test-pill {
-        min-height: 34px;
-        padding: 0 12px;
-        font-size: 0.82rem;
-    }
-    .career-test-title {
-        font-size: 1.45rem;
-    }
-    .career-question-option {
-        align-items: center;
     }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<section class="career-test-shell">
-    <section class="career-test-hero">
-        <p class="career-test-kicker">Tes Karir</p>
-        <h2 class="career-test-title">{{ candidate.candidate_name }}</h2>
-        <p style="margin:0;color:#5d6a7d;">{{ candidate.position_title or candidate.vacancy_title or 'Posisi Kandidat' }} · {{ candidate.warehouse_name or 'Umum' }}</p>
-        <div class="career-test-meta">
-            <span class="career-test-pill">Kode {{ assessment_code }}</span>
-            <span class="career-test-pill">Status {{ (candidate.assessment_status or 'pending')|replace('_', ' ')|title }}</span>
-            {% if assessment_state == 'active' %}
-            <span class="career-test-pill career-test-warning" id="careerAssessmentViolationBadge">Jangan keluar dari halaman ini</span>
+{% include "_career_public_nav.html" %}
+
+<div class="career-assessment-breadcrumb">Karir / Assessment / {{ assessment_code }}</div>
+
+<section class="career-assessment-hero">
+    <div class="career-assessment-hero-main">
+        <span class="career-assessment-kicker">Tes Karir</span>
+        <h1>{{ candidate.candidate_name }}</h1>
+        <p class="career-assessment-hero-description">{{ candidate.position_title or candidate.vacancy_title or 'Posisi Kandidat' }} - {{ candidate.warehouse_name or 'Umum' }}</p>
+        <div class="career-assessment-meta">
+            <span class="career-assessment-pill">Kode {{ assessment_code }}</span>
+            <span class="career-assessment-pill">Status {{ (candidate.assessment_status or 'pending')|replace('_', ' ')|title }}</span>
+            {% if assessment_state == "active" %}
+            <span class="career-assessment-pill is-warning" id="careerAssessmentViolationBadge">Jangan keluar dari halaman ini</span>
+            {% else %}
+            <span class="career-assessment-pill">Hasil sudah tersimpan</span>
             {% endif %}
         </div>
+        <div class="career-assessment-hero-note">
+            {% if assessment_state == "active" %}
+            <strong>Kerjakan dalam satu sesi.</strong>
+            <span>Pastikan koneksi stabil, fokus pada satu tab, dan selesaikan semua soal sebelum menutup halaman.</span>
+            {% else %}
+            <strong>Assessment selesai.</strong>
+            <span>Nilai Anda sudah tercatat dan tim HR dapat melanjutkan review bersama CV serta data lamaran.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <aside class="career-assessment-hero-side">
+        {% if assessment_state == "active" %}
+        <span class="career-assessment-side-kicker">Session Overview</span>
+        <h2>Persiapan ringkas sebelum mulai mengerjakan.</h2>
+        <p>Halaman ini saya rapikan supaya kandidat bisa langsung paham status tes, jumlah soal, dan aturan utamanya tanpa terasa ramai.</p>
+        <div class="career-assessment-overview-grid">
+            <article class="career-assessment-overview-card">
+                <strong>{{ questions|length }}</strong>
+                <span>Jumlah soal yang aktif pada sesi ini.</span>
+            </article>
+            <article class="career-assessment-overview-card">
+                <strong>{{ max_violation_count or 3 }}x</strong>
+                <span>Batas pelanggaran sebelum sesi direset.</span>
+            </article>
+            <article class="career-assessment-overview-card">
+                <strong>{{ candidate.candidate_name }}</strong>
+                <span>Nama kandidat pada sesi assessment ini.</span>
+            </article>
+            <article class="career-assessment-overview-card">
+                <strong>{{ candidate.warehouse_name or 'Umum' }}</strong>
+                <span>Area atau unit yang terkait dengan posisi ini.</span>
+            </article>
+        </div>
+        {% else %}
+        <span class="career-assessment-side-kicker">Final Score</span>
+        <div class="career-assessment-hero-score">
+            <strong>{{ final_score }}%</strong>
+            <p>Skor akhir diambil dari hasil auto score atau penilaian manual HR bila ada review lanjutan.</p>
+        </div>
+        <div class="career-assessment-overview-grid">
+            <article class="career-assessment-overview-card">
+                <strong>{{ score_summary.answered if score_summary else 0 }}</strong>
+                <span>Jumlah soal yang berhasil dijawab.</span>
+            </article>
+            <article class="career-assessment-overview-card">
+                <strong>{{ candidate.assessment_violation_count or 0 }}</strong>
+                <span>Total pelanggaran yang tercatat pada sesi ini.</span>
+            </article>
+            <article class="career-assessment-overview-card">
+                <strong>{{ candidate.assessment_auto_score or 0 }}%</strong>
+                <span>Nilai hasil pengecekan otomatis sistem.</span>
+            </article>
+            <article class="career-assessment-overview-card">
+                <strong>{{ candidate.assessment_manual_score if candidate.assessment_manual_score is not none else '-' }}</strong>
+                <span>Nilai manual dari HR bila sudah direview.</span>
+            </article>
+        </div>
+        {% endif %}
+    </aside>
+</section>
+
+<div class="career-assessment-layout">
+    {% if assessment_state == "active" %}
+    <form method="POST" action="{{ url_for('career.submit_assessment') }}" class="career-assessment-main career-assessment-form" id="careerAssessmentForm">
+        <input type="hidden" name="assessment_code" value="{{ assessment_code }}">
+        <input type="hidden" name="violation_count" id="careerAssessmentViolationCount" value="{{ violation_count or 0 }}">
+
+        <section class="career-assessment-card">
+            <div class="career-assessment-section-head">
+                <div>
+                    <span class="career-assessment-section-kicker">Assessment</span>
+                    <h2>Pilih jawaban yang paling tepat</h2>
+                    <p>Semua soal berada dalam satu alur supaya Anda bisa mengerjakan dengan fokus tanpa pindah halaman.</p>
+                </div>
+            </div>
+        </section>
+
+        {% for question in questions %}
+        <section class="career-question-card">
+            <div class="career-question-card-head">
+                <span class="career-question-index">{{ "%02d"|format(loop.index) }}</span>
+                <h3>{{ question.prompt }}</h3>
+            </div>
+            <div class="career-question-options">
+                {% for option_key, option_value in [('a', question.option_a), ('b', question.option_b), ('c', question.option_c), ('d', question.option_d)] %}
+                <label class="career-question-option">
+                    <input type="radio" name="answer_{{ question.id }}" value="{{ option_key }}" {% if existing_answers and existing_answers.get(question.id) == option_key %}checked{% endif %}>
+                    <span>{{ option_value }}</span>
+                </label>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+
+        <div class="career-test-submit">
+            <button type="submit">Selesaikan Tes</button>
+        </div>
+    </form>
+
+    <aside class="career-assessment-side">
+        <section class="career-assessment-sidecard">
+            <span class="career-assessment-side-kicker">Progress</span>
+            <strong id="careerAssessmentAnsweredValue">0/{{ questions|length }}</strong>
+            <div class="career-assessment-progress">
+                <span id="careerAssessmentProgressFill"></span>
+            </div>
+            <div class="career-assessment-progress-meta">
+                <span><strong id="careerAssessmentRemainingValue">{{ questions|length }}</strong> soal belum terjawab</span>
+                <span><strong id="careerAssessmentProgressValue">0%</strong> selesai</span>
+            </div>
+        </section>
+
+        <section class="career-assessment-sidecard">
+            <strong>Aturan Pengerjaan</strong>
+            <ul>
+                <li>Jangan pindah tab, refresh, atau kembali ke halaman lain selama tes berlangsung.</li>
+                <li>Maksimal pelanggaran {{ max_violation_count or 3 }} kali sebelum sesi direset dari awal.</li>
+                <li>Kalau sesi direset, soal berubah dan Anda harus masuk lagi memakai kode baru.</li>
+                <li>Setelah submit, skor otomatis langsung tersedia pada halaman hasil.</li>
+            </ul>
+        </section>
+
+        <section class="career-assessment-sidecard">
+            <strong>Ringkasan Kandidat</strong>
+            <span>Nama: {{ candidate.candidate_name }}</span>
+            <span>Posisi: {{ candidate.position_title or candidate.vacancy_title or 'Posisi Kandidat' }}</span>
+            <span>Unit: {{ candidate.warehouse_name or 'Umum' }}</span>
+            <span>Status saat ini: {{ (candidate.assessment_status or 'pending')|replace('_', ' ')|title }}</span>
+        </section>
+    </aside>
+    {% else %}
+    <section class="career-assessment-main">
+        <section class="career-assessment-card">
+            <div class="career-assessment-section-head">
+                <div>
+                    <span class="career-assessment-section-kicker">Assessment Result</span>
+                    <h2>Hasil Tes</h2>
+                    <p>Ringkasan hasil sudah tampil langsung agar kandidat tahu sesi tesnya sudah tersimpan dengan benar.</p>
+                </div>
+            </div>
+
+            <div class="career-assessment-score-grid">
+                <article class="career-assessment-score-card">
+                    <span>Skor Final</span>
+                    <strong>{{ final_score }}%</strong>
+                </article>
+                <article class="career-assessment-score-card">
+                    <span>Soal Terjawab</span>
+                    <strong>{{ score_summary.answered if score_summary else 0 }}/{{ score_summary.questions|length if score_summary else questions|length }}</strong>
+                </article>
+                <article class="career-assessment-score-card">
+                    <span>Bobot Tercapai</span>
+                    <strong>{{ score_summary.earned if score_summary else 0 }}/{{ score_summary.total_weight if score_summary else 0 }}</strong>
+                </article>
+            </div>
+        </section>
+
+        {% for question in questions %}
+        <section class="career-question-card">
+            <div class="career-question-card-head">
+                <span class="career-question-index">{{ "%02d"|format(loop.index) }}</span>
+                <h3>{{ question.prompt }}</h3>
+            </div>
+            <div class="career-question-options">
+                {% for option_key, option_value in [('a', question.option_a), ('b', question.option_b), ('c', question.option_c), ('d', question.option_d)] %}
+                {% set option_classes = [] %}
+                {% if question.correct_option == option_key %}{% set _ = option_classes.append('is-correct') %}{% endif %}
+                {% if question.candidate_option == option_key and question.correct_option != option_key %}{% set _ = option_classes.append('is-wrong') %}{% endif %}
+                <div class="career-question-option {{ option_classes|join(' ') }}">
+                    <strong>{{ option_key|upper }}</strong>
+                    <span>{{ option_value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
     </section>
 
-    <div class="career-test-grid">
-        {% if assessment_state == "active" %}
-        <form method="POST" action="{{ url_for('career.submit_assessment') }}" class="career-test-form" id="careerAssessmentForm">
-            <input type="hidden" name="assessment_code" value="{{ assessment_code }}">
-            <input type="hidden" name="violation_count" id="careerAssessmentViolationCount" value="{{ violation_count or 0 }}">
-            {% for question in questions %}
-            <section class="career-question-card">
-                <h3>{{ loop.index }}. {{ question.prompt }}</h3>
-                <div class="career-question-options">
-                    {% for option_key, option_value in [('a', question.option_a), ('b', question.option_b), ('c', question.option_c), ('d', question.option_d)] %}
-                    <label class="career-question-option">
-                        <input type="radio" name="answer_{{ question.id }}" value="{{ option_key }}" {% if existing_answers and existing_answers.get(question.id) == option_key %}checked{% endif %}>
-                        <span>{{ option_value }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-            </section>
-            {% endfor %}
-            <div class="career-test-submit">
-                <button type="submit">Selesaikan Tes</button>
-            </div>
-        </form>
-
-        <aside class="career-test-side">
-            <section class="career-test-sidecard">
-                <strong>Aturan Tes</strong>
-                <ul>
-                    <li>Jangan pindah tab, refresh, atau kembali ke halaman lain.</li>
-                    <li>Maksimal pelanggaran {{ max_violation_count or 3 }} kali.</li>
-                    <li>Kalau sudah {{ max_violation_count or 3 }} kali, tes direset dari awal, soal berubah, dan Anda harus memakai kode baru.</li>
-                    <li>Setelah submit, skor otomatis langsung muncul.</li>
-                </ul>
-            </section>
-            <section class="career-test-sidecard">
-                <strong>Informasi</strong>
-                <span>Kandidat: {{ candidate.candidate_name }}</span>
-                <span>Jumlah soal: {{ questions|length }}</span>
-                <span>Kontak HR akan follow-up dari pipeline recruitment.</span>
-            </section>
-        </aside>
-        {% else %}
-        <section class="career-test-card" style="display:grid;gap:18px;">
-            <div class="career-section-head">
-                <div>
-                    <h2>Hasil Tes</h2>
-                    <p>Skor otomatis langsung keluar sesudah tes selesai. HR bisa review ulang bila diperlukan.</p>
-                </div>
-            </div>
-            <div class="career-score-value">{{ final_score }}%</div>
-            <div class="career-test-meta">
-                <span class="career-test-pill">Jawab {{ score_summary.answered }} / {{ score_summary.questions|length if score_summary else 0 }}</span>
-                <span class="career-test-pill">Bobot {{ score_summary.earned }} / {{ score_summary.total_weight }}</span>
-                <span class="career-test-pill">Pelanggaran {{ candidate.assessment_violation_count or 0 }}</span>
-            </div>
-            {% for question in questions %}
-            <section class="career-question-card">
-                <h3>{{ loop.index }}. {{ question.prompt }}</h3>
-                <div class="career-question-options">
-                    {% for option_key, option_value in [('a', question.option_a), ('b', question.option_b), ('c', question.option_c), ('d', question.option_d)] %}
-                    {% set option_classes = [] %}
-                    {% if question.correct_option == option_key %}{% set _ = option_classes.append('is-correct') %}{% endif %}
-                    {% if question.candidate_option == option_key and question.correct_option != option_key %}{% set _ = option_classes.append('is-wrong') %}{% endif %}
-                    <div class="career-question-option {{ option_classes|join(' ') }}">
-                        <strong style="margin-top:1px;">{{ option_key|upper }}</strong>
-                        <span>{{ option_value }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
-            </section>
-            {% endfor %}
+    <aside class="career-assessment-side">
+        <section class="career-assessment-sidecard">
+            <strong>Status Akhir</strong>
+            <span>Auto score: {{ candidate.assessment_auto_score or 0 }}%</span>
+            <span>Skor HR: {{ candidate.assessment_manual_score if candidate.assessment_manual_score is not none else '-' }}</span>
+            <span>Skor final: {{ final_score }}%</span>
+            <span>Pelanggaran: {{ candidate.assessment_violation_count or 0 }}</span>
         </section>
-        <aside class="career-test-side">
-            <section class="career-test-sidecard">
-                <strong>Status akhir</strong>
-                <span>Auto score: {{ candidate.assessment_auto_score or 0 }}%</span>
-                <span>Skor HR: {{ candidate.assessment_manual_score if candidate.assessment_manual_score is not none else '-' }}</span>
-                <span>Skor final: {{ final_score }}%</span>
-            </section>
-            <section class="career-test-sidecard">
-                <strong>Langkah berikutnya</strong>
-                <ul>
-                    <li>HR akan review hasil tes dan CV Anda.</li>
-                    <li>Kalau lolos, tim akan hubungi lewat kontak aktif.</li>
-                </ul>
-            </section>
-        </aside>
-        {% endif %}
-    </div>
-</section>
+
+        <section class="career-assessment-sidecard">
+            <strong>Langkah Berikutnya</strong>
+            <ul>
+                <li>Tim HR akan review hasil tes bersama CV dan data lamaran Anda.</li>
+                <li>Kalau lolos tahap ini, follow-up akan dilakukan melalui kontak aktif yang sudah Anda kirimkan.</li>
+            </ul>
+        </section>
+
+        <section class="career-assessment-sidecard">
+            <strong>Ringkasan Kandidat</strong>
+            <span>Nama: {{ candidate.candidate_name }}</span>
+            <span>Posisi: {{ candidate.position_title or candidate.vacancy_title or 'Posisi Kandidat' }}</span>
+            <span>Unit: {{ candidate.warehouse_name or 'Umum' }}</span>
+            <span>Kode tes: {{ assessment_code }}</span>
+        </section>
+    </aside>
+    {% endif %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -380,12 +737,36 @@
     const violationInput = document.getElementById("careerAssessmentViolationCount");
     const violationBadge = document.getElementById("careerAssessmentViolationBadge");
     const assessmentCodeInput = form?.querySelector('input[name="assessment_code"]');
+    const progressFill = document.getElementById("careerAssessmentProgressFill");
+    const progressValue = document.getElementById("careerAssessmentProgressValue");
+    const answeredValue = document.getElementById("careerAssessmentAnsweredValue");
+    const remainingValue = document.getElementById("careerAssessmentRemainingValue");
     if (!form || !violationInput) return;
 
     let submitted = false;
     let violationCount = Number(violationInput.value || 0);
     const maxViolationCount = {{ max_violation_count|default(3)|tojson }};
+    const questionInputs = Array.from(form.querySelectorAll('input[type="radio"]'));
+    const questionNames = [...new Set(questionInputs.map((input) => input.name))];
     let lastViolationAt = 0;
+
+    const syncProgress = () => {
+        const answeredCount = questionNames.filter((name) => form.querySelector(`input[name="${name}"]:checked`)).length;
+        const totalCount = questionNames.length || 1;
+        const progress = Math.round((answeredCount / totalCount) * 100);
+        if (progressFill) {
+            progressFill.style.width = `${progress}%`;
+        }
+        if (progressValue) {
+            progressValue.textContent = `${progress}%`;
+        }
+        if (answeredValue) {
+            answeredValue.textContent = `${answeredCount}/${questionNames.length}`;
+        }
+        if (remainingValue) {
+            remainingValue.textContent = String(Math.max(questionNames.length - answeredCount, 0));
+        }
+    };
 
     const syncViolation = () => {
         violationInput.value = String(violationCount);
@@ -435,7 +816,12 @@
         }
     };
 
+    syncProgress();
     syncViolation();
+
+    questionInputs.forEach((input) => {
+        input.addEventListener("change", syncProgress);
+    });
 
     history.pushState(null, "", window.location.href);
     window.addEventListener("popstate", () => {

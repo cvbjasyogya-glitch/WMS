@@ -1,268 +1,406 @@
 {% extends "base.html" %}
 
 {% block title %}{{ opening.title }} | Karir{% endblock %}
-{% block eyebrow %}Karir{% endblock %}
+{% block eyebrow %}{% endblock %}
 {% block page_title %}Detail Lowongan{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-public-page{% endblock %}
+{% block page_content_class %}career-detail-page career-page-surface{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
 .career-public-shell {
-    --career-bg: #f4f7fb;
-    --career-ink: #1b2a41;
-    --career-muted: #6d7d92;
-    --career-line: #dce6f2;
-    --career-blue: #0d61ad;
-    --career-shadow: 0 18px 42px rgba(16, 42, 74, 0.08);
-    background: linear-gradient(180deg, #f9fbfe 0, #f4f7fb 180px, #f4f7fb 100%);
+    background:
+        radial-gradient(circle at top left, rgba(11, 99, 182, 0.1), transparent 24%),
+        linear-gradient(180deg, #f8fbff 0%, #eef4fa 48%, #edf3f8 100%);
     color: var(--career-ink);
 }
 
-.career-public-shell .page-hero { display: none; }
-.career-public-page { display: grid; gap: 26px; }
-
-.career-topbar,
-.career-card {
-    background: rgba(255,255,255,0.98);
-    border: 1px solid var(--career-line);
-    box-shadow: var(--career-shadow);
+.career-detail-page {
+    display: grid;
+    gap: 24px;
 }
 
-.career-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 18px 28px;
+.career-detail-breadcrumb {
+    color: #688099;
+    font-size: 0.94rem;
+}
+
+.career-detail-hero {
+    display: grid;
+    gap: 22px;
+    grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+    align-items: stretch;
+    padding: 14px;
+    border-radius: 32px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+    border: 1px solid #dbe7f3;
+    box-shadow: 0 24px 52px rgba(17, 42, 73, 0.08);
+}
+
+.career-detail-hero-main,
+.career-detail-hero-side {
     border-radius: 24px;
 }
 
-.career-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.career-brand-mark {
-    width: 64px;
-    height: 38px;
-    border-radius: 12px;
-    display: grid;
-    place-items: center;
-    background: linear-gradient(135deg, #0d61ad, #2578d1);
-    color: #fff;
-    font: 800 1.12rem/1 "Space Grotesk", sans-serif;
-    letter-spacing: 0.06em;
-}
-
-.career-brand-copy strong { color: #163257; font-size: 1rem; }
-.career-brand-copy span { color: var(--career-muted); font-size: 0.9rem; }
-
-.career-nav { display: flex; gap: 24px; color: #4d617b; font-size: 0.96rem; flex-wrap: wrap; }
-.career-nav span { white-space: nowrap; }
-.career-nav .is-active { color: var(--career-blue); font-weight: 700; }
-
-.career-nav-utility {
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    margin-left: 14px;
-    padding-left: 16px;
-    border-left: 1px solid var(--career-line);
-    color: #5f7289;
-    font-size: 0.92rem;
-}
-
-.career-nav-lang {
-    display: inline-flex;
+.career-detail-hero-main {
+    position: relative;
     overflow: hidden;
-    border: 1px solid #cfe0f3;
-    border-radius: 12px;
+    display: grid;
+    gap: 18px;
+    padding: 34px;
+    background:
+        radial-gradient(circle at 88% 18%, rgba(255,255,255,0.14), transparent 24%),
+        linear-gradient(135deg, #0e5f9d 0%, #0d74bb 52%, #1f8ed8 100%);
+    color: #fff;
 }
 
-.career-nav-lang span {
-    min-width: 38px;
+.career-detail-hero-main::after {
+    content: "";
+    position: absolute;
+    right: -58px;
+    bottom: -84px;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    border: 28px solid rgba(255,255,255,0.14);
+    pointer-events: none;
+}
+
+.career-detail-hero-main > * {
+    position: relative;
+    z-index: 1;
+}
+
+.career-detail-kicker,
+.career-detail-side-kicker,
+.career-detail-section-kicker,
+.career-apply-kicker,
+.career-guide-kicker {
+    width: max-content;
     min-height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0 10px;
-    background: #fff;
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 800;
 }
 
-.career-nav-lang .is-active {
-    color: #fff;
-    background: var(--career-blue);
+.career-detail-kicker {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: rgba(255,255,255,0.82);
 }
 
-.career-breadcrumb {
-    color: #6f8298;
-    font-size: 0.95rem;
-}
-
-.career-hero {
-    display: grid;
-    gap: 12px;
-    padding: 34px 40px;
-    border-radius: 28px;
-    background: linear-gradient(135deg, #0d61ad 0%, #0b63b4 58%, #0b4d8d 100%);
-    color: #fff;
-    box-shadow: 0 22px 44px rgba(13, 97, 173, 0.22);
-}
-
-.career-hero h1 {
+.career-detail-hero-main h1,
+.career-detail-hero-main p,
+.career-detail-hero-side h2,
+.career-detail-hero-side p {
     margin: 0;
-    font-size: clamp(2rem, 4vw, 2.9rem);
-    line-height: 1.08;
+}
+
+.career-detail-hero-main h1 {
+    max-width: 11ch;
+    font: 700 clamp(2.3rem, 4.7vw, 3.95rem)/0.98 "Space Grotesk", sans-serif;
+    letter-spacing: -0.04em;
     color: #fff;
 }
 
-.career-hero p {
-    margin: 0;
-    max-width: 860px;
+.career-detail-hero-main p {
+    max-width: 760px;
+    line-height: 1.75;
     color: rgba(255,255,255,0.9);
-    line-height: 1.7;
+    font-size: 1.02rem;
 }
 
-.career-hero-actions {
+.career-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.career-detail-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: rgba(255,255,255,0.9);
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.career-detail-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin-top: 6px;
 }
 
-.career-hero-actions a {
-    min-height: 48px;
+.career-detail-actions a,
+.career-back-link,
+.career-guide-link,
+.career-apply-submit button {
+    min-height: 50px;
     padding: 0 20px;
-    border-radius: 999px;
+    border-radius: 16px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     text-decoration: none;
     font-weight: 700;
+    border: 0;
+    cursor: pointer;
 }
 
-.career-hero-actions .is-primary {
+.career-detail-actions .is-primary {
     background: #fff;
+    color: var(--career-blue);
+    box-shadow: 0 14px 28px rgba(13, 97, 173, 0.18);
+}
+
+.career-detail-actions .is-secondary {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #fff;
+}
+
+.career-back-link,
+.career-guide-link {
+    background: #f3f8fe;
+    border: 1px solid #dbe7f3;
     color: var(--career-blue);
 }
 
-.career-hero-actions .is-secondary {
-    background: rgba(255,255,255,0.08);
+.career-apply-submit button {
+    background: linear-gradient(135deg, var(--career-blue), #1575cf);
     color: #fff;
-    border: 1px solid rgba(255,255,255,0.24);
+    box-shadow: 0 14px 28px rgba(13, 97, 173, 0.18);
 }
 
-.career-layout {
+.career-detail-hero-side {
     display: grid;
-    gap: 28px;
-    grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);
+    gap: 16px;
+    padding: 26px 24px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    border: 1px solid #e1ecf6;
+}
+
+.career-detail-side-kicker,
+.career-detail-section-kicker,
+.career-apply-kicker,
+.career-guide-kicker {
+    background: #edf5fe;
+    border: 1px solid #d7e7f8;
+    color: var(--career-blue);
+}
+
+.career-detail-hero-side h2 {
+    font: 700 1.45rem/1.15 "Space Grotesk", sans-serif;
+    color: var(--career-ink);
+    letter-spacing: -0.03em;
+}
+
+.career-detail-hero-side p {
+    color: var(--career-muted);
+    line-height: 1.7;
+}
+
+.career-detail-overview-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.career-detail-overview-card {
+    display: grid;
+    gap: 4px;
+    min-height: 96px;
+    padding: 16px;
+    border-radius: 18px;
+    background: #f7fbff;
+    border: 1px solid #dce8f4;
+}
+
+.career-detail-overview-card strong {
+    color: var(--career-blue);
+    font: 700 clamp(1.3rem, 3vw, 1.8rem)/1 "Space Grotesk", sans-serif;
+}
+
+.career-detail-overview-card span {
+    color: #5a748d;
+    line-height: 1.55;
+    font-size: 0.9rem;
+}
+
+.career-detail-mini-steps {
+    display: grid;
+    gap: 10px;
+}
+
+.career-detail-mini-step {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 12px 0;
+    border-top: 1px solid #e5eef6;
+}
+
+.career-detail-mini-step:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.career-detail-mini-step strong,
+.career-process-step strong {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #eaf4fd;
+    color: var(--career-blue);
+    font: 700 0.92rem/1 "Space Grotesk", sans-serif;
+}
+
+.career-detail-mini-step span {
+    color: #58728d;
+    line-height: 1.6;
+    font-size: 0.92rem;
+}
+
+.career-detail-layout {
+    display: grid;
+    gap: 24px;
+    grid-template-columns: minmax(0, 1.06fr) minmax(340px, 0.94fr);
     align-items: start;
 }
 
-.career-main,
-.career-side {
+.career-detail-main,
+.career-detail-side {
     display: grid;
-    gap: 22px;
+    gap: 20px;
 }
 
-.career-side {
+.career-detail-side {
     position: sticky;
     top: 18px;
 }
 
-.career-card {
-    border-radius: 24px;
+.career-detail-card {
+    display: grid;
+    gap: 18px;
     padding: 24px;
+    border-radius: 28px;
+    background: rgba(255,255,255,0.98);
+    border: 1px solid var(--career-line);
+    box-shadow: var(--career-shadow);
 }
 
-.career-main-head {
+.career-detail-section-head,
+.career-apply-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 18px;
 }
 
-.career-main-head h2 {
+.career-detail-section-head h2,
+.career-detail-section-head p,
+.career-apply-head h2,
+.career-apply-head p,
+.career-guide-card h3,
+.career-guide-card p {
     margin: 0;
-    color: #163257;
 }
 
-.career-main-head p {
-    margin: 4px 0 0;
+.career-detail-section-head h2,
+.career-apply-head h2 {
+    font: 700 1.5rem/1.1 "Space Grotesk", sans-serif;
+    color: var(--career-ink);
+    letter-spacing: -0.03em;
+}
+
+.career-detail-section-head p,
+.career-apply-head p,
+.career-guide-card p {
     color: var(--career-muted);
-}
-
-.career-chip {
-    display: inline-flex;
-    align-items: center;
-    min-height: 30px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    background: #edf5fe;
-    border: 1px solid #d8e6f8;
-    color: #5f6f83;
-    font-size: 0.76rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.career-meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.career-detail-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 18px;
-}
-
-.career-detail-row {
-    display: grid;
-    gap: 6px;
-    padding: 16px;
-    border-radius: 16px;
-    border: 1px solid var(--career-line);
-    background: #fbfdff;
-}
-
-.career-detail-row span {
-    font-size: 0.78rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #8ca0b6;
-    font-weight: 700;
-}
-
-.career-detail-row strong { color: #14253e; }
-
-.career-detail-block {
-    margin-top: 18px;
-    padding-top: 18px;
-    border-top: 1px solid var(--career-line);
-}
-
-.career-detail-block h3 {
-    margin: 0 0 12px;
-    font-size: 1rem;
-    color: #163257;
-}
-
-.career-detail-block div {
-    color: #52657e;
     line-height: 1.7;
 }
 
+.career-detail-richtext {
+    color: #4f647e;
+    line-height: 1.85;
+    white-space: pre-line;
+}
+
+.career-process-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.career-process-step {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 22px;
+    background: #f7fbff;
+    border: 1px solid #dce8f4;
+}
+
+.career-process-step p {
+    margin: 0;
+    color: #58728d;
+    line-height: 1.65;
+}
+
+.career-apply-card {
+    gap: 20px;
+}
+
+.career-apply-step-list {
+    display: grid;
+    gap: 10px;
+    padding: 16px 18px;
+    border-radius: 22px;
+    background: #f7fbff;
+    border: 1px solid #dce8f4;
+}
+
+.career-apply-step {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+}
+
+.career-apply-step span:first-child {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #eaf4fd;
+    color: var(--career-blue);
+    font: 700 0.88rem/1 "Space Grotesk", sans-serif;
+}
+
+.career-apply-step span:last-child {
+    color: #58728d;
+    line-height: 1.55;
+    font-size: 0.92rem;
+}
+
 .career-note {
-    margin: 16px 0 0;
+    margin: 0;
     padding: 14px 16px;
     border-radius: 18px;
     background: #fff7f7;
@@ -275,7 +413,6 @@
 .career-form {
     display: grid;
     gap: 18px;
-    margin-top: 18px;
 }
 
 .career-form-grid {
@@ -284,7 +421,9 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.career-form-grid .span-2 { grid-column: 1 / -1; }
+.career-form-grid .span-2 {
+    grid-column: 1 / -1;
+}
 
 .career-form label {
     display: grid;
@@ -295,12 +434,11 @@
 }
 
 .career-form input,
-.career-form textarea,
-.career-test-entry input {
+.career-form textarea {
     min-height: 54px;
     border-radius: 16px;
     border: 1px solid var(--career-line);
-    background: #fdfefe;
+    background: #fcfdff;
     color: #1b2a41;
     padding: 0 16px;
     font: inherit;
@@ -317,8 +455,7 @@
     min-height: 56px;
 }
 
-.career-form small,
-.career-card p {
+.career-form small {
     color: var(--career-muted);
 }
 
@@ -327,90 +464,84 @@
     justify-content: flex-end;
 }
 
-.career-apply-submit button,
-.career-test-entry button,
-.career-back-link {
-    min-height: 50px;
-    border-radius: 16px;
-    border: 0;
-    padding: 0 18px;
-    background: linear-gradient(135deg, #0d61ad, #136bc0);
-    color: #fff;
-    font-weight: 700;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 14px 28px rgba(13, 97, 173, 0.18);
+.career-guide-card {
+    display: grid;
+    gap: 14px;
 }
 
-.career-test-entry {
+.career-guide-card h3 {
+    font: 700 1.2rem/1.15 "Space Grotesk", sans-serif;
+    color: var(--career-ink);
+}
+
+.career-guide-list {
     display: grid;
+    gap: 10px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.career-guide-list li {
+    display: grid;
+    grid-template-columns: auto 1fr;
     gap: 12px;
+    align-items: start;
+    color: #58728d;
+    line-height: 1.6;
 }
 
-.career-test-entry form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-}
-
-.career-test-entry input {
-    letter-spacing: 0.18em;
-    font-weight: 800;
-}
-
-.career-latest-code {
-    display: grid;
-    gap: 8px;
-    margin-top: 12px;
-    padding: 16px 18px;
-    border-radius: 18px;
-    background: #f7fbff;
-    border: 1px solid #dceaf8;
-}
-
-.career-latest-code strong {
-    font-size: 1.55rem;
-    letter-spacing: 0.24em;
-    color: var(--career-blue);
+.career-guide-list li::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    margin-top: 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--career-blue), #4ca9f4);
 }
 
 @media (max-width: 1180px) {
-    .career-layout { grid-template-columns: 1fr; }
-    .career-side { position: static; }
-    .career-topbar { flex-wrap: wrap; }
-    .career-nav { justify-content: flex-start; }
-    .career-nav-utility {
-        margin-left: 0;
-        padding-left: 0;
-        border-left: 0;
+    .career-detail-hero,
+    .career-detail-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .career-detail-side {
+        position: static;
     }
 }
 
 @media (max-width: 760px) {
-    .career-topbar {
-        padding: 18px 20px;
-        flex-direction: column;
-        align-items: flex-start;
+    .career-detail-hero {
+        padding: 12px;
+        border-radius: 28px;
     }
 
-    .career-hero {
-        padding: 28px 24px;
+    .career-detail-hero-main,
+    .career-detail-hero-side,
+    .career-detail-card {
+        padding: 22px;
+        border-radius: 24px;
     }
 
-    .career-hero-actions {
+    .career-detail-actions,
+    .career-apply-submit,
+    .career-detail-section-head,
+    .career-apply-head {
         flex-direction: column;
         align-items: stretch;
     }
 
-    .career-hero-actions a {
+    .career-detail-actions a,
+    .career-back-link,
+    .career-guide-link,
+    .career-apply-submit button {
         width: 100%;
     }
 
-    .career-detail-grid,
-    .career-form-grid,
-    .career-test-entry form {
+    .career-detail-overview-grid,
+    .career-process-grid,
+    .career-form-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -421,92 +552,143 @@
 {% set active_page = 'jobs' %}
 {% include "_career_public_nav.html" %}
 
-<div class="career-breadcrumb">Karir / Lowongan / {{ opening.title }}</div>
+<div class="career-detail-breadcrumb">Karir / Lowongan / {{ opening.title }}</div>
 
-<section class="career-hero">
-    <h1>{{ opening.title }}</h1>
-    <p>{{ opening.description or "Lowongan aktif untuk pipeline rekrutmen saat ini." }}</p>
-    <div class="career-meta-row">
-        <span class="career-chip">{{ opening.department or 'General Team' }}</span>
-        <span class="career-chip">{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</span>
-        <span class="career-chip">{{ opening.location_label or 'Tanpa lokasi' }}</span>
-        <span class="career-chip">{{ opening.warehouse_name or 'Umum' }}</span>
+<section class="career-detail-hero">
+    <div class="career-detail-hero-main">
+        <span class="career-detail-kicker">Posisi Aktif</span>
+        <h1>{{ opening.title }}</h1>
+        <p>{{ opening.description or "Lowongan aktif untuk pipeline rekrutmen saat ini." }}</p>
+        <div class="career-detail-meta">
+            <span class="career-detail-chip">{{ opening.department or 'General Team' }}</span>
+            <span class="career-detail-chip">{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</span>
+            <span class="career-detail-chip">{{ opening.location_label or 'Penempatan menyesuaikan' }}</span>
+            <span class="career-detail-chip">{{ opening.warehouse_name or 'Umum' }}</span>
+        </div>
+        <div class="career-detail-actions">
+            <a href="#careerApplyForm" class="is-primary">Lamar Posisi Ini</a>
+            <a href="{{ url_for('career.index') }}" class="is-secondary">Lihat Lowongan Lain</a>
+        </div>
     </div>
-    <div class="career-hero-actions">
-        <a href="#careerApplyForm" class="is-primary">Lamar Posisi Ini</a>
-        <a href="{{ url_for('career.index') }}" class="is-secondary">Kembali ke Lowongan</a>
-    </div>
+
+    <aside class="career-detail-hero-side">
+        <span class="career-detail-side-kicker">Position Snapshot</span>
+        <h2>Masuk ke proses rekrutmen yang lebih rapi dan terasa profesional.</h2>
+        <p>Detail peran, dokumen yang dibutuhkan, dan langkah kandidat saya susun ulang supaya pengalaman melamarnya terasa lebih tenang sejak awal.</p>
+        <div class="career-detail-overview-grid">
+            <article class="career-detail-overview-card">
+                <strong>{{ opening.department or 'General Team' }}</strong>
+                <span>Bidang utama yang sedang membuka kebutuhan.</span>
+            </article>
+            <article class="career-detail-overview-card">
+                <strong>{{ opening.location_label or 'Fleksibel' }}</strong>
+                <span>Lokasi kerja atau area penempatan awal.</span>
+            </article>
+            <article class="career-detail-overview-card">
+                <strong>{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</strong>
+                <span>Tipe kerja yang sedang ditawarkan.</span>
+            </article>
+            <article class="career-detail-overview-card">
+                <strong>3 Tahap</strong>
+                <span>Lamaran, kode tes, lalu assessment kandidat.</span>
+            </article>
+        </div>
+        <div class="career-detail-mini-steps">
+            <div class="career-detail-mini-step">
+                <strong>1</strong>
+                <span>Isi data inti yang paling penting dan unggah CV terbaru.</span>
+            </div>
+            <div class="career-detail-mini-step">
+                <strong>2</strong>
+                <span>Simpan kode tes yang muncul di pop-up sesudah lamaran berhasil.</span>
+            </div>
+            <div class="career-detail-mini-step">
+                <strong>3</strong>
+                <span>Masuk lagi lewat tombol header "Punya Kode Tes?" untuk melanjutkan assessment.</span>
+            </div>
+        </div>
+    </aside>
 </section>
 
-<div class="career-layout">
-    <div class="career-main">
-        <section class="career-card">
-            <div class="career-main-head">
+<div class="career-detail-layout">
+    <div class="career-detail-main">
+        <section class="career-detail-card">
+            <div class="career-detail-section-head">
                 <div>
-                    <h2>Informasi Pekerjaan</h2>
-                    <p>Ringkasan posisi yang sedang Anda buka.</p>
+                    <span class="career-detail-section-kicker">Role Overview</span>
+                    <h2>Gambaran Peran</h2>
+                    <p>Ringkasan inti posisi yang sedang dibuka untuk kandidat publik.</p>
                 </div>
                 <a href="{{ url_for('career.index') }}" class="career-back-link">Kembali ke daftar lowongan</a>
             </div>
-            <div class="career-detail-grid">
-                <div class="career-detail-row">
-                    <span>Posisi</span>
-                    <strong>{{ opening.title }}</strong>
-                </div>
-                <div class="career-detail-row">
-                    <span>Departemen</span>
-                    <strong>{{ opening.department or 'General Team' }}</strong>
-                </div>
-                <div class="career-detail-row">
-                    <span>Tipe</span>
-                    <strong>{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</strong>
-                </div>
-                <div class="career-detail-row">
-                    <span>Lokasi</span>
-                    <strong>{{ opening.location_label or '-' }}</strong>
-                </div>
-            </div>
-
-            <div class="career-detail-block">
-                <h3>Deskripsi Pekerjaan</h3>
-                <div>{{ opening.description or "Lowongan aktif untuk pipeline rekrutmen saat ini." }}</div>
-            </div>
-            {% if opening.requirements %}
-            <div class="career-detail-block">
-                <h3>Kualifikasi</h3>
-                <div>{{ opening.requirements }}</div>
-            </div>
-            {% endif %}
+            <div class="career-detail-richtext">{{ opening.description or "Lowongan aktif untuk pipeline rekrutmen saat ini." }}</div>
         </section>
-    </div>
 
-    <div class="career-side">
-        {% if latest_assessment_code and latest_candidate %}
-        <section class="career-card">
-            <h3>Kode Tes Terakhir</h3>
-            <div class="career-latest-code">
-                <span>{{ latest_candidate.candidate_name or 'Kandidat' }}</span>
-                <strong>{{ latest_assessment_code }}</strong>
-                <a href="{{ url_for('career.assessment', code=latest_assessment_code) }}" class="career-back-link">Buka Tes</a>
+        <section class="career-detail-card">
+            <div class="career-detail-section-head">
+                <div>
+                    <span class="career-detail-section-kicker">Candidate Process</span>
+                    <h2>Alur Kandidat</h2>
+                    <p>Tiga langkah utama yang akan dilalui kandidat pada portal ini.</p>
+                </div>
             </div>
+            <div class="career-process-grid">
+                <article class="career-process-step">
+                    <strong>1</strong>
+                    <p>Lengkapi formulir singkat dengan nama, kontak aktif, dan CV terbaru agar tim HR bisa menilai profil awal Anda.</p>
+                </article>
+                <article class="career-process-step">
+                    <strong>2</strong>
+                    <p>Sesudah submit, portal akan menampilkan pop-up berisi kode tes 5 digit yang perlu Anda simpan dengan baik.</p>
+                </article>
+                <article class="career-process-step">
+                    <strong>3</strong>
+                    <p>Gunakan kode tersebut dari header untuk masuk ke halaman assessment dan selesaikan tes dalam satu sesi.</p>
+                </article>
+            </div>
+        </section>
+
+        {% if opening.requirements %}
+        <section class="career-detail-card">
+            <div class="career-detail-section-head">
+                <div>
+                    <span class="career-detail-section-kicker">Requirements</span>
+                    <h2>Kualifikasi</h2>
+                    <p>Kriteria dasar yang sedang dicari untuk posisi ini.</p>
+                </div>
+            </div>
+            <div class="career-detail-richtext">{{ opening.requirements }}</div>
         </section>
         {% endif %}
+    </div>
 
-        <section class="career-card">
-            <h3>Masuk Tes Dengan Kode</h3>
-            <p>Kalau sudah punya kode dari HR atau dari halaman ini, langsung lanjut ke tes.</p>
-            <div class="career-test-entry">
-                <form method="GET" action="{{ url_for('career.assessment') }}">
-                    <input name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" placeholder="Masukkan 5 digit kode tes" required>
-                    <button type="submit">Masuk Tes</button>
-                </form>
+    <div class="career-detail-side">
+        <section class="career-detail-card career-apply-card" id="careerApplyForm">
+            <div class="career-apply-head">
+                <div>
+                    <span class="career-apply-kicker">Apply Now</span>
+                    <h2>Kirim Lamaran</h2>
+                    <p>Form ini sengaja dibuat ringkas supaya kandidat bisa fokus ke data yang benar-benar penting.</p>
+                </div>
             </div>
-        </section>
 
-        <section class="career-card" id="careerApplyForm">
-            <h3>Kirim Lamaran</h3>
-            <p>Isi data inti dan unggah CV terbaru.</p>
-            <p class="career-note">Setelah submit, simpan kode tes 5 digit yang muncul. Gunakan WhatsApp atau email aktif agar mudah dihubungi tim HR.</p>
+            <div class="career-apply-step-list">
+                <div class="career-apply-step">
+                    <span>1</span>
+                    <span>Gunakan nama lengkap, nomor WhatsApp, dan email yang aktif.</span>
+                </div>
+                <div class="career-apply-step">
+                    <span>2</span>
+                    <span>Unggah CV terbaru dalam format PDF, DOC, atau DOCX.</span>
+                </div>
+                <div class="career-apply-step">
+                    <span>3</span>
+                    <span>Sesudah submit, simpan kode tes dari pop-up untuk tahap berikutnya.</span>
+                </div>
+            </div>
+
+            <p class="career-note">Setelah submit, kode tes 5 digit akan muncul di pop-up dan tetap bisa dimasukkan lagi dari tombol header "Punya Kode Tes?". Gunakan WhatsApp atau email aktif agar mudah dihubungi tim HR.</p>
+
             <form method="POST" action="{{ url_for('career.apply') }}" enctype="multipart/form-data" class="career-form">
                 <input type="hidden" name="opening_id" value="{{ opening.id }}">
                 <div class="career-form-grid">
@@ -541,6 +723,63 @@
                 </div>
             </form>
         </section>
+
+        <section class="career-detail-card career-guide-card">
+            <span class="career-guide-kicker">Candidate Guide</span>
+            <h3>Yang Perlu Disiapkan</h3>
+            <p>Hal sederhana ini cukup membantu supaya proses kandidatur tidak terputus di tengah jalan.</p>
+            <ul class="career-guide-list">
+                <li>Pastikan nomor WhatsApp dan email yang dipakai benar-benar aktif untuk follow-up dari tim HR.</li>
+                <li>Siapkan CV versi terbaru dengan isi pengalaman dan domisili yang jelas.</li>
+                <li>Simpan kode tes segera setelah pop-up muncul agar tidak perlu mencari ulang dari awal.</li>
+            </ul>
+            {% if signin_url %}
+            <a href="{{ signin_url }}" class="career-guide-link">Masuk ke Portal Internal</a>
+            {% endif %}
+        </section>
     </div>
 </div>
+
+{% if latest_assessment_code and latest_candidate %}
+<div class="career-code-modal" id="careerCodeModal" role="dialog" aria-modal="true" aria-labelledby="careerCodeModalTitle">
+    <div class="career-code-modal-card">
+        <button type="button" class="career-code-modal-close" id="careerCodeModalClose" aria-label="Tutup">&times;</button>
+        <span class="career-code-modal-kicker">Pendaftaran Berhasil</span>
+        <h3 id="careerCodeModalTitle">Simpan kode tes Anda</h3>
+        <p>Gunakan kode ini untuk masuk ke halaman assessment dari tombol header "Punya Kode Tes?".</p>
+        <div class="career-code-modal-code">{{ latest_assessment_code }}</div>
+        <div class="career-code-modal-actions">
+            <a href="{{ url_for('career.assessment', code=latest_assessment_code) }}">Masuk ke Halaman Tes</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if latest_assessment_code and latest_candidate %}
+<script>
+(() => {
+    const modal = document.getElementById("careerCodeModal");
+    const closeButton = document.getElementById("careerCodeModalClose");
+    if (!modal || !closeButton) return;
+
+    const closeModal = () => {
+        modal.style.display = "none";
+    };
+
+    closeButton.addEventListener("click", closeModal);
+    modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeModal();
+        }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

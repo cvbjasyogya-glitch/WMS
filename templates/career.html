@@ -4,30 +4,17 @@
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Lowongan{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-jobs-page{% endblock %}
+{% block page_content_class %}career-jobs-page career-page-surface{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
 .career-public-shell {
-    --career-bg: #eff4fa;
-    --career-panel: #ffffff;
-    --career-ink: #17304e;
-    --career-muted: #68809b;
-    --career-line: #d8e5f2;
-    --career-blue: #0066b3;
-    --career-blue-dark: #004f8c;
-    --career-soft: #f8fbff;
-    --career-shadow: 0 18px 48px rgba(17, 42, 73, 0.09);
     background:
-        radial-gradient(circle at top left, rgba(0, 102, 179, 0.09), transparent 28%),
-        linear-gradient(180deg, #f8fbfe 0%, var(--career-bg) 220px, var(--career-bg) 100%);
+        radial-gradient(circle at top left, rgba(11, 99, 182, 0.1), transparent 24%),
+        linear-gradient(180deg, #f8fbff 0%, #eef4fa 48%, #edf3f8 100%);
     color: var(--career-ink);
-}
-
-.career-public-shell .page-hero {
-    display: none;
 }
 
 .career-jobs-page {
@@ -35,214 +22,287 @@
     gap: 24px;
 }
 
-.career-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 18px 26px;
-    border-radius: 26px;
-    background: rgba(255, 255, 255, 0.98);
-    border: 1px solid var(--career-line);
-    box-shadow: var(--career-shadow);
-}
-
-.career-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.career-brand-mark {
-    width: 64px;
-    height: 40px;
-    border-radius: 14px;
-    display: grid;
-    place-items: center;
-    background: linear-gradient(135deg, var(--career-blue), #2f87d0);
-    color: #fff;
-    font: 800 1.12rem/1 "Space Grotesk", sans-serif;
-    letter-spacing: 0.06em;
-}
-
-.career-brand-copy {
-    display: grid;
-    gap: 2px;
-}
-
-.career-brand-copy strong {
-    color: var(--career-ink);
-    font-size: 1rem;
-}
-
-.career-brand-copy span {
-    color: var(--career-muted);
-    font-size: 0.9rem;
-}
-
-.career-nav {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 24px;
-}
-
-.career-nav a {
-    color: #415c78;
-    text-decoration: none;
-    font-weight: 600;
-    white-space: nowrap;
-    transition: color 0.16s ease;
-}
-
-.career-nav a:hover,
-.career-nav a.is-active {
-    color: var(--career-blue);
-}
-
-.career-nav .is-active {
-    position: relative;
-}
-
-.career-nav .is-active::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -12px;
-    height: 3px;
-    border-radius: 999px;
-    background: var(--career-blue);
-}
-
-.career-nav-utility {
-    display: inline-flex;
-    align-items: center;
-    gap: 14px;
-    padding-left: 18px;
-    margin-left: 6px;
-    border-left: 1px solid var(--career-line);
-}
-
 .career-jobs-hero {
     display: grid;
-    gap: 10px;
-    padding: 34px 36px;
-    border-radius: 28px;
-    overflow: hidden;
-    position: relative;
-    background: linear-gradient(135deg, #0066b3 0%, #0b74c9 55%, #1d8ae0 100%);
-    box-shadow: 0 24px 50px rgba(0, 102, 179, 0.22);
-    color: #fff;
+    gap: 24px;
+    grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+    align-items: stretch;
+    padding: 14px;
+    border-radius: 32px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+    border: 1px solid #dbe7f3;
+    box-shadow: 0 24px 52px rgba(17, 42, 73, 0.08);
 }
 
-.career-jobs-hero::before,
-.career-jobs-hero::after {
+.career-jobs-hero-main,
+.career-jobs-hero-side {
+    border-radius: 24px;
+}
+
+.career-jobs-hero-main {
+    display: grid;
+    gap: 18px;
+    padding: 34px;
+    background:
+        radial-gradient(circle at 88% 18%, rgba(255,255,255,0.14), transparent 26%),
+        linear-gradient(135deg, #0e5f9d 0%, #0d74bb 52%, #1f8ed8 100%);
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+}
+
+.career-jobs-hero-main::after {
     content: "";
     position: absolute;
+    right: -58px;
+    bottom: -84px;
+    width: 220px;
+    height: 220px;
     border-radius: 999px;
-    opacity: 0.18;
+    border: 28px solid rgba(255,255,255,0.14);
     pointer-events: none;
 }
 
-.career-jobs-hero::before {
-    width: 260px;
-    height: 260px;
-    right: -40px;
-    top: -100px;
-    border: 38px solid rgba(255, 255, 255, 0.2);
-}
-
-.career-jobs-hero::after {
-    width: 320px;
-    height: 320px;
-    left: -140px;
-    bottom: -200px;
-    border: 36px solid rgba(255, 255, 255, 0.14);
-}
-
-.career-jobs-hero > * {
+.career-jobs-hero-main > * {
     position: relative;
     z-index: 1;
 }
 
-.career-jobs-hero p {
-    margin: 0;
-    max-width: 860px;
-    color: rgba(255, 255, 255, 0.92);
-    line-height: 1.7;
+.career-jobs-kicker {
+    width: max-content;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.16);
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: rgba(255,255,255,0.82);
 }
 
-.career-jobs-hero h1 {
+.career-jobs-hero-main h1,
+.career-jobs-hero-main p {
     margin: 0;
-    font-size: clamp(2rem, 3.8vw, 3.2rem);
-    line-height: 1.06;
+}
+
+.career-jobs-hero-main h1 {
+    max-width: 11ch;
+    font: 700 clamp(2.3rem, 4.7vw, 3.95rem)/0.98 "Space Grotesk", sans-serif;
+    letter-spacing: -0.04em;
     color: #fff;
 }
 
-.career-jobs-kicker {
-    margin: 0;
-    font-size: 0.82rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
+.career-jobs-hero-main p {
+    max-width: 700px;
+    line-height: 1.75;
+    color: rgba(255,255,255,0.9);
+    font-size: 1.02rem;
+}
+
+.career-jobs-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.career-jobs-hero-actions a {
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.74);
+}
+
+.career-jobs-hero-actions .is-primary {
+    background: #fff;
+    color: var(--career-blue);
+}
+
+.career-jobs-hero-actions .is-secondary {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #fff;
+}
+
+.career-jobs-hero-side {
+    display: grid;
+    gap: 16px;
+    padding: 26px 24px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    border: 1px solid #e1ecf6;
+}
+
+.career-jobs-hero-side h2,
+.career-jobs-hero-side p {
+    margin: 0;
+}
+
+.career-jobs-hero-side h2 {
+    font: 700 1.45rem/1.15 "Space Grotesk", sans-serif;
+    color: var(--career-ink);
+    letter-spacing: -0.03em;
+}
+
+.career-jobs-hero-side p {
+    color: var(--career-muted);
+    line-height: 1.7;
+}
+
+.career-jobs-overview-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.career-jobs-overview-card {
+    display: grid;
+    gap: 4px;
+    min-height: 96px;
+    padding: 16px;
+    border-radius: 18px;
+    background: #f7fbff;
+    border: 1px solid #dce8f4;
+}
+
+.career-jobs-overview-card strong {
+    color: var(--career-blue);
+    font: 700 clamp(1.45rem, 3vw, 2rem)/1 "Space Grotesk", sans-serif;
+}
+
+.career-jobs-overview-card span {
+    color: #5a748d;
+    line-height: 1.55;
+    font-size: 0.9rem;
+}
+
+.career-jobs-process {
+    display: grid;
+    gap: 10px;
+}
+
+.career-jobs-process-step {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 12px 0;
+    border-top: 1px solid #e5eef6;
+}
+
+.career-jobs-process-step:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.career-jobs-process-step strong {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #eaf4fd;
+    color: var(--career-blue);
+    font: 700 0.9rem/1 "Space Grotesk", sans-serif;
+}
+
+.career-jobs-process-step span {
+    color: #58728d;
+    line-height: 1.6;
+    font-size: 0.92rem;
 }
 
 .career-search-panel {
     display: grid;
     gap: 18px;
-    padding: 22px;
-    border-radius: 26px;
+    padding: 24px;
+    border-radius: 28px;
     background: rgba(255, 255, 255, 0.98);
     border: 1px solid var(--career-line);
     box-shadow: var(--career-shadow);
 }
 
-.career-search-panel-head {
+.career-search-panel-head,
+.career-openings-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
+    gap: 18px;
 }
 
 .career-search-panel-head h2,
-.career-search-panel-head p {
+.career-search-panel-head p,
+.career-openings-head h2,
+.career-openings-head p {
     margin: 0;
 }
 
-.career-search-panel-head h2 {
-    font-size: 1.3rem;
+.career-search-panel-head h2,
+.career-openings-head h2 {
+    font: 700 clamp(1.45rem, 3vw, 1.85rem)/1.1 "Space Grotesk", sans-serif;
     color: var(--career-ink);
+    letter-spacing: -0.03em;
 }
 
-.career-search-panel-head p {
+.career-search-panel-head p,
+.career-openings-head p {
     color: var(--career-muted);
+    line-height: 1.7;
 }
 
 .career-result-chip {
     display: inline-flex;
     align-items: center;
-    min-height: 36px;
+    min-height: 38px;
     padding: 0 14px;
     border-radius: 999px;
     background: #f2f7fd;
     border: 1px solid #d9e6f3;
     color: #48637f;
     font-weight: 700;
+    white-space: nowrap;
+}
+
+.career-focus-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.career-focus-chip {
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid #d8e5f2;
+    background: #f8fbff;
+    color: #5d7892;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-focus-chip.is-active {
+    background: #e9f4fd;
+    color: var(--career-blue);
+    border-color: #cfe1f2;
 }
 
 .career-search-bar {
     display: grid;
     gap: 14px;
-    grid-template-columns: minmax(0, 1.45fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) auto;
+    grid-template-columns: minmax(0, 1.45fr) minmax(190px, 0.74fr) minmax(190px, 0.74fr) auto;
     align-items: center;
 }
 
 .career-field,
 .career-search-bar button {
-    min-height: 58px;
+    min-height: 56px;
     border-radius: 16px;
     border: 1px solid var(--career-line);
     background: #fff;
@@ -281,162 +341,119 @@
 }
 
 .career-search-bar button {
-    min-width: 108px;
+    min-width: 112px;
     border: 0;
     background: linear-gradient(135deg, var(--career-blue), #2f87d0);
     color: #fff;
     font-weight: 700;
-    box-shadow: 0 18px 28px rgba(0, 102, 179, 0.18);
+    box-shadow: 0 18px 28px rgba(0, 102, 179, 0.16);
     cursor: pointer;
-}
-
-.career-search-bar button:hover {
-    background: linear-gradient(135deg, var(--career-blue-dark), var(--career-blue));
-}
-
-.career-latest-code {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 18px 20px;
-    border-radius: 22px;
-    background: linear-gradient(135deg, #f7fbff, #eef5fd);
-    border: 1px solid #d7e5f3;
-}
-
-.career-latest-code-copy {
-    display: grid;
-    gap: 4px;
-}
-
-.career-latest-code-copy span,
-.career-latest-code-copy p {
-    margin: 0;
-    color: var(--career-muted);
-}
-
-.career-latest-code-copy strong {
-    color: var(--career-blue);
-    font-size: 1.7rem;
-    letter-spacing: 0.08em;
-}
-
-.career-latest-code a {
-    min-height: 48px;
-    padding: 0 18px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    background: var(--career-blue);
-    color: #fff;
-    font-weight: 700;
-}
-
-.career-openings-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.career-openings-head h2,
-.career-openings-head p {
-    margin: 0;
-}
-
-.career-openings-head h2 {
-    color: var(--career-blue);
-    font-size: 1.45rem;
-}
-
-.career-openings-head p {
-    color: var(--career-muted);
-    margin-top: 6px;
 }
 
 .career-openings-grid {
     display: grid;
-    gap: 20px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .career-opening-card {
     display: grid;
     gap: 16px;
     min-height: 100%;
-    padding: 28px 28px 22px;
+    padding: 24px;
     border-radius: 24px;
-    background: #fff;
+    background: rgba(255,255,255,0.98);
     border: 1px solid var(--career-line);
     box-shadow: var(--career-shadow);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
-.career-opening-card:hover {
-    transform: translateY(-4px);
-    border-color: #c6daef;
-    box-shadow: 0 24px 40px rgba(17, 42, 73, 0.12);
+.career-opening-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.career-opening-brand {
+    display: grid;
+    gap: 8px;
+}
+
+.career-opening-brand span,
+.career-opening-brand h3,
+.career-opening-brand p {
+    margin: 0;
+}
+
+.career-opening-brand span {
+    font-size: 0.76rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--career-blue);
+    font-weight: 800;
+}
+
+.career-opening-brand h3 {
+    color: var(--career-ink);
+    font-size: 1.22rem;
+    line-height: 1.35;
+}
+
+.career-opening-brand p {
+    color: #5c7690;
+    font-weight: 700;
 }
 
 .career-opening-logo {
-    width: 72px;
-    height: 72px;
-    border-radius: 20px;
+    width: 54px;
+    height: 54px;
+    border-radius: 18px;
     display: grid;
     place-items: center;
-    background: #f4f9ff;
+    background: linear-gradient(135deg, rgba(11, 99, 182, 0.14), rgba(74, 164, 242, 0.12));
     color: var(--career-blue);
-    font-size: 1.5rem;
-    font-weight: 800;
-    border: 1px solid #dbe8f5;
-}
-
-.career-opening-card h3 {
-    margin: 0;
-    font-size: 1.3rem;
-    line-height: 1.35;
-    color: #163257;
-}
-
-.career-opening-company {
-    margin: 0;
-    color: var(--career-blue);
-    font-weight: 600;
+    font: 800 1rem/1 "Space Grotesk", sans-serif;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
 }
 
 .career-opening-meta,
-.career-opening-deadline {
+.career-opening-location {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 14px;
-    color: #617792;
-    font-size: 0.94rem;
+    gap: 8px;
 }
 
-.career-opening-deadline {
-    padding-top: 4px;
+.career-opening-meta span,
+.career-opening-location span {
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    background: #f3f8fe;
+    border: 1px solid #dbe8f5;
+    color: #56718b;
+    font-size: 0.82rem;
+    font-weight: 700;
 }
 
 .career-opening-summary {
     margin: 0;
-    color: #5d6f84;
-    line-height: 1.6;
+    color: var(--career-muted);
+    line-height: 1.72;
 }
 
 .career-opening-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
     margin-top: auto;
-    padding-top: 10px;
-    border-top: 1px solid #e4edf6;
 }
 
 .career-opening-actions a {
-    min-height: 48px;
+    flex: 1;
+    min-height: 46px;
     border-radius: 14px;
     display: inline-flex;
     align-items: center;
@@ -446,77 +463,55 @@
 }
 
 .career-opening-actions a:first-child {
-    background: #f6f9fd;
+    background: #f4f8fd;
+    border: 1px solid #dbe7f3;
     color: var(--career-blue);
-    border: 1px solid #d7e4f2;
 }
 
 .career-opening-actions a:last-child {
-    background: var(--career-blue);
+    background: linear-gradient(135deg, var(--career-blue), #2b85d4);
     color: #fff;
 }
 
 .career-no-results {
     display: none;
-    padding: 28px;
-    border-radius: 22px;
-    background: #fff;
-    border: 1px dashed #c9d7e7;
-    color: #627790;
+    padding: 28px 24px;
+    border-radius: 24px;
+    border: 1px dashed #c9d9e8;
+    background: rgba(255,255,255,0.72);
+    color: #5e7590;
     text-align: center;
 }
 
-@media (max-width: 1280px) {
-    .career-openings-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 1200px) {
+    .career-jobs-hero,
+    .career-search-bar {
+        grid-template-columns: 1fr;
     }
 }
 
 @media (max-width: 960px) {
-    .career-topbar {
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 18px 20px;
-    }
-
-    .career-nav {
-        width: 100%;
-        justify-content: flex-start;
-        gap: 18px;
-    }
-
-    .career-nav .is-active::after {
-        bottom: -8px;
-    }
-
-    .career-search-bar {
+    .career-openings-grid,
+    .career-jobs-overview-grid {
         grid-template-columns: 1fr;
-    }
-
-    .career-openings-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .career-latest-code {
-        flex-direction: column;
-        align-items: flex-start;
     }
 }
 
-@media (max-width: 640px) {
-    .career-jobs-hero,
+@media (max-width: 760px) {
+    .career-jobs-hero-main,
+    .career-jobs-hero-side,
     .career-search-panel,
     .career-opening-card {
-        padding-left: 18px;
-        padding-right: 18px;
+        padding: 22px;
     }
 
-    .career-jobs-hero h1 {
-        font-size: 2rem;
+    .career-search-panel-head,
+    .career-openings-head {
+        flex-direction: column;
     }
 
     .career-opening-actions {
-        grid-template-columns: 1fr;
+        flex-direction: column;
     }
 }
 </style>
@@ -524,15 +519,66 @@
 
 {% block content %}
 {% set active_page = 'jobs' %}
+{% set ns = namespace(departments=[], employment_types=[], locations=[]) %}
+{% for opening in openings %}
+    {% set department_label = (opening.department or 'Operasional')|trim %}
+    {% if department_label and department_label not in ns.departments %}
+        {% set ns.departments = ns.departments + [department_label] %}
+    {% endif %}
+    {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+    {% if type_label and type_label not in ns.employment_types %}
+        {% set ns.employment_types = ns.employment_types + [type_label] %}
+    {% endif %}
+    {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan Fleksibel' %}
+    {% if location_label and location_label not in ns.locations %}
+        {% set ns.locations = ns.locations + [location_label] %}
+    {% endif %}
+{% endfor %}
 {% include "_career_public_nav.html" %}
 
 <section class="career-jobs-hero">
-    <p class="career-jobs-kicker">Lowongan</p>
-    <h1>Temukan lowongan yang sesuai, lalu lanjutkan proses lamaran dengan data diri yang lengkap.</h1>
-    <p>Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit.</p>
+    <div class="career-jobs-hero-main">
+        <p class="career-jobs-kicker">Lowongan</p>
+        <h1>Temukan posisi yang paling cocok untuk langkah karirmu berikutnya.</h1>
+        <p>Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit. Tahap pertama ini saya arahkan ke nuansa yang lebih corporate, bersih, dan fokus seperti portal karir perusahaan besar.</p>
+        <div class="career-jobs-hero-actions">
+            <a href="#careerExplorer" class="is-primary">Jelajahi Lowongan</a>
+            <a href="{{ url_for('career.home') }}" class="is-secondary">Kembali ke Beranda</a>
+        </div>
+    </div>
+    <aside class="career-jobs-hero-side">
+        <div>
+            <h2>Career Explorer</h2>
+            <p>Semua posisi aktif diringkas dalam satu layar supaya kandidat bisa menelusuri fungsi, tipe kerja, dan lokasi tanpa gangguan informasi lain.</p>
+        </div>
+        <div class="career-jobs-overview-grid">
+            <article class="career-jobs-overview-card">
+                <strong>{{ openings|length }}</strong>
+                <span>lowongan aktif yang bisa langsung dibuka kandidat.</span>
+            </article>
+            <article class="career-jobs-overview-card">
+                <strong>{{ ns.departments|length or 1 }}</strong>
+                <span>jalur fungsi yang sudah tampil di portal publik.</span>
+            </article>
+        </div>
+        <div class="career-jobs-process">
+            <div class="career-jobs-process-step">
+                <strong>1</strong>
+                <span>Pilih posisi yang terasa paling relevan dengan pengalaman atau target karirmu.</span>
+            </div>
+            <div class="career-jobs-process-step">
+                <strong>2</strong>
+                <span>Buka detail lowongan untuk mengirim CV dan data inti kandidat.</span>
+            </div>
+            <div class="career-jobs-process-step">
+                <strong>3</strong>
+                <span>Kalau sudah punya kode, masuk tes dari shortcut di header tanpa menumpuk di daftar lowongan.</span>
+            </div>
+        </div>
+    </aside>
 </section>
 
-<section class="career-search-panel" aria-label="Filter lowongan">
+<section class="career-search-panel" id="careerExplorer" aria-label="Filter lowongan">
     <div class="career-search-panel-head">
         <div>
             <h2>Daftar Lowongan</h2>
@@ -540,22 +586,29 @@
         </div>
         <span class="career-result-chip"><span id="careerResultCount">{{ openings|length }}</span> posisi</span>
     </div>
+
+    {% if ns.departments %}
+    <div class="career-focus-row" id="careerDepartmentChips">
+        <button type="button" class="career-focus-chip is-active" data-department="">Semua Fungsi</button>
+        {% for department in ns.departments[:5] %}
+        <button type="button" class="career-focus-chip" data-department="{{ department|lower }}">{{ department }}</button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <div class="career-search-bar">
         <label class="career-search-input">
-            <input id="careerSearchInput" class="career-field" type="search" placeholder="Cari lowongan yang Anda inginkan...">
+            <input id="careerSearchInput" class="career-field" type="search" placeholder="Cari posisi, fungsi, atau lokasi...">
         </label>
         <select id="careerDepartmentFilter" class="career-field">
             <option value="">Semua Fungsi</option>
-            {% for opening in openings %}
-            {% if opening.department %}
-            <option value="{{ opening.department|lower }}">{{ opening.department }}</option>
-            {% endif %}
+            {% for department in ns.departments %}
+            <option value="{{ department|lower }}">{{ department }}</option>
             {% endfor %}
         </select>
         <select id="careerTypeFilter" class="career-field">
             <option value="">Semua Jenjang</option>
-            {% for opening in openings %}
-            {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+            {% for type_label in ns.employment_types %}
             <option value="{{ type_label|lower }}">{{ type_label }}</option>
             {% endfor %}
         </select>
@@ -563,21 +616,10 @@
     </div>
 </section>
 
-{% if latest_assessment_code and latest_candidate %}
-<section class="career-latest-code" id="careerLatestCodeSection">
-    <div class="career-latest-code-copy">
-        <span>Kode tes terakhir untuk {{ latest_candidate.candidate_name or 'kandidat' }}</span>
-        <strong>{{ latest_assessment_code }}</strong>
-        <p>Simpan kode ini untuk masuk ke tes kapan pun dibutuhkan.</p>
-    </div>
-    <a href="{{ url_for('career.assessment', code=latest_assessment_code) }}">Masuk Tes</a>
-</section>
-{% endif %}
-
 <section class="career-openings-head">
     <div>
         <h2><span id="careerVisibleCount">{{ openings|length }}</span> lowongan tersedia</h2>
-        <p>Lowongan aktif diperbarui dari panel recruitment HR secara langsung.</p>
+        <p>Lowongan aktif diperbarui langsung dari panel recruitment internal dan ditampilkan dalam format yang lebih fokus untuk kandidat.</p>
     </div>
 </section>
 
@@ -585,28 +627,31 @@
 <section class="career-openings-grid" id="careerOpeningsGrid">
     {% for opening in openings %}
     {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+    {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
     <article
         class="career-opening-card"
         data-title="{{ (opening.title or '')|lower }}"
         data-department="{{ (opening.department or '')|lower }}"
         data-type="{{ type_label|lower }}"
-        data-location="{{ (opening.location_label or opening.warehouse_name or '')|lower }}"
+        data-location="{{ location_label|lower }}"
     >
-        <div class="career-opening-logo">{{ (opening.title or 'CV')[:2]|upper }}</div>
-        <div>
-            <h3>{{ opening.title }}</h3>
-            <p class="career-opening-company">ERP-CV.BJAS Career</p>
+        <div class="career-opening-head">
+            <div class="career-opening-brand">
+                <span>ERP-CV.BJAS Career</span>
+                <h3>{{ opening.title }}</h3>
+                <p>{{ opening.department or 'Operasional Perusahaan' }}</p>
+            </div>
+            <div class="career-opening-logo">{{ (opening.title or 'CV')[:2]|upper }}</div>
         </div>
         <div class="career-opening-meta">
             <span>{{ opening.department or 'Operasional' }}</span>
-            <span>&bull;</span>
             <span>{{ type_label }}</span>
         </div>
-        <div class="career-opening-deadline">
-            <span>{{ opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' }}</span>
+        <div class="career-opening-location">
+            <span>{{ location_label }}</span>
         </div>
         <p class="career-opening-summary">
-            {{ (opening.description or 'Lowongan aktif resmi dari ERP-CV.BJAS. Klik detail untuk melihat ringkasan posisi, mengisi data diri, lalu mengirim lamaran.')|striptags|truncate(160, True) }}
+            {{ (opening.description or 'Lowongan aktif resmi dari ERP-CV.BJAS. Klik detail untuk melihat ringkasan posisi, mengisi data diri, lalu mengirim lamaran.')|striptags|truncate(170, True) }}
         </p>
         <div class="career-opening-actions">
             <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Lihat Detail</a>
@@ -636,16 +681,25 @@
     const resultCount = document.getElementById("careerResultCount");
     const visibleCount = document.getElementById("careerVisibleCount");
     const noResults = document.getElementById("careerNoResults");
+    const departmentChips = Array.from(document.querySelectorAll("[data-department]"));
 
     if (!cards.length) {
         return;
     }
+
+    const syncDepartmentChipState = (departmentValue) => {
+        departmentChips.forEach((chip) => {
+            chip.classList.toggle("is-active", (chip.dataset.department || "") === departmentValue);
+        });
+    };
 
     const applyFilters = () => {
         const query = (searchInput?.value || "").trim().toLowerCase();
         const department = (departmentFilter?.value || "").trim().toLowerCase();
         const type = (typeFilter?.value || "").trim().toLowerCase();
         let matched = 0;
+
+        syncDepartmentChipState(department);
 
         cards.forEach((card) => {
             const title = card.dataset.title || "";
@@ -662,15 +716,32 @@
             }
         });
 
-        if (resultCount) resultCount.textContent = matched;
-        if (visibleCount) visibleCount.textContent = matched;
-        if (noResults) noResults.style.display = matched ? "none" : "block";
+        if (resultCount) {
+            resultCount.textContent = String(matched);
+        }
+        if (visibleCount) {
+            visibleCount.textContent = String(matched);
+        }
+        if (noResults) {
+            noResults.style.display = matched ? "none" : "block";
+        }
     };
 
-    searchButton?.addEventListener("click", applyFilters);
     searchInput?.addEventListener("input", applyFilters);
     departmentFilter?.addEventListener("change", applyFilters);
     typeFilter?.addEventListener("change", applyFilters);
+    searchButton?.addEventListener("click", applyFilters);
+
+    departmentChips.forEach((chip) => {
+        chip.addEventListener("click", () => {
+            if (departmentFilter) {
+                departmentFilter.value = chip.dataset.department || "";
+            }
+            applyFilters();
+        });
+    });
+
+    applyFilters();
 })();
 </script>
 {% endblock %}

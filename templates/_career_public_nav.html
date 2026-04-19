@@ -17,6 +17,19 @@
         <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
         <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Bantuan</a>
         <span class="career-nav-utility">
+            <div class="career-test-shortcut">
+                <details class="career-test-shortcut-panel">
+                    <summary>Punya Kode Tes?</summary>
+                    <div class="career-test-shortcut-card">
+                        <strong>Masuk Tes Kandidat</strong>
+                        <p>Masukkan kode tes 5 digit untuk lanjut ke halaman assessment tanpa perlu mencarinya di daftar lowongan.</p>
+                        <form method="GET" action="{{ url_for('career.assessment') }}" class="career-test-shortcut-form" id="careerHeaderCodeForm">
+                            <input name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" placeholder="Kode tes 5 digit" required>
+                            <button type="submit">Lanjut</button>
+                        </form>
+                    </div>
+                </details>
+            </div>
             <a href="{{ url_for('career.signin_page') }}" class="career-public-login-button {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
         </span>
     </nav>

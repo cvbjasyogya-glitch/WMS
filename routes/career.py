@@ -447,7 +447,7 @@ def apply():
     db.commit()
 
     flash(
-        f"Lamaran berhasil dikirim. Simpan kode tes Anda: {assessment_code}.",
+        "Lamaran berhasil dikirim. Simpan kode tes dari pop-up yang muncul setelah halaman terbuka.",
         "success",
     )
     return redirect(url_for("career.opening_detail", opening_id=opening["id"], code=assessment_code))
