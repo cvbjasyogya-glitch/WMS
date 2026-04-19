@@ -1,6 +1,8 @@
 import json
 import os
 import random
+import re
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 from flask import current_app
@@ -22,6 +24,8 @@ CAREER_APPLICATION_CHANNELS = {"public_portal", "manual_hr"}
 CAREER_ASSESSMENT_STATUSES = {"pending", "started", "submitted", "reviewed"}
 CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d"}
 CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES = {"pending", "processed", "declined"}
+CAREER_DUPLICATE_APPLICATION_STATUSES = {"active", "on_hold"}
+CAREER_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def normalize_career_opening_status(value):
@@ -47,6 +51,54 @@ def normalize_career_assessment_status(value):
 def normalize_career_public_account_request_status(value):
     status = (value or "").strip().lower()
     return status if status in CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES else "pending"
+
+
+def normalize_candidate_identity_name(value):
+    return " ".join(str(value or "").strip().split())
+
+
+def normalize_candidate_email(value):
+    safe_email = str(value or "").strip().lower()
+    if not safe_email:
+        return ""
+    return safe_email if CAREER_EMAIL_PATTERN.match(safe_email) else ""
+
+
+def normalize_candidate_phone(value):
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if digits.startswith("0"):
+        digits = f"62{digits[1:]}"
+    elif not digits.startswith("62") and len(digits) >= 8:
+        digits = f"62{digits.lstrip('0')}"
+    return digits if len(digits) >= 10 else ""
+
+
+def normalize_candidate_portfolio_url(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return ""
+    if any(char.isspace() for char in safe_value):
+        return ""
+    if "://" not in safe_value:
+        safe_value = f"https://{safe_value.lstrip('/')}"
+    try:
+        parsed = urlsplit(safe_value)
+    except Exception:
+        return ""
+    scheme = str(parsed.scheme or "").strip().lower()
+    host = str(parsed.hostname or "").strip().lower()
+    if scheme not in {"http", "https"} or not host or "." not in host:
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    netloc = host
+    if parsed.port:
+        netloc = f"{host}:{parsed.port}"
+    return urlunsplit((scheme, netloc, parsed.path or "", parsed.query or "", parsed.fragment or ""))
 
 
 def normalize_assessment_code(value):
@@ -110,6 +162,65 @@ def _ensure_postgresql_id_sequence(db, table_name):
     db.execute(
         f"SELECT setval('{sequence_name}', COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, false)"
     )
+
+
+def extract_inserted_row_id(cursor):
+    try:
+        inserted_id = int(getattr(cursor, "lastrowid", 0) or 0)
+    except (TypeError, ValueError):
+        inserted_id = 0
+    return inserted_id if inserted_id > 0 else 0
+
+
+def find_duplicate_public_application(db, opening_id, *, email="", phone="", exclude_candidate_id=0):
+    try:
+        safe_opening_id = int(opening_id or 0)
+    except (TypeError, ValueError):
+        safe_opening_id = 0
+    if safe_opening_id <= 0:
+        return None
+
+    normalized_email = normalize_candidate_email(email)
+    normalized_phone = normalize_candidate_phone(phone)
+    if not normalized_email and not normalized_phone:
+        return None
+
+    rows = db.execute(
+        """
+        SELECT
+            id,
+            candidate_name,
+            phone,
+            email,
+            assessment_code,
+            stage,
+            status,
+            created_at
+        FROM recruitment_candidates
+        WHERE vacancy_id=?
+          AND application_channel=?
+          AND id<>?
+          AND status IN (?, ?)
+        ORDER BY created_at DESC, id DESC
+        """,
+        (
+            safe_opening_id,
+            normalize_career_application_channel("public_portal"),
+            int(exclude_candidate_id or 0),
+            "active",
+            "on_hold",
+        ),
+    ).fetchall()
+
+    for row in rows:
+        row_dict = dict(row)
+        row_email = normalize_candidate_email(row_dict.get("email"))
+        row_phone = normalize_candidate_phone(row_dict.get("phone"))
+        if normalized_email and row_email == normalized_email:
+            return row_dict
+        if normalized_phone and row_phone == normalized_phone:
+            return row_dict
+    return None
 
 
 def ensure_career_schema(db):
@@ -206,6 +317,7 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "CREATE INDEX IF NOT EXISTS idx_career_openings_public ON career_openings(status, is_public, warehouse_id, sort_order)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_vacancy ON recruitment_candidates(vacancy_id, warehouse_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_public_lookup ON recruitment_candidates(vacancy_id, application_channel, status, created_at)",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_assessment_questions_scope ON recruitment_assessment_questions(is_active, warehouse_id, sort_order)",
             """
@@ -308,6 +420,9 @@ def ensure_career_schema(db):
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_vacancy ON recruitment_candidates(vacancy_id, warehouse_id, created_at)"
         )
         db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_public_lookup ON recruitment_candidates(vacancy_id, application_channel, status, created_at)"
+        )
+        db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)"
         )
         db.execute(
@@ -370,7 +485,7 @@ def create_public_account_request(db, full_name, email, source="career_public"):
         )
         request_id = int(existing["id"])
     else:
-        db.execute(
+        insert_cursor = db.execute(
             """
             INSERT INTO career_public_account_requests(
                 full_name,
@@ -388,17 +503,19 @@ def create_public_account_request(db, full_name, email, source="career_public"):
                 (source or "career_public").strip() or "career_public",
             ),
         )
-        created = db.execute(
-            """
-            SELECT id
-            FROM career_public_account_requests
-            WHERE LOWER(email)=LOWER(?)
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (safe_email,),
-        ).fetchone()
-        request_id = int(created["id"]) if created else 0
+        request_id = extract_inserted_row_id(insert_cursor)
+        if request_id <= 0:
+            created = db.execute(
+                """
+                SELECT id
+                FROM career_public_account_requests
+                WHERE LOWER(email)=LOWER(?)
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (safe_email,),
+            ).fetchone()
+            request_id = int(created["id"]) if created else 0
 
     row = db.execute(
         """

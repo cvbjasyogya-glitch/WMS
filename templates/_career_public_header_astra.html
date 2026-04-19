@@ -1,0 +1,43 @@
+{% set header_signin_url = signin_url if signin_url is defined and signin_url else url_for('career.signin_page') %}
+{% set header_register_url = register_url if register_url is defined and register_url else url_for('career.signin_page', flow='signup') %}
+<header class="career-astra-topbar">
+    <a href="{{ url_for('career.home') }}" class="career-astra-brand" aria-label="ERP-CV.BJAS Career">
+        <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="ERP-CV.BJAS logo">
+        <span class="career-astra-brand-copy">
+            <strong>ERP-CV.BJAS Career</strong>
+            <span>Portal rekrutmen resmi perusahaan</span>
+        </span>
+    </a>
+
+    <nav class="career-astra-nav" aria-label="Navigasi karir publik">
+        <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
+        <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
+        <a href="{{ url_for('career.home') }}#program-kami">Program Kami</a>
+        <a href="{{ url_for('career.home') }}#agenda-karir">Agenda</a>
+        <a href="{{ url_for('career.home') }}#berita-karir">Berita dan Artikel</a>
+        <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
+        <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Pusat Bantuan</a>
+    </nav>
+
+    <div class="career-astra-topbar-actions">
+        <div class="career-test-shortcut">
+            <details class="career-test-shortcut-panel">
+                <summary>Punya Kode Tes?</summary>
+                <div class="career-test-shortcut-card">
+                    <strong>Masuk Tes Kandidat</strong>
+                    <p>Masukkan kode tes 5 digit untuk lanjut ke halaman assessment tanpa perlu mencari posisi dari awal.</p>
+                    <form method="GET" action="{{ url_for('career.assessment') }}" class="career-test-shortcut-form" id="careerHeaderCodeForm">
+                        <input name="code" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" placeholder="Kode tes 5 digit" required>
+                        <button type="submit">Lanjut</button>
+                    </form>
+                </div>
+            </details>
+        </div>
+        <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
+        <a href="{{ header_signin_url }}" class="career-astra-login-link {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
+        <div class="career-astra-lang" aria-label="Pilihan bahasa">
+            <span class="is-active">ID</span>
+            <span>EN</span>
+        </div>
+    </div>
+</header>

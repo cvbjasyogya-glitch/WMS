@@ -4,72 +4,605 @@
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Tentang Kami{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-simple-page{% endblock %}
+{% block page_content_class %}career-about-page{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
-.career-public-shell {
-    background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
-    color: #17304e;
+body .main.career-public-shell {
+    padding-top: 0;
+    padding-bottom: 72px;
+    background:
+        linear-gradient(180deg, #f5f6f8 0%, #f4f5f7 56%, #f7f8fa 100%);
+    color: #1f2937;
+    font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
 }
-.career-public-shell .page-hero { display: none; }
-.career-simple-page { display: grid; gap: 24px; }
-.career-topbar {
-    display: flex; align-items: center; justify-content: space-between; gap: 18px;
-    padding: 18px 26px; border-radius: 26px; background: rgba(255,255,255,0.97);
-    border: 1px solid #dce8f4; box-shadow: 0 18px 40px rgba(17, 42, 73, 0.08);
+
+body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
+    width: min(1380px, calc(100vw - 32px));
+    max-width: none;
+    margin-inline: auto;
+    gap: 0;
 }
-.career-brand { display: inline-flex; align-items: center; gap: 16px; }
-.career-brand-mark { width: 64px; height: 40px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, #0066b3, #2e87cf); color: #fff; font: 800 1.12rem/1 "Space Grotesk", sans-serif; letter-spacing: 0.06em; }
-.career-brand-copy strong { color: #17304e; }
-.career-brand-copy span { color: #68809b; font-size: 0.9rem; }
-.career-nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 24px; }
-.career-nav a { color: #415c78; text-decoration: none; font-weight: 600; }
-.career-nav a:hover, .career-nav a.is-active { color: #0066b3; }
-.career-nav .is-active { position: relative; }
-.career-nav .is-active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 3px; border-radius: 999px; background: #0066b3; }
-.career-nav-utility { display: inline-flex; align-items: center; gap: 14px; padding-left: 18px; border-left: 1px solid #dce8f4; }
-.career-simple-card {
-    display: grid; gap: 18px; padding: 28px; border-radius: 28px; background: #fff;
-    border: 1px solid #dce8f4; box-shadow: 0 18px 40px rgba(17, 42, 73, 0.08);
+
+.career-about-page {
+    display: block;
 }
-.career-simple-card h1, .career-simple-card h2, .career-simple-card p { margin: 0; }
-.career-simple-card h1 { font-size: clamp(2rem, 4vw, 3rem); color: #0066b3; }
-.career-simple-card p { color: #627890; line-height: 1.75; }
-.career-simple-grid { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.career-simple-tile { display: grid; gap: 10px; padding: 20px; border-radius: 20px; background: #f7fbff; border: 1px solid #dce8f4; }
-.career-simple-tile h2 { color: #17304e; font-size: 1.08rem; }
-.career-simple-tile p { color: #627890; line-height: 1.7; }
-@media (max-width: 900px) {
-  .career-topbar { flex-direction: column; align-items: flex-start; padding: 18px 20px; }
-  .career-nav { justify-content: flex-start; gap: 18px; }
-  .career-simple-grid { grid-template-columns: 1fr; }
+
+.career-about-shell {
+    display: grid;
+    gap: 44px;
+    padding-top: 22px;
+}
+
+.career-about-shell section[id] {
+    scroll-margin-top: 108px;
+}
+
+.career-about-hero {
+    position: relative;
+    display: grid;
+    gap: 0;
+}
+
+.career-about-hero-banner {
+    position: relative;
+    min-height: clamp(430px, 62vh, 620px);
+    border-radius: 0 0 22px 22px;
+    overflow: hidden;
+    background:
+        linear-gradient(90deg, rgba(15, 23, 42, 0.64), rgba(15, 23, 42, 0.18)),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.48)),
+        url('{{ career_home_hero_image_url }}') center 28% / cover no-repeat;
+}
+
+.career-about-hero-copy {
+    position: absolute;
+    left: clamp(28px, 6vw, 92px);
+    bottom: clamp(154px, 18vw, 224px);
+    z-index: 2;
+    width: min(760px, calc(100% - 48px));
+    display: grid;
+    gap: 14px;
+    color: #fff;
+}
+
+.career-about-kicker,
+.career-about-card-kicker {
+    width: max-content;
+    min-height: 34px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.career-about-kicker {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.84);
+}
+
+.career-about-hero-copy h1,
+.career-about-hero-copy p {
+    margin: 0;
+}
+
+.career-about-hero-copy h1 {
+    font-size: clamp(2.35rem, 5vw, 4.25rem);
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    font-weight: 800;
+}
+
+.career-about-hero-copy p {
+    max-width: 58ch;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: clamp(1rem, 2vw, 1.16rem);
+    line-height: 1.7;
+}
+
+.career-about-band {
+    position: relative;
+    z-index: 3;
+    margin: -84px auto 0;
+    width: min(1274px, calc(100% - 60px));
+    display: grid;
+    gap: 22px;
+    padding: 24px 28px 28px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #005baa 0%, #166ab5 100%);
+    box-shadow: 0 28px 60px rgba(0, 54, 110, 0.22);
+    color: #fff;
+}
+
+.career-about-band-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+.career-about-band-head strong,
+.career-about-band-head p {
+    display: block;
+    margin: 0;
+}
+
+.career-about-band-head strong {
+    font-size: clamp(1.08rem, 2vw, 1.42rem);
+}
+
+.career-about-band-head p {
+    margin-top: 8px;
+    max-width: 62ch;
+    color: rgba(255, 255, 255, 0.82);
+    line-height: 1.62;
+}
+
+.career-about-band-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.career-about-band-actions a {
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-about-band-actions a:first-child {
+    background: #fff;
+    color: #005baa;
+}
+
+.career-about-band-actions a:last-child {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+.career-about-band-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.career-about-band-card {
+    display: grid;
+    gap: 6px;
+    min-height: 108px;
+    padding: 16px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.career-about-band-card strong,
+.career-about-band-card span {
+    margin: 0;
+}
+
+.career-about-band-card strong {
+    font-size: clamp(1.15rem, 3vw, 1.6rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    color: #fff;
+}
+
+.career-about-band-card span {
+    color: rgba(255, 255, 255, 0.82);
+    line-height: 1.58;
+    font-size: 0.92rem;
+}
+
+.career-about-content,
+.career-about-pillars,
+.career-about-openings {
+    padding: 0 18px;
+}
+
+.career-about-content {
+    display: grid;
+    gap: 24px;
+    grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
+    align-items: start;
+}
+
+.career-about-card,
+.career-about-sidecard,
+.career-about-pillar-card,
+.career-about-opening-card {
+    display: grid;
+    gap: 18px;
+    padding: 26px 24px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #e5ebf2;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+}
+
+.career-about-card-kicker {
+    background: #edf5fe;
+    border: 1px solid #d7e7f8;
+    color: #005baa;
+}
+
+.career-about-card h2,
+.career-about-card p,
+.career-about-sidecard h3,
+.career-about-sidecard p,
+.career-about-pillar-card h3,
+.career-about-pillar-card p,
+.career-about-opening-card h3,
+.career-about-opening-card p {
+    margin: 0;
+}
+
+.career-about-card h2,
+.career-about-sidecard h3 {
+    font-size: clamp(1.45rem, 3vw, 1.8rem);
+    line-height: 1.12;
+    letter-spacing: -0.03em;
+    color: #1f2937;
+}
+
+.career-about-card p,
+.career-about-sidecard p,
+.career-about-pillar-card p,
+.career-about-opening-card p {
+    color: #64748b;
+    line-height: 1.78;
+}
+
+.career-about-checklist {
+    display: grid;
+    gap: 12px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.career-about-checklist li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    color: #58728d;
+    line-height: 1.62;
+}
+
+.career-about-checklist li::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    margin-top: 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #005baa, #4ca9f4);
+}
+
+.career-about-pillars {
+    display: grid;
+    gap: 20px;
+}
+
+.career-about-section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+.career-about-section-head h2,
+.career-about-section-head p {
+    margin: 0;
+}
+
+.career-about-section-head h2 {
+    font-size: clamp(1.7rem, 3vw, 2.2rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    color: #1f2937;
+}
+
+.career-about-section-head p {
+    max-width: 760px;
+    margin-top: 10px;
+    color: #64748b;
+    line-height: 1.7;
+}
+
+.career-about-pillar-grid,
+.career-about-opening-grid {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.career-about-pillar-card h3,
+.career-about-opening-card h3 {
+    font-size: 1.12rem;
+    line-height: 1.35;
+    letter-spacing: -0.02em;
+    color: #1f2937;
+}
+
+.career-about-pillar-card strong,
+.career-about-opening-meta strong {
+    color: #005baa;
+    font-size: 0.82rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.career-about-opening-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.career-about-opening-meta span {
+    min-height: 32px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: #f4f8fd;
+    border: 1px solid #dbe7f3;
+    color: #58728d;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.career-about-opening-card a {
+    min-height: 46px;
+    padding: 0 18px;
+    width: max-content;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #005baa, #166ab5);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-about-side-action {
+    min-height: 46px;
+    padding: 0 18px;
+    width: max-content;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #005baa, #166ab5);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+@media (max-width: 1260px) {
+    .career-about-band-grid,
+    .career-about-pillar-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .career-about-opening-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 980px) {
+    .career-about-content,
+    .career-about-opening-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 860px) {
+    body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
+        width: min(100%, calc(100vw - 18px));
+    }
+
+    .career-about-shell {
+        gap: 36px;
+        padding-top: 12px;
+    }
+
+    .career-about-content,
+    .career-about-pillars,
+    .career-about-openings {
+        padding-inline: 6px;
+    }
+
+    .career-about-hero-banner {
+        min-height: 580px;
+        border-radius: 0 0 18px 18px;
+    }
+
+    .career-about-hero-copy {
+        left: 22px;
+        right: 22px;
+        bottom: 168px;
+        width: auto;
+    }
+
+    .career-about-band {
+        width: calc(100% - 18px);
+        margin-top: -72px;
+        padding: 18px;
+    }
+
+    .career-about-band-head,
+    .career-about-section-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .career-about-band-actions a {
+        width: 100%;
+    }
+
+    .career-about-band-grid,
+    .career-about-pillar-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 680px) {
+    .career-about-card,
+    .career-about-sidecard,
+    .career-about-pillar-card,
+    .career-about-opening-card {
+        padding: 22px 20px;
+    }
 }
 </style>
 {% endblock %}
 
 {% block content %}
 {% set active_page = 'about' %}
-{% include "_career_public_nav.html" %}
+{% set spotlight_openings = openings[:3] %}
 
-<section class="career-simple-card">
-    <h1>Tentang Kami</h1>
-    <p>ERP-CV.BJAS Career adalah portal rekrutmen resmi untuk lowongan aktif perusahaan. Semua posisi yang tampil di halaman ini dikelola langsung oleh HR dan super admin melalui sistem internal, sehingga kandidat mendapatkan informasi yang konsisten, proses apply yang rapi, dan akses tes yang aman.</p>
-    <div class="career-simple-grid">
-        <article class="career-simple-tile">
-            <h2>Penempatan Global</h2>
-            <p>Informasi penempatan di halaman lowongan bersifat global dan mengikuti posisi yang dibuka oleh tim HR.</p>
+<div class="career-about-shell">
+    {% include "_career_public_header_astra.html" %}
+
+    <section class="career-about-hero">
+        <div class="career-about-hero-banner">
+            <div class="career-about-hero-copy">
+                <span class="career-about-kicker">Tentang Kami</span>
+                <h1>Portal karir resmi yang menyatukan lowongan, lamaran, dan assessment dalam satu alur yang lebih jelas.</h1>
+                <p>ERP-CV.BJAS Career dibangun sebagai wajah publik dari proses rekrutmen perusahaan, supaya kandidat mendapatkan pengalaman yang lebih meyakinkan sejak pertama kali mencari posisi sampai menyelesaikan tes seleksi.</p>
+            </div>
+        </div>
+
+        <div class="career-about-band">
+            <div class="career-about-band-head">
+                <div>
+                    <strong>Semua posisi, form lamaran, dan kode assessment dikelola langsung dari sistem recruitment internal perusahaan.</strong>
+                    <p>Artinya kandidat melihat informasi yang lebih konsisten, HR menerima data yang rapi, dan setiap tahap punya jejak proses yang lebih mudah ditindaklanjuti.</p>
+                </div>
+                <div class="career-about-band-actions">
+                    <a href="{{ url_for('career.index') }}">Lihat Lowongan</a>
+                    <a href="{{ url_for('career.help_page') }}">Pusat Bantuan</a>
+                </div>
+            </div>
+
+            <div class="career-about-band-grid">
+                <article class="career-about-band-card">
+                    <strong>{{ opening_count }}</strong>
+                    <span>Lowongan publik aktif yang sedang bisa dijelajahi kandidat saat ini.</span>
+                </article>
+                <article class="career-about-band-card">
+                    <strong>5 Digit</strong>
+                    <span>Kode tes unik yang dipakai kandidat untuk lanjut ke assessment tanpa harus membuat alur terpisah.</span>
+                </article>
+                <article class="career-about-band-card">
+                    <strong>Tanpa Biaya</strong>
+                    <span>Seluruh proses seleksi resmi di portal ini tidak memungut biaya pendaftaran dalam bentuk apa pun.</span>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section class="career-about-content">
+        <article class="career-about-card">
+            <span class="career-about-card-kicker">Mengapa Portal Ini Ada</span>
+            <h2>Tentang Kami</h2>
+            <p>ERP-CV.BJAS Career adalah portal rekrutmen resmi untuk lowongan aktif perusahaan. Semua posisi yang tampil di halaman ini dikelola langsung oleh HR dan super admin melalui sistem internal, sehingga kandidat mendapatkan informasi yang konsisten, proses apply yang rapi, dan akses tes yang aman.</p>
+            <p>Portal ini juga membantu menyambungkan sisi publik dan sisi operasional recruitment. Dari sisi kandidat, prosesnya terasa lebih sederhana. Dari sisi tim HR, seluruh data lamaran, assessment code, dan hasil evaluasi bisa mengalir ke pipeline yang sama tanpa perlu input ulang manual.</p>
         </article>
-        <article class="career-simple-tile">
-            <h2>Seleksi Resmi</h2>
-            <p>Kandidat yang melamar melalui portal ini akan masuk ke pipeline recruitment yang sama dengan kandidat dari kanal lain.</p>
-        </article>
-        <article class="career-simple-tile">
-            <h2>Tes Terkelola</h2>
-            <p>Kode tes 5 digit dan bank soal dikelola HR langsung agar proses seleksi tetap rapi dan terukur.</p>
-        </article>
-    </div>
-</section>
+
+        <aside class="career-about-sidecard">
+            <span class="career-about-card-kicker">Apa Yang Bisa Dilakukan Kandidat</span>
+            <h3>Satu tempat untuk memahami proses dari awal sampai akhir.</h3>
+            <p>Kandidat tidak perlu menebak-nebak langkah berikutnya karena portal ini sudah menyusun titik masuk yang paling penting secara lebih runtut.</p>
+            <ul class="career-about-checklist">
+                <li>Menjelajahi lowongan aktif berdasarkan fungsi, lokasi, dan tipe kerja.</li>
+                <li>Mengirim CV langsung dari halaman detail posisi tanpa berpindah sistem.</li>
+                <li>Menyimpan kode tes dan mengakses assessment dari shortcut yang sama di seluruh halaman.</li>
+                <li>Mendapatkan panduan dasar sebelum apply agar peluang follow-up dari HR tidak hilang.</li>
+            </ul>
+            {% if signin_url %}
+            <a href="{{ signin_url }}" class="career-about-side-action">Masuk ke Portal Kandidat</a>
+            {% endif %}
+        </aside>
+    </section>
+
+    <section class="career-about-pillars">
+        <div class="career-about-section-head">
+            <div>
+                <h2>Pilar Pengalaman Kandidat</h2>
+                <p>Empat hal ini jadi dasar kenapa portal baru ini terasa lebih dekat dengan flow korporat yang rapi dibanding halaman lowongan biasa.</p>
+            </div>
+        </div>
+
+        <div class="career-about-pillar-grid">
+            <article class="career-about-pillar-card">
+                <strong>01</strong>
+                <h3>Lowongan Terpusat</h3>
+                <p>Posisi yang tampil berasal dari data recruitment resmi sehingga kandidat tidak perlu mengecek kanal yang terpisah-pisah.</p>
+            </article>
+            <article class="career-about-pillar-card">
+                <strong>02</strong>
+                <h3>Lamaran Lebih Ringkas</h3>
+                <p>Form apply difokuskan ke informasi inti supaya proses awal cepat selesai tapi tetap cukup untuk review HR.</p>
+            </article>
+            <article class="career-about-pillar-card">
+                <strong>03</strong>
+                <h3>Assessment Terkontrol</h3>
+                <p>Kode tes, sesi pelanggaran, dan hasil penilaian tersimpan dalam satu jalur yang lebih mudah diawasi.</p>
+            </article>
+            <article class="career-about-pillar-card">
+                <strong>04</strong>
+                <h3>Komunikasi Lebih Jelas</h3>
+                <p>Halaman bantuan, akses kode tes, dan status hasil tes memberi kandidat petunjuk yang lebih mudah dipahami.</p>
+            </article>
+        </div>
+    </section>
+
+    {% if spotlight_openings %}
+    <section class="career-about-openings">
+        <div class="career-about-section-head">
+            <div>
+                <h2>Contoh Posisi Yang Sedang Dibuka</h2>
+                <p>Beberapa posisi aktif ini menunjukkan bagaimana portal publik menampilkan lowongan yang sama dengan pipeline recruitment internal.</p>
+            </div>
+        </div>
+
+        <div class="career-about-opening-grid">
+            {% for opening in spotlight_openings %}
+            {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+            {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
+            <article class="career-about-opening-card">
+                <strong>ERP-CV.BJAS Career</strong>
+                <h3>{{ opening.title }}</h3>
+                <div class="career-about-opening-meta">
+                    <span>{{ opening.department or 'Operasional' }}</span>
+                    <span>{{ type_label }}</span>
+                    <span>{{ location_label }}</span>
+                </div>
+                <p>{{ (opening.description or opening.requirements or 'Posisi aktif resmi perusahaan dengan alur apply dan assessment yang sudah terhubung.')|striptags|truncate(150, True) }}</p>
+                <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Lihat Detail</a>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</div>
 {% endblock %}

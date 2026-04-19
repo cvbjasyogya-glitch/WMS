@@ -4,484 +4,919 @@
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Beranda{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-home-page career-page-surface{% endblock %}
+{% block page_content_class %}career-home-page{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
-.career-public-shell {
+body .main.career-public-shell {
+    padding-top: 0;
+    padding-bottom: 72px;
     background:
-        radial-gradient(circle at top left, rgba(11, 99, 182, 0.1), transparent 26%),
-        linear-gradient(180deg, #f9fbff 0%, #eef4fa 48%, #edf3f8 100%);
-    color: var(--career-ink);
+        linear-gradient(180deg, #f5f5f7 0%, #f3f4f6 55%, #f5f6f8 100%);
+    color: #1f2937;
+    font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+}
+
+body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
+    width: min(1380px, calc(100vw - 32px));
+    max-width: none;
+    margin-inline: auto;
+    gap: 0;
 }
 
 .career-home-page {
+    display: block;
+}
+
+.career-astra-shell {
     display: grid;
-    gap: 24px;
+    gap: 56px;
+    padding-top: 22px;
 }
 
-.career-home-hero {
-    display: grid;
-    gap: 22px;
-    grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-    align-items: stretch;
-    padding: 14px;
-    border-radius: 32px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
-    border: 1px solid #dbe7f3;
-    box-shadow: 0 24px 52px rgba(17, 42, 73, 0.08);
+.career-astra-shell section[id] {
+    scroll-margin-top: 108px;
 }
 
-.career-home-hero-main,
-.career-home-hero-side {
-    border-radius: 24px;
-}
-
-.career-home-hero-main {
-    position: relative;
-    overflow: hidden;
-    display: grid;
-    gap: 18px;
-    padding: 34px;
-    background:
-        linear-gradient(180deg, rgba(7, 44, 81, 0.18), rgba(7, 44, 81, 0.18)),
-        url('{{ career_home_hero_image_url }}') center/cover no-repeat;
-    color: #fff;
-}
-
-.career-home-hero-main::after {
-    content: "";
+.career-astra-sr-only {
     position: absolute;
-    inset: auto -60px -90px auto;
-    width: 220px;
-    height: 220px;
-    border-radius: 999px;
-    border: 28px solid rgba(255,255,255,0.14);
-    pointer-events: none;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
-.career-home-hero-main > * {
-    position: relative;
-    z-index: 1;
+.career-astra-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 28px;
+    padding: 18px 40px;
+    border-radius: 0 0 22px 22px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(14px);
 }
 
-.career-home-kicker {
-    width: max-content;
-    min-height: 34px;
-    padding: 0 14px;
-    border-radius: 999px;
+.career-astra-brand {
     display: inline-flex;
     align-items: center;
-    background: rgba(255,255,255,0.14);
-    border: 1px solid rgba(255,255,255,0.16);
-    font-size: 0.78rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+    gap: 12px;
+    color: #0f172a;
+    text-decoration: none;
     font-weight: 800;
-    color: rgba(255,255,255,0.82);
 }
 
-.career-home-hero-main h1,
-.career-home-hero-main p {
-    margin: 0;
+.career-astra-brand img {
+    width: 126px;
+    height: auto;
+    display: block;
 }
 
-.career-home-hero-main h1 {
-    max-width: 11ch;
-    font: 700 clamp(2.4rem, 4.8vw, 4rem)/0.98 "Space Grotesk", sans-serif;
-    letter-spacing: -0.04em;
-    color: #fff;
+.career-astra-brand-copy {
+    display: grid;
+    gap: 2px;
 }
 
-.career-home-hero-main p {
-    max-width: 680px;
-    line-height: 1.75;
-    color: rgba(255,255,255,0.9);
-    font-size: 1.02rem;
+.career-astra-brand-copy strong {
+    font-size: 0.98rem;
+    letter-spacing: -0.02em;
 }
 
-.career-home-actions {
+.career-astra-brand-copy span {
+    color: #64748b;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.career-astra-nav {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.career-astra-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.career-astra-nav a {
+    position: relative;
+    padding: 10px 2px;
+    color: #475569;
+    text-decoration: none;
+    font-size: 0.97rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: color 0.18s ease;
+}
+
+.career-astra-nav a:hover,
+.career-astra-nav a.is-active {
+    color: #005baa;
+}
+
+.career-astra-nav a.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -7px;
+    height: 3px;
+    border-radius: 999px;
+    background: #005baa;
+}
+
+.career-astra-topbar-actions {
+    display: inline-flex;
+    align-items: center;
     gap: 12px;
 }
 
-.career-home-actions a {
-    min-height: 48px;
-    padding: 0 20px;
-    border-radius: 999px;
+.career-astra-topbar-actions a {
+    color: #475569;
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.career-astra-login-link:hover,
+.career-astra-register-link:hover {
+    color: #005baa;
+}
+
+.career-astra-lang {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid #b8cee3;
+}
+
+.career-astra-lang span {
+    min-width: 34px;
+    min-height: 28px;
+    padding: 0 10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    color: #46627e;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.career-astra-lang .is-active {
+    background: #005baa;
+    color: #fff;
+}
+
+.career-astra-hero {
+    position: relative;
+    display: grid;
+    gap: 0;
+}
+
+.career-astra-hero-media {
+    position: relative;
+    min-height: clamp(620px, 88vh, 980px);
+    border-radius: 0 0 26px 26px;
+    overflow: hidden;
+    background:
+        linear-gradient(90deg, rgba(16, 24, 40, 0.4), rgba(16, 24, 40, 0.08)),
+        linear-gradient(180deg, rgba(16, 24, 40, 0.08), rgba(16, 24, 40, 0.52)),
+        url('{{ career_home_hero_image_url }}') center 26% / cover no-repeat;
+}
+
+.career-astra-hero-copy {
+    position: absolute;
+    right: clamp(26px, 7vw, 96px);
+    bottom: clamp(148px, 18vw, 244px);
+    z-index: 2;
+    width: min(540px, calc(100% - 48px));
+    display: grid;
+    gap: 14px;
+    color: #fff;
+}
+
+.career-astra-eyebrow {
+    display: inline-flex;
+    width: max-content;
+    min-height: 34px;
+    padding: 0 14px;
+    align-items: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.career-astra-hero-copy h1,
+.career-astra-hero-copy p {
+    margin: 0;
+}
+
+.career-astra-hero-copy h1 {
+    font-size: clamp(2.4rem, 5.6vw, 4.65rem);
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    font-weight: 800;
+}
+
+.career-astra-hero-copy p {
+    max-width: 30ch;
+    font-size: clamp(1.02rem, 2vw, 1.34rem);
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.career-astra-searchband {
+    position: relative;
+    z-index: 3;
+    margin: -90px auto 0;
+    width: min(1274px, calc(100% - 60px));
+    display: grid;
+    gap: 20px;
+    padding: 22px 78px 28px;
+    border-radius: 0 0 18px 18px;
+    background: linear-gradient(135deg, #005baa 0%, #166ab5 100%);
+    box-shadow: 0 28px 60px rgba(0, 54, 110, 0.24);
+}
+
+.career-astra-searchband::before,
+.career-astra-searchband::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 66px;
+    opacity: 0.24;
+    pointer-events: none;
+}
+
+.career-astra-searchband::before {
+    left: 0;
+    background:
+        radial-gradient(circle at 20px 20px, transparent 0 8px, rgba(255,255,255,0.32) 8px 10px, transparent 10px 100%),
+        linear-gradient(45deg, transparent 0 42%, rgba(255,255,255,0.24) 42% 58%, transparent 58% 100%);
+    background-size: 28px 28px, 32px 32px;
+}
+
+.career-astra-searchband::after {
+    right: 0;
+    background:
+        radial-gradient(circle at 42px 20px, transparent 0 8px, rgba(255,255,255,0.32) 8px 10px, transparent 10px 100%),
+        linear-gradient(-45deg, transparent 0 42%, rgba(255,255,255,0.24) 42% 58%, transparent 58% 100%);
+    background-size: 28px 28px, 32px 32px;
+}
+
+.career-astra-searchband-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    color: #fff;
+}
+
+.career-astra-opening-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.career-astra-opening-count strong {
+    font-size: clamp(1.1rem, 2.2vw, 1.52rem);
+    line-height: 1.1;
+}
+
+.career-astra-opening-count a {
+    color: #fff;
     text-decoration: none;
     font-weight: 700;
 }
 
-.career-home-actions .is-primary {
+.career-astra-opening-count a::after {
+    content: " ->";
+    margin-left: 6px;
+}
+
+.career-astra-search-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(180px, 0.9fr) minmax(180px, 0.9fr) minmax(180px, 0.9fr) auto;
+    gap: 0;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.career-astra-search-field,
+.career-astra-search-form select,
+.career-astra-search-form button {
+    min-height: 54px;
+    border: 0;
+    font: inherit;
+}
+
+.career-astra-search-field,
+.career-astra-search-form select {
+    position: relative;
     background: #fff;
-    color: var(--career-blue);
+    border-right: 1px solid #d7e1eb;
 }
 
-.career-home-actions .is-secondary {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
+.career-astra-search-field input,
+.career-astra-search-form select {
+    width: 100%;
+    height: 100%;
+    padding: 0 18px;
+    color: #334155;
+}
+
+.career-astra-search-field input {
+    border: 0;
+    outline: 0;
+    padding-left: 48px;
+}
+
+.career-astra-search-field::before {
+    content: "";
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #6b7280;
+    border-radius: 999px;
+    transform: translateY(-50%);
+}
+
+.career-astra-search-field::after {
+    content: "";
+    position: absolute;
+    left: 31px;
+    top: 31px;
+    width: 8px;
+    height: 2px;
+    background: #6b7280;
+    transform: rotate(45deg);
+}
+
+.career-astra-search-form button {
+    padding: 0 24px;
+    background: #005baa;
     color: #fff;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.18s ease;
 }
 
-.career-home-proof-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+.career-astra-search-form button:hover {
+    background: #084f93;
 }
 
-.career-home-proof-card {
+.career-astra-feature-grid {
     display: grid;
-    gap: 4px;
-    min-height: 90px;
-    padding: 16px;
+    grid-template-columns: minmax(0, 1.05fr) minmax(340px, 1fr);
+    gap: 30px;
+    align-items: stretch;
+    padding: 0 18px;
+}
+
+.career-astra-feature-poster,
+.career-astra-feature-card,
+.career-astra-card,
+.career-astra-about,
+.career-astra-helpband {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #e6ebf1;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+}
+
+.career-astra-feature-poster {
+    position: relative;
+    min-height: 380px;
     border-radius: 18px;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.14);
-    backdrop-filter: blur(4px);
+    overflow: hidden;
+    background:
+        linear-gradient(90deg, rgba(201, 36, 94, 0.82), rgba(213, 88, 141, 0.68)),
+        linear-gradient(180deg, rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.1)),
+        url('{{ career_home_hero_image_url }}') center / cover no-repeat;
 }
 
-.career-home-proof-card strong {
+.career-astra-feature-poster-copy {
+    position: absolute;
+    inset: auto auto 28px 28px;
+    width: min(76%, 440px);
     color: #fff;
-    font: 700 clamp(1.45rem, 3vw, 2rem)/1 "Space Grotesk", sans-serif;
-}
-
-.career-home-proof-card span {
-    color: rgba(255,255,255,0.78);
-    line-height: 1.5;
-    font-size: 0.9rem;
-}
-
-.career-home-hero-side {
-    display: grid;
-    gap: 16px;
-    padding: 26px 24px;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-    border: 1px solid #e1ecf6;
-}
-
-.career-home-hero-side h2,
-.career-home-hero-side p {
-    margin: 0;
-}
-
-.career-home-hero-side h2 {
-    font: 700 1.45rem/1.15 "Space Grotesk", sans-serif;
-    color: var(--career-ink);
-    letter-spacing: -0.03em;
-}
-
-.career-home-hero-side p {
-    color: var(--career-muted);
-    line-height: 1.7;
-}
-
-.career-home-side-panel {
-    display: grid;
-    gap: 14px;
-}
-
-.career-home-side-surface {
     display: grid;
     gap: 10px;
-    padding: 18px;
-    border-radius: 20px;
-    background: #f7fbff;
-    border: 1px solid #dce8f4;
 }
 
-.career-home-side-surface strong,
-.career-home-side-surface span,
-.career-home-side-surface p {
+.career-astra-feature-poster-copy span {
+    width: max-content;
+    min-height: 30px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.career-astra-feature-poster-copy h2,
+.career-astra-feature-poster-copy p {
     margin: 0;
 }
 
-.career-home-side-surface strong {
-    color: var(--career-blue);
-    font: 700 clamp(1.5rem, 3vw, 2rem)/1 "Space Grotesk", sans-serif;
+.career-astra-feature-poster-copy h2 {
+    font-size: clamp(1.82rem, 3vw, 2.5rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    font-weight: 800;
 }
 
-.career-home-side-surface span {
-    color: #58728d;
-    font-weight: 700;
-}
-
-.career-home-side-surface p {
-    color: var(--career-muted);
+.career-astra-feature-poster-copy p {
     line-height: 1.65;
-    font-size: 0.92rem;
+    color: rgba(255, 255, 255, 0.92);
 }
 
-.career-home-story-grid {
+.career-astra-feature-card {
     display: grid;
     gap: 18px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-content: start;
+    padding: 34px 34px 30px;
+    border-radius: 18px;
 }
 
-.career-home-story-card,
-.career-home-opening-card,
-.career-home-step-card {
+.career-astra-status-badge {
+    width: max-content;
+    min-height: 34px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 10px;
+    background: #f8e8b5;
+    color: #9a6b00;
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+.career-astra-feature-card h2,
+.career-astra-feature-card p {
+    margin: 0;
+}
+
+.career-astra-feature-card h2 {
+    font-size: clamp(1.76rem, 3vw, 2.4rem);
+    line-height: 1.22;
+    letter-spacing: -0.03em;
+    color: #3f3f46;
+}
+
+.career-astra-feature-card p {
+    color: #6b7280;
+    line-height: 1.78;
+}
+
+.career-astra-meta-list {
     display: grid;
-    gap: 14px;
-    padding: 24px;
-    border-radius: 26px;
-    background: rgba(255,255,255,0.98);
-    border: 1px solid var(--career-line);
-    box-shadow: var(--career-shadow);
+    gap: 12px;
+    color: #5b6470;
 }
 
-.career-home-section-head {
+.career-astra-meta-list span {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    line-height: 1.5;
+}
+
+.career-astra-meta-list span::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: #cbd5e1;
+    flex-shrink: 0;
+}
+
+.career-astra-feature-actions {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.career-astra-button,
+.career-astra-inline-link {
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-astra-button {
+    min-height: 52px;
+    padding: 0 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #005baa, #1a6fba);
+    color: #fff;
+}
+
+.career-astra-button.is-muted {
+    background: #eef2f7;
+    color: #8f98a3;
+}
+
+.career-astra-inline-link {
+    color: #64748b;
+}
+
+.career-astra-section {
+    display: grid;
+    gap: 24px;
+    padding: 0 18px;
+}
+
+.career-astra-section-head {
+    display: flex;
+    align-items: end;
     justify-content: space-between;
     gap: 18px;
 }
 
-.career-home-section-head h2,
-.career-home-section-head p,
-.career-home-story-card h3,
-.career-home-story-card p,
-.career-home-opening-card h3,
-.career-home-opening-card p,
-.career-home-step-card h3,
-.career-home-step-card p {
+.career-astra-section-head span {
+    display: inline-flex;
+    width: max-content;
+    min-height: 30px;
+    padding: 0 12px;
+    align-items: center;
+    border-radius: 999px;
+    background: #e7f0fb;
+    color: #005baa;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.career-astra-section-head h2,
+.career-astra-section-head p {
     margin: 0;
 }
 
-.career-home-section-head h2 {
-    font: 700 clamp(1.45rem, 3vw, 1.85rem)/1.1 "Space Grotesk", sans-serif;
-    color: var(--career-ink);
+.career-astra-section-head h2 {
+    margin-top: 10px;
+    font-size: clamp(1.76rem, 3vw, 2.3rem);
+    line-height: 1.12;
     letter-spacing: -0.03em;
+    color: #1f2937;
 }
 
-.career-home-section-head p,
-.career-home-story-card p,
-.career-home-opening-card p,
-.career-home-step-card p {
-    color: var(--career-muted);
-    line-height: 1.7;
+.career-astra-section-head p {
+    margin-top: 10px;
+    max-width: 760px;
+    color: #6b7280;
+    line-height: 1.72;
 }
 
-.career-home-section-kicker {
-    font-size: 0.78rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--career-blue);
+.career-astra-section-head a {
+    color: #005baa;
+    text-decoration: none;
     font-weight: 800;
+    white-space: nowrap;
 }
 
-.career-home-story-card h3,
-.career-home-opening-card h3,
-.career-home-step-card h3 {
-    color: var(--career-ink);
-    font-size: 1.08rem;
+.career-astra-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
 }
 
-.career-home-story-icon,
-.career-home-step-number {
+.career-astra-card {
+    display: grid;
+    gap: 16px;
+    align-content: start;
+    padding: 28px 26px;
+    border-radius: 18px;
+}
+
+.career-astra-card-mark {
     width: 52px;
     height: 52px;
     border-radius: 16px;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, rgba(11, 99, 182, 0.15), rgba(74, 164, 242, 0.12));
-    color: var(--career-blue);
-    font: 800 1rem/1 "Space Grotesk", sans-serif;
+    background: linear-gradient(135deg, rgba(0, 91, 170, 0.12), rgba(0, 91, 170, 0.02));
+    color: #005baa;
+    font-size: 1.06rem;
+    font-weight: 800;
 }
 
-.career-home-journey-grid {
-    display: grid;
-    gap: 18px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+.career-astra-card > span,
+.career-astra-story-card > span {
+    color: #005baa;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
 }
 
-.career-home-opening-grid {
-    display: grid;
-    gap: 18px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.career-home-opening-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.career-home-opening-meta span {
-    min-height: 32px;
-    padding: 0 12px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    background: #f3f8fe;
-    border: 1px solid #dbe8f5;
-    color: #56718b;
-    font-size: 0.82rem;
-    font-weight: 700;
-}
-
-.career-home-opening-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: auto;
-}
-
-.career-home-opening-actions a,
-.career-home-section-head a {
-    text-decoration: none;
-    font-weight: 700;
-}
-
-.career-home-opening-actions a {
-    flex: 1;
-    min-height: 44px;
-    border-radius: 14px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.career-home-opening-actions .is-ghost {
-    background: #f4f8fd;
-    border: 1px solid #dbe7f3;
-    color: var(--career-blue);
-}
-
-.career-home-opening-actions .is-primary,
-.career-home-section-head a {
-    background: linear-gradient(135deg, var(--career-blue), #2b85d4);
-    color: #fff;
-}
-
-.career-home-section-head a {
-    min-height: 46px;
-    padding: 0 18px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    white-space: nowrap;
-}
-
-.career-home-bottom-band {
-    display: grid;
-    gap: 18px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    padding: 28px 30px;
-    border-radius: 28px;
-    background: linear-gradient(135deg, #103c63 0%, #0d5ea4 54%, #1d85d3 100%);
-    box-shadow: 0 24px 52px rgba(8, 44, 79, 0.18);
-    color: #fff;
-}
-
-.career-home-bottom-band h2,
-.career-home-bottom-band p {
+.career-astra-card h3,
+.career-astra-card p,
+.career-astra-story-card h3,
+.career-astra-story-card p {
     margin: 0;
 }
 
-.career-home-bottom-band h2 {
-    font: 700 clamp(1.55rem, 3vw, 2rem)/1.08 "Space Grotesk", sans-serif;
-    color: #fff;
-    letter-spacing: -0.03em;
+.career-astra-card h3,
+.career-astra-story-card h3 {
+    font-size: 1.28rem;
+    line-height: 1.28;
+    letter-spacing: -0.02em;
+    color: #1f2937;
 }
 
-.career-home-bottom-band p {
-    margin-top: 8px;
-    max-width: 760px;
-    color: rgba(255,255,255,0.86);
-    line-height: 1.72;
+.career-astra-card p,
+.career-astra-story-card p {
+    color: #6b7280;
+    line-height: 1.76;
 }
 
-.career-home-bottom-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+.career-astra-story-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
 }
 
-.career-home-bottom-actions a {
-    min-height: 46px;
-    padding: 0 18px;
-    border-radius: 999px;
+.career-astra-story-card {
+    display: grid;
+    gap: 16px;
+    align-content: start;
+    padding: 28px 26px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #e6ebf1;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+}
+
+.career-astra-story-card a {
+    width: max-content;
+    color: #005baa;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-astra-about {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+    gap: 28px;
+    padding: 34px;
+    border-radius: 20px;
+}
+
+.career-astra-about-copy {
+    display: grid;
+    gap: 16px;
+    align-content: start;
+}
+
+.career-astra-about-copy span {
+    width: max-content;
+    min-height: 30px;
+    padding: 0 12px;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    font-weight: 700;
+    border-radius: 999px;
+    background: #e7f0fb;
+    color: #005baa;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
 }
 
-.career-home-bottom-actions .is-primary {
-    background: #fff;
-    color: var(--career-blue);
+.career-astra-about-copy h2,
+.career-astra-about-copy p,
+.career-astra-about-stats h3,
+.career-astra-about-stats p {
+    margin: 0;
 }
 
-.career-home-bottom-actions .is-ghost {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
-    color: #fff;
+.career-astra-about-copy h2 {
+    font-size: clamp(1.9rem, 3vw, 2.5rem);
+    line-height: 1.12;
+    letter-spacing: -0.03em;
+    color: #1f2937;
 }
 
-@media (max-width: 1200px) {
-    .career-home-hero,
-    .career-home-bottom-band {
+.career-astra-about-copy p,
+.career-astra-about-stats p {
+    color: #6b7280;
+    line-height: 1.76;
+}
+
+.career-astra-about-actions {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.career-astra-about-stats {
+    display: grid;
+    gap: 14px;
+}
+
+.career-astra-stat-card {
+    display: grid;
+    gap: 6px;
+    padding: 22px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.career-astra-stat-card strong {
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1;
+    color: #005baa;
+    letter-spacing: -0.04em;
+}
+
+.career-astra-helpband {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 24px;
+    align-items: center;
+    padding: 34px 36px;
+    border-radius: 20px;
+}
+
+.career-astra-helpband h2,
+.career-astra-helpband p {
+    margin: 0;
+}
+
+.career-astra-helpband h2 {
+    font-size: clamp(1.8rem, 3vw, 2.4rem);
+    line-height: 1.14;
+    letter-spacing: -0.03em;
+    color: #1f2937;
+}
+
+.career-astra-helpband p {
+    margin-top: 12px;
+    max-width: 820px;
+    color: #6b7280;
+    line-height: 1.76;
+}
+
+.career-astra-help-actions {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 1260px) {
+    .career-astra-topbar {
+        grid-template-columns: 1fr;
+        justify-items: start;
+        padding-inline: 24px;
+    }
+
+    .career-astra-nav {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .career-astra-topbar-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .career-astra-searchband {
+        width: calc(100% - 36px);
+        padding-inline: 24px;
+    }
+
+    .career-astra-search-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        border-radius: 0;
+    }
+
+    .career-astra-search-field,
+    .career-astra-search-form select,
+    .career-astra-search-form button {
+        border-radius: 12px;
+        border-right: 0;
+    }
+
+    .career-astra-feature-grid,
+    .career-astra-about,
+    .career-astra-helpband {
         grid-template-columns: 1fr;
     }
 
-    .career-home-story-grid,
-    .career-home-journey-grid,
-    .career-home-opening-grid {
+    .career-astra-card-grid,
+    .career-astra-story-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 860px) {
-    .career-home-proof-grid,
-    .career-home-story-grid,
-    .career-home-journey-grid,
-    .career-home-opening-grid {
+    body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
+        width: min(100%, calc(100vw - 18px));
+    }
+
+    .career-astra-shell {
+        gap: 42px;
+        padding-top: 12px;
+    }
+
+    .career-astra-topbar {
+        border-radius: 0 0 18px 18px;
+        gap: 16px;
+        padding: 16px 18px 18px;
+    }
+
+    .career-astra-brand img {
+        width: 108px;
+    }
+
+    .career-astra-hero-media {
+        min-height: 760px;
+        border-radius: 0 0 20px 20px;
+        background-position: center;
+    }
+
+    .career-astra-hero-copy {
+        left: 22px;
+        right: 22px;
+        bottom: 146px;
+        width: auto;
+    }
+
+    .career-astra-hero-copy p {
+        max-width: none;
+    }
+
+    .career-astra-searchband {
+        width: calc(100% - 20px);
+        margin-top: -72px;
+        padding: 18px 18px 22px;
+    }
+
+    .career-astra-searchband::before,
+    .career-astra-searchband::after {
+        display: none;
+    }
+
+    .career-astra-search-form {
         grid-template-columns: 1fr;
     }
 
-    .career-home-section-head,
-    .career-home-bottom-band {
-        align-items: flex-start;
+    .career-astra-feature-grid,
+    .career-astra-section,
+    .career-astra-about,
+    .career-astra-helpband {
+        padding-inline: 6px;
     }
 
-    .career-home-section-head,
-    .career-home-bottom-actions,
-    .career-home-opening-actions {
+    .career-astra-feature-card,
+    .career-astra-about,
+    .career-astra-helpband {
+        padding: 24px 20px;
+    }
+
+    .career-astra-card-grid,
+    .career-astra-story-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .career-astra-section-head {
         flex-direction: column;
-    }
-}
-
-@media (max-width: 720px) {
-    .career-home-hero-main,
-    .career-home-hero-side,
-    .career-home-story-card,
-    .career-home-opening-card,
-    .career-home-step-card,
-    .career-home-bottom-band {
-        padding: 22px;
-    }
-
-    .career-home-actions,
-    .career-home-opening-actions,
-    .career-home-bottom-actions {
-        flex-direction: column;
-    }
-
-    .career-home-actions a,
-    .career-home-opening-actions a,
-    .career-home-bottom-actions a,
-    .career-home-section-head a {
-        width: 100%;
+        align-items: start;
     }
 }
 </style>
@@ -489,7 +924,7 @@
 
 {% block content %}
 {% set active_page = 'home' %}
-{% set ns = namespace(departments=[], spotlight=None) %}
+{% set ns = namespace(departments=[], locations=[], types=[], warehouse_ids=[], warehouses=[], spotlight=None) %}
 {% for opening in openings %}
     {% if ns.spotlight is none %}
         {% set ns.spotlight = opening %}
@@ -498,160 +933,249 @@
     {% if department_label and department_label not in ns.departments %}
         {% set ns.departments = ns.departments + [department_label] %}
     {% endif %}
+    {% set location_label = (opening.location_label or opening.warehouse_name or 'Head Office')|trim %}
+    {% if location_label and location_label not in ns.locations %}
+        {% set ns.locations = ns.locations + [location_label] %}
+    {% endif %}
+    {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+    {% if type_label and type_label not in ns.types %}
+        {% set ns.types = ns.types + [type_label] %}
+    {% endif %}
+    {% set warehouse_key = (opening.warehouse_id|string)|trim %}
+    {% if opening.warehouse_id and warehouse_key not in ns.warehouse_ids %}
+        {% set ns.warehouse_ids = ns.warehouse_ids + [warehouse_key] %}
+        {% set ns.warehouses = ns.warehouses + [{'id': opening.warehouse_id, 'label': location_label}] %}
+    {% endif %}
 {% endfor %}
 {% set spotlight_opening = ns.spotlight %}
-{% include "_career_public_nav.html" %}
+{% if spotlight_opening %}
+    {% set spotlight_location = spotlight_opening.location_label or spotlight_opening.warehouse_name or 'Penempatan fleksibel' %}
+    {% set spotlight_type = (spotlight_opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+    {% set spotlight_summary = (spotlight_opening.description or spotlight_opening.requirements or 'Jelajahi detail posisi, pahami kebutuhan peran, lalu lanjutkan proses kandidat dari satu alur yang rapi dan mudah dipindai.')|striptags|truncate(220, True) %}
+{% else %}
+    {% set spotlight_location = 'Penempatan fleksibel' %}
+    {% set spotlight_type = 'Full Time' %}
+    {% set spotlight_summary = 'Landing page ini dirancang ulang supaya kandidat langsung melihat visual hero, band pencarian, dan konten sorotan seperti portal karir korporat modern.' %}
+{% endif %}
 
-<section class="career-home-hero">
-    <div class="career-home-hero-main">
-        <span class="career-home-kicker">Beranda Karir</span>
-        <h1>Temukan jalanmu untuk bertumbuh bersama ERP-CV.BJAS.</h1>
-        <p>Portal ini saya arahkan bertahap ke rasa yang lebih corporate dan terstruktur: kandidat bisa memahami lowongan, proses lamaran, dan jalur assessment dari layar yang rapi sejak pertama kali membuka halaman.</p>
-        <div class="career-home-actions">
-            <a href="{{ url_for('career.index') }}" class="is-primary">Lihat Lowongan</a>
-            <a href="{{ url_for('career.signin_page') }}" class="is-secondary">Masuk Kandidat</a>
+<div class="career-astra-shell">
+    {% include "_career_public_header_astra.html" %}
+
+    <section class="career-astra-hero" aria-label="Hero karir">
+        <div class="career-astra-hero-media">
+            <div class="career-astra-hero-copy">
+                <span class="career-astra-eyebrow">ERP-CV.BJAS Career</span>
+                <h1>Mari Membangun Masa Depan Bersama</h1>
+                <p>Bersama ERP-CV.BJAS untuk hari ini dan masa depan Indonesia.</p>
+            </div>
         </div>
-        <div class="career-home-proof-grid">
-            <article class="career-home-proof-card">
+
+        <div class="career-astra-searchband">
+            <div class="career-astra-searchband-head">
+                <div class="career-astra-opening-count">
+                    <strong>({{ opening_count }}) Pekerjaan tersedia</strong>
+                    <a href="{{ url_for('career.index') }}">Lihat Semua</a>
+                </div>
+            </div>
+
+            <form method="GET" action="{{ url_for('career.index') }}" class="career-astra-search-form">
+                <label class="career-astra-search-field">
+                    <span class="career-astra-sr-only">Cari lowongan</span>
+                    <input type="search" name="q" placeholder="Cari lowongan yang Anda inginkan...">
+                </label>
+
+                <label>
+                    <span class="career-astra-sr-only">Semua Perusahaan</span>
+                    <select name="warehouse">
+                        <option value="">Semua Perusahaan</option>
+                        {% for warehouse in ns.warehouses %}
+                        <option value="{{ warehouse.id }}">{{ warehouse.label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    <span class="career-astra-sr-only">Semua Fungsi</span>
+                    <select name="department">
+                        <option value="">Semua Fungsi</option>
+                        {% for department in ns.departments %}
+                        <option value="{{ department|lower }}">{{ department }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    <span class="career-astra-sr-only">Semua Jenjang</span>
+                    <select name="type">
+                        <option value="">Semua Jenjang</option>
+                        {% for type_label in ns.types %}
+                        <option value="{{ type_label|lower }}">{{ type_label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <button type="submit">Cari Lowongan</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="career-astra-feature-grid" id="agenda-karir">
+        <article class="career-astra-feature-poster">
+            <div class="career-astra-feature-poster-copy">
+                <span>Agenda Karir</span>
+                {% if spotlight_opening %}
+                <h2>{{ spotlight_opening.title }}</h2>
+                <p>{{ spotlight_summary }}</p>
+                {% else %}
+                <h2>Portal Karir yang lebih fokus, rapi, dan siap tumbuh.</h2>
+                <p>Halaman ini dibentuk ulang supaya ritme visualnya lebih dekat ke portal karir korporat: hero kuat, pencarian cepat, dan CTA yang langsung terbaca.</p>
+                {% endif %}
+            </div>
+        </article>
+
+        <article class="career-astra-feature-card">
+            <span class="career-astra-status-badge">{% if spotlight_opening %}Lowongan Utama{% else %}Siap Digunakan{% endif %}</span>
+            {% if spotlight_opening %}
+            <h2>{{ spotlight_opening.title }}</h2>
+            <div class="career-astra-meta-list">
+                <span>{{ spotlight_location }}</span>
+                <span>{{ spotlight_type }}</span>
+                <span>{{ spotlight_opening.department or 'Operasional Perusahaan' }}</span>
+            </div>
+            <p>{{ spotlight_summary }}</p>
+            <div class="career-astra-feature-actions">
+                <a href="{{ url_for('career.opening_detail', opening_id=spotlight_opening.id) }}" class="career-astra-button">Lihat Detail</a>
+                <a href="{{ url_for('career.opening_detail', opening_id=spotlight_opening.id) }}#careerApplyForm" class="career-astra-inline-link">Lamar sekarang</a>
+            </div>
+            {% else %}
+            <h2>Landing page karir kini punya struktur yang jauh lebih dekat ke referensi korporat.</h2>
+            <div class="career-astra-meta-list">
+                <span>Hero full-width</span>
+                <span>Band pencarian terintegrasi</span>
+                <span>Konten sorotan yang lebih rapi</span>
+            </div>
+            <p>Begitu lowongan dipublikasikan, kartu spotlight ini bisa langsung menampilkan posisi unggulan tanpa menunggu perubahan layout tambahan.</p>
+            <div class="career-astra-feature-actions">
+                <a href="{{ url_for('career.index') }}" class="career-astra-button">Buka Lowongan</a>
+                <a href="{{ url_for('career.help_page') }}" class="career-astra-inline-link">Butuh bantuan?</a>
+            </div>
+            {% endif %}
+        </article>
+    </section>
+
+    <section class="career-astra-section" id="program-kami">
+        <div class="career-astra-section-head">
+            <div>
+                <span>Program Kami</span>
+                <h2>Alur kandidat yang terasa lebih terarah sejak layar pertama.</h2>
+                <p>Strukturnya saya pecah jadi blok yang mudah dipindai supaya kandidat bisa langsung paham apa yang bisa dijelajahi, apa yang perlu dilakukan, dan ke mana harus lanjut.</p>
+            </div>
+            <a href="{{ url_for('career.index') }}">Jelajahi lowongan</a>
+        </div>
+
+        <div class="career-astra-card-grid">
+            <article class="career-astra-card">
+                <div class="career-astra-card-mark">01</div>
+                <span>Explore</span>
+                <h3>Eksplorasi peran lebih cepat</h3>
+                <p>{{ ns.departments|length or 1 }} jalur fungsi tersusun lebih jelas supaya kandidat bisa memindai area karir tanpa harus membaca halaman yang terlalu padat.</p>
+            </article>
+
+            <article class="career-astra-card">
+                <div class="career-astra-card-mark">02</div>
+                <span>Apply</span>
+                <h3>Lamaran langsung ke posisi yang relevan</h3>
+                <p>Band pencarian di hero diarahkan ke halaman lowongan dengan filter awal, jadi ritme dari landing page ke daftar posisi terasa jauh lebih menyatu.</p>
+            </article>
+
+            <article class="career-astra-card">
+                <div class="career-astra-card-mark">03</div>
+                <span>Progress</span>
+                <h3>Proses kandidat lebih konsisten</h3>
+                <p>Setelah memilih posisi, kandidat tetap masuk ke detail lowongan dan assessment lewat alur yang sudah ada, tapi sekarang titik masuknya lebih enterprise dan lebih meyakinkan.</p>
+            </article>
+        </div>
+    </section>
+
+    <section class="career-astra-section" id="berita-karir">
+        <div class="career-astra-section-head">
+            <div>
+                <span>Berita dan Artikel</span>
+                <h2>Konten sorotan yang memanfaatkan data lowongan yang sudah aktif.</h2>
+                <p>Bagian ini saya pakai untuk meniru ritme konten editorial di landing page referensi, tapi tetap memakai data nyata dari portal karir yang sudah tersedia di sistem.</p>
+            </div>
+            <a href="{{ url_for('career.index') }}">Lihat semua posisi</a>
+        </div>
+
+        <div class="career-astra-story-grid">
+            {% for opening in openings[:3] %}
+            <article class="career-astra-story-card">
+                <span>{{ opening.department or 'Karir' }}</span>
+                <h3>{{ opening.title }}</h3>
+                <p>{{ (opening.description or opening.requirements or 'Lowongan aktif resmi perusahaan dengan detail posisi, kebutuhan dasar, dan alur kandidat yang sudah siap dipakai.')|striptags|truncate(170, True) }}</p>
+                <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Baca selengkapnya</a>
+            </article>
+            {% else %}
+            <article class="career-astra-story-card">
+                <span>Portal Karir</span>
+                <h3>Beranda sudah siap menampung konten sorotan berikutnya.</h3>
+                <p>Saat lowongan baru masuk, blok ini otomatis bisa menampilkan posisi atau insight rekrutmen terbaru tanpa perlu mengubah struktur besar halaman.</p>
+                <a href="{{ url_for('career.help_page') }}">Pelajari alurnya</a>
+            </article>
+            <article class="career-astra-story-card">
+                <span>UI Refresh</span>
+                <h3>Visual sekarang lebih dekat ke pola portal karir korporat.</h3>
+                <p>Header tipis, hero tinggi, band pencarian, dan kartu sorotan saya susun ulang agar nuansanya tidak lagi seperti halaman utilitas biasa.</p>
+                <a href="{{ url_for('career.index') }}">Buka lowongan</a>
+            </article>
+            <article class="career-astra-story-card">
+                <span>Candidate Flow</span>
+                <h3>CTA utama dibuat lebih jelas dan tidak saling bertabrakan.</h3>
+                <p>Kandidat bisa memilih jalur yang paling relevan: eksplor posisi, masuk akun, daftar akun baru, atau lanjut ke bantuan.</p>
+                <a href="{{ url_for('career.signin_page') }}">Masuk kandidat</a>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="career-astra-about" id="tentang-kami">
+        <div class="career-astra-about-copy">
+            <span>Tentang Kami</span>
+            <h2>Portal karir yang lebih siap merepresentasikan citra perusahaan.</h2>
+            <p>Selain mengejar kemiripan visual dengan referensi Astra, saya tetap jaga supaya arah halaman ini relevan dengan kebutuhan ERP-CV.BJAS: cepat dibuka, CTA jelas, dan mudah disambungkan ke lowongan yang benar-benar tersedia.</p>
+            <p>{{ career_notice_text }}</p>
+            <div class="career-astra-about-actions">
+                <a href="{{ url_for('career.about_page') }}" class="career-astra-button">Tentang perusahaan</a>
+                <a href="{{ url_for('career.signin_page', flow='signup') }}" class="career-astra-inline-link">Buat akun kandidat</a>
+            </div>
+        </div>
+
+        <div class="career-astra-about-stats">
+            <article class="career-astra-stat-card">
                 <strong>{{ opening_count }}</strong>
-                <span>lowongan aktif tersedia saat ini.</span>
+                <p>lowongan aktif yang bisa langsung dijelajahi dari portal publik.</p>
             </article>
-            <article class="career-home-proof-card">
+            <article class="career-astra-stat-card">
                 <strong>{{ ns.departments|length or 1 }}</strong>
-                <span>jalur fungsi karir yang tampil di portal publik.</span>
+                <p>fungsi atau jalur peran yang sudah tampil dalam daftar posisi.</p>
             </article>
-            <article class="career-home-proof-card">
-                <strong>5 digit</strong>
-                <span>kode tes untuk melanjutkan assessment kandidat.</span>
-            </article>
-        </div>
-    </div>
-    <aside class="career-home-hero-side">
-        <div>
-            <h2>Career Overview</h2>
-            <p>Tahap pertama ini saya fokuskan agar kesan utamanya lebih mirip portal karir korporat: tenang, jelas, dan langsung mengarahkan kandidat ke aksi yang penting.</p>
-        </div>
-        {% if spotlight_opening %}
-        <div class="career-home-side-panel">
-            <article class="career-home-side-surface">
-                <span>Posisi Sorotan</span>
-                <strong>{{ spotlight_opening.title }}</strong>
-                <p>{{ spotlight_opening.location_label or spotlight_opening.warehouse_name or 'Penempatan fleksibel' }} · {{ (spotlight_opening.employment_type or 'full_time')|replace('_', ' ')|title }}</p>
-            </article>
-            <article class="career-home-side-surface">
-                <span>Shortcut Kandidat</span>
-                <strong>Punya kode tes?</strong>
-                <p>Gunakan tombol di header untuk masuk ke assessment tanpa menaruh form kode tes di samping daftar lowongan.</p>
+            <article class="career-astra-stat-card">
+                <strong>{{ ns.locations|length or 1 }}</strong>
+                <p>lokasi atau unit penempatan yang bisa dipakai untuk memulai pencarian.</p>
             </article>
         </div>
-        {% else %}
-        <article class="career-home-side-surface">
-            <span>Portal Siap Dipakai</span>
-            <strong>Lowongan berikutnya bisa langsung masuk ke struktur ini.</strong>
-            <p>Saat tim HR mempublikasikan posisi baru, beranda tetap siap menampilkannya dengan pola yang lebih tertib dan enterprise.</p>
-        </article>
-        {% endif %}
-    </aside>
-</section>
+    </section>
 
-<section>
-    <div class="career-home-section-head">
+    <section class="career-astra-helpband" id="pusat-bantuan">
         <div>
-            <span class="career-home-section-kicker">Area Karir</span>
-            <h2>Jalur peran yang mudah dipindai sejak layar pertama.</h2>
+            <h2>Butuh bantuan sebelum melamar?</h2>
+            <p>Kandidat bisa masuk ke pusat bantuan untuk memahami alur akun, proses assessment, dan langkah-langkah penting lain sebelum mengirim lamaran. Kalau sudah siap, kandidat juga bisa langsung masuk atau membuat akun baru dari sini.</p>
         </div>
-        <a href="{{ url_for('career.index') }}">Buka Semua Posisi</a>
-    </div>
-    <div class="career-home-story-grid">
-        {% for department in ns.departments[:3] %}
-        <article class="career-home-story-card">
-            <div class="career-home-story-icon">{{ "%02d"|format(loop.index) }}</div>
-            <h3>{{ department }}</h3>
-            <p>Lowongan di jalur {{ department|lower }} ditampilkan dengan layout yang lebih rapi supaya kandidat cepat memahami konteks perannya.</p>
-        </article>
-        {% else %}
-        <article class="career-home-story-card">
-            <div class="career-home-story-icon">01</div>
-            <h3>Portal Karir Publik</h3>
-            <p>Begitu lowongan dibuka, kandidat akan langsung diarahkan ke detail posisi, form lamaran, dan jalur assessment yang terpisah dengan lebih bersih.</p>
-        </article>
-        {% endfor %}
-    </div>
-</section>
 
-<section>
-    <div class="career-home-section-head">
-        <div>
-            <span class="career-home-section-kicker">Proses Kandidat</span>
-            <h2>Alur singkat, jelas, dan mudah diikuti.</h2>
+        <div class="career-astra-help-actions">
+            <a href="{{ url_for('career.help_page') }}" class="career-astra-button">Pusat Bantuan</a>
+            <a href="{{ url_for('career.signin_page') }}" class="career-astra-button is-muted">Masuk Kandidat</a>
         </div>
-    </div>
-    <div class="career-home-journey-grid">
-        <article class="career-home-step-card">
-            <div class="career-home-step-number">1</div>
-            <h3>Cari posisi</h3>
-            <p>Kandidat mulai dari daftar lowongan yang sekarang lebih fokus dan tidak bercampur dengan panel kode tes.</p>
-        </article>
-        <article class="career-home-step-card">
-            <div class="career-home-step-number">2</div>
-            <h3>Kirim lamaran</h3>
-            <p>Data inti dan CV dikirim dari halaman detail, dengan pengalaman yang lebih tenang dan tidak berantakan.</p>
-        </article>
-        <article class="career-home-step-card">
-            <div class="career-home-step-number">3</div>
-            <h3>Lanjut assessment</h3>
-            <p>Setelah berhasil daftar, kode tes muncul sebagai pop-up lalu bisa dipakai lagi dari shortcut di header.</p>
-        </article>
-    </div>
-</section>
-
-<section>
-    <div class="career-home-section-head">
-        <div>
-            <span class="career-home-section-kicker">Lowongan Terbaru</span>
-            <h2>Pilihan posisi yang langsung bisa dijelajahi kandidat.</h2>
-        </div>
-        <a href="{{ url_for('career.index') }}">Lihat Semua Lowongan</a>
-    </div>
-    <div class="career-home-opening-grid">
-        {% for opening in openings[:3] %}
-        <article class="career-home-opening-card">
-            <div class="career-home-opening-meta">
-                <span>{{ opening.department or 'Operasional' }}</span>
-                <span>{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</span>
-            </div>
-            <h3>{{ opening.title }}</h3>
-            <p>{{ (opening.description or opening.requirements or 'Lowongan aktif resmi perusahaan.')|striptags|truncate(150, True) }}</p>
-            <div class="career-home-opening-meta">
-                <span>{{ opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' }}</span>
-            </div>
-            <div class="career-home-opening-actions">
-                <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}" class="is-ghost">Lihat Detail</a>
-                <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}#careerApplyForm" class="is-primary">Lamar</a>
-            </div>
-        </article>
-        {% else %}
-        <article class="career-home-opening-card">
-            <h3>Belum ada lowongan publik</h3>
-            <p>Tim HR belum mempublikasikan posisi baru. Struktur beranda ini tetap siap untuk menampung pembukaan lowongan berikutnya.</p>
-            <div class="career-home-opening-actions">
-                <a href="{{ url_for('career.help_page') }}" class="is-ghost">Bantuan</a>
-                <a href="{{ url_for('career.index') }}" class="is-primary">Buka Halaman Lowongan</a>
-            </div>
-        </article>
-        {% endfor %}
-    </div>
-</section>
-
-<section class="career-home-bottom-band">
-    <div>
-        <span class="career-home-section-kicker">Tahap 1</span>
-        <h2>Fondasi visual portal karir sudah saya arahkan ke rasa yang lebih enterprise dan lebih dekat ke referensi korporat.</h2>
-        <p>Sesudah ini tahap yang paling pas adalah menyamakan halaman detail lowongan dan assessment agar konsistensinya makin terasa dari awal sampai akhir proses kandidat.</p>
-    </div>
-    <div class="career-home-bottom-actions">
-        <a href="{{ url_for('career.index') }}" class="is-primary">Jelajahi Lowongan</a>
-        <a href="{{ url_for('career.help_page') }}" class="is-ghost">Bantuan</a>
-    </div>
-</section>
+    </section>
+</div>
 {% endblock %}

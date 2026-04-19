@@ -10,9 +10,16 @@ from services.career_service import (
     encode_assessment_answers,
     ensure_candidate_assessment_code,
     ensure_career_schema,
+    extract_inserted_row_id,
+    find_duplicate_public_application,
     normalize_assessment_code,
+    normalize_candidate_email,
+    normalize_candidate_identity_name,
+    normalize_candidate_phone,
+    normalize_candidate_portfolio_url,
     normalize_career_assessment_status,
     normalize_career_application_channel,
+    normalize_career_employment_type,
     save_career_resume,
     score_assessment_questions,
 )
@@ -83,7 +90,11 @@ def _career_public_signin_url():
 
 
 def _career_public_register_url():
-    return build_career_public_url("career.signin_page")
+    return build_career_public_url("career.signin_page", flow="signup")
+
+
+def _redirect_career_public(endpoint, **values):
+    return redirect(build_career_public_url(endpoint, **values))
 
 
 def _resolve_career_public_media_url(configured_value, default_static_filename):
@@ -126,6 +137,30 @@ def _fetch_public_openings(db, selected_warehouse=None):
         params.append(selected_warehouse)
     query += " ORDER BY COALESCE(o.sort_order, 0) ASC, o.created_at DESC, o.id DESC"
     return [dict(row) for row in db.execute(query, params).fetchall()]
+
+
+def _matches_public_opening_filters(opening, query="", department="", employment_type=""):
+    safe_opening = dict(opening or {})
+    safe_query = str(query or "").strip().lower()
+    safe_department = str(department or "").strip().lower()
+    safe_type = str(employment_type or "").strip().lower()
+
+    title_value = str(safe_opening.get("title") or "").strip().lower()
+    department_value = str(safe_opening.get("department") or "").strip().lower()
+    location_value = str(
+        safe_opening.get("location_label") or safe_opening.get("warehouse_name") or ""
+    ).strip().lower()
+    type_value = str(safe_opening.get("employment_type") or "full_time").replace("_", " ").strip().lower()
+
+    if safe_query and safe_query not in " ".join(
+        value for value in [title_value, department_value, location_value, type_value] if value
+    ):
+        return False
+    if safe_department and department_value != safe_department:
+        return False
+    if safe_type and type_value != safe_type:
+        return False
+    return True
 
 
 def _fetch_public_opening_by_id(db, opening_id):
@@ -173,6 +208,76 @@ def _fetch_candidate_by_assessment_code(db, code):
         (safe_code,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def _parse_public_opening_filters():
+    initial_query = (request.args.get("q") or "").strip()
+    initial_department = (request.args.get("department") or "").strip().lower()
+    initial_type_filter = (request.args.get("type") or "").strip().lower()
+    selected_warehouse = request.args.get("warehouse", "").strip()
+    try:
+        selected_warehouse_id = int(selected_warehouse) if selected_warehouse else None
+    except ValueError:
+        selected_warehouse_id = None
+    return initial_query, initial_department, initial_type_filter, selected_warehouse_id
+
+
+def _build_public_opening_summary_payload(openings):
+    safe_openings = [dict(opening) for opening in (openings or [])]
+    department_counts = {}
+    location_counts = {}
+    employment_type_counts = {}
+
+    for opening in safe_openings:
+        department = str(opening.get("department") or "").strip()
+        location_label = str(opening.get("location_label") or opening.get("warehouse_name") or "").strip()
+        employment_type = normalize_career_employment_type(opening.get("employment_type"))
+
+        if department:
+            department_counts[department] = department_counts.get(department, 0) + 1
+        if location_label:
+            location_counts[location_label] = location_counts.get(location_label, 0) + 1
+        employment_type_counts[employment_type] = employment_type_counts.get(employment_type, 0) + 1
+
+    featured_openings = []
+    for opening in safe_openings[:6]:
+        featured_openings.append(
+            {
+                "id": int(opening.get("id") or 0),
+                "title": str(opening.get("title") or "").strip(),
+                "department": str(opening.get("department") or "").strip(),
+                "location_label": str(opening.get("location_label") or opening.get("warehouse_name") or "").strip(),
+                "employment_type": normalize_career_employment_type(opening.get("employment_type")),
+                "detail_url": build_career_public_url(
+                    "career.opening_detail",
+                    opening_id=int(opening.get("id") or 0),
+                ),
+            }
+        )
+
+    return {
+        "openings_total": len(safe_openings),
+        "department_total": len(department_counts),
+        "location_total": len(location_counts),
+        "employment_type_total": len(employment_type_counts),
+        "departments": [
+            {"label": label, "count": count}
+            for label, count in sorted(department_counts.items(), key=lambda item: item[0].lower())
+        ],
+        "locations": [
+            {"label": label, "count": count}
+            for label, count in sorted(location_counts.items(), key=lambda item: item[0].lower())
+        ],
+        "employment_types": [
+            {
+                "value": value,
+                "label": value.replace("_", " ").title(),
+                "count": count,
+            }
+            for value, count in sorted(employment_type_counts.items(), key=lambda item: item[0])
+        ],
+        "featured_openings": featured_openings,
+    }
 
 
 def _fetch_public_assessment_questions(db, warehouse_id=None, shuffle_seed=""):
@@ -236,13 +341,19 @@ def index():
     db = get_db()
     ensure_career_schema(db)
 
-    selected_warehouse = request.args.get("warehouse", "").strip()
-    try:
-        selected_warehouse_id = int(selected_warehouse) if selected_warehouse else None
-    except ValueError:
-        selected_warehouse_id = None
+    initial_query, initial_department, initial_type_filter, selected_warehouse_id = _parse_public_opening_filters()
 
     openings = _fetch_public_openings(db, selected_warehouse_id)
+    openings = [
+        opening
+        for opening in openings
+        if _matches_public_opening_filters(
+            opening,
+            query=initial_query,
+            department=initial_department,
+            employment_type=initial_type_filter,
+        )
+    ]
     warehouses = [dict(row) for row in db.execute("SELECT id, name FROM warehouses ORDER BY name ASC").fetchall()]
     selected_opening_id = request.args.get("vacancy", "").strip()
     try:
@@ -259,8 +370,42 @@ def index():
         warehouses=warehouses,
         selected_opening=selected_opening,
         selected_warehouse_id=selected_warehouse_id,
+        initial_query=initial_query,
+        initial_department=initial_department,
+        initial_type_filter=initial_type_filter,
         latest_assessment_code=assessment_code,
         latest_candidate=latest_candidate,
+    )
+
+
+@career_bp.route("/karir/summary")
+def public_summary():
+    db = get_db()
+    ensure_career_schema(db)
+
+    initial_query, initial_department, initial_type_filter, selected_warehouse_id = _parse_public_opening_filters()
+    openings = _fetch_public_openings(db, selected_warehouse_id)
+    openings = [
+        opening
+        for opening in openings
+        if _matches_public_opening_filters(
+            opening,
+            query=initial_query,
+            department=initial_department,
+            employment_type=initial_type_filter,
+        )
+    ]
+    return jsonify(
+        {
+            "ok": True,
+            "summary": _build_public_opening_summary_payload(openings),
+            "filters": {
+                "q": initial_query,
+                "department": initial_department,
+                "type": initial_type_filter,
+                "warehouse_id": selected_warehouse_id,
+            },
+        }
     )
 
 
@@ -285,6 +430,7 @@ def about_page():
         "career_about.html",
         openings=openings,
         opening_count=len(openings),
+        signin_url=_career_public_signin_url(),
     )
 
 
@@ -292,9 +438,12 @@ def about_page():
 def help_page():
     db = get_db()
     ensure_career_schema(db)
+    openings = _fetch_public_openings(db)
     return render_template(
         "career_help.html",
         signin_url=_career_public_signin_url(),
+        register_url=_career_public_register_url(),
+        opening_count=len(openings),
     )
 
 
@@ -302,6 +451,7 @@ def help_page():
 def signin_page():
     db = get_db()
     ensure_career_schema(db)
+    openings = _fetch_public_openings(db)
     flow = str(request.args.get("flow") or "signin").strip().lower()
     if flow not in {"signin", "signup"}:
         flow = "signin"
@@ -314,6 +464,7 @@ def signin_page():
         active_flow=flow,
         registration_success=registered,
         registration_email=email,
+        opening_count=len(openings),
     )
 
 
@@ -323,13 +474,13 @@ def signin_submit():
     password = (request.form.get("password") or "").strip()
     if not email or not password:
         flash("Email dan kata sandi wajib diisi.", "error")
-        return redirect(url_for("career.signin_page", flow="signin"))
+        return _redirect_career_public("career.signin_page", flow="signin")
 
     flash(
         "Login kandidat publik sedang diaktifkan bertahap. Jika Anda sudah melamar, gunakan kode tes 5 digit atau hubungi HR.",
         "info",
     )
-    return redirect(url_for("career.signin_page", flow="signin"))
+    return _redirect_career_public("career.signin_page", flow="signin")
 
 
 @career_bp.route("/signin/register-request", methods=["POST"])
@@ -338,7 +489,7 @@ def signin_register_request():
     email = (request.form.get("email") or "").strip()
     if not candidate_name or not email:
         flash("Nama lengkap dan email wajib diisi untuk mendaftarkan akun.", "error")
-        return redirect(url_for("career.signin_page", flow="signup"))
+        return _redirect_career_public("career.signin_page", flow="signup")
     db = get_db()
     ensure_career_schema(db)
     try:
@@ -351,7 +502,7 @@ def signin_register_request():
         db.commit()
     except ValueError as exc:
         flash(str(exc), "error")
-        return redirect(url_for("career.signin_page", flow="signup"))
+        return _redirect_career_public("career.signin_page", flow="signup")
 
     email_subject = "Permintaan akun ERP-CV.BJAS Career diterima"
     email_body = (
@@ -365,13 +516,11 @@ def signin_register_request():
         send_email(email, email_subject, email_body)
     except Exception:
         pass
-    return redirect(
-        url_for(
-            "career.signin_page",
-            flow="signup",
-            registered=1,
-            email=email,
-        )
+    return _redirect_career_public(
+        "career.signin_page",
+        flow="signup",
+        registered=1,
+        email=email,
     )
 
 
@@ -423,16 +572,55 @@ def apply():
         flash("Lowongan yang dipilih tidak tersedia lagi.", "error")
         return redirect(build_career_public_url("career.index"))
 
-    candidate_name = (request.form.get("candidate_name") or "").strip()
-    phone = (request.form.get("phone") or "").strip()
-    email = (request.form.get("email") or "").strip()
-    portfolio_url = (request.form.get("portfolio_url") or "").strip()
+    raw_candidate_name = request.form.get("candidate_name")
+    raw_phone = request.form.get("phone")
+    raw_email = request.form.get("email")
+    raw_portfolio_url = request.form.get("portfolio_url")
+
+    candidate_name = normalize_candidate_identity_name(raw_candidate_name)
+    phone = normalize_candidate_phone(raw_phone)
+    email = normalize_candidate_email(raw_email)
+    portfolio_url = normalize_candidate_portfolio_url(raw_portfolio_url)
     note = (request.form.get("note") or "").strip()
     resume_file = request.files.get("resume_file")
 
     if not candidate_name or (not phone and not email):
         flash("Nama kandidat dan minimal satu kontak wajib diisi.", "error")
         return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+    if (raw_email or "").strip() and not email:
+        flash("Email kandidat tidak valid.", "error")
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+    if (raw_phone or "").strip() and not phone:
+        flash("Nomor telepon kandidat tidak valid.", "error")
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+    if (raw_portfolio_url or "").strip() and not portfolio_url:
+        flash("Link portofolio harus berupa URL http:// atau https:// yang valid.", "error")
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+
+    duplicate_candidate = find_duplicate_public_application(
+        db,
+        opening["id"],
+        email=email,
+        phone=phone,
+    )
+    if duplicate_candidate:
+        existing_code = ensure_candidate_assessment_code(
+            db,
+            int(duplicate_candidate["id"]),
+            duplicate_candidate.get("assessment_code") or "",
+        )
+        db.commit()
+        flash(
+            "Lamaran untuk lowongan ini sudah pernah kami terima. Kami tampilkan kembali kode tes kandidat yang sama.",
+            "info",
+        )
+        return redirect(
+            build_career_public_url(
+                "career.opening_detail",
+                opening_id=opening["id"],
+                code=existing_code,
+            )
+        )
 
     try:
         resume_original_name, resume_path = save_career_resume(resume_file)
@@ -444,7 +632,7 @@ def apply():
         flash("CV wajib diunggah agar HR bisa review lamaran.", "error")
         return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 
-    db.execute(
+    insert_cursor = db.execute(
         """
         INSERT INTO recruitment_candidates(
             candidate_name,
@@ -484,20 +672,33 @@ def apply():
             resume_path,
         ),
     )
-    created_candidate = db.execute(
-        """
-        SELECT id, assessment_code
-        FROM recruitment_candidates
-        WHERE candidate_name=? AND vacancy_id=?
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (candidate_name, opening["id"]),
-    ).fetchone()
+    created_candidate_id = extract_inserted_row_id(insert_cursor)
+    created_candidate = None
+    if created_candidate_id > 0:
+        created_candidate = db.execute(
+            """
+            SELECT id, assessment_code
+            FROM recruitment_candidates
+            WHERE id=?
+            LIMIT 1
+            """,
+            (created_candidate_id,),
+        ).fetchone()
+    if created_candidate is None:
+        created_candidate = db.execute(
+            """
+            SELECT id, assessment_code
+            FROM recruitment_candidates
+            WHERE candidate_name=? AND vacancy_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (candidate_name, opening["id"]),
+        ).fetchone()
     assessment_code = ensure_candidate_assessment_code(
         db,
         created_candidate["id"],
-        created_candidate["assessment_code"] if created_candidate else "",
+        (created_candidate["assessment_code"] or "") if created_candidate else "",
     )
     db.commit()
 
@@ -644,6 +845,10 @@ def submit_assessment():
     if not questions:
         flash("Soal tes belum tersedia.", "error")
         return redirect(build_career_public_url("career.index", code=assessment_code))
+
+    if candidate.get("assessment_status") in {"submitted", "reviewed"}:
+        flash("Assessment ini sudah selesai dan tidak bisa dikirim ulang.", "info")
+        return redirect(build_career_public_url("career.assessment", code=assessment_code))
 
     answers = {}
     for question in questions:

@@ -5,7 +5,7 @@ import unittest
 import json
 import importlib
 from datetime import date as date_cls, datetime, timedelta, timezone
-from io import BytesIO
+from io import BytesIO, StringIO
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
@@ -15,6 +15,7 @@ import init_db as init_db_module
 import services.notification_service as notification_service
 import services.receipt_pdf_service as receipt_pdf_service
 import services.whatsapp_service as whatsapp_service
+import scripts.postgresql_smoke_test as postgresql_smoke_test_module
 import scripts.run_configured_backup as run_configured_backup_module
 from openpyxl import Workbook
 from flask import session
@@ -61,7 +62,7 @@ from routes.schedule import (
     LIVE_SCHEDULE_DEFAULT_TEXT,
 )
 from services.crm_loyalty import ensure_crm_membership_multi_program_schema, get_member_snapshot
-from services.career_service import ensure_career_schema
+from services.career_service import create_public_account_request, ensure_career_schema
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -281,6 +282,90 @@ class WmsRoutesTestCase(unittest.TestCase):
         finally:
             run_configured_backup_module.Config.DATABASE_BACKEND = original_backend
             run_configured_backup_module.Config.DATABASE_URL = original_url
+
+    def test_postgresql_smoke_test_reports_missing_career_tables_cleanly(self):
+        original_backend = postgresql_smoke_test_module.Config.DATABASE_BACKEND
+        original_url = postgresql_smoke_test_module.Config.DATABASE_URL
+        postgresql_smoke_test_module.Config.DATABASE_BACKEND = "postgresql"
+        postgresql_smoke_test_module.Config.DATABASE_URL = "postgresql://user:pass@127.0.0.1:5432/erp_test"
+
+        class FakeCursor:
+            def __init__(self):
+                self.last_query = ""
+                self.last_params = ()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params=None):
+                self.last_query = str(query)
+                self.last_params = params or ()
+
+            def fetchone(self):
+                if "to_regclass" in self.last_query:
+                    table_name = str(self.last_params[0]).split(".", 1)[-1]
+                    existing_tables = {
+                        "products",
+                        "product_variants",
+                        "stock",
+                        "users",
+                        "warehouses",
+                        "requests",
+                        "stock_movements",
+                        "attendance_action_requests",
+                        "overtime_usage_records",
+                        "overtime_balance_adjustments",
+                        "career_openings",
+                    }
+                    return (f"public.{table_name}",) if table_name in existing_tables else (None,)
+                if "COUNT(*) FROM warehouses" in self.last_query:
+                    return (2,)
+                if "COUNT(*) FROM career_openings" in self.last_query:
+                    return (4,)
+                if "COUNT(*) FROM requests WHERE status = 'pending'" in self.last_query:
+                    return (3,)
+                if "information_schema.columns" in self.last_query:
+                    if "recruitment_candidates" in self.last_query:
+                        return (0,)
+                    return (1,)
+                if "pg_indexes" in self.last_query:
+                    return (0,)
+                return (1,)
+
+        class FakeConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        try:
+            fake_psycopg = Mock(connect=Mock(return_value=FakeConnection()))
+            with patch.object(postgresql_smoke_test_module, "psycopg", fake_psycopg), patch(
+                "sys.stdout",
+                new_callable=StringIO,
+            ) as stdout:
+                result = postgresql_smoke_test_module.main()
+
+            self.assertEqual(result, 0)
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["status"], "incomplete")
+            self.assertIn("recruitment_candidates", payload["missing_tables"])
+            self.assertIn("recruitment_assessment_questions", payload["missing_tables"])
+            self.assertIn("career_public_account_requests", payload["missing_tables"])
+            self.assertTrue(payload["tables"]["career_openings"]["exists"])
+            self.assertEqual(payload["tables"]["career_openings"]["row_count"], 4)
+            self.assertFalse(payload["schema_checks"]["recruitment_candidates.application_channel"])
+            self.assertFalse(payload["schema_checks"]["idx_recruitment_candidates_public_lookup"])
+        finally:
+            postgresql_smoke_test_module.Config.DATABASE_BACKEND = original_backend
+            postgresql_smoke_test_module.Config.DATABASE_URL = original_url
 
     def login(self, username="admin", password="admin123"):
         return self.client.post(
@@ -11550,9 +11635,119 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/karir")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit.", html)
+        self.assertIn("Temukan posisi yang paling cocok untuk langkah karirmu berikutnya.", html)
+        self.assertIn("Punya Kode Tes?", html)
         self.assertIn("Staff Gudang Mataram", html)
         self.assertNotIn("Draft Internal", html)
+
+    def test_public_career_opening_detail_renders_apply_and_assessment_access(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Warehouse Analyst",
+                    "Supply Chain",
+                    "full_time",
+                    "Mataram",
+                    "Analisa data operasional warehouse dan bantu perbaikan proses.",
+                    "Terbiasa olah data, teliti, dan komunikatif.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=?",
+                ("Warehouse Analyst",),
+            ).fetchone()
+
+        response = self.client.get(f"/karir/lowongan/{opening['id']}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Warehouse Analyst", html)
+        self.assertIn("Kirim Lamaran", html)
+        self.assertIn("Masuk Tes Kandidat", html)
+        self.assertIn("Kualifikasi & Kecocokan", html)
+
+    def test_public_career_summary_returns_filtered_opening_counts(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Warehouse Filtered",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Posisi warehouse.",
+                    "Teliti.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "HR Intern",
+                    "HR",
+                    "internship",
+                    "Mega",
+                    "Posisi HR intern.",
+                    "Komunikatif.",
+                    "published",
+                    1,
+                    2,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (2, "Hidden Draft", "Warehouse", "contract", "draft", 1, 3),
+            )
+            db.commit()
+
+        response = self.client.get("/karir/summary?department=warehouse")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["filters"]["department"], "warehouse")
+        self.assertEqual(payload["summary"]["openings_total"], 1)
+        self.assertEqual(payload["summary"]["department_total"], 1)
+        self.assertEqual(payload["summary"]["location_total"], 1)
+        self.assertEqual(payload["summary"]["employment_type_total"], 1)
+        self.assertEqual(payload["summary"]["departments"][0]["label"], "Warehouse")
+        self.assertEqual(payload["summary"]["employment_types"][0]["value"], "full_time")
+        self.assertIn("/karir/lowongan/", payload["summary"]["featured_openings"][0]["detail_url"])
 
     def test_public_career_application_creates_recruitment_candidate_for_hr_pipeline(self):
         with self.app.app_context():
@@ -11589,10 +11784,10 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
-                "candidate_name": "Aldo Nugraha",
-                "phone": "6281234560001",
-                "email": "aldo@example.com",
-                "portfolio_url": "https://example.com/aldo",
+                "candidate_name": "  Aldo   Nugraha  ",
+                "phone": "08123 456 0001",
+                "email": "  ALDO@Example.COM ",
+                "portfolio_url": "example.com/aldo",
                 "note": "Siap ditempatkan full time.",
                 "resume_file": (BytesIO(b"resume-public"), "aldo-resume.pdf"),
             },
@@ -11606,7 +11801,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             candidate = db.execute(
                 """
                 SELECT candidate_name, warehouse_id, position_title, stage, status,
-                       application_channel, vacancy_id, resume_original_name, resume_path
+                       phone, email, application_channel, vacancy_id, portfolio_url,
+                       resume_original_name, resume_path
                 FROM recruitment_candidates
                 WHERE candidate_name=?
                 """,
@@ -11618,10 +11814,147 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate["position_title"], "Admin Gudang Mega")
         self.assertEqual(candidate["stage"], "applied")
         self.assertEqual(candidate["status"], "active")
+        self.assertEqual(candidate["phone"], "6281234560001")
+        self.assertEqual(candidate["email"], "aldo@example.com")
         self.assertEqual(candidate["application_channel"], "public_portal")
         self.assertEqual(candidate["vacancy_id"], opening["id"])
+        self.assertEqual(candidate["portfolio_url"], "https://example.com/aldo")
         self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
         self.assertTrue(candidate["resume_path"])
+
+    def test_public_career_apply_prevents_duplicate_active_application_and_reuses_code(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Duplicate Checker",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Tes pencegahan apply ganda.",
+                    "Teliti dan rapi.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Duplicate Checker",)).fetchone()
+
+        first_apply = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Ryo Duplicate",
+                "phone": "08123 450 6789",
+                "email": "ryo.duplicate@example.com",
+                "resume_file": (BytesIO(b"resume-duplicate"), "duplicate.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(first_apply.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            existing_candidate = db.execute(
+                """
+                SELECT id, assessment_code
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Ryo Duplicate",),
+            ).fetchone()
+        self.assertIsNotNone(existing_candidate)
+
+        duplicate_apply = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "  Ryo   Duplicate ",
+                "phone": "6281234506789",
+                "email": "RYO.DUPLICATE@example.com",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(duplicate_apply.status_code, 302)
+        self.assertIn(
+            f"code={existing_candidate['assessment_code']}",
+            duplicate_apply.headers["Location"],
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_count = db.execute(
+                "SELECT COUNT(*) FROM recruitment_candidates WHERE vacancy_id=?",
+                (opening["id"],),
+            ).fetchone()[0]
+        self.assertEqual(candidate_count, 1)
+
+    def test_public_career_apply_rejects_invalid_portfolio_url(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Portfolio Guard",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Tes validasi portfolio URL.",
+                    "Teliti dan rapi.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Portfolio Guard",)).fetchone()
+
+        response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Porto Invalid",
+                "phone": "08123 456 0999",
+                "portfolio_url": "javascript:alert(1)",
+                "resume_file": (BytesIO(b"resume-invalid-portfolio"), "invalid-portfolio.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "Link portofolio harus berupa URL http:// atau https:// yang valid.",
+            response.get_data(as_text=True),
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_count = db.execute(
+                "SELECT COUNT(*) FROM recruitment_candidates WHERE candidate_name=?",
+                ("Porto Invalid",),
+            ).fetchone()[0]
+        self.assertEqual(candidate_count, 0)
 
     def test_public_career_application_generates_assessment_code_and_candidate_can_submit_test(self):
         with self.app.app_context():
@@ -11703,6 +12036,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         test_html = test_page.get_data(as_text=True)
         self.assertIn("Tes Karir", test_html)
         self.assertIn("2 + 2 =", test_html)
+        self.assertIn("Punya Kode Tes?", test_html)
 
         submit_response = self.client.post(
             "/karir/tes/submit",
@@ -12021,27 +12355,43 @@ class WmsRoutesTestCase(unittest.TestCase):
                 ),
             )
             db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=?",
+                ("Picker Gudang",),
+            ).fetchone()
 
         home_response = self.client.get("/beranda", headers={"Host": "recruitment.test"})
         self.assertEqual(home_response.status_code, 200)
-        self.assertIn("Temukan jalanmu untuk bertumbuh bersama ERP-CV.BJAS.", home_response.get_data(as_text=True))
+        self.assertIn("Mari Membangun Masa Depan Bersama", home_response.get_data(as_text=True))
+        self.assertIn("Pekerjaan tersedia", home_response.get_data(as_text=True))
 
         public_response = self.client.get("/karir", headers={"Host": "recruitment.test"})
         self.assertEqual(public_response.status_code, 200)
         self.assertIn("Picker Gudang", public_response.get_data(as_text=True))
         self.assertIn("Lihat Detail", public_response.get_data(as_text=True))
+        self.assertIn("Punya Kode Tes?", public_response.get_data(as_text=True))
+
+        detail_response = self.client.get(
+            f"/karir/lowongan/{opening['id']}",
+            headers={"Host": "recruitment.test"},
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertIn("Kirim Lamaran", detail_response.get_data(as_text=True))
 
         about_response = self.client.get("/about", headers={"Host": "recruitment.test"})
         self.assertEqual(about_response.status_code, 200)
         self.assertIn("Tentang Kami", about_response.get_data(as_text=True))
+        self.assertIn("Punya Kode Tes?", about_response.get_data(as_text=True))
 
         help_response = self.client.get("/help", headers={"Host": "recruitment.test"})
         self.assertEqual(help_response.status_code, 200)
         self.assertIn("Bantuan Kandidat", help_response.get_data(as_text=True))
+        self.assertIn("Punya Kode Tes?", help_response.get_data(as_text=True))
 
         signin_response = self.client.get("/signin", headers={"Host": "recruitment.test"})
         self.assertEqual(signin_response.status_code, 200)
         self.assertIn("Masuk ke Akun", signin_response.get_data(as_text=True))
+        self.assertIn("Punya Kode Tes?", signin_response.get_data(as_text=True))
 
         internal_response = self.client.get("/login", headers={"Host": "recruitment.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
@@ -12105,6 +12455,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Masuk ke Akun", html)
         self.assertIn("Daftar Akun", html)
         self.assertIn("Cari Karir", html)
+        self.assertIn("Punya Kode Tes?", html)
 
     def test_public_career_signup_request_redirects_with_success_state(self):
         response = self.client.post(
@@ -12138,6 +12489,305 @@ class WmsRoutesTestCase(unittest.TestCase):
         success_page = self.client.get("/signin?flow=signup&registered=1&email=ryo%40example.com")
         self.assertEqual(success_page.status_code, 200)
         self.assertIn("Email Terkirim", success_page.get_data(as_text=True))
+
+    def test_create_public_account_request_uses_inserted_request_id_when_available(self):
+        db = Mock()
+        db.execute.side_effect = [
+            Mock(fetchone=Mock(return_value=None)),
+            Mock(lastrowid=77),
+            Mock(
+                fetchone=Mock(
+                    return_value={
+                        "id": 77,
+                        "full_name": "Ryo Saputra",
+                        "email": "ryo@example.com",
+                        "status": "pending",
+                        "source": "career_public_signup",
+                    }
+                )
+            ),
+        ]
+
+        with self.app.app_context():
+            created = create_public_account_request(
+                db,
+                "Ryo Saputra",
+                "ryo@example.com",
+                source="career_public_signup",
+            )
+
+        self.assertIsNotNone(created)
+        self.assertEqual(created["id"], 77)
+        self.assertEqual(db.execute.call_count, 3)
+        self.assertIn("WHERE id=?", str(db.execute.call_args_list[2].args[0]))
+        self.assertEqual(db.execute.call_args_list[2].args[1], (77,))
+
+    def test_public_career_apply_uses_inserted_candidate_id_when_lastrowid_is_available(self):
+        import routes.career as career_routes
+
+        db = Mock()
+        db.commit = Mock()
+        db.execute.side_effect = [
+            Mock(
+                fetchone=Mock(
+                    return_value={
+                        "id": 7,
+                        "warehouse_id": 2,
+                        "title": "Admin Gudang Mega",
+                        "department": "Warehouse",
+                        "status": "published",
+                        "is_public": 1,
+                    }
+                )
+            ),
+            Mock(lastrowid=55),
+            Mock(fetchone=Mock(return_value={"id": 55, "assessment_code": None})),
+        ]
+
+        with self.app.test_request_context(
+            "/karir/apply",
+            method="POST",
+            data={
+                "opening_id": "7",
+                "candidate_name": "Aldo Nugraha",
+                "phone": "6281234560001",
+                "email": "aldo@example.com",
+                "resume_file": (BytesIO(b"resume-public"), "aldo-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+        ):
+            with patch("routes.career.get_db", return_value=db), patch(
+                "routes.career.ensure_career_schema"
+            ), patch(
+                "routes.career.find_duplicate_public_application",
+                return_value=None,
+            ), patch(
+                "routes.career.save_career_resume",
+                return_value=("aldo-resume.pdf", "stored-aldo.pdf"),
+            ), patch(
+                "routes.career.ensure_candidate_assessment_code",
+                return_value="54321",
+            ) as mocked_ensure, patch(
+                "routes.career.build_career_public_url",
+                side_effect=lambda endpoint, **values: (
+                    f"/karir/lowongan/{values.get('opening_id', '')}?code={values.get('code', '')}"
+                ),
+            ):
+                response = career_routes.apply()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/lowongan/7?code=54321")
+        self.assertIn("WHERE id=?", str(db.execute.call_args_list[2].args[0]))
+        self.assertEqual(db.execute.call_args_list[2].args[1], (55,))
+        mocked_ensure.assert_called_once_with(db, 55, "")
+
+    def test_hr_recruitment_add_uses_inserted_candidate_id_when_lastrowid_is_available(self):
+        import routes.hris as hris_routes
+
+        db = Mock()
+        db.commit = Mock()
+        db.execute.side_effect = [
+            Mock(lastrowid=88),
+            Mock(fetchone=Mock(return_value={"id": 88, "assessment_code": None})),
+        ]
+
+        with self.app.test_request_context(
+            "/hris/recruitment/add",
+            method="POST",
+            data={
+                "candidate_name": "Portal Luar",
+                "position_title": "Admin Warehouse",
+                "warehouse_id": "2",
+                "department": "Warehouse",
+                "stage": "applied",
+                "status": "active",
+                "source": "Job Portal",
+                "phone": "6281111999000",
+                "email": "portal@example.com",
+            },
+        ):
+            session["user_id"] = 9
+            with patch("routes.hris.can_manage_recruitment_records", return_value=True), patch(
+                "routes.hris.get_db",
+                return_value=db,
+            ), patch(
+                "routes.hris.ensure_career_schema"
+            ), patch(
+                "routes.hris._resolve_employee_warehouse",
+                return_value=2,
+            ), patch(
+                "routes.hris._build_recruitment_handling",
+                return_value=(None, None),
+            ), patch(
+                "routes.hris.ensure_candidate_assessment_code",
+                return_value="12345",
+            ) as mocked_ensure:
+                response = hris_routes.add_recruitment()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/hris/recruitment"))
+        self.assertIn("WHERE id=?", str(db.execute.call_args_list[1].args[0]))
+        self.assertEqual(db.execute.call_args_list[1].args[1], (88,))
+        mocked_ensure.assert_called_once_with(db, 88, "")
+
+    def test_public_career_auth_post_redirects_back_to_recruitment_host(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["CANONICAL_SCHEME"] = "https"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+
+        signup_response = self.client.post(
+            "/signin/register-request",
+            data={
+                "candidate_name": "Host Redirect",
+                "email": "host-redirect@example.com",
+            },
+            headers={"Host": "erp.test"},
+            follow_redirects=False,
+        )
+        self.assertEqual(signup_response.status_code, 302)
+        self.assertEqual(
+            signup_response.headers["Location"],
+            "https://recruitment.test/signin?flow=signup&registered=1&email=host-redirect@example.com",
+        )
+
+        signin_response = self.client.post(
+            "/signin/auth",
+            data={"email": "", "password": ""},
+            headers={"Host": "erp.test"},
+            follow_redirects=False,
+        )
+        self.assertEqual(signin_response.status_code, 302)
+        self.assertEqual(
+            signin_response.headers["Location"],
+            "https://recruitment.test/signin?flow=signin",
+        )
+
+    def test_finished_career_assessment_cannot_be_submitted_again(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Staff Karir Locked",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Tes untuk memastikan hasil tidak bisa ditimpa.",
+                    "Siap tes dasar.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "2 + 2 =", "3", "4", "5", "6", "b", 50, 1, 1),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (1, "Huruf setelah A", "C", "D", "B", "E", "c", 50, 2, 1),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Locked",)).fetchone()
+
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Locked Candidate",
+                "phone": "6281234505678",
+                "email": "locked@example.com",
+                "resume_file": (BytesIO(b"resume-locked"), "locked-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT id, assessment_code
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Locked Candidate",),
+            ).fetchone()
+        self.assertIsNotNone(candidate)
+
+        first_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": candidate["assessment_code"],
+                "answer_1": "b",
+                "answer_2": "a",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(first_submit.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            before_retry = db.execute(
+                """
+                SELECT assessment_status, assessment_answers_json, assessment_auto_score, assessment_final_score
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+
+        retry_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": candidate["assessment_code"],
+                "answer_1": "a",
+                "answer_2": "c",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(retry_submit.status_code, 302)
+        self.assertTrue(retry_submit.headers["Location"].endswith(f"/karir/tes?code={candidate['assessment_code']}"))
+
+        with self.app.app_context():
+            db = get_db()
+            after_retry = db.execute(
+                """
+                SELECT assessment_status, assessment_answers_json, assessment_auto_score, assessment_final_score
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+
+        self.assertEqual(after_retry["assessment_status"], "submitted")
+        self.assertEqual(after_retry["assessment_answers_json"], before_retry["assessment_answers_json"])
+        self.assertEqual(float(after_retry["assessment_auto_score"]), float(before_retry["assessment_auto_score"]))
+        self.assertEqual(float(after_retry["assessment_final_score"]), float(before_retry["assessment_final_score"]))
 
     def test_career_schema_repairs_missing_postgresql_id_defaults(self):
         with self.app.app_context():

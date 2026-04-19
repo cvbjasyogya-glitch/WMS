@@ -9,6 +9,148 @@
     --career-shadow: 0 18px 40px rgba(17, 42, 73, 0.08);
 }
 
+.career-astra-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 28px;
+    padding: 18px 40px;
+    border-radius: 0 0 22px 22px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(14px);
+}
+
+.career-astra-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: #0f172a;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-astra-brand img {
+    width: 126px;
+    height: auto;
+    display: block;
+}
+
+.career-astra-brand-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.career-astra-brand-copy strong {
+    font-size: 0.98rem;
+    letter-spacing: -0.02em;
+}
+
+.career-astra-brand-copy span {
+    color: #64748b;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.career-astra-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.career-astra-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.career-astra-nav a {
+    position: relative;
+    padding: 10px 2px;
+    color: #475569;
+    text-decoration: none;
+    font-size: 0.97rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: color 0.18s ease;
+}
+
+.career-astra-nav a:hover,
+.career-astra-nav a.is-active {
+    color: #005baa;
+}
+
+.career-astra-nav a.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -7px;
+    height: 3px;
+    border-radius: 999px;
+    background: #005baa;
+}
+
+.career-astra-topbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.career-astra-topbar-actions a {
+    color: #475569;
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.career-astra-topbar .career-test-shortcut-panel summary {
+    min-height: 40px;
+    padding: 0 14px;
+    background: #f8fbff;
+    border-color: #d8e5f1;
+    color: #005baa;
+    font-size: 0.92rem;
+}
+
+.career-astra-topbar .career-test-shortcut-card {
+    top: calc(100% + 14px);
+}
+
+.career-astra-login-link:hover,
+.career-astra-register-link:hover {
+    color: #005baa;
+}
+
+.career-astra-lang {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid #b8cee3;
+}
+
+.career-astra-lang span {
+    min-width: 34px;
+    min-height: 28px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #46627e;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.career-astra-lang .is-active {
+    background: #005baa;
+    color: #fff;
+}
+
 .career-public-shell .page-hero {
     display: none;
 }
@@ -377,6 +519,26 @@
     cursor: pointer;
 }
 
+@media (max-width: 1260px) {
+    .career-astra-topbar {
+        grid-template-columns: 1fr;
+        justify-items: start;
+        gap: 18px;
+        padding: 18px 24px;
+    }
+
+    .career-astra-nav {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .career-astra-topbar-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+}
+
 @media (max-width: 980px) {
     .career-topbar {
         flex-direction: column;
@@ -420,5 +582,21 @@
 
     .career-code-modal-actions {
         flex-direction: column;
+    }
+}
+
+@media (max-width: 860px) {
+    .career-astra-topbar {
+        border-radius: 0 0 18px 18px;
+        gap: 16px;
+        padding: 16px 18px 18px;
+    }
+
+    .career-astra-brand img {
+        width: 108px;
+    }
+
+    .career-astra-topbar-actions {
+        gap: 10px;
     }
 }

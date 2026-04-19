@@ -4,68 +4,517 @@
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Bantuan{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-simple-page{% endblock %}
+{% block page_content_class %}career-help-page{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
-.career-public-shell { background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%); color: #17304e; }
-.career-public-shell .page-hero { display: none; }
-.career-simple-page { display: grid; gap: 24px; }
-.career-topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 26px; border-radius: 26px; background: rgba(255,255,255,0.97); border: 1px solid #dce8f4; box-shadow: 0 18px 40px rgba(17,42,73,0.08); }
-.career-brand { display: inline-flex; align-items: center; gap: 16px; }
-.career-brand-mark { width: 64px; height: 40px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, #0066b3, #2e87cf); color: #fff; font: 800 1.12rem/1 "Space Grotesk", sans-serif; letter-spacing: 0.06em; }
-.career-brand-copy strong { color: #17304e; }
-.career-brand-copy span { color: #68809b; font-size: 0.9rem; }
-.career-nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 24px; }
-.career-nav a { color: #415c78; text-decoration: none; font-weight: 600; }
-.career-nav a:hover, .career-nav a.is-active { color: #0066b3; }
-.career-nav .is-active { position: relative; }
-.career-nav .is-active::after { content:""; position:absolute; left:0; right:0; bottom:-12px; height:3px; border-radius:999px; background:#0066b3; }
-.career-nav-utility { display:inline-flex; align-items:center; gap:14px; padding-left:18px; border-left:1px solid #dce8f4; }
-.career-simple-card { display:grid; gap:18px; padding:28px; border-radius:28px; background:#fff; border:1px solid #dce8f4; box-shadow:0 18px 40px rgba(17,42,73,0.08); }
-.career-simple-card h1, .career-simple-card h2, .career-simple-card p, .career-simple-card li { margin:0; }
-.career-simple-card h1 { font-size: clamp(2rem, 4vw, 3rem); color:#0066b3; }
-.career-simple-card p, .career-simple-card li { color:#627890; line-height:1.75; }
-.career-help-grid { display:grid; gap:18px; grid-template-columns:repeat(2, minmax(0, 1fr)); }
-.career-help-tile { display:grid; gap:12px; padding:20px; border-radius:20px; background:#f7fbff; border:1px solid #dce8f4; }
-.career-help-tile h2 { color:#17304e; font-size:1.08rem; }
-.career-help-tile ul { margin:0; padding-left:18px; display:grid; gap:8px; }
-.career-help-cta { display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:0 20px; border-radius:999px; text-decoration:none; background:#0066b3; color:#fff; font-weight:700; width:max-content; }
-@media (max-width: 900px) {
-  .career-topbar { flex-direction:column; align-items:flex-start; padding:18px 20px; }
-  .career-nav { justify-content:flex-start; gap:18px; }
-  .career-help-grid { grid-template-columns:1fr; }
+body .main.career-public-shell {
+    padding-top: 0;
+    padding-bottom: 72px;
+    background:
+        linear-gradient(180deg, #f5f6f8 0%, #f4f5f7 56%, #f7f8fa 100%);
+    color: #1f2937;
+    font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+}
+
+body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
+    width: min(1380px, calc(100vw - 32px));
+    max-width: none;
+    margin-inline: auto;
+    gap: 0;
+}
+
+.career-help-page {
+    display: block;
+}
+
+.career-help-shell {
+    display: grid;
+    gap: 44px;
+    padding-top: 22px;
+}
+
+.career-help-shell section[id] {
+    scroll-margin-top: 108px;
+}
+
+.career-help-hero {
+    position: relative;
+    display: grid;
+    gap: 0;
+}
+
+.career-help-hero-banner {
+    position: relative;
+    min-height: clamp(430px, 62vh, 620px);
+    border-radius: 0 0 22px 22px;
+    overflow: hidden;
+    background:
+        linear-gradient(90deg, rgba(15, 23, 42, 0.64), rgba(15, 23, 42, 0.18)),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.48)),
+        url('{{ career_home_hero_image_url }}') center 34% / cover no-repeat;
+}
+
+.career-help-hero-copy {
+    position: absolute;
+    left: clamp(28px, 6vw, 92px);
+    bottom: clamp(154px, 18vw, 224px);
+    z-index: 2;
+    width: min(760px, calc(100% - 48px));
+    display: grid;
+    gap: 14px;
+    color: #fff;
+}
+
+.career-help-kicker,
+.career-help-card-kicker {
+    width: max-content;
+    min-height: 34px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.career-help-kicker {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.84);
+}
+
+.career-help-hero-copy h1,
+.career-help-hero-copy p {
+    margin: 0;
+}
+
+.career-help-hero-copy h1 {
+    font-size: clamp(2.35rem, 5vw, 4.25rem);
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    font-weight: 800;
+}
+
+.career-help-hero-copy p {
+    max-width: 56ch;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: clamp(1rem, 2vw, 1.16rem);
+    line-height: 1.7;
+}
+
+.career-help-band {
+    position: relative;
+    z-index: 3;
+    margin: -84px auto 0;
+    width: min(1274px, calc(100% - 60px));
+    display: grid;
+    gap: 22px;
+    padding: 24px 28px 28px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #005baa 0%, #166ab5 100%);
+    box-shadow: 0 28px 60px rgba(0, 54, 110, 0.22);
+    color: #fff;
+}
+
+.career-help-band-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+.career-help-band-head strong,
+.career-help-band-head p {
+    display: block;
+    margin: 0;
+}
+
+.career-help-band-head strong {
+    font-size: clamp(1.08rem, 2vw, 1.42rem);
+}
+
+.career-help-band-head p {
+    margin-top: 8px;
+    max-width: 62ch;
+    color: rgba(255, 255, 255, 0.82);
+    line-height: 1.62;
+}
+
+.career-help-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.career-help-actions a {
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-help-actions a:first-child {
+    background: #fff;
+    color: #005baa;
+}
+
+.career-help-actions a:last-child {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+.career-help-band-grid,
+.career-help-step-grid,
+.career-help-faq-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.career-help-band-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.career-help-band-card,
+.career-help-step-card,
+.career-help-faq-card,
+.career-help-cta {
+    display: grid;
+    gap: 18px;
+    padding: 26px 24px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #e5ebf2;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+}
+
+.career-help-band-card {
+    min-height: 108px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: none;
+}
+
+.career-help-band-card strong,
+.career-help-band-card span,
+.career-help-step-card h3,
+.career-help-step-card p,
+.career-help-faq-card h3,
+.career-help-faq-card p,
+.career-help-cta h2,
+.career-help-cta p {
+    margin: 0;
+}
+
+.career-help-band-card strong {
+    font-size: clamp(1.1rem, 3vw, 1.5rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    color: #fff;
+}
+
+.career-help-band-card span {
+    color: rgba(255, 255, 255, 0.82);
+    line-height: 1.58;
+    font-size: 0.92rem;
+}
+
+.career-help-sections {
+    display: grid;
+    gap: 24px;
+    padding: 0 18px;
+}
+
+.career-help-section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+.career-help-section-head h2,
+.career-help-section-head p {
+    margin: 0;
+}
+
+.career-help-section-head h2,
+.career-help-cta h2 {
+    font-size: clamp(1.7rem, 3vw, 2.2rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    color: #1f2937;
+}
+
+.career-help-section-head p,
+.career-help-step-card p,
+.career-help-faq-card p,
+.career-help-cta p {
+    color: #64748b;
+    line-height: 1.72;
+}
+
+.career-help-step-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.career-help-step-card span {
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #005baa;
+    color: #fff;
+    font-size: 0.92rem;
+    font-weight: 800;
+}
+
+.career-help-step-card h3,
+.career-help-faq-card h3 {
+    font-size: 1.12rem;
+    line-height: 1.36;
+    letter-spacing: -0.02em;
+    color: #1f2937;
+}
+
+.career-help-faq-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.career-help-card-kicker {
+    background: #edf5fe;
+    border: 1px solid #d7e7f8;
+    color: #005baa;
+}
+
+.career-help-cta {
+    align-items: start;
+    background:
+        radial-gradient(circle at top right, rgba(0, 91, 170, 0.08), transparent 28%),
+        rgba(255, 255, 255, 0.97);
+}
+
+.career-help-cta-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.career-help-cta-actions a {
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-help-cta-actions a:first-child {
+    background: linear-gradient(135deg, #005baa, #166ab5);
+    color: #fff;
+}
+
+.career-help-cta-actions a:last-child {
+    background: #f4f8fd;
+    border: 1px solid #dbe7f3;
+    color: #005baa;
+}
+
+@media (max-width: 1260px) {
+    .career-help-band-grid,
+    .career-help-step-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
+        width: min(100%, calc(100vw - 18px));
+    }
+
+    .career-help-shell {
+        gap: 36px;
+        padding-top: 12px;
+    }
+
+    .career-help-sections {
+        padding-inline: 6px;
+    }
+
+    .career-help-hero-banner {
+        min-height: 580px;
+        border-radius: 0 0 18px 18px;
+    }
+
+    .career-help-hero-copy {
+        left: 22px;
+        right: 22px;
+        bottom: 168px;
+        width: auto;
+    }
+
+    .career-help-band {
+        width: calc(100% - 18px);
+        margin-top: -72px;
+        padding: 18px;
+    }
+
+    .career-help-band-head,
+    .career-help-section-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .career-help-actions a,
+    .career-help-cta-actions a {
+        width: 100%;
+    }
+
+    .career-help-band-grid,
+    .career-help-step-grid,
+    .career-help-faq-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 680px) {
+    .career-help-step-card,
+    .career-help-faq-card,
+    .career-help-cta {
+        padding: 22px 20px;
+    }
 }
 </style>
 {% endblock %}
 
 {% block content %}
 {% set active_page = 'help' %}
-{% include "_career_public_nav.html" %}
 
-<section class="career-simple-card">
-    <h1>Bantuan Kandidat</h1>
-    <p>Jika Anda sudah menemukan posisi yang cocok, buka detail lowongan lalu isi data diri dan unggah CV terbaru. Setelah lamaran berhasil dikirim, simpan kode tes 5 digit yang muncul karena kode itu dipakai untuk masuk ke halaman tes.</p>
-    <div class="career-help-grid">
-        <article class="career-help-tile">
-            <h2>Sebelum Melamar</h2>
-            <ul>
-                <li>Pastikan nomor WhatsApp atau email aktif dapat dihubungi.</li>
-                <li>Siapkan CV terbaru dalam format yang didukung sistem.</li>
-                <li>Pilih lowongan yang benar-benar sesuai sebelum mengirim lamaran.</li>
-            </ul>
-        </article>
-        <article class="career-help-tile">
-            <h2>Saat Tes Berlangsung</h2>
-            <ul>
-                <li>Gunakan kode unik 5 digit yang diberikan sistem atau HR.</li>
-                <li>Jangan menutup tab atau berpindah halaman saat tes aktif.</li>
-                <li>Jika pelanggaran mencapai 3 kali, tes akan diulang dari awal dengan kode baru.</li>
-            </ul>
-        </article>
-    </div>
-    <a href="{{ signin_url }}" class="career-help-cta">Masuk</a>
-</section>
+<div class="career-help-shell">
+    {% include "_career_public_header_astra.html" %}
+
+    <section class="career-help-hero">
+        <div class="career-help-hero-banner">
+            <div class="career-help-hero-copy">
+                <span class="career-help-kicker">Pusat Bantuan</span>
+                <h1>Bantuan Kandidat dari tahap apply sampai assessment ada dalam satu panduan yang lebih ringkas.</h1>
+                <p>Halaman ini merangkum pertanyaan yang paling sering dibutuhkan kandidat: apa yang harus disiapkan sebelum melamar, bagaimana menyimpan kode tes, dan apa yang harus diperhatikan saat sesi assessment berlangsung.</p>
+            </div>
+        </div>
+
+        <div class="career-help-band">
+            <div class="career-help-band-head">
+                <div>
+                    <strong>Bantuan Kandidat</strong>
+                    <p>Kalau Anda sudah menemukan posisi yang cocok, buka detail lowongan lalu isi data diri dan unggah CV terbaru. Setelah lamaran berhasil dikirim, simpan kode tes 5 digit yang muncul karena kode itu dipakai untuk masuk ke halaman tes.</p>
+                </div>
+                <div class="career-help-actions">
+                    <a href="{{ url_for('career.index') }}">Lihat Lowongan</a>
+                    <a href="{{ signin_url }}">Masuk</a>
+                </div>
+            </div>
+
+            <div class="career-help-band-grid">
+                <article class="career-help-band-card">
+                    <strong>{{ opening_count }}</strong>
+                    <span>Posisi aktif yang bisa langsung dilihat kandidat saat ini.</span>
+                </article>
+                <article class="career-help-band-card">
+                    <strong>CV Aktif</strong>
+                    <span>Unggah dokumen terbaru supaya review awal HR lebih relevan.</span>
+                </article>
+                <article class="career-help-band-card">
+                    <strong>5 Digit</strong>
+                    <span>Simpan kode tes segera setelah submit lamaran berhasil.</span>
+                </article>
+                <article class="career-help-band-card">
+                    <strong>{{ "Akun Kandidat" if register_url else "Portal Kandidat" }}</strong>
+                    <span>Anda bisa daftar akun atau langsung lanjut pakai kode tes bila sudah diberikan.</span>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section class="career-help-sections">
+        <div class="career-help-section-head">
+            <div>
+                <h2>Langkah Yang Paling Sering Dicari Kandidat</h2>
+                <p>Tiga tahap ini biasanya jadi titik yang paling sering membuat kandidat berhenti atau ragu. Karena itu saya pecah menjadi panduan yang lebih mudah dibaca.</p>
+            </div>
+        </div>
+
+        <div class="career-help-step-grid">
+            <article class="career-help-step-card">
+                <span>1</span>
+                <h3>Sebelum Melamar</h3>
+                <p>Pastikan nomor WhatsApp atau email aktif dapat dihubungi, siapkan CV terbaru dalam format yang didukung sistem, dan pilih lowongan yang benar-benar sesuai sebelum mengirim lamaran.</p>
+            </article>
+            <article class="career-help-step-card">
+                <span>2</span>
+                <h3>Sesudah Submit Lamaran</h3>
+                <p>Portal akan menampilkan kode tes 5 digit. Simpan kode itu segera karena dipakai untuk membuka sesi assessment tanpa harus mengulang proses dari awal.</p>
+            </article>
+            <article class="career-help-step-card">
+                <span>3</span>
+                <h3>Saat Tes Berlangsung</h3>
+                <p>Gunakan satu tab saja, jangan refresh halaman, dan jangan berpindah fokus terlalu sering karena sistem mencatat pelanggaran selama assessment aktif.</p>
+            </article>
+        </div>
+
+        <div class="career-help-section-head">
+            <div>
+                <h2>Pertanyaan Yang Paling Sering Muncul</h2>
+                <p>Bagian ini saya susun seperti FAQ singkat supaya kandidat tidak perlu mencari jawabannya di banyak halaman terpisah.</p>
+            </div>
+        </div>
+
+        <div class="career-help-faq-grid">
+            <article class="career-help-faq-card">
+                <span class="career-help-card-kicker">Apply</span>
+                <h3>Kalau tidak punya email, apakah tetap bisa melamar?</h3>
+                <p>Bisa, selama Anda tetap mengisi minimal satu kontak aktif. Namun email sangat disarankan supaya HR punya jalur follow-up tambahan selain WhatsApp.</p>
+            </article>
+            <article class="career-help-faq-card">
+                <span class="career-help-card-kicker">Kode Tes</span>
+                <h3>Bagaimana kalau lupa menyimpan kode tes?</h3>
+                <p>Kalau kode belum tersimpan, biasanya kandidat perlu menghubungi HR. Karena itu shortcut <em>Punya Kode Tes?</em> sengaja dipasang di header supaya kode yang sudah ada bisa langsung dipakai kembali.</p>
+            </article>
+            <article class="career-help-faq-card">
+                <span class="career-help-card-kicker">Assessment</span>
+                <h3>Apa yang terjadi kalau saya pindah tab saat tes?</h3>
+                <p>Sistem menambah catatan pelanggaran. Jika pelanggaran mencapai batas maksimum, sesi bisa direset dan kandidat perlu memulai ulang memakai kode yang baru.</p>
+            </article>
+            <article class="career-help-faq-card">
+                <span class="career-help-card-kicker">Akun</span>
+                <h3>Perlu akun untuk melihat lowongan?</h3>
+                <p>Tidak. Kandidat tetap bisa melihat lowongan dan mengirim lamaran dari portal publik. Akun kandidat dipakai untuk flow yang diaktifkan bertahap dan kebutuhan tertentu.</p>
+            </article>
+        </div>
+
+        <section class="career-help-cta">
+            <span class="career-help-card-kicker">Butuh Langkah Berikutnya?</span>
+            <h2>Lanjut ke halaman yang paling relevan untukmu.</h2>
+            <p>Kalau Anda masih eksplorasi, mulai dari daftar lowongan. Kalau sudah siap masuk ke akun atau butuh submit akun kandidat, lanjut dari halaman akses kandidat.</p>
+            <div class="career-help-cta-actions">
+                <a href="{{ url_for('career.index') }}">Cari Lowongan</a>
+                <a href="{{ signin_url }}">Masuk atau Daftar</a>
+            </div>
+        </section>
+    </section>
+</div>
 {% endblock %}

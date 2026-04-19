@@ -4,513 +4,538 @@
 {% block eyebrow %}{% endblock %}
 {% block page_title %}Lowongan{% endblock %}
 {% block main_class %}career-public-shell{% endblock %}
-{% block page_content_class %}career-jobs-page career-page-surface{% endblock %}
+{% block page_content_class %}career-jobs-page{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
 <style>
-.career-public-shell {
+body .main.career-public-shell {
+    padding-top: 0;
+    padding-bottom: 72px;
     background:
-        radial-gradient(circle at top left, rgba(11, 99, 182, 0.1), transparent 24%),
-        linear-gradient(180deg, #f8fbff 0%, #eef4fa 48%, #edf3f8 100%);
-    color: var(--career-ink);
+        linear-gradient(180deg, #f5f6f8 0%, #f4f5f7 56%, #f7f8fa 100%);
+    color: #1f2937;
+    font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+}
+
+body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
+    width: min(1380px, calc(100vw - 32px));
+    max-width: none;
+    margin-inline: auto;
+    gap: 0;
 }
 
 .career-jobs-page {
+    display: block;
+}
+
+.career-jobs-shell {
     display: grid;
-    gap: 24px;
+    gap: 44px;
+    padding-top: 22px;
+}
+
+.career-jobs-shell section[id] {
+    scroll-margin-top: 108px;
+}
+
+.career-jobs-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .career-jobs-hero {
-    display: grid;
-    gap: 24px;
-    grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
-    align-items: stretch;
-    padding: 14px;
-    border-radius: 32px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
-    border: 1px solid #dbe7f3;
-    box-shadow: 0 24px 52px rgba(17, 42, 73, 0.08);
-}
-
-.career-jobs-hero-main,
-.career-jobs-hero-side {
-    border-radius: 24px;
-}
-
-.career-jobs-hero-main {
-    display: grid;
-    gap: 18px;
-    padding: 34px;
-    background:
-        radial-gradient(circle at 88% 18%, rgba(255,255,255,0.14), transparent 26%),
-        linear-gradient(135deg, #0e5f9d 0%, #0d74bb 52%, #1f8ed8 100%);
-    color: #fff;
     position: relative;
+    display: grid;
+    gap: 0;
+}
+
+.career-jobs-hero-banner {
+    position: relative;
+    min-height: clamp(420px, 62vh, 620px);
+    border-radius: 0 0 22px 22px;
     overflow: hidden;
+    background:
+        linear-gradient(90deg, rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.18)),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.48)),
+        url('{{ career_home_hero_image_url }}') center 34% / cover no-repeat;
 }
 
-.career-jobs-hero-main::after {
-    content: "";
+.career-jobs-hero-copy {
     position: absolute;
-    right: -58px;
-    bottom: -84px;
-    width: 220px;
-    height: 220px;
-    border-radius: 999px;
-    border: 28px solid rgba(255,255,255,0.14);
-    pointer-events: none;
-}
-
-.career-jobs-hero-main > * {
-    position: relative;
-    z-index: 1;
+    left: clamp(28px, 6vw, 92px);
+    bottom: clamp(132px, 17vw, 206px);
+    z-index: 2;
+    width: min(700px, calc(100% - 48px));
+    display: grid;
+    gap: 14px;
+    color: #fff;
 }
 
 .career-jobs-kicker {
     width: max-content;
     min-height: 34px;
     padding: 0 14px;
-    border-radius: 999px;
     display: inline-flex;
     align-items: center;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.16);
-    font-size: 0.78rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     letter-spacing: 0.16em;
     text-transform: uppercase;
+    font-size: 0.76rem;
     font-weight: 800;
-    color: rgba(255,255,255,0.82);
 }
 
-.career-jobs-hero-main h1,
-.career-jobs-hero-main p {
+.career-jobs-hero-copy h1,
+.career-jobs-hero-copy p {
     margin: 0;
 }
 
-.career-jobs-hero-main h1 {
-    max-width: 11ch;
-    font: 700 clamp(2.3rem, 4.7vw, 3.95rem)/0.98 "Space Grotesk", sans-serif;
+.career-jobs-hero-copy h1 {
+    font-size: clamp(2.35rem, 5vw, 4.4rem);
+    line-height: 1.02;
     letter-spacing: -0.04em;
-    color: #fff;
+    font-weight: 800;
 }
 
-.career-jobs-hero-main p {
-    max-width: 700px;
-    line-height: 1.75;
-    color: rgba(255,255,255,0.9);
-    font-size: 1.02rem;
+.career-jobs-hero-copy p {
+    max-width: 48ch;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    line-height: 1.68;
 }
 
-.career-jobs-hero-actions {
+.career-jobs-searchband {
+    position: relative;
+    z-index: 3;
+    margin: -74px auto 0;
+    width: min(1274px, calc(100% - 60px));
+    display: grid;
+    gap: 18px;
+    padding: 22px 28px 26px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #005baa 0%, #166ab5 100%);
+    box-shadow: 0 28px 60px rgba(0, 54, 110, 0.22);
+}
+
+.career-jobs-searchband-head {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    color: #fff;
     flex-wrap: wrap;
-    gap: 12px;
 }
 
-.career-jobs-hero-actions a {
-    min-height: 48px;
-    padding: 0 20px;
-    border-radius: 999px;
+.career-jobs-searchband-head strong {
+    font-size: clamp(1.08rem, 2vw, 1.42rem);
+}
+
+.career-jobs-searchband-head span {
+    color: rgba(255, 255, 255, 0.82);
+    line-height: 1.55;
+}
+
+.career-jobs-search-meta {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.career-jobs-search-meta a {
+    color: #fff;
     text-decoration: none;
     font-weight: 700;
 }
 
-.career-jobs-hero-actions .is-primary {
-    background: #fff;
-    color: var(--career-blue);
-}
-
-.career-jobs-hero-actions .is-secondary {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
-    color: #fff;
-}
-
-.career-jobs-hero-side {
+.career-jobs-search-form {
     display: grid;
-    gap: 16px;
-    padding: 26px 24px;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-    border: 1px solid #e1ecf6;
-}
-
-.career-jobs-hero-side h2,
-.career-jobs-hero-side p {
-    margin: 0;
-}
-
-.career-jobs-hero-side h2 {
-    font: 700 1.45rem/1.15 "Space Grotesk", sans-serif;
-    color: var(--career-ink);
-    letter-spacing: -0.03em;
-}
-
-.career-jobs-hero-side p {
-    color: var(--career-muted);
-    line-height: 1.7;
-}
-
-.career-jobs-overview-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.career-jobs-overview-card {
-    display: grid;
-    gap: 4px;
-    min-height: 96px;
-    padding: 16px;
-    border-radius: 18px;
-    background: #f7fbff;
-    border: 1px solid #dce8f4;
-}
-
-.career-jobs-overview-card strong {
-    color: var(--career-blue);
-    font: 700 clamp(1.45rem, 3vw, 2rem)/1 "Space Grotesk", sans-serif;
-}
-
-.career-jobs-overview-card span {
-    color: #5a748d;
-    line-height: 1.55;
-    font-size: 0.9rem;
-}
-
-.career-jobs-process {
-    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(170px, 0.9fr) minmax(170px, 0.9fr) minmax(170px, 0.9fr) auto;
     gap: 10px;
 }
 
-.career-jobs-process-step {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 12px;
-    align-items: start;
-    padding: 12px 0;
-    border-top: 1px solid #e5eef6;
+.career-jobs-search-field,
+.career-jobs-search-form select,
+.career-jobs-search-form button {
+    min-height: 54px;
+    border-radius: 12px;
+    border: 0;
+    font: inherit;
 }
 
-.career-jobs-process-step:first-child {
-    border-top: 0;
-    padding-top: 0;
+.career-jobs-search-field,
+.career-jobs-search-form select {
+    position: relative;
+    background: #fff;
 }
 
-.career-jobs-process-step strong {
-    width: 30px;
-    height: 30px;
+.career-jobs-search-field input,
+.career-jobs-search-form select {
+    width: 100%;
+    height: 100%;
+    color: #334155;
+    padding: 0 18px;
+}
+
+.career-jobs-search-field input {
+    border: 0;
+    outline: 0;
+    padding-left: 48px;
+}
+
+.career-jobs-search-field::before {
+    content: "";
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #6b7280;
     border-radius: 999px;
+    transform: translateY(-50%);
+}
+
+.career-jobs-search-field::after {
+    content: "";
+    position: absolute;
+    left: 31px;
+    top: 31px;
+    width: 8px;
+    height: 2px;
+    background: #6b7280;
+    transform: rotate(45deg);
+}
+
+.career-jobs-search-form button {
+    padding: 0 24px;
+    background: #0f172a;
+    color: #fff;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.career-jobs-content {
     display: grid;
-    place-items: center;
-    background: #eaf4fd;
-    color: var(--career-blue);
-    font: 700 0.9rem/1 "Space Grotesk", sans-serif;
+    gap: 28px;
+    padding: 0 18px;
 }
 
-.career-jobs-process-step span {
-    color: #58728d;
-    line-height: 1.6;
-    font-size: 0.92rem;
-}
-
-.career-search-panel {
+.career-jobs-toolbar {
     display: grid;
     gap: 18px;
-    padding: 24px;
-    border-radius: 28px;
-    background: rgba(255, 255, 255, 0.98);
-    border: 1px solid var(--career-line);
-    box-shadow: var(--career-shadow);
 }
 
-.career-search-panel-head,
-.career-openings-head {
+.career-jobs-toolbar-head {
     display: flex;
-    align-items: flex-start;
+    align-items: flex-end;
     justify-content: space-between;
     gap: 18px;
+    flex-wrap: wrap;
 }
 
-.career-search-panel-head h2,
-.career-search-panel-head p,
-.career-openings-head h2,
-.career-openings-head p {
+.career-jobs-toolbar-head h2,
+.career-jobs-toolbar-head p {
     margin: 0;
 }
 
-.career-search-panel-head h2,
-.career-openings-head h2 {
-    font: 700 clamp(1.45rem, 3vw, 1.85rem)/1.1 "Space Grotesk", sans-serif;
-    color: var(--career-ink);
+.career-jobs-toolbar-head h2 {
+    font-size: clamp(1.8rem, 3vw, 2.35rem);
+    line-height: 1.1;
     letter-spacing: -0.03em;
+    color: #1f2937;
 }
 
-.career-search-panel-head p,
-.career-openings-head p {
-    color: var(--career-muted);
-    line-height: 1.7;
+.career-jobs-toolbar-head p {
+    margin-top: 10px;
+    max-width: 760px;
+    color: #6b7280;
+    line-height: 1.72;
 }
 
-.career-result-chip {
+.career-jobs-toolbar-stats {
     display: inline-flex;
     align-items: center;
-    min-height: 38px;
-    padding: 0 14px;
-    border-radius: 999px;
-    background: #f2f7fd;
-    border: 1px solid #d9e6f3;
-    color: #48637f;
-    font-weight: 700;
-    white-space: nowrap;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
-.career-focus-row {
+.career-jobs-count-chip,
+.career-jobs-active-filter {
+    min-height: 38px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-weight: 700;
+}
+
+.career-jobs-count-chip {
+    background: #e7f0fb;
+    color: #005baa;
+}
+
+.career-jobs-active-filter {
+    background: #f3f4f6;
+    color: #64748b;
+}
+
+.career-jobs-focus-row {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
 }
 
-.career-focus-chip {
+.career-jobs-focus-chip {
     min-height: 38px;
     padding: 0 14px;
     border-radius: 999px;
-    border: 1px solid #d8e5f2;
-    background: #f8fbff;
-    color: #5d7892;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.career-focus-chip.is-active {
-    background: #e9f4fd;
-    color: var(--career-blue);
-    border-color: #cfe1f2;
-}
-
-.career-search-bar {
-    display: grid;
-    gap: 14px;
-    grid-template-columns: minmax(0, 1.45fr) minmax(190px, 0.74fr) minmax(190px, 0.74fr) auto;
-    align-items: center;
-}
-
-.career-field,
-.career-search-bar button {
-    min-height: 56px;
-    border-radius: 16px;
-    border: 1px solid var(--career-line);
+    border: 1px solid #d8e2ec;
     background: #fff;
-    color: var(--career-ink);
-    padding: 0 18px;
+    color: #64748b;
     font: inherit;
-}
-
-.career-field {
-    width: 100%;
-}
-
-.career-search-input {
-    position: relative;
-}
-
-.career-search-input::before {
-    content: "Q";
-    position: absolute;
-    left: 18px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    background: #eef5fd;
-    color: var(--career-blue);
     font-weight: 700;
-    font-size: 0.92rem;
-}
-
-.career-search-input input {
-    padding-left: 58px;
-}
-
-.career-search-bar button {
-    min-width: 112px;
-    border: 0;
-    background: linear-gradient(135deg, var(--career-blue), #2f87d0);
-    color: #fff;
-    font-weight: 700;
-    box-shadow: 0 18px 28px rgba(0, 102, 179, 0.16);
     cursor: pointer;
 }
 
-.career-openings-grid {
-    display: grid;
-    gap: 18px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.career-jobs-focus-chip.is-active {
+    background: #e8f2fd;
+    border-color: #cfe1f2;
+    color: #005baa;
 }
 
-.career-opening-card {
+.career-jobs-grid {
+    display: grid;
+    gap: 22px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.career-job-card {
     display: grid;
     gap: 16px;
     min-height: 100%;
-    padding: 24px;
-    border-radius: 24px;
-    background: rgba(255,255,255,0.98);
-    border: 1px solid var(--career-line);
-    box-shadow: var(--career-shadow);
+    padding: 26px 24px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #e5ebf2;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
 }
 
-.career-opening-head {
+.career-job-card-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
 }
 
-.career-opening-brand {
+.career-job-card-brand {
     display: grid;
     gap: 8px;
 }
 
-.career-opening-brand span,
-.career-opening-brand h3,
-.career-opening-brand p {
+.career-job-card-brand span,
+.career-job-card-brand h3,
+.career-job-card-brand p {
     margin: 0;
 }
 
-.career-opening-brand span {
+.career-job-card-brand span {
+    color: #005baa;
     font-size: 0.76rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--career-blue);
     font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
 }
 
-.career-opening-brand h3 {
-    color: var(--career-ink);
-    font-size: 1.22rem;
+.career-job-card-brand h3 {
+    font-size: 1.24rem;
     line-height: 1.35;
+    letter-spacing: -0.02em;
+    color: #1f2937;
 }
 
-.career-opening-brand p {
-    color: #5c7690;
+.career-job-card-brand p {
+    color: #64748b;
     font-weight: 700;
 }
 
-.career-opening-logo {
+.career-job-card-logo {
     width: 54px;
     height: 54px;
-    border-radius: 18px;
+    border-radius: 16px;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, rgba(11, 99, 182, 0.14), rgba(74, 164, 242, 0.12));
-    color: var(--career-blue);
-    font: 800 1rem/1 "Space Grotesk", sans-serif;
+    background: linear-gradient(135deg, rgba(0, 91, 170, 0.12), rgba(0, 91, 170, 0.02));
+    color: #005baa;
+    font-size: 1rem;
+    font-weight: 800;
     letter-spacing: 0.08em;
     flex-shrink: 0;
 }
 
-.career-opening-meta,
-.career-opening-location {
+.career-job-card-meta,
+.career-job-card-location {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
 }
 
-.career-opening-meta span,
-.career-opening-location span {
+.career-job-card-meta span,
+.career-job-card-location span {
     min-height: 32px;
     padding: 0 12px;
-    border-radius: 999px;
     display: inline-flex;
     align-items: center;
-    background: #f3f8fe;
-    border: 1px solid #dbe8f5;
-    color: #56718b;
+    border-radius: 999px;
+    background: #f4f8fc;
+    border: 1px solid #dce6ef;
+    color: #5b7087;
     font-size: 0.82rem;
     font-weight: 700;
 }
 
-.career-opening-summary {
+.career-job-card-summary {
     margin: 0;
-    color: var(--career-muted);
-    line-height: 1.72;
+    color: #6b7280;
+    line-height: 1.74;
 }
 
-.career-opening-actions {
+.career-job-card-actions {
     display: flex;
-    flex-wrap: wrap;
     gap: 10px;
+    flex-wrap: wrap;
     margin-top: auto;
 }
 
-.career-opening-actions a {
+.career-job-card-actions a {
     flex: 1;
     min-height: 46px;
-    border-radius: 14px;
+    border-radius: 12px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    font-weight: 700;
+    font-weight: 800;
 }
 
-.career-opening-actions a:first-child {
+.career-job-card-actions a:first-child {
     background: #f4f8fd;
     border: 1px solid #dbe7f3;
-    color: var(--career-blue);
+    color: #005baa;
 }
 
-.career-opening-actions a:last-child {
-    background: linear-gradient(135deg, var(--career-blue), #2b85d4);
+.career-job-card-actions a:last-child {
+    background: linear-gradient(135deg, #005baa, #166ab5);
     color: #fff;
 }
 
-.career-no-results {
-    display: none;
-    padding: 28px 24px;
-    border-radius: 24px;
-    border: 1px dashed #c9d9e8;
-    background: rgba(255,255,255,0.72);
-    color: #5e7590;
-    text-align: center;
+.career-jobs-empty {
+    display: grid;
+    gap: 18px;
+    justify-items: start;
+    padding: 30px 26px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #e5ebf2;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+    color: #64748b;
 }
 
-@media (max-width: 1200px) {
-    .career-jobs-hero,
-    .career-search-bar {
-        grid-template-columns: 1fr;
+.career-jobs-empty h3,
+.career-jobs-empty p {
+    margin: 0;
+}
+
+.career-jobs-empty h3 {
+    font-size: 1.32rem;
+    line-height: 1.3;
+    color: #1f2937;
+}
+
+.career-jobs-empty p {
+    line-height: 1.72;
+}
+
+.career-jobs-empty a {
+    min-height: 46px;
+    padding: 0 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #005baa, #166ab5);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+@media (max-width: 1260px) {
+    .career-jobs-search-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .career-jobs-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
-@media (max-width: 960px) {
-    .career-openings-grid,
-    .career-jobs-overview-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 760px) {
-    .career-jobs-hero-main,
-    .career-jobs-hero-side,
-    .career-search-panel,
-    .career-opening-card {
-        padding: 22px;
+@media (max-width: 860px) {
+    body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
+        width: min(100%, calc(100vw - 18px));
     }
 
-    .career-search-panel-head,
-    .career-openings-head {
+    .career-jobs-shell {
+        gap: 36px;
+        padding-top: 12px;
+    }
+
+    .career-jobs-hero-banner {
+        min-height: 540px;
+        border-radius: 0 0 18px 18px;
+    }
+
+    .career-jobs-hero-copy {
+        left: 22px;
+        right: 22px;
+        bottom: 140px;
+        width: auto;
+    }
+
+    .career-jobs-searchband {
+        width: calc(100% - 18px);
+        margin-top: -60px;
+        padding: 18px;
+    }
+
+    .career-jobs-content {
+        padding-inline: 6px;
+    }
+
+    .career-jobs-toolbar-head {
         flex-direction: column;
+        align-items: flex-start;
     }
 
-    .career-opening-actions {
+    .career-jobs-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 680px) {
+    .career-jobs-search-form {
+        grid-template-columns: 1fr;
+    }
+
+    .career-job-card-actions {
         flex-direction: column;
     }
 }
@@ -519,8 +544,11 @@
 
 {% block content %}
 {% set active_page = 'jobs' %}
-{% set ns = namespace(departments=[], employment_types=[], locations=[]) %}
+{% set ns = namespace(departments=[], employment_types=[], locations=[], spotlight=None) %}
 {% for opening in openings %}
+    {% if ns.spotlight is none %}
+        {% set ns.spotlight = opening %}
+    {% endif %}
     {% set department_label = (opening.department or 'Operasional')|trim %}
     {% if department_label and department_label not in ns.departments %}
         {% set ns.departments = ns.departments + [department_label] %}
@@ -534,140 +562,164 @@
         {% set ns.locations = ns.locations + [location_label] %}
     {% endif %}
 {% endfor %}
-{% include "_career_public_nav.html" %}
+{% set spotlight_opening = ns.spotlight %}
 
-<section class="career-jobs-hero">
-    <div class="career-jobs-hero-main">
-        <p class="career-jobs-kicker">Lowongan</p>
-        <h1>Temukan posisi yang paling cocok untuk langkah karirmu berikutnya.</h1>
-        <p>Temukan posisi yang tepat, kirim lamaran, lalu lanjut tes dengan kode 5 digit. Tahap pertama ini saya arahkan ke nuansa yang lebih corporate, bersih, dan fokus seperti portal karir perusahaan besar.</p>
-        <div class="career-jobs-hero-actions">
-            <a href="#careerExplorer" class="is-primary">Jelajahi Lowongan</a>
-            <a href="{{ url_for('career.home') }}" class="is-secondary">Kembali ke Beranda</a>
+<div class="career-jobs-shell">
+    {% include "_career_public_header_astra.html" %}
+
+    <section class="career-jobs-hero" id="careerExplorer">
+        <div class="career-jobs-hero-banner">
+            <div class="career-jobs-hero-copy">
+                <span class="career-jobs-kicker">Lowongan</span>
+                <h1>Temukan posisi yang paling cocok untuk langkah karirmu berikutnya.</h1>
+                <p>Jelajahi lowongan aktif, saring posisi berdasarkan fungsi dan jenjang, lalu lanjutkan ke detail untuk mengirim lamaran dengan alur yang lebih rapi dan terasa korporat.</p>
+            </div>
         </div>
-    </div>
-    <aside class="career-jobs-hero-side">
-        <div>
-            <h2>Career Explorer</h2>
-            <p>Semua posisi aktif diringkas dalam satu layar supaya kandidat bisa menelusuri fungsi, tipe kerja, dan lokasi tanpa gangguan informasi lain.</p>
+
+        <form method="GET" action="{{ url_for('career.index') }}" class="career-jobs-searchband">
+            <div class="career-jobs-searchband-head">
+                <div>
+                    <strong>{{ openings|length }} lowongan aktif siap dijelajahi</strong>
+                    <span>Mulai dari kata kunci, fungsi, jenjang, atau perusahaan/unit penempatan.</span>
+                </div>
+                <div class="career-jobs-search-meta">
+                    <a href="{{ url_for('career.home') }}">Kembali ke Beranda</a>
+                </div>
+            </div>
+
+            <div class="career-jobs-search-form">
+                <label class="career-jobs-search-field">
+                    <span class="career-jobs-sr-only">Cari posisi</span>
+                    <input id="careerSearchInput" type="search" name="q" value="{{ initial_query or '' }}" placeholder="Cari posisi, fungsi, atau lokasi...">
+                </label>
+
+                <label>
+                    <span class="career-jobs-sr-only">Semua Perusahaan</span>
+                    <select id="careerWarehouseFilter" name="warehouse">
+                        <option value="">Semua Perusahaan</option>
+                        {% for warehouse in warehouses %}
+                        {% set warehouse_id = warehouse.id if warehouse.id is defined else warehouse['id'] %}
+                        {% set warehouse_name = warehouse.name if warehouse.name is defined else warehouse['name'] %}
+                        <option value="{{ warehouse_id }}" {% if selected_warehouse_id == warehouse_id %}selected{% endif %}>{{ warehouse_name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    <span class="career-jobs-sr-only">Semua Fungsi</span>
+                    <select id="careerDepartmentFilter" name="department">
+                        <option value="">Semua Fungsi</option>
+                        {% for department in ns.departments %}
+                        {% set department_value = department|lower %}
+                        <option value="{{ department_value }}" {% if initial_department == department_value %}selected{% endif %}>{{ department }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <label>
+                    <span class="career-jobs-sr-only">Semua Jenjang</span>
+                    <select id="careerTypeFilter" name="type">
+                        <option value="">Semua Jenjang</option>
+                        {% for type_label in ns.employment_types %}
+                        {% set type_value = type_label|lower %}
+                        <option value="{{ type_value }}" {% if initial_type_filter == type_value %}selected{% endif %}>{{ type_label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+
+                <button type="submit" id="careerSearchButton">Cari Lowongan</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="career-jobs-content">
+        <div class="career-jobs-toolbar">
+            <div class="career-jobs-toolbar-head">
+                <div>
+                    <h2><span id="careerVisibleCount">{{ openings|length }}</span> lowongan tersedia</h2>
+                    <p>Daftar posisi aktif ini diperbarui langsung dari modul recruitment internal. Kandidat bisa mulai dari pencarian cepat, lalu lanjut ke detail posisi untuk memahami kebutuhan peran dan mengirim CV.</p>
+                </div>
+                <div class="career-jobs-toolbar-stats">
+                    <span class="career-jobs-count-chip"><span id="careerResultCount">{{ openings|length }}</span> posisi tampil</span>
+                    {% if initial_query %}
+                    <span class="career-jobs-active-filter">Kata kunci: {{ initial_query }}</span>
+                    {% endif %}
+                    {% if selected_warehouse_id %}
+                    <span class="career-jobs-active-filter">Perusahaan dipilih</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if ns.departments %}
+            <div class="career-jobs-focus-row" id="careerDepartmentChips">
+                <button type="button" class="career-jobs-focus-chip {% if not initial_department %}is-active{% endif %}" data-department="">Semua Fungsi</button>
+                {% for department in ns.departments[:6] %}
+                {% set department_value = department|lower %}
+                <button type="button" class="career-jobs-focus-chip {% if initial_department == department_value %}is-active{% endif %}" data-department="{{ department_value }}">{{ department }}</button>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
-        <div class="career-jobs-overview-grid">
-            <article class="career-jobs-overview-card">
-                <strong>{{ openings|length }}</strong>
-                <span>lowongan aktif yang bisa langsung dibuka kandidat.</span>
+
+        {% if openings %}
+        <section class="career-jobs-grid" id="careerOpeningsGrid">
+            {% for opening in openings %}
+            {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
+            {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
+            <article
+                class="career-job-card"
+                data-title="{{ (opening.title or '')|lower }}"
+                data-department="{{ (opening.department or '')|lower }}"
+                data-type="{{ type_label|lower }}"
+                data-location="{{ location_label|lower }}"
+                data-warehouse="{{ opening.warehouse_id or '' }}"
+            >
+                <div class="career-job-card-head">
+                    <div class="career-job-card-brand">
+                        <span>ERP-CV.BJAS Career</span>
+                        <h3>{{ opening.title }}</h3>
+                        <p>{{ opening.department or 'Operasional Perusahaan' }}</p>
+                    </div>
+                    <div class="career-job-card-logo">{{ (opening.title or 'CV')[:2]|upper }}</div>
+                </div>
+
+                <div class="career-job-card-meta">
+                    <span>{{ opening.department or 'Operasional' }}</span>
+                    <span>{{ type_label }}</span>
+                </div>
+
+                <div class="career-job-card-location">
+                    <span>{{ location_label }}</span>
+                    {% if opening.warehouse_name %}
+                    <span>{{ opening.warehouse_name }}</span>
+                    {% endif %}
+                </div>
+
+                <p class="career-job-card-summary">
+                    {{ (opening.description or opening.requirements or 'Lowongan aktif resmi perusahaan. Klik detail untuk melihat gambaran posisi, kualifikasi, dan mengirim lamaran kandidat.')|striptags|truncate(185, True) }}
+                </p>
+
+                <div class="career-job-card-actions">
+                    <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Lihat Detail</a>
+                    <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}#careerApplyForm">Lamar</a>
+                </div>
             </article>
-            <article class="career-jobs-overview-card">
-                <strong>{{ ns.departments|length or 1 }}</strong>
-                <span>jalur fungsi yang sudah tampil di portal publik.</span>
-            </article>
-        </div>
-        <div class="career-jobs-process">
-            <div class="career-jobs-process-step">
-                <strong>1</strong>
-                <span>Pilih posisi yang terasa paling relevan dengan pengalaman atau target karirmu.</span>
-            </div>
-            <div class="career-jobs-process-step">
-                <strong>2</strong>
-                <span>Buka detail lowongan untuk mengirim CV dan data inti kandidat.</span>
-            </div>
-            <div class="career-jobs-process-step">
-                <strong>3</strong>
-                <span>Kalau sudah punya kode, masuk tes dari shortcut di header tanpa menumpuk di daftar lowongan.</span>
-            </div>
-        </div>
-    </aside>
-</section>
-
-<section class="career-search-panel" id="careerExplorer" aria-label="Filter lowongan">
-    <div class="career-search-panel-head">
-        <div>
-            <h2>Daftar Lowongan</h2>
-            <p>Pilih posisi yang paling sesuai, lalu klik detail untuk mengisi data diri dan mengirim lamaran.</p>
-        </div>
-        <span class="career-result-chip"><span id="careerResultCount">{{ openings|length }}</span> posisi</span>
-    </div>
-
-    {% if ns.departments %}
-    <div class="career-focus-row" id="careerDepartmentChips">
-        <button type="button" class="career-focus-chip is-active" data-department="">Semua Fungsi</button>
-        {% for department in ns.departments[:5] %}
-        <button type="button" class="career-focus-chip" data-department="{{ department|lower }}">{{ department }}</button>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <div class="career-search-bar">
-        <label class="career-search-input">
-            <input id="careerSearchInput" class="career-field" type="search" placeholder="Cari posisi, fungsi, atau lokasi...">
-        </label>
-        <select id="careerDepartmentFilter" class="career-field">
-            <option value="">Semua Fungsi</option>
-            {% for department in ns.departments %}
-            <option value="{{ department|lower }}">{{ department }}</option>
             {% endfor %}
-        </select>
-        <select id="careerTypeFilter" class="career-field">
-            <option value="">Semua Jenjang</option>
-            {% for type_label in ns.employment_types %}
-            <option value="{{ type_label|lower }}">{{ type_label }}</option>
-            {% endfor %}
-        </select>
-        <button type="button" id="careerSearchButton">Cari</button>
-    </div>
-</section>
-
-<section class="career-openings-head">
-    <div>
-        <h2><span id="careerVisibleCount">{{ openings|length }}</span> lowongan tersedia</h2>
-        <p>Lowongan aktif diperbarui langsung dari panel recruitment internal dan ditampilkan dalam format yang lebih fokus untuk kandidat.</p>
-    </div>
-</section>
-
-{% if openings %}
-<section class="career-openings-grid" id="careerOpeningsGrid">
-    {% for opening in openings %}
-    {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
-    {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
-    <article
-        class="career-opening-card"
-        data-title="{{ (opening.title or '')|lower }}"
-        data-department="{{ (opening.department or '')|lower }}"
-        data-type="{{ type_label|lower }}"
-        data-location="{{ location_label|lower }}"
-    >
-        <div class="career-opening-head">
-            <div class="career-opening-brand">
-                <span>ERP-CV.BJAS Career</span>
-                <h3>{{ opening.title }}</h3>
-                <p>{{ opening.department or 'Operasional Perusahaan' }}</p>
-            </div>
-            <div class="career-opening-logo">{{ (opening.title or 'CV')[:2]|upper }}</div>
-        </div>
-        <div class="career-opening-meta">
-            <span>{{ opening.department or 'Operasional' }}</span>
-            <span>{{ type_label }}</span>
-        </div>
-        <div class="career-opening-location">
-            <span>{{ location_label }}</span>
-        </div>
-        <p class="career-opening-summary">
-            {{ (opening.description or 'Lowongan aktif resmi dari ERP-CV.BJAS. Klik detail untuk melihat ringkasan posisi, mengisi data diri, lalu mengirim lamaran.')|striptags|truncate(170, True) }}
-        </p>
-        <div class="career-opening-actions">
-            <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Lihat Detail</a>
-            <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}#careerApplyForm">Lamar</a>
-        </div>
-    </article>
-    {% endfor %}
-</section>
-<section class="career-no-results" id="careerNoResults">
-    Tidak ada lowongan yang cocok dengan filter Anda sekarang.
-</section>
-{% else %}
-<section class="career-no-results" style="display:block;">
-    Belum ada lowongan publik yang aktif saat ini.
-</section>
-{% endif %}
+        </section>
+        <section class="career-jobs-empty" id="careerNoResults" style="display: none;">
+            <h3>Tidak ada lowongan yang cocok dengan filter aktif.</h3>
+            <p>Coba ganti fungsi, jenjang, atau kata kunci yang dipakai. Kalau ingin melihat semua posisi lagi, kosongkan filter lalu cari ulang.</p>
+            <a href="{{ url_for('career.index') }}">Reset pencarian</a>
+        </section>
+        {% else %}
+        <section class="career-jobs-empty">
+            <h3>Belum ada lowongan yang cocok dengan pencarian ini.</h3>
+            <p>Silakan ubah filter atau kembali ke beranda untuk memulai eksplorasi dari kategori yang berbeda. Struktur halaman ini tetap siap menampung lowongan berikutnya begitu dipublikasikan.</p>
+            <a href="{{ url_for('career.home') }}">Kembali ke Beranda</a>
+        </section>
+        {% endif %}
+    </section>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -676,8 +728,8 @@
     const searchInput = document.getElementById("careerSearchInput");
     const departmentFilter = document.getElementById("careerDepartmentFilter");
     const typeFilter = document.getElementById("careerTypeFilter");
-    const searchButton = document.getElementById("careerSearchButton");
-    const cards = Array.from(document.querySelectorAll(".career-opening-card"));
+    const warehouseFilter = document.getElementById("careerWarehouseFilter");
+    const cards = Array.from(document.querySelectorAll(".career-job-card"));
     const resultCount = document.getElementById("careerResultCount");
     const visibleCount = document.getElementById("careerVisibleCount");
     const noResults = document.getElementById("careerNoResults");
@@ -697,6 +749,7 @@
         const query = (searchInput?.value || "").trim().toLowerCase();
         const department = (departmentFilter?.value || "").trim().toLowerCase();
         const type = (typeFilter?.value || "").trim().toLowerCase();
+        const warehouse = (warehouseFilter?.value || "").trim();
         let matched = 0;
 
         syncDepartmentChipState(department);
@@ -706,10 +759,12 @@
             const cardDepartment = card.dataset.department || "";
             const cardType = card.dataset.type || "";
             const location = card.dataset.location || "";
+            const cardWarehouse = card.dataset.warehouse || "";
             const matchesQuery = !query || [title, cardDepartment, cardType, location].some((value) => value.includes(query));
             const matchesDepartment = !department || cardDepartment === department;
             const matchesType = !type || cardType === type;
-            const isVisible = matchesQuery && matchesDepartment && matchesType;
+            const matchesWarehouse = !warehouse || cardWarehouse === warehouse;
+            const isVisible = matchesQuery && matchesDepartment && matchesType && matchesWarehouse;
             card.style.display = isVisible ? "" : "none";
             if (isVisible) {
                 matched += 1;
@@ -723,14 +778,14 @@
             visibleCount.textContent = String(matched);
         }
         if (noResults) {
-            noResults.style.display = matched ? "none" : "block";
+            noResults.style.display = matched ? "none" : "grid";
         }
     };
 
     searchInput?.addEventListener("input", applyFilters);
     departmentFilter?.addEventListener("change", applyFilters);
     typeFilter?.addEventListener("change", applyFilters);
-    searchButton?.addEventListener("click", applyFilters);
+    warehouseFilter?.addEventListener("change", applyFilters);
 
     departmentChips.forEach((chip) => {
         chip.addEventListener("click", () => {

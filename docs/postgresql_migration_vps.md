@@ -70,23 +70,56 @@ export DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:5432/ERP
 
 ## Catatan Teknis Penting
 
-Codebase saat ini masih memakai `sqlite3` secara langsung di banyak route dan service. Artinya:
+Codebase sekarang sudah punya layer kompatibilitas PostgreSQL di `database.py`, jadi aplikasi bisa berjalan dengan `DATABASE_BACKEND=postgresql` selama schema inti ERP dan datanya memang sudah ada di PostgreSQL.
 
-- Migrasi data saja belum cukup
-- Layer koneksi database perlu direfactor agar mendukung PostgreSQL
-- Beberapa query SQLite-spesifik perlu diubah, misalnya `PRAGMA`, `sqlite_master`, dan beberapa fungsi tanggal
+Yang perlu diingat:
 
-Untuk audit cepat file Python yang masih SQLite-spesifik, jalankan:
+- `create_app()` hanya menjalankan `init_db()` otomatis untuk backend SQLite.
+- Jadi PostgreSQL kosong yang benar-benar fresh tidak akan otomatis dibuatkan seluruh schema ERP dasar saat service start.
+- Jalur aman di VPS adalah migrasikan atau import dulu schema+data inti ke PostgreSQL, baru arahkan aplikasi ke backend PostgreSQL.
+- Setelah itu, schema tambahan seperti career, overtime, dan beberapa repair sequence PostgreSQL akan disinkronkan oleh helper runtime saat modulnya dipakai.
+
+Untuk audit cepat file Python yang masih mengandung pola SQLite-spesifik, kamu masih bisa jalankan:
 
 ```bash
 python3 scripts/find_sqlite_dependencies.py --root /root/WMS
 ```
 
+Untuk verifikasi target backend aktif:
+
+```bash
+python3 scripts/show_database_target.py
+```
+
+Untuk smoke test PostgreSQL yang sekarang juga memeriksa tabel karir/recruitment:
+
+```bash
+python3 scripts/postgresql_smoke_test.py
+```
+
+Kalau output `status` masih `incomplete`, berarti masih ada tabel inti yang belum ada di PostgreSQL.
+
 ## Rekomendasi Tahap Kerja
 
 1. Siapkan PostgreSQL di VPS.
 2. Export snapshot SQLite.
-3. Refactor layer database agar dual-mode atau langsung PostgreSQL.
-4. Import data ke PostgreSQL.
-5. Jalankan smoke test.
-6. Switch production saat hasil verifikasi cocok.
+3. Import schema dan data inti ERP ke PostgreSQL.
+4. Set `DATABASE_BACKEND=postgresql` dan `DATABASE_URL=...` di `.env` VPS.
+5. Jalankan `python3 scripts/show_database_target.py` untuk memastikan app memang mengarah ke PostgreSQL yang benar.
+6. Jalankan `python3 scripts/postgresql_smoke_test.py` sampai tabel inti dan tabel recruitment/career sudah terbaca.
+7. Restart `wms.service`, lalu cek readiness:
+
+```bash
+curl --unix-socket /run/wms/gunicorn.sock http://localhost/ready
+curl https://erp.cvbjasyogya.cloud/ready
+```
+
+8. Cek halaman publik utama:
+
+```bash
+curl -I https://erp.cvbjasyogya.cloud/login
+curl -I https://recruitment.cvbjasyogya.cloud/beranda
+curl -I "https://recruitment.cvbjasyogya.cloud/karir/summary"
+```
+
+9. Baru switch penuh ke production traffic setelah semua check lolos.

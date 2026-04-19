@@ -55,6 +55,7 @@ from services.career_service import (
     build_career_resume_path,
     ensure_candidate_assessment_code,
     ensure_career_schema,
+    extract_inserted_row_id,
     generate_unique_assessment_code,
     normalize_assessment_code,
     normalize_assessment_option,
@@ -8744,7 +8745,7 @@ def add_recruitment():
 
     handled_by, handled_at = _build_recruitment_handling(status)
 
-    db.execute(
+    insert_cursor = db.execute(
         """
         INSERT INTO recruitment_candidates(
             candidate_name,
@@ -8789,20 +8790,33 @@ def add_recruitment():
             _current_timestamp(),
         ),
     )
-    created_candidate = db.execute(
-        """
-        SELECT id, assessment_code
-        FROM recruitment_candidates
-        WHERE candidate_name=? AND position_title=? AND warehouse_id=?
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (candidate_name, position_title, warehouse_id),
-    ).fetchone()
+    created_candidate_id = extract_inserted_row_id(insert_cursor)
+    created_candidate = None
+    if created_candidate_id > 0:
+        created_candidate = db.execute(
+            """
+            SELECT id, assessment_code
+            FROM recruitment_candidates
+            WHERE id=?
+            LIMIT 1
+            """,
+            (created_candidate_id,),
+        ).fetchone()
+    if created_candidate is None:
+        created_candidate = db.execute(
+            """
+            SELECT id, assessment_code
+            FROM recruitment_candidates
+            WHERE candidate_name=? AND position_title=? AND warehouse_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (candidate_name, position_title, warehouse_id),
+        ).fetchone()
     final_assessment_code = ensure_candidate_assessment_code(
         db,
         created_candidate["id"],
-        created_candidate["assessment_code"] if created_candidate else assessment_code,
+        (created_candidate["assessment_code"] or "") if created_candidate else assessment_code,
     )
     db.commit()
 

@@ -1,6 +1,8 @@
 Production deploy checklist for `erp.cvbjasyogya.cloud`.
 
 1. Copy [.env.production.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/.env.production.example) to your VPS `.env` or `EnvironmentFile`.
+   Important:
+   For VPS PostgreSQL, set `DATABASE_BACKEND=postgresql` and fill `DATABASE_URL` with the production DSN before restarting `wms.service`.
 2. Copy [deploy/nginx/wms_upstream.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/wms_upstream.conf) to `/etc/nginx/conf.d/wms_upstream.conf`.
 3. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
 4. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
@@ -10,7 +12,7 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 Public recruitment domain:
 - Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
-- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host routes `/` directly to `/karir`.
+- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host routes `/` directly to `/beranda`.
 
 Public SMS cloud storage domain:
 - Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) if you want `sms.cvbjasyogya.cloud` to point to the same Gunicorn socket.
@@ -24,6 +26,8 @@ Notes:
 - `wms.service` now binds Gunicorn to `/run/wms/gunicorn.sock` instead of TCP port `8000`, so it avoids `Address already in use` conflicts during restart and keeps the app private behind Nginx.
 - `wms.service` runs a configured backup hook before launching Gunicorn. When backend is `sqlite`, it writes file backups to `/root/WMS/db_backups`. When backend is `postgresql`, it writes `pg_dump` backups to `/root/WMS/db_backups/postgresql`.
 - The sample Gunicorn/Nginx config keeps longer timeouts so heavy operations such as iPOS4 import are less likely to be cut off mid-request on the VPS.
+- Endpoint `GET /ready` already checks the active database connection. Use it after every restart, especially after switching to PostgreSQL.
+- Fresh empty PostgreSQL is not enough on its own. The app expects the base ERP schema and data to already exist after migration/import. Use [docs/postgresql_migration_vps.md](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/docs/postgresql_migration_vps.md) plus `python3 scripts/postgresql_smoke_test.py` before pointing production traffic to PostgreSQL.
 - If you want WhatsApp receipt PDFs to match the browser print layout, install a headless browser on the VPS (for example `chromium-browser`) and set `POS_RECEIPT_PDF_RENDERER=auto` or `html` in `.env`. You can also set `POS_RECEIPT_PDF_BROWSER` explicitly if the binary is in a custom path.
 
 Recommended VPS commands:
@@ -81,7 +85,11 @@ Quick checks:
 
 ```bash
 curl --unix-socket /run/wms/gunicorn.sock http://localhost/login -I
+curl --unix-socket /run/wms/gunicorn.sock http://localhost/ready
 curl -I https://erp.cvbjasyogya.cloud/login
+curl https://erp.cvbjasyogya.cloud/ready
+python3 scripts/show_database_target.py
+python3 scripts/postgresql_smoke_test.py
 sudo ss -lx | grep gunicorn.sock
 sudo journalctl -u wms.service -n 50 --no-pager
 sudo tail -n 50 /var/log/nginx/error.log
