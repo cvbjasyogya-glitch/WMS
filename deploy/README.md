@@ -25,7 +25,7 @@ Brevo SMTP for career and auth emails:
 Public recruitment domain:
 - Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
-- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host stays on the career experience and routes `/` directly to `/beranda` instead of bouncing to ERP.
+- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host stays on the career experience and routes `/` directly to `/signin` instead of bouncing to ERP.
 
 Public SMS cloud storage domain:
 - Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) if you want `sms.cvbjasyogya.cloud` to point to the same Gunicorn socket.

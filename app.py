@@ -699,6 +699,7 @@ def create_app():
 
     app = Flask(__name__)
     app.config.from_object(Config)
+    app.config.setdefault("APP_BUILD_TOKEN", uuid4().hex)
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.setdefault(
         "IPOS4_IMPORT_RUNTIME_DIR",
@@ -983,6 +984,9 @@ def create_app():
 
     def build_service_worker_url():
         version_tokens = [str(app.config.get("APP_VERSION") or "dev").strip() or "dev"]
+        build_token = str(app.config.get("APP_BUILD_TOKEN") or "").strip()
+        if build_token:
+            version_tokens.append(build_token)
         candidate_paths = [
             os.path.abspath(__file__),
             os.path.join(app.static_folder or "", "js", "push_service_worker.js"),
@@ -1115,12 +1119,16 @@ self.addEventListener("fetch", () => {{}});
             json.dumps(str(app.config.get("APP_VERSION") or "dev")),
         )
         script_body = script_body.replace(
+            '"__APP_BUILD_TOKEN__"',
+            json.dumps(str(app.config.get("APP_BUILD_TOKEN") or "dev")),
+        )
+        script_body = script_body.replace(
             "__APP_SHELL_ASSETS__",
             json.dumps(build_service_worker_asset_urls()),
         )
 
         response = app.response_class(script_body, mimetype="application/javascript")
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cache-Control"] = "no-cache, no-store, max-age=0, must-revalidate"
         response.headers["Service-Worker-Allowed"] = "/"
         return response
 
@@ -1200,6 +1208,7 @@ self.addEventListener("fetch", () => {{}});
             "show_hris_navigation": role_can_see_hris_navigation(role),
             "asset_url": build_asset_url,
             "app_version": app.config.get("APP_VERSION"),
+            "app_build_token": app.config.get("APP_BUILD_TOKEN"),
             "service_worker_url": build_service_worker_url(),
             "shell_break_timer": shell_break_timer,
             "use_homebase_ui": use_homebase_ui,

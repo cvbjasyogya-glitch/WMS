@@ -1,6 +1,8 @@
 const APP_VERSION = "__APP_VERSION__";
-const APP_SHELL_CACHE = `wms-app-shell-${APP_VERSION}`;
-const STATIC_RUNTIME_CACHE = `wms-static-runtime-${APP_VERSION}`;
+const APP_BUILD_TOKEN = "__APP_BUILD_TOKEN__";
+const CACHE_VERSION = `${APP_VERSION}-${APP_BUILD_TOKEN}`;
+const APP_SHELL_CACHE = `wms-app-shell-${CACHE_VERSION}`;
+const STATIC_RUNTIME_CACHE = `wms-static-runtime-${CACHE_VERSION}`;
 const OFFLINE_FALLBACK_URL = "/static/offline-app.html";
 const APP_SHELL_ASSETS = __APP_SHELL_ASSETS__;
 
@@ -27,6 +29,13 @@ self.addEventListener("activate", (event) => {
                 .map((key) => caches.delete(key))
         )).then(() => self.clients.claim())
     );
+});
+
+self.addEventListener("message", (event) => {
+    const payload = event.data || {};
+    if (payload && payload.type === "SKIP_WAITING") {
+        event.waitUntil(self.skipWaiting());
+    }
 });
 
 self.addEventListener("fetch", (event) => {

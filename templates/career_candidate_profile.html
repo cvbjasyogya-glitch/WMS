@@ -36,6 +36,13 @@
             </div>
         </div>
 
+        {% if candidate_profile_gate is defined and candidate_profile_gate and not candidate_profile_gate.is_ready %}
+        <div class="career-profile-lock-banner" role="status" aria-live="polite">
+            <strong>Lengkapi profil wajib terlebih dahulu</strong>
+            <p>Portal kandidat masih dikunci sampai data <b>{{ candidate_profile_gate.missing_labels|join(', ') }}</b> selesai dilengkapi. Setelah itu menu lowongan, lamaran, tersimpan, dan tombol lamar akan otomatis aktif.</p>
+        </div>
+        {% endif %}
+
         <form method="POST" action="{{ url_for('career.profile_page') }}" enctype="multipart/form-data" class="career-profile-form">
             <input type="hidden" name="section" value="{{ selected_profile_section.key }}">
 

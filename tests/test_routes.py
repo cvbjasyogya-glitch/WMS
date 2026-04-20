@@ -62,7 +62,11 @@ from routes.schedule import (
     LIVE_SCHEDULE_DEFAULT_TEXT,
 )
 from services.crm_loyalty import ensure_crm_membership_multi_program_schema, get_member_snapshot
-from services.career_service import create_public_account_request, ensure_career_schema
+from services.career_service import (
+    create_public_account_request,
+    ensure_career_schema,
+    upsert_career_public_profile_section,
+)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -479,14 +483,90 @@ class WmsRoutesTestCase(unittest.TestCase):
         email="candidate@example.com",
         password="candidate123",
         full_name="Kandidat Publik",
+        ready_profile=False,
     ):
         account = self.create_public_career_account(email=email, password=password, full_name=full_name)
+        if ready_profile:
+            self.complete_public_career_profile(account["id"])
         with self.client.session_transaction() as session_data:
             session_data["career_public_account_id"] = account["id"]
             session_data["career_public_account_email"] = account["email"]
             session_data["career_public_account_name"] = account["full_name"]
             session_data["career_public_signed_in_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return account
+
+    def complete_public_career_profile(self, account_id, *, include_personal=True, include_documents=True):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            account = db.execute(
+                "SELECT id, full_name, email FROM career_public_accounts WHERE id=? LIMIT 1",
+                (account_id,),
+            ).fetchone()
+            if not account:
+                return None
+            if include_personal:
+                upsert_career_public_profile_section(
+                    db,
+                    account_id,
+                    "personal",
+                    {
+                        "full_name": account["full_name"],
+                        "email": account["email"],
+                        "phone": "6281233334444",
+                        "ktp_number": "3402120000000001",
+                        "npwp_number": "12.345.678.9-000.111",
+                        "linkedin_url": "https://linkedin.com/in/siap-lamar",
+                        "instagram_handle": "siaplamar",
+                        "birth_place": "Sleman",
+                        "birth_date": "2001-05-10",
+                        "gender": "male",
+                        "marital_status": "single",
+                        "religion": "islam",
+                        "ktp_province": "DIY",
+                        "ktp_city": "Sleman",
+                        "ktp_address": "Jl. Magelang Km 10",
+                        "ktp_postal_code": "55515",
+                        "domicile_city": "Sleman",
+                        "domicile_address": "Jl. Godean Km 8",
+                        "summary": "Siap mengikuti proses seleksi kandidat.",
+                    },
+                    completion_state="complete",
+                )
+            if include_documents:
+                upsert_career_public_profile_section(
+                    db,
+                    account_id,
+                    "documents",
+                    {
+                        "files": [
+                            {
+                                "document_type": "ktp_scan",
+                                "label": "Scan KTP",
+                                "stored_name": "ktp-ready.jpg",
+                                "uploaded_at": "2026-04-20 10:00:00",
+                            },
+                            {
+                                "document_type": "cv_resume",
+                                "label": "CV / Resume",
+                                "stored_name": "cv-ready.pdf",
+                                "uploaded_at": "2026-04-20 10:00:01",
+                            },
+                            {
+                                "document_type": "last_diploma",
+                                "label": "Ijazah Terakhir",
+                                "stored_name": "ijazah-ready.pdf",
+                                "uploaded_at": "2026-04-20 10:00:02",
+                            },
+                        ]
+                    },
+                    completion_state="complete",
+                )
+            db.commit()
+            return db.execute(
+                "SELECT id, full_name, email, status FROM career_public_accounts WHERE id=? LIMIT 1",
+                (account_id,),
+            ).fetchone()
 
     def get_user_id(self, username):
         with self.app.app_context():
@@ -7083,8 +7163,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("/static/css/dashboard.css?v=", body)
         self.assertIn("/static/icons/workspace/group-workspace.svg?v=", body)
         self.assertNotIn("__APP_VERSION__", body)
+        self.assertNotIn("__APP_BUILD_TOKEN__", body)
         self.assertNotIn("__APP_SHELL_ASSETS__", body)
         self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
+        self.assertEqual(
+            response.headers.get("Cache-Control"),
+            "no-cache, no-store, max-age=0, must-revalidate",
+        )
+
+    def test_service_worker_route_uses_runtime_build_token_for_cache_rotation(self):
+        self.app.config["APP_VERSION"] = "test-build"
+        self.app.config["APP_BUILD_TOKEN"] = "runtime-123"
+
+        response = self.client.get("/service-worker.js")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('const APP_BUILD_TOKEN = "runtime-123";', body)
+        self.assertIn('const CACHE_VERSION = `${APP_VERSION}-${APP_BUILD_TOKEN}`;', body)
+        self.assertIn('self.addEventListener("message"', body)
+        self.assertIn('payload.type === "SKIP_WAITING"', body)
 
     def test_public_hosts_get_cleanup_service_worker_script(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
@@ -11934,6 +12032,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login_public_career_account_session(
             email="aldo@example.com",
             full_name="Aldo Nugraha",
+            ready_profile=True,
         )
         response = self.client.post(
             "/karir/apply",
@@ -12008,6 +12107,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login_public_career_account_session(
             email="ryo.duplicate@example.com",
             full_name="Ryo Duplicate",
+            ready_profile=True,
         )
         first_apply = self.client.post(
             "/karir/apply",
@@ -12087,6 +12187,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login_public_career_account_session(
             email="porto-invalid@example.com",
             full_name="Porto Invalid",
+            ready_profile=True,
         )
         response = self.client.post(
             "/karir/apply",
@@ -12163,6 +12264,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login_public_career_account_session(
             email="bima@example.com",
             full_name="Bima Tes",
+            ready_profile=True,
         )
         apply_response = self.client.post(
             "/karir/apply",
@@ -12280,6 +12382,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login_public_career_account_session(
             email="modal-kode@example.com",
             full_name="Modal Kode Tes",
+            ready_profile=True,
         )
         apply_response = self.client.post(
             "/karir/apply",
@@ -12692,15 +12795,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 ("Picker Gudang",),
             ).fetchone()
 
-        home_response = self.client.get("/beranda", headers={"Host": "recruitment.test"})
-        self.assertEqual(home_response.status_code, 200)
-        home_html = home_response.get_data(as_text=True)
-        normalized_home_html = home_html.replace(" ", "")
-        self.assertIn("Mari Membangun Masa Depan Bersama", home_html)
-        self.assertIn("Pekerjaan tersedia", home_html)
-        self.assertIn('"serviceWorkerEnabled":false', normalized_home_html)
-        self.assertIn('"publicHostMode":"recruitment"', normalized_home_html)
-        self.assertNotIn('rel="manifest"', home_html)
+        home_response = self.client.get("/beranda", headers={"Host": "recruitment.test"}, follow_redirects=False)
+        self.assertEqual(home_response.status_code, 302)
+        self.assertEqual(home_response.headers["Location"], "/signin")
 
         public_response = self.client.get("/karir", headers={"Host": "recruitment.test"})
         self.assertEqual(public_response.status_code, 200)
@@ -13261,7 +13358,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(verify_response.status_code, 302)
-        self.assertEqual(verify_response.headers["Location"], "/karir/portal")
+        self.assertEqual(verify_response.headers["Location"], "/karir/profil?section=personal")
 
         with self.app.app_context():
             db = get_db()
@@ -13296,7 +13393,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/karir/portal")
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=personal")
         with self.client.session_transaction() as session_data:
             self.assertTrue(session_data.get("career_public_account_id"))
             self.assertEqual(session_data.get("career_public_account_email"), "aktif@example.com")
@@ -13335,6 +13432,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.login_public_career_account_session(
             email="workspace@example.com",
             full_name="Workspace Candidate",
+            ready_profile=True,
         )
 
         public_response = self.client.get(f"/karir?vacancy={opening['id']}")
@@ -13382,6 +13480,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         account = self.login_public_career_account_session(
             email="saved@example.com",
             full_name="Saved Candidate",
+            ready_profile=True,
         )
 
         response = self.client.post(
@@ -13494,8 +13593,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(account_row["full_name"], "Profil Baru Kandidat")
 
         portal_response = self.client.get("/karir/portal")
-        self.assertEqual(portal_response.status_code, 200)
-        self.assertIn("/karir/media/photo/", portal_response.get_data(as_text=True))
+        self.assertEqual(portal_response.status_code, 302)
+        self.assertEqual(portal_response.headers["Location"], "/karir/profil?section=documents")
 
     def test_public_career_candidate_can_upload_required_documents(self):
         account = self.login_public_career_account_session(
@@ -13538,10 +13637,94 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue({"ktp_scan", "cv_resume", "last_diploma"}.issubset(stored_types))
         self.assertEqual(section_row["completion_state"], "complete")
 
+    def test_public_career_incomplete_profile_redirects_portal_back_to_profile(self):
+        self.login_public_career_account_session(
+            email="gate-personal@example.com",
+            full_name="Gate Personal",
+        )
+
+        response = self.client.get("/karir/portal", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=personal")
+
+    def test_public_career_partial_profile_redirects_portal_to_documents_section(self):
+        account = self.login_public_career_account_session(
+            email="gate-documents@example.com",
+            full_name="Gate Documents",
+        )
+        self.complete_public_career_profile(account["id"], include_personal=True, include_documents=False)
+
+        response = self.client.get("/karir/portal", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
+
+    def test_public_career_incomplete_profile_cannot_open_detail_or_apply(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Profile Gate Opening",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Posisi uji pagar profil kandidat.",
+                    "Lengkapi data profil.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Profile Gate Opening",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="gate-apply@example.com",
+            full_name="Gate Apply",
+        )
+
+        detail_response = self.client.get(f"/karir/lowongan/{opening['id']}", follow_redirects=False)
+        self.assertEqual(detail_response.status_code, 302)
+        self.assertEqual(detail_response.headers["Location"], "/karir/profil?section=personal")
+
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Gate Apply",
+                "phone": "08123 456 7000",
+                "resume_file": (BytesIO(b"resume-gate"), "gate.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+        self.assertEqual(apply_response.headers["Location"], "/karir/profil?section=personal")
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_count = db.execute(
+                "SELECT COUNT(*) FROM recruitment_candidates WHERE email=?",
+                ("gate-apply@example.com",),
+            ).fetchone()[0]
+        self.assertEqual(candidate_count, 0)
+
     def test_public_career_password_page_renders_candidate_security_form(self):
         self.login_public_career_account_session(
             email="password-render@example.com",
             full_name="Password Render",
+            ready_profile=True,
         )
 
         response = self.client.get("/karir/password")
@@ -13563,6 +13746,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             session_data["career_public_account_email"] = account["email"]
             session_data["career_public_account_name"] = account["full_name"]
             session_data["career_public_signed_in_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.complete_public_career_profile(account["id"])
 
         response = self.client.post(
             "/karir/password",
@@ -13702,6 +13886,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             ), patch(
                 "routes.career._get_candidate_additional_profile_payload",
                 return_value={},
+            ), patch(
+                "routes.career._guard_candidate_profile_completion",
+                return_value=({"is_ready": True, "next_section_key": "personal"}, None),
             ), patch(
                 "routes.career.find_duplicate_public_application",
                 return_value=None,

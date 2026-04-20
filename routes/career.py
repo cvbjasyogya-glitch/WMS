@@ -190,6 +190,7 @@ CAREER_PROFILE_DOCUMENT_TYPE_MAP = {
 CAREER_PROFILE_REQUIRED_DOCUMENT_TYPES = {
     item["key"] for item in CAREER_PROFILE_DOCUMENT_DEFINITIONS if item.get("required")
 }
+CAREER_PROFILE_REQUIRED_GATE_SECTION_KEYS = ("personal", "documents")
 
 
 def _get_career_public_company_name():
@@ -453,6 +454,14 @@ def inject_career_public_context():
 
 def _resolve_career_public_post_auth_target(next_target=None):
     safe_target = _safe_career_public_next_target(next_target)
+    active_account = _get_current_career_public_account()
+    if active_account:
+        profile_gate = _get_candidate_profile_gate(get_db(), active_account)
+        if not profile_gate["is_ready"]:
+            return build_career_public_url(
+                "career.profile_page",
+                section=profile_gate["next_section_key"],
+            )
     public_jobs_path = url_for("career.index")
     signin_path = url_for("career.signin_page")
     if not safe_target or safe_target in {public_jobs_path, signin_path}:
@@ -689,6 +698,65 @@ def _build_profile_section_state(account, stored_sections):
     return states
 
 
+def _build_candidate_profile_gate(account, stored_sections):
+    section_states = _build_profile_section_state(account, stored_sections)
+    section_state_map = {item["key"]: item for item in section_states}
+    missing_sections = []
+    for section_key in CAREER_PROFILE_REQUIRED_GATE_SECTION_KEYS:
+        section_state = section_state_map.get(section_key)
+        if not section_state or section_state.get("completion_state") != "complete":
+            definition = section_state or _get_profile_section_definition(section_key)
+            missing_sections.append(
+                {
+                    "key": section_key,
+                    "label": definition.get("label") or section_key.title(),
+                    "title": definition.get("title") or section_key.title(),
+                }
+            )
+    return {
+        "is_ready": not missing_sections,
+        "next_section_key": missing_sections[0]["key"] if missing_sections else "personal",
+        "missing_sections": missing_sections,
+        "missing_labels": [item["label"] for item in missing_sections],
+        "missing_titles": [item["title"] for item in missing_sections],
+        "section_states": section_states,
+    }
+
+
+def _get_candidate_profile_gate(db, account, stored_sections=None):
+    safe_account = dict(account or {})
+    if not safe_account:
+        return _build_candidate_profile_gate({}, stored_sections or {})
+    resolved_sections = (
+        stored_sections
+        if stored_sections is not None
+        else get_career_public_profile_sections(db, safe_account.get("id"))
+    )
+    return _build_candidate_profile_gate(safe_account, resolved_sections)
+
+
+def _redirect_candidate_back_to_profile(profile_gate, *, message=None, category="error"):
+    safe_gate = dict(profile_gate or {})
+    next_section_key = normalize_career_public_profile_section_key(
+        safe_gate.get("next_section_key")
+    ) or "personal"
+    if message:
+        flash(message, category)
+    return redirect(build_career_public_url("career.profile_page", section=next_section_key))
+
+
+def _guard_candidate_profile_completion(db, account, *, message=None, category="error"):
+    profile_gate = _get_candidate_profile_gate(db, account)
+    if profile_gate["is_ready"]:
+        return profile_gate, None
+    return profile_gate, _redirect_candidate_back_to_profile(
+        profile_gate,
+        message=message
+        or "Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum melanjutkan.",
+        category=category,
+    )
+
+
 def _get_profile_section_definition(section_key):
     safe_key = normalize_career_public_profile_section_key(section_key)
     for definition in CAREER_PROFILE_SECTION_DEFINITIONS:
@@ -767,6 +835,7 @@ def _render_candidate_jobs_portal(
     initial_department="",
     initial_type_filter="",
     selected_warehouse_id=None,
+    profile_gate=None,
 ):
     openings = _fetch_public_openings(db, selected_warehouse_id)
     openings = [
@@ -796,6 +865,7 @@ def _render_candidate_jobs_portal(
         "career_candidate_jobs.html",
         candidate_account=account,
         candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
+        candidate_profile_gate=profile_gate or _get_candidate_profile_gate(db, account),
         openings=openings,
         selected_opening=selected_opening,
         initial_query=initial_query,
@@ -1266,6 +1336,13 @@ def portal_page():
     account, redirect_response = _require_career_public_account(db)
     if redirect_response:
         return redirect_response
+    profile_gate, redirect_response = _guard_candidate_profile_completion(
+        db,
+        account,
+        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum masuk ke portal kandidat.",
+    )
+    if redirect_response:
+        return redirect_response
 
     initial_query, initial_department, initial_type_filter, selected_warehouse_id = _parse_public_opening_filters()
     return _render_candidate_jobs_portal(
@@ -1275,6 +1352,7 @@ def portal_page():
         initial_department=initial_department,
         initial_type_filter=initial_type_filter,
         selected_warehouse_id=selected_warehouse_id,
+        profile_gate=profile_gate,
     )
 
 
@@ -1313,6 +1391,11 @@ def public_summary():
 def home():
     db = get_db()
     ensure_career_schema(db)
+    recruitment_host = _get_primary_recruitment_public_host()
+    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
+    active_account = _get_current_career_public_account(db)
+    if recruitment_host and current_host == recruitment_host.lower() and not active_account:
+        return redirect(build_career_public_url("career.signin_page"))
     openings = _fetch_public_openings(db)
     return render_template(
         "career_home.html",
@@ -1550,6 +1633,13 @@ def applications_page():
     account, redirect_response = _require_career_public_account(db)
     if redirect_response:
         return redirect_response
+    profile_gate, redirect_response = _guard_candidate_profile_completion(
+        db,
+        account,
+        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum membuka riwayat lamaran.",
+    )
+    if redirect_response:
+        return redirect_response
 
     applications = _fetch_candidate_workspace_applications(db, account)
     saved_openings = get_career_public_saved_opening_ids(db, account["id"])
@@ -1557,6 +1647,7 @@ def applications_page():
         "career_candidate_applications.html",
         candidate_account=account,
         candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
+        candidate_profile_gate=profile_gate,
         applications=applications,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_openings),
@@ -1568,6 +1659,13 @@ def saved_openings_page():
     db = get_db()
     ensure_career_schema(db)
     account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+    profile_gate, redirect_response = _guard_candidate_profile_completion(
+        db,
+        account,
+        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum membuka lowongan tersimpan.",
+    )
     if redirect_response:
         return redirect_response
 
@@ -1582,6 +1680,7 @@ def saved_openings_page():
         "career_candidate_saved.html",
         candidate_account=account,
         candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
+        candidate_profile_gate=profile_gate,
         saved_openings=saved_openings,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_openings),
@@ -1593,6 +1692,13 @@ def toggle_saved_opening():
     db = get_db()
     ensure_career_schema(db)
     account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+    profile_gate, redirect_response = _guard_candidate_profile_completion(
+        db,
+        account,
+        message="Lengkapi profil kandidat wajib terlebih dahulu sebelum menyimpan lowongan.",
+    )
     if redirect_response:
         return redirect_response
 
@@ -1737,7 +1843,8 @@ def profile_page():
         return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
 
     stored_sections = get_career_public_profile_sections(db, account["id"])
-    section_states = _build_profile_section_state(account, stored_sections)
+    profile_gate = _get_candidate_profile_gate(db, account, stored_sections=stored_sections)
+    section_states = profile_gate["section_states"]
     selected_section = next(
         (item for item in section_states if item["key"] == selected_section_key),
         section_states[0],
@@ -1802,6 +1909,7 @@ def profile_page():
     return render_template(
         "career_candidate_profile.html",
         candidate_account=account,
+        candidate_profile_gate=profile_gate,
         profile_sections=section_states,
         selected_profile_section=selected_section,
         selected_profile_payload=selected_payload,
@@ -1823,6 +1931,13 @@ def password_page():
     db = get_db()
     ensure_career_schema(db)
     account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+    profile_gate, redirect_response = _guard_candidate_profile_completion(
+        db,
+        account,
+        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum keluar dari halaman profil.",
+    )
     if redirect_response:
         return redirect_response
 
@@ -1861,6 +1976,7 @@ def password_page():
         "career_candidate_password.html",
         candidate_account=account,
         candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
+        candidate_profile_gate=profile_gate,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_openings),
     )
@@ -1871,6 +1987,14 @@ def opening_detail(opening_id):
     db = get_db()
     ensure_career_schema(db)
     active_account = _get_current_career_public_account(db)
+    if active_account:
+        profile_gate, redirect_response = _guard_candidate_profile_completion(
+            db,
+            active_account,
+            message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum membuka detail lowongan atau melamar.",
+        )
+        if redirect_response:
+            return redirect_response
     personal_payload = _get_candidate_personal_profile_payload(db, active_account["id"]) if active_account else {}
     additional_payload = _get_candidate_additional_profile_payload(db, active_account["id"]) if active_account else {}
 
@@ -1952,10 +2076,19 @@ def apply():
                 next=url_for("career.opening_detail", opening_id=opening["id"]),
             )
         )
+    profile_gate, redirect_response = _guard_candidate_profile_completion(
+        db,
+        active_account,
+        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum mengirim lamaran.",
+    )
+    if redirect_response:
+        return redirect_response
 
     raw_candidate_name = request.form.get("candidate_name")
     raw_phone = request.form.get("phone")
     raw_portfolio_url = request.form.get("portfolio_url")
+    raw_phone_normalized = normalize_candidate_phone(raw_phone)
+    raw_portfolio_url_normalized = normalize_candidate_portfolio_url(raw_portfolio_url)
 
     candidate_name = (
         normalize_candidate_identity_name(raw_candidate_name)
@@ -1963,22 +2096,19 @@ def apply():
         or active_account.get("full_name")
         or ""
     )
-    phone = normalize_candidate_phone(raw_phone) or normalize_candidate_phone(personal_payload.get("phone"))
+    phone = raw_phone_normalized or normalize_candidate_phone(personal_payload.get("phone"))
     email = normalize_candidate_email(active_account.get("email"))
-    portfolio_url = (
-        normalize_candidate_portfolio_url(raw_portfolio_url)
-        or normalize_candidate_portfolio_url(personal_payload.get("linkedin_url"))
-    )
+    portfolio_url = raw_portfolio_url_normalized or normalize_candidate_portfolio_url(personal_payload.get("linkedin_url"))
     note = (request.form.get("note") or "").strip() or _normalize_profile_textarea(additional_payload.get("notes"))
     resume_file = request.files.get("resume_file")
 
     if not candidate_name or (not phone and not email):
         flash("Nama kandidat dan minimal satu kontak wajib diisi.", "error")
         return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
-    if (raw_phone or "").strip() and not phone:
+    if (raw_phone or "").strip() and not raw_phone_normalized:
         flash("Nomor telepon kandidat tidak valid.", "error")
         return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
-    if (raw_portfolio_url or "").strip() and not portfolio_url:
+    if (raw_portfolio_url or "").strip() and not raw_portfolio_url_normalized:
         flash("Link portofolio harus berupa URL http:// atau https:// yang valid.", "error")
         return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 

@@ -4,10 +4,16 @@
     const serviceWorkerEnabled = config.serviceWorkerEnabled !== false;
     const installButtons = Array.from(document.querySelectorAll("[data-pwa-install-trigger]"));
     const standaloneQuery = window.matchMedia ? window.matchMedia("(display-mode: standalone)") : null;
+    const hadActiveServiceWorkerController = Boolean(
+        "serviceWorker" in navigator && navigator.serviceWorker.controller
+    );
     let deferredInstallPrompt = null;
     let installUiSyncFrame = 0;
     let installUiSurfaceMode = getSurfaceMode();
     let installUiStandaloneMode = isStandaloneMode();
+    let registeredServiceWorker = null;
+    let lastServiceWorkerUpdateCheckAt = 0;
+    let hasAutoReloadedForServiceWorkerUpdate = false;
 
     function getSurfaceMode() {
         if (window.innerWidth <= 767) {
@@ -186,6 +192,65 @@
         }
     }
 
+    function reloadForActivatedServiceWorker() {
+        if (!hadActiveServiceWorkerController || hasAutoReloadedForServiceWorkerUpdate) {
+            return;
+        }
+        hasAutoReloadedForServiceWorkerUpdate = true;
+        window.location.reload();
+    }
+
+    function attachServiceWorkerRegistrationHooks(registration) {
+        if (!registration || registration.__wmsUpdateHooksBound) {
+            return registration;
+        }
+
+        registration.__wmsUpdateHooksBound = true;
+        registration.addEventListener("updatefound", () => {
+            const installingWorker = registration.installing;
+            if (!installingWorker) {
+                return;
+            }
+            installingWorker.addEventListener("statechange", () => {
+                if (installingWorker.state === "installed" && registration.waiting) {
+                    registration.waiting.postMessage({ type: "SKIP_WAITING" });
+                }
+            });
+        });
+
+        if (registration.waiting) {
+            registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        return registration;
+    }
+
+    async function checkForServiceWorkerUpdate(force = false) {
+        if (!serviceWorkerEnabled || !("serviceWorker" in navigator)) {
+            return;
+        }
+
+        const now = Date.now();
+        if (!force && now - lastServiceWorkerUpdateCheckAt < 60 * 1000) {
+            return;
+        }
+        lastServiceWorkerUpdateCheckAt = now;
+
+        try {
+            const registration = registeredServiceWorker || await navigator.serviceWorker.getRegistration("/");
+            if (!registration) {
+                return;
+            }
+            registeredServiceWorker = attachServiceWorkerRegistrationHooks(registration);
+            await registeredServiceWorker.update();
+            if (registeredServiceWorker.waiting) {
+                registeredServiceWorker.waiting.postMessage({ type: "SKIP_WAITING" });
+            }
+        } catch (error) {
+            console.warn("ERP app shell service worker update check failed.", error);
+        }
+    }
+
     async function registerServiceWorker() {
         if (!serviceWorkerEnabled) {
             await unregisterServiceWorkers();
@@ -201,10 +266,20 @@
         }
 
         try {
-            await navigator.serviceWorker.register(serviceWorkerUrl, { scope: "/" });
+            registeredServiceWorker = await navigator.serviceWorker.register(serviceWorkerUrl, { scope: "/" });
+            attachServiceWorkerRegistrationHooks(registeredServiceWorker);
+            window.setTimeout(() => {
+                void checkForServiceWorkerUpdate(true);
+            }, 1200);
         } catch (error) {
             console.warn("ERP app shell service worker registration failed.", error);
         }
+    }
+
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+            reloadForActivatedServiceWorker();
+        });
     }
 
     window.addEventListener("beforeinstallprompt", (event) => {
@@ -229,9 +304,23 @@
         queueInstallUiSync(false);
     }, { passive: true });
 
+    window.addEventListener("focus", () => {
+        void checkForServiceWorkerUpdate(false);
+    });
+
+    window.addEventListener("pageshow", () => {
+        void checkForServiceWorkerUpdate(false);
+    });
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            void checkForServiceWorkerUpdate(false);
+        }
+    });
+
     bindInstallButtons();
     syncInstallUi();
     installUiSurfaceMode = getSurfaceMode();
     installUiStandaloneMode = isStandaloneMode();
-    registerServiceWorker();
+    void registerServiceWorker();
 })();

@@ -1,5 +1,6 @@
 {% set header_signin_url = signin_url if signin_url is defined and signin_url else url_for('career.signin_page') %}
 {% set header_register_url = register_url if register_url is defined and register_url else url_for('career.signin_page', flow='signup') %}
+{% set header_brand_url = url_for('career.portal_page') if career_public_authenticated else header_signin_url %}
 {% set header_auth_controls %}
     {% if career_public_authenticated %}
     <a href="{{ url_for('career.portal_page') }}" class="career-astra-account-chip" title="{{ career_public_account_email }}">
@@ -16,12 +17,12 @@
     </div>
 {% endset %}
 <header class="career-astra-topbar" data-career-mobile-header>
-    <a href="{{ url_for('career.home') }}" class="career-astra-brand-mark" aria-label="{{ career_company_name }}">
+    <a href="{{ header_brand_url }}" class="career-astra-brand-mark" aria-label="{{ career_company_name }}">
         <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
     </a>
 
     <div class="career-astra-topbar-head">
-        <a href="{{ url_for('career.home') }}" class="career-astra-brand-copy-link" aria-label="{{ career_company_name }}">
+        <a href="{{ header_brand_url }}" class="career-astra-brand-copy-link" aria-label="{{ career_company_name }}">
             <span class="career-astra-brand-copy">
                 <strong>{{ career_company_name }}</strong>
                 <span>Portal rekrutmen resmi perusahaan</span>
