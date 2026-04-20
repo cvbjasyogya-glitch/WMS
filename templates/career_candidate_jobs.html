@@ -5,7 +5,7 @@
 {% block candidate_workspace_content %}
 <section class="career-candidate-jobs-layout">
     <div class="career-candidate-panel career-candidate-jobs-list-panel">
-        <form method="GET" action="{{ url_for('career.index') }}" class="career-candidate-search-form">
+        <form method="GET" action="{{ url_for('career.portal_page') }}" class="career-candidate-search-form">
             <label class="career-candidate-search-field">
                 <input type="search" name="q" value="{{ initial_query or '' }}" placeholder="Cari posisi, area, atau departemen">
             </label>
@@ -31,7 +31,7 @@
             {% for opening in openings %}
             {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
             <article class="career-candidate-job-item {% if selected_opening and selected_opening.id == opening.id %}is-selected{% endif %}">
-                <a href="{{ url_for('career.index', vacancy=opening.id, q=initial_query, department=initial_department, type=initial_type_filter, warehouse=selected_warehouse_id) }}" class="career-candidate-job-item-main">
+                <a href="{{ url_for('career.portal_page', vacancy=opening.id, q=initial_query, department=initial_department, type=initial_type_filter, warehouse=selected_warehouse_id) }}" class="career-candidate-job-item-main">
                     <div class="career-candidate-job-badge">{{ opening.public_site_key|upper if opening.public_site_key else 'CV' }}</div>
                     <div class="career-candidate-job-copy">
                         <h2>{{ opening.title }}</h2>
@@ -60,7 +60,7 @@
             <article class="career-candidate-empty-inline">
                 <strong>Belum ada lowongan yang cocok dengan pencarian ini.</strong>
                 <p>Coba ubah kata kunci pencarian atau buka lagi semua lowongan aktif.</p>
-                <a href="{{ url_for('career.index') }}">Lihat semua lowongan</a>
+                <a href="{{ url_for('career.portal_page') }}">Lihat semua lowongan</a>
             </article>
             {% endfor %}
         </div>

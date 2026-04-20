@@ -13259,7 +13259,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(verify_response.status_code, 302)
-        self.assertEqual(verify_response.headers["Location"], "/karir")
+        self.assertEqual(verify_response.headers["Location"], "/karir/portal")
 
         with self.app.app_context():
             db = get_db()
@@ -13294,12 +13294,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/karir")
+        self.assertEqual(response.headers["Location"], "/karir/portal")
         with self.client.session_transaction() as session_data:
             self.assertTrue(session_data.get("career_public_account_id"))
             self.assertEqual(session_data.get("career_public_account_email"), "aktif@example.com")
 
-    def test_authenticated_public_career_jobs_route_renders_candidate_workspace(self):
+    def test_public_career_jobs_page_stays_public_and_portal_has_separate_candidate_workspace(self):
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
@@ -13335,7 +13335,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             full_name="Workspace Candidate",
         )
 
-        response = self.client.get(f"/karir?vacancy={opening['id']}")
+        public_response = self.client.get(f"/karir?vacancy={opening['id']}")
+        self.assertEqual(public_response.status_code, 200)
+        public_html = public_response.get_data(as_text=True)
+        self.assertIn("Lowongan Karir", public_html)
+        self.assertNotIn("Portal Kandidat", public_html)
+
+        response = self.client.get(f"/karir/portal?vacancy={opening['id']}")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Portal Kandidat", html)
@@ -13450,7 +13456,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "domicile_city": "Sleman",
                 "domicile_address": "Jl. Godean Km 8",
                 "summary": "Siap ditempatkan di area retail.",
+                "photo_file": (BytesIO(b"photo-profile"), "profil.png"),
             },
+            content_type="multipart/form-data",
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 302)
@@ -13479,8 +13487,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["instagram_handle"], "profilbaru")
         self.assertEqual(payload["ktp_province"], "DIY")
         self.assertEqual(payload["domicile_address"], "Jl. Godean Km 8")
+        self.assertTrue(payload["photo_path"])
         self.assertEqual(section_row["completion_state"], "complete")
         self.assertEqual(account_row["full_name"], "Profil Baru Kandidat")
+
+        portal_response = self.client.get("/karir/portal")
+        self.assertEqual(portal_response.status_code, 200)
+        self.assertIn("/karir/media/photo/", portal_response.get_data(as_text=True))
 
     def test_public_career_candidate_can_upload_required_documents(self):
         account = self.login_public_career_account_session(

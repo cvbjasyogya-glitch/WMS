@@ -451,6 +451,15 @@ def inject_career_public_context():
     }
 
 
+def _resolve_career_public_post_auth_target(next_target=None):
+    safe_target = _safe_career_public_next_target(next_target)
+    public_jobs_path = url_for("career.index")
+    signin_path = url_for("career.signin_page")
+    if not safe_target or safe_target in {public_jobs_path, signin_path}:
+        return build_career_public_url("career.portal_page")
+    return safe_target
+
+
 def _get_career_public_request_path():
     target_path = request.full_path if request.query_string else request.path
     if target_path.endswith("?"):
@@ -700,6 +709,13 @@ def _get_candidate_additional_profile_payload(db, account_id):
     return payload
 
 
+def _get_candidate_profile_photo_url(db, account_id):
+    if not account_id:
+        return ""
+    payload = _get_candidate_personal_profile_payload(db, account_id)
+    return _career_public_media_url("photo", payload.get("photo_path"))
+
+
 def _get_career_public_media_root(media_kind):
     safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
     root_path = os.path.join(current_app.instance_path, "career_public_media", safe_kind)
@@ -740,7 +756,55 @@ def _career_public_media_url(media_kind, stored_name):
     if not safe_name:
         return ""
     safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
-    return url_for("career.public_media", media_kind=safe_kind, filename=safe_name)
+    return url_for("career.public_media", media_kind=safe_kind, filename=safe_name, v=safe_name)
+
+
+def _render_candidate_jobs_portal(
+    db,
+    account,
+    *,
+    initial_query="",
+    initial_department="",
+    initial_type_filter="",
+    selected_warehouse_id=None,
+):
+    openings = _fetch_public_openings(db, selected_warehouse_id)
+    openings = [
+        opening
+        for opening in openings
+        if _matches_public_opening_filters(
+            opening,
+            query=initial_query,
+            department=initial_department,
+            employment_type=initial_type_filter,
+        )
+    ]
+    applications = _fetch_candidate_workspace_applications(db, account)
+    saved_opening_ids = get_career_public_saved_opening_ids(db, account["id"])
+    openings = _decorate_workspace_openings(
+        openings,
+        saved_opening_ids=saved_opening_ids,
+        applications=applications,
+    )
+    selected_opening_id = request.args.get("vacancy", "").strip()
+    try:
+        selected_opening_id = int(selected_opening_id) if selected_opening_id else None
+    except ValueError:
+        selected_opening_id = None
+    selected_opening = next((opening for opening in openings if opening["id"] == selected_opening_id), None)
+    return render_template(
+        "career_candidate_jobs.html",
+        candidate_account=account,
+        candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
+        openings=openings,
+        selected_opening=selected_opening,
+        initial_query=initial_query,
+        initial_department=initial_department,
+        initial_type_filter=initial_type_filter,
+        selected_warehouse_id=selected_warehouse_id,
+        candidate_application_count=len(applications),
+        candidate_saved_count=len(saved_opening_ids),
+    )
 
 
 def _fetch_candidate_workspace_applications(db, account):
@@ -1155,8 +1219,6 @@ def _reset_candidate_assessment_session(db, candidate):
 def index():
     db = get_db()
     ensure_career_schema(db)
-    active_account = _get_current_career_public_account(db)
-
     initial_query, initial_department, initial_type_filter, selected_warehouse_id = _parse_public_opening_filters()
 
     openings = _fetch_public_openings(db, selected_warehouse_id)
@@ -1170,33 +1232,6 @@ def index():
             employment_type=initial_type_filter,
         )
     ]
-    if active_account:
-        applications = _fetch_candidate_workspace_applications(db, active_account)
-        saved_opening_ids = get_career_public_saved_opening_ids(db, active_account["id"])
-        openings = _decorate_workspace_openings(
-            openings,
-            saved_opening_ids=saved_opening_ids,
-            applications=applications,
-        )
-        selected_opening_id = request.args.get("vacancy", "").strip()
-        try:
-            selected_opening_id = int(selected_opening_id) if selected_opening_id else None
-        except ValueError:
-            selected_opening_id = None
-        selected_opening = next((opening for opening in openings if opening["id"] == selected_opening_id), None)
-        return render_template(
-            "career_candidate_jobs.html",
-            candidate_account=active_account,
-            openings=openings,
-            selected_opening=selected_opening,
-            initial_query=initial_query,
-            initial_department=initial_department,
-            initial_type_filter=initial_type_filter,
-            selected_warehouse_id=selected_warehouse_id,
-            candidate_application_count=len(applications),
-            candidate_saved_count=len(saved_opening_ids),
-        )
-
     warehouses = [
         _annotate_public_warehouse_display(dict(row))
         for row in db.execute("SELECT id, name FROM warehouses ORDER BY name ASC").fetchall()
@@ -1221,6 +1256,25 @@ def index():
         initial_type_filter=initial_type_filter,
         latest_assessment_code=assessment_code,
         latest_candidate=latest_candidate,
+    )
+
+
+@career_bp.route("/karir/portal")
+def portal_page():
+    db = get_db()
+    ensure_career_schema(db)
+    account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+
+    initial_query, initial_department, initial_type_filter, selected_warehouse_id = _parse_public_opening_filters()
+    return _render_candidate_jobs_portal(
+        db,
+        account,
+        initial_query=initial_query,
+        initial_department=initial_department,
+        initial_type_filter=initial_type_filter,
+        selected_warehouse_id=selected_warehouse_id,
     )
 
 
@@ -1309,8 +1363,8 @@ def signin_page():
         registration_delivery = "sent"
     verification_success = str(request.args.get("verified") or "").strip() in {"1", "true", "yes"}
     next_target = _safe_career_public_next_target(request.args.get("next"))
-    if active_account and next_target:
-        return redirect(next_target)
+    if active_account:
+        return redirect(_resolve_career_public_post_auth_target(next_target))
     return render_template(
         "career_signin.html",
         signin_url=_career_public_signin_url(),
@@ -1354,7 +1408,7 @@ def signin_submit():
     db.commit()
     _set_career_public_session(account)
     flash("Akun kandidat berhasil masuk.", "success")
-    return redirect(next_target or build_career_public_url("career.index"))
+    return redirect(_resolve_career_public_post_auth_target(next_target))
 
 
 @career_bp.route("/signin/register-request", methods=["POST"])
@@ -1461,9 +1515,7 @@ def verify_public_account():
 
     _set_career_public_session(account)
     flash("Akun kandidat berhasil diaktifkan. Anda sudah bisa melamar lowongan.", "success")
-    if next_target:
-        return redirect(next_target)
-    return _redirect_career_public("career.signin_page", flow="signin", verified=1)
+    return redirect(_resolve_career_public_post_auth_target(next_target))
 
 
 @career_bp.route("/signin/logout")
@@ -1504,6 +1556,7 @@ def applications_page():
     return render_template(
         "career_candidate_applications.html",
         candidate_account=account,
+        candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
         applications=applications,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_openings),
@@ -1528,6 +1581,7 @@ def saved_openings_page():
     return render_template(
         "career_candidate_saved.html",
         candidate_account=account,
+        candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
         saved_openings=saved_openings,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_openings),
@@ -1806,6 +1860,7 @@ def password_page():
     return render_template(
         "career_candidate_password.html",
         candidate_account=account,
+        candidate_profile_photo_url=_get_candidate_profile_photo_url(db, account["id"]),
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_openings),
     )

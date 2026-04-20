@@ -15,12 +15,12 @@
 {% block content %}
 <div class="career-candidate-shell">
     <aside class="career-candidate-sidebar">
-        <a href="{{ url_for('career.index') }}" class="career-candidate-sidebar-brand" aria-label="{{ career_company_name }}">
+        <a href="{{ url_for('career.portal_page') }}" class="career-candidate-sidebar-brand" aria-label="{{ career_company_name }}">
             <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
         </a>
 
         <nav class="career-candidate-sidebar-nav" aria-label="Menu portal kandidat">
-            <a href="{{ url_for('career.index') }}" class="{% if candidate_active_page == 'jobs' %}is-active{% endif %}">
+            <a href="{{ url_for('career.portal_page') }}" class="{% if candidate_active_page == 'jobs' %}is-active{% endif %}">
                 <span class="career-candidate-nav-icon">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="11" cy="11" r="6.5"></circle>
@@ -85,7 +85,13 @@
                     <span>Tersimpan</span>
                 </div>
                 <a href="{{ url_for('career.profile_page') }}" class="career-candidate-account-pill" aria-label="Buka profil kandidat">
-                    <span class="career-candidate-avatar">{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
+                    <span class="career-candidate-avatar">
+                        {% if candidate_profile_photo_url %}
+                        <img src="{{ candidate_profile_photo_url }}" alt="{{ candidate_account.full_name or 'Kandidat' }}">
+                        {% else %}
+                        {{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}
+                        {% endif %}
+                    </span>
                     <span class="career-candidate-account-copy">
                         <strong>{{ candidate_account.full_name or 'Kandidat' }}</strong>
                         <small>{{ candidate_account.email }}</small>

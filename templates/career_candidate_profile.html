@@ -41,17 +41,17 @@
 
             {% if selected_profile_section.key == 'personal' %}
             <div class="career-profile-photo-block">
-                <div class="career-profile-photo-frame">
+                <div class="career-profile-photo-frame" id="careerProfilePhotoFrame">
                     {% if selected_profile_photo_url %}
-                    <img src="{{ selected_profile_photo_url }}" alt="{{ candidate_account.full_name }}">
+                    <img src="{{ selected_profile_photo_url }}" alt="{{ candidate_account.full_name }}" id="careerProfilePhotoPreview">
                     {% else %}
-                    <span>{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
+                    <span id="careerProfilePhotoFallback">{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
                     {% endif %}
                 </div>
-                <label class="career-profile-upload-trigger">
+                <label class="career-profile-upload-trigger" for="careerProfilePhotoInput">
                     Klik untuk ganti foto
-                    <small>Max 2MB</small>
-                    <input type="file" name="photo_file" accept=".jpg,.jpeg,.png,.webp">
+                    <small id="careerProfilePhotoMeta">JPG, PNG, WEBP - Max 2MB</small>
+                    <input type="file" name="photo_file" id="careerProfilePhotoInput" accept=".jpg,.jpeg,.png,.webp">
                 </label>
             </div>
 
@@ -277,4 +277,45 @@
         </form>
     </section>
 </section>
+{% endblock %}
+
+{% block candidate_extra_head %}
+{{ super() }}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("careerProfilePhotoInput");
+    const meta = document.getElementById("careerProfilePhotoMeta");
+    const frame = document.getElementById("careerProfilePhotoFrame");
+    if (!input || !meta || !frame) return;
+
+    input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        if (!file) {
+            meta.textContent = "JPG, PNG, WEBP - Max 2MB";
+            return;
+        }
+
+        meta.textContent = `Foto dipilih: ${file.name}`;
+
+        if (!file.type || !file.type.startsWith("image/")) {
+            return;
+        }
+
+        const existingPreview = document.getElementById("careerProfilePhotoPreview");
+        const fallback = document.getElementById("careerProfilePhotoFallback");
+        const preview = existingPreview || document.createElement("img");
+        preview.id = "careerProfilePhotoPreview";
+        preview.alt = "{{ candidate_account.full_name or 'Kandidat' }}";
+        preview.src = URL.createObjectURL(file);
+        preview.onload = () => URL.revokeObjectURL(preview.src);
+
+        if (fallback) {
+            fallback.remove();
+        }
+        if (!existingPreview) {
+            frame.appendChild(preview);
+        }
+    });
+});
+</script>
 {% endblock %}
