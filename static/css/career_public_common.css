@@ -9,6 +9,10 @@
     --career-shadow: 0 18px 40px rgba(17, 42, 73, 0.08);
 }
 
+body.career-mobile-menu-open {
+    overflow: hidden;
+}
+
 .career-astra-topbar {
     position: sticky;
     top: 0;
@@ -855,32 +859,40 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
 
 @media (max-width: 860px) {
     .career-astra-topbar {
+        top: 8px;
+        width: min(100%, calc(100vw - 12px));
+        margin-inline: auto;
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
         grid-template-rows: auto auto;
-        border-radius: 0 0 18px 18px;
-        gap: 10px 12px;
-        padding: 12px 14px;
+        border-radius: 18px;
+        gap: 8px 10px;
+        padding: 10px 12px;
     }
 
     .career-astra-brand-mark {
         grid-column: 1;
         grid-row: 1;
-        width: 68px;
-        min-width: 68px;
-        min-height: 58px;
-        padding: 4px 6px;
+        width: 60px;
+        min-width: 60px;
+        min-height: 52px;
+        padding: 4px;
+        border-radius: 14px;
+        background: #fff;
+        border: 1px solid #e4ebf3;
     }
 
     .career-astra-topbar-head {
         grid-column: 2;
         grid-row: 1;
         align-items: center;
+        gap: 8px 10px;
     }
 
     .career-astra-topbar-head-actions {
         margin-left: auto;
         align-items: center;
+        gap: 8px;
     }
 
     .career-astra-account-actions {
@@ -891,12 +903,14 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
         grid-column: 1 / -1;
         grid-row: 2;
         display: none;
-        padding-top: 2px;
+        margin-top: 4px;
+        padding-top: 10px;
+        border-top: 1px solid #edf2f7;
     }
 
     .career-astra-topbar.is-open .career-astra-topbar-panel {
         display: grid;
-        gap: 12px;
+        gap: 10px;
         max-height: calc(100vh - 92px);
         overflow-y: auto;
     }
@@ -930,21 +944,37 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
 
     .career-astra-nav {
         overflow: visible;
-        flex-wrap: wrap;
-        gap: 8px 18px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
         padding-inline: 0;
     }
 
     .career-astra-nav a {
-        padding: 6px 0;
+        min-height: 44px;
+        padding: 0 14px;
+        display: flex;
+        align-items: center;
+        border-radius: 14px;
+        border: 1px solid #e0e9f3;
+        background: #f8fbff;
         font-size: 0.94rem;
     }
 
+    .career-astra-nav a.is-active {
+        background: #eef6ff;
+        border-color: #cfe0ef;
+    }
+
+    .career-astra-nav a.is-active::after {
+        display: none;
+    }
+
     .career-astra-topbar-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px 12px;
-        align-items: center;
+        width: 100%;
+        display: grid;
+        gap: 10px;
+        align-items: stretch;
         margin-left: 0;
     }
 
@@ -954,7 +984,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
         align-items: center;
         justify-content: flex-start;
         flex-wrap: wrap;
-        gap: 8px 12px;
+        gap: 8px;
     }
 
     .career-astra-topbar .career-test-shortcut,
@@ -970,6 +1000,16 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
     .career-astra-account-chip {
         max-width: none;
         width: 100%;
+        justify-content: flex-start;
+    }
+
+    .career-astra-mobile-auth a,
+    .career-astra-topbar .career-test-shortcut-panel summary {
+        min-height: 44px;
+    }
+
+    .career-astra-mobile-auth a {
+        flex: 1 1 calc(50% - 4px);
         justify-content: center;
     }
 
@@ -982,22 +1022,25 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
 
 @media (max-width: 680px) {
     .career-astra-topbar {
-        padding: 10px 12px;
+        top: 6px;
+        width: min(100%, calc(100vw - 10px));
+        padding: 10px;
     }
 
     .career-astra-brand-mark {
-        width: 62px;
-        min-width: 62px;
-        min-height: 54px;
-        padding: 4px 5px;
+        width: 56px;
+        min-width: 56px;
+        min-height: 48px;
+        padding: 4px;
     }
 
     .career-astra-brand-mark img {
-        width: 50px;
+        width: 46px;
     }
 
-    .career-astra-nav {
-        gap: 6px 16px;
+    .career-astra-brand-copy strong {
+        font-size: 0.84rem;
+        line-height: 1.22;
     }
 
     .career-astra-nav a,
@@ -1005,7 +1048,15 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
     .career-astra-mobile-auth a,
     .career-astra-topbar-actions a,
     .career-astra-topbar .career-test-shortcut-panel summary {
-        font-size: 0.92rem;
+        font-size: 0.89rem;
+    }
+
+    .career-astra-mobile-auth {
+        gap: 8px;
+    }
+
+    .career-astra-mobile-auth a {
+        flex: 1 1 calc(50% - 4px);
     }
 }
 
@@ -2109,26 +2160,43 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     }
 
     .career-candidate-sidebar {
-        padding: 12px;
+        padding: 10px 12px;
         border-right: 0;
         border-bottom: 1px solid #e4ebf3;
+        gap: 10px;
     }
 
     .career-candidate-sidebar-brand {
         justify-content: flex-start;
-        padding: 0 4px 8px;
+        padding: 0 4px 4px;
+    }
+
+    .career-candidate-sidebar-brand img {
+        width: min(58px, 100%);
+        max-height: 46px;
     }
 
     .career-candidate-sidebar-nav {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: none;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(92px, 1fr);
         gap: 8px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+    }
+
+    .career-candidate-sidebar-nav::-webkit-scrollbar {
+        display: none;
     }
 
     .career-candidate-sidebar-nav a {
-        min-height: 78px;
-        padding: 12px 8px;
+        min-height: 72px;
+        padding: 10px 8px;
         border: 1px solid #e4ebf3;
         border-radius: 18px;
+        gap: 8px;
     }
 
     .career-candidate-sidebar-nav a.is-active::after {
@@ -2141,25 +2209,91 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
         width: min(100%, calc(100vw - 8px));
     }
 
+    .career-candidate-shell {
+        border-radius: 20px;
+    }
+
+    .career-candidate-sidebar {
+        padding: 10px;
+        gap: 8px;
+    }
+
+    .career-candidate-sidebar-brand {
+        padding: 0 2px 2px;
+    }
+
+    .career-candidate-sidebar-brand img {
+        width: min(54px, 100%);
+        max-height: 44px;
+    }
+
+    .career-candidate-sidebar-nav {
+        grid-auto-columns: minmax(88px, 1fr);
+        gap: 8px;
+    }
+
+    .career-candidate-sidebar-nav a {
+        min-height: 66px;
+        padding: 10px 6px;
+        border-radius: 16px;
+    }
+
+    .career-candidate-sidebar-nav a span:last-child {
+        font-size: 0.78rem;
+    }
+
+    .career-candidate-nav-icon {
+        width: 28px;
+        height: 28px;
+    }
+
+    .career-candidate-nav-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+
     .career-candidate-topbar,
     .career-candidate-body,
     .career-candidate-preview-panel,
     .career-password-card {
-        padding: 18px;
+        padding: 16px;
     }
 
     .career-candidate-topbar {
         flex-direction: column;
         align-items: flex-start;
+        gap: 14px;
+    }
+
+    .career-candidate-topbar-copy {
+        gap: 4px;
+    }
+
+    .career-candidate-topbar-kicker {
+        min-height: 28px;
+        padding: 0 10px;
+        font-size: 0.68rem;
+    }
+
+    .career-candidate-topbar-copy h1 {
+        font-size: 1.42rem;
     }
 
     .career-candidate-topbar-actions {
         width: 100%;
-        justify-content: flex-start;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        justify-content: stretch;
+        gap: 10px;
+    }
+
+    .career-candidate-topbar-stat {
+        min-height: 50px;
+        padding: 10px 12px;
     }
 
     .career-candidate-sidebar-nav {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: none;
     }
 
     .career-candidate-job-item,
@@ -2175,6 +2309,32 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
         width: 100%;
     }
 
+    .career-candidate-account-pill {
+        grid-column: 1 / -1;
+        min-height: 54px;
+        padding: 0 14px 0 8px;
+        justify-content: flex-start;
+    }
+
+    .career-candidate-topbar-link {
+        grid-column: 1 / -1;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .career-candidate-job-item-actions,
+    .career-candidate-preview-actions,
+    .career-candidate-card-actions {
+        width: 100%;
+    }
+
+    .career-candidate-inline-button,
+    .career-candidate-primary-action,
+    .career-candidate-secondary-action {
+        width: 100%;
+    }
+
     .career-profile-document-status-grid {
         grid-template-columns: 1fr;
     }
@@ -2185,5 +2345,72 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
 
     .career-profile-grid label.span-2 {
         grid-column: span 1;
+    }
+
+    .career-candidate-preview-illustration,
+    .career-candidate-empty-illustration {
+        height: 200px;
+    }
+
+    .career-candidate-preview-window {
+        inset: 24px 42px 20px;
+    }
+
+    .career-candidate-preview-card-mini,
+    .career-candidate-empty-cards::before,
+    .career-candidate-empty-cards::after {
+        width: 92px;
+        height: 58px;
+    }
+
+    .career-candidate-preview-person {
+        width: 100px;
+        height: 132px;
+        bottom: 22px;
+    }
+
+    .career-candidate-preview-person span:first-child {
+        width: 38px;
+        height: 38px;
+    }
+
+    .career-candidate-preview-person span:last-child {
+        top: 36px;
+        width: 64px;
+        height: 88px;
+    }
+
+    .career-candidate-preview-meta article,
+    .career-candidate-info-matrix article {
+        min-width: 0;
+        padding: 14px 16px;
+    }
+}
+
+@media (max-width: 540px) {
+    .career-candidate-topbar-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .career-candidate-preview-meta article,
+    .career-candidate-info-matrix article {
+        width: 100%;
+    }
+
+    .career-candidate-search-field input,
+    .career-profile-form input,
+    .career-profile-form textarea,
+    .career-profile-form select {
+        min-height: 52px;
+        padding-inline: 16px;
+    }
+
+    .career-candidate-search-field input {
+        padding-left: 46px;
+    }
+
+    .career-profile-form textarea {
+        min-height: 112px;
+        padding: 14px 16px;
     }
 }

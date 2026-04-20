@@ -323,36 +323,63 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
 
 @media (max-width: 860px) {
     body.minimal-shell .main.career-public-shell > .page-content.career-signin-page {
-        width: min(100%, calc(100vw - 18px));
+        width: min(100%, calc(100vw - 12px));
     }
 
     .career-signin-shell {
-        gap: 36px;
-        padding-top: 12px;
+        gap: 18px;
+        padding-top: 6px;
     }
 
     .career-signin-hero-banner {
-        min-height: 680px;
+        min-height: 320px;
         border-radius: 0 0 18px 18px;
+        background-position: center 30%;
     }
 
     .career-signin-hero-copy {
-        left: 22px;
-        right: 22px;
-        bottom: 280px;
+        left: 16px;
+        right: 16px;
+        top: 86px;
+        bottom: auto;
         width: auto;
+        gap: 10px;
     }
 
     .career-signin-panel {
-        width: calc(100% - 18px);
-        margin-top: -210px;
+        width: calc(100% - 12px);
+        margin-top: -88px;
     }
 
 }
 
 @media (max-width: 680px) {
+    .career-signin-hero-banner {
+        min-height: 250px;
+    }
+
+    .career-signin-hero-copy {
+        top: 74px;
+    }
+
+    .career-signin-hero-copy h1 {
+        font-size: clamp(1.92rem, 8vw, 2.35rem);
+        line-height: 1.04;
+    }
+
+    .career-signin-hero-copy p {
+        font-size: 0.95rem;
+        line-height: 1.56;
+    }
+
+    .career-signin-panel {
+        width: calc(100% - 10px);
+        margin-top: -74px;
+    }
+
     .career-signin-card {
-        padding: 22px 20px;
+        gap: 16px;
+        padding: 22px 18px;
     }
 
     .career-signin-switch {
@@ -362,6 +389,53 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
 
     .career-signin-switch a {
         flex: 1;
+    }
+}
+
+@media (max-width: 520px) {
+    .career-signin-shell section[id] {
+        scroll-margin-top: 82px;
+    }
+
+    .career-signin-hero-banner {
+        min-height: 212px;
+    }
+
+    .career-signin-kicker {
+        min-height: 30px;
+        padding: 0 12px;
+        font-size: 0.68rem;
+    }
+
+    .career-signin-hero-copy {
+        top: 66px;
+        gap: 8px;
+    }
+
+    .career-signin-hero-copy h1 {
+        font-size: 1.72rem;
+    }
+
+    .career-signin-hero-copy p {
+        display: none;
+    }
+
+    .career-signin-panel {
+        margin-top: -62px;
+    }
+
+    .career-signin-card {
+        padding: 20px 16px;
+        border-radius: 16px;
+    }
+
+    .career-signin-form {
+        gap: 14px;
+    }
+
+    .career-signin-form input,
+    .career-signin-submit {
+        min-height: 52px;
     }
 }
 </style>

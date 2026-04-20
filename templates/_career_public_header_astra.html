@@ -91,6 +91,7 @@
     const syncOpenState = (isOpen) => {
         header.classList.toggle("is-open", isOpen);
         toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        document.body.classList.toggle("career-mobile-menu-open", isOpen && window.innerWidth <= 920);
     };
 
     syncOpenState(false);
