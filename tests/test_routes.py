@@ -13596,6 +13596,57 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(portal_response.status_code, 302)
         self.assertEqual(portal_response.headers["Location"], "/karir/profil?section=documents")
 
+    def test_public_career_candidate_can_save_personal_profile_section_without_npwp(self):
+        account = self.login_public_career_account_session(
+            email="profil-nonpwp@example.com",
+            full_name="Profil Non NPWP",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "personal",
+                "full_name": "Profil Non NPWP",
+                "email": "profil-nonpwp@example.com",
+                "phone": "0812 3333 4444",
+                "ktp_number": "3402120000000001",
+                "npwp_number": "",
+                "linkedin_url": "linkedin.com/in/profil-nonpwp",
+                "instagram_handle": "@profilnonpwp",
+                "birth_place": "Sleman",
+                "birth_date": "2001-05-10",
+                "gender": "male",
+                "marital_status": "single",
+                "religion": "islam",
+                "ktp_province": "DIY",
+                "ktp_city": "Sleman",
+                "ktp_address": "Jl. Magelang Km 10",
+                "ktp_postal_code": "55515",
+                "domicile_city": "Sleman",
+                "domicile_address": "Jl. Godean Km 8",
+                "summary": "Tetap bisa lanjut walau belum punya NPWP.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=personal")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json, completion_state
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "personal"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        self.assertEqual(payload["npwp_number"], "")
+        self.assertEqual(section_row["completion_state"], "complete")
+
     def test_public_career_candidate_can_upload_required_documents(self):
         account = self.login_public_career_account_session(
             email="dokumen@example.com",
@@ -15556,7 +15607,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Histori Pemakaian Lembur", html)
         self.assertIn("biometric-workspace-shell", html)
         self.assertIn("Kembali ke Pusat Modul", html)
-        self.assertIn("biometric-focus-meta", html)
+        self.assertIn("biometric-workspace-subnav", html)
         self.assertIn("Saldo &amp; Audit", html)
         self.assertIn("Naufal Saldo Lembur Satu", html)
         self.assertIn("Naufal Saldo Lembur Dua", html)

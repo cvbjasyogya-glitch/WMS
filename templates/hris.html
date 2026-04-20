@@ -4587,39 +4587,8 @@
     </div>
 </div>
 {% else %}
-<div class="table-box biometric-workspace-focus-card {{ biometric_workspace_view_meta.accent }}">
-    <div class="biometric-focus-head">
-        <div class="biometric-focus-intro">
-            <span class="biometric-focus-icon">{{ biometric_workspace_view_meta.icon }}</span>
-            <div class="biometric-focus-copy">
-                <span class="biometric-focus-kicker">{{ biometric_workspace_view_meta.kicker }}</span>
-            <h2>{{ biometric_workspace_view_meta.label }}</h2>
-            <p>{{ biometric_workspace_view_meta.description }}</p>
-            </div>
-        </div>
-        <div class="split-actions">
-            <a href="{{ biometric_overview_url }}" class="ghost-button">Kembali ke Pusat Modul</a>
-        </div>
-    </div>
-    <div class="biometric-focus-meta">
-        <div class="biometric-focus-meta-card">
-            <span>Modul Aktif</span>
-            <strong>{{ biometric_active_card.value.title if biometric_active_card.value else biometric_workspace_view_meta.label }}</strong>
-        </div>
-        <div class="biometric-focus-meta-card">
-            <span>Scope Aktif</span>
-            <strong>{{ biometric_scope.label }}</strong>
-        </div>
-        <div class="biometric-focus-meta-card">
-            <span>Ringkasan Cepat</span>
-            <strong>{{ biometric_active_card.value.badge if biometric_active_card.value else '-' }}</strong>
-        </div>
-    </div>
-    <div class="biometric-focus-points">
-        {% for point in biometric_workspace_view_meta.highlights %}
-        <span>{{ point }}</span>
-        {% endfor %}
-    </div>
+<div class="biometric-workspace-subnav">
+    <a href="{{ biometric_overview_url }}" class="ghost-button">Kembali ke Pusat Modul</a>
 </div>
 {% endif %}
 

@@ -14968,6 +14968,12 @@ body .hris-clean-shell .biometric-workspace-focus-card {
         linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.96));
 }
 
+body .hris-clean-shell .biometric-workspace-subnav {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
 body .hris-clean-shell .biometric-focus-head {
     display: flex;
     align-items: flex-start;
