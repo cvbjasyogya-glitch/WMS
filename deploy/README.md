@@ -9,6 +9,19 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 5. Pull the latest code, restart `wms.service`, then reload Nginx.
 6. (Optional but recommended) Enable scheduled DB backups with [deploy/systemd/wms-db-backup.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.service.example) and [deploy/systemd/wms-db-backup.timer.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms-db-backup.timer.example).
 
+Brevo SMTP for career and auth emails:
+- The app already sends career/account emails through `services.notification_service.send_email()`, so Brevo works without extra plugin.
+- Fill `.env` with:
+  `SMTP_HOST=smtp-relay.brevo.com`
+  `SMTP_PORT=587`
+  `SMTP_USER=<brevo-login>`
+  `SMTP_PASS=<brevo-smtp-key>`
+  `SMTP_TLS=1`
+  `SMTP_SSL=0`
+  `SMTP_FROM_EMAIL=<verified-sender@domain>`
+  `SMTP_FROM_NAME=CV Berkah Jaya Abadi Sports Career`
+- `SMTP_FROM_EMAIL` and `SMTP_FROM_NAME` are optional overrides for the sender shown to candidates. If omitted, the app falls back to `SMTP_USER`.
+
 Public recruitment domain:
 - Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.

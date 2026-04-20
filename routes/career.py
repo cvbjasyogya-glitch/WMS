@@ -537,6 +537,9 @@ def signin_page():
         flow = "signin"
     registered = str(request.args.get("registered") or "").strip() in {"1", "true", "yes"}
     email = (request.args.get("email") or "").strip()
+    registration_delivery = str(request.args.get("mail") or "sent").strip().lower()
+    if registration_delivery not in {"sent", "pending"}:
+        registration_delivery = "sent"
     return render_template(
         "career_signin.html",
         signin_url=_career_public_signin_url(),
@@ -544,6 +547,7 @@ def signin_page():
         active_flow=flow,
         registration_success=registered,
         registration_email=email,
+        registration_delivery=registration_delivery,
         opening_count=len(openings),
     )
 
@@ -593,15 +597,24 @@ def signin_register_request():
         "Sambil menunggu, Anda tetap bisa melihat lowongan aktif dan mengerjakan tes dengan kode 5 digit jika sudah diberikan HR.\n\n"
         f"Salam,\n{career_company_name}"
     )
+    registration_delivery = "sent"
     try:
-        send_email(email, email_subject, email_body)
+        email_result = send_email(email, email_subject, email_body)
+        if email_result is not True:
+            registration_delivery = "pending"
+            current_app.logger.warning(
+                "Career signup email was not sent for %s. Check SMTP/Brevo configuration.",
+                email,
+            )
     except Exception:
-        pass
+        registration_delivery = "pending"
+        current_app.logger.exception("Career signup email failed for %s", email)
     return _redirect_career_public(
         "career.signin_page",
         flow="signup",
         registered=1,
         email=email,
+        mail=registration_delivery,
     )
 
 

@@ -12637,6 +12637,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(success_page.status_code, 200)
         self.assertIn("Email Terkirim", success_page.get_data(as_text=True))
 
+    def test_public_career_signup_request_marks_pending_when_email_delivery_fails(self):
+        with patch("routes.career.send_email", return_value=False):
+            response = self.client.post(
+                "/signin/register-request",
+                data={
+                    "candidate_name": "Ryo Saputra",
+                    "email": "ryo-gagal@example.com",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("mail=pending", response.headers["Location"])
+
+        pending_page = self.client.get("/signin?flow=signup&registered=1&email=ryo-gagal%40example.com&mail=pending")
+        self.assertEqual(pending_page.status_code, 200)
+        pending_html = pending_page.get_data(as_text=True)
+        self.assertIn("Permintaan Sudah Masuk", pending_html)
+        self.assertNotIn("Email Terkirim", pending_html)
+
     def test_create_public_account_request_uses_inserted_request_id_when_available(self):
         db = Mock()
         db.execute.side_effect = [
@@ -23547,6 +23567,37 @@ class WmsRoutesTestCase(unittest.TestCase):
                 result = notification_service.send_whatsapp("628123456789", "Halo")
 
         self.assertFalse(result)
+
+    def test_send_email_uses_brevo_sender_override_when_configured(self):
+        fake_server = Mock()
+
+        with patch.dict(
+            os.environ,
+            {
+                "SMTP_HOST": "smtp-relay.brevo.com",
+                "SMTP_PORT": "587",
+                "SMTP_USER": "smtp-login@example.com",
+                "SMTP_PASS": "smtp-secret",
+                "SMTP_TLS": "1",
+                "SMTP_SSL": "0",
+                "SMTP_FROM_EMAIL": "career@cvbjasyogya.cloud",
+                "SMTP_FROM_NAME": "CV Berkah Jaya Abadi Sports Career",
+            },
+            clear=False,
+        ):
+            with patch("services.notification_service.smtplib.SMTP", return_value=fake_server):
+                result = notification_service.send_email(
+                    "candidate@example.com",
+                    "Tes Brevo",
+                    "Halo kandidat",
+                )
+
+        self.assertTrue(result)
+        fake_server.login.assert_called_once_with("smtp-login@example.com", "smtp-secret")
+        sent_message = fake_server.send_message.call_args.args[0]
+        self.assertEqual(sent_message["From"], "CV Berkah Jaya Abadi Sports Career <career@cvbjasyogya.cloud>")
+        self.assertEqual(sent_message["To"], "candidate@example.com")
+        self.assertEqual(sent_message["Subject"], "Tes Brevo")
 
     def test_products_page_respects_selected_warehouse_for_super_admin(self):
         self.create_user("superboss", "admin123", "super_admin")

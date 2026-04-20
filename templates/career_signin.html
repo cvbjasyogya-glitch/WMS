@@ -648,9 +648,15 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
         <section class="career-signin-modal-card">
             <a href="{{ register_url }}" class="career-signin-modal-close" aria-label="Tutup modal sukses">&times;</a>
             <div class="career-signin-modal-badge">&#10003;</div>
+            {% if registration_delivery == "sent" %}
             <h3>Email Terkirim</h3>
             <p>Kami telah mengirimkan email ke <strong>{{ registration_email }}</strong> beserta panduan untuk melanjutkan proses pendaftaran.</p>
             <p>Email ini mungkin memerlukan waktu beberapa menit untuk masuk ke kotak masuk Anda.</p>
+            {% else %}
+            <h3>Permintaan Sudah Masuk</h3>
+            <p>Permintaan akun untuk <strong>{{ registration_email }}</strong> sudah tersimpan, tetapi email konfirmasi belum berhasil dikirim saat ini.</p>
+            <p>Silakan cek folder spam/promosi, lalu hubungi HR bila email tetap belum masuk setelah beberapa menit.</p>
+            {% endif %}
             <a href="{{ url_for('career.home') }}">Kembali ke Halaman Utama</a>
         </section>
     </div>

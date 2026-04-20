@@ -2,6 +2,7 @@ import os
 import smtplib
 import json
 from email.message import EmailMessage
+from email.utils import formataddr
 from urllib.parse import urlsplit
 
 from flask import current_app, has_request_context, request, session
@@ -970,6 +971,8 @@ def send_email(recipient, subject, body):
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER")
     password = os.getenv("SMTP_PASS")
+    from_email = _normalize_recipient(os.getenv("SMTP_FROM_EMAIL")) or user
+    from_name = _normalize_recipient(os.getenv("SMTP_FROM_NAME"))
     use_ssl = os.getenv("SMTP_SSL", "0") == "1"
     use_tls = os.getenv("SMTP_TLS", "1") != "0"
 
@@ -983,7 +986,7 @@ def send_email(recipient, subject, body):
     try:
         msg = EmailMessage()
         msg["Subject"] = subject
-        msg["From"] = user
+        msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
         msg["To"] = recipient
         msg.set_content(body)
 
