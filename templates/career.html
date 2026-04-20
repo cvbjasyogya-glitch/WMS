@@ -557,7 +557,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
     {% if type_label and type_label not in ns.employment_types %}
         {% set ns.employment_types = ns.employment_types + [type_label] %}
     {% endif %}
-    {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan Fleksibel' %}
+    {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan Fleksibel' %}
     {% if location_label and location_label not in ns.locations %}
         {% set ns.locations = ns.locations + [location_label] %}
     {% endif %}
@@ -580,7 +580,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
             <div class="career-jobs-searchband-head">
                 <div>
                     <strong>{{ openings|length }} lowongan aktif siap dijelajahi</strong>
-                    <span>Mulai dari kata kunci, fungsi, jenjang, atau perusahaan/unit penempatan.</span>
+                    <span>Mulai dari kata kunci, fungsi, jenjang, atau area penempatan.</span>
                 </div>
                 <div class="career-jobs-search-meta">
                     <a href="{{ url_for('career.home') }}">Kembali ke Beranda</a>
@@ -594,12 +594,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
                 </label>
 
                 <label>
-                    <span class="career-jobs-sr-only">Semua Perusahaan</span>
+                    <span class="career-jobs-sr-only">Semua Area</span>
                     <select id="careerWarehouseFilter" name="warehouse">
-                        <option value="">Semua Perusahaan</option>
+                        <option value="">Semua Area</option>
                         {% for warehouse in warehouses %}
                         {% set warehouse_id = warehouse.id if warehouse.id is defined else warehouse['id'] %}
-                        {% set warehouse_name = warehouse.name if warehouse.name is defined else warehouse['name'] %}
+                        {% set warehouse_name = warehouse.display_name if warehouse.display_name is defined else warehouse['display_name'] %}
                         <option value="{{ warehouse_id }}" {% if selected_warehouse_id == warehouse_id %}selected{% endif %}>{{ warehouse_name }}</option>
                         {% endfor %}
                     </select>
@@ -645,7 +645,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
                     <span class="career-jobs-active-filter">Kata kunci: {{ initial_query }}</span>
                     {% endif %}
                     {% if selected_warehouse_id %}
-                    <span class="career-jobs-active-filter">Perusahaan dipilih</span>
+                    <span class="career-jobs-active-filter">Area dipilih</span>
                     {% endif %}
                 </div>
             </div>
@@ -665,7 +665,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
         <section class="career-jobs-grid" id="careerOpeningsGrid">
             {% for opening in openings %}
             {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
-            {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
+            {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
+            {% set warehouse_label = opening.warehouse_name_display or opening.warehouse_name or career_company_name %}
             <article
                 class="career-job-card"
                 data-title="{{ (opening.title or '')|lower }}"
@@ -690,8 +691,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
 
                 <div class="career-job-card-location">
                     <span>{{ location_label }}</span>
-                    {% if opening.warehouse_name %}
-                    <span>{{ opening.warehouse_name }}</span>
+                    {% if warehouse_label %}
+                    <span>{{ warehouse_label }}</span>
                     {% endif %}
                 </div>
 

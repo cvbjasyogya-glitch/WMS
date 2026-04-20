@@ -133,6 +133,23 @@
     white-space: nowrap;
 }
 
+.career-astra-account-chip {
+    max-width: 220px;
+    min-height: 38px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: #f8fbff;
+    border: 1px solid #d8e5f1;
+    color: #0f2f52;
+    font-size: 0.9rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .career-astra-topbar .career-test-shortcut-panel summary {
     min-height: 40px;
     padding: 0 14px;
@@ -209,8 +226,39 @@
     font-weight: 800;
 }
 
+body .main.career-public-shell > .page-content {
+    animation: careerPublicPageReveal 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+        opacity 0.2s ease,
+        transform 0.2s ease,
+        filter 0.2s ease;
+    transform-origin: top center;
+}
+
+html.career-page-leaving body .main.career-public-shell > .page-content {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(1px);
+    pointer-events: none;
+}
+
+@keyframes careerPublicPageReveal {
+    from {
+        opacity: 0;
+        transform: translateY(18px);
+        filter: blur(1.5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+}
+
 html[data-theme] body .career-public-shell .career-form label,
 html[data-theme] body .career-public-shell .career-form small,
+html[data-theme] body .career-public-shell .career-signin-form label,
 html[data-theme] body .career-public-shell .career-code-entry-block label {
     color: #64748b;
 }
@@ -218,6 +266,7 @@ html[data-theme] body .career-public-shell .career-code-entry-block label {
 html[data-theme] body .career-public-shell .career-form input,
 html[data-theme] body .career-public-shell .career-form textarea,
 html[data-theme] body .career-public-shell .career-form select,
+html[data-theme] body .career-public-shell .career-signin-form input,
 html[data-theme] body .career-public-shell .career-code-entry-form input {
     background: #ffffff;
     border-color: #dce6ef;
@@ -227,9 +276,10 @@ html[data-theme] body .career-public-shell .career-code-entry-form input {
 
 html[data-theme] body .career-public-shell .career-form input::placeholder,
 html[data-theme] body .career-public-shell .career-form textarea::placeholder,
+html[data-theme] body .career-public-shell .career-signin-form input::placeholder,
 html[data-theme] body .career-public-shell .career-code-entry-form input::placeholder {
     color: #64748b;
-    opacity: 1;
+    opacity: 0.78;
 }
 
 html[data-theme] body .career-public-shell .career-form textarea[name="note"]::placeholder {
@@ -240,6 +290,7 @@ html[data-theme] body .career-public-shell .career-form textarea[name="note"]::p
 html[data-theme] body .career-public-shell .career-form input:focus,
 html[data-theme] body .career-public-shell .career-form textarea:focus,
 html[data-theme] body .career-public-shell .career-form select:focus,
+html[data-theme] body .career-public-shell .career-signin-form input:focus,
 html[data-theme] body .career-public-shell .career-code-entry-form input:focus {
     background: #ffffff;
     border-color: #91bfe8;
@@ -251,9 +302,25 @@ html[data-theme] body .career-public-shell .career-form input[type="file"] {
     color: #111827;
 }
 
+html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill,
+html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill:hover,
+html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill:focus,
+html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill:active {
+    -webkit-text-fill-color: #111827;
+    box-shadow: 0 0 0 1000px #ffffff inset;
+    caret-color: #111827;
+}
+
 html[data-theme] body .career-public-shell .career-form input[type="file"]::file-selector-button {
     background: #e9eef5;
     color: #1f2937;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body .main.career-public-shell > .page-content {
+        animation: none;
+        transition: none;
+    }
 }
 
 .career-topbar {
@@ -738,6 +805,12 @@ html[data-theme] body .career-public-shell .career-form input[type="file"]::file
     }
 
     .career-astra-topbar .career-test-shortcut-panel summary {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .career-astra-account-chip {
+        max-width: none;
         width: 100%;
         justify-content: center;
     }

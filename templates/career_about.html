@@ -588,7 +588,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
         <div class="career-about-opening-grid">
             {% for opening in spotlight_openings %}
             {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
-            {% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
+            {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
             <article class="career-about-opening-card">
                 <strong>{{ career_company_name }}</strong>
                 <h3>{{ opening.title }}</h3>

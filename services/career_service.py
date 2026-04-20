@@ -2,6 +2,9 @@ import json
 import os
 import random
 import re
+import secrets
+import hashlib
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -24,6 +27,7 @@ CAREER_APPLICATION_CHANNELS = {"public_portal", "manual_hr"}
 CAREER_ASSESSMENT_STATUSES = {"pending", "started", "submitted", "reviewed"}
 CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d"}
 CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES = {"pending", "processed", "declined"}
+CAREER_PUBLIC_ACCOUNT_STATUSES = {"pending", "active", "disabled"}
 CAREER_DUPLICATE_APPLICATION_STATUSES = {"active", "on_hold"}
 CAREER_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -51,6 +55,11 @@ def normalize_career_assessment_status(value):
 def normalize_career_public_account_request_status(value):
     status = (value or "").strip().lower()
     return status if status in CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES else "pending"
+
+
+def normalize_career_public_account_status(value):
+    status = (value or "").strip().lower()
+    return status if status in CAREER_PUBLIC_ACCOUNT_STATUSES else "pending"
 
 
 def normalize_candidate_identity_name(value):
@@ -109,6 +118,13 @@ def normalize_assessment_code(value):
 def normalize_assessment_option(value):
     safe_value = (value or "").strip().lower()
     return safe_value if safe_value in CAREER_ASSESSMENT_CORRECT_OPTIONS else ""
+
+
+def hash_career_public_verification_token(token):
+    safe_token = str(token or "").strip()
+    if not safe_token:
+        return ""
+    return hashlib.sha256(safe_token.encode("utf-8")).hexdigest()
 
 
 def normalize_assessment_duration_minutes(value, default=0, maximum=720):
@@ -352,6 +368,35 @@ def ensure_career_schema(db):
             "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "ALTER TABLE career_public_account_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "CREATE INDEX IF NOT EXISTS idx_career_public_account_requests_email ON career_public_account_requests(email, status, created_at)",
+            """
+            CREATE TABLE IF NOT EXISTS career_public_accounts(
+                id SERIAL PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                email_verified_at TIMESTAMP,
+                verification_token_hash TEXT,
+                verification_sent_at TIMESTAMP,
+                verification_expires_at TIMESTAMP,
+                last_login_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS full_name TEXT",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS email TEXT",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS password_hash TEXT",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS verification_token_hash TEXT",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS verification_sent_at TIMESTAMP",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMP",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_accounts_email ON career_public_accounts(email)",
+            "CREATE INDEX IF NOT EXISTS idx_career_public_accounts_verification ON career_public_accounts(verification_token_hash, status)",
         ]
         for statement in statements:
             db.execute(statement)
@@ -359,6 +404,7 @@ def ensure_career_schema(db):
         _ensure_postgresql_id_sequence(db, "recruitment_candidates")
         _ensure_postgresql_id_sequence(db, "recruitment_assessment_questions")
         _ensure_postgresql_id_sequence(db, "career_public_account_requests")
+        _ensure_postgresql_id_sequence(db, "career_public_accounts")
     else:
         db.execute(
             """
@@ -460,6 +506,41 @@ def ensure_career_schema(db):
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_career_public_account_requests_email ON career_public_account_requests(email, status, created_at)"
         )
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS career_public_accounts(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                email_verified_at TIMESTAMP,
+                verification_token_hash TEXT,
+                verification_sent_at TIMESTAMP,
+                verification_expires_at TIMESTAMP,
+                last_login_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        _sqlite_ensure_column(db, "career_public_accounts", "full_name", "TEXT")
+        _sqlite_ensure_column(db, "career_public_accounts", "email", "TEXT")
+        _sqlite_ensure_column(db, "career_public_accounts", "password_hash", "TEXT")
+        _sqlite_ensure_column(db, "career_public_accounts", "status", "TEXT DEFAULT 'pending'")
+        _sqlite_ensure_column(db, "career_public_accounts", "email_verified_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "career_public_accounts", "verification_token_hash", "TEXT")
+        _sqlite_ensure_column(db, "career_public_accounts", "verification_sent_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "career_public_accounts", "verification_expires_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "career_public_accounts", "last_login_at", "TIMESTAMP")
+        _sqlite_ensure_column(db, "career_public_accounts", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        _sqlite_ensure_column(db, "career_public_accounts", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_accounts_email ON career_public_accounts(email)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_career_public_accounts_verification ON career_public_accounts(verification_token_hash, status)"
+        )
 
     runtime_state[cache_key] = True
 
@@ -543,6 +624,197 @@ def create_public_account_request(db, full_name, email, source="career_public"):
         (request_id,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def mark_public_account_request_status_by_email(db, email, status="processed"):
+    safe_email = normalize_candidate_email(email)
+    safe_status = normalize_career_public_account_request_status(status)
+    if not safe_email:
+        return 0
+    result = db.execute(
+        """
+        UPDATE career_public_account_requests
+        SET status=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE LOWER(email)=LOWER(?)
+        """,
+        (safe_status, safe_email),
+    )
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+def get_career_public_account_by_email(db, email):
+    safe_email = normalize_candidate_email(email)
+    if not safe_email:
+        return None
+    row = db.execute(
+        """
+        SELECT *
+        FROM career_public_accounts
+        WHERE LOWER(email)=LOWER(?)
+        LIMIT 1
+        """,
+        (safe_email,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_career_public_account_by_id(db, account_id):
+    try:
+        safe_account_id = int(account_id)
+    except (TypeError, ValueError):
+        return None
+    if safe_account_id <= 0:
+        return None
+    row = db.execute(
+        """
+        SELECT *
+        FROM career_public_accounts
+        WHERE id=?
+        LIMIT 1
+        """,
+        (safe_account_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_career_public_account(db, full_name, email, password_hash):
+    safe_name = normalize_candidate_identity_name(full_name)
+    safe_email = normalize_candidate_email(email)
+    safe_password_hash = str(password_hash or "").strip()
+    if not safe_name:
+        raise ValueError("Nama lengkap wajib diisi.")
+    if not safe_email:
+        raise ValueError("Email wajib valid.")
+    if not safe_password_hash:
+        raise ValueError("Kata sandi akun belum valid.")
+
+    existing = get_career_public_account_by_email(db, safe_email)
+    if existing:
+        current_status = normalize_career_public_account_status(existing.get("status"))
+        if current_status == "active":
+            raise ValueError("Email ini sudah terdaftar. Silakan masuk ke akun Anda.")
+        if current_status == "disabled":
+            raise ValueError("Akun ini dinonaktifkan. Silakan hubungi HR untuk bantuan lebih lanjut.")
+        db.execute(
+            """
+            UPDATE career_public_accounts
+            SET full_name=?,
+                password_hash=?,
+                status=?,
+                email_verified_at=NULL,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                safe_name,
+                safe_password_hash,
+                normalize_career_public_account_status("pending"),
+                existing["id"],
+            ),
+        )
+        return get_career_public_account_by_id(db, existing["id"])
+
+    insert_cursor = db.execute(
+        """
+        INSERT INTO career_public_accounts(
+            full_name,
+            email,
+            password_hash,
+            status,
+            updated_at
+        )
+        VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+        """,
+        (
+            safe_name,
+            safe_email,
+            safe_password_hash,
+            normalize_career_public_account_status("pending"),
+        ),
+    )
+    account_id = extract_inserted_row_id(insert_cursor)
+    if account_id <= 0:
+        created = get_career_public_account_by_email(db, safe_email)
+        account_id = int(created["id"]) if created else 0
+    return get_career_public_account_by_id(db, account_id)
+
+
+def issue_career_public_account_verification(db, account_id, ttl_hours=24):
+    account = get_career_public_account_by_id(db, account_id)
+    if not account:
+        raise ValueError("Akun kandidat tidak ditemukan.")
+    safe_ttl = max(int(ttl_hours or 24), 1)
+    token = secrets.token_urlsafe(32)
+    token_hash = hash_career_public_verification_token(token)
+    expires_at = (datetime.now() + timedelta(hours=safe_ttl)).strftime("%Y-%m-%d %H:%M:%S")
+    db.execute(
+        """
+        UPDATE career_public_accounts
+        SET verification_token_hash=?,
+            verification_sent_at=CURRENT_TIMESTAMP,
+            verification_expires_at=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (token_hash, expires_at, account["id"]),
+    )
+    return token
+
+
+def get_career_public_account_by_verification_token(db, token):
+    token_hash = hash_career_public_verification_token(token)
+    if not token_hash:
+        return None
+    row = db.execute(
+        """
+        SELECT *
+        FROM career_public_accounts
+        WHERE verification_token_hash=?
+        LIMIT 1
+        """,
+        (token_hash,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def activate_career_public_account(db, account_id):
+    account = get_career_public_account_by_id(db, account_id)
+    if not account:
+        return None
+    db.execute(
+        """
+        UPDATE career_public_accounts
+        SET status=?,
+            email_verified_at=COALESCE(email_verified_at, CURRENT_TIMESTAMP),
+            verification_token_hash=NULL,
+            verification_sent_at=NULL,
+            verification_expires_at=NULL,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            normalize_career_public_account_status("active"),
+            account["id"],
+        ),
+    )
+    return get_career_public_account_by_id(db, account["id"])
+
+
+def touch_career_public_account_login(db, account_id):
+    account = get_career_public_account_by_id(db, account_id)
+    if not account:
+        return None
+    db.execute(
+        """
+        UPDATE career_public_accounts
+        SET last_login_at=CURRENT_TIMESTAMP,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (account["id"],),
+    )
+    return get_career_public_account_by_id(db, account["id"])
 
 
 def generate_unique_assessment_code(db):

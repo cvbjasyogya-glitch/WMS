@@ -529,14 +529,14 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
             <div class="career-signin-hero-copy">
                 <span class="career-signin-kicker">Candidate Access</span>
                 <h1>Masuk kandidat dan lanjutkan proses karirmu.</h1>
-                <p>Gunakan halaman ini untuk meminta akun kandidat publik atau masuk jika akses Anda sudah diaktifkan. Prosesnya dibuat ringkas, jelas, dan terhubung langsung dengan portal karir publik.</p>
+                <p>Gunakan halaman ini untuk membuat akun kandidat, memverifikasi email, lalu masuk sebelum mengirim lamaran ke lowongan yang tersedia.</p>
             </div>
         </div>
 
         <div class="career-signin-panel">
             <section class="career-signin-info">
-                <h2>Semua titik masuk kandidat sekarang terasa lebih terarah.</h2>
-                <p>Kandidat bisa memilih jalur yang paling sesuai: eksplor lowongan, minta akun, atau langsung masuk ke assessment lewat kode tes 5 digit yang sudah diberikan.</p>
+                <h2>Daftar akun sekali, verifikasi email, lalu lanjut melamar dengan lebih rapi.</h2>
+                <p>Portal karir publik sekarang memakai akun kandidat yang aktif lewat email verifikasi, sehingga data lamaran lebih terhubung dan proses apply terasa lebih aman.</p>
 
                 <div class="career-signin-stat-grid">
                     <article class="career-signin-stat-card">
@@ -544,23 +544,23 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
                         <span>Lowongan aktif yang bisa Anda jelajahi sebelum memutuskan untuk mendaftar.</span>
                     </article>
                     <article class="career-signin-stat-card">
-                        <strong>5 Digit</strong>
-                        <span>Kode assessment tetap bisa dipakai tanpa harus membuat alur baru dari awal.</span>
+                        <strong>Email Aktif</strong>
+                        <span>Verifikasi inbox dipakai untuk mengaktifkan akun kandidat secara otomatis.</span>
                     </article>
                     <article class="career-signin-stat-card">
                         <strong>Daftar Akun</strong>
-                        <span>Kirim permintaan akun jika Anda membutuhkan akses kandidat yang diaktifkan HR.</span>
+                        <span>Tentukan kata sandi sendiri saat pendaftaran lalu klik link verifikasi yang kami kirimkan.</span>
                     </article>
                     <article class="career-signin-stat-card">
                         <strong>Panduan</strong>
-                        <span>Pusat bantuan tetap tersedia kalau Anda butuh penjelasan langkah berikutnya.</span>
+                        <span>Sesudah akun aktif, Anda bisa melamar dan tetap memakai kode tes saat sudah masuk tahap assessment.</span>
                     </article>
                 </div>
 
                 <ul class="career-signin-point-list">
-                    <li>Belum punya akun? Mulai dari mode pendaftaran singkat agar HR menerima permintaan Anda.</li>
-                    <li>Sudah pernah melamar? Tetap simpan kode tes karena itu jalur tercepat untuk lanjut assessment.</li>
-                    <li>Masih eksplorasi? Kembali ke daftar lowongan sebelum memutuskan posisi yang paling relevan.</li>
+                    <li>Belum punya akun? Daftar dengan email aktif dan buat kata sandi sendiri.</li>
+                    <li>Cek inbox Gmail lalu klik link verifikasi agar akun aktif otomatis.</li>
+                    <li>Sesudah akun aktif, masuk dan lanjutkan lamaran ke posisi yang paling relevan.</li>
                 </ul>
 
                 <div class="career-signin-actions">
@@ -572,19 +572,20 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
             <section class="career-signin-card">
                 {% if active_flow == 'signup' %}
                 <h2>Daftar Akun</h2>
-                <p>Buat permintaan akun kandidat publik agar tim HR bisa meninjau dan mengaktifkan akses Anda.</p>
+                <p>Daftarkan email aktif Anda, tentukan kata sandi sendiri, lalu aktifkan akun dari link verifikasi yang dikirim ke inbox.</p>
                 {% else %}
                 <h2>Masuk ke Akun</h2>
-                <p>Lengkapi email dan kata sandi untuk masuk ke akun kandidat Anda jika aksesnya sudah aktif.</p>
+                <p>Masuk memakai email dan kata sandi setelah akun kandidat Anda selesai diverifikasi.</p>
                 {% endif %}
 
                 <div class="career-signin-switch" role="tablist" aria-label="Pilih flow akun">
-                    <a href="{{ signin_url }}" class="{% if active_flow == 'signin' %}is-active{% endif %}">Masuk</a>
-                    <a href="{{ register_url }}" class="{% if active_flow == 'signup' %}is-active{% endif %}">Daftar Akun</a>
+                    <a href="{{ url_for('career.signin_page', flow='signin', next=next_target) }}" class="{% if active_flow == 'signin' %}is-active{% endif %}">Masuk</a>
+                    <a href="{{ url_for('career.signin_page', flow='signup', next=next_target) }}" class="{% if active_flow == 'signup' %}is-active{% endif %}">Daftar Akun</a>
                 </div>
 
                 {% if active_flow == 'signup' %}
                 <form method="POST" action="{{ url_for('career.signin_register_request') }}" class="career-signin-form">
+                    <input type="hidden" name="next" value="{{ next_target }}">
                     <label>
                         Nama Lengkap (sesuai KTP)
                         <input type="text" name="candidate_name" placeholder="Ketik nama lengkap" required>
@@ -593,14 +594,23 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
                         Email
                         <input type="email" name="email" placeholder="Contoh: johndoe@gmail.com" required>
                     </label>
+                    <label>
+                        Kata Sandi
+                        <input type="password" name="password" placeholder="Minimal 8 karakter" minlength="8" required>
+                    </label>
+                    <label>
+                        Konfirmasi Kata Sandi
+                        <input type="password" name="password_confirmation" placeholder="Ulangi kata sandi" minlength="8" required>
+                    </label>
                     <button type="submit" class="career-signin-submit">Daftar Akun</button>
                 </form>
                 <div class="career-signin-actions-row">
                     <span>Sudah punya akun?</span>
-                    <a href="{{ signin_url }}">Masuk ke akun</a>
+                    <a href="{{ url_for('career.signin_page', flow='signin', next=next_target) }}">Masuk ke akun</a>
                 </div>
                 {% else %}
                 <form method="POST" action="{{ url_for('career.signin_submit') }}" class="career-signin-form">
+                    <input type="hidden" name="next" value="{{ next_target }}">
                     <label>
                         Email
                         <input type="email" name="email" placeholder="Contoh: johndoe@gmail.com" required>
@@ -616,7 +626,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
                 </form>
                 <div class="career-signin-actions-row">
                     <span>Belum punya akun?</span>
-                    <a href="{{ register_url }}">Daftar akun</a>
+                    <a href="{{ url_for('career.signin_page', flow='signup', next=next_target) }}">Daftar akun</a>
                 </div>
                 {% endif %}
             </section>
@@ -631,14 +641,14 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
                 <p>Portal publik tetap memungkinkan kandidat menjelajahi posisi aktif tanpa harus login terlebih dahulu.</p>
             </article>
             <article class="career-signin-support-card">
-                <span>Sudah Melamar</span>
-                <h3>Gunakan kode tes bila Anda sudah sampai tahap assessment.</h3>
-                <p>Shortcut <em>Punya Kode Tes?</em> di header bisa dipakai di seluruh halaman agar akses tes tetap cepat.</p>
+                <span>Verifikasi Email</span>
+                <h3>Buka inbox dan klik tautan aktivasi yang kami kirimkan.</h3>
+                <p>Setelah email diverifikasi, akun kandidat langsung aktif dan bisa dipakai masuk ke portal karir publik.</p>
             </article>
             <article class="career-signin-support-card">
                 <span>Butuh Bantuan</span>
                 <h3>Buka pusat bantuan kalau masih ragu soal langkah berikutnya.</h3>
-                <p>Panduan kandidat menjelaskan proses apply, kode assessment, dan hal-hal yang paling sering ditanyakan.</p>
+                <p>Panduan kandidat menjelaskan proses daftar akun, verifikasi email, apply, dan akses assessment.</p>
             </article>
         </div>
     </section>
@@ -649,13 +659,13 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
             <a href="{{ register_url }}" class="career-signin-modal-close" aria-label="Tutup modal sukses">&times;</a>
             <div class="career-signin-modal-badge">&#10003;</div>
             {% if registration_delivery == "sent" %}
-            <h3>Email Terkirim</h3>
-            <p>Kami telah mengirimkan email ke <strong>{{ registration_email }}</strong> beserta panduan untuk melanjutkan proses pendaftaran.</p>
-            <p>Email ini mungkin memerlukan waktu beberapa menit untuk masuk ke kotak masuk Anda.</p>
+            <h3>Email Verifikasi Terkirim</h3>
+            <p>Kami telah mengirimkan link aktivasi ke <strong>{{ registration_email }}</strong>. Klik link itu untuk mengaktifkan akun kandidat Anda secara otomatis.</p>
+            <p>Email ini mungkin memerlukan waktu beberapa menit untuk masuk ke kotak masuk, spam, atau promosi.</p>
             {% else %}
-            <h3>Permintaan Sudah Masuk</h3>
-            <p>Permintaan akun untuk <strong>{{ registration_email }}</strong> sudah tersimpan, tetapi email konfirmasi belum berhasil dikirim saat ini.</p>
-            <p>Silakan cek folder spam/promosi, lalu hubungi HR bila email tetap belum masuk setelah beberapa menit.</p>
+            <h3>Pendaftaran Sudah Tersimpan</h3>
+            <p>Akun untuk <strong>{{ registration_email }}</strong> sudah dibuat dalam status menunggu verifikasi, tetapi email aktivasi belum berhasil dikirim saat ini.</p>
+            <p>Silakan coba daftar lagi atau hubungi HR bila email verifikasi tetap belum masuk setelah beberapa menit.</p>
             {% endif %}
             <a href="{{ url_for('career.home') }}">Kembali ke Halaman Utama</a>
         </section>

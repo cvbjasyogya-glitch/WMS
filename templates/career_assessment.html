@@ -628,7 +628,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
 {% block content %}
 {% set active_page = 'jobs' %}
 {% set position_label = candidate.position_title or candidate.vacancy_title or 'Posisi Kandidat' %}
-{% set unit_label = candidate.warehouse_name or 'Umum' %}
+{% set unit_label = candidate.warehouse_name_display or candidate.warehouse_name or 'Umum' %}
 {% set duration_label = assessment_duration_minutes ~ ' menit' if assessment_duration_minutes else 'Tanpa batas waktu' %}
 {% set remaining_seconds = assessment_remaining_seconds if assessment_remaining_seconds is not none else none %}
 

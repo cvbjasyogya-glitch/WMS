@@ -44,8 +44,15 @@
                     </div>
                 </details>
             </div>
+            {% if career_public_authenticated %}
+            <span class="career-astra-account-chip" title="{{ career_public_account_email }}">
+                {{ career_public_account_name or career_public_account_email }}
+            </span>
+            <a href="{{ url_for('career.signout_public_account') }}" class="career-astra-login-link">Keluar</a>
+            {% else %}
             <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
             <a href="{{ header_signin_url }}" class="career-astra-login-link {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
+            {% endif %}
             <div class="career-astra-lang" aria-label="Pilihan bahasa">
                 <span class="is-active">ID</span>
                 <span>EN</span>
@@ -55,6 +62,8 @@
 </header>
 <script>
 (() => {
+    document.documentElement.classList.remove("career-page-leaving");
+
     const header = document.querySelector("[data-career-mobile-header]");
     if (!header) return;
     const toggle = header.querySelector(".career-astra-mobile-toggle");
@@ -91,6 +100,80 @@
         if (window.innerWidth > 920) {
             syncOpenState(false);
         }
+    });
+
+    const startCareerPageTransition = (targetUrl) => {
+        if (!targetUrl || document.documentElement.classList.contains("career-page-leaving")) {
+            return;
+        }
+        document.documentElement.classList.add("career-page-leaving");
+        window.setTimeout(() => {
+            window.location.assign(targetUrl);
+        }, 190);
+    };
+
+    const isEligibleCareerNavigation = (link, event) => {
+        if (!link || event.defaultPrevented || event.button !== 0) {
+            return false;
+        }
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return false;
+        }
+        if (link.target && link.target.toLowerCase() !== "_self") {
+            return false;
+        }
+        if (link.hasAttribute("download")) {
+            return false;
+        }
+
+        const rawHref = link.getAttribute("href") || "";
+        if (!rawHref || rawHref.startsWith("#")) {
+            return false;
+        }
+        if (/^(mailto:|tel:|javascript:|data:)/i.test(rawHref)) {
+            return false;
+        }
+
+        let url;
+        try {
+            url = new URL(link.href, window.location.href);
+        } catch (error) {
+            return false;
+        }
+
+        if (url.origin !== window.location.origin) {
+            return false;
+        }
+        if (
+            url.pathname === window.location.pathname &&
+            url.search === window.location.search &&
+            url.hash
+        ) {
+            return false;
+        }
+        if (url.href === window.location.href) {
+            return false;
+        }
+
+        return true;
+    };
+
+    document.addEventListener("click", (event) => {
+        const link = event.target.closest("a[href]");
+        if (!isEligibleCareerNavigation(link, event)) {
+            return;
+        }
+
+        if (window.innerWidth <= 920) {
+            syncOpenState(false);
+        }
+
+        event.preventDefault();
+        startCareerPageTransition(link.href);
+    });
+
+    window.addEventListener("pageshow", () => {
+        document.documentElement.classList.remove("career-page-leaving");
     });
 })();
 </script>

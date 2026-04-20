@@ -1016,7 +1016,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     {% if department_label and department_label not in ns.departments %}
         {% set ns.departments = ns.departments + [department_label] %}
     {% endif %}
-    {% set location_label = (opening.location_label or opening.warehouse_name or 'Head Office')|trim %}
+    {% set location_label = (opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Head Office')|trim %}
     {% if location_label and location_label not in ns.locations %}
         {% set ns.locations = ns.locations + [location_label] %}
     {% endif %}
@@ -1032,7 +1032,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 {% endfor %}
 {% set spotlight_opening = ns.spotlight %}
 {% if spotlight_opening %}
-    {% set spotlight_location = spotlight_opening.location_label or spotlight_opening.warehouse_name or 'Penempatan fleksibel' %}
+    {% set spotlight_location = spotlight_opening.location_label_display or spotlight_opening.location_label or spotlight_opening.warehouse_name_display or spotlight_opening.warehouse_name or 'Penempatan fleksibel' %}
     {% set spotlight_type = (spotlight_opening.employment_type or 'full_time')|replace('_', ' ')|title %}
     {% set spotlight_summary = (spotlight_opening.description or spotlight_opening.requirements or 'Jelajahi detail posisi, pahami kebutuhan peran, lalu lanjutkan proses kandidat dari satu alur yang rapi dan mudah dipindai.')|striptags|truncate(220, True) %}
 {% else %}
@@ -1068,9 +1068,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
                 </label>
 
                 <label>
-                    <span class="career-astra-sr-only">Semua Perusahaan</span>
+                    <span class="career-astra-sr-only">Semua Area</span>
                     <select name="warehouse">
-                        <option value="">Semua Perusahaan</option>
+                        <option value="">Semua Area</option>
                         {% for warehouse in ns.warehouses %}
                         <option value="{{ warehouse.id }}">{{ warehouse.label }}</option>
                         {% endfor %}
@@ -1123,7 +1123,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
             <div class="career-astra-meta-list">
                 <span>{{ spotlight_location }}</span>
                 <span>{{ spotlight_type }}</span>
-                <span>{{ spotlight_opening.department or 'Operasional Perusahaan' }}</span>
+                <span>{{ spotlight_opening.warehouse_name_display or spotlight_opening.warehouse_name or 'Operasional Perusahaan' }}</span>
             </div>
             <p>{{ spotlight_summary }}</p>
             <div class="career-astra-feature-actions">

@@ -1,11 +1,20 @@
 import hashlib
+import re
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import get_db
 from services.career_service import (
+    activate_career_public_account,
     create_public_account_request,
+    get_career_public_account_by_email,
+    get_career_public_account_by_id,
+    get_career_public_account_by_verification_token,
+    issue_career_public_account_verification,
+    mark_public_account_request_status_by_email,
     assign_candidate_assessment_code,
     decode_assessment_answers,
     encode_assessment_answers,
@@ -19,17 +28,30 @@ from services.career_service import (
     normalize_candidate_identity_name,
     normalize_candidate_phone,
     normalize_candidate_portfolio_url,
+    normalize_career_public_account_status,
     normalize_career_assessment_status,
     normalize_career_application_channel,
     normalize_career_employment_type,
     save_career_resume,
     score_assessment_questions,
+    touch_career_public_account_login,
+    upsert_career_public_account,
 )
 from services.notification_service import send_email
 
 
 career_bp = Blueprint("career", __name__)
 CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
+PUBLIC_CAREER_SITE_DISPLAY = {
+    "mega": {
+        "unit_label": "Mega Sports Seturan",
+        "area_label": "Sleman",
+    },
+    "mataram": {
+        "unit_label": "Mataram Sports Yogyakarta",
+        "area_label": "Yogyakarta",
+    },
+}
 
 
 def _get_career_public_company_name():
@@ -38,6 +60,96 @@ def _get_career_public_company_name():
         or "CV Berkah Jaya Abadi Sports"
     ).strip()
     return safe_name or "CV Berkah Jaya Abadi Sports"
+
+
+def _canonicalize_public_career_label(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
+
+
+def _resolve_public_career_site_key(*values):
+    for value in values:
+        canonical_value = _canonicalize_public_career_label(value)
+        if not canonical_value:
+            continue
+        if "mega" in canonical_value:
+            return "mega"
+        if "mataram" in canonical_value:
+            return "mataram"
+    return ""
+
+
+def _should_override_public_career_area(raw_area_label, site_key):
+    canonical_area = _canonicalize_public_career_label(raw_area_label)
+    if not canonical_area:
+        return True
+
+    if site_key == "mega":
+        return canonical_area.startswith(
+            ("mega", "gudang mega", "homebase mega", "mega sports", "seturan")
+        ) or canonical_area in {"sleman", "yogyakarta", "yogyakarta wfo"}
+
+    if site_key == "mataram":
+        return canonical_area.startswith(
+            ("mataram", "gudang mataram", "homebase mataram", "mataram sports")
+        ) or canonical_area in {"yogyakarta", "yogyakarta wfo"}
+
+    return False
+
+
+def _get_public_career_display_labels(warehouse_name="", location_label=""):
+    safe_warehouse_name = str(warehouse_name or "").strip()
+    safe_location_label = str(location_label or "").strip()
+    site_key = _resolve_public_career_site_key(safe_warehouse_name, safe_location_label)
+    profile = PUBLIC_CAREER_SITE_DISPLAY.get(site_key) or {}
+
+    unit_label = profile.get("unit_label") or safe_warehouse_name or _get_career_public_company_name()
+    area_label = safe_location_label
+    if profile and _should_override_public_career_area(safe_location_label, site_key):
+        area_label = profile.get("area_label") or area_label
+
+    if not area_label:
+        area_label = profile.get("area_label") or "Penempatan fleksibel"
+
+    return {
+        "site_key": site_key,
+        "unit_label": unit_label,
+        "area_label": area_label,
+    }
+
+
+def _annotate_public_opening_display(opening):
+    safe_opening = dict(opening or {})
+    display_labels = _get_public_career_display_labels(
+        safe_opening.get("warehouse_name"),
+        safe_opening.get("location_label"),
+    )
+    safe_opening["warehouse_name_display"] = display_labels["unit_label"]
+    safe_opening["location_label_display"] = display_labels["area_label"]
+    safe_opening["public_site_key"] = display_labels["site_key"]
+    return safe_opening
+
+
+def _annotate_public_candidate_display(candidate):
+    safe_candidate = dict(candidate or {})
+    display_labels = _get_public_career_display_labels(
+        safe_candidate.get("warehouse_name"),
+        safe_candidate.get("location_label"),
+    )
+    safe_candidate["warehouse_name_display"] = display_labels["unit_label"]
+    safe_candidate["location_label_display"] = display_labels["area_label"]
+    safe_candidate["public_site_key"] = display_labels["site_key"]
+    return safe_candidate
+
+
+def _annotate_public_warehouse_display(warehouse):
+    safe_warehouse = dict(warehouse or {})
+    display_labels = _get_public_career_display_labels(
+        safe_warehouse.get("name"),
+        safe_warehouse.get("name"),
+    )
+    safe_warehouse["display_name"] = display_labels["area_label"]
+    safe_warehouse["unit_display_name"] = display_labels["unit_label"]
+    return safe_warehouse
 
 
 def _get_primary_recruitment_public_host():
@@ -107,6 +219,67 @@ def _redirect_career_public(endpoint, **values):
     return redirect(build_career_public_url(endpoint, **values))
 
 
+def _redirect_career_public_with_next(endpoint, next_target=None, **values):
+    if next_target:
+        values["next"] = next_target
+    return _redirect_career_public(endpoint, **values)
+
+
+def _safe_career_public_next_target(raw_target):
+    candidate = str(raw_target or "").strip()
+    if not candidate:
+        return None
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return None
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+    return candidate
+
+
+def _get_career_public_verification_ttl_hours():
+    try:
+        ttl_hours = int(current_app.config.get("CAREER_PUBLIC_VERIFICATION_TTL_HOURS", 24))
+    except (TypeError, ValueError):
+        ttl_hours = 24
+    return max(ttl_hours, 1)
+
+
+def _clear_career_public_session():
+    for key in (
+        "career_public_account_id",
+        "career_public_account_email",
+        "career_public_account_name",
+        "career_public_signed_in_at",
+    ):
+        session.pop(key, None)
+
+
+def _set_career_public_session(account):
+    safe_account = dict(account or {})
+    _clear_career_public_session()
+    session["career_public_account_id"] = safe_account.get("id")
+    session["career_public_account_email"] = safe_account.get("email")
+    session["career_public_account_name"] = safe_account.get("full_name")
+    session["career_public_signed_in_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _get_current_career_public_account(db=None):
+    account_id = session.get("career_public_account_id")
+    if not account_id:
+        return None
+    local_db = db or get_db()
+    ensure_career_schema(local_db)
+    account = get_career_public_account_by_id(local_db, account_id)
+    if not account:
+        _clear_career_public_session()
+        return None
+    if normalize_career_public_account_status(account.get("status")) != "active":
+        _clear_career_public_session()
+        return None
+    return account
+
+
 def _resolve_career_public_media_url(configured_value, default_static_filename):
     safe_value = str(configured_value or "").strip()
     if not safe_value:
@@ -119,6 +292,7 @@ def _resolve_career_public_media_url(configured_value, default_static_filename):
 @career_bp.context_processor
 def inject_career_public_context():
     career_company_name = _get_career_public_company_name()
+    active_account = _get_current_career_public_account()
     return {
         "career_notice_text": str(
             current_app.config.get("CAREER_PUBLIC_NOTICE_TEXT")
@@ -130,6 +304,9 @@ def inject_career_public_context():
             "brand/login-hero-crowd.jpeg",
         ),
         "career_public_signin_url": build_career_public_url("career.signin_page"),
+        "career_public_authenticated": active_account is not None,
+        "career_public_account_name": active_account.get("full_name") if active_account else "",
+        "career_public_account_email": active_account.get("email") if active_account else "",
     }
 
 
@@ -148,7 +325,7 @@ def _fetch_public_openings(db, selected_warehouse=None):
         query += " AND o.warehouse_id=?"
         params.append(selected_warehouse)
     query += " ORDER BY COALESCE(o.sort_order, 0) ASC, o.created_at DESC, o.id DESC"
-    return [dict(row) for row in db.execute(query, params).fetchall()]
+    return [_annotate_public_opening_display(dict(row)) for row in db.execute(query, params).fetchall()]
 
 
 def _matches_public_opening_filters(opening, query="", department="", employment_type=""):
@@ -160,12 +337,19 @@ def _matches_public_opening_filters(opening, query="", department="", employment
     title_value = str(safe_opening.get("title") or "").strip().lower()
     department_value = str(safe_opening.get("department") or "").strip().lower()
     location_value = str(
-        safe_opening.get("location_label") or safe_opening.get("warehouse_name") or ""
+        safe_opening.get("location_label_display")
+        or safe_opening.get("location_label")
+        or safe_opening.get("warehouse_name_display")
+        or safe_opening.get("warehouse_name")
+        or ""
+    ).strip().lower()
+    unit_value = str(
+        safe_opening.get("warehouse_name_display") or safe_opening.get("warehouse_name") or ""
     ).strip().lower()
     type_value = str(safe_opening.get("employment_type") or "full_time").replace("_", " ").strip().lower()
 
     if safe_query and safe_query not in " ".join(
-        value for value in [title_value, department_value, location_value, type_value] if value
+        value for value in [title_value, department_value, location_value, unit_value, type_value] if value
     ):
         return False
     if safe_department and department_value != safe_department:
@@ -196,7 +380,7 @@ def _fetch_public_opening_by_id(db, opening_id):
         """,
         (safe_opening_id, "published"),
     ).fetchone()
-    return dict(row) if row else None
+    return _annotate_public_opening_display(dict(row)) if row else None
 
 
 def _fetch_candidate_by_assessment_code(db, code):
@@ -219,7 +403,7 @@ def _fetch_candidate_by_assessment_code(db, code):
         """,
         (safe_code,),
     ).fetchone()
-    return dict(row) if row else None
+    return _annotate_public_candidate_display(dict(row)) if row else None
 
 
 def _parse_career_datetime(value):
@@ -310,7 +494,13 @@ def _build_public_opening_summary_payload(openings):
 
     for opening in safe_openings:
         department = str(opening.get("department") or "").strip()
-        location_label = str(opening.get("location_label") or opening.get("warehouse_name") or "").strip()
+        location_label = str(
+            opening.get("location_label_display")
+            or opening.get("location_label")
+            or opening.get("warehouse_name_display")
+            or opening.get("warehouse_name")
+            or ""
+        ).strip()
         employment_type = normalize_career_employment_type(opening.get("employment_type"))
 
         if department:
@@ -326,7 +516,13 @@ def _build_public_opening_summary_payload(openings):
                 "id": int(opening.get("id") or 0),
                 "title": str(opening.get("title") or "").strip(),
                 "department": str(opening.get("department") or "").strip(),
-                "location_label": str(opening.get("location_label") or opening.get("warehouse_name") or "").strip(),
+                "location_label": str(
+                    opening.get("location_label_display")
+                    or opening.get("location_label")
+                    or opening.get("warehouse_name_display")
+                    or opening.get("warehouse_name")
+                    or ""
+                ).strip(),
                 "employment_type": normalize_career_employment_type(opening.get("employment_type")),
                 "detail_url": build_career_public_url(
                     "career.opening_detail",
@@ -434,7 +630,10 @@ def index():
             employment_type=initial_type_filter,
         )
     ]
-    warehouses = [dict(row) for row in db.execute("SELECT id, name FROM warehouses ORDER BY name ASC").fetchall()]
+    warehouses = [
+        _annotate_public_warehouse_display(dict(row))
+        for row in db.execute("SELECT id, name FROM warehouses ORDER BY name ASC").fetchall()
+    ]
     selected_opening_id = request.args.get("vacancy", "").strip()
     try:
         selected_opening_id = int(selected_opening_id) if selected_opening_id else None
@@ -532,6 +731,7 @@ def signin_page():
     db = get_db()
     ensure_career_schema(db)
     openings = _fetch_public_openings(db)
+    active_account = _get_current_career_public_account(db)
     flow = str(request.args.get("flow") or "signin").strip().lower()
     if flow not in {"signin", "signup"}:
         flow = "signin"
@@ -540,6 +740,10 @@ def signin_page():
     registration_delivery = str(request.args.get("mail") or "sent").strip().lower()
     if registration_delivery not in {"sent", "pending"}:
         registration_delivery = "sent"
+    verification_success = str(request.args.get("verified") or "").strip() in {"1", "true", "yes"}
+    next_target = _safe_career_public_next_target(request.args.get("next"))
+    if active_account and next_target:
+        return redirect(next_target)
     return render_template(
         "career_signin.html",
         signin_url=_career_public_signin_url(),
@@ -548,32 +752,61 @@ def signin_page():
         registration_success=registered,
         registration_email=email,
         registration_delivery=registration_delivery,
+        verification_success=verification_success,
+        next_target=next_target or "",
         opening_count=len(openings),
     )
 
 
 @career_bp.route("/signin/auth", methods=["POST"])
 def signin_submit():
+    db = get_db()
+    ensure_career_schema(db)
     email = (request.form.get("email") or "").strip()
     password = (request.form.get("password") or "").strip()
+    next_target = _safe_career_public_next_target(request.form.get("next"))
     if not email or not password:
         flash("Email dan kata sandi wajib diisi.", "error")
-        return _redirect_career_public("career.signin_page", flow="signin")
+        return _redirect_career_public_with_next("career.signin_page", flow="signin", next_target=next_target)
 
-    flash(
-        "Login kandidat publik sedang diaktifkan bertahap. Jika Anda sudah melamar, gunakan kode tes 5 digit atau hubungi HR.",
-        "info",
-    )
-    return _redirect_career_public("career.signin_page", flow="signin")
+    account = get_career_public_account_by_email(db, email)
+    if not account:
+        flash("Akun kandidat belum ditemukan. Silakan daftar akun terlebih dahulu.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
+
+    account_status = normalize_career_public_account_status(account.get("status"))
+    if account_status != "active":
+        flash("Email belum diverifikasi. Silakan cek inbox dan klik link verifikasi yang kami kirimkan.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signin", next_target=next_target)
+
+    if not check_password_hash(account.get("password_hash") or "", password):
+        flash("Email atau kata sandi tidak sesuai.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signin", next_target=next_target)
+
+    account = touch_career_public_account_login(db, account["id"]) or account
+    db.commit()
+    _set_career_public_session(account)
+    flash("Akun kandidat berhasil masuk.", "success")
+    return redirect(next_target or build_career_public_url("career.index"))
 
 
 @career_bp.route("/signin/register-request", methods=["POST"])
 def signin_register_request():
     candidate_name = (request.form.get("candidate_name") or "").strip()
     email = (request.form.get("email") or "").strip()
-    if not candidate_name or not email:
-        flash("Nama lengkap dan email wajib diisi untuk mendaftarkan akun.", "error")
-        return _redirect_career_public("career.signin_page", flow="signup")
+    password = (request.form.get("password") or "").strip()
+    password_confirmation = (request.form.get("password_confirmation") or "").strip()
+    next_target = _safe_career_public_next_target(request.form.get("next"))
+    if not candidate_name or not email or not password or not password_confirmation:
+        flash("Nama lengkap, email, kata sandi, dan konfirmasi kata sandi wajib diisi.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
+    if len(password) < 8:
+        flash("Kata sandi minimal 8 karakter.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
+    if password != password_confirmation:
+        flash("Konfirmasi kata sandi belum sama.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
+
     db = get_db()
     ensure_career_schema(db)
     try:
@@ -583,18 +816,36 @@ def signin_register_request():
             email,
             source="career_public_signup",
         )
+        account = upsert_career_public_account(
+            db,
+            candidate_name,
+            email,
+            generate_password_hash(password),
+        )
+        verification_token = issue_career_public_account_verification(
+            db,
+            account["id"],
+            ttl_hours=_get_career_public_verification_ttl_hours(),
+        )
         db.commit()
     except ValueError as exc:
         flash(str(exc), "error")
-        return _redirect_career_public("career.signin_page", flow="signup")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
 
     career_company_name = _get_career_public_company_name()
-    email_subject = f"Permintaan akun karir {career_company_name} diterima"
+    verification_url = build_career_public_url(
+        "career.verify_public_account",
+        token=verification_token,
+        **({"next": next_target} if next_target else {}),
+    )
+    email_subject = f"Verifikasi akun karir {career_company_name}"
     email_body = (
         f"Halo {candidate_name},\n\n"
-        f"Permintaan akun Anda untuk portal karir {career_company_name} sudah kami terima.\n"
-        "Tim HR akan meninjau email ini sebelum akses kandidat publik diaktifkan.\n\n"
-        "Sambil menunggu, Anda tetap bisa melihat lowongan aktif dan mengerjakan tes dengan kode 5 digit jika sudah diberikan HR.\n\n"
+        f"Akun kandidat untuk portal karir {career_company_name} hampir siap digunakan.\n"
+        "Klik tautan verifikasi di bawah ini untuk mengaktifkan akun Anda secara otomatis:\n\n"
+        f"{verification_url}\n\n"
+        f"Tautan ini berlaku selama {_get_career_public_verification_ttl_hours()} jam.\n"
+        "Sesudah akun aktif, Anda bisa masuk lalu melamar posisi yang tersedia di portal karir.\n\n"
         f"Salam,\n{career_company_name}"
     )
     registration_delivery = "sent"
@@ -609,8 +860,9 @@ def signin_register_request():
     except Exception:
         registration_delivery = "pending"
         current_app.logger.exception("Career signup email failed for %s", email)
-    return _redirect_career_public(
+    return _redirect_career_public_with_next(
         "career.signin_page",
+        next_target=next_target,
         flow="signup",
         registered=1,
         email=email,
@@ -618,10 +870,46 @@ def signin_register_request():
     )
 
 
+@career_bp.route("/signin/verify")
+def verify_public_account():
+    db = get_db()
+    ensure_career_schema(db)
+    token = (request.args.get("token") or "").strip()
+    next_target = _safe_career_public_next_target(request.args.get("next"))
+    account = get_career_public_account_by_verification_token(db, token)
+    if not account:
+        flash("Link verifikasi tidak valid atau sudah tidak bisa digunakan.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
+
+    expires_at = _parse_career_datetime(account.get("verification_expires_at"))
+    if expires_at and datetime.now() > expires_at:
+        flash("Link verifikasi sudah kedaluwarsa. Silakan daftar ulang untuk mengirim tautan baru.", "error")
+        return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
+
+    if normalize_career_public_account_status(account.get("status")) != "active":
+        account = activate_career_public_account(db, account["id"]) or account
+        mark_public_account_request_status_by_email(db, account.get("email"), status="processed")
+        db.commit()
+
+    _set_career_public_session(account)
+    flash("Akun kandidat berhasil diaktifkan. Anda sudah bisa melamar lowongan.", "success")
+    if next_target:
+        return redirect(next_target)
+    return _redirect_career_public("career.signin_page", flow="signin", verified=1)
+
+
+@career_bp.route("/signin/logout")
+def signout_public_account():
+    _clear_career_public_session()
+    flash("Akun kandidat sudah keluar.", "info")
+    return _redirect_career_public("career.signin_page", flow="signin")
+
+
 @career_bp.route("/karir/lowongan/<int:opening_id>")
 def opening_detail(opening_id):
     db = get_db()
     ensure_career_schema(db)
+    active_account = _get_current_career_public_account(db)
 
     opening = _fetch_public_opening_by_id(db, opening_id)
     if not opening:
@@ -637,6 +925,18 @@ def opening_detail(opening_id):
         latest_assessment_code=assessment_code,
         latest_candidate=latest_candidate,
         signin_url=_career_public_signin_url(),
+        register_url=_career_public_register_url(),
+        public_account=active_account,
+        opening_signin_url=build_career_public_url(
+            "career.signin_page",
+            flow="signin",
+            next=url_for("career.opening_detail", opening_id=opening["id"]),
+        ),
+        opening_register_url=build_career_public_url(
+            "career.signin_page",
+            flow="signup",
+            next=url_for("career.opening_detail", opening_id=opening["id"]),
+        ),
     )
 
 
@@ -644,6 +944,7 @@ def opening_detail(opening_id):
 def apply():
     db = get_db()
     ensure_career_schema(db)
+    active_account = _get_current_career_public_account(db)
 
     opening_id_raw = (request.form.get("opening_id") or "").strip()
     try:
@@ -665,24 +966,29 @@ def apply():
     if not opening or opening["status"] != "published" or int(opening["is_public"] or 0) != 1:
         flash("Lowongan yang dipilih tidak tersedia lagi.", "error")
         return redirect(build_career_public_url("career.index"))
+    if not active_account:
+        flash("Silakan daftar atau masuk ke akun kandidat terlebih dahulu sebelum melamar posisi ini.", "error")
+        return redirect(
+            build_career_public_url(
+                "career.signin_page",
+                flow="signup",
+                next=url_for("career.opening_detail", opening_id=opening["id"]),
+            )
+        )
 
     raw_candidate_name = request.form.get("candidate_name")
     raw_phone = request.form.get("phone")
-    raw_email = request.form.get("email")
     raw_portfolio_url = request.form.get("portfolio_url")
 
-    candidate_name = normalize_candidate_identity_name(raw_candidate_name)
+    candidate_name = normalize_candidate_identity_name(raw_candidate_name) or active_account.get("full_name") or ""
     phone = normalize_candidate_phone(raw_phone)
-    email = normalize_candidate_email(raw_email)
+    email = normalize_candidate_email(active_account.get("email"))
     portfolio_url = normalize_candidate_portfolio_url(raw_portfolio_url)
     note = (request.form.get("note") or "").strip()
     resume_file = request.files.get("resume_file")
 
     if not candidate_name or (not phone and not email):
         flash("Nama kandidat dan minimal satu kontak wajib diisi.", "error")
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
-    if (raw_email or "").strip() and not email:
-        flash("Email kandidat tidak valid.", "error")
         return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
     if (raw_phone or "").strip() and not phone:
         flash("Nomor telepon kandidat tidak valid.", "error")

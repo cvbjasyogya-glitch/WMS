@@ -667,8 +667,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
 {% set active_page = 'jobs' %}
 {% set department_label = (opening.department or 'Operasional Perusahaan')|trim %}
 {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
-{% set location_label = opening.location_label or opening.warehouse_name or 'Penempatan fleksibel' %}
-{% set warehouse_label = opening.warehouse_name or career_company_name %}
+{% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
+{% set warehouse_label = opening.warehouse_name_display or opening.warehouse_name or career_company_name %}
 {% set description_preview = (opening.description or "Posisi aktif resmi perusahaan. Baca gambaran peran, pahami kualifikasi, lalu kirim lamaran dari panel yang sudah disediakan.")|striptags|truncate(220, True) %}
 
 <div class="career-detail-shell">
@@ -704,7 +704,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <p>Informasi posisi, persiapan yang dibutuhkan, dan langkah lamaran disusun dalam satu alur agar kandidat lebih mudah memahami proses.</p>
                 </div>
                 <div class="career-detail-actions">
-                    <a href="#careerApplyForm" class="is-primary">Lamar Posisi Ini</a>
+                    <a href="{% if career_public_authenticated %}#careerApplyForm{% else %}{{ opening_register_url }}{% endif %}" class="is-primary">
+                        {% if career_public_authenticated %}Lamar Posisi Ini{% else %}Daftar untuk Melamar{% endif %}
+                    </a>
                     <a href="{{ url_for('career.index') }}" class="is-secondary">Kembali ke Lowongan</a>
                 </div>
             </div>
@@ -789,7 +791,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <div>
                         <span class="career-apply-kicker">Apply Now</span>
                         <h2>Kirim Lamaran</h2>
-                        <p>Form lamaran difokuskan pada informasi utama yang dibutuhkan pada tahap awal seleksi.</p>
+                        <p>Form lamaran dibuka untuk akun kandidat yang sudah aktif agar data pelamar tetap terhubung ke email yang terverifikasi.</p>
                     </div>
                 </div>
 
@@ -810,12 +812,19 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
 
                 <p class="career-note">Setelah submit, kode tes 5 digit akan muncul di pop-up dan tetap bisa dimasukkan lagi dari menu <em>Punya Kode Tes?</em> di header. Gunakan kontak yang aktif supaya follow-up dari tim HR tidak terlewat.</p>
 
+                {% if career_public_authenticated %}
+                <div class="career-code-inline-card">
+                    <span>Akun Aktif</span>
+                    <strong>{{ career_public_account_name or public_account.full_name }}</strong>
+                    <p>Email terverifikasi: {{ career_public_account_email or public_account.email }}. Anda bisa langsung melanjutkan pengisian lamaran untuk posisi ini.</p>
+                </div>
+
                 <form method="POST" action="{{ url_for('career.apply') }}" enctype="multipart/form-data" class="career-form">
                     <input type="hidden" name="opening_id" value="{{ opening.id }}">
                     <div class="career-form-grid">
                         <label>
                             Nama Lengkap
-                            <input name="candidate_name" placeholder="Nama kandidat" autocomplete="name" required>
+                            <input name="candidate_name" placeholder="Nama kandidat" autocomplete="name" value="{{ public_account.full_name if public_account else '' }}" required>
                         </label>
                         <label>
                             Nomor WhatsApp
@@ -823,7 +832,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                         </label>
                         <label>
                             Email
-                            <input type="email" name="email" placeholder="nama@email.com" autocomplete="email">
+                            <input type="email" name="email" value="{{ public_account.email if public_account else career_public_account_email }}" autocomplete="email" readonly>
                         </label>
                         <label>
                             Portfolio / LinkedIn
@@ -843,6 +852,17 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                         <button type="submit">Kirim Lamaran</button>
                     </div>
                 </form>
+                {% else %}
+                <div class="career-code-inline-card">
+                    <span>Akun Kandidat Wajib</span>
+                    <strong>Daftar dan verifikasi email dulu</strong>
+                    <p>Sebelum mengisi data diri dan mengirim CV, Anda perlu membuat akun kandidat publik lalu mengaktifkannya dari link verifikasi yang dikirim ke inbox email.</p>
+                </div>
+                <div class="career-code-modal-actions" style="margin-top: 0;">
+                    <a href="{{ opening_register_url }}">Daftar Akun</a>
+                    <a href="{{ opening_signin_url }}">Masuk ke Akun</a>
+                </div>
+                {% endif %}
             </section>
 
             <section class="career-detail-card career-guide-card">
@@ -864,7 +884,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                 </form>
 
                 <ul class="career-guide-list">
-                    <li>Pastikan nomor WhatsApp dan email yang dipakai benar-benar aktif untuk follow-up dari tim HR.</li>
+                    <li>Pastikan email akun kandidat sudah diverifikasi sebelum mulai melamar posisi ini.</li>
+                    <li>Gunakan nomor WhatsApp yang benar-benar aktif untuk follow-up dari tim HR.</li>
                     <li>Siapkan CV versi terbaru dengan pengalaman, domisili, dan peran yang relevan agar review awal lebih cepat.</li>
                     <li>Simpan kode tes segera setelah pop-up muncul supaya Anda bisa masuk lagi kapan saja lewat shortcut di header.</li>
                 </ul>

@@ -428,6 +428,57 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
             db.commit()
 
+    def create_public_career_account(
+        self,
+        email="candidate@example.com",
+        password="candidate123",
+        full_name="Kandidat Publik",
+        status="active",
+    ):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_public_accounts(
+                    full_name,
+                    email,
+                    password_hash,
+                    status,
+                    email_verified_at,
+                    updated_at
+                )
+                VALUES (?,?,?,?,CASE WHEN ?='active' THEN CURRENT_TIMESTAMP ELSE NULL END,CURRENT_TIMESTAMP)
+                """,
+                (
+                    full_name,
+                    email.lower(),
+                    generate_password_hash(password),
+                    status,
+                    status,
+                ),
+            )
+            db.commit()
+            account = db.execute(
+                "SELECT id, full_name, email, status FROM career_public_accounts WHERE email=? LIMIT 1",
+                (email.lower(),),
+            ).fetchone()
+        return account
+
+    def login_public_career_account_session(
+        self,
+        email="candidate@example.com",
+        password="candidate123",
+        full_name="Kandidat Publik",
+    ):
+        account = self.create_public_career_account(email=email, password=password, full_name=full_name)
+        with self.client.session_transaction() as session_data:
+            session_data["career_public_account_id"] = account["id"]
+            session_data["career_public_account_email"] = account["email"]
+            session_data["career_public_account_name"] = account["full_name"]
+            session_data["career_public_signed_in_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return account
+
     def get_user_id(self, username):
         with self.app.app_context():
             db = get_db()
@@ -11710,6 +11761,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Kirim Lamaran", html)
         self.assertIn("Masuk Tes Kandidat", html)
         self.assertIn("Kualifikasi & Kecocokan", html)
+        self.assertIn("Mataram Sports Yogyakarta", html)
+        self.assertIn("Yogyakarta", html)
 
     def test_public_career_summary_returns_filtered_opening_counts(self):
         with self.app.app_context():
@@ -11778,8 +11831,54 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["summary"]["location_total"], 1)
         self.assertEqual(payload["summary"]["employment_type_total"], 1)
         self.assertEqual(payload["summary"]["departments"][0]["label"], "Warehouse")
+        self.assertEqual(payload["summary"]["locations"][0]["label"], "Yogyakarta")
         self.assertEqual(payload["summary"]["employment_types"][0]["value"], "full_time")
         self.assertIn("/karir/lowongan/", payload["summary"]["featured_openings"][0]["detail_url"])
+
+    def test_public_career_display_labels_follow_site_area_mapping(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Store Support Mega",
+                    "Retail",
+                    "full_time",
+                    "Yogyakarta/WFO",
+                    "Support operasional toko.",
+                    "Siap kerja lapangan.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=?",
+                ("Store Support Mega",),
+            ).fetchone()
+
+        jobs_response = self.client.get("/karir")
+        self.assertEqual(jobs_response.status_code, 200)
+        jobs_html = jobs_response.get_data(as_text=True)
+        self.assertIn("Mega Sports Seturan", jobs_html)
+        self.assertIn("Sleman", jobs_html)
+        self.assertNotIn("Yogyakarta/WFO", jobs_html)
+
+        detail_response = self.client.get(f"/karir/lowongan/{opening['id']}")
+        self.assertEqual(detail_response.status_code, 200)
+        detail_html = detail_response.get_data(as_text=True)
+        self.assertIn("Mega Sports Seturan", detail_html)
+        self.assertIn("Sleman", detail_html)
+        self.assertNotIn("Yogyakarta/WFO", detail_html)
 
     def test_public_career_application_creates_recruitment_candidate_for_hr_pipeline(self):
         with self.app.app_context():
@@ -11812,13 +11911,16 @@ class WmsRoutesTestCase(unittest.TestCase):
                 ("Admin Gudang Mega",),
             ).fetchone()
 
+        self.login_public_career_account_session(
+            email="aldo@example.com",
+            full_name="Aldo Nugraha",
+        )
         response = self.client.post(
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
                 "candidate_name": "  Aldo   Nugraha  ",
                 "phone": "08123 456 0001",
-                "email": "  ALDO@Example.COM ",
                 "portfolio_url": "example.com/aldo",
                 "note": "Siap ditempatkan full time.",
                 "resume_file": (BytesIO(b"resume-public"), "aldo-resume.pdf"),
@@ -11882,13 +11984,16 @@ class WmsRoutesTestCase(unittest.TestCase):
             db.commit()
             opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Duplicate Checker",)).fetchone()
 
+        self.login_public_career_account_session(
+            email="ryo.duplicate@example.com",
+            full_name="Ryo Duplicate",
+        )
         first_apply = self.client.post(
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
                 "candidate_name": "Ryo Duplicate",
                 "phone": "08123 450 6789",
-                "email": "ryo.duplicate@example.com",
                 "resume_file": (BytesIO(b"resume-duplicate"), "duplicate.pdf"),
             },
             content_type="multipart/form-data",
@@ -11916,7 +12021,6 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "opening_id": str(opening["id"]),
                 "candidate_name": "  Ryo   Duplicate ",
                 "phone": "6281234506789",
-                "email": "RYO.DUPLICATE@example.com",
             },
             follow_redirects=False,
         )
@@ -11962,6 +12066,10 @@ class WmsRoutesTestCase(unittest.TestCase):
             db.commit()
             opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Portfolio Guard",)).fetchone()
 
+        self.login_public_career_account_session(
+            email="porto-invalid@example.com",
+            full_name="Porto Invalid",
+        )
         response = self.client.post(
             "/karir/apply",
             data={
@@ -12034,13 +12142,16 @@ class WmsRoutesTestCase(unittest.TestCase):
             db.commit()
             opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Test",)).fetchone()
 
+        self.login_public_career_account_session(
+            email="bima@example.com",
+            full_name="Bima Tes",
+        )
         response = self.client.post(
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
                 "candidate_name": "Bima Tes",
                 "phone": "6281234501234",
-                "email": "bima@example.com",
                 "resume_file": (BytesIO(b"resume-bima"), "bima-resume.pdf"),
             },
             content_type="multipart/form-data",
@@ -12134,13 +12245,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("careerHeaderCodeForm", jobs_html)
         self.assertNotIn("Kode tes terakhir untuk", jobs_html)
 
+        self.login_public_career_account_session(
+            email="modal-kode@example.com",
+            full_name="Modal Kode Tes",
+        )
         apply_response = self.client.post(
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
                 "candidate_name": "Modal Kode Tes",
                 "phone": "628123000111",
-                "email": "modal-kode@example.com",
                 "resume_file": (BytesIO(b"resume-modal-kode"), "modal-kode.pdf"),
             },
             content_type="multipart/form-data",
@@ -12209,13 +12323,16 @@ class WmsRoutesTestCase(unittest.TestCase):
             db.commit()
             opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Reset",)).fetchone()
 
+        self.login_public_career_account_session(
+            email="ryo@example.com",
+            full_name="Ryo Reset",
+        )
         apply_response = self.client.post(
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
                 "candidate_name": "Ryo Reset",
                 "phone": "628123450888",
-                "email": "ryo@example.com",
                 "resume_file": (BytesIO(b"resume-ryo"), "ryo-resume.pdf"),
             },
             content_type="multipart/form-data",
@@ -12605,14 +12722,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Punya Kode Tes?", html)
 
     def test_public_career_signup_request_redirects_with_success_state(self):
-        response = self.client.post(
-            "/signin/register-request",
-            data={
-                "candidate_name": "Ryo Saputra",
-                "email": "ryo@example.com",
-            },
-            follow_redirects=False,
-        )
+        with patch("routes.career.send_email", return_value=True), patch(
+            "services.career_service.secrets.token_urlsafe",
+            return_value="verify-token-ryo",
+        ):
+            response = self.client.post(
+                "/signin/register-request",
+                data={
+                    "candidate_name": "Ryo Saputra",
+                    "email": "ryo@example.com",
+                    "password": "password123",
+                    "password_confirmation": "password123",
+                },
+                follow_redirects=False,
+            )
         self.assertEqual(response.status_code, 302)
         self.assertIn("/signin?flow=signup&registered=1&email=ryo@example.com", response.headers["Location"])
 
@@ -12628,14 +12751,26 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 ("ryo@example.com",),
             ).fetchone()
+            account_row = db.execute(
+                """
+                SELECT full_name, email, status, verification_token_hash
+                FROM career_public_accounts
+                WHERE email=?
+                LIMIT 1
+                """,
+                ("ryo@example.com",),
+            ).fetchone()
         self.assertIsNotNone(request_row)
         self.assertEqual(request_row["full_name"], "Ryo Saputra")
         self.assertEqual(request_row["status"], "pending")
         self.assertEqual(request_row["source"], "career_public_signup")
+        self.assertIsNotNone(account_row)
+        self.assertEqual(account_row["status"], "pending")
+        self.assertTrue(account_row["verification_token_hash"])
 
         success_page = self.client.get("/signin?flow=signup&registered=1&email=ryo%40example.com")
         self.assertEqual(success_page.status_code, 200)
-        self.assertIn("Email Terkirim", success_page.get_data(as_text=True))
+        self.assertIn("Email Verifikasi Terkirim", success_page.get_data(as_text=True))
 
     def test_public_career_signup_request_marks_pending_when_email_delivery_fails(self):
         with patch("routes.career.send_email", return_value=False):
@@ -12644,6 +12779,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 data={
                     "candidate_name": "Ryo Saputra",
                     "email": "ryo-gagal@example.com",
+                    "password": "password123",
+                    "password_confirmation": "password123",
                 },
                 follow_redirects=False,
             )
@@ -12654,8 +12791,115 @@ class WmsRoutesTestCase(unittest.TestCase):
         pending_page = self.client.get("/signin?flow=signup&registered=1&email=ryo-gagal%40example.com&mail=pending")
         self.assertEqual(pending_page.status_code, 200)
         pending_html = pending_page.get_data(as_text=True)
-        self.assertIn("Permintaan Sudah Masuk", pending_html)
-        self.assertNotIn("Email Terkirim", pending_html)
+        self.assertIn("Pendaftaran Sudah Tersimpan", pending_html)
+        self.assertNotIn("Email Verifikasi Terkirim", pending_html)
+
+    def test_public_career_verify_link_activates_account_automatically(self):
+        with patch("routes.career.send_email", return_value=True), patch(
+            "services.career_service.secrets.token_urlsafe",
+            return_value="verify-link-token",
+        ):
+            signup_response = self.client.post(
+                "/signin/register-request",
+                data={
+                    "candidate_name": "Nopal Biji",
+                    "email": "nopal@example.com",
+                    "password": "password123",
+                    "password_confirmation": "password123",
+                    "next": "/karir",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(signup_response.status_code, 302)
+
+        verify_response = self.client.get(
+            "/signin/verify?token=verify-link-token&next=/karir",
+            follow_redirects=False,
+        )
+        self.assertEqual(verify_response.status_code, 302)
+        self.assertEqual(verify_response.headers["Location"], "/karir")
+
+        with self.app.app_context():
+            db = get_db()
+            account_row = db.execute(
+                "SELECT status, email_verified_at FROM career_public_accounts WHERE email=? LIMIT 1",
+                ("nopal@example.com",),
+            ).fetchone()
+            request_row = db.execute(
+                "SELECT status FROM career_public_account_requests WHERE email=? ORDER BY id DESC LIMIT 1",
+                ("nopal@example.com",),
+            ).fetchone()
+        self.assertEqual(account_row["status"], "active")
+        self.assertIsNotNone(account_row["email_verified_at"])
+        self.assertEqual(request_row["status"], "processed")
+
+    def test_public_career_signin_authenticates_verified_account(self):
+        self.create_public_career_account(
+            email="aktif@example.com",
+            password="password123",
+            full_name="Akun Aktif",
+            status="active",
+        )
+
+        response = self.client.post(
+            "/signin/auth",
+            data={
+                "email": "aktif@example.com",
+                "password": "password123",
+                "next": "/karir",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir")
+        with self.client.session_transaction() as session_data:
+            self.assertTrue(session_data.get("career_public_account_id"))
+            self.assertEqual(session_data.get("career_public_account_email"), "aktif@example.com")
+
+    def test_public_career_apply_requires_verified_account(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Guarded Apply",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Butuh akun aktif sebelum apply.",
+                    "Teliti.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Guarded Apply",)).fetchone()
+
+        response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Belum Login",
+                "phone": "08123 456 7890",
+                "resume_file": (BytesIO(b"resume-guarded"), "guarded.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/signin?flow=signup", response.headers["Location"])
 
     def test_create_public_account_request_uses_inserted_request_id_when_available(self):
         db = Mock()
@@ -12718,13 +12962,15 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "opening_id": "7",
                 "candidate_name": "Aldo Nugraha",
                 "phone": "6281234560001",
-                "email": "aldo@example.com",
                 "resume_file": (BytesIO(b"resume-public"), "aldo-resume.pdf"),
             },
             content_type="multipart/form-data",
         ):
             with patch("routes.career.get_db", return_value=db), patch(
                 "routes.career.ensure_career_schema"
+            ), patch(
+                "routes.career._get_current_career_public_account",
+                return_value={"id": 91, "full_name": "Aldo Nugraha", "email": "aldo@example.com", "status": "active"},
             ), patch(
                 "routes.career.find_duplicate_public_application",
                 return_value=None,
@@ -12803,19 +13049,25 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
         self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
 
-        signup_response = self.client.post(
-            "/signin/register-request",
-            data={
-                "candidate_name": "Host Redirect",
-                "email": "host-redirect@example.com",
-            },
-            headers={"Host": "erp.test"},
-            follow_redirects=False,
-        )
+        with patch("routes.career.send_email", return_value=True), patch(
+            "services.career_service.secrets.token_urlsafe",
+            return_value="redirect-host-token",
+        ):
+            signup_response = self.client.post(
+                "/signin/register-request",
+                data={
+                    "candidate_name": "Host Redirect",
+                    "email": "host-redirect@example.com",
+                    "password": "password123",
+                    "password_confirmation": "password123",
+                },
+                headers={"Host": "erp.test"},
+                follow_redirects=False,
+            )
         self.assertEqual(signup_response.status_code, 302)
         self.assertEqual(
             signup_response.headers["Location"],
-            "https://recruitment.test/signin?flow=signup&registered=1&email=host-redirect@example.com",
+            "https://recruitment.test/signin?flow=signup&registered=1&email=host-redirect@example.com&mail=sent",
         )
 
         signin_response = self.client.post(
@@ -12876,13 +13128,16 @@ class WmsRoutesTestCase(unittest.TestCase):
             db.commit()
             opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Locked",)).fetchone()
 
+        self.login_public_career_account_session(
+            email="locked@example.com",
+            full_name="Locked Candidate",
+        )
         apply_response = self.client.post(
             "/karir/apply",
             data={
                 "opening_id": str(opening["id"]),
                 "candidate_name": "Locked Candidate",
                 "phone": "6281234505678",
-                "email": "locked@example.com",
                 "resume_file": (BytesIO(b"resume-locked"), "locked-resume.pdf"),
             },
             content_type="multipart/form-data",
