@@ -3154,12 +3154,16 @@ def _fetch_overtime_balance_adjustment_records(
     selected_warehouse=None,
     employee_id=None,
     employee_ids=None,
+    date_from=None,
+    date_to=None,
     limit=None,
 ):
     _ensure_overtime_feature_schema(db)
     scope_warehouse = get_hris_scope()
     safe_warehouse = scope_warehouse or selected_warehouse
     safe_employee_ids = [int(item) for item in (employee_ids or []) if _to_int(item)]
+    safe_date_from = str(date_from or "").strip()
+    safe_date_to = str(date_to or "").strip()
     query = """
         SELECT
             a.*,
@@ -3187,6 +3191,14 @@ def _fetch_overtime_balance_adjustment_records(
         query += f" AND a.employee_id IN ({placeholders})"
         params.extend(safe_employee_ids)
 
+    if safe_date_from:
+        query += " AND COALESCE(a.adjustment_date, '') >= ?"
+        params.append(safe_date_from)
+
+    if safe_date_to:
+        query += " AND COALESCE(a.adjustment_date, '') <= ?"
+        params.append(safe_date_to)
+
     query += " ORDER BY a.adjustment_date DESC, a.created_at DESC, a.id DESC"
     if limit:
         query += " LIMIT ?"
@@ -3198,6 +3210,17 @@ def _fetch_overtime_balance_adjustment_records(
         row["duration_label"] = _format_duration_minutes_label(row["minutes_delta"])
         row["handled_by_name"] = row.get("handled_by_name") or "-"
         row["note"] = row.get("note") or "-"
+        row["source_type"] = _infer_overtime_add_source_type(
+            None,
+            row.get("note"),
+            row.get("full_name"),
+            row.get("handled_by_name"),
+        )
+        row["source_label"] = (
+            "Lembur Otomatis"
+            if row["source_type"] == "biometric_auto"
+            else "Input Manual HR"
+        )
     return adjustment_rows
 
 
@@ -4481,8 +4504,9 @@ def _apply_attendance_request(db, request_row):
             raise ValueError("Tanggal pengurangan lembur tidak valid.")
         overtime_balance = _build_employee_overtime_balance(db, employee["id"])
         if usage_mode == "cashout_all":
-            if minutes_used is None or minutes_used <= 0:
-                minutes_used = int(overtime_balance["available_minutes"] or 0)
+            # Cashout must always consume the latest available balance at approval time,
+            # not the older amount captured when the request was first queued.
+            minutes_used = int(overtime_balance["available_minutes"] or 0)
             if minutes_used <= 0:
                 raise ValueError("Saldo lembur saat ini kosong, jadi tidak ada yang bisa diuangkan.")
         elif minutes_used is None or minutes_used <= 0:
@@ -7326,6 +7350,7 @@ def hris_index(module_slug=None):
     biometric_shift_override_rows = []
     overtime_recap_rows = []
     overtime_recap_summary = None
+    overtime_adjustment_history = []
     overtime_usage_history = []
     announcements = []
     announcement_summary = None
@@ -7525,6 +7550,13 @@ def hris_index(module_slug=None):
                 period_date_from=date_from,
                 period_date_to=date_to,
             )
+            overtime_adjustment_history = _fetch_overtime_balance_adjustment_records(
+                db,
+                selected_warehouse=selected_warehouse,
+                date_from=date_from,
+                date_to=date_to,
+                limit=OVERTIME_USAGE_HISTORY_LIMIT,
+            )
         except Exception as exc:
             current_app.logger.exception("HRIS BIOMETRIC OVERTIME RENDER ERROR: %s", exc)
             biometric_recap_rows = []
@@ -7549,6 +7581,7 @@ def hris_index(module_slug=None):
                     or "Semua Periode"
                 ),
             }
+            overtime_adjustment_history = []
             overtime_usage_history = []
             flash(
                 "Komponen lembur otomatis belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
@@ -7657,6 +7690,7 @@ def hris_index(module_slug=None):
         biometric_shift_override_rows=biometric_shift_override_rows,
         overtime_recap_rows=overtime_recap_rows,
         overtime_recap_summary=overtime_recap_summary,
+        overtime_adjustment_history=overtime_adjustment_history,
         overtime_usage_history=overtime_usage_history,
         overtime_balance_cap_enabled=_is_overtime_balance_cap_enabled(),
         overtime_balance_cap_label=_get_overtime_balance_cap_label(),
@@ -11473,6 +11507,129 @@ def use_biometric_overtime():
             ),
             "success",
         )
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/overtime/add", methods=["POST"])
+def add_biometric_manual_overtime():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_manage_attendance_request_approvals(session.get("role")):
+        flash("Hanya HR dan Super Admin yang bisa menambah lembur manual.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    try:
+        _ensure_overtime_feature_schema(db)
+    except Exception as exc:
+        current_app.logger.exception("HRIS BIOMETRIC OVERTIME ADD SCHEMA ERROR: %s", exc)
+        flash(
+            "Fitur penambahan lembur manual belum siap di server. Schema overtime di database VPS perlu disinkronkan dulu.",
+            "error",
+        )
+        return redirect(return_to)
+
+    employee_id = _to_int(request.form.get("employee_id"))
+    adjustment_date = _parse_iso_date((request.form.get("adjustment_date") or "").strip())
+    minutes_delta = _to_int(request.form.get("minutes_delta"), default=None)
+    note = (request.form.get("note") or "").strip()
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Data staff untuk penambahan lembur tidak ditemukan.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    if adjustment_date is None:
+        flash("Tanggal penambahan lembur tidak valid.", "error")
+        return redirect(return_to)
+
+    if minutes_delta is None or minutes_delta <= 0:
+        flash("Durasi penambahan lembur wajib diisi dalam menit dan lebih dari 0.", "error")
+        return redirect(return_to)
+
+    if not note:
+        flash("Catatan penambahan lembur wajib diisi agar histori tetap jelas.", "error")
+        return redirect(return_to)
+
+    duration_label = _format_duration_minutes_label(minutes_delta)
+    payload = {
+        "source_type": "manual_request",
+        "employee_id": employee["id"],
+        "employee_name": employee["full_name"],
+        "warehouse_id": employee["warehouse_id"],
+        "attendance_date": adjustment_date.isoformat(),
+        "adjustment_date": adjustment_date.isoformat(),
+        "minutes_delta": minutes_delta,
+        "duration_label": duration_label,
+        "note": note,
+    }
+    summary_title = f"{employee['full_name']} - Tambah Lembur Manual"
+    summary_note = f"{duration_label} pada {adjustment_date.isoformat()} | {note}"
+    handled_at = _current_timestamp()
+
+    try:
+        cursor = db.execute(
+            """
+            INSERT INTO attendance_action_requests(
+                request_type,
+                warehouse_id,
+                employee_id,
+                summary_title,
+                summary_note,
+                payload,
+                status,
+                requested_by,
+                handled_by,
+                handled_at,
+                decision_note,
+                updated_at
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "overtime_add",
+                employee["warehouse_id"],
+                employee["id"],
+                summary_title,
+                summary_note,
+                json.dumps(payload, sort_keys=True, ensure_ascii=True),
+                "pending",
+                session.get("user_id"),
+                None,
+                None,
+                None,
+                handled_at,
+            ),
+        )
+        request_id = int(cursor.lastrowid or 0)
+        request_row = _get_attendance_request_by_id(db, request_id)
+        success_message = _apply_attendance_request(db, request_row)
+        db.execute(
+            """
+            UPDATE attendance_action_requests
+            SET status=?,
+                handled_by=?,
+                handled_at=?,
+                decision_note=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                "approved",
+                session.get("user_id"),
+                handled_at,
+                "Penambahan lembur manual dimasukkan langsung dari panel attendance geotag.",
+                handled_at,
+                request_id,
+            ),
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        flash(str(exc), "error")
+        return redirect(return_to)
+
+    flash(success_message, "success")
     return redirect(return_to)
 
 

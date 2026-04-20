@@ -44,10 +44,10 @@
 .career-astra-topbar-head {
     grid-column: 2;
     grid-row: 1;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px 18px;
     min-width: 0;
 }
 
@@ -73,6 +73,26 @@
     color: #64748b;
     font-size: 0.8rem;
     font-weight: 600;
+}
+
+.career-astra-topbar-head-actions {
+    display: inline-flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 14px;
+    flex: 0 0 auto;
+    align-self: start;
+    min-width: 0;
+}
+
+.career-astra-account-actions,
+.career-astra-mobile-auth {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: nowrap;
+    min-width: 0;
 }
 
 .career-astra-topbar-panel {
@@ -130,9 +150,12 @@
 }
 
 .career-astra-topbar-actions {
-    display: inline-flex;
+    display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 12px;
+    flex-wrap: wrap;
+    margin-left: auto;
 }
 
 .career-astra-mobile-toggle {
@@ -151,15 +174,24 @@
     cursor: pointer;
 }
 
+.career-astra-account-actions a,
+.career-astra-mobile-auth a,
 .career-astra-topbar-actions a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
     color: #475569;
     text-decoration: none;
     font-weight: 600;
     white-space: nowrap;
 }
 
+.career-astra-mobile-auth {
+    display: none;
+}
+
 .career-astra-account-chip {
-    max-width: 220px;
+    max-width: min(280px, 30vw);
     min-height: 38px;
     padding: 0 14px;
     display: inline-flex;
@@ -173,6 +205,14 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.career-astra-account-actions.is-authenticated .career-astra-account-chip {
+    flex: 0 1 min(280px, 30vw);
+}
+
+.career-astra-lang {
+    flex: 0 0 auto;
 }
 
 .career-astra-topbar .career-test-shortcut-panel summary {
@@ -702,7 +742,13 @@ html[data-theme] body .career-public-shell .career-form input[type="file"]::file
 
     .career-astra-topbar-head {
         width: 100%;
+        align-items: start;
+    }
+
+    .career-astra-topbar-head-actions,
+    .career-astra-account-actions {
         align-items: center;
+        max-width: 100%;
     }
 
     .career-astra-topbar-panel {
@@ -721,6 +767,7 @@ html[data-theme] body .career-public-shell .career-form input[type="file"]::file
         width: 100%;
         justify-content: flex-start;
         flex-wrap: wrap;
+        margin-left: 0;
     }
 }
 
@@ -791,6 +838,15 @@ html[data-theme] body .career-public-shell .career-form input[type="file"]::file
         align-items: center;
     }
 
+    .career-astra-topbar-head-actions {
+        margin-left: auto;
+        align-items: center;
+    }
+
+    .career-astra-account-actions {
+        display: none;
+    }
+
     .career-astra-topbar-panel {
         grid-column: 1 / -1;
         grid-row: 2;
@@ -849,6 +905,16 @@ html[data-theme] body .career-public-shell .career-form input[type="file"]::file
         flex-wrap: wrap;
         gap: 8px 12px;
         align-items: center;
+        margin-left: 0;
+    }
+
+    .career-astra-mobile-auth {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: 8px 12px;
     }
 
     .career-astra-topbar .career-test-shortcut,
@@ -888,6 +954,8 @@ html[data-theme] body .career-public-shell .career-form input[type="file"]::file
     }
 
     .career-astra-nav a,
+    .career-astra-account-actions a,
+    .career-astra-mobile-auth a,
     .career-astra-topbar-actions a,
     .career-astra-topbar .career-test-shortcut-panel summary {
         font-size: 0.92rem;

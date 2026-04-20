@@ -7,144 +7,471 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/sms_storage.css') }}">
 </head>
 <body>
-    <div class="sms-shell">
-        <header class="sms-topbar">
-            <div class="sms-brand">
-                <div class="sms-brand-mark">SMS</div>
-                <div>
-                    <strong>SMS Cloud Storage</strong>
-                    <span>Ruang file internal CV.BJAS</span>
+    <div class="backdrop"></div>
+
+    <div id="app-shell" class="app-shell">
+        <header class="topbar fade-up">
+            <div class="topbar-start">
+                <button class="top-icon-btn menu-btn" id="sidebarMenuButton" type="button" aria-label="Toggle navigation">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4 7H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        <path d="M4 12H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        <path d="M4 17H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                    </svg>
+                </button>
+
+                <div class="brand-lockup">
+                    <div class="drive-mark" aria-hidden="true">
+                        <span class="drive-mark-blue"></span>
+                        <span class="drive-mark-green"></span>
+                        <span class="drive-mark-yellow"></span>
+                    </div>
+                    <div class="brand-copy">
+                        <span class="brand-eyebrow">SMS Cloud</span>
+                        <strong>SMS Cloud Storage</strong>
+                    </div>
                 </div>
             </div>
-            <div class="sms-topbar-actions">
-                <button type="button" class="sms-chip-button" id="smsModeDriveButton">My Drive</button>
-                <button type="button" class="sms-chip-button" id="smsModeTrashButton">Trash</button>
-                <a href="{{ url_for('auth.logout') }}" class="sms-logout-link">Keluar</a>
+
+            <label class="top-search-shell" for="search-input">
+                <span class="top-search-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"></circle>
+                        <path d="M16 16L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                    </svg>
+                </span>
+                <input id="search-input" type="search" placeholder="Cari file atau folder">
+            </label>
+
+            <div class="topbar-actions">
+                <span class="upgrade-chip" id="quotaChip">{{ current_user_quota_label or '500 MB' }} / user</span>
+                <span class="top-user-pill">{{ current_user_label }}</span>
+                <a href="{{ url_for('auth.logout') }}" class="top-link-btn">Keluar</a>
             </div>
         </header>
 
-        <main class="sms-main-grid">
-            <aside class="sms-sidebar">
-                <section class="sms-card sms-card-accent">
-                    <p class="sms-eyebrow">Akun aktif</p>
-                    <strong>{{ current_user_label }}</strong>
-                    <span>Domain ini khusus untuk file manager cloud storage.</span>
-                </section>
+        <aside class="sidebar fade-up" id="sidebarPanel">
+            <button id="sidebar-upload" class="new-btn" type="button">
+                <span class="new-btn-plus" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 5V19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        <path d="M5 12H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                    </svg>
+                </span>
+                <span>Upload</span>
+            </button>
 
-                <section class="sms-card">
-                    <div class="sms-card-head">
-                        <div>
-                            <p class="sms-eyebrow">Storage</p>
-                            <strong id="smsUsageLabel">{{ storage_stats.total_size_label }}</strong>
-                        </div>
-                        <span class="sms-mini-badge">Live</span>
-                    </div>
-                    <div class="sms-stats-grid">
-                        <article>
-                            <strong id="smsStatFiles">{{ storage_stats.total_files }}</strong>
-                            <span>File</span>
-                        </article>
-                        <article>
-                            <strong id="smsStatFolders">{{ storage_stats.total_folders }}</strong>
-                            <span>Folder</span>
-                        </article>
-                        <article>
-                            <strong id="smsStatTrash">{{ storage_stats.trash_count }}</strong>
-                            <span>Trash</span>
-                        </article>
-                        <article>
-                            <strong id="smsMaxUploadLabel">{{ storage_stats.max_upload_label }}</strong>
-                            <span>Maks / file</span>
-                        </article>
-                    </div>
-                </section>
+            <nav class="sidebar-nav">
+                <button id="nav-home" class="nav-item is-active" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M4 11.5L12 5L20 11.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                        </svg>
+                    </span>
+                    <span>Home</span>
+                </button>
+                <button id="nav-drive" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M3.5 8.5A2.5 2.5 0 0 1 6 6h4l2 2h6A2.5 2.5 0 0 1 20.5 10.5v6A2.5 2.5 0 0 1 18 19H6A2.5 2.5 0 0 1 3.5 16.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                        </svg>
+                    </span>
+                    <span>My Drive</span>
+                </button>
+                <button id="nav-recent" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"></circle>
+                            <path d="M12 8V12L14.8 14.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                    </span>
+                    <span>Recent</span>
+                </button>
+                <button id="nav-starred" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M12 4.8L14.25 9.36L19.28 10.09L15.64 13.64L16.5 18.64L12 16.28L7.5 18.64L8.36 13.64L4.72 10.09L9.75 9.36L12 4.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                        </svg>
+                    </span>
+                    <span>Starred</span>
+                </button>
+                <button id="nav-shared" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <circle cx="8" cy="10" r="2.4" stroke="currentColor" stroke-width="1.8"></circle>
+                            <circle cx="16" cy="8" r="2.4" stroke="currentColor" stroke-width="1.8"></circle>
+                            <path d="M4.8 18.2A4.1 4.1 0 0 1 8.7 15h2.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M13.3 16C13.8 14.2 15.5 13 17.6 13C20 13 21.9 14.8 22.2 17.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                    </span>
+                    <span>Shared</span>
+                </button>
+                <button id="nav-shortcuts" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M9 7.5H16A3.5 3.5 0 1 1 16 14.5H8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M11 10.5L8 7.5L11 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                    </span>
+                    <span>Shortcuts</span>
+                </button>
+                <button id="nav-all" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M5 6.5H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M5 12H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M5 17.5H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                    </span>
+                    <span>Semua File</span>
+                </button>
+                <button id="nav-trash" class="nav-item" type="button">
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M5.5 7.5H18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M9 4.5H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M8 7.5V18a1.5 1.5 0 0 0 1.5 1.5h5A1.5 1.5 0 0 0 16 18V7.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                            <path d="M10.5 10.5V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            <path d="M13.5 10.5V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                    </span>
+                    <span>Trash</span>
+                    <span id="nav-trash-count" class="nav-count hidden">0</span>
+                </button>
+            </nav>
 
-                <section class="sms-card">
-                    <div class="sms-card-head">
-                        <div>
-                            <p class="sms-eyebrow">Aktivitas</p>
-                            <strong>Log terbaru</strong>
-                        </div>
-                        <button type="button" class="sms-link-button" id="smsRefreshActivityButton">Refresh</button>
+            <section class="storage-panel">
+                <div class="storage-labels">
+                    <div>
+                        <p>Storage pribadi</p>
+                        <strong id="usage-percent">0%</strong>
                     </div>
-                    <div class="sms-activity-list" id="smsActivityList">
-                        {% for item in storage_activity %}
-                        <article class="sms-activity-item">
-                            <strong>{{ item.action|default('update')|capitalize }}</strong>
-                            <span>{{ item.target_path or 'Root' }}</span>
-                        </article>
-                        {% else %}
-                        <p class="sms-empty-copy">Belum ada aktivitas.</p>
-                        {% endfor %}
-                    </div>
-                </section>
-            </aside>
+                    <span class="storage-chip">500 MB</span>
+                </div>
+                <div class="storage-track">
+                    <span class="storage-progress" id="storageProgressBar"></span>
+                </div>
+                <p id="usage-text" class="storage-copy">0 B terpakai</p>
+                <div class="storage-meta">
+                    <span><strong id="stat-files">0</strong> file</span>
+                    <span><strong id="stat-folders">0</strong> folder</span>
+                    <span><strong id="stat-trash">0</strong> trash</span>
+                </div>
+                <small id="stat-updated" class="storage-updated">Belum ada aktivitas</small>
+            </section>
 
-            <section class="sms-workspace">
-                <div class="sms-toolbar">
-                    <div class="sms-toolbar-left">
-                        <div class="sms-breadcrumbs" id="smsBreadcrumbs"></div>
-                        <label class="sms-search-shell" for="smsSearchInput">
-                            <input id="smsSearchInput" type="search" placeholder="Cari file atau folder di lokasi aktif">
-                        </label>
+            <section id="queue-panel" class="queue-panel hidden">
+                <div class="sidebar-section-head">
+                    <div>
+                        <p class="section-kicker">Upload Queue</p>
+                        <strong id="queue-summary">Belum ada upload aktif.</strong>
                     </div>
-                    <div class="sms-toolbar-right">
-                        <button type="button" class="sms-primary-button" id="smsUploadButton">Upload File</button>
-                        <button type="button" class="sms-secondary-button" id="smsFolderButton">Folder Baru</button>
-                        <button type="button" class="sms-secondary-button" id="smsRefreshButton">Refresh</button>
-                        <button type="button" class="sms-danger-button hidden" id="smsEmptyTrashButton">Kosongkan Trash</button>
+                    <button id="queue-clear" class="ghost-btn" type="button">Clear</button>
+                </div>
+                <div id="queue-list" class="queue-list"></div>
+            </section>
+
+            <section class="activity-feed">
+                <div class="sidebar-section-head">
+                    <div>
+                        <p class="section-kicker">Aktivitas terbaru</p>
+                        <strong>Log perubahan</strong>
                     </div>
+                    <button id="activity-refresh" class="ghost-btn" type="button">Refresh</button>
+                </div>
+                <div id="activity-list" class="activity-list">
+                    {% for item in storage_activity %}
+                    <article class="activity-item">
+                        <strong>{{ item.action|default('update')|capitalize }}</strong>
+                        <span>{{ item.target_path or 'My Drive' }}</span>
+                    </article>
+                    {% else %}
+                    <p class="section-note">Belum ada aktivitas.</p>
+                    {% endfor %}
+                </div>
+            </section>
+        </aside>
+
+        <main class="workspace fade-up">
+            <section class="workspace-header">
+                <div class="workspace-heading">
+                    <p id="workspace-kicker" class="section-kicker">Workspace</p>
+                    <h1 id="current-view-title">Home</h1>
+                    <p id="section-subtitle" class="section-subtitle">Kelola file pribadimu dengan tampilan yang lebih dekat ke workspace asli.</p>
                 </div>
 
-                <div class="sms-dropzone" id="smsDropzone">
-                    <strong>Tarik file ke sini</strong>
-                    <span>atau gunakan tombol Upload File untuk kirim banyak file sekaligus.</span>
-                </div>
-
-                <div class="sms-feedback hidden" id="smsFeedbackBar"></div>
-
-                <div class="sms-table-shell">
-                    <div class="sms-table-head">
-                        <span>Nama</span>
-                        <span>Tipe</span>
-                        <span>Ukuran</span>
-                        <span>Update</span>
-                        <span>Aksi</span>
+                <div class="workspace-actions">
+                    <div class="view-switch">
+                        <button id="view-list-btn" class="view-switch-btn is-active" type="button" aria-label="List view">List</button>
+                        <button id="view-grid-btn" class="view-switch-btn" type="button" aria-label="Grid view">Grid</button>
                     </div>
-                    <div class="sms-table-body" id="smsTableBody"></div>
+
+                    <div class="action-row">
+                        <button id="upload-btn" class="action-btn action-btn-primary" type="button">Upload file</button>
+                        <button id="folder-btn" class="action-btn" type="button">Folder</button>
+                        <button id="refresh-btn" class="action-btn" type="button">Refresh</button>
+                        <button id="share-btn" class="action-btn" type="button">Shared</button>
+                        <button id="shortcut-btn" class="action-btn" type="button">Shortcut ke Folder</button>
+                        <button id="download-btn" class="action-btn" type="button">Download</button>
+                        <button id="move-btn" class="action-btn" type="button">Pindah</button>
+                        <button id="rename-btn" class="action-btn" type="button">Rename</button>
+                        <button id="restore-btn" class="action-btn hidden" type="button">Restore</button>
+                        <button id="delete-btn" class="action-btn action-btn-danger" type="button">Delete</button>
+                        <button id="empty-trash-btn" class="action-btn action-btn-danger hidden" type="button">Empty trash</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="overview-grid">
+                <article id="active-location-card" class="workspace-card workspace-card-primary">
+                    <div class="overview-head">
+                        <div>
+                            <p class="section-kicker">Lokasi aktif</p>
+                            <strong id="current-path-label">My Drive</strong>
+                        </div>
+                        <span class="surface-badge" id="surface-badge">Ready</span>
+                    </div>
+
+                    <p id="folder-contents" class="overview-summary">0 item</p>
+
+                    <div class="overview-stats">
+                        <div>
+                            <span>Terpakai</span>
+                            <strong id="overview-usage-text">{{ storage_stats.total_size_label }}</strong>
+                        </div>
+                        <div>
+                            <span>Mode</span>
+                            <strong id="overview-usage-mode">Quota</strong>
+                        </div>
+                        <div>
+                            <span>Maks upload / file</span>
+                            <strong id="upload-limit-label">{{ storage_stats.max_upload_label }}</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="workspace-card">
+                    <div class="section-stack">
+                        <div>
+                            <p class="section-kicker">Akun aktif</p>
+                            <h2 class="mini-title">{{ current_user_label }}</h2>
+                        </div>
+                        <p class="section-note">Setiap user punya ruang pribadi sendiri dengan batas {{ current_user_quota_label or '500 MB' }}.</p>
+                    </div>
+
+                    <div class="section-stack">
+                        <div>
+                            <p class="section-kicker">Ringkasan</p>
+                            <h2 class="mini-title">Kategori utama</h2>
+                        </div>
+                        <div id="category-breakdown" class="category-breakdown"></div>
+                    </div>
+                </article>
+            </section>
+
+            <section class="toolbar-row">
+                <div id="breadcrumbs" class="breadcrumbs"></div>
+                <div class="toolbar-row-actions">
+                    <span class="toolbar-chip" id="selection-status">0 item dipilih</span>
+                </div>
+            </section>
+
+            <section id="selection-bar" class="selection-bar hidden">
+                <div class="selection-bar-copy">
+                    <strong id="selection-bar-title">Belum ada item dipilih</strong>
+                    <span id="selection-bar-subtitle">Pilih file atau folder untuk menampilkan aksi cepat.</span>
+                </div>
+                <div class="selection-bar-actions">
+                    <button id="selection-open-btn" class="action-btn" type="button">Buka</button>
+                    <button id="selection-download-btn" class="action-btn" type="button">Download</button>
+                    <button id="selection-star-btn" class="action-btn" type="button">Starred</button>
+                    <button id="selection-share-btn" class="action-btn" type="button">Shared</button>
+                    <button id="selection-shortcut-btn" class="action-btn" type="button">Shortcut ke Folder</button>
+                    <button id="selection-move-btn" class="action-btn" type="button">Pindah</button>
+                    <button id="selection-rename-btn" class="action-btn" type="button">Rename</button>
+                    <button id="selection-restore-btn" class="action-btn hidden" type="button">Restore</button>
+                    <button id="selection-delete-btn" class="action-btn action-btn-danger" type="button">Delete</button>
+                    <button id="selection-clear-btn" class="action-btn" type="button">Clear</button>
+                </div>
+            </section>
+
+            <div id="feedback-bar" class="feedback-bar hidden"></div>
+
+            <section id="home-dashboard" class="home-dashboard{% if initial_path %} hidden{% endif %}">
+                <article class="workspace-card">
+                    <div class="sidebar-section-head">
+                        <div>
+                            <p class="section-kicker">Akses Cepat</p>
+                            <strong>Item berbintang</strong>
+                        </div>
+                        <span class="surface-badge">Starred</span>
+                    </div>
+                    <div id="home-quick-access" class="home-panel-list">
+                        <p class="section-note">Tandai file atau folder dengan bintang untuk akses cepat di sini.</p>
+                    </div>
+                </article>
+
+                <article class="workspace-card">
+                    <div class="sidebar-section-head">
+                        <div>
+                            <p class="section-kicker">Baru Diupdate</p>
+                            <strong>Perubahan terakhir</strong>
+                        </div>
+                        <span class="surface-badge">Recent</span>
+                    </div>
+                    <div id="home-recent-list" class="home-panel-list">
+                        <p class="section-note">File terbaru akan muncul di panel ini.</p>
+                    </div>
+                </article>
+
+                <article class="workspace-card">
+                    <div class="sidebar-section-head">
+                        <div>
+                            <p class="section-kicker">Folder Utama</p>
+                            <strong>Area kerja teratas</strong>
+                        </div>
+                        <span class="surface-badge">Drive</span>
+                    </div>
+                    <div id="home-folder-list" class="home-panel-list">
+                        <p class="section-note">Folder penting di root akan ditampilkan di sini.</p>
+                    </div>
+                </article>
+
+                <article class="workspace-card">
+                    <div class="sidebar-section-head">
+                        <div>
+                            <p class="section-kicker">Shared</p>
+                            <strong>Siap dibagikan</strong>
+                        </div>
+                        <span class="surface-badge">Share</span>
+                    </div>
+                    <div id="home-shared-list" class="home-panel-list">
+                        <p class="section-note">Item yang kamu tandai sebagai shared akan muncul di sini.</p>
+                    </div>
+                </article>
+
+                <article class="workspace-card">
+                    <div class="sidebar-section-head">
+                        <div>
+                            <p class="section-kicker">Shortcuts</p>
+                            <strong>Akses instan</strong>
+                        </div>
+                        <span class="surface-badge">Link</span>
+                    </div>
+                    <div id="home-shortcut-list" class="home-panel-list">
+                        <p class="section-note">Shortcut ke file atau folder penting akan muncul di sini.</p>
+                    </div>
+                </article>
+            </section>
+
+            <section class="dropzone-shell" id="dropzone">
+                <strong>Tarik file ke sini</strong>
+                <span>atau gunakan tombol upload untuk menambahkan beberapa file sekaligus.</span>
+            </section>
+
+            <section id="folder-cards" class="folder-card-grid"></section>
+
+            <section class="file-surface">
+                <div class="file-table-head">
+                    <span>Nama</span>
+                    <span>Tipe</span>
+                    <span>Ukuran</span>
+                    <span>Update</span>
+                    <span>Aksi</span>
+                </div>
+                <div id="file-list" class="file-list"></div>
+                <div id="empty-state" class="empty-state hidden">
+                    <strong>Belum ada item di sini.</strong>
+                    <p>Upload file atau buat folder baru untuk mulai mengisi drive pribadimu.</p>
                 </div>
             </section>
         </main>
     </div>
 
-    <input id="smsFileInput" type="file" multiple hidden>
+    <input id="file-input" type="file" multiple hidden>
 
-    <dialog class="sms-preview-dialog" id="smsPreviewDialog">
-        <form method="dialog" class="sms-preview-shell">
-            <button type="submit" class="sms-preview-close" aria-label="Tutup">&times;</button>
-            <div class="sms-preview-body" id="smsPreviewBody"></div>
+    <dialog id="preview-dialog" class="preview-dialog">
+        <form method="dialog" class="preview-shell">
+            <div class="preview-head">
+                <strong id="preview-title">Preview</strong>
+                <button type="submit" class="preview-close" aria-label="Tutup">&times;</button>
+            </div>
+            <div id="preview-body" class="preview-body"></div>
         </form>
     </dialog>
 
     <script>
         window.SMS_STORAGE_BOOTSTRAP = {
             initialPath: {{ initial_path|tojson }},
+            currentUserLabel: {{ current_user_label|tojson }},
+            storageStats: {{ storage_stats|tojson }},
             endpoints: {
                 list: {{ url_for('sms_storage.api_list')|tojson }},
+                recent: {{ url_for('sms_storage.api_recent')|tojson }},
+                starred: {{ url_for('sms_storage.api_starred')|tojson }},
+                shared: {{ url_for('sms_storage.api_shared')|tojson }},
+                shortcuts: {{ url_for('sms_storage.api_shortcuts')|tojson }},
+                index: {{ url_for('sms_storage.api_index')|tojson }},
                 stats: {{ url_for('sms_storage.api_stats')|tojson }},
                 activity: {{ url_for('sms_storage.api_activity')|tojson }},
                 trash: {{ url_for('sms_storage.api_trash')|tojson }},
                 folder: {{ url_for('sms_storage.api_create_folder')|tojson }},
                 upload: {{ url_for('sms_storage.upload_files')|tojson }},
                 rename: {{ url_for('sms_storage.api_rename')|tojson }},
+                move: {{ url_for('sms_storage.api_move')|tojson }},
                 delete: {{ url_for('sms_storage.api_delete')|tojson }},
-                restore: {{ url_for('sms_storage.api_restore_trash')|tojson }},
+                restore: {{ url_for('sms_storage.api_restore_trash_items')|tojson }},
                 emptyTrash: {{ url_for('sms_storage.api_empty_trash')|tojson }},
+                deleteTrash: {{ url_for('sms_storage.api_delete_trash_items')|tojson }},
                 download: {{ url_for('sms_storage.api_download')|tojson }},
                 preview: {{ url_for('sms_storage.api_preview')|tojson }}
             }
         };
     </script>
+    <dialog id="move-dialog" class="preview-dialog move-dialog">
+        <form method="dialog" class="preview-shell">
+            <div class="preview-head">
+                <div>
+                    <strong id="moveDialogTitle">Pindahkan Item</strong>
+                    <div class="preview-meta" id="moveDialogTargetSummary">Pilih folder tujuan baru.</div>
+                </div>
+                <button type="submit" class="preview-close" id="moveDialogCloseButton" aria-label="Tutup">&times;</button>
+            </div>
+            <div class="preview-body">
+                <label class="top-search-shell move-dialog-search" for="moveDialogSearchInput">
+                    <span class="top-search-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"></circle>
+                            <path d="M16 16L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                    </span>
+                    <input id="moveDialogSearchInput" type="search" placeholder="Cari folder tujuan">
+                </label>
+                <div class="move-dialog-selection">
+                    <span>Tujuan dipilih</span>
+                    <strong id="moveDialogSelectedPath">My Drive</strong>
+                </div>
+                <div id="moveDialogList" class="move-dialog-list"></div>
+                <div class="move-dialog-actions">
+                    <button type="button" class="action-btn" id="moveDialogCancelButton">Batal</button>
+                    <button type="button" class="action-btn action-btn-primary" id="moveDialogSubmitButton">Pindahkan</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+
+    <div id="context-menu" class="context-menu hidden" role="menu" aria-label="Aksi file">
+        <button id="context-open-btn" class="context-menu-item" type="button" role="menuitem">Buka</button>
+        <button id="context-download-btn" class="context-menu-item" type="button" role="menuitem">Download</button>
+        <button id="context-star-btn" class="context-menu-item" type="button" role="menuitem">Toggle Starred</button>
+        <button id="context-share-btn" class="context-menu-item" type="button" role="menuitem">Toggle Shared</button>
+        <button id="context-shortcut-btn" class="context-menu-item" type="button" role="menuitem">Toggle Shortcut</button>
+        <button id="context-shortcut-target-btn" class="context-menu-item" type="button" role="menuitem">Shortcut ke Folder...</button>
+        <button id="context-move-btn" class="context-menu-item" type="button" role="menuitem">Pindah</button>
+        <button id="context-rename-btn" class="context-menu-item" type="button" role="menuitem">Rename</button>
+        <button id="context-restore-btn" class="context-menu-item hidden" type="button" role="menuitem">Restore</button>
+        <button id="context-delete-btn" class="context-menu-item is-danger" type="button" role="menuitem">Delete</button>
+    </div>
     <script src="{{ url_for('static', filename='js/sms_storage.js') }}"></script>
 </body>
 </html>

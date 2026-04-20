@@ -1,5 +1,20 @@
 {% set header_signin_url = signin_url if signin_url is defined and signin_url else url_for('career.signin_page') %}
 {% set header_register_url = register_url if register_url is defined and register_url else url_for('career.signin_page', flow='signup') %}
+{% set header_auth_controls %}
+    {% if career_public_authenticated %}
+    <span class="career-astra-account-chip" title="{{ career_public_account_email }}">
+        {{ career_public_account_name or career_public_account_email }}
+    </span>
+    <a href="{{ url_for('career.signout_public_account') }}" class="career-astra-login-link">Keluar</a>
+    {% else %}
+    <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
+    <a href="{{ header_signin_url }}" class="career-astra-login-link {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
+    {% endif %}
+    <div class="career-astra-lang" aria-label="Pilihan bahasa">
+        <span class="is-active">ID</span>
+        <span>EN</span>
+    </div>
+{% endset %}
 <header class="career-astra-topbar" data-career-mobile-header>
     <a href="{{ url_for('career.home') }}" class="career-astra-brand-mark" aria-label="{{ career_company_name }}">
         <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
@@ -12,14 +27,19 @@
                 <span>Portal rekrutmen resmi perusahaan</span>
             </span>
         </a>
-        <button
-            type="button"
-            class="career-astra-mobile-toggle"
-            aria-expanded="false"
-            aria-controls="careerAstraTopbarPanel"
-        >
-            Menu
-        </button>
+        <div class="career-astra-topbar-head-actions">
+            <div class="career-astra-account-actions {% if career_public_authenticated %}is-authenticated{% endif %}">
+                {{ header_auth_controls|trim|safe }}
+            </div>
+            <button
+                type="button"
+                class="career-astra-mobile-toggle"
+                aria-expanded="false"
+                aria-controls="careerAstraTopbarPanel"
+            >
+                Menu
+            </button>
+        </div>
     </div>
 
     <div class="career-astra-topbar-panel" id="careerAstraTopbarPanel">
@@ -47,18 +67,8 @@
                     </div>
                 </details>
             </div>
-            {% if career_public_authenticated %}
-            <span class="career-astra-account-chip" title="{{ career_public_account_email }}">
-                {{ career_public_account_name or career_public_account_email }}
-            </span>
-            <a href="{{ url_for('career.signout_public_account') }}" class="career-astra-login-link">Keluar</a>
-            {% else %}
-            <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
-            <a href="{{ header_signin_url }}" class="career-astra-login-link {% if active_page == 'signin' %}is-active{% endif %}">Masuk</a>
-            {% endif %}
-            <div class="career-astra-lang" aria-label="Pilihan bahasa">
-                <span class="is-active">ID</span>
-                <span>EN</span>
+            <div class="career-astra-mobile-auth {% if career_public_authenticated %}is-authenticated{% endif %}">
+                {{ header_auth_controls|trim|safe }}
             </div>
         </div>
     </div>

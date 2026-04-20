@@ -2,10 +2,10 @@ import json
 import mimetypes
 import os
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import current_app
+from flask import current_app, has_request_context, session
 
 
 DEFAULT_SMS_FOLDERS = (
@@ -13,6 +13,7 @@ DEFAULT_SMS_FOLDERS = (
     "Media Board",
     "Dropzone Masuk",
 )
+DEFAULT_SMS_USER_QUOTA_BYTES = 500 * 1024 * 1024
 TEXT_PREVIEW_LIMIT_BYTES = 256 * 1024
 INVALID_NAME_CHARS = '<>:"/\\|?*\x00'
 
@@ -26,7 +27,7 @@ def _config_int(name, default):
 
 
 def _now_iso():
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _ensure_directory(path):
@@ -34,15 +35,26 @@ def _ensure_directory(path):
     return path
 
 
+def _get_sms_user_namespace():
+    if not has_request_context():
+        return "shared"
+    raw_user_id = session.get("user_id")
+    if raw_user_id is None:
+        return "shared"
+    return f"user_{str(raw_user_id).strip() or 'shared'}"
+
+
 def get_sms_storage_root():
     configured_root = str(current_app.config.get("SMS_STORAGE_ROOT") or "").strip()
     root_path = configured_root or os.path.join(current_app.instance_path, "sms_storage", "storage")
+    root_path = os.path.join(root_path, _get_sms_user_namespace())
     return os.path.abspath(_ensure_directory(root_path))
 
 
 def get_sms_data_root():
     configured_root = str(current_app.config.get("SMS_STORAGE_DATA_ROOT") or "").strip()
     root_path = configured_root or os.path.join(current_app.instance_path, "sms_storage", "data")
+    root_path = os.path.join(root_path, _get_sms_user_namespace())
     return os.path.abspath(_ensure_directory(root_path))
 
 
@@ -64,6 +76,18 @@ def _get_sms_trash_index_path():
 
 def _get_sms_activity_path():
     return os.path.join(get_sms_data_root(), "activity.json")
+
+
+def _get_sms_starred_path():
+    return os.path.join(get_sms_data_root(), "starred.json")
+
+
+def _get_sms_shared_path():
+    return os.path.join(get_sms_data_root(), "shared.json")
+
+
+def _get_sms_shortcuts_path():
+    return os.path.join(get_sms_data_root(), "shortcuts.json")
 
 
 def _get_sms_download_temp_root():
@@ -88,10 +112,10 @@ def _write_json(path, payload):
 def _cleanup_stale_download_archives():
     temp_root = _ensure_directory(_get_sms_download_temp_root())
     max_age = timedelta(hours=6)
-    cutoff = datetime.utcnow() - max_age
+    cutoff = datetime.now(timezone.utc) - max_age
     for entry in os.scandir(temp_root):
         try:
-            modified = datetime.utcfromtimestamp(entry.stat().st_mtime)
+            modified = datetime.fromtimestamp(entry.stat().st_mtime, timezone.utc)
         except OSError:
             continue
         if modified < cutoff:
@@ -99,6 +123,291 @@ def _cleanup_stale_download_archives():
                 os.remove(entry.path)
             except OSError:
                 continue
+
+
+def _get_sms_user_quota_bytes():
+    return _config_int("SMS_STORAGE_PER_USER_QUOTA_BYTES", DEFAULT_SMS_USER_QUOTA_BYTES)
+
+
+def _normalize_storage_relative_path(relative_path):
+    return str(relative_path or "").replace("\\", "/").strip().strip("/")
+
+
+def _write_starred_paths(paths):
+    normalized = []
+    seen = set()
+    for path in paths or []:
+        safe_path = _normalize_storage_relative_path(path)
+        if not safe_path or safe_path in seen:
+            continue
+        normalized.append(safe_path)
+        seen.add(safe_path)
+    _write_json(_get_sms_starred_path(), normalized)
+
+
+def _read_starred_paths():
+    ensure_sms_storage_structure()
+    saved_paths = _load_json(_get_sms_starred_path(), [])
+    normalized = []
+    seen = set()
+    for path in saved_paths:
+        safe_path = _normalize_storage_relative_path(path)
+        if not safe_path or safe_path in seen:
+            continue
+        normalized.append(safe_path)
+        seen.add(safe_path)
+    return normalized
+
+
+def _load_starred_paths():
+    saved_paths = _read_starred_paths()
+    normalized = []
+    changed = False
+    for path in saved_paths:
+        if not _path_exists(path):
+            changed = True
+            continue
+        normalized.append(path)
+    if changed or normalized != saved_paths:
+        _write_starred_paths(normalized)
+    return normalized
+
+
+def _load_starred_lookup():
+    return set(_load_starred_paths())
+
+
+def _remove_starred_prefix(relative_path):
+    safe_path = _normalize_storage_relative_path(relative_path)
+    if not safe_path:
+        return
+    starred_paths = _load_starred_paths()
+    filtered_paths = [
+        path for path in starred_paths
+        if path != safe_path and not path.startswith(f"{safe_path}/")
+    ]
+    if filtered_paths != starred_paths:
+        _write_starred_paths(filtered_paths)
+
+
+def _replace_starred_prefix(old_relative_path, new_relative_path):
+    old_prefix = _normalize_storage_relative_path(old_relative_path)
+    new_prefix = _normalize_storage_relative_path(new_relative_path)
+    if not old_prefix or not new_prefix or old_prefix == new_prefix:
+        return
+    starred_paths = _read_starred_paths()
+    updated_paths = []
+    changed = False
+    for path in starred_paths:
+        if path == old_prefix or path.startswith(f"{old_prefix}/"):
+            suffix = path[len(old_prefix):].lstrip("/")
+            replacement = "/".join(filter(None, [new_prefix, suffix]))
+            if replacement:
+                updated_paths.append(replacement)
+            changed = True
+            continue
+        updated_paths.append(path)
+    if changed:
+        _write_starred_paths(updated_paths)
+
+
+def _write_shared_paths(paths):
+    normalized = []
+    seen = set()
+    for path in paths or []:
+        safe_path = _normalize_storage_relative_path(path)
+        if not safe_path or safe_path in seen:
+            continue
+        normalized.append(safe_path)
+        seen.add(safe_path)
+    _write_json(_get_sms_shared_path(), normalized)
+
+
+def _read_shared_paths():
+    ensure_sms_storage_structure()
+    saved_paths = _load_json(_get_sms_shared_path(), [])
+    normalized = []
+    seen = set()
+    for path in saved_paths:
+        safe_path = _normalize_storage_relative_path(path)
+        if not safe_path or safe_path in seen:
+            continue
+        normalized.append(safe_path)
+        seen.add(safe_path)
+    return normalized
+
+
+def _load_shared_paths():
+    saved_paths = _read_shared_paths()
+    normalized = []
+    changed = False
+    for path in saved_paths:
+        if not _path_exists(path):
+            changed = True
+            continue
+        normalized.append(path)
+    if changed or normalized != saved_paths:
+        _write_shared_paths(normalized)
+    return normalized
+
+
+def _load_shared_lookup():
+    return set(_load_shared_paths())
+
+
+def _remove_shared_prefix(relative_path):
+    safe_path = _normalize_storage_relative_path(relative_path)
+    if not safe_path:
+        return
+    shared_paths = _load_shared_paths()
+    filtered_paths = [
+        path for path in shared_paths
+        if path != safe_path and not path.startswith(f"{safe_path}/")
+    ]
+    if filtered_paths != shared_paths:
+        _write_shared_paths(filtered_paths)
+
+
+def _replace_shared_prefix(old_relative_path, new_relative_path):
+    old_prefix = _normalize_storage_relative_path(old_relative_path)
+    new_prefix = _normalize_storage_relative_path(new_relative_path)
+    if not old_prefix or not new_prefix or old_prefix == new_prefix:
+        return
+    shared_paths = _read_shared_paths()
+    updated_paths = []
+    changed = False
+    for path in shared_paths:
+        if path == old_prefix or path.startswith(f"{old_prefix}/"):
+            suffix = path[len(old_prefix):].lstrip("/")
+            replacement = "/".join(filter(None, [new_prefix, suffix]))
+            if replacement:
+                updated_paths.append(replacement)
+            changed = True
+            continue
+        updated_paths.append(path)
+    if changed:
+        _write_shared_paths(updated_paths)
+
+
+def _normalize_shortcut_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    target_path = _normalize_storage_relative_path(entry.get("target_path") or entry.get("targetPath"))
+    if not target_path:
+        return None
+    entry_id = str(entry.get("id") or "").strip() or f"shortcut-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{os.urandom(3).hex()}"
+    timestamp = _now_iso()
+    label = str(entry.get("label") or "").strip() or os.path.basename(target_path)
+    parent_path = _normalize_storage_relative_path(entry.get("parent_path") or entry.get("parentPath"))
+    created_at = str(entry.get("created_at") or entry.get("createdAt") or "").strip() or timestamp
+    updated_at = str(entry.get("updated_at") or entry.get("updatedAt") or "").strip() or created_at
+    return {
+        "id": entry_id,
+        "target_path": target_path,
+        "parent_path": parent_path,
+        "label": label,
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+
+
+def _write_shortcuts(entries):
+    normalized = []
+    seen_ids = set()
+    for entry in entries or []:
+        safe_entry = _normalize_shortcut_entry(entry)
+        if not safe_entry or safe_entry["id"] in seen_ids:
+            continue
+        normalized.append(safe_entry)
+        seen_ids.add(safe_entry["id"])
+    _write_json(_get_sms_shortcuts_path(), normalized)
+
+
+def _read_shortcuts():
+    ensure_sms_storage_structure()
+    saved_entries = _load_json(_get_sms_shortcuts_path(), [])
+    normalized = []
+    seen_ids = set()
+    for entry in saved_entries:
+        safe_entry = _normalize_shortcut_entry(entry)
+        if not safe_entry or safe_entry["id"] in seen_ids:
+            continue
+        normalized.append(safe_entry)
+        seen_ids.add(safe_entry["id"])
+    return normalized
+
+
+def _load_shortcuts():
+    saved_entries = _read_shortcuts()
+    normalized = []
+    changed = False
+    seen_targets = set()
+    for entry in saved_entries:
+        target_path = entry["target_path"]
+        target_key = (
+            target_path,
+            _normalize_storage_relative_path(entry.get("parent_path") or ""),
+        )
+        if target_key in seen_targets:
+            changed = True
+            continue
+        if not _path_exists(target_path):
+            changed = True
+            continue
+        normalized.append(entry)
+        seen_targets.add(target_key)
+    if changed or normalized != saved_entries:
+        _write_shortcuts(normalized)
+    return normalized
+
+
+def _remove_shortcuts_prefix(relative_path):
+    safe_path = _normalize_storage_relative_path(relative_path)
+    if not safe_path:
+        return
+    shortcuts = _load_shortcuts()
+    filtered_entries = [
+        entry for entry in shortcuts
+        if entry["target_path"] != safe_path and not entry["target_path"].startswith(f"{safe_path}/")
+    ]
+    if filtered_entries != shortcuts:
+        _write_shortcuts(filtered_entries)
+
+
+def _replace_shortcuts_prefix(old_relative_path, new_relative_path):
+    old_prefix = _normalize_storage_relative_path(old_relative_path)
+    new_prefix = _normalize_storage_relative_path(new_relative_path)
+    if not old_prefix or not new_prefix or old_prefix == new_prefix:
+        return
+    shortcuts = _read_shortcuts()
+    updated_entries = []
+    changed = False
+    for entry in shortcuts:
+        target_path = entry["target_path"]
+        if target_path == old_prefix or target_path.startswith(f"{old_prefix}/"):
+            suffix = target_path[len(old_prefix):].lstrip("/")
+            replacement = "/".join(filter(None, [new_prefix, suffix]))
+            entry = {
+                **entry,
+                "target_path": replacement,
+                "updated_at": _now_iso(),
+            }
+            if entry.get("label") == os.path.basename(target_path):
+                entry["label"] = os.path.basename(replacement) or entry["label"]
+            changed = True
+        updated_entries.append(entry)
+    if changed:
+        _write_shortcuts(updated_entries)
+
+
+def _sort_storage_items(items):
+    return sorted(
+        items,
+        key=lambda item: (
+            item.get("kind") != "folder",
+            str(item.get("name") or "").lower(),
+        ),
+    )
 
 
 def ensure_sms_storage_structure():
@@ -115,6 +424,12 @@ def ensure_sms_storage_structure():
         _write_json(_get_sms_activity_path(), [])
     if not os.path.exists(_get_sms_trash_index_path()):
         _write_json(_get_sms_trash_index_path(), [])
+    if not os.path.exists(_get_sms_starred_path()):
+        _write_json(_get_sms_starred_path(), [])
+    if not os.path.exists(_get_sms_shared_path()):
+        _write_json(_get_sms_shared_path(), [])
+    if not os.path.exists(_get_sms_shortcuts_path()):
+        _write_json(_get_sms_shortcuts_path(), [])
 
     for folder_name in DEFAULT_SMS_FOLDERS:
         _ensure_directory(os.path.join(storage_root, folder_name))
@@ -242,20 +557,34 @@ def build_breadcrumbs(relative_path):
     return crumbs
 
 
-def _stat_item(relative_path, absolute_path, is_dir):
+def _stat_item(relative_path, absolute_path, is_dir, starred_paths=None, shared_paths=None):
     stat_result = os.stat(absolute_path)
     size_bytes = 0 if is_dir else int(stat_result.st_size or 0)
     item_name = os.path.basename(absolute_path)
+    updated_at = datetime.fromtimestamp(stat_result.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z")
+    extension = "" if is_dir else os.path.splitext(item_name)[1].lstrip(".").lower()
+    category = "folder" if is_dir else get_file_category(item_name)
+    relative_key = _normalize_storage_relative_path(relative_path)
+    starred_lookup = starred_paths if starred_paths is not None else _load_starred_lookup()
+    shared_lookup = shared_paths if shared_paths is not None else _load_shared_lookup()
     return {
         "name": item_name,
         "path": relative_path,
         "is_dir": bool(is_dir),
+        "kind": "folder" if is_dir else "file",
         "size_bytes": size_bytes,
+        "size": None if is_dir else size_bytes,
         "size_label": "-" if is_dir else format_bytes_compact(size_bytes),
         "mime_type": None if is_dir else _guess_mime_type(item_name),
-        "category": "folder" if is_dir else get_file_category(item_name),
-        "updated_at": datetime.utcfromtimestamp(stat_result.st_mtime).isoformat() + "Z",
+        "category": category,
+        "extension": extension,
+        "updated_at": updated_at,
+        "updatedAt": updated_at,
         "previewable": False if is_dir else is_previewable(item_name, size_bytes),
+        "starred": relative_key in starred_lookup,
+        "shared": relative_key in shared_lookup,
+        "shortcut": False,
+        "trashed": False,
     }
 
 
@@ -269,9 +598,19 @@ def list_storage_items(relative_path=""):
     items = []
     file_count = 0
     folder_count = 0
+    starred_paths = _load_starred_lookup()
+    shared_paths = _load_shared_lookup()
     for entry in sorted(os.scandir(absolute_path), key=lambda item: (not item.is_dir(), item.name.lower())):
+        if entry.name == ".gitkeep":
+            continue
         entry_relative = "/".join(filter(None, [resolved["relative_path"], entry.name]))
-        entry_item = _stat_item(entry_relative, entry.path, entry.is_dir())
+        entry_item = _stat_item(
+            entry_relative,
+            entry.path,
+            entry.is_dir(),
+            starred_paths=starred_paths,
+            shared_paths=shared_paths,
+        )
         items.append(entry_item)
         if entry_item["is_dir"]:
             folder_count += 1
@@ -280,11 +619,16 @@ def list_storage_items(relative_path=""):
 
     return {
         "current_path": resolved["relative_path"],
+        "currentPath": resolved["relative_path"],
+        "parent_path": os.path.dirname(resolved["relative_path"]).replace("\\", "/").strip("/"),
+        "parentPath": os.path.dirname(resolved["relative_path"]).replace("\\", "/").strip("/"),
         "breadcrumbs": build_breadcrumbs(resolved["relative_path"]),
         "items": items,
         "summary": {
             "file_count": file_count,
             "folder_count": folder_count,
+            "fileCount": file_count,
+            "folderCount": folder_count,
         },
     }
 
@@ -295,9 +639,13 @@ def _walk_storage():
     total_files = 0
     total_folders = 0
     for current_root, dirs, files in os.walk(root_path):
-        total_folders += len(dirs)
+        visible_dirs = [directory for directory in dirs if directory != ".gitkeep"]
+        total_folders += len(visible_dirs)
         total_files += len(files)
         for file_name in files:
+            if file_name == ".gitkeep":
+                total_files -= 1
+                continue
             file_path = os.path.join(current_root, file_name)
             try:
                 total_size += os.path.getsize(file_path)
@@ -306,18 +654,247 @@ def _walk_storage():
     return total_files, total_folders, total_size
 
 
+def _collect_storage_catalog():
+    root_path = get_sms_storage_root()
+    items = []
+    starred_paths = _load_starred_lookup()
+    shared_paths = _load_shared_lookup()
+    for current_root, dirs, files in os.walk(root_path):
+        dirs[:] = [directory for directory in dirs if directory != ".gitkeep"]
+        files = [file_name for file_name in files if file_name != ".gitkeep"]
+        relative_root = os.path.relpath(current_root, root_path).replace("\\", "/")
+        if relative_root == ".":
+            relative_root = ""
+        for directory in dirs:
+            relative_path = "/".join(filter(None, [relative_root, directory]))
+            items.append(
+                _stat_item(
+                    relative_path,
+                    os.path.join(current_root, directory),
+                    True,
+                    starred_paths=starred_paths,
+                    shared_paths=shared_paths,
+                )
+            )
+        for file_name in files:
+            relative_path = "/".join(filter(None, [relative_root, file_name]))
+            items.append(
+                _stat_item(
+                    relative_path,
+                    os.path.join(current_root, file_name),
+                    False,
+                    starred_paths=starred_paths,
+                    shared_paths=shared_paths,
+                )
+            )
+    return items
+
+
+def build_recent_items_payload(limit=60):
+    items = [item for item in _collect_storage_catalog() if not item.get("is_dir")]
+    items.sort(key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+    limited_items = items[: max(1, int(limit or 60))]
+    return {
+        "current_path": "",
+        "currentPath": "",
+        "parent_path": "",
+        "parentPath": "",
+        "breadcrumbs": [{"label": "Recent", "path": ""}],
+        "summary": {
+            "file_count": len(limited_items),
+            "folder_count": 0,
+            "fileCount": len(limited_items),
+            "folderCount": 0,
+        },
+        "items": limited_items,
+    }
+
+
+def build_storage_index_payload():
+    items = _sort_storage_items(_collect_storage_catalog())
+    file_count = len([item for item in items if item.get("kind") == "file"])
+    folder_count = len([item for item in items if item.get("kind") == "folder"])
+    return {
+        "current_path": "",
+        "currentPath": "",
+        "parent_path": "",
+        "parentPath": "",
+        "breadcrumbs": [{"label": "Semua File", "path": ""}],
+        "summary": {
+            "file_count": file_count,
+            "folder_count": folder_count,
+            "fileCount": file_count,
+            "folderCount": folder_count,
+        },
+        "items": items,
+    }
+
+
+def build_starred_items_payload(limit=None):
+    starred_paths = _load_starred_paths()
+    catalog_lookup = {
+        _normalize_storage_relative_path(item.get("path")): item
+        for item in _collect_storage_catalog()
+    }
+    items = [catalog_lookup[path] for path in starred_paths if path in catalog_lookup]
+    if limit is not None:
+        items = items[: max(1, int(limit or 0))]
+    file_count = len([item for item in items if item.get("kind") == "file"])
+    folder_count = len([item for item in items if item.get("kind") == "folder"])
+    return {
+        "current_path": "",
+        "currentPath": "",
+        "parent_path": "",
+        "parentPath": "",
+        "breadcrumbs": [{"label": "Starred", "path": ""}],
+        "summary": {
+            "file_count": file_count,
+            "folder_count": folder_count,
+            "fileCount": file_count,
+            "folderCount": folder_count,
+        },
+        "items": items,
+    }
+
+
+def build_shared_items_payload(limit=None):
+    shared_paths = _load_shared_paths()
+    catalog_lookup = {
+        _normalize_storage_relative_path(item.get("path")): item
+        for item in _collect_storage_catalog()
+    }
+    items = [catalog_lookup[path] for path in shared_paths if path in catalog_lookup]
+    if limit is not None:
+        items = items[: max(1, int(limit or 0))]
+    file_count = len([item for item in items if item.get("kind") == "file"])
+    folder_count = len([item for item in items if item.get("kind") == "folder"])
+    return {
+        "current_path": "",
+        "currentPath": "",
+        "parent_path": "",
+        "parentPath": "",
+        "breadcrumbs": [{"label": "Shared", "path": ""}],
+        "summary": {
+            "file_count": file_count,
+            "folder_count": folder_count,
+            "fileCount": file_count,
+            "folderCount": folder_count,
+        },
+        "items": items,
+    }
+
+
+def build_shortcuts_payload(limit=None):
+    shortcuts = _load_shortcuts()
+    catalog_lookup = {
+        _normalize_storage_relative_path(item.get("path")): item
+        for item in _collect_storage_catalog()
+    }
+    items = []
+    for entry in shortcuts:
+        target_path = entry["target_path"]
+        if target_path not in catalog_lookup:
+            continue
+        target_item = catalog_lookup[target_path]
+        items.append(
+            {
+                **target_item,
+                "id": f"shortcut:{entry['id']}",
+                "name": entry.get("label") or target_item.get("name"),
+                "shortcut": True,
+                "shortcut_id": entry["id"],
+                "shortcutId": entry["id"],
+                "shortcut_target_path": target_path,
+                "shortcutTargetPath": target_path,
+                "shortcut_parent_path": entry.get("parent_path") or "",
+                "shortcutParentPath": entry.get("parent_path") or "",
+                "shortcut_created_at": entry.get("created_at") or "",
+                "shortcutCreatedAt": entry.get("created_at") or "",
+                "shortcut_updated_at": entry.get("updated_at") or "",
+                "shortcutUpdatedAt": entry.get("updated_at") or "",
+                "original_name": target_item.get("name"),
+                "originalName": target_item.get("name"),
+            }
+        )
+    if limit is not None:
+        items = items[: max(1, int(limit or 0))]
+    file_count = len([item for item in items if item.get("kind") == "file"])
+    folder_count = len([item for item in items if item.get("kind") == "folder"])
+    return {
+        "current_path": "",
+        "currentPath": "",
+        "parent_path": "",
+        "parentPath": "",
+        "breadcrumbs": [{"label": "Shortcuts", "path": ""}],
+        "summary": {
+            "file_count": file_count,
+            "folder_count": folder_count,
+            "fileCount": file_count,
+            "folderCount": folder_count,
+        },
+        "items": items,
+    }
+
+
 def get_storage_stats():
     ensure_sms_storage_structure()
     total_files, total_folders, total_size = _walk_storage()
     trash_items = list_trash_items()
+    starred_count = len(_load_starred_paths())
+    shared_count = len(_load_shared_paths())
+    shortcut_count = len(_load_shortcuts())
+    quota_bytes = _get_sms_user_quota_bytes()
+    usage_percent = min(100, round((total_size / quota_bytes) * 100, 2)) if quota_bytes > 0 else None
+    remaining_bytes = max(0, quota_bytes - total_size) if quota_bytes > 0 else 0
+    category_breakdown = {
+        "image": 0,
+        "text": 0,
+        "document": 0,
+        "archive": 0,
+        "video": 0,
+        "audio": 0,
+        "other": 0,
+    }
+    latest_update = None
+    for item in _collect_storage_catalog():
+        updated_at = item.get("updatedAt")
+        if updated_at and (latest_update is None or updated_at > latest_update):
+            latest_update = updated_at
+        if item.get("kind") == "file":
+            category = item.get("category") or "other"
+            category_breakdown[category] = int(category_breakdown.get(category) or 0) + 1
     return {
         "total_files": total_files,
+        "totalFiles": total_files,
         "total_folders": total_folders,
+        "totalFolders": total_folders,
         "total_size_bytes": total_size,
+        "totalBytes": total_size,
         "total_size_label": format_bytes_compact(total_size),
+        "quota_bytes": quota_bytes,
+        "quotaBytes": quota_bytes,
+        "quota_label": format_bytes_compact(quota_bytes),
+        "remaining_bytes": remaining_bytes,
+        "remainingBytes": remaining_bytes,
+        "remaining_label": format_bytes_compact(remaining_bytes),
+        "usage_percent": usage_percent,
+        "usagePercent": usage_percent,
+        "storage_mode": "quota",
+        "storageMode": "quota",
         "max_upload_bytes": _config_int("SMS_STORAGE_MAX_UPLOAD_BYTES", 100 * 1024 * 1024 * 1024),
         "max_upload_label": format_bytes_compact(_config_int("SMS_STORAGE_MAX_UPLOAD_BYTES", 100 * 1024 * 1024 * 1024)),
         "trash_count": len(trash_items),
+        "trashCount": len(trash_items),
+        "starred_count": starred_count,
+        "starredCount": starred_count,
+        "shared_count": shared_count,
+        "sharedCount": shared_count,
+        "shortcut_count": shortcut_count,
+        "shortcutCount": shortcut_count,
+        "latest_update": latest_update,
+        "latestUpdate": latest_update,
+        "category_breakdown": category_breakdown,
+        "categoryBreakdown": category_breakdown,
     }
 
 
@@ -338,7 +915,7 @@ def record_activity(action, target_path, detail="", actor=""):
     entries.insert(
         0,
         {
-            "id": f"act-{int(datetime.utcnow().timestamp() * 1000)}",
+            "id": f"act-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
             "action": str(action or "").strip() or "update",
             "target_path": str(target_path or "").strip(),
             "detail": str(detail or "").strip(),
@@ -373,7 +950,13 @@ def create_folder(relative_path, name, actor=""):
     os.makedirs(target_path, exist_ok=False)
     entry_path = "/".join(filter(None, [resolved["relative_path"], folder_name]))
     record_activity("folder", entry_path, "Folder baru dibuat", actor)
-    return _stat_item(entry_path, target_path, True)
+    return _stat_item(
+        entry_path,
+        target_path,
+        True,
+        starred_paths=_load_starred_lookup(),
+        shared_paths=_load_shared_lookup(),
+    )
 
 
 def save_uploaded_files(relative_path, file_storages, actor=""):
@@ -382,6 +965,8 @@ def save_uploaded_files(relative_path, file_storages, actor=""):
         raise FileNotFoundError("Folder upload tidak ditemukan.")
 
     max_upload_bytes = _config_int("SMS_STORAGE_MAX_UPLOAD_BYTES", 100 * 1024 * 1024 * 1024)
+    quota_bytes = _get_sms_user_quota_bytes()
+    current_usage_bytes = get_storage_stats()["total_size_bytes"]
     uploaded_items = []
     for file_storage in file_storages or []:
         file_name = sanitize_entry_name(os.path.basename(file_storage.filename or ""))
@@ -391,11 +976,19 @@ def save_uploaded_files(relative_path, file_storages, actor=""):
         if size_bytes > max_upload_bytes:
             os.remove(target_path)
             raise ValueError(f"Ukuran file melebihi batas {format_bytes_compact(max_upload_bytes)}.")
+        if quota_bytes > 0 and current_usage_bytes + size_bytes > quota_bytes:
+            os.remove(target_path)
+            remaining_bytes = max(0, quota_bytes - current_usage_bytes)
+            raise ValueError(
+                f"Batas storage per user {format_bytes_compact(quota_bytes)} terlampaui. "
+                f"Sisa ruang {format_bytes_compact(remaining_bytes)}."
+            )
         entry_relative = "/".join(
             filter(None, [resolved["relative_path"], os.path.basename(target_path)])
         )
         uploaded_items.append(_stat_item(entry_relative, target_path, False))
         record_activity("upload", entry_relative, f"Upload {file_name}", actor)
+        current_usage_bytes += size_bytes
     return uploaded_items
 
 
@@ -411,7 +1004,13 @@ def rename_item(relative_path, new_name, actor=""):
     desired_name = sanitize_entry_name(new_name)
     target_path = os.path.join(parent_path, desired_name)
     if os.path.abspath(target_path) == os.path.abspath(source_path):
-        return _stat_item(resolved["relative_path"], source_path, os.path.isdir(source_path))
+        return _stat_item(
+            resolved["relative_path"],
+            source_path,
+            os.path.isdir(source_path),
+            starred_paths=_load_starred_lookup(),
+            shared_paths=_load_shared_lookup(),
+        )
     if os.path.exists(target_path):
         raise FileExistsError("Nama baru sudah dipakai.")
 
@@ -419,8 +1018,65 @@ def rename_item(relative_path, new_name, actor=""):
     new_relative = "/".join(
         filter(None, [os.path.dirname(resolved["relative_path"]).replace("\\", "/").strip("/"), desired_name])
     )
+    _replace_starred_prefix(resolved["relative_path"], new_relative)
+    _replace_shared_prefix(resolved["relative_path"], new_relative)
+    _replace_shortcuts_prefix(resolved["relative_path"], new_relative)
     record_activity("rename", new_relative, f"Rename dari {os.path.basename(source_path)}", actor)
-    return _stat_item(new_relative, target_path, os.path.isdir(target_path))
+    return _stat_item(
+        new_relative,
+        target_path,
+        os.path.isdir(target_path),
+        starred_paths=_load_starred_lookup(),
+        shared_paths=_load_shared_lookup(),
+    )
+
+
+def move_items(relative_paths, destination_path, actor=""):
+    destination = resolve_storage_path(destination_path)
+    destination_absolute = destination["absolute_path"]
+    if not os.path.isdir(destination_absolute):
+        raise FileNotFoundError("Folder tujuan tidak ditemukan.")
+
+    items_to_move = _collapse_nested_paths(relative_paths)
+    if not items_to_move:
+        raise ValueError("Tidak ada item yang dipilih untuk dipindahkan.")
+
+    prepared_moves = []
+    for relative_path in items_to_move:
+        source = resolve_storage_path(relative_path)
+        source_absolute = source["absolute_path"]
+        if not os.path.exists(source_absolute):
+            raise FileNotFoundError("Item yang ingin dipindahkan tidak ditemukan.")
+        if source["relative_path"] == "":
+            raise ValueError("Root tidak bisa dipindahkan.")
+        if os.path.abspath(destination_absolute) == os.path.abspath(source_absolute):
+            raise ValueError("Tujuan pindah tidak boleh sama dengan item asal.")
+        if os.path.isdir(source_absolute):
+            source_prefix = os.path.abspath(source_absolute) + os.sep
+            if os.path.abspath(destination_absolute).startswith(source_prefix):
+                raise ValueError("Folder tidak bisa dipindah ke dalam dirinya sendiri.")
+        prepared_moves.append(source)
+
+    moved_items = []
+    for source in prepared_moves:
+        source_absolute = source["absolute_path"]
+        target_path = _allocate_unique_target(destination_absolute, os.path.basename(source_absolute))
+        shutil.move(source_absolute, target_path)
+        moved_relative = os.path.relpath(target_path, get_sms_storage_root()).replace("\\", "/")
+        _replace_starred_prefix(source["relative_path"], moved_relative)
+        _replace_shared_prefix(source["relative_path"], moved_relative)
+        _replace_shortcuts_prefix(source["relative_path"], moved_relative)
+        record_activity("move", moved_relative, f"Dipindahkan dari {source['relative_path']}", actor)
+        moved_items.append(
+            _stat_item(
+                moved_relative,
+                target_path,
+                os.path.isdir(target_path),
+                starred_paths=_load_starred_lookup(),
+                shared_paths=_load_shared_lookup(),
+            )
+        )
+    return moved_items
 
 
 def _get_path_size(path):
@@ -452,7 +1108,34 @@ def _collapse_nested_paths(relative_paths):
 def list_trash_items():
     ensure_sms_storage_structure()
     records = _load_json(_get_sms_trash_index_path(), [])
-    return sorted(records, key=lambda item: item.get("deleted_at", ""), reverse=True)
+    normalized_records = []
+    for record in records:
+        deleted_at = record.get("deleted_at") or record.get("deletedAt") or ""
+        kind = record.get("kind") or ("folder" if record.get("is_dir") else "file")
+        category = record.get("category") or ("folder" if kind == "folder" else get_file_category(record.get("name") or ""))
+        extension = record.get("extension")
+        if extension is None:
+            extension = "" if kind == "folder" else os.path.splitext(record.get("name") or "")[1].lstrip(".").lower()
+        size_bytes = int(record.get("size_bytes") or record.get("size") or 0)
+        normalized_records.append(
+            {
+                **record,
+                "kind": kind,
+                "category": category,
+                "extension": extension,
+                "size": None if kind == "folder" else size_bytes,
+                "size_bytes": size_bytes,
+                "size_label": record.get("size_label") or ("-" if kind == "folder" else format_bytes_compact(size_bytes)),
+                "updatedAt": deleted_at,
+                "deletedAt": deleted_at,
+                "starred": False,
+                "shared": False,
+                "shortcut": False,
+                "trashed": True,
+                "previewable": False,
+            }
+        )
+    return sorted(normalized_records, key=lambda item: item.get("deleted_at", ""), reverse=True)
 
 
 def _write_trash_items(items):
@@ -473,16 +1156,22 @@ def delete_items(relative_paths, actor=""):
         if resolved["relative_path"] == "":
             raise ValueError("Root tidak bisa dihapus.")
 
-        entry_id = f"trash-{int(datetime.utcnow().timestamp() * 1000)}-{os.urandom(4).hex()}"
+        entry_id = f"trash-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{os.urandom(4).hex()}"
         trash_name = f"{entry_id}-{os.path.basename(source_path)}"
         trash_path = os.path.join(trash_root, trash_name)
         shutil.move(source_path, trash_path)
+        _remove_starred_prefix(resolved["relative_path"])
+        _remove_shared_prefix(resolved["relative_path"])
+        _remove_shortcuts_prefix(resolved["relative_path"])
         record = {
             "id": entry_id,
             "name": os.path.basename(source_path),
             "original_path": resolved["relative_path"],
             "trash_name": trash_name,
             "is_dir": os.path.isdir(trash_path),
+            "kind": "folder" if os.path.isdir(trash_path) else "file",
+            "category": "folder" if os.path.isdir(trash_path) else get_file_category(os.path.basename(source_path)),
+            "extension": "" if os.path.isdir(trash_path) else os.path.splitext(os.path.basename(source_path))[1].lstrip(".").lower(),
             "size_bytes": _get_path_size(trash_path),
             "size_label": format_bytes_compact(_get_path_size(trash_path)),
             "deleted_at": _now_iso(),
@@ -514,7 +1203,157 @@ def restore_trash_item(item_id, actor=""):
     _write_trash_items(trash_items)
     restored_relative = os.path.relpath(restored_target, get_sms_storage_root()).replace("\\", "/")
     record_activity("restore", restored_relative, "Dipulihkan dari trash", actor)
-    return _stat_item(restored_relative, restored_target, os.path.isdir(restored_target))
+    return _stat_item(
+        restored_relative,
+        restored_target,
+        os.path.isdir(restored_target),
+        starred_paths=_load_starred_lookup(),
+        shared_paths=_load_shared_lookup(),
+    )
+
+
+def set_starred_items(relative_paths, starred=True, actor=""):
+    desired_state = bool(starred)
+    starred_paths = _load_starred_paths()
+    changed_paths = []
+    for relative_path in relative_paths or []:
+        safe_path = _normalize_storage_relative_path(relative_path)
+        if not safe_path or not _path_exists(safe_path):
+            continue
+        if desired_state:
+            if safe_path in starred_paths:
+                starred_paths = [path for path in starred_paths if path != safe_path]
+            starred_paths.insert(0, safe_path)
+            changed_paths.append(safe_path)
+            record_activity("star", safe_path, "Ditandai berbintang", actor)
+            continue
+        if safe_path in starred_paths:
+            starred_paths = [path for path in starred_paths if path != safe_path]
+            changed_paths.append(safe_path)
+            record_activity("unstar", safe_path, "Dihapus dari berbintang", actor)
+    _write_starred_paths(starred_paths)
+    return changed_paths
+
+
+def set_shared_items(relative_paths, shared=True, actor=""):
+    desired_state = bool(shared)
+    shared_paths = _load_shared_paths()
+    changed_paths = []
+    for relative_path in relative_paths or []:
+        safe_path = _normalize_storage_relative_path(relative_path)
+        if not safe_path or not _path_exists(safe_path):
+            continue
+        if desired_state:
+            if safe_path in shared_paths:
+                shared_paths = [path for path in shared_paths if path != safe_path]
+            shared_paths.insert(0, safe_path)
+            changed_paths.append(safe_path)
+            record_activity("share", safe_path, "Ditandai sebagai shared", actor)
+            continue
+        if safe_path in shared_paths:
+            shared_paths = [path for path in shared_paths if path != safe_path]
+            changed_paths.append(safe_path)
+            record_activity("unshare", safe_path, "Dihapus dari shared", actor)
+    _write_shared_paths(shared_paths)
+    return changed_paths
+
+
+def create_shortcuts(relative_paths, parent_path="", actor=""):
+    shortcuts = _load_shortcuts()
+    existing_targets = {
+        (
+            entry["target_path"],
+            _normalize_storage_relative_path(entry.get("parent_path") or ""),
+        )
+        for entry in shortcuts
+    }
+    created_entries = []
+    safe_parent_path = _normalize_storage_relative_path(parent_path)
+    for relative_path in relative_paths or []:
+        safe_path = _normalize_storage_relative_path(relative_path)
+        entry_key = (safe_path, safe_parent_path)
+        if not safe_path or not _path_exists(safe_path) or entry_key in existing_targets:
+            continue
+        entry = _normalize_shortcut_entry(
+            {
+                "target_path": safe_path,
+                "parent_path": safe_parent_path,
+                "label": os.path.basename(safe_path),
+                "created_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+        )
+        if not entry:
+            continue
+        shortcuts.insert(0, entry)
+        existing_targets.add(entry_key)
+        created_entries.append(entry)
+        record_activity("shortcut", safe_path, "Shortcut dibuat", actor)
+    _write_shortcuts(shortcuts)
+    return created_entries
+
+
+def remove_shortcuts(relative_paths=None, shortcut_ids=None, actor=""):
+    target_paths = {
+        _normalize_storage_relative_path(path)
+        for path in (relative_paths or [])
+        if _normalize_storage_relative_path(path)
+    }
+    target_ids = {
+        str(shortcut_id or "").strip()
+        for shortcut_id in (shortcut_ids or [])
+        if str(shortcut_id or "").strip()
+    }
+    if not target_paths and not target_ids:
+        return []
+
+    shortcuts = _load_shortcuts()
+    remaining_entries = []
+    removed_entries = []
+    for entry in shortcuts:
+        if entry["target_path"] in target_paths or entry["id"] in target_ids:
+            removed_entries.append(entry)
+            record_activity("shortcut-remove", entry["target_path"], "Shortcut dihapus", actor)
+            continue
+        remaining_entries.append(entry)
+    if removed_entries:
+        _write_shortcuts(remaining_entries)
+    return removed_entries
+
+
+def restore_trash_items(item_ids, actor=""):
+    restored_items = []
+    for item_id in item_ids or []:
+        if not str(item_id or "").strip():
+            continue
+        restored_items.append(restore_trash_item(item_id, actor=actor))
+    return restored_items
+
+
+def permanently_delete_trash_items(item_ids, actor=""):
+    trash_items = list_trash_items()
+    target_ids = {str(item_id or "").strip() for item_id in item_ids or [] if str(item_id or "").strip()}
+    if not target_ids:
+        return []
+
+    deleted_items = []
+    remaining_items = []
+    for item in trash_items:
+        if str(item.get("id")) not in target_ids:
+            remaining_items.append(item)
+            continue
+        trash_path = os.path.join(_get_sms_trash_items_root(), item.get("trash_name") or "")
+        if os.path.isdir(trash_path):
+            shutil.rmtree(trash_path, ignore_errors=True)
+        elif os.path.exists(trash_path):
+            try:
+                os.remove(trash_path)
+            except OSError:
+                pass
+        deleted_items.append(item)
+        record_activity("trash-delete", item.get("original_path") or item.get("name") or "", "Dihapus permanen dari trash", actor)
+    _write_trash_items(remaining_items)
+    return deleted_items
 
 
 def empty_trash(actor=""):
@@ -548,7 +1387,7 @@ def build_download_payload(relative_path):
             "cleanup_after": False,
         }
 
-    archive_name = f"{os.path.basename(target_path) or 'folder'}-{int(datetime.utcnow().timestamp())}.zip"
+    archive_name = f"{os.path.basename(target_path) or 'folder'}-{int(datetime.now(timezone.utc).timestamp())}.zip"
     archive_path = os.path.join(_get_sms_download_temp_root(), archive_name)
     with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as zip_handle:
         for current_root, _, files in os.walk(target_path):

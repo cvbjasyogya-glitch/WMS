@@ -4378,15 +4378,36 @@
     ) }}
 </div>
 {% elif selected_module.slug == "biometric" %}
-<div class="table-box biometric-recap-table-box" data-scrollable-table="1">
-    <div class="section-title">
-        <div>
+{% set biometric_scope = namespace(label='Semua Gudang') %}
+{% if biometric_scope_warehouse %}
+    {% for w in warehouses %}
+        {% if w.id == biometric_scope_warehouse %}
+            {% set biometric_scope.label = w.name %}
+        {% endif %}
+    {% endfor %}
+{% elif biometric_filters and biometric_filters.warehouse_id %}
+    {% for w in warehouses %}
+        {% if w.id == biometric_filters.warehouse_id %}
+            {% set biometric_scope.label = w.name %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+<div class="biometric-workspace-shell">
+<div class="table-box biometric-recap-table-box biometric-workspace-hero">
+    <div class="biometric-workspace-head">
+        <div class="biometric-workspace-icon accent-blue">GT</div>
+        <div class="biometric-workspace-headline">
+            <span class="biometric-workspace-kicker">Attendance Geotag</span>
             <h2>Rekap Absensi Geotag</h2>
             <p>Rekap ini membaca hasil attendance harian yang dibentuk dari log geotag. Default-nya hanya menampilkan absen hari ini supaya panel tetap ringkas, lalu bisa diganti manual ke hari lain saat dibutuhkan.</p>
         </div>
+        <div class="biometric-workspace-badge">
+            <strong>{{ biometric_scope.label }}</strong>
+            <span>{{ overtime_recap_summary.period_label if overtime_recap_summary else (biometric_filters.date_from ~ " s/d " ~ biometric_filters.date_to) }}</span>
+        </div>
     </div>
 
-    <form method="GET" class="top-bar products-filter-bar" style="margin-bottom:18px;">
+    <form method="GET" class="top-bar products-filter-bar biometric-workspace-filter">
         {% if biometric_scope_warehouse %}
         <input type="hidden" name="warehouse" value="{{ biometric_scope_warehouse }}">
         {% else %}
@@ -4401,65 +4422,140 @@
         <input type="date" name="date_to" value="{{ biometric_filters.date_to }}">
         <button type="submit">Tampilkan Hari</button>
     </form>
-    <small class="helper-text">HR dan Super Admin bisa mengubah status Present/Late dan jam masuk/pulang langsung dari rekap ini. Untuk reset status ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</small>
-</div>
 
-<div class="summary">
-    <div class="card-mini">
-        <p>Staff Terlihat</p>
-        <h3>{{ overtime_recap_summary.staff_total if overtime_recap_summary else 0 }}</h3>
+    <div class="biometric-workspace-note">HR dan Super Admin bisa mengubah status Present/Late, jam masuk/pulang, dan sekarang menambah lembur manual langsung dari rekap ini. Untuk reset status ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</div>
+
+    <div class="summary biometric-workspace-summary">
+        <div class="card-mini biometric-workspace-stat accent-blue">
+            <span class="biometric-workspace-stat-icon accent-blue">ST</span>
+            <div class="biometric-workspace-stat-copy">
+                <p>Staff Terlihat</p>
+                <h3>{{ overtime_recap_summary.staff_total if overtime_recap_summary else 0 }}</h3>
+                <small>Staff yang ikut masuk ke scope rekap aktif.</small>
+            </div>
+        </div>
+        <div class="card-mini biometric-workspace-stat accent-emerald">
+            <span class="biometric-workspace-stat-icon accent-emerald">SA</span>
+            <div class="biometric-workspace-stat-copy">
+                <p>Saldo Aktif</p>
+                <h3>{{ overtime_recap_summary.staff_with_balance if overtime_recap_summary else 0 }}</h3>
+                <small>Jumlah staff yang masih punya saldo lembur aktif.</small>
+            </div>
+        </div>
+        <div class="card-mini biometric-workspace-stat accent-sky">
+            <span class="biometric-workspace-stat-icon accent-sky">LP</span>
+            <div class="biometric-workspace-stat-copy">
+                <p>Lembur Periode</p>
+                <h3>{{ overtime_recap_summary.earned_period_label if overtime_recap_summary else '-' }}</h3>
+                <small>Total kredit lembur yang terbentuk pada periode aktif.</small>
+            </div>
+        </div>
+        <div class="card-mini biometric-workspace-stat accent-amber">
+            <span class="biometric-workspace-stat-icon accent-amber">DP</span>
+            <div class="biometric-workspace-stat-copy">
+                <p>Dipakai Periode</p>
+                <h3>{{ overtime_recap_summary.used_period_label if overtime_recap_summary else '-' }}</h3>
+                <small>Durasi lembur yang sudah dipakai staff di periode ini.</small>
+            </div>
+        </div>
+        <div class="card-mini biometric-workspace-stat accent-indigo">
+            <span class="biometric-workspace-stat-icon accent-indigo">TS</span>
+            <div class="biometric-workspace-stat-copy">
+                <p>Saldo Tersedia</p>
+                <h3>{{ overtime_recap_summary.available_total_label if overtime_recap_summary else '-' }}</h3>
+                <small>Saldo bersih setelah approval dan pengurangan lembur.</small>
+            </div>
+        </div>
     </div>
-    <div class="card-mini {% if overtime_recap_summary and overtime_recap_summary.staff_with_balance %}success{% endif %}">
-        <p>Saldo Aktif</p>
-        <h3>{{ overtime_recap_summary.staff_with_balance if overtime_recap_summary else 0 }}</h3>
+
+    <div class="meta-grid biometric-workspace-meta">
+        <div class="meta-card biometric-meta-card">
+            <span class="biometric-meta-icon accent-sky">PR</span>
+            <div class="biometric-meta-copy">
+                <span>Periode Rekap</span>
+                <strong>{{ overtime_recap_summary.period_label if overtime_recap_summary else '-' }}</strong>
+            </div>
+        </div>
+        <div class="meta-card biometric-meta-card">
+            <span class="biometric-meta-icon accent-blue">SC</span>
+            <div class="biometric-meta-copy">
+                <span>Scope Gudang</span>
+                <strong>{{ biometric_scope.label }}</strong>
+            </div>
+        </div>
+        <div class="meta-card biometric-meta-card">
+            <span class="biometric-meta-icon accent-indigo">HS</span>
+            <div class="biometric-meta-copy">
+                <span>Histori Terakhir</span>
+                <strong>{{ overtime_recap_summary.history_count if overtime_recap_summary else 0 }} transaksi</strong>
+            </div>
+        </div>
+        <div class="meta-card biometric-meta-card">
+            <span class="biometric-meta-icon accent-emerald">SD</span>
+            <div class="biometric-meta-copy">
+                <span>Sumber Saldo</span>
+                <strong>Approval lembur otomatis / manual - pemakaian lembur</strong>
+            </div>
+        </div>
     </div>
-    <div class="card-mini {% if overtime_recap_summary and overtime_recap_summary.earned_period_seconds %}success{% endif %}">
-        <p>Lembur Periode</p>
-        <h3>{{ overtime_recap_summary.earned_period_label if overtime_recap_summary else '-' }}</h3>
-    </div>
-    <div class="card-mini {% if overtime_recap_summary and overtime_recap_summary.used_period_seconds %}warning{% endif %}">
-        <p>Dipakai Periode</p>
-        <h3>{{ overtime_recap_summary.used_period_label if overtime_recap_summary else '-' }}</h3>
-    </div>
-    <div class="card-mini {% if overtime_recap_summary and overtime_recap_summary.available_total_seconds %}success{% endif %}">
-        <p>Saldo Tersedia</p>
-        <h3>{{ overtime_recap_summary.available_total_label if overtime_recap_summary else '-' }}</h3>
+
+    <div class="biometric-workspace-footnote">
+        <small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. {% if overtime_balance_cap_enabled %}Saldo aktif tiap staff maksimal {{ overtime_balance_cap_label }} dan kelebihan approval di atas batas tidak disimpan sebagai saldo.{% else %}Saldo aktif tiap staff tidak dibatasi maksimal.{% endif %} Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
     </div>
 </div>
-
-<div class="meta-grid">
-    <div class="meta-card">
-        <span>Periode Rekap</span>
-        <strong>{{ overtime_recap_summary.period_label if overtime_recap_summary else '-' }}</strong>
-    </div>
-    <div class="meta-card">
-        <span>Scope Gudang</span>
-        <strong>
-            {% if biometric_scope_warehouse %}
-                {% for w in warehouses %}{% if w.id == biometric_scope_warehouse %}{{ w.name }}{% endif %}{% endfor %}
-            {% elif biometric_filters and biometric_filters.warehouse_id %}
-                {% for w in warehouses %}{% if w.id == biometric_filters.warehouse_id %}{{ w.name }}{% endif %}{% endfor %}
-            {% else %}
-                Semua Gudang
-            {% endif %}
-        </strong>
-    </div>
-    <div class="meta-card">
-        <span>Histori Terakhir</span>
-        <strong>{{ overtime_recap_summary.history_count if overtime_recap_summary else 0 }} transaksi</strong>
-    </div>
-    <div class="meta-card">
-        <span>Sumber Saldo</span>
-        <strong>Approval lembur otomatis / manual - pemakaian lembur</strong>
-    </div>
-</div>
-
-<small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. {% if overtime_balance_cap_enabled %}Saldo aktif tiap staff maksimal {{ overtime_balance_cap_label }} dan kelebihan approval di atas batas tidak disimpan sebagai saldo.{% else %}Saldo aktif tiap staff tidak dibatasi maksimal.{% endif %} Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
 
 {% if can_manage_biometric %}
-<details class="form-box panel-disclosure">
+{% if can_manage_attendance_approval %}
+<details class="form-box panel-disclosure biometric-action-panel accent-emerald">
     <summary class="panel-summary">
-        <div class="section-title">
+        <div class="section-title biometric-section-title accent-emerald" data-panel-icon="LM">
+            <div>
+                <h2>Tambah Lembur Manual</h2>
+                <p>Gunakan form ini saat HR perlu mengkreditkan saldo lembur secara langsung, misalnya koreksi event, dinas malam, atau penyesuaian operasional yang tidak tertangkap penuh oleh geotag.</p>
+            </div>
+        </div>
+        <div class="panel-summary-meta">
+            <span class="panel-summary-state">Buka Form</span>
+        </div>
+    </summary>
+    <div class="panel-content">
+    <form method="POST" action="/hris/biometric/overtime/add">
+        <div class="form-grid">
+            <div>
+                <label>Staff</label>
+                <select name="employee_id" required>
+                    <option value="">Pilih staff</option>
+                    {% for employee in biometric_employees %}
+                    <option value="{{ employee.id }}">{{ employee.full_name }}{% if employee.employee_code %} | {{ employee.employee_code }}{% endif %}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Tanggal Tambah</label>
+                <input type="date" name="adjustment_date" value="{{ biometric_filters.date_to }}" required>
+            </div>
+            <div>
+                <label>Durasi Ditambahkan (menit)</label>
+                <input type="number" name="minutes_delta" min="1" step="1" placeholder="Contoh: 90" required>
+                <small class="helper-text">Durasi langsung masuk ke saldo staff dan tetap mengikuti batas saldo aktif bila fitur cap diaktifkan.</small>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Catatan</label>
+                <textarea name="note" rows="2" placeholder="Contoh: koreksi lembur event malam, support stock opname, atau pendampingan closing toko." required></textarea>
+            </div>
+        </div>
+        <input type="hidden" name="return_to" value="{{ report_return_to }}">
+        <div class="split-actions" style="margin-top:16px;">
+            <button type="submit">Tambah Lembur Manual</button>
+        </div>
+    </form>
+    </div>
+</details>
+{% endif %}
+
+<details class="form-box panel-disclosure biometric-action-panel accent-indigo">
+    <summary class="panel-summary">
+        <div class="section-title biometric-section-title accent-indigo" data-panel-icon="OS">
             <div>
                 <h2>Override Shift Harian</h2>
                 <p>Gunakan panel ini kalau atasan menggeser jam masuk-pulang staff pada tanggal tertentu. Shift override akan dipakai untuk hitung telat, pulang cepat, dan lembur pada hari itu.</p>
@@ -4507,8 +4603,8 @@
     </div>
 </details>
 
-<div class="table-box">
-    <div class="section-title">
+<div class="table-box biometric-data-card accent-indigo">
+    <div class="section-title biometric-section-title accent-indigo" data-panel-icon="RO">
         <div>
             <h2>Riwayat Override Shift</h2>
             <p>Semua pergeseran shift harian yang sudah disetujui HR / Super Admin disimpan di sini supaya audit absensi tetap jelas.</p>
@@ -4548,9 +4644,9 @@
     {% endif %}
 </div>
 
-<details class="form-box panel-disclosure">
+<details class="form-box panel-disclosure biometric-action-panel accent-amber">
     <summary class="panel-summary">
-        <div class="section-title">
+        <div class="section-title biometric-section-title accent-amber" data-panel-icon="KL">
             <div>
                 <h2>Kurangi Saldo Lembur</h2>
                 <p>Catat saat staff memakai lemburnya untuk pulang lebih awal, tukar jam, atau kebutuhan operasional lain supaya saldo tetap rapi dan bisa diaudit.</p>
@@ -4602,8 +4698,8 @@
 </details>
 {% endif %}
 
-<div class="table-box">
-    <div class="section-title">
+<div class="table-box biometric-data-card accent-blue">
+    <div class="section-title biometric-section-title accent-blue" data-panel-icon="RS">
         <div>
             <h2>Rekap Saldo Lembur Staff</h2>
             <p>Tabel ini menampilkan saldo lembur staff dari approval lembur otomatis, penambahan manual, dan pemakaian lembur yang sudah tercatat pada scope aktif. {% if overtime_balance_cap_enabled %}Batas saldo aktif per staff maksimal {{ overtime_balance_cap_label }}.{% else %}Saldo aktif per staff saat ini tidak dibatasi maksimal.{% endif %}</p>
@@ -4654,8 +4750,50 @@
     {% endif %}
 </div>
 
-<div class="table-box">
-    <div class="section-title">
+<div class="table-box biometric-data-card accent-emerald">
+    <div class="section-title biometric-section-title accent-emerald" data-panel-icon="HL">
+        <div>
+            <h2>Histori Penambahan Lembur</h2>
+            <p>Riwayat ini menyimpan saldo lembur yang benar-benar sudah masuk, baik dari approval lembur otomatis maupun input manual HR, supaya audit koreksi saldo tetap mudah ditelusuri.</p>
+        </div>
+    </div>
+
+    {% if overtime_adjustment_history %}
+    <table>
+        <thead>
+            <tr>
+                <th>Tanggal</th>
+                <th>Code</th>
+                <th>Nama</th>
+                <th>Gudang</th>
+                <th>Sumber</th>
+                <th>Ditambah</th>
+                <th>Catatan</th>
+                <th>Input Oleh</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for adjustment in overtime_adjustment_history %}
+            <tr>
+                <td>{{ adjustment.adjustment_date }}</td>
+                <td class="mono">{{ adjustment.employee_code }}</td>
+                <td>{{ adjustment.full_name }}</td>
+                <td>{{ adjustment.warehouse_name or '-' }}</td>
+                <td><span class="badge {% if adjustment.source_type == 'biometric_auto' %}green{% else %}blue{% endif %}">{{ adjustment.source_label }}</span></td>
+                <td><strong class="biometric-overtime-duration">{{ adjustment.duration_label }}</strong></td>
+                <td>{{ adjustment.note }}</td>
+                <td>{{ adjustment.handled_by_name }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada transaksi penambahan lembur yang tercatat pada scope ini.</div>
+    {% endif %}
+</div>
+
+<div class="table-box biometric-data-card accent-amber">
+    <div class="section-title biometric-section-title accent-amber" data-panel-icon="HP">
         <div>
             <h2>Histori Pemakaian Lembur</h2>
             <p>Riwayat ini menyimpan transaksi pengurangan saldo lembur terbaru agar perubahan tetap bisa dilacak dan dibatalkan bila ada salah input.</p>
@@ -4705,8 +4843,8 @@
     {% endif %}
 </div>
 
-<div class="table-box">
-    <div class="section-title">
+<div class="table-box biometric-data-card accent-sky">
+    <div class="section-title biometric-section-title accent-sky" data-panel-icon="DG">
         <div>
             <h2>Detail Rekap Absensi Geotag</h2>
             <p>Panel detail ini tetap fokus ke attendance harian per staff untuk validasi status, jam masuk-pulang, alamat atau tempat absensi, foto, dan lembur per hari.</p>
@@ -4918,6 +5056,7 @@
     {% else %}
     <div class="empty-state">Belum ada rekap geotag pada filter yang dipilih.</div>
     {% endif %}
+</div>
 </div>
 {% elif selected_module.slug == "announcement" %}
 <div class="summary">

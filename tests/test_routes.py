@@ -77,6 +77,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.document_signature_root = os.path.join(temp_root, f"document_signatures_{uuid4().hex}")
         self.receipt_pdf_root = os.path.join(temp_root, f"receipt_pdfs_{uuid4().hex}")
         self.ipos4_runtime_root = os.path.join(temp_root, f"ipos4_runtime_{uuid4().hex}")
+        self.sms_storage_root = os.path.join(temp_root, f"sms_storage_{uuid4().hex}")
+        self.sms_storage_data_root = os.path.join(temp_root, f"sms_storage_data_{uuid4().hex}")
 
         init_db_module.DB_PATH = self.db_path
         Config.DATABASE = self.db_path
@@ -104,6 +106,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             PUBLIC_BASE_URL="https://erp.test",
             IPOS4_IMPORT_RUNTIME_DIR=self.ipos4_runtime_root,
             IPOS4_MIRROR_DB_PATH=os.path.join(self.ipos4_runtime_root, "ipos4_mirror.db"),
+            SMS_STORAGE_ROOT=self.sms_storage_root,
+            SMS_STORAGE_DATA_ROOT=self.sms_storage_data_root,
+            SMS_STORAGE_PER_USER_QUOTA_BYTES=500 * 1024 * 1024,
             SECRET_KEY="test-secret-key",
             LOGIN_THROTTLE_LIMIT=3,
             LOGIN_THROTTLE_WINDOW_SECONDS=300,
@@ -129,6 +134,10 @@ class WmsRoutesTestCase(unittest.TestCase):
             shutil.rmtree(self.receipt_pdf_root)
         if os.path.isdir(self.ipos4_runtime_root):
             shutil.rmtree(self.ipos4_runtime_root)
+        if os.path.isdir(self.sms_storage_root):
+            shutil.rmtree(self.sms_storage_root)
+        if os.path.isdir(self.sms_storage_data_root):
+            shutil.rmtree(self.sms_storage_data_root)
 
     def test_database_translation_replaces_qmark_and_datetime_now(self):
         translated = _translate_sqlite_query_to_postgres(
@@ -12713,6 +12722,332 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "https://sms.test/sms/?path=Finance")
 
+    def test_sms_storage_dashboard_renders_awanark_like_workspace(self):
+        self.login_pos_user("sms_workspace_user", role="super_admin")
+
+        response = self.client.get("/sms/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("SMS Cloud Storage", html)
+        self.assertIn("My Drive", html)
+        self.assertIn("Semua File", html)
+        self.assertIn("Recent", html)
+        self.assertIn("Starred", html)
+        self.assertIn("Shared", html)
+        self.assertIn("Shortcuts", html)
+        self.assertIn("Trash", html)
+        self.assertIn("Akses Cepat", html)
+        self.assertIn("500 MB", html)
+        self.assertIn("window.SMS_STORAGE_BOOTSTRAP", html)
+
+    def test_sms_storage_upload_enforces_total_per_user_quota(self):
+        self.login_pos_user("sms_quota_user", role="super_admin")
+        stats_response = self.client.get("/sms/api/stats")
+        self.assertEqual(stats_response.status_code, 200)
+        current_total = stats_response.get_json()["stats"]["totalBytes"]
+        self.app.config["SMS_STORAGE_PER_USER_QUOTA_BYTES"] = current_total + 10
+        self.app.config["SMS_STORAGE_MAX_UPLOAD_BYTES"] = 1024
+
+        first_response = self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"12345"), "first.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(first_response.status_code, 200)
+
+        second_response = self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"678901"), "second.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(second_response.status_code, 400)
+        payload = second_response.get_json()
+        self.assertIn("Batas storage per user", payload["message"])
+
+    def test_sms_storage_isolated_per_logged_in_user(self):
+        self.login_pos_user("sms_user_one", role="super_admin")
+        upload_response = self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"hello"), "private.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(upload_response.status_code, 200)
+
+        self.logout()
+        self.login_pos_user("sms_user_two", role="super_admin")
+
+        listing_response = self.client.get("/sms/api/list")
+        self.assertEqual(listing_response.status_code, 200)
+        payload = listing_response.get_json()
+        names = {item["name"] for item in payload["items"]}
+        self.assertNotIn("private.txt", names)
+
+    def test_sms_storage_can_move_item_to_another_folder(self):
+        self.login_pos_user("sms_move_user", role="super_admin")
+
+        folder_response = self.client.post(
+            "/sms/api/folders",
+            json={"path": "", "name": "Finance"},
+        )
+        self.assertEqual(folder_response.status_code, 200)
+
+        upload_response = self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"memo"), "memo.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(upload_response.status_code, 200)
+
+        move_response = self.client.post(
+            "/sms/api/move",
+            json={"paths": ["memo.txt"], "destination_path": "Finance"},
+        )
+        self.assertEqual(move_response.status_code, 200)
+
+        root_listing = self.client.get("/sms/api/list")
+        self.assertEqual(root_listing.status_code, 200)
+        root_names = {item["name"] for item in root_listing.get_json()["items"]}
+        self.assertNotIn("memo.txt", root_names)
+
+        finance_listing = self.client.get("/sms/api/list?path=Finance")
+        self.assertEqual(finance_listing.status_code, 200)
+        finance_names = {item["name"] for item in finance_listing.get_json()["items"]}
+        self.assertIn("memo.txt", finance_names)
+
+    def test_sms_storage_rejects_move_into_own_child_folder(self):
+        self.login_pos_user("sms_move_guard_user", role="super_admin")
+
+        self.client.post("/sms/api/folders", json={"path": "", "name": "Parent"})
+        self.client.post("/sms/api/folders", json={"path": "Parent", "name": "Child"})
+
+        move_response = self.client.post(
+            "/sms/api/move",
+            json={"paths": ["Parent"], "destination_path": "Parent/Child"},
+        )
+
+        self.assertEqual(move_response.status_code, 400)
+        payload = move_response.get_json()
+        self.assertIn("dirinya sendiri", payload["message"])
+
+    def test_sms_storage_can_star_item_and_list_it_in_starred_view(self):
+        self.login_pos_user("sms_star_user", role="super_admin")
+
+        upload_response = self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"memo"), "memo.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(upload_response.status_code, 200)
+
+        star_response = self.client.post(
+            "/sms/api/starred",
+            json={"paths": ["memo.txt"], "starred": True},
+        )
+        self.assertEqual(star_response.status_code, 200)
+        star_payload = star_response.get_json()
+        self.assertTrue(star_payload["starred"])
+        self.assertIn("memo.txt", star_payload["changed_paths"])
+
+        starred_response = self.client.get("/sms/api/starred")
+        self.assertEqual(starred_response.status_code, 200)
+        starred_items = starred_response.get_json()["items"]
+        self.assertTrue(any(item["path"] == "memo.txt" and item["starred"] for item in starred_items))
+
+        root_listing = self.client.get("/sms/api/list")
+        self.assertEqual(root_listing.status_code, 200)
+        root_items = root_listing.get_json()["items"]
+        self.assertTrue(any(item["path"] == "memo.txt" and item["starred"] for item in root_items))
+
+    def test_sms_storage_starred_item_tracks_renamed_path(self):
+        self.login_pos_user("sms_star_rename_user", role="super_admin")
+
+        self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"draft"), "draft.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        self.client.post(
+            "/sms/api/starred",
+            json={"paths": ["draft.txt"], "starred": True},
+        )
+
+        rename_response = self.client.post(
+            "/sms/api/rename",
+            json={"path": "draft.txt", "new_name": "final.txt"},
+        )
+        self.assertEqual(rename_response.status_code, 200)
+
+        starred_response = self.client.get("/sms/api/starred")
+        self.assertEqual(starred_response.status_code, 200)
+        starred_paths = [item["path"] for item in starred_response.get_json()["items"]]
+        self.assertIn("final.txt", starred_paths)
+        self.assertNotIn("draft.txt", starred_paths)
+
+    def test_sms_storage_can_mark_item_shared_and_list_it(self):
+        self.login_pos_user("sms_shared_user", role="super_admin")
+
+        self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"shared"), "shared.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        share_response = self.client.post(
+            "/sms/api/shared",
+            json={"paths": ["shared.txt"], "shared": True},
+        )
+        self.assertEqual(share_response.status_code, 200)
+        self.assertTrue(share_response.get_json()["shared"])
+
+        shared_response = self.client.get("/sms/api/shared")
+        self.assertEqual(shared_response.status_code, 200)
+        shared_items = shared_response.get_json()["items"]
+        self.assertTrue(any(item["path"] == "shared.txt" and item["shared"] for item in shared_items))
+
+    def test_sms_storage_can_create_shortcut_and_track_target_rename(self):
+        self.login_pos_user("sms_shortcut_user", role="super_admin")
+
+        self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"shortcut"), "shortcut.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        shortcut_response = self.client.post(
+            "/sms/api/shortcuts",
+            json={"paths": ["shortcut.txt"], "parent_path": ""},
+        )
+        self.assertEqual(shortcut_response.status_code, 200)
+        created = shortcut_response.get_json()["created"]
+        self.assertEqual(len(created), 1)
+        shortcut_id = created[0]["id"]
+
+        shortcuts_response = self.client.get("/sms/api/shortcuts")
+        self.assertEqual(shortcuts_response.status_code, 200)
+        shortcut_items = shortcuts_response.get_json()["items"]
+        self.assertTrue(any(item["shortcutId"] == shortcut_id and item["shortcut"] for item in shortcut_items))
+
+        rename_response = self.client.post(
+            "/sms/api/rename",
+            json={"path": "shortcut.txt", "new_name": "shortcut-final.txt"},
+        )
+        self.assertEqual(rename_response.status_code, 200)
+
+        shortcuts_after_rename = self.client.get("/sms/api/shortcuts")
+        self.assertEqual(shortcuts_after_rename.status_code, 200)
+        shortcut_items_after = shortcuts_after_rename.get_json()["items"]
+        self.assertTrue(any(item["shortcutTargetPath"] == "shortcut-final.txt" for item in shortcut_items_after))
+
+    def test_sms_storage_shortcut_can_store_target_folder_metadata(self):
+        self.login_pos_user("sms_shortcut_folder_user", role="super_admin")
+
+        self.client.post("/sms/api/folders", json={"path": "", "name": "Pinned"})
+        self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"meta"), "meta.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        shortcut_response = self.client.post(
+            "/sms/api/shortcuts",
+            json={"paths": ["meta.txt"], "parent_path": "Pinned"},
+        )
+        self.assertEqual(shortcut_response.status_code, 200)
+
+        shortcuts_response = self.client.get("/sms/api/shortcuts")
+        self.assertEqual(shortcuts_response.status_code, 200)
+        shortcut_items = shortcuts_response.get_json()["items"]
+        self.assertTrue(any(item["shortcutParentPath"] == "Pinned" for item in shortcut_items))
+
+    def test_sms_storage_can_keep_same_target_in_multiple_shortcut_folders(self):
+        self.login_pos_user("sms_shortcut_multi_folder_user", role="super_admin")
+
+        self.client.post("/sms/api/folders", json={"path": "", "name": "Pinned"})
+        self.client.post("/sms/api/folders", json={"path": "", "name": "Ops"})
+        self.client.post(
+            "/sms/api/upload",
+            data={
+                "path": "",
+                "files": (BytesIO(b"guide"), "guide.txt"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        first_response = self.client.post(
+            "/sms/api/shortcuts",
+            json={"paths": ["guide.txt"], "parent_path": "Pinned"},
+        )
+        second_response = self.client.post(
+            "/sms/api/shortcuts",
+            json={"paths": ["guide.txt"], "parent_path": "Ops"},
+        )
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(len(first_response.get_json()["created"]), 1)
+        self.assertEqual(len(second_response.get_json()["created"]), 1)
+
+        shortcuts_response = self.client.get("/sms/api/shortcuts")
+        self.assertEqual(shortcuts_response.status_code, 200)
+        shortcut_items = [
+            item
+            for item in shortcuts_response.get_json()["items"]
+            if item["shortcutTargetPath"] == "guide.txt"
+        ]
+        self.assertEqual(len(shortcut_items), 2)
+        self.assertEqual(
+            {item["shortcutParentPath"] for item in shortcut_items},
+            {"Pinned", "Ops"},
+        )
+
+        pinned_shortcut = next(
+            item for item in shortcut_items if item["shortcutParentPath"] == "Pinned"
+        )
+        delete_response = self.client.delete(
+            "/sms/api/shortcuts",
+            json={"ids": [pinned_shortcut["shortcutId"]]},
+        )
+        self.assertEqual(delete_response.status_code, 200)
+
+        remaining_response = self.client.get("/sms/api/shortcuts")
+        self.assertEqual(remaining_response.status_code, 200)
+        remaining_items = [
+            item
+            for item in remaining_response.get_json()["items"]
+            if item["shortcutTargetPath"] == "guide.txt"
+        ]
+        self.assertEqual(len(remaining_items), 1)
+        self.assertEqual(remaining_items[0]["shortcutParentPath"], "Ops")
+
     def test_public_career_signin_page_renders_lightweight_auth_flow(self):
         response = self.client.get("/signin")
         self.assertEqual(response.status_code, 200)
@@ -14685,6 +15020,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Rekap Saldo Lembur Staff", html)
         self.assertIn("Histori Pemakaian Lembur", html)
+        self.assertIn("biometric-workspace-shell", html)
+        self.assertIn('data-panel-icon="DG"', html)
         self.assertIn("Naufal Saldo Lembur Satu", html)
         self.assertIn("Naufal Saldo Lembur Dua", html)
         self.assertIn("Approval lembur otomatis / manual - pemakaian lembur", html)
@@ -14754,6 +15091,98 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Fitur pemakaian lembur belum siap di server", html)
+
+    def test_hr_can_add_manual_overtime_from_biometric_page(self):
+        self.login_hr_user("hr_overtime_manual_add", "pass1234")
+        hr_user_id = self.get_user_id("hr_overtime_manual_add")
+        date_value = "2026-09-10"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-MANUAL",
+            full_name="Naufal Tambah Lembur Manual",
+            warehouse_id=1,
+        )
+
+        response = self.client.post(
+            "/hris/biometric/overtime/add",
+            data={
+                "employee_id": str(employee_id),
+                "adjustment_date": date_value,
+                "minutes_delta": "90",
+                "note": "Koreksi lembur event malam.",
+                "return_to": f"/hris/biometric?date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            request_row = db.execute(
+                """
+                SELECT status, requested_by, handled_by, decision_note
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_add'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            adjustment_row = db.execute(
+                """
+                SELECT minutes_delta, note, handled_by
+                FROM overtime_balance_adjustments
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(request_row["status"], "approved")
+        self.assertEqual(request_row["requested_by"], hr_user_id)
+        self.assertEqual(request_row["handled_by"], hr_user_id)
+        self.assertIn("Penambahan lembur manual", request_row["decision_note"])
+        self.assertEqual(adjustment_row["minutes_delta"], 90)
+        self.assertEqual(adjustment_row["note"], "Koreksi lembur event malam.")
+        self.assertEqual(adjustment_row["handled_by"], hr_user_id)
+        self.assertEqual(balance["available_minutes"], 90)
+
+        page_response = self.client.get(f"/hris/biometric?date_from={date_value}&date_to={date_value}")
+        self.assertEqual(page_response.status_code, 200)
+        html = page_response.get_data(as_text=True)
+        self.assertIn("Tambah Lembur Manual", html)
+        self.assertIn("Histori Penambahan Lembur", html)
+        self.assertIn("Naufal Tambah Lembur Manual", html)
+        self.assertIn("Input Manual HR", html)
+        self.assertIn("1j 30m", html)
+        self.assertIn("Koreksi lembur event malam.", html)
+
+    def test_biometric_manual_overtime_add_gracefully_handles_schema_errors(self):
+        self.login_hr_user("hr_overtime_manual_schema_guard", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-MANUAL-SCHEMA",
+            full_name="Naufal Schema Manual Add",
+            warehouse_id=1,
+        )
+
+        with patch("routes.hris._ensure_overtime_feature_schema", side_effect=sqlite3.DatabaseError("permission denied")):
+            response = self.client.post(
+                "/hris/biometric/overtime/add",
+                data={
+                    "employee_id": str(employee_id),
+                    "adjustment_date": "2026-09-10",
+                    "minutes_delta": "45",
+                    "note": "Tes schema add",
+                    "return_to": "/hris/biometric",
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Fitur penambahan lembur manual belum siap di server", html)
 
     def test_overtime_feature_schema_repairs_missing_postgresql_id_defaults(self):
         executed_statements = []
@@ -15192,6 +15621,123 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(usage_row["minutes_used"], 180)
         self.assertEqual(usage_row["usage_mode"], "cashout_all")
         self.assertEqual(usage_row["note"], "Minta diuangkan saja.")
+        self.assertEqual(balance["available_minutes"], 0)
+
+    def test_cashout_all_consumes_latest_balance_when_request_is_approved(self):
+        date_value = "2026-09-10"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-CASHOUT-LATEST",
+            full_name="Naufal Cashout Saldo Terbaru",
+            warehouse_id=1,
+        )
+        self.create_user(
+            "portal_overtime_cashout_latest",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            employee_id=employee_id,
+        )
+
+        first_credit_id = self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            120,
+            source_type="biometric_auto",
+            note="Saldo awal 2 jam",
+            status="approved",
+        )
+        first_credit_timestamp = (datetime.now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET handled_at=?, updated_at=?
+                WHERE id=?
+                """,
+                (first_credit_timestamp, first_credit_timestamp, first_credit_id),
+            )
+            db.commit()
+
+        self.login("portal_overtime_cashout_latest", "pass1234")
+        submit_response = self.client.post(
+            "/lembur/submit",
+            data={
+                "request_mode": "reduce",
+                "usage_mode": "cashout_all",
+                "request_date": date_value,
+                "minutes_amount": "1",
+                "reason": "Cashout semua saldo terbaru.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            cashout_request = db.execute(
+                """
+                SELECT id, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(cashout_request)
+        cashout_payload = json.loads(cashout_request["payload"])
+        self.assertEqual(cashout_payload["usage_mode"], "cashout_all")
+        self.assertEqual(cashout_payload["minutes_used"], 120)
+
+        second_credit_id = self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            60,
+            source_type="manual_request",
+            note="Tambah saldo sesudah request cashout dibuat",
+            status="approved",
+        )
+        second_credit_timestamp = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET handled_at=?, updated_at=?
+                WHERE id=?
+                """,
+                (second_credit_timestamp, second_credit_timestamp, second_credit_id),
+            )
+            db.commit()
+
+        self.logout()
+        self.login_hr_user("hr_overtime_cashout_latest", "pass1234")
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{cashout_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Cashout seluruh saldo terbaru."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_row = db.execute(
+                """
+                SELECT minutes_used, usage_mode, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(usage_row["usage_mode"], "cashout_all")
+        self.assertEqual(usage_row["minutes_used"], 180)
         self.assertEqual(balance["available_minutes"], 0)
 
     def test_hr_can_use_overtime_balance_and_reject_request_above_available_minutes(self):
