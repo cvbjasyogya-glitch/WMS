@@ -44,6 +44,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     position: relative;
     display: grid;
     gap: 0;
+    justify-items: center;
 }
 
 .career-signin-hero-banner {
@@ -108,14 +109,13 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     position: relative;
     z-index: 3;
     margin: -116px auto 0;
-    width: min(1274px, calc(100% - 60px));
+    width: min(620px, calc(100% - 60px));
     display: grid;
-    gap: 18px;
-    grid-template-columns: minmax(300px, 0.9fr) minmax(380px, 1.1fr);
+    gap: 0;
+    grid-template-columns: 1fr;
     align-items: stretch;
 }
 
-.career-signin-info,
 .career-signin-card {
     display: grid;
     gap: 20px;
@@ -124,104 +124,25 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     background: rgba(255, 255, 255, 0.97);
     border: 1px solid #e5ebf2;
     box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+    justify-items: center;
 }
 
-.career-signin-info {
-    background: linear-gradient(135deg, #005baa 0%, #166ab5 100%);
-    color: #fff;
-    box-shadow: 0 28px 60px rgba(0, 54, 110, 0.22);
-}
-
-.career-signin-info h2,
-.career-signin-info p,
 .career-signin-card h2,
 .career-signin-card p {
     margin: 0;
 }
 
-.career-signin-info h2,
 .career-signin-card h2 {
     font-size: clamp(1.5rem, 3vw, 1.9rem);
     line-height: 1.12;
     letter-spacing: -0.03em;
 }
 
-.career-signin-info p {
-    color: rgba(255, 255, 255, 0.84);
-    line-height: 1.72;
-}
-
 .career-signin-card p {
     color: #64748b;
     line-height: 1.68;
+    text-align: center;
 }
-
-.career-signin-stat-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.career-signin-stat-card {
-    display: grid;
-    gap: 6px;
-    min-height: 102px;
-    padding: 16px;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-}
-
-.career-signin-stat-card strong,
-.career-signin-stat-card span {
-    margin: 0;
-}
-
-.career-signin-stat-card strong {
-    font-size: clamp(1.2rem, 3vw, 1.7rem);
-    line-height: 1.1;
-    letter-spacing: -0.03em;
-}
-
-.career-signin-stat-card span {
-    color: rgba(255, 255, 255, 0.82);
-    line-height: 1.56;
-    font-size: 0.92rem;
-}
-
-.career-signin-point-list {
-    display: grid;
-    gap: 12px;
-    padding: 0;
-    margin: 0;
-    list-style: none;
-}
-
-.career-signin-point-list li {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 12px;
-    align-items: start;
-    color: rgba(255, 255, 255, 0.86);
-    line-height: 1.6;
-}
-
-.career-signin-point-list li::before {
-    content: "";
-    width: 10px;
-    height: 10px;
-    margin-top: 8px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
-}
-
-.career-signin-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.career-signin-actions a,
 .career-signin-submit,
 .career-signin-modal-card a,
 .career-signin-modal-close {
@@ -237,24 +158,13 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     border: 0;
 }
 
-.career-signin-actions a:first-child {
-    background: #fff;
-    color: #005baa;
-}
-
-.career-signin-actions a:last-child {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: #fff;
-}
-
 .career-signin-switch {
     display: inline-flex;
     gap: 6px;
     padding: 6px;
     border-radius: 999px;
     background: #edf4fb;
-    justify-self: start;
+    justify-self: center;
 }
 
 .career-signin-switch a {
@@ -278,6 +188,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
 .career-signin-form {
     display: grid;
     gap: 18px;
+    width: 100%;
 }
 
 .career-signin-form label {
@@ -330,54 +241,6 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     gap: 8px;
     flex-wrap: wrap;
     color: #425b78;
-}
-
-.career-signin-section {
-    display: grid;
-    gap: 24px;
-    padding: 0 18px;
-}
-
-.career-signin-support-grid {
-    display: grid;
-    gap: 18px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.career-signin-support-card {
-    display: grid;
-    gap: 12px;
-    padding: 24px 22px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.97);
-    border: 1px solid #e5ebf2;
-    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
-}
-
-.career-signin-support-card span,
-.career-signin-support-card h3,
-.career-signin-support-card p {
-    margin: 0;
-}
-
-.career-signin-support-card span {
-    color: #005baa;
-    font-size: 0.78rem;
-    font-weight: 800;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.career-signin-support-card h3 {
-    font-size: 1.08rem;
-    line-height: 1.35;
-    letter-spacing: -0.02em;
-    color: #1f2937;
-}
-
-.career-signin-support-card p {
-    color: #64748b;
-    line-height: 1.68;
 }
 
 .career-signin-modal {
@@ -453,8 +316,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
 }
 
 @media (max-width: 1180px) {
-    .career-signin-panel,
-    .career-signin-support-grid {
+    .career-signin-panel {
         grid-template-columns: 1fr;
     }
 }
@@ -467,10 +329,6 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     .career-signin-shell {
         gap: 36px;
         padding-top: 12px;
-    }
-
-    .career-signin-section {
-        padding-inline: 6px;
     }
 
     .career-signin-hero-banner {
@@ -490,19 +348,10 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
         margin-top: -160px;
     }
 
-    .career-signin-actions a {
-        width: 100%;
-    }
-
-    .career-signin-stat-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 @media (max-width: 680px) {
-    .career-signin-info,
-    .career-signin-card,
-    .career-signin-support-card {
+    .career-signin-card {
         padding: 22px 20px;
     }
 
@@ -534,41 +383,6 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
         </div>
 
         <div class="career-signin-panel">
-            <section class="career-signin-info">
-                <h2>Daftar akun sekali, verifikasi email, lalu lanjut melamar dengan lebih rapi.</h2>
-                <p>Portal karir publik sekarang memakai akun kandidat yang aktif lewat email verifikasi, sehingga data lamaran lebih terhubung dan proses apply terasa lebih aman.</p>
-
-                <div class="career-signin-stat-grid">
-                    <article class="career-signin-stat-card">
-                        <strong>{{ opening_count }}</strong>
-                        <span>Lowongan aktif yang bisa Anda jelajahi sebelum memutuskan untuk mendaftar.</span>
-                    </article>
-                    <article class="career-signin-stat-card">
-                        <strong>Email Aktif</strong>
-                        <span>Verifikasi inbox dipakai untuk mengaktifkan akun kandidat secara otomatis.</span>
-                    </article>
-                    <article class="career-signin-stat-card">
-                        <strong>Daftar Akun</strong>
-                        <span>Tentukan kata sandi sendiri saat pendaftaran lalu klik link verifikasi yang kami kirimkan.</span>
-                    </article>
-                    <article class="career-signin-stat-card">
-                        <strong>Panduan</strong>
-                    <span>Sesudah akun aktif, Anda bisa melamar lalu menunggu email dari HR jika sudah masuk ke tahap assessment.</span>
-                    </article>
-                </div>
-
-                <ul class="career-signin-point-list">
-                    <li>Belum punya akun? Daftar dengan email aktif dan buat kata sandi sendiri.</li>
-                    <li>Cek inbox Gmail lalu klik link verifikasi agar akun aktif otomatis.</li>
-                    <li>Sesudah akun aktif, masuk dan lanjutkan lamaran ke posisi yang paling relevan.</li>
-                </ul>
-
-                <div class="career-signin-actions">
-                    <a href="{{ url_for('career.index') }}">Cari Karir</a>
-                    <a href="{{ url_for('career.help_page') }}">Pusat Bantuan</a>
-                </div>
-            </section>
-
             <section class="career-signin-card">
                 {% if active_flow == 'signup' %}
                 <h2>Daftar Akun</h2>
@@ -630,26 +444,6 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
                 </div>
                 {% endif %}
             </section>
-        </div>
-    </section>
-
-    <section class="career-signin-section">
-        <div class="career-signin-support-grid">
-            <article class="career-signin-support-card">
-                <span>Masih Eksplorasi</span>
-                <h3>Lihat lowongan dulu sebelum membuat akun.</h3>
-                <p>Portal publik tetap memungkinkan kandidat menjelajahi posisi aktif tanpa harus login terlebih dahulu.</p>
-            </article>
-            <article class="career-signin-support-card">
-                <span>Verifikasi Email</span>
-                <h3>Buka inbox dan klik tautan aktivasi yang kami kirimkan.</h3>
-                <p>Setelah email diverifikasi, akun kandidat langsung aktif dan bisa dipakai masuk ke portal karir publik.</p>
-            </article>
-            <article class="career-signin-support-card">
-                <span>Butuh Bantuan</span>
-                <h3>Buka pusat bantuan kalau masih ragu soal langkah berikutnya.</h3>
-                <p>Panduan kandidat menjelaskan proses daftar akun, verifikasi email, apply, dan akses assessment.</p>
-            </article>
         </div>
     </section>
 

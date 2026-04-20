@@ -30,9 +30,18 @@
         <div class="career-candidate-job-list">
             {% for opening in openings %}
             {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
+            {% set site_key = (opening.public_site_key or '')|lower %}
             <article class="career-candidate-job-item {% if selected_opening and selected_opening.id == opening.id %}is-selected{% endif %}">
                 <a href="{{ url_for('career.portal_page', vacancy=opening.id, q=initial_query, department=initial_department, type=initial_type_filter, warehouse=selected_warehouse_id) }}" class="career-candidate-job-item-main">
-                    <div class="career-candidate-job-badge">{{ opening.public_site_key|upper if opening.public_site_key else 'CV' }}</div>
+                    <div class="career-candidate-job-badge">
+                        {% if site_key == 'mega' %}
+                        <img src="{{ asset_url('brand/receipt-logo-mega.jpg') }}" alt="Mega Sports logo">
+                        {% elif site_key == 'mataram' %}
+                        <img src="{{ asset_url('brand/receipt-logo-mataram.jpg') }}" alt="Mataram Sports logo">
+                        {% else %}
+                        {{ opening.public_site_key|upper if opening.public_site_key else 'CV' }}
+                        {% endif %}
+                    </div>
                     <div class="career-candidate-job-copy">
                         <h2>{{ opening.title }}</h2>
                         <p>{{ opening.warehouse_name_display or career_company_name }}</p>

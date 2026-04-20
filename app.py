@@ -817,7 +817,7 @@ def create_app():
 
         request_path = request.path or "/"
         if request_path == "/":
-            return redirect(url_for("career.home"), code=302)
+            return redirect(url_for("career.signin_page"), code=302)
 
         if (
             request_path.startswith("/beranda")
@@ -831,7 +831,7 @@ def create_app():
             return
 
         if request.method in {"GET", "HEAD", "OPTIONS"}:
-            return redirect(url_for("career.home"), code=302)
+            return redirect(url_for("career.signin_page"), code=302)
 
         return "Endpoint tidak tersedia di domain recruitment", 404
 

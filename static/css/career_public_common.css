@@ -323,6 +323,7 @@ html.career-page-leaving body .main.career-public-shell > .page-content {
 
 html[data-theme] body .career-public-shell .career-form label,
 html[data-theme] body .career-public-shell .career-form small,
+html[data-theme] body .career-public-shell .career-profile-form label,
 html[data-theme] body .career-public-shell .career-signin-form label,
 html[data-theme] body .career-public-shell .career-code-entry-block label {
     color: #64748b;
@@ -331,6 +332,9 @@ html[data-theme] body .career-public-shell .career-code-entry-block label {
 html[data-theme] body .career-public-shell .career-form input,
 html[data-theme] body .career-public-shell .career-form textarea,
 html[data-theme] body .career-public-shell .career-form select,
+html[data-theme] body .career-public-shell .career-profile-form input,
+html[data-theme] body .career-public-shell .career-profile-form textarea,
+html[data-theme] body .career-public-shell .career-profile-form select,
 html[data-theme] body .career-public-shell .career-signin-form input,
 html[data-theme] body .career-public-shell .career-code-entry-form input {
     background: #ffffff;
@@ -341,6 +345,8 @@ html[data-theme] body .career-public-shell .career-code-entry-form input {
 
 html[data-theme] body .career-public-shell .career-form input::placeholder,
 html[data-theme] body .career-public-shell .career-form textarea::placeholder,
+html[data-theme] body .career-public-shell .career-profile-form input::placeholder,
+html[data-theme] body .career-public-shell .career-profile-form textarea::placeholder,
 html[data-theme] body .career-public-shell .career-signin-form input::placeholder,
 html[data-theme] body .career-public-shell .career-code-entry-form input::placeholder {
     color: #64748b;
@@ -355,6 +361,9 @@ html[data-theme] body .career-public-shell .career-form textarea[name="note"]::p
 html[data-theme] body .career-public-shell .career-form input:focus,
 html[data-theme] body .career-public-shell .career-form textarea:focus,
 html[data-theme] body .career-public-shell .career-form select:focus,
+html[data-theme] body .career-public-shell .career-profile-form input:focus,
+html[data-theme] body .career-public-shell .career-profile-form textarea:focus,
+html[data-theme] body .career-public-shell .career-profile-form select:focus,
 html[data-theme] body .career-public-shell .career-signin-form input:focus,
 html[data-theme] body .career-public-shell .career-code-entry-form input:focus {
     background: #ffffff;
@@ -362,11 +371,22 @@ html[data-theme] body .career-public-shell .career-code-entry-form input:focus {
     box-shadow: 0 0 0 4px rgba(0, 91, 170, 0.12);
 }
 
-html[data-theme] body .career-public-shell .career-form input[type="file"] {
+html[data-theme] body .career-public-shell .career-form input[type="file"],
+html[data-theme] body .career-public-shell .career-profile-form input[type="file"] {
     background: #ffffff;
     color: #111827;
 }
 
+html[data-theme] body .career-public-shell .career-profile-form input[readonly] {
+    background: #ffffff;
+    color: #111827;
+    -webkit-text-fill-color: #111827;
+}
+
+html[data-theme] body .career-public-shell .career-profile-form input:-webkit-autofill,
+html[data-theme] body .career-public-shell .career-profile-form input:-webkit-autofill:hover,
+html[data-theme] body .career-public-shell .career-profile-form input:-webkit-autofill:focus,
+html[data-theme] body .career-public-shell .career-profile-form input:-webkit-autofill:active,
 html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill,
 html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill:hover,
 html[data-theme] body .career-public-shell .career-signin-form input:-webkit-autofill:focus,
@@ -376,9 +396,15 @@ html[data-theme] body .career-public-shell .career-signin-form input:-webkit-aut
     caret-color: #111827;
 }
 
-html[data-theme] body .career-public-shell .career-form input[type="file"]::file-selector-button {
+html[data-theme] body .career-public-shell .career-form input[type="file"]::file-selector-button,
+html[data-theme] body .career-public-shell .career-profile-form input[type="file"]::file-selector-button {
     background: #e9eef5;
     color: #1f2937;
+}
+
+html[data-theme] body .career-public-shell .career-profile-form select option {
+    background: #ffffff;
+    color: #111827;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1389,10 +1415,20 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     border-radius: 16px;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, #eef6ff, #dff0ff);
+    background: linear-gradient(135deg, #ffffff, #eef6ff);
+    border: 1px solid #d8e6f3;
     color: #0b63b6;
     font-weight: 800;
     font-size: 0.9rem;
+    overflow: hidden;
+}
+
+.career-candidate-job-badge img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #fff;
 }
 
 .career-candidate-job-copy {

@@ -374,12 +374,22 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
     border-radius: 16px;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, rgba(0, 91, 170, 0.12), rgba(0, 91, 170, 0.02));
+    background: linear-gradient(135deg, #ffffff, #eef6ff);
+    border: 1px solid #d8e6f3;
     color: #005baa;
     font-size: 1rem;
     font-weight: 800;
     letter-spacing: 0.08em;
     flex-shrink: 0;
+    overflow: hidden;
+}
+
+.career-job-card-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #fff;
 }
 
 .career-job-card-meta,
@@ -667,6 +677,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
             {% set type_label = (opening.employment_type or 'full_time')|replace('_', ' ')|title %}
             {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
             {% set warehouse_label = opening.warehouse_name_display or opening.warehouse_name or career_company_name %}
+            {% set site_key = (opening.public_site_key or '')|lower %}
             <article
                 class="career-job-card"
                 data-title="{{ (opening.title or '')|lower }}"
@@ -681,7 +692,15 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
                         <h3>{{ opening.title }}</h3>
                         <p>{{ opening.department or 'Operasional Perusahaan' }}</p>
                     </div>
-                    <div class="career-job-card-logo">{{ (opening.title or 'CV')[:2]|upper }}</div>
+                    <div class="career-job-card-logo">
+                        {% if site_key == 'mega' %}
+                        <img src="{{ asset_url('brand/receipt-logo-mega.jpg') }}" alt="Mega Sports logo">
+                        {% elif site_key == 'mataram' %}
+                        <img src="{{ asset_url('brand/receipt-logo-mataram.jpg') }}" alt="Mataram Sports logo">
+                        {% else %}
+                        {{ (opening.title or 'CV')[:2]|upper }}
+                        {% endif %}
+                    </div>
                 </div>
 
                 <div class="career-job-card-meta">

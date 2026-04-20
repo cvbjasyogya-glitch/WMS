@@ -12647,7 +12647,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Waktu pengerjaan tes sudah habis", html)
 
-    def test_recruitment_public_host_redirects_root_to_beranda(self):
+    def test_recruitment_public_host_redirects_root_to_signin(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
         self.app.config["ALLOWED_HOSTS"] = ["erp.test"]
         self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
@@ -12655,7 +12655,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/", headers={"Host": "recruitment.test"}, follow_redirects=False)
 
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers["Location"].endswith("/beranda"))
+        self.assertTrue(response.headers["Location"].endswith("/signin"))
 
     def test_recruitment_public_host_keeps_public_career_and_redirects_internal_pages(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
@@ -12735,11 +12735,11 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         internal_response = self.client.get("/login", headers={"Host": "recruitment.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
-        self.assertEqual(internal_response.headers["Location"], "/beranda")
+        self.assertEqual(internal_response.headers["Location"], "/signin")
 
         workspace_response = self.client.get("/workspace/", headers={"Host": "recruitment.test"}, follow_redirects=False)
         self.assertEqual(workspace_response.status_code, 302)
-        self.assertEqual(workspace_response.headers["Location"], "/beranda")
+        self.assertEqual(workspace_response.headers["Location"], "/signin")
 
     def test_public_career_routes_redirect_to_recruitment_domain_when_configured(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
@@ -13129,8 +13129,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Masuk ke Akun", html)
         self.assertIn("Daftar Akun", html)
-        self.assertIn("Cari Karir", html)
         self.assertIn("Punya Kode Tes?", html)
+        self.assertNotIn("Masih Eksplorasi", html)
+        self.assertNotIn("Verifikasi Email", html)
+        self.assertNotIn("Butuh Bantuan", html)
 
     def test_public_career_signup_request_redirects_with_success_state(self):
         with patch("routes.career.send_email", return_value=True), patch(
