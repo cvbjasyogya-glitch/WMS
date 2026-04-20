@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}{{ candidate_page_title if candidate_page_title is defined else "Portal Kandidat" }} | {{ career_company_name }}{% endblock %}
+{% block eyebrow %}{% endblock %}
+{% block page_title %}{{ candidate_page_title if candidate_page_title is defined else "Portal Kandidat" }}{% endblock %}
+{% block main_class %}career-public-shell career-candidate-shell-root{% endblock %}
+{% block page_content_class %}career-candidate-page{% endblock %}
+
+{% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/career_public_common.css') }}">
+{% block candidate_extra_head %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+<div class="career-candidate-shell">
+    <aside class="career-candidate-sidebar">
+        <a href="{{ url_for('career.index') }}" class="career-candidate-sidebar-brand" aria-label="{{ career_company_name }}">
+            <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
+        </a>
+
+        <nav class="career-candidate-sidebar-nav" aria-label="Menu portal kandidat">
+            <a href="{{ url_for('career.index') }}" class="{% if candidate_active_page == 'jobs' %}is-active{% endif %}">
+                <span class="career-candidate-nav-icon">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="11" cy="11" r="6.5"></circle>
+                        <path d="M16.5 16.5L21 21"></path>
+                    </svg>
+                </span>
+                <span>Lowongan</span>
+            </a>
+            <a href="{{ url_for('career.applications_page') }}" class="{% if candidate_active_page == 'applications' %}is-active{% endif %}">
+                <span class="career-candidate-nav-icon">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4.5 6.5H14.5"></path>
+                        <path d="M4.5 11.5H12.5"></path>
+                        <path d="M4.5 16.5H10.5"></path>
+                        <path d="M16 14L19.5 17.5L23 11"></path>
+                    </svg>
+                </span>
+                <span>Lamaran</span>
+            </a>
+            <a href="{{ url_for('career.saved_openings_page') }}" class="{% if candidate_active_page == 'saved' %}is-active{% endif %}">
+                <span class="career-candidate-nav-icon">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 7.5C5 6.12 6.12 5 7.5 5H16.5C17.88 5 19 6.12 19 7.5V19L12 15L5 19V7.5Z"></path>
+                    </svg>
+                </span>
+                <span>Tersimpan</span>
+            </a>
+            <a href="{{ url_for('career.profile_page') }}" class="{% if candidate_active_page == 'profile' %}is-active{% endif %}">
+                <span class="career-candidate-nav-icon">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="8" r="3.5"></circle>
+                        <path d="M5 19C6.2 15.8 8.72 14 12 14C15.28 14 17.8 15.8 19 19"></path>
+                    </svg>
+                </span>
+                <span>Profil</span>
+            </a>
+            <a href="{{ url_for('career.password_page') }}" class="{% if candidate_active_page == 'password' %}is-active{% endif %}">
+                <span class="career-candidate-nav-icon">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="5" y="11" width="14" height="8" rx="2"></rect>
+                        <path d="M8 11V8.5C8 6.57 9.57 5 11.5 5H12.5C14.43 5 16 6.57 16 8.5V11"></path>
+                    </svg>
+                </span>
+                <span>Password</span>
+            </a>
+        </nav>
+    </aside>
+
+    <div class="career-candidate-stage">
+        <header class="career-candidate-topbar">
+            <div class="career-candidate-topbar-copy">
+                <span class="career-candidate-topbar-kicker">Portal Kandidat</span>
+                <h1>{{ candidate_page_title if candidate_page_title is defined else "Portal Kandidat" }}</h1>
+            </div>
+            <div class="career-candidate-topbar-actions">
+                <div class="career-candidate-topbar-stat">
+                    <strong>{{ candidate_application_count or 0 }}</strong>
+                    <span>Lamaran</span>
+                </div>
+                <div class="career-candidate-topbar-stat">
+                    <strong>{{ candidate_saved_count or 0 }}</strong>
+                    <span>Tersimpan</span>
+                </div>
+                <a href="{{ url_for('career.profile_page') }}" class="career-candidate-account-pill" aria-label="Buka profil kandidat">
+                    <span class="career-candidate-avatar">{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
+                    <span class="career-candidate-account-copy">
+                        <strong>{{ candidate_account.full_name or 'Kandidat' }}</strong>
+                        <small>{{ candidate_account.email }}</small>
+                    </span>
+                </a>
+                <a href="{{ url_for('career.signout_public_account') }}" class="career-candidate-topbar-link">Keluar</a>
+            </div>
+        </header>
+
+        <div class="career-candidate-body">
+            {% block candidate_workspace_content %}{% endblock %}
+        </div>
+    </div>
+</div>
+{% endblock %}

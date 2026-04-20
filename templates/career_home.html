@@ -1179,6 +1179,11 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     {% set spotlight_type = 'Full Time' %}
     {% set spotlight_summary = 'Portal karir ini menampilkan hero utama, pencarian cepat, dan sorotan lowongan agar kandidat dapat langsung memulai proses.' %}
 {% endif %}
+{% set show_home_program_section = false %}
+{% set show_home_story_section = false %}
+{% set show_home_about_section = false %}
+{% set show_home_program_nav = false %}
+{% set show_home_story_nav = false %}
 
 <div class="career-astra-shell">
     {% include "_career_public_header_astra.html" %}
@@ -1285,6 +1290,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
         </article>
     </section>
 
+    {% if show_home_program_section %}
     <section class="career-astra-section" id="program-kami">
         <div class="career-astra-section-head">
             <div>
@@ -1318,7 +1324,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
             </article>
         </div>
     </section>
+    {% endif %}
 
+    {% if show_home_story_section %}
     <section class="career-astra-section" id="berita-karir">
         <div class="career-astra-section-head">
             <div>
@@ -1359,7 +1367,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
             {% endfor %}
         </div>
     </section>
+    {% endif %}
 
+    {% if show_home_about_section %}
     <section class="career-astra-about" id="tentang-kami">
         <div class="career-astra-about-copy">
             <span>Tentang Kami</span>
@@ -1387,6 +1397,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
             </article>
         </div>
     </section>
+    {% endif %}
 
     <section class="career-astra-helpband" id="pusat-bantuan">
         <div>

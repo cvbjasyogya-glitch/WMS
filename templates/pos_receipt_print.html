@@ -1175,7 +1175,7 @@
     {% if receipt_layout == "thermal" %}
     {% set payment_code = (sale.payment_method or "").lower() %}
     {% set paid_cash = sale.paid_amount_label if payment_code == "cash" else "Rp 0" %}
-    {% set paid_credit = sale.paid_amount_label if payment_code == "credit" else "Rp 0" %}
+    {% set paid_cv = sale.paid_amount_label if payment_code in ["cv", "credit"] else "Rp 0" %}
     {% set paid_debit = sale.paid_amount_label if payment_code == "debit" else "Rp 0" %}
     {% set paid_qris = sale.paid_amount_label if payment_code == "qris" else "Rp 0" %}
     {% set social_qr_source = receipt_brand.social_qr_image_url or "" %}
@@ -1264,7 +1264,7 @@
                 <div class="thermal-summary-column">
                     <div class="thermal-summary-row"><span>Potongan</span><span>{{ sale.discount_amount_label }}</span></div>
                     <div class="thermal-summary-row"><span>Tunai</span><span>{{ paid_cash }}</span></div>
-                    <div class="thermal-summary-row"><span>K. Kredit</span><span>{{ paid_credit }}</span></div>
+                    <div class="thermal-summary-row"><span>CV</span><span>{{ paid_cv }}</span></div>
                     <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>
                 </div>
                 <div class="thermal-summary-column">
@@ -1279,7 +1279,7 @@
             {% endif %}
             {% else %}
             <div class="thermal-summary-row"><span>Tunai</span><span>{{ paid_cash }}</span></div>
-            <div class="thermal-summary-row"><span>Kartu Kredit</span><span>{{ paid_credit }}</span></div>
+            <div class="thermal-summary-row"><span>CV</span><span>{{ paid_cv }}</span></div>
             <div class="thermal-summary-row"><span>Kartu Debit</span><span>{{ paid_debit }}</span></div>
             <div class="thermal-summary-row"><span>QRIS</span><span>{{ paid_qris }}</span></div>
             <div class="thermal-summary-row"><span>Kembali</span><span>{{ sale.change_amount_label }}</span></div>

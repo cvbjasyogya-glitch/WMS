@@ -1,0 +1,62 @@
+{% extends "career_candidate_base.html" %}
+{% set candidate_active_page = 'saved' %}
+{% set candidate_page_title = 'Lowongan yang Disimpan' %}
+
+{% block candidate_workspace_content %}
+<section class="career-candidate-stack">
+    {% if saved_openings %}
+    <div class="career-candidate-card-grid">
+        {% for opening in saved_openings %}
+        {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
+        <article class="career-candidate-info-card">
+            <div class="career-candidate-info-head">
+                <div>
+                    <span class="career-candidate-card-kicker">Tersimpan</span>
+                    <h2>{{ opening.title }}</h2>
+                    <p>{{ opening.warehouse_name_display or career_company_name }}</p>
+                </div>
+                <span class="career-candidate-status-pill">{{ location_label }}</span>
+            </div>
+            <div class="career-candidate-info-matrix">
+                <article>
+                    <strong>{{ opening.department or 'Operasional' }}</strong>
+                    <span>Departemen</span>
+                </article>
+                <article>
+                    <strong>{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</strong>
+                    <span>Tipe kerja</span>
+                </article>
+                <article>
+                    <strong>{{ 'Sudah dilamar' if opening.has_applied else 'Belum dilamar' }}</strong>
+                    <span>Status kandidat</span>
+                </article>
+            </div>
+            <p class="career-candidate-info-note">{{ opening.description or "Lowongan ini Anda simpan agar mudah dibuka lagi nanti dari dashboard kandidat." }}</p>
+            <div class="career-candidate-card-actions">
+                <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}" class="career-candidate-primary-action">Buka Detail</a>
+                <form method="POST" action="{{ url_for('career.toggle_saved_opening') }}">
+                    <input type="hidden" name="opening_id" value="{{ opening.id }}">
+                    <input type="hidden" name="next" value="{{ url_for('career.saved_openings_page') }}">
+                    <button type="submit" class="career-candidate-secondary-action is-button">Hapus Simpanan</button>
+                </form>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <article class="career-candidate-empty-stage">
+        <div class="career-candidate-empty-folder">
+            <span></span>
+            <span></span>
+        </div>
+        <div class="career-candidate-empty-copy">
+            <h2>Tidak ada lowongan yang disimpan</h2>
+            <p>Simpan lowongan yang menarik dari halaman lowongan supaya Anda bisa membukanya lagi kapan saja tanpa mencari dari awal.</p>
+        </div>
+        <div class="career-candidate-preview-actions">
+            <a href="{{ url_for('career.index') }}" class="career-candidate-primary-action">Cari Lowongan</a>
+        </div>
+    </article>
+    {% endif %}
+</section>
+{% endblock %}

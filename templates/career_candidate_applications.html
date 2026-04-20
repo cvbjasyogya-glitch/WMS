@@ -1,0 +1,59 @@
+{% extends "career_candidate_base.html" %}
+{% set candidate_active_page = 'applications' %}
+{% set candidate_page_title = 'Lamaran Saya' %}
+
+{% block candidate_workspace_content %}
+<section class="career-candidate-stack">
+    {% if applications %}
+    <div class="career-candidate-card-grid">
+        {% for application in applications %}
+        <article class="career-candidate-info-card">
+            <div class="career-candidate-info-head">
+                <div>
+                    <span class="career-candidate-card-kicker">{{ application.stage_label }}</span>
+                    <h2>{{ application.title_display }}</h2>
+                    <p>{{ application.location_label_display or application.location_label or application.warehouse_name_display or application.warehouse_name or 'Penempatan fleksibel' }}</p>
+                </div>
+                <span class="career-candidate-status-pill">{{ application.status_label }}</span>
+            </div>
+            <div class="career-candidate-info-matrix">
+                <article>
+                    <strong>{{ application.department or 'Operasional' }}</strong>
+                    <span>Departemen</span>
+                </article>
+                <article>
+                    <strong>{{ application.employment_type_display }}</strong>
+                    <span>Tipe kerja</span>
+                </article>
+                <article>
+                    <strong>{{ application.assessment_code_display }}</strong>
+                    <span>{{ 'Kode tes' if application.assessment_ready else 'Status tes' }}</span>
+                </article>
+            </div>
+            <p class="career-candidate-info-note">{{ application.note or application.progress_note }}</p>
+            <div class="career-candidate-card-actions">
+                <a href="{{ application.detail_url }}" class="career-candidate-secondary-action">Lihat Posisi</a>
+                {% if application.assessment_url %}
+                <a href="{{ application.assessment_url }}" class="career-candidate-primary-action">Masuk Tes</a>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <article class="career-candidate-empty-stage">
+        <div class="career-candidate-empty-folder">
+            <span></span>
+            <span></span>
+        </div>
+        <div class="career-candidate-empty-copy">
+            <h2>Tidak ada riwayat lamaran</h2>
+            <p>Anda belum mengirimkan lamaran apa pun. Buka halaman lowongan untuk memilih posisi yang paling sesuai lalu lanjutkan pengisian data kandidat.</p>
+        </div>
+        <div class="career-candidate-preview-actions">
+            <a href="{{ url_for('career.index') }}" class="career-candidate-primary-action">Lihat Lowongan</a>
+        </div>
+    </article>
+    {% endif %}
+</section>
+{% endblock %}

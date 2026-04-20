@@ -707,6 +707,15 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <a href="{% if career_public_authenticated %}#careerApplyForm{% else %}{{ opening_register_url }}{% endif %}" class="is-primary">
                         {% if career_public_authenticated %}Lamar Posisi Ini{% else %}Daftar untuk Melamar{% endif %}
                     </a>
+                    {% if career_public_authenticated %}
+                    <form method="POST" action="{{ url_for('career.toggle_saved_opening') }}" style="display:inline-flex;">
+                        <input type="hidden" name="opening_id" value="{{ opening.id }}">
+                        <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                        <button type="submit" class="is-secondary" style="min-height:48px;padding:0 20px;border-radius:12px;font:inherit;font-weight:800;border:1px solid rgba(255,255,255,0.18);cursor:pointer;background:rgba(255,255,255,0.08);color:#fff;">
+                            {% if opening_is_saved %}Hapus Simpanan{% else %}Simpan Lowongan{% endif %}
+                        </button>
+                    </form>
+                    {% endif %}
                     <a href="{{ url_for('career.index') }}" class="is-secondary">Kembali ke Lowongan</a>
                 </div>
             </div>
@@ -751,7 +760,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <div>
                         <span class="career-detail-card-kicker">Candidate Journey</span>
                         <h2>Alur Kandidat</h2>
-                        <p>Tiga langkah utama yang akan dijalani kandidat mulai dari submit CV sampai masuk ke assessment.</p>
+                        <p>Tiga langkah utama yang akan dijalani kandidat mulai dari submit CV, screening HR, sampai masuk ke assessment.</p>
                     </div>
                 </div>
                 <div class="career-detail-process-grid">
@@ -762,13 +771,13 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     </article>
                     <article class="career-detail-process-card">
                         <span class="career-detail-process-step">2</span>
-                        <h3>Simpan kode tes 5 digit</h3>
-                        <p>Setelah submit, portal akan menampilkan pop-up berisi kode tes. Simpan kode itu untuk melanjutkan ke tahap berikutnya.</p>
+                        <h3>Tunggu screening awal HR</h3>
+                        <p>Sesudah lamaran masuk, data kandidat akan direview terlebih dahulu oleh tim HR sebelum lanjut ke tahap tes.</p>
                     </article>
                     <article class="career-detail-process-card">
                         <span class="career-detail-process-step">3</span>
-                        <h3>Lanjut ke halaman assessment</h3>
-                        <p>Gunakan tombol <em>Punya Kode Tes?</em> di header atau form akses di samping untuk masuk ke halaman tes kandidat kapan saja.</p>
+                        <h3>Terima kode tes lewat email</h3>
+                        <p>Jika screening disetujui, kode tes dan tautan assessment akan dikirim otomatis ke email kandidat beserta masa berlakunya.</p>
                     </article>
                 </div>
             </section>
@@ -806,11 +815,11 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     </div>
                     <div class="career-apply-step">
                         <span>3</span>
-                        <span>Sesudah submit, simpan kode tes dari pop-up lalu lanjut ke halaman assessment saat sudah siap.</span>
+                        <span>Sesudah submit, tunggu screening awal HR. Jika disetujui, kode tes akan dikirim langsung ke email Anda.</span>
                     </div>
                 </div>
 
-                <p class="career-note">Setelah submit, kode tes 5 digit akan muncul di pop-up dan tetap bisa dimasukkan lagi dari menu <em>Punya Kode Tes?</em> di header. Gunakan kontak yang aktif supaya follow-up dari tim HR tidak terlewat.</p>
+                <p class="career-note">Lamaran yang baru masuk tidak langsung menampilkan kode tes. Gunakan kontak aktif supaya email persetujuan tes atau informasi penolakan dari HR tidak terlewat.</p>
 
                 {% if career_public_authenticated %}
                 <div class="career-code-inline-card">
@@ -824,11 +833,11 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <div class="career-form-grid">
                         <label>
                             Nama Lengkap
-                            <input name="candidate_name" placeholder="Nama kandidat" autocomplete="name" value="{{ public_account.full_name if public_account else '' }}" required>
+                            <input name="candidate_name" placeholder="Nama kandidat" autocomplete="name" value="{{ prefill_candidate_name or (public_account.full_name if public_account else '') }}" required>
                         </label>
                         <label>
                             Nomor WhatsApp
-                            <input name="phone" placeholder="62812xxxx" autocomplete="tel">
+                            <input name="phone" placeholder="62812xxxx" autocomplete="tel" value="{{ prefill_candidate_phone or '' }}">
                         </label>
                         <label>
                             Email
@@ -836,7 +845,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                         </label>
                         <label>
                             Portfolio / LinkedIn
-                            <input name="portfolio_url" placeholder="https://">
+                            <input name="portfolio_url" placeholder="https://" value="{{ prefill_candidate_portfolio or '' }}">
                         </label>
                         <label class="span-2">
                             CV / Resume
@@ -845,7 +854,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                         </label>
                         <label class="span-2">
                             Catatan Tambahan
-                            <textarea name="note" rows="5" placeholder="Boleh isi pengalaman singkat, domisili, atau keterangan tambahan."></textarea>
+                            <textarea name="note" rows="5" placeholder="Boleh isi pengalaman singkat, domisili, atau keterangan tambahan.">{{ prefill_candidate_note or '' }}</textarea>
                         </label>
                     </div>
                     <div class="career-apply-submit">
@@ -868,7 +877,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <section class="career-detail-card career-guide-card">
                 <span class="career-guide-kicker">Assessment Access</span>
                 <h3>Sudah punya kode tes?</h3>
-                <p>Kandidat yang sudah pernah submit lamaran bisa langsung masuk ke halaman assessment dari sini tanpa mencari posisi dari awal.</p>
+                <p>Kandidat yang sudah lolos screening HR dan menerima email kode tes bisa langsung masuk ke halaman assessment dari sini tanpa mencari posisi dari awal.</p>
 
                 {% if latest_assessment_code and latest_candidate %}
                 <div class="career-code-inline-card">
@@ -887,7 +896,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     <li>Pastikan email akun kandidat sudah diverifikasi sebelum mulai melamar posisi ini.</li>
                     <li>Gunakan nomor WhatsApp yang benar-benar aktif untuk follow-up dari tim HR.</li>
                     <li>Siapkan CV versi terbaru dengan pengalaman, domisili, dan peran yang relevan agar review awal lebih cepat.</li>
-                    <li>Simpan kode tes segera setelah pop-up muncul supaya Anda bisa masuk lagi kapan saja lewat shortcut di header.</li>
+                    <li>Kode tes baru dikirim setelah screening awal HR disetujui, jadi pantau inbox email secara berkala.</li>
                 </ul>
 
                 {% if signin_url %}
@@ -897,52 +906,5 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
         </div>
     </section>
 
-    {% if latest_assessment_code and latest_candidate %}
-    <div class="career-code-modal" id="careerCodeModal" role="dialog" aria-modal="true" aria-labelledby="careerCodeModalTitle">
-        <div class="career-code-modal-card">
-            <button type="button" class="career-code-modal-close" id="careerCodeModalClose" aria-label="Tutup">&times;</button>
-            <span class="career-code-modal-kicker">Pendaftaran Berhasil</span>
-            <h3 id="careerCodeModalTitle">Simpan kode tes Anda</h3>
-            <p>Gunakan kode ini untuk masuk ke halaman assessment dari menu <em>Punya Kode Tes?</em> di header atau lewat panel akses di samping.</p>
-            <div class="career-code-modal-code">{{ latest_assessment_code }}</div>
-            <div class="career-code-modal-actions">
-                <a href="{{ url_for('career.assessment', code=latest_assessment_code) }}">Masuk ke Halaman Tes</a>
-                <button type="button" id="careerCodeModalDismiss">Tutup</button>
-            </div>
-        </div>
-    </div>
-    {% endif %}
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-{% if latest_assessment_code and latest_candidate %}
-<script>
-(() => {
-    const modal = document.getElementById("careerCodeModal");
-    const closeButton = document.getElementById("careerCodeModalClose");
-    const dismissButton = document.getElementById("careerCodeModalDismiss");
-    if (!modal || !closeButton) {
-        return;
-    }
-
-    const closeModal = () => {
-        modal.style.display = "none";
-    };
-
-    closeButton.addEventListener("click", closeModal);
-    dismissButton?.addEventListener("click", closeModal);
-    modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
-            closeModal();
-        }
-    });
-    document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-            closeModal();
-        }
-    });
-})();
-</script>
-{% endif %}
 {% endblock %}

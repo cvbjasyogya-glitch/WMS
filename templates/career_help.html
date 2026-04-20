@@ -421,7 +421,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
             <div class="career-help-band-head">
                 <div>
                     <strong>Bantuan Kandidat</strong>
-                    <p>Kalau Anda sudah menemukan posisi yang cocok, buka detail lowongan lalu isi data diri dan unggah CV terbaru. Setelah lamaran berhasil dikirim, simpan kode tes 5 digit yang muncul karena kode itu dipakai untuk masuk ke halaman tes.</p>
+                    <p>Kalau Anda sudah menemukan posisi yang cocok, buka detail lowongan lalu isi data diri dan unggah CV terbaru. Setelah lamaran berhasil dikirim, data Anda akan masuk ke screening HR lebih dulu. Jika disetujui, kode tes dikirim otomatis ke email.</p>
                 </div>
                 <div class="career-help-actions">
                     <a href="{{ url_for('career.index') }}">Lihat Lowongan</a>
@@ -439,12 +439,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
                     <span>Unggah dokumen terbaru supaya review awal HR lebih relevan.</span>
                 </article>
                 <article class="career-help-band-card">
-                    <strong>5 Digit</strong>
-                    <span>Simpan kode tes segera setelah submit lamaran berhasil.</span>
+                    <strong>Screening HR</strong>
+                    <span>Lamaran direview dulu sebelum kode tes dibuka untuk kandidat.</span>
                 </article>
                 <article class="career-help-band-card">
                     <strong>{{ "Akun Kandidat" if register_url else "Portal Kandidat" }}</strong>
-                    <span>Anda bisa daftar akun atau langsung lanjut pakai kode tes bila sudah diberikan.</span>
+                    <span>Anda bisa daftar akun, melamar, lalu menunggu email update dari HR untuk tahap berikutnya.</span>
                 </article>
             </div>
         </div>
@@ -467,7 +467,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
             <article class="career-help-step-card">
                 <span>2</span>
                 <h3>Sesudah Submit Lamaran</h3>
-                <p>Portal akan menampilkan kode tes 5 digit. Simpan kode itu segera karena dipakai untuk membuka sesi assessment tanpa harus mengulang proses dari awal.</p>
+                <p>Lamaran akan masuk ke screening awal HR. Kandidat yang lolos review akan menerima kode tes dan tautan assessment langsung melalui email.</p>
             </article>
             <article class="career-help-step-card">
                 <span>3</span>
@@ -487,12 +487,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
             <article class="career-help-faq-card">
                 <span class="career-help-card-kicker">Apply</span>
                 <h3>Kalau tidak punya email, apakah tetap bisa melamar?</h3>
-                <p>Bisa, selama Anda tetap mengisi minimal satu kontak aktif. Namun email sangat disarankan supaya HR punya jalur follow-up tambahan selain WhatsApp.</p>
+                <p>Belum bisa. Portal kandidat mewajibkan akun dengan email aktif dan verifikasi email terlebih dahulu sebelum lamaran dapat dikirim ke sistem.</p>
             </article>
             <article class="career-help-faq-card">
                 <span class="career-help-card-kicker">Kode Tes</span>
                 <h3>Bagaimana kalau lupa menyimpan kode tes?</h3>
-                <p>Kalau kode belum tersimpan, biasanya kandidat perlu menghubungi HR. Karena itu shortcut <em>Punya Kode Tes?</em> sengaja dipasang di header supaya kode yang sudah ada bisa langsung dipakai kembali.</p>
+                <p>Kode tes dikirim melalui email setelah screening HR disetujui. Jika emailnya belum ditemukan, cek folder spam/promosi atau hubungi HR untuk konfirmasi tahap lamaran Anda.</p>
             </article>
             <article class="career-help-faq-card">
                 <span class="career-help-card-kicker">Assessment</span>

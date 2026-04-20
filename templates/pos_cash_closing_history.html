@@ -55,7 +55,7 @@
                     {% if can_view_pos_revenue %}
                     <pre class="attendance-cash-closing-sheet">{{ item.summary_message }}</pre>
                     {% else %}
-                    <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk owner dan super admin.</p>
+                    <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk akun POS yang punya akses melihat nominal penjualan.</p>
                     {% endif %}
                     {% if item.wa_error %}
                     <p class="attendance-cash-closing-error">WA: {{ item.wa_error }}</p>

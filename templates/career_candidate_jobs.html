@@ -1,0 +1,130 @@
+{% extends "career_candidate_base.html" %}
+{% set candidate_active_page = 'jobs' %}
+{% set candidate_page_title = 'Lowongan Kerja' %}
+
+{% block candidate_workspace_content %}
+<section class="career-candidate-jobs-layout">
+    <div class="career-candidate-panel career-candidate-jobs-list-panel">
+        <form method="GET" action="{{ url_for('career.index') }}" class="career-candidate-search-form">
+            <label class="career-candidate-search-field">
+                <input type="search" name="q" value="{{ initial_query or '' }}" placeholder="Cari posisi, area, atau departemen">
+            </label>
+            {% if selected_warehouse_id %}
+            <input type="hidden" name="warehouse" value="{{ selected_warehouse_id }}">
+            {% endif %}
+            {% if initial_department %}
+            <input type="hidden" name="department" value="{{ initial_department }}">
+            {% endif %}
+            {% if initial_type_filter %}
+            <input type="hidden" name="type" value="{{ initial_type_filter }}">
+            {% endif %}
+        </form>
+
+        <div class="career-candidate-list-head">
+            <div>
+                <strong>{{ openings|length }} lowongan aktif</strong>
+                <p>Pilih lowongan untuk melihat detail dan langkah berikutnya.</p>
+            </div>
+        </div>
+
+        <div class="career-candidate-job-list">
+            {% for opening in openings %}
+            {% set location_label = opening.location_label_display or opening.location_label or opening.warehouse_name_display or opening.warehouse_name or 'Penempatan fleksibel' %}
+            <article class="career-candidate-job-item {% if selected_opening and selected_opening.id == opening.id %}is-selected{% endif %}">
+                <a href="{{ url_for('career.index', vacancy=opening.id, q=initial_query, department=initial_department, type=initial_type_filter, warehouse=selected_warehouse_id) }}" class="career-candidate-job-item-main">
+                    <div class="career-candidate-job-badge">{{ opening.public_site_key|upper if opening.public_site_key else 'CV' }}</div>
+                    <div class="career-candidate-job-copy">
+                        <h2>{{ opening.title }}</h2>
+                        <p>{{ opening.warehouse_name_display or career_company_name }}</p>
+                        <div class="career-candidate-job-meta">
+                            <span>{{ location_label }}</span>
+                            <span>{{ (opening.employment_type or 'full_time')|replace('_', ' ')|title }}</span>
+                            <span>{{ opening.department or 'Operasional' }}</span>
+                        </div>
+                        {% if opening.has_applied %}
+                        <div class="career-candidate-inline-state is-success">Sudah dilamar</div>
+                        {% endif %}
+                    </div>
+                </a>
+                <div class="career-candidate-job-item-actions">
+                    <form method="POST" action="{{ url_for('career.toggle_saved_opening') }}">
+                        <input type="hidden" name="opening_id" value="{{ opening.id }}">
+                        <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                        <button type="submit" class="career-candidate-inline-button {% if opening.is_saved %}is-active{% endif %}">
+                            {% if opening.is_saved %}Tersimpan{% else %}Simpan{% endif %}
+                        </button>
+                    </form>
+                </div>
+            </article>
+            {% else %}
+            <article class="career-candidate-empty-inline">
+                <strong>Belum ada lowongan yang cocok dengan pencarian ini.</strong>
+                <p>Coba ubah kata kunci pencarian atau buka lagi semua lowongan aktif.</p>
+                <a href="{{ url_for('career.index') }}">Lihat semua lowongan</a>
+            </article>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="career-candidate-panel career-candidate-preview-panel">
+        {% if selected_opening %}
+        {% set preview_application = selected_opening.application %}
+        {% set preview_location = selected_opening.location_label_display or selected_opening.location_label or selected_opening.warehouse_name_display or selected_opening.warehouse_name or 'Penempatan fleksibel' %}
+        <article class="career-candidate-preview-card">
+            <div class="career-candidate-preview-illustration">
+                <div class="career-candidate-preview-window"></div>
+                <div class="career-candidate-preview-card-mini one"></div>
+                <div class="career-candidate-preview-card-mini two"></div>
+                <div class="career-candidate-preview-person">
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+
+            <div class="career-candidate-preview-copy">
+                <span class="career-candidate-preview-kicker">Lowongan Dipilih</span>
+                <h2>{{ selected_opening.title }}</h2>
+                <p>{{ selected_opening.description or "Baca ringkasan peran ini lalu lanjut ke halaman detail untuk melihat gambaran kerja, syarat, dan form lamaran." }}</p>
+            </div>
+
+            <div class="career-candidate-preview-meta">
+                <article>
+                    <strong>{{ preview_location }}</strong>
+                    <span>Area penempatan</span>
+                </article>
+                <article>
+                    <strong>{{ selected_opening.warehouse_name_display or career_company_name }}</strong>
+                    <span>Unit penempatan</span>
+                </article>
+                <article>
+                    <strong>{{ (selected_opening.employment_type or 'full_time')|replace('_', ' ')|title }}</strong>
+                    <span>Tipe kerja</span>
+                </article>
+            </div>
+
+            <div class="career-candidate-preview-actions">
+                <a href="{{ url_for('career.opening_detail', opening_id=selected_opening.id) }}" class="career-candidate-primary-action">Lihat Detail</a>
+                {% if preview_application and preview_application.assessment_url %}
+                <a href="{{ preview_application.assessment_url }}" class="career-candidate-secondary-action">Lanjut Tes</a>
+                {% elif preview_application %}
+                <a href="{{ url_for('career.applications_page') }}" class="career-candidate-secondary-action">Lihat Lamaran</a>
+                {% else %}
+                <a href="{{ url_for('career.opening_detail', opening_id=selected_opening.id) }}#careerApplyForm" class="career-candidate-secondary-action">Lamar Sekarang</a>
+                {% endif %}
+            </div>
+        </article>
+        {% else %}
+        <article class="career-candidate-empty-stage">
+            <div class="career-candidate-empty-illustration">
+                <div class="career-candidate-empty-browser"></div>
+                <div class="career-candidate-empty-cards"></div>
+            </div>
+            <div class="career-candidate-empty-copy">
+                <h2>Pilih lowongan untuk melihat lebih detail.</h2>
+                <p>Daftar posisi aktif ada di panel kiri. Pilih salah satu lowongan agar ringkasan peran, lokasi, dan langkah berikutnya muncul di area ini.</p>
+            </div>
+        </article>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

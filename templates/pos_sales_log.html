@@ -171,7 +171,7 @@
                         <button type="button" class="ghost-button" hidden data-cash-closing-cancel-edit>Batal Edit</button>
                         {% endif %}
                     </div>
-                    <small class="helper-text" data-cash-closing-sync-status>Nominal otomatis mengikuti total semua transaksi homebase tanggal yang dipilih.</small>
+                    <small class="helper-text" data-cash-closing-sync-status>Nominal otomatis mengikuti total semua transaksi homebase tanggal yang dipilih, termasuk transaksi CV dari halaman kasir.</small>
                     {% if can_edit_cash_closing %}
                     <small class="helper-text" hidden data-cash-closing-edit-state>Mode edit laporan tutup kasir aktif. Simpan untuk memperbarui data yang salah.</small>
                     {% endif %}
@@ -225,7 +225,7 @@
                     {% if can_view_pos_revenue %}
                     <pre class="attendance-cash-closing-sheet">{{ item.summary_message }}</pre>
                     {% else %}
-                    <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk owner dan super admin.</p>
+                    <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk akun POS yang punya akses melihat nominal penjualan.</p>
                     {% endif %}
                     {% if item.wa_error %}
                     <p class="attendance-cash-closing-error">WA: {{ item.wa_error }}</p>

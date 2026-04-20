@@ -2,9 +2,9 @@
 {% set header_register_url = register_url if register_url is defined and register_url else url_for('career.signin_page', flow='signup') %}
 {% set header_auth_controls %}
     {% if career_public_authenticated %}
-    <span class="career-astra-account-chip" title="{{ career_public_account_email }}">
+    <a href="{{ url_for('career.index') }}" class="career-astra-account-chip" title="{{ career_public_account_email }}">
         {{ career_public_account_name or career_public_account_email }}
-    </span>
+    </a>
     <a href="{{ url_for('career.signout_public_account') }}" class="career-astra-login-link">Keluar</a>
     {% else %}
     <a href="{{ header_register_url }}" class="career-astra-register-link">Daftar</a>
@@ -46,9 +46,13 @@
         <nav class="career-astra-nav" aria-label="Navigasi karir publik">
             <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
             <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
+            {% if show_home_program_nav is not defined or show_home_program_nav %}
             <a href="{{ url_for('career.home') }}#program-kami">Program Kami</a>
+            {% endif %}
             <a href="{{ url_for('career.home') }}#agenda-karir">Agenda</a>
+            {% if show_home_story_nav is not defined or show_home_story_nav %}
             <a href="{{ url_for('career.home') }}#berita-karir">Berita dan Artikel</a>
+            {% endif %}
             <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
             <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Pusat Bantuan</a>
         </nav>

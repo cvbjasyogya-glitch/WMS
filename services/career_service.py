@@ -31,6 +31,21 @@ CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES = {"pending", "processed", "declined"}
 CAREER_PUBLIC_ACCOUNT_STATUSES = {"pending", "active", "disabled"}
 CAREER_DUPLICATE_APPLICATION_STATUSES = {"active", "on_hold"}
 CAREER_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+CAREER_PUBLIC_PROFILE_SECTION_KEYS = {
+    "personal",
+    "family",
+    "education",
+    "experience",
+    "skills",
+    "organization",
+    "training",
+    "achievement",
+    "language",
+    "passion",
+    "additional",
+    "documents",
+}
+CAREER_PUBLIC_PROFILE_COMPLETION_STATES = {"incomplete", "recommended", "complete"}
 
 
 def normalize_career_opening_status(value):
@@ -61,6 +76,16 @@ def normalize_career_public_account_request_status(value):
 def normalize_career_public_account_status(value):
     status = (value or "").strip().lower()
     return status if status in CAREER_PUBLIC_ACCOUNT_STATUSES else "pending"
+
+
+def normalize_career_public_profile_section_key(value):
+    safe_key = str(value or "").strip().lower().replace("-", "_")
+    return safe_key if safe_key in CAREER_PUBLIC_PROFILE_SECTION_KEYS else ""
+
+
+def normalize_career_public_profile_completion_state(value):
+    safe_state = str(value or "").strip().lower()
+    return safe_state if safe_state in CAREER_PUBLIC_PROFILE_COMPLETION_STATES else "incomplete"
 
 
 def normalize_candidate_identity_name(value):
@@ -126,6 +151,21 @@ def hash_career_public_verification_token(token):
     if not safe_token:
         return ""
     return hashlib.sha256(safe_token.encode("utf-8")).hexdigest()
+
+
+def decode_career_public_profile_payload(raw_value):
+    if raw_value in (None, ""):
+        return {}
+    try:
+        payload = json.loads(raw_value)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def encode_career_public_profile_payload(payload):
+    safe_payload = payload if isinstance(payload, dict) else {}
+    return json.dumps(safe_payload, ensure_ascii=True, sort_keys=True)
 
 
 def normalize_assessment_duration_minutes(value, default=0, maximum=720):
@@ -351,6 +391,7 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_expires_at TIMESTAMP",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_duration_minutes INTEGER DEFAULT 0",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS placement_warehouse_ids TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS public_account_id INTEGER",
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
                 id SERIAL PRIMARY KEY,
@@ -387,6 +428,7 @@ def ensure_career_schema(db):
             "CREATE INDEX IF NOT EXISTS idx_career_openings_public ON career_openings(status, is_public, warehouse_id, sort_order)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_vacancy ON recruitment_candidates(vacancy_id, warehouse_id, created_at)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_public_lookup ON recruitment_candidates(vacancy_id, application_channel, status, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_public_account ON recruitment_candidates(public_account_id, created_at)",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)",
             "CREATE INDEX IF NOT EXISTS idx_recruitment_assessment_questions_scope ON recruitment_assessment_questions(is_active, warehouse_id, sort_order)",
             """
@@ -436,6 +478,29 @@ def ensure_career_schema(db):
             "ALTER TABLE career_public_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_accounts_email ON career_public_accounts(email)",
             "CREATE INDEX IF NOT EXISTS idx_career_public_accounts_verification ON career_public_accounts(verification_token_hash, status)",
+            """
+            CREATE TABLE IF NOT EXISTS career_public_saved_openings(
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL,
+                opening_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_saved_openings_unique ON career_public_saved_openings(account_id, opening_id)",
+            "CREATE INDEX IF NOT EXISTS idx_career_public_saved_openings_account ON career_public_saved_openings(account_id, created_at)",
+            """
+            CREATE TABLE IF NOT EXISTS career_public_profile_sections(
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL,
+                section_key TEXT NOT NULL,
+                payload_json TEXT,
+                completion_state TEXT DEFAULT 'incomplete',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_profile_sections_unique ON career_public_profile_sections(account_id, section_key)",
+            "CREATE INDEX IF NOT EXISTS idx_career_public_profile_sections_account ON career_public_profile_sections(account_id, updated_at)",
         ]
         for statement in statements:
             db.execute(statement)
@@ -444,6 +509,8 @@ def ensure_career_schema(db):
         _ensure_postgresql_id_sequence(db, "recruitment_assessment_questions")
         _ensure_postgresql_id_sequence(db, "career_public_account_requests")
         _ensure_postgresql_id_sequence(db, "career_public_accounts")
+        _ensure_postgresql_id_sequence(db, "career_public_saved_openings")
+        _ensure_postgresql_id_sequence(db, "career_public_profile_sections")
     else:
         db.execute(
             """
@@ -494,6 +561,7 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_expires_at", "TIMESTAMP")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_duration_minutes", "INTEGER DEFAULT 0")
         _sqlite_ensure_column(db, "recruitment_candidates", "placement_warehouse_ids", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "public_account_id", "INTEGER")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
@@ -523,6 +591,9 @@ def ensure_career_schema(db):
         )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_public_lookup ON recruitment_candidates(vacancy_id, application_channel, status, created_at)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_public_account ON recruitment_candidates(public_account_id, created_at)"
         )
         db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_recruitment_candidates_assessment_code ON recruitment_candidates(assessment_code)"
@@ -580,6 +651,41 @@ def ensure_career_schema(db):
         )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_career_public_accounts_verification ON career_public_accounts(verification_token_hash, status)"
+        )
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS career_public_saved_openings(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                opening_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_saved_openings_unique ON career_public_saved_openings(account_id, opening_id)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_career_public_saved_openings_account ON career_public_saved_openings(account_id, created_at)"
+        )
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS career_public_profile_sections(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                section_key TEXT NOT NULL,
+                payload_json TEXT,
+                completion_state TEXT DEFAULT 'incomplete',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_public_profile_sections_unique ON career_public_profile_sections(account_id, section_key)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_career_public_profile_sections_account ON career_public_profile_sections(account_id, updated_at)"
         )
 
     runtime_state[cache_key] = True
@@ -855,6 +961,166 @@ def touch_career_public_account_login(db, account_id):
         (account["id"],),
     )
     return get_career_public_account_by_id(db, account["id"])
+
+
+def update_career_public_account_password_hash(db, account_id, password_hash):
+    account = get_career_public_account_by_id(db, account_id)
+    safe_password_hash = str(password_hash or "").strip()
+    if not account or not safe_password_hash:
+        return None
+    db.execute(
+        """
+        UPDATE career_public_accounts
+        SET password_hash=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (safe_password_hash, account["id"]),
+    )
+    return get_career_public_account_by_id(db, account["id"])
+
+
+def get_career_public_profile_sections(db, account_id):
+    try:
+        safe_account_id = int(account_id or 0)
+    except (TypeError, ValueError):
+        safe_account_id = 0
+    if safe_account_id <= 0:
+        return {}
+    rows = db.execute(
+        """
+        SELECT section_key, payload_json, completion_state, updated_at
+        FROM career_public_profile_sections
+        WHERE account_id=?
+        ORDER BY section_key ASC
+        """,
+        (safe_account_id,),
+    ).fetchall()
+    sections = {}
+    for row in rows:
+        row_dict = dict(row)
+        section_key = normalize_career_public_profile_section_key(row_dict.get("section_key"))
+        if not section_key:
+            continue
+        sections[section_key] = {
+            "payload": decode_career_public_profile_payload(row_dict.get("payload_json")),
+            "completion_state": normalize_career_public_profile_completion_state(row_dict.get("completion_state")),
+            "updated_at": row_dict.get("updated_at"),
+        }
+    return sections
+
+
+def upsert_career_public_profile_section(db, account_id, section_key, payload, completion_state="incomplete"):
+    try:
+        safe_account_id = int(account_id or 0)
+    except (TypeError, ValueError):
+        safe_account_id = 0
+    safe_section_key = normalize_career_public_profile_section_key(section_key)
+    safe_completion_state = normalize_career_public_profile_completion_state(completion_state)
+    if safe_account_id <= 0 or not safe_section_key:
+        raise ValueError("Bagian profil kandidat tidak valid.")
+
+    payload_json = encode_career_public_profile_payload(payload)
+    existing = db.execute(
+        """
+        SELECT id
+        FROM career_public_profile_sections
+        WHERE account_id=? AND section_key=?
+        LIMIT 1
+        """,
+        (safe_account_id, safe_section_key),
+    ).fetchone()
+    if existing:
+        db.execute(
+            """
+            UPDATE career_public_profile_sections
+            SET payload_json=?,
+                completion_state=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (payload_json, safe_completion_state, existing["id"]),
+        )
+    else:
+        db.execute(
+            """
+            INSERT INTO career_public_profile_sections(
+                account_id,
+                section_key,
+                payload_json,
+                completion_state,
+                updated_at
+            )
+            VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+            """,
+            (safe_account_id, safe_section_key, payload_json, safe_completion_state),
+        )
+    return get_career_public_profile_sections(db, safe_account_id).get(safe_section_key)
+
+
+def get_career_public_saved_opening_ids(db, account_id):
+    try:
+        safe_account_id = int(account_id or 0)
+    except (TypeError, ValueError):
+        safe_account_id = 0
+    if safe_account_id <= 0:
+        return set()
+    rows = db.execute(
+        """
+        SELECT opening_id
+        FROM career_public_saved_openings
+        WHERE account_id=?
+        ORDER BY created_at DESC, id DESC
+        """,
+        (safe_account_id,),
+    ).fetchall()
+    opening_ids = set()
+    for row in rows:
+        try:
+            opening_id = int(row["opening_id"] or 0)
+        except (TypeError, ValueError):
+            opening_id = 0
+        if opening_id > 0:
+            opening_ids.add(opening_id)
+    return opening_ids
+
+
+def set_career_public_saved_opening_state(db, account_id, opening_id, is_saved=True):
+    try:
+        safe_account_id = int(account_id or 0)
+        safe_opening_id = int(opening_id or 0)
+    except (TypeError, ValueError):
+        safe_account_id = 0
+        safe_opening_id = 0
+    if safe_account_id <= 0 or safe_opening_id <= 0:
+        raise ValueError("Lowongan tersimpan tidak valid.")
+
+    existing = db.execute(
+        """
+        SELECT id
+        FROM career_public_saved_openings
+        WHERE account_id=? AND opening_id=?
+        LIMIT 1
+        """,
+        (safe_account_id, safe_opening_id),
+    ).fetchone()
+    if is_saved:
+        if not existing:
+            db.execute(
+                """
+                INSERT INTO career_public_saved_openings(account_id, opening_id)
+                VALUES (?,?)
+                """,
+                (safe_account_id, safe_opening_id),
+            )
+        return True
+
+    if existing:
+        db.execute(
+            "DELETE FROM career_public_saved_openings WHERE id=?",
+            (existing["id"],),
+        )
+    return False
 
 
 def generate_unique_assessment_code(db):

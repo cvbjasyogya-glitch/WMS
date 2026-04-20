@@ -47,9 +47,13 @@ from services.whatsapp_service import (
 
 pos_bp = Blueprint("pos", __name__, url_prefix="/kasir")
 
-PAYMENT_METHODS = ("cash", "qris", "transfer", "debit", "credit")
+PAYMENT_METHODS = ("cash", "qris", "transfer", "debit", "cv")
 SPLIT_PAYMENT_METHOD = "split"
 POS_ALL_PAYMENT_METHODS = PAYMENT_METHODS + (SPLIT_PAYMENT_METHOD,)
+PAYMENT_METHOD_ALIASES = {
+    "credit": "cv",
+    "kredit": "cv",
+}
 POS_ASSIGNABLE_ROLE_LIST = ("owner", "super_admin", "leader", "admin", "staff")
 INACTIVE_EMPLOYMENT_STATUSES = ("inactive", "terminated", "resigned", "former", "nonactive", "non-active")
 POS_REVENUE_HIDDEN_LABEL = "-"
@@ -707,6 +711,7 @@ def _is_sqlite_lock_error(exc):
 
 def _normalize_payment_method(raw_value, *, allow_split=True):
     method = (raw_value or "").strip().lower()
+    method = PAYMENT_METHOD_ALIASES.get(method, method)
     allowed_methods = POS_ALL_PAYMENT_METHODS if allow_split else PAYMENT_METHODS
     return method if method in allowed_methods else "cash"
 
@@ -717,6 +722,8 @@ def _format_payment_method_label(raw_value):
         return "SPLIT"
     if method == "transfer":
         return "TF"
+    if method == "cv":
+        return "CV"
     return method.upper()
 
 
@@ -909,7 +916,7 @@ def _require_pos_access(json_mode=False):
 
 
 def _can_view_pos_revenue():
-    return normalize_role(session.get("role")) in {"owner", "super_admin"}
+    return has_permission(session.get("role"), "view_pos")
 
 
 def _can_manage_pos_hidden_archive():
@@ -1533,6 +1540,8 @@ def _resolve_pos_cash_closing_bucket_key(payment_method):
         return "qris_amount"
     if normalized_method == "transfer":
         return "mb_amount"
+    if normalized_method == "cv":
+        return "cv_amount"
     return "cv_amount"
 
 
@@ -5526,7 +5535,7 @@ def pos_update_sale_payment_method(sale_id):
         return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
 
     raw_payment_method = request_data.get("payment_method")
-    requested_payment_method = str(raw_payment_method or "").strip().lower()
+    requested_payment_method = _normalize_payment_method(raw_payment_method, allow_split=False)
     if requested_payment_method not in PAYMENT_METHODS:
         if request.is_json:
             return _json_error("Metode pembayaran tidak valid.", 400)

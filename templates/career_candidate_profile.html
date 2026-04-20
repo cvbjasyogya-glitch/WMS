@@ -1,0 +1,280 @@
+{% extends "career_candidate_base.html" %}
+{% set candidate_active_page = 'profile' %}
+{% set candidate_page_title = selected_profile_section.title if selected_profile_section is defined else 'Data Pribadi' %}
+
+{% block candidate_workspace_content %}
+<section class="career-profile-layout">
+    <aside class="career-candidate-panel career-profile-sidebar">
+        <div class="career-profile-summary-card">
+            <div class="career-profile-avatar">
+                {% if candidate_profile_photo_url %}
+                <img src="{{ candidate_profile_photo_url }}" alt="{{ candidate_account.full_name }}">
+                {% else %}
+                <span>{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
+                {% endif %}
+            </div>
+            <strong>{{ candidate_account.full_name }}</strong>
+            <p>{{ candidate_account.email }}</p>
+        </div>
+
+        <nav class="career-profile-section-nav" aria-label="Navigasi profil kandidat">
+            {% for section in profile_sections %}
+            <a href="{{ url_for('career.profile_page', section=section.key) }}" class="{% if selected_profile_section.key == section.key %}is-active{% endif %}">
+                <span>{{ section.label }}</span>
+                <small class="{% if section.completion_state == 'complete' %}is-complete{% endif %}">{{ section.status_label }}</small>
+            </a>
+            {% endfor %}
+        </nav>
+    </aside>
+
+    <section class="career-candidate-panel career-profile-form-panel">
+        <div class="career-profile-panel-head">
+            <div>
+                <span class="career-candidate-card-kicker">{{ selected_profile_section.label }}</span>
+                <h2>{{ selected_profile_section.title }}</h2>
+                <p>{{ selected_profile_section.summary }}</p>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('career.profile_page') }}" enctype="multipart/form-data" class="career-profile-form">
+            <input type="hidden" name="section" value="{{ selected_profile_section.key }}">
+
+            {% if selected_profile_section.key == 'personal' %}
+            <div class="career-profile-photo-block">
+                <div class="career-profile-photo-frame">
+                    {% if selected_profile_photo_url %}
+                    <img src="{{ selected_profile_photo_url }}" alt="{{ candidate_account.full_name }}">
+                    {% else %}
+                    <span>{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
+                    {% endif %}
+                </div>
+                <label class="career-profile-upload-trigger">
+                    Klik untuk ganti foto
+                    <small>Max 2MB</small>
+                    <input type="file" name="photo_file" accept=".jpg,.jpeg,.png,.webp">
+                </label>
+            </div>
+
+            <div class="career-profile-grid">
+                <label>
+                    Nama lengkap *
+                    <input type="text" name="full_name" value="{{ selected_profile_payload.full_name or candidate_account.full_name }}" required>
+                </label>
+                <label>
+                    Email *
+                    <input type="email" name="email" value="{{ selected_profile_payload.email or candidate_account.email }}" readonly>
+                </label>
+                <label>
+                    Nomor KTP *
+                    <input type="text" name="ktp_number" value="{{ selected_profile_payload.ktp_number or '' }}" placeholder="Masukkan No KTP" required>
+                </label>
+                <label>
+                    Nomor NPWP
+                    <input type="text" name="npwp_number" value="{{ selected_profile_payload.npwp_number or '' }}" placeholder="Masukkan No NPWP">
+                </label>
+                <label>
+                    Nomor WhatsApp *
+                    <input type="text" name="phone" value="{{ selected_profile_payload.phone or '' }}" placeholder="62812xxxx" required>
+                </label>
+                <label>
+                    Facebook / LinkedIn (Link) *
+                    <input type="url" name="linkedin_url" value="{{ selected_profile_payload.linkedin_url or '' }}" placeholder="Contoh: https://www.linkedin.com/company/232236/admin/feed/posts/" required>
+                </label>
+                <label>
+                    Instagram *
+                    <input type="text" name="instagram_handle" value="{{ selected_profile_payload.instagram_handle or '' }}" placeholder="Contoh: @dharmagroup_" required>
+                </label>
+                <label>
+                    Tempat Lahir *
+                    <input type="text" name="birth_place" value="{{ selected_profile_payload.birth_place or '' }}" placeholder="Masukkan tempat lahir" required>
+                </label>
+                <label>
+                    Tanggal Lahir *
+                    <input type="date" name="birth_date" value="{{ selected_profile_payload.birth_date or '' }}" required>
+                </label>
+                <label>
+                    Jenis Kelamin *
+                    <select name="gender" required>
+                        <option value="">Pilih</option>
+                        {% for option_value, option_label in profile_gender_options %}
+                        <option value="{{ option_value }}" {% if selected_profile_payload.gender == option_value %}selected{% endif %}>{{ option_label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Status Pernikahan *
+                    <select name="marital_status" required>
+                        <option value="">Pilih</option>
+                        {% for option_value, option_label in profile_marital_status_options %}
+                        <option value="{{ option_value }}" {% if selected_profile_payload.marital_status == option_value %}selected{% endif %}>{{ option_label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Agama *
+                    <select name="religion" required>
+                        <option value="">Pilih</option>
+                        {% for option_value, option_label in profile_religion_options %}
+                        <option value="{{ option_value }}" {% if selected_profile_payload.religion == option_value %}selected{% endif %}>{{ option_label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Provinsi sesuai KTP *
+                    <input type="text" name="ktp_province" value="{{ selected_profile_payload.ktp_province or selected_profile_payload.province or '' }}" placeholder="Masukkan provinsi sesuai KTP" required>
+                </label>
+                <label>
+                    Kota sesuai KTP *
+                    <input type="text" name="ktp_city" value="{{ selected_profile_payload.ktp_city or selected_profile_payload.city or '' }}" placeholder="Masukkan kota sesuai KTP" required>
+                </label>
+                <label class="span-2">
+                    Alamat sesuai KTP *
+                    <textarea name="ktp_address" rows="4" placeholder="Masukkan alamat lengkap sesuai KTP" required>{{ selected_profile_payload.ktp_address or selected_profile_payload.address or '' }}</textarea>
+                </label>
+                <label>
+                    Kode POS sesuai alamat KTP *
+                    <input type="text" name="ktp_postal_code" value="{{ selected_profile_payload.ktp_postal_code or '' }}" placeholder="Kode POS" required>
+                </label>
+                <label>
+                    Kota tempat tinggal sekarang *
+                    <input type="text" name="domicile_city" value="{{ selected_profile_payload.domicile_city or selected_profile_payload.domicile or '' }}" placeholder="Masukkan kota domisili saat ini" required>
+                </label>
+                <label class="span-2">
+                    Alamat Domisili *
+                    <textarea name="domicile_address" rows="4" placeholder="Masukkan alamat tempat tinggal saat ini" required>{{ selected_profile_payload.domicile_address or '' }}</textarea>
+                </label>
+                <label class="span-2">
+                    Ringkasan Profil
+                    <textarea name="summary" rows="4" placeholder="Tulis ringkasan singkat tentang diri Anda, pengalaman, atau kesiapan penempatan">{{ selected_profile_payload.summary or '' }}</textarea>
+                </label>
+            </div>
+
+            {% elif selected_profile_section.key == 'family' %}
+            <div class="career-profile-grid">
+                <label>
+                    Nama kontak keluarga
+                    <input type="text" name="contact_name" value="{{ selected_profile_payload.contact_name or '' }}" placeholder="Masukkan nama keluarga">
+                </label>
+                <label>
+                    Hubungan
+                    <input type="text" name="relationship" value="{{ selected_profile_payload.relationship or '' }}" placeholder="Ayah, Ibu, Saudara, Pasangan">
+                </label>
+                <label>
+                    Nomor kontak
+                    <input type="text" name="contact_phone" value="{{ selected_profile_payload.contact_phone or '' }}" placeholder="62812xxxx">
+                </label>
+                <label class="span-2">
+                    Catatan keluarga
+                    <textarea name="notes" rows="5" placeholder="Tuliskan informasi keluarga yang perlu diketahui HR">{{ selected_profile_payload.notes or '' }}</textarea>
+                </label>
+            </div>
+
+            {% elif selected_profile_section.key == 'skills' %}
+            <div class="career-profile-grid">
+                <label class="span-2">
+                    Keterampilan utama
+                    <textarea name="core_skills" rows="4" placeholder="Pisahkan dengan koma atau tulis per baris">{{ selected_profile_payload.core_skills or '' }}</textarea>
+                </label>
+                <label>
+                    Tools / software
+                    <textarea name="tools" rows="5" placeholder="Contoh: Excel, Canva, SAP, Google Workspace">{{ selected_profile_payload.tools or '' }}</textarea>
+                </label>
+                <label>
+                    Sertifikasi
+                    <textarea name="certifications" rows="5" placeholder="Cantumkan sertifikasi yang pernah Anda raih">{{ selected_profile_payload.certifications or '' }}</textarea>
+                </label>
+            </div>
+
+            {% elif selected_profile_section.key == 'additional' %}
+            <div class="career-profile-grid">
+                <label>
+                    Domisili sekarang
+                    <input type="text" name="domicile" value="{{ selected_profile_payload.domicile or '' }}" placeholder="Contoh: Sleman">
+                </label>
+                <label>
+                    Preferensi area kerja
+                    <input type="text" name="preferred_area" value="{{ selected_profile_payload.preferred_area or '' }}" placeholder="Contoh: Sleman / Yogyakarta">
+                </label>
+                <label>
+                    Ekspektasi gaji
+                    <input type="text" name="salary_expectation" value="{{ selected_profile_payload.salary_expectation or '' }}" placeholder="Opsional">
+                </label>
+                <label class="span-2">
+                    Catatan tambahan
+                    <textarea name="notes" rows="5" placeholder="Tuliskan kesiapan join, jadwal interview, atau informasi lainnya">{{ selected_profile_payload.notes or '' }}</textarea>
+                </label>
+            </div>
+
+            {% elif selected_profile_section.key == 'documents' %}
+            <div class="career-profile-document-status-grid">
+                {% for item in selected_profile_document_statuses %}
+                <article class="career-profile-document-status-card {% if item.uploaded %}is-complete{% endif %}">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ 'Sudah diunggah' if item.uploaded else 'Belum diunggah' }}</span>
+                    {% if item.required %}
+                    <small>Wajib</small>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            </div>
+
+            <div class="career-profile-grid">
+                <label>
+                    Jenis Berkas *
+                    <select name="document_type">
+                        <option value="">Pilih jenis berkas</option>
+                        {% for item in profile_document_definitions %}
+                        <option value="{{ item.key }}">{{ item.label }}{% if item.required %} (Wajib){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Judul / Keterangan Dokumen
+                    <input type="text" name="document_label" placeholder="Dipakai untuk dokumen lain atau catatan tambahan">
+                </label>
+                <label class="span-2">
+                    Berkas
+                    <input type="file" name="document_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+                    <small>Format yang diterima: PDF, DOC, DOCX, JPG, JPEG, PNG. Maksimal 5 MB per file.</small>
+                </label>
+            </div>
+
+            {% if selected_profile_documents %}
+            <div class="career-profile-document-list">
+                {% for file in selected_profile_documents %}
+                <article class="career-profile-document-item">
+                    <div>
+                        <strong>{{ file.resolved_label or file.label or 'Dokumen' }}</strong>
+                        <p>{{ file.type_label or 'Dokumen' }}</p>
+                        <p>{{ file.uploaded_at or '' }}</p>
+                    </div>
+                    <div class="career-profile-document-actions">
+                        <a href="{{ file.url }}" target="_blank" rel="noopener">Buka</a>
+                        <button type="submit" name="remove_document_index" value="{{ loop.index0 }}">Hapus</button>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <article class="career-candidate-empty-inline">
+                <strong>Belum ada dokumen yang diunggah</strong>
+                <span>Mulai dari scan KTP, CV / Resume, dan ijazah terakhir agar profil kandidat lebih siap dibaca HR.</span>
+            </article>
+            {% endif %}
+
+            {% else %}
+            <div class="career-profile-grid">
+                <label class="span-2">
+                    Ringkasan {{ selected_profile_section.label|lower }}
+                    <textarea name="summary" rows="10" placeholder="Isi bagian {{ selected_profile_section.label|lower }} di sini">{{ selected_profile_payload.summary or '' }}</textarea>
+                </label>
+            </div>
+            {% endif %}
+
+            <div class="career-profile-form-actions">
+                <button type="submit" class="career-candidate-primary-action is-button">Simpan Perubahan</button>
+            </div>
+        </form>
+    </section>
+</section>
+{% endblock %}

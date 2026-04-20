@@ -434,6 +434,7 @@ const posCashierDisplay = document.getElementById("posCashierDisplay");
 const posTransactionDisplay = document.getElementById("posTransactionDisplay");
 const posPaymentMethod = document.getElementById("posPaymentMethod");
 const posPaymentMethodGrid = document.getElementById("posPaymentMethodGrid");
+const posCvTransactionButton = document.getElementById("posCvTransactionButton");
 const posNote = document.getElementById("posNote");
 const posDraftDisplay = document.getElementById("posDraftDisplay");
 const posDraftMeta = document.getElementById("posDraftMeta");
@@ -1620,6 +1621,18 @@ function setPosPaymentMethod(method) {
     }
 }
 
+function activatePosCvTransaction() {
+    if (isPosSplitPaymentEnabled() && posSplitPaymentToggle) {
+        posSplitPaymentToggle.checked = false;
+        syncPosSplitPaymentState();
+    }
+    setPosPaymentMethod("cv");
+    if (posPaidAmount) {
+        setPosCurrencyValue(posPaidAmount, getPosGrandTotal());
+    }
+    updatePosChangePreview();
+}
+
 function isPosSplitPaymentEnabled() {
     return Boolean(posSplitPaymentToggle?.checked);
 }
@@ -2608,6 +2621,10 @@ posPaymentMethodGrid?.addEventListener("click", (event) => {
     }
     setPosPaymentMethod(button.dataset.posPaymentMethod || "cash");
     updatePosChangePreview();
+});
+
+posCvTransactionButton?.addEventListener("click", () => {
+    activatePosCvTransaction();
 });
 
 posSplitPaymentToggle?.addEventListener("change", () => {

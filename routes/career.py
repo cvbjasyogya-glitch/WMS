@@ -1,27 +1,31 @@
 import hashlib
+import os
 import re
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
+from uuid import uuid4
 
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 from database import get_db
 from services.career_service import (
     activate_career_public_account,
     create_public_account_request,
+    decode_career_public_profile_payload,
     encode_recruitment_homebase_ids,
     get_career_public_account_by_email,
     get_career_public_account_by_id,
+    get_career_public_profile_sections,
+    get_career_public_saved_opening_ids,
     get_career_public_account_by_verification_token,
     issue_career_public_account_verification,
     mark_public_account_request_status_by_email,
     assign_candidate_assessment_code,
     decode_assessment_answers,
     encode_assessment_answers,
-    ensure_candidate_assessment_code,
     ensure_career_schema,
-    extract_inserted_row_id,
     find_duplicate_public_application,
     normalize_assessment_code,
     normalize_assessment_duration_minutes,
@@ -30,13 +34,17 @@ from services.career_service import (
     normalize_candidate_phone,
     normalize_candidate_portfolio_url,
     normalize_career_public_account_status,
+    normalize_career_public_profile_section_key,
     normalize_career_assessment_status,
     normalize_career_application_channel,
     normalize_career_employment_type,
     save_career_resume,
     score_assessment_questions,
+    set_career_public_saved_opening_state,
     touch_career_public_account_login,
+    update_career_public_account_password_hash,
     upsert_career_public_account,
+    upsert_career_public_profile_section,
 )
 from services.notification_service import send_email
 
@@ -52,6 +60,135 @@ PUBLIC_CAREER_SITE_DISPLAY = {
         "unit_label": "Mataram Sports Yogyakarta",
         "area_label": "Yogyakarta",
     },
+}
+CAREER_PROFILE_SECTION_DEFINITIONS = [
+    {
+        "key": "personal",
+        "label": "Pribadi",
+        "title": "Data Pribadi",
+        "empty_label": "Harus dilengkapi",
+        "summary": "Lengkapi identitas dasar, data KTP, domisili, dan kontak aktif agar HR lebih mudah membaca profil kandidat Anda.",
+    },
+    {
+        "key": "family",
+        "label": "Keluarga",
+        "title": "Data Keluarga",
+        "empty_label": "Harus dilengkapi",
+        "summary": "Tambahkan kontak keluarga atau pihak yang bisa dihubungi saat dibutuhkan untuk verifikasi lanjutan.",
+    },
+    {
+        "key": "education",
+        "label": "Pendidikan",
+        "title": "Riwayat Pendidikan",
+        "empty_label": "Harus dilengkapi",
+        "summary": "Cantumkan sekolah, jurusan, dan ringkasan pendidikan formal yang paling relevan dengan posisi pilihan Anda.",
+    },
+    {
+        "key": "experience",
+        "label": "Pengalaman",
+        "title": "Pengalaman Kerja",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Jelaskan pengalaman kerja, magang, freelance, atau proyek yang pernah Anda jalankan.",
+    },
+    {
+        "key": "skills",
+        "label": "Keterampilan",
+        "title": "Keterampilan",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Masukkan keterampilan utama, tools, dan sertifikasi yang ingin Anda tonjolkan ke tim rekrutmen.",
+    },
+    {
+        "key": "organization",
+        "label": "Organisasi",
+        "title": "Pengalaman Organisasi",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Isi pengalaman organisasi, volunteer, atau kepanitiaan yang menunjukkan kepemimpinan dan kolaborasi.",
+    },
+    {
+        "key": "training",
+        "label": "Training",
+        "title": "Training & Workshop",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Sebutkan pelatihan, workshop, dan pembelajaran nonformal yang pernah Anda ikuti.",
+    },
+    {
+        "key": "achievement",
+        "label": "Prestasi",
+        "title": "Prestasi",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Tampilkan pencapaian akademik, profesional, atau penghargaan yang relevan dengan peran yang Anda incar.",
+    },
+    {
+        "key": "language",
+        "label": "Bahasa",
+        "title": "Kemampuan Bahasa",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Jelaskan bahasa yang Anda kuasai beserta tingkat kemampuan yang Anda miliki.",
+    },
+    {
+        "key": "passion",
+        "label": "Passion",
+        "title": "Passion & Minat Karier",
+        "empty_label": "Lebih baik dilengkapi",
+        "summary": "Ceritakan bidang yang paling Anda minati dan peran seperti apa yang paling cocok dengan karakter Anda.",
+    },
+    {
+        "key": "additional",
+        "label": "Info Lain",
+        "title": "Informasi Tambahan",
+        "empty_label": "Harus dilengkapi",
+        "summary": "Tambahkan domisili, preferensi penempatan, ekspektasi gaji, dan catatan lain yang perlu diketahui HR.",
+    },
+    {
+        "key": "documents",
+        "label": "Upload Berkas",
+        "title": "Upload Berkas Pendukung",
+        "empty_label": "Harus dilengkapi",
+        "summary": "Unggah scan KTP, CV / Resume, ijazah terakhir, dan dokumen pendukung lain agar profil kandidat siap diproses HR.",
+    },
+]
+CAREER_PROFILE_SECTION_KEYS = {section["key"] for section in CAREER_PROFILE_SECTION_DEFINITIONS}
+CAREER_PUBLIC_MEDIA_EXTENSIONS = {
+    "photo": {".jpg", ".jpeg", ".png", ".webp"},
+    "document": {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"},
+}
+CAREER_PUBLIC_MEDIA_LIMITS = {
+    "photo": 2 * 1024 * 1024,
+    "document": 5 * 1024 * 1024,
+}
+CAREER_PROFILE_RELIGION_OPTIONS = [
+    ("islam", "Islam"),
+    ("kristen", "Kristen"),
+    ("katolik", "Katolik"),
+    ("hindu", "Hindu"),
+    ("buddha", "Buddha"),
+    ("konghucu", "Konghucu"),
+    ("other", "Lainnya"),
+]
+CAREER_PROFILE_GENDER_OPTIONS = [
+    ("male", "Laki-laki"),
+    ("female", "Perempuan"),
+]
+CAREER_PROFILE_MARITAL_STATUS_OPTIONS = [
+    ("single", "Lajang"),
+    ("married", "Menikah"),
+    ("divorced", "Cerai"),
+    ("other", "Lainnya"),
+]
+CAREER_PROFILE_DOCUMENT_DEFINITIONS = [
+    {"key": "ktp_scan", "label": "Scan KTP", "required": True},
+    {"key": "cv_resume", "label": "CV / Resume", "required": True},
+    {"key": "last_diploma", "label": "Ijazah Terakhir", "required": True},
+    {"key": "npwp_scan", "label": "Scan NPWP", "required": False},
+    {"key": "transcript", "label": "Transkrip Nilai", "required": False},
+    {"key": "certificate", "label": "Sertifikat Pendukung", "required": False},
+    {"key": "other", "label": "Dokumen Lain", "required": False},
+]
+CAREER_PROFILE_DOCUMENT_TYPE_MAP = {
+    item["key"]: item for item in CAREER_PROFILE_DOCUMENT_DEFINITIONS
+}
+CAREER_PROFILE_REQUIRED_DOCUMENT_TYPES = {
+    item["key"] for item in CAREER_PROFILE_DOCUMENT_DEFINITIONS if item.get("required")
 }
 
 
@@ -312,6 +449,404 @@ def inject_career_public_context():
         "career_public_account_name": active_account.get("full_name") if active_account else "",
         "career_public_account_email": active_account.get("email") if active_account else "",
     }
+
+
+def _get_career_public_request_path():
+    target_path = request.full_path if request.query_string else request.path
+    if target_path.endswith("?"):
+        target_path = target_path[:-1]
+    if not target_path.startswith("/"):
+        target_path = f"/{target_path}"
+    return _safe_career_public_next_target(target_path) or "/karir"
+
+
+def _redirect_career_public_signin(next_target=None, flow="signin"):
+    return _redirect_career_public_with_next(
+        "career.signin_page",
+        flow=flow,
+        next_target=next_target or _get_career_public_request_path(),
+    )
+
+
+def _require_career_public_account(db=None):
+    account = _get_current_career_public_account(db)
+    if account:
+        return account, None
+    flash("Silakan masuk ke akun kandidat terlebih dahulu.", "error")
+    return None, _redirect_career_public_signin()
+
+
+def _normalize_profile_text(value):
+    return " ".join(str(value or "").strip().split())
+
+
+def _normalize_profile_textarea(value):
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
+def _normalize_profile_date(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return ""
+    try:
+        return datetime.strptime(safe_value[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+
+
+def _normalize_profile_document_type(value):
+    safe_value = str(value or "").strip().lower()
+    return safe_value if safe_value in CAREER_PROFILE_DOCUMENT_TYPE_MAP else ""
+
+
+def _resolve_profile_document_label(document_type, custom_label=""):
+    safe_type = _normalize_profile_document_type(document_type)
+    safe_custom_label = _normalize_profile_text(custom_label)
+    if safe_type == "other" and safe_custom_label:
+        return safe_custom_label
+    return (
+        (CAREER_PROFILE_DOCUMENT_TYPE_MAP.get(safe_type) or {}).get("label")
+        or safe_custom_label
+        or "Dokumen"
+    )
+
+
+def _normalize_career_profile_section_payload(section_key, form_data, *, existing_payload=None):
+    safe_key = normalize_career_public_profile_section_key(section_key)
+    current_payload = dict(existing_payload or {})
+    if not safe_key:
+        return {}
+
+    if safe_key == "personal":
+        photo_path = current_payload.get("photo_path") or ""
+        gender_value = str(form_data.get("gender") or "").strip().lower()
+        marital_status_value = str(form_data.get("marital_status") or "").strip().lower()
+        religion_value = str(form_data.get("religion") or "").strip().lower()
+        return {
+            "full_name": normalize_candidate_identity_name(form_data.get("full_name")),
+            "email": normalize_candidate_email(form_data.get("email")),
+            "phone": normalize_candidate_phone(form_data.get("phone")),
+            "ktp_number": "".join(ch for ch in str(form_data.get("ktp_number") or "") if ch.isdigit())[:24],
+            "npwp_number": "".join(ch for ch in str(form_data.get("npwp_number") or "") if ch.isdigit())[:24],
+            "linkedin_url": normalize_candidate_portfolio_url(form_data.get("linkedin_url")),
+            "instagram_handle": _normalize_profile_text(form_data.get("instagram_handle")).lstrip("@"),
+            "birth_place": _normalize_profile_text(form_data.get("birth_place")),
+            "birth_date": _normalize_profile_date(form_data.get("birth_date")),
+            "gender": gender_value if gender_value in {value for value, _ in CAREER_PROFILE_GENDER_OPTIONS} else "",
+            "marital_status": (
+                marital_status_value
+                if marital_status_value in {value for value, _ in CAREER_PROFILE_MARITAL_STATUS_OPTIONS}
+                else ""
+            ),
+            "religion": (
+                religion_value
+                if religion_value in {value for value, _ in CAREER_PROFILE_RELIGION_OPTIONS}
+                else ""
+            ),
+            "ktp_province": _normalize_profile_text(form_data.get("ktp_province")),
+            "ktp_city": _normalize_profile_text(form_data.get("ktp_city")),
+            "ktp_address": _normalize_profile_textarea(form_data.get("ktp_address")),
+            "ktp_postal_code": "".join(ch for ch in str(form_data.get("ktp_postal_code") or "") if ch.isdigit())[:10],
+            "domicile_city": _normalize_profile_text(form_data.get("domicile_city")),
+            "domicile_address": _normalize_profile_textarea(form_data.get("domicile_address")),
+            "address": _normalize_profile_textarea(form_data.get("address") or form_data.get("ktp_address")),
+            "city": _normalize_profile_text(form_data.get("city") or form_data.get("ktp_city")),
+            "province": _normalize_profile_text(form_data.get("province") or form_data.get("ktp_province")),
+            "summary": _normalize_profile_textarea(form_data.get("summary")),
+            "photo_path": photo_path,
+        }
+
+    if safe_key == "family":
+        return {
+            "contact_name": _normalize_profile_text(form_data.get("contact_name")),
+            "relationship": _normalize_profile_text(form_data.get("relationship")),
+            "contact_phone": normalize_candidate_phone(form_data.get("contact_phone")),
+            "notes": _normalize_profile_textarea(form_data.get("notes")),
+        }
+
+    if safe_key == "skills":
+        return {
+            "core_skills": _normalize_profile_textarea(form_data.get("core_skills")),
+            "tools": _normalize_profile_textarea(form_data.get("tools")),
+            "certifications": _normalize_profile_textarea(form_data.get("certifications")),
+        }
+
+    if safe_key == "additional":
+        return {
+            "domicile": _normalize_profile_text(form_data.get("domicile")),
+            "preferred_area": _normalize_profile_text(form_data.get("preferred_area")),
+            "salary_expectation": _normalize_profile_text(form_data.get("salary_expectation")),
+            "notes": _normalize_profile_textarea(form_data.get("notes")),
+        }
+
+    if safe_key == "documents":
+        files = current_payload.get("files")
+        if not isinstance(files, list):
+            files = []
+        return {"files": files}
+
+    return {"summary": _normalize_profile_textarea(form_data.get("summary"))}
+
+
+def _is_profile_payload_complete(section_key, payload, account=None):
+    safe_key = normalize_career_public_profile_section_key(section_key)
+    safe_payload = dict(payload or {})
+    if safe_key == "personal":
+        full_name = normalize_candidate_identity_name(safe_payload.get("full_name") or (account or {}).get("full_name"))
+        email = normalize_candidate_email(safe_payload.get("email") or (account or {}).get("email"))
+        phone = normalize_candidate_phone(safe_payload.get("phone"))
+        ktp_number = "".join(ch for ch in str(safe_payload.get("ktp_number") or "") if ch.isdigit())
+        linkedin_url = normalize_candidate_portfolio_url(safe_payload.get("linkedin_url"))
+        instagram_handle = _normalize_profile_text(safe_payload.get("instagram_handle")).lstrip("@")
+        birth_place = _normalize_profile_text(safe_payload.get("birth_place"))
+        birth_date = _normalize_profile_date(safe_payload.get("birth_date"))
+        gender = str(safe_payload.get("gender") or "").strip().lower()
+        marital_status = str(safe_payload.get("marital_status") or "").strip().lower()
+        religion = str(safe_payload.get("religion") or "").strip().lower()
+        ktp_province = _normalize_profile_text(safe_payload.get("ktp_province"))
+        ktp_city = _normalize_profile_text(safe_payload.get("ktp_city"))
+        ktp_address = _normalize_profile_textarea(safe_payload.get("ktp_address"))
+        ktp_postal_code = "".join(ch for ch in str(safe_payload.get("ktp_postal_code") or "") if ch.isdigit())
+        domicile_city = _normalize_profile_text(safe_payload.get("domicile_city"))
+        domicile_address = _normalize_profile_textarea(safe_payload.get("domicile_address"))
+        return bool(
+            full_name
+            and email
+            and phone
+            and ktp_number
+            and linkedin_url
+            and instagram_handle
+            and birth_place
+            and birth_date
+            and gender
+            and marital_status
+            and religion
+            and ktp_province
+            and ktp_city
+            and ktp_address
+            and ktp_postal_code
+            and domicile_city
+            and domicile_address
+        )
+
+    if safe_key == "family":
+        return bool(
+            _normalize_profile_text(safe_payload.get("contact_name"))
+            and normalize_candidate_phone(safe_payload.get("contact_phone"))
+        )
+
+    if safe_key == "education":
+        return bool(_normalize_profile_textarea(safe_payload.get("summary")))
+
+    if safe_key == "additional":
+        return bool(
+            _normalize_profile_text(safe_payload.get("domicile"))
+            and _normalize_profile_text(safe_payload.get("preferred_area"))
+        )
+
+    if safe_key == "documents":
+        files = safe_payload.get("files")
+        if not isinstance(files, list):
+            return False
+        existing_types = {
+            _normalize_profile_document_type(item.get("document_type"))
+            for item in files
+            if isinstance(item, dict)
+        }
+        return CAREER_PROFILE_REQUIRED_DOCUMENT_TYPES.issubset(existing_types)
+
+    return any(
+        bool(_normalize_profile_textarea(value) if isinstance(value, str) else value)
+        for value in safe_payload.values()
+    )
+
+
+def _build_profile_section_state(account, stored_sections):
+    safe_account = dict(account or {})
+    states = []
+    for definition in CAREER_PROFILE_SECTION_DEFINITIONS:
+        section_key = definition["key"]
+        stored_state = dict((stored_sections or {}).get(section_key) or {})
+        payload = dict(stored_state.get("payload") or {})
+        completion_state = "complete" if _is_profile_payload_complete(section_key, payload, safe_account) else "incomplete"
+        states.append(
+            {
+                **definition,
+                "payload": payload,
+                "completion_state": completion_state,
+                "status_label": "Lengkap" if completion_state == "complete" else definition["empty_label"],
+            }
+        )
+    return states
+
+
+def _get_profile_section_definition(section_key):
+    safe_key = normalize_career_public_profile_section_key(section_key)
+    for definition in CAREER_PROFILE_SECTION_DEFINITIONS:
+        if definition["key"] == safe_key:
+            return definition
+    return CAREER_PROFILE_SECTION_DEFINITIONS[0]
+
+
+def _get_candidate_personal_profile_payload(db, account_id):
+    sections = get_career_public_profile_sections(db, account_id)
+    payload = dict((sections.get("personal") or {}).get("payload") or {})
+    return payload
+
+
+def _get_candidate_additional_profile_payload(db, account_id):
+    sections = get_career_public_profile_sections(db, account_id)
+    payload = dict((sections.get("additional") or {}).get("payload") or {})
+    return payload
+
+
+def _get_career_public_media_root(media_kind):
+    safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
+    root_path = os.path.join(current_app.instance_path, "career_public_media", safe_kind)
+    os.makedirs(root_path, exist_ok=True)
+    return root_path
+
+
+def _save_career_public_media(file_storage, media_kind):
+    if file_storage is None:
+        return ""
+    original_name = secure_filename(file_storage.filename or "")
+    if not original_name:
+        return ""
+
+    safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
+    extension = os.path.splitext(original_name)[1].lower()
+    if extension not in CAREER_PUBLIC_MEDIA_EXTENSIONS[safe_kind]:
+        raise ValueError(
+            "Format foto harus JPG, JPEG, PNG, atau WEBP."
+            if safe_kind == "photo"
+            else "Format dokumen harus PDF, DOC, DOCX, JPG, JPEG, atau PNG."
+        )
+
+    content_length = getattr(file_storage, "content_length", None)
+    max_bytes = CAREER_PUBLIC_MEDIA_LIMITS[safe_kind]
+    if content_length and int(content_length or 0) > max_bytes:
+        raise ValueError(
+            "Ukuran foto maksimal 2 MB." if safe_kind == "photo" else "Ukuran dokumen maksimal 5 MB."
+        )
+
+    stored_name = f"{uuid4().hex}{extension}"
+    file_storage.save(os.path.join(_get_career_public_media_root(safe_kind), stored_name))
+    return stored_name
+
+
+def _career_public_media_url(media_kind, stored_name):
+    safe_name = secure_filename(stored_name or "")
+    if not safe_name:
+        return ""
+    safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
+    return url_for("career.public_media", media_kind=safe_kind, filename=safe_name)
+
+
+def _fetch_candidate_workspace_applications(db, account):
+    safe_account = dict(account or {})
+    try:
+        account_id = int(safe_account.get("id") or 0)
+    except (TypeError, ValueError):
+        account_id = 0
+    account_email = normalize_candidate_email(safe_account.get("email"))
+    if account_id <= 0 and not account_email:
+        return []
+
+    rows = db.execute(
+        """
+        SELECT
+            r.*,
+            o.title AS vacancy_title,
+            o.description AS vacancy_description,
+            o.requirements AS vacancy_requirements,
+            o.location_label AS opening_location_label,
+            o.employment_type AS opening_employment_type,
+            w.name AS warehouse_name
+        FROM recruitment_candidates r
+        LEFT JOIN career_openings o ON r.vacancy_id = o.id
+        LEFT JOIN warehouses w ON r.warehouse_id = w.id
+        WHERE r.application_channel=?
+          AND (
+              r.public_account_id=?
+              OR (r.public_account_id IS NULL AND LOWER(COALESCE(r.email, ''))=LOWER(?))
+          )
+        ORDER BY r.created_at DESC, r.id DESC
+        """,
+        (
+            normalize_career_application_channel("public_portal"),
+            account_id,
+            account_email,
+        ),
+    ).fetchall()
+    applications = []
+    for row in rows:
+        application = _annotate_public_candidate_display(dict(row))
+        application["title_display"] = application.get("vacancy_title") or application.get("position_title") or "Posisi aktif"
+        application["employment_type_display"] = normalize_career_employment_type(
+            application.get("opening_employment_type") or application.get("employment_type")
+        ).replace("_", " ").title()
+        application["status_label"] = str(application.get("status") or "active").replace("_", " ").title()
+        application["stage_label"] = str(application.get("stage") or "applied").replace("_", " ").title()
+        application["detail_url"] = (
+            build_career_public_url("career.opening_detail", opening_id=int(application["vacancy_id"]))
+            if int(application.get("vacancy_id") or 0) > 0
+            else build_career_public_url("career.index")
+        )
+        application["assessment_ready"] = bool(
+            normalize_assessment_code(application.get("assessment_code"))
+        )
+        application["assessment_url"] = (
+            build_career_public_url("career.assessment", code=application.get("assessment_code"))
+            if application["assessment_ready"]
+            else ""
+        )
+        application["assessment_code_display"] = (
+            application.get("assessment_code")
+            if application["assessment_ready"]
+            else "Menunggu screening HR"
+        )
+        application["progress_note"] = (
+            "Kode tes sudah tersedia. Silakan cek email atau lanjut dari tombol tes ketika siap mengerjakan."
+            if application["assessment_ready"]
+            else "Lamaran sudah masuk ke pipeline rekrutmen. Tim HR akan melakukan screening awal terlebih dahulu sebelum mengirim kode tes ke email Anda."
+        )
+        applications.append(application)
+    return applications
+
+
+def _fetch_candidate_workspace_saved_openings(db, account_id):
+    saved_opening_ids = get_career_public_saved_opening_ids(db, account_id)
+    if not saved_opening_ids:
+        return []
+    openings = _fetch_public_openings(db)
+    saved_openings = []
+    for opening in openings:
+        if int(opening.get("id") or 0) in saved_opening_ids:
+            safe_opening = dict(opening)
+            safe_opening["is_saved"] = True
+            saved_openings.append(safe_opening)
+    return saved_openings
+
+
+def _decorate_workspace_openings(openings, saved_opening_ids=None, applications=None):
+    saved_ids = {int(item) for item in (saved_opening_ids or set()) if str(item).isdigit()}
+    application_map = {}
+    for application in applications or []:
+        vacancy_id = int(application.get("vacancy_id") or 0)
+        if vacancy_id > 0 and vacancy_id not in application_map:
+            application_map[vacancy_id] = application
+
+    decorated = []
+    for opening in openings or []:
+        safe_opening = dict(opening)
+        opening_id = int(safe_opening.get("id") or 0)
+        application = application_map.get(opening_id)
+        safe_opening["is_saved"] = opening_id in saved_ids
+        safe_opening["has_applied"] = application is not None
+        safe_opening["application"] = application
+        decorated.append(safe_opening)
+    return decorated
 
 
 def _fetch_public_openings(db, selected_warehouse=None):
@@ -620,6 +1155,7 @@ def _reset_candidate_assessment_session(db, candidate):
 def index():
     db = get_db()
     ensure_career_schema(db)
+    active_account = _get_current_career_public_account(db)
 
     initial_query, initial_department, initial_type_filter, selected_warehouse_id = _parse_public_opening_filters()
 
@@ -634,6 +1170,33 @@ def index():
             employment_type=initial_type_filter,
         )
     ]
+    if active_account:
+        applications = _fetch_candidate_workspace_applications(db, active_account)
+        saved_opening_ids = get_career_public_saved_opening_ids(db, active_account["id"])
+        openings = _decorate_workspace_openings(
+            openings,
+            saved_opening_ids=saved_opening_ids,
+            applications=applications,
+        )
+        selected_opening_id = request.args.get("vacancy", "").strip()
+        try:
+            selected_opening_id = int(selected_opening_id) if selected_opening_id else None
+        except ValueError:
+            selected_opening_id = None
+        selected_opening = next((opening for opening in openings if opening["id"] == selected_opening_id), None)
+        return render_template(
+            "career_candidate_jobs.html",
+            candidate_account=active_account,
+            openings=openings,
+            selected_opening=selected_opening,
+            initial_query=initial_query,
+            initial_department=initial_department,
+            initial_type_filter=initial_type_filter,
+            selected_warehouse_id=selected_warehouse_id,
+            candidate_application_count=len(applications),
+            candidate_saved_count=len(saved_opening_ids),
+        )
+
     warehouses = [
         _annotate_public_warehouse_display(dict(row))
         for row in db.execute("SELECT id, name FROM warehouses ORDER BY name ASC").fetchall()
@@ -910,11 +1473,351 @@ def signout_public_account():
     return _redirect_career_public("career.signin_page", flow="signin")
 
 
+@career_bp.route("/karir/media/<media_kind>/<path:filename>")
+def public_media(media_kind, filename):
+    account, redirect_response = _require_career_public_account()
+    if redirect_response:
+        return redirect_response
+    del account
+
+    safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
+    safe_name = secure_filename(filename or "")
+    if not safe_name:
+        return redirect(build_career_public_url("career.profile_page"))
+    return send_from_directory(
+        _get_career_public_media_root(safe_kind),
+        safe_name,
+        as_attachment=safe_kind == "document",
+    )
+
+
+@career_bp.route("/karir/lamaran")
+def applications_page():
+    db = get_db()
+    ensure_career_schema(db)
+    account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+
+    applications = _fetch_candidate_workspace_applications(db, account)
+    saved_openings = get_career_public_saved_opening_ids(db, account["id"])
+    return render_template(
+        "career_candidate_applications.html",
+        candidate_account=account,
+        applications=applications,
+        candidate_application_count=len(applications),
+        candidate_saved_count=len(saved_openings),
+    )
+
+
+@career_bp.route("/karir/tersimpan")
+def saved_openings_page():
+    db = get_db()
+    ensure_career_schema(db)
+    account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+
+    saved_openings = _fetch_candidate_workspace_saved_openings(db, account["id"])
+    applications = _fetch_candidate_workspace_applications(db, account)
+    application_map = {int(item.get("vacancy_id") or 0): item for item in applications if int(item.get("vacancy_id") or 0) > 0}
+    for opening in saved_openings:
+        opening["has_applied"] = int(opening.get("id") or 0) in application_map
+        opening["application"] = application_map.get(int(opening.get("id") or 0))
+
+    return render_template(
+        "career_candidate_saved.html",
+        candidate_account=account,
+        saved_openings=saved_openings,
+        candidate_application_count=len(applications),
+        candidate_saved_count=len(saved_openings),
+    )
+
+
+@career_bp.route("/karir/tersimpan/toggle", methods=["POST"])
+def toggle_saved_opening():
+    db = get_db()
+    ensure_career_schema(db)
+    account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+
+    payload = request.get_json(silent=True) if request.is_json else {}
+    opening_id_raw = (
+        request.form.get("opening_id")
+        or (payload or {}).get("opening_id")
+        or ""
+    )
+    next_target = _safe_career_public_next_target(
+        request.form.get("next") or (payload or {}).get("next")
+    )
+    try:
+        opening_id = int(str(opening_id_raw or "").strip())
+    except (TypeError, ValueError):
+        opening_id = 0
+    opening = _fetch_public_opening_by_id(db, opening_id)
+    if not opening:
+        flash("Lowongan tidak ditemukan.", "error")
+        if request.is_json:
+            return jsonify({"ok": False, "message": "Lowongan tidak ditemukan."}), 404
+        return redirect(next_target or build_career_public_url("career.index"))
+
+    saved_ids = get_career_public_saved_opening_ids(db, account["id"])
+    is_saved = int(opening["id"]) not in saved_ids
+    set_career_public_saved_opening_state(db, account["id"], opening["id"], is_saved=is_saved)
+    db.commit()
+    message = "Lowongan disimpan ke daftar tersimpan." if is_saved else "Lowongan dihapus dari daftar tersimpan."
+    if request.is_json:
+        return jsonify({"ok": True, "saved": is_saved, "message": message})
+    flash(message, "success" if is_saved else "info")
+    return redirect(next_target or build_career_public_url("career.index", vacancy=opening["id"]))
+
+
+@career_bp.route("/karir/profil", methods=["GET", "POST"])
+def profile_page():
+    db = get_db()
+    ensure_career_schema(db)
+    account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+
+    selected_section_key = normalize_career_public_profile_section_key(
+        request.values.get("section") or request.args.get("tab")
+    ) or "personal"
+    stored_sections = get_career_public_profile_sections(db, account["id"])
+    current_payload = dict((stored_sections.get(selected_section_key) or {}).get("payload") or {})
+
+    if request.method == "POST":
+        payload = _normalize_career_profile_section_payload(
+            selected_section_key,
+            request.form,
+            existing_payload=current_payload,
+        )
+        if selected_section_key == "personal":
+            photo_file = request.files.get("photo_file")
+            if photo_file and (photo_file.filename or "").strip():
+                try:
+                    payload["photo_path"] = _save_career_public_media(photo_file, "photo")
+                except ValueError as exc:
+                    flash(str(exc), "error")
+                    return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
+
+            full_name = normalize_candidate_identity_name(payload.get("full_name")) or account.get("full_name") or ""
+            db.execute(
+                """
+                UPDATE career_public_accounts
+                SET full_name=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (full_name, account["id"]),
+            )
+        elif selected_section_key == "documents":
+            files = payload.get("files")
+            if not isinstance(files, list):
+                files = []
+            remove_index_raw = request.form.get("remove_document_index")
+            try:
+                remove_index = int(remove_index_raw) if str(remove_index_raw or "").strip() else -1
+            except (TypeError, ValueError):
+                remove_index = -1
+            if 0 <= remove_index < len(files):
+                files.pop(remove_index)
+            uploaded_single = request.files.get("document_file")
+            selected_document_type = _normalize_profile_document_type(request.form.get("document_type"))
+            custom_document_label = _normalize_profile_text(request.form.get("document_label"))
+
+            uploaded_files = []
+            if uploaded_single and (uploaded_single.filename or "").strip():
+                uploaded_files.append((uploaded_single, selected_document_type, custom_document_label))
+            else:
+                for uploaded in request.files.getlist("documents"):
+                    if not uploaded or not (uploaded.filename or "").strip():
+                        continue
+                    uploaded_files.append((uploaded, "other", ""))
+
+            if uploaded_files and not selected_document_type and uploaded_single and (uploaded_single.filename or "").strip():
+                flash("Pilih jenis berkas terlebih dahulu sebelum upload dokumen.", "error")
+                return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
+
+            for uploaded, document_type, custom_label in uploaded_files:
+                try:
+                    stored_name = _save_career_public_media(uploaded, "document")
+                except ValueError as exc:
+                    flash(str(exc), "error")
+                    return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
+                normalized_type = _normalize_profile_document_type(document_type) or "other"
+                normalized_label = _resolve_profile_document_label(normalized_type, custom_label or secure_filename(uploaded.filename or ""))
+                files = [
+                    item
+                    for item in files
+                    if not (
+                        isinstance(item, dict)
+                        and _normalize_profile_document_type(item.get("document_type")) == normalized_type
+                        and normalized_type != "other"
+                    )
+                ]
+                files.append(
+                    {
+                        "document_type": normalized_type,
+                        "label": normalized_label,
+                        "stored_name": stored_name,
+                        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                )
+            payload["files"] = files
+
+        completion_state = "complete" if _is_profile_payload_complete(selected_section_key, payload, account) else "incomplete"
+        upsert_career_public_profile_section(
+            db,
+            account["id"],
+            selected_section_key,
+            payload,
+            completion_state=completion_state,
+        )
+        db.commit()
+        if selected_section_key == "personal":
+            account = get_career_public_account_by_id(db, account["id"]) or account
+            _set_career_public_session(account)
+        flash("Profil kandidat berhasil diperbarui.", "success")
+        return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
+
+    stored_sections = get_career_public_profile_sections(db, account["id"])
+    section_states = _build_profile_section_state(account, stored_sections)
+    selected_section = next(
+        (item for item in section_states if item["key"] == selected_section_key),
+        section_states[0],
+    )
+    selected_payload = dict(selected_section.get("payload") or {})
+    personal_section_payload = dict((stored_sections.get("personal") or {}).get("payload") or {})
+    if selected_section_key == "personal":
+        selected_payload.setdefault("full_name", account.get("full_name") or "")
+        selected_payload.setdefault("email", account.get("email") or "")
+    selected_photo_url = _career_public_media_url("photo", selected_payload.get("photo_path")) if selected_section_key == "personal" else ""
+    account_photo_url = _career_public_media_url("photo", personal_section_payload.get("photo_path"))
+    document_files = []
+    for file_entry in (selected_payload.get("files") if selected_section_key == "documents" else []) or []:
+        if not isinstance(file_entry, dict):
+            continue
+        safe_name = secure_filename(file_entry.get("stored_name") or "")
+        if not safe_name:
+            continue
+        document_files.append(
+            {
+                **file_entry,
+                "document_type": _normalize_profile_document_type(file_entry.get("document_type")) or "other",
+                "resolved_label": _resolve_profile_document_label(
+                    file_entry.get("document_type"),
+                    file_entry.get("label"),
+                ),
+                "type_label": _resolve_profile_document_label(file_entry.get("document_type")),
+                "url": _career_public_media_url("document", safe_name),
+            }
+        )
+    document_files.sort(
+        key=lambda item: (
+            next(
+                (
+                    index
+                    for index, definition in enumerate(CAREER_PROFILE_DOCUMENT_DEFINITIONS)
+                    if definition["key"] == item.get("document_type")
+                ),
+                len(CAREER_PROFILE_DOCUMENT_DEFINITIONS),
+            ),
+            (item.get("resolved_label") or "").lower(),
+        )
+    )
+    document_status_cards = []
+    document_file_map = {
+        _normalize_profile_document_type(item.get("document_type")): item
+        for item in document_files
+        if item.get("document_type") != "other"
+    }
+    for definition in CAREER_PROFILE_DOCUMENT_DEFINITIONS:
+        matched_file = document_file_map.get(definition["key"])
+        document_status_cards.append(
+            {
+                **definition,
+                "uploaded": matched_file is not None,
+                "file": matched_file,
+            }
+        )
+
+    applications = _fetch_candidate_workspace_applications(db, account)
+    saved_openings = get_career_public_saved_opening_ids(db, account["id"])
+    return render_template(
+        "career_candidate_profile.html",
+        candidate_account=account,
+        profile_sections=section_states,
+        selected_profile_section=selected_section,
+        selected_profile_payload=selected_payload,
+        candidate_profile_photo_url=account_photo_url,
+        selected_profile_photo_url=selected_photo_url,
+        selected_profile_documents=document_files,
+        selected_profile_document_statuses=document_status_cards,
+        profile_document_definitions=CAREER_PROFILE_DOCUMENT_DEFINITIONS,
+        profile_gender_options=CAREER_PROFILE_GENDER_OPTIONS,
+        profile_marital_status_options=CAREER_PROFILE_MARITAL_STATUS_OPTIONS,
+        profile_religion_options=CAREER_PROFILE_RELIGION_OPTIONS,
+        candidate_application_count=len(applications),
+        candidate_saved_count=len(saved_openings),
+    )
+
+
+@career_bp.route("/karir/password", methods=["GET", "POST"])
+def password_page():
+    db = get_db()
+    ensure_career_schema(db)
+    account, redirect_response = _require_career_public_account(db)
+    if redirect_response:
+        return redirect_response
+
+    if request.method == "POST":
+        current_password = (request.form.get("current_password") or "").strip()
+        new_password = (request.form.get("new_password") or "").strip()
+        confirmation = (request.form.get("password_confirmation") or "").strip()
+
+        if not current_password or not new_password or not confirmation:
+            flash("Kata sandi lama, kata sandi baru, dan konfirmasi wajib diisi.", "error")
+            return redirect(build_career_public_url("career.password_page"))
+        if not check_password_hash(account.get("password_hash") or "", current_password):
+            flash("Kata sandi lama tidak sesuai.", "error")
+            return redirect(build_career_public_url("career.password_page"))
+        if len(new_password) < 8:
+            flash("Kata sandi baru minimal 8 karakter.", "error")
+            return redirect(build_career_public_url("career.password_page"))
+        if new_password != confirmation:
+            flash("Konfirmasi kata sandi belum sama.", "error")
+            return redirect(build_career_public_url("career.password_page"))
+
+        updated_account = update_career_public_account_password_hash(
+            db,
+            account["id"],
+            generate_password_hash(new_password),
+        )
+        db.commit()
+        if updated_account:
+            _set_career_public_session(updated_account)
+        flash("Kata sandi akun kandidat berhasil diperbarui.", "success")
+        return redirect(build_career_public_url("career.password_page"))
+
+    applications = _fetch_candidate_workspace_applications(db, account)
+    saved_openings = get_career_public_saved_opening_ids(db, account["id"])
+    return render_template(
+        "career_candidate_password.html",
+        candidate_account=account,
+        candidate_application_count=len(applications),
+        candidate_saved_count=len(saved_openings),
+    )
+
+
 @career_bp.route("/karir/lowongan/<int:opening_id>")
 def opening_detail(opening_id):
     db = get_db()
     ensure_career_schema(db)
     active_account = _get_current_career_public_account(db)
+    personal_payload = _get_candidate_personal_profile_payload(db, active_account["id"]) if active_account else {}
+    additional_payload = _get_candidate_additional_profile_payload(db, active_account["id"]) if active_account else {}
 
     opening = _fetch_public_opening_by_id(db, opening_id)
     if not opening:
@@ -932,6 +1835,18 @@ def opening_detail(opening_id):
         signin_url=_career_public_signin_url(),
         register_url=_career_public_register_url(),
         public_account=active_account,
+        opening_is_saved=bool(
+            active_account
+            and int(opening["id"]) in get_career_public_saved_opening_ids(db, active_account["id"])
+        ),
+        prefill_candidate_name=normalize_candidate_identity_name(
+            personal_payload.get("full_name") or (active_account.get("full_name") if active_account else "")
+        ),
+        prefill_candidate_phone=normalize_candidate_phone(personal_payload.get("phone")),
+        prefill_candidate_portfolio=normalize_candidate_portfolio_url(personal_payload.get("linkedin_url")),
+        prefill_candidate_note=_normalize_profile_textarea(
+            additional_payload.get("notes") or personal_payload.get("summary")
+        ),
         opening_signin_url=build_career_public_url(
             "career.signin_page",
             flow="signin",
@@ -950,6 +1865,8 @@ def apply():
     db = get_db()
     ensure_career_schema(db)
     active_account = _get_current_career_public_account(db)
+    personal_payload = _get_candidate_personal_profile_payload(db, active_account["id"]) if active_account else {}
+    additional_payload = _get_candidate_additional_profile_payload(db, active_account["id"]) if active_account else {}
 
     opening_id_raw = (request.form.get("opening_id") or "").strip()
     try:
@@ -985,11 +1902,19 @@ def apply():
     raw_phone = request.form.get("phone")
     raw_portfolio_url = request.form.get("portfolio_url")
 
-    candidate_name = normalize_candidate_identity_name(raw_candidate_name) or active_account.get("full_name") or ""
-    phone = normalize_candidate_phone(raw_phone)
+    candidate_name = (
+        normalize_candidate_identity_name(raw_candidate_name)
+        or normalize_candidate_identity_name(personal_payload.get("full_name"))
+        or active_account.get("full_name")
+        or ""
+    )
+    phone = normalize_candidate_phone(raw_phone) or normalize_candidate_phone(personal_payload.get("phone"))
     email = normalize_candidate_email(active_account.get("email"))
-    portfolio_url = normalize_candidate_portfolio_url(raw_portfolio_url)
-    note = (request.form.get("note") or "").strip()
+    portfolio_url = (
+        normalize_candidate_portfolio_url(raw_portfolio_url)
+        or normalize_candidate_portfolio_url(personal_payload.get("linkedin_url"))
+    )
+    note = (request.form.get("note") or "").strip() or _normalize_profile_textarea(additional_payload.get("notes"))
     resume_file = request.files.get("resume_file")
 
     if not candidate_name or (not phone and not email):
@@ -1009,23 +1934,18 @@ def apply():
         phone=phone,
     )
     if duplicate_candidate:
-        existing_code = ensure_candidate_assessment_code(
-            db,
-            int(duplicate_candidate["id"]),
-            duplicate_candidate.get("assessment_code") or "",
-        )
-        db.commit()
-        flash(
-            "Lamaran untuk lowongan ini sudah pernah kami terima. Kami tampilkan kembali kode tes kandidat yang sama.",
-            "info",
-        )
-        return redirect(
-            build_career_public_url(
-                "career.opening_detail",
-                opening_id=opening["id"],
-                code=existing_code,
+        existing_code = normalize_assessment_code(duplicate_candidate.get("assessment_code"))
+        if existing_code:
+            flash(
+                "Lamaran untuk lowongan ini sudah pernah kami terima. Jika Anda sudah lolos screening HR, kode tes tetap bisa dilihat dari email atau dashboard lamaran kandidat.",
+                "info",
             )
-        )
+        else:
+            flash(
+                "Lamaran untuk lowongan ini sudah pernah kami terima dan masih menunggu screening HR. Silakan pantau email untuk update tahap berikutnya.",
+                "info",
+            )
+        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 
     try:
         resume_original_name, resume_path = save_career_resume(resume_file)
@@ -1056,9 +1976,10 @@ def apply():
             placement_warehouse_ids,
             resume_original_name,
             resume_path,
+            public_account_id,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
         """,
         (
             candidate_name,
@@ -1077,43 +1998,16 @@ def apply():
             encode_recruitment_homebase_ids([opening["warehouse_id"]]),
             resume_original_name,
             resume_path,
+            int(active_account["id"] or 0),
         ),
-    )
-    created_candidate_id = extract_inserted_row_id(insert_cursor)
-    created_candidate = None
-    if created_candidate_id > 0:
-        created_candidate = db.execute(
-            """
-            SELECT id, assessment_code
-            FROM recruitment_candidates
-            WHERE id=?
-            LIMIT 1
-            """,
-            (created_candidate_id,),
-        ).fetchone()
-    if created_candidate is None:
-        created_candidate = db.execute(
-            """
-            SELECT id, assessment_code
-            FROM recruitment_candidates
-            WHERE candidate_name=? AND vacancy_id=?
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (candidate_name, opening["id"]),
-        ).fetchone()
-    assessment_code = ensure_candidate_assessment_code(
-        db,
-        created_candidate["id"],
-        (created_candidate["assessment_code"] or "") if created_candidate else "",
     )
     db.commit()
 
     flash(
-        "Lamaran berhasil dikirim. Simpan kode tes dari pop-up yang muncul setelah halaman terbuka.",
+        "Lamaran berhasil dikirim dan sudah masuk ke HRIS untuk screening. Jika lolos review awal, kode tes akan dikirim otomatis ke email Anda.",
         "success",
     )
-    return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"], code=assessment_code))
+    return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
 
 
 @career_bp.route("/karir/tes")
@@ -1129,6 +2023,9 @@ def assessment():
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
         flash("Kode tes tidak ditemukan.", "error")
+        return redirect(build_career_public_url("career.index"))
+    if str(candidate.get("status") or "").strip().lower() != "active":
+        flash("Sesi tes ini sudah tidak aktif. Silakan tunggu update terbaru dari tim HR.", "error")
         return redirect(build_career_public_url("career.index"))
 
     questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
@@ -1206,6 +2103,8 @@ def record_assessment_violation():
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
         return jsonify({"ok": False, "message": "Kode tes tidak ditemukan."}), 404
+    if str(candidate.get("status") or "").strip().lower() != "active":
+        return jsonify({"ok": False, "message": "Sesi tes ini sudah tidak aktif."}), 403
 
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
         return jsonify(
@@ -1265,6 +2164,9 @@ def submit_assessment():
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
         flash("Kode tes tidak ditemukan.", "error")
+        return redirect(build_career_public_url("career.index"))
+    if str(candidate.get("status") or "").strip().lower() != "active":
+        flash("Sesi tes ini sudah tidak aktif. Silakan tunggu update terbaru dari tim HR.", "error")
         return redirect(build_career_public_url("career.index"))
 
     questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)

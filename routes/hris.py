@@ -82,7 +82,7 @@ from services.kpi_catalog import (
     resolve_kpi_profile,
     summarize_kpi_metric_entries,
 )
-from services.notification_service import notify_broadcast, notify_operational_event, notify_user
+from services.notification_service import notify_broadcast, notify_operational_event, notify_user, send_email
 from services.rbac import has_permission, is_scoped_role, normalize_role
 from services.whatsapp_service import send_role_based_notification
 
@@ -2651,6 +2651,98 @@ def _get_recruitment_candidate_by_id(db, candidate_id):
     if scope_warehouse and scope_warehouse not in candidate.get("placement_warehouse_id_list", []):
         return None
     return candidate
+
+
+def _get_career_public_company_name_local():
+    safe_name = str(
+        current_app.config.get("CAREER_PUBLIC_COMPANY_NAME")
+        or "CV Berkah Jaya Abadi Sports"
+    ).strip()
+    return safe_name or "CV Berkah Jaya Abadi Sports"
+
+
+def _is_recruitment_candidate_ready_for_assessment(stage, status, assessment_code=""):
+    safe_status = _normalize_recruitment_status(status)
+    if safe_status != "active":
+        return False
+    if normalize_assessment_code(assessment_code):
+        return True
+    return _normalize_recruitment_stage(stage) in {"screening", "interview", "offer", "hired"}
+
+
+def _send_recruitment_assessment_code_email(candidate):
+    safe_candidate = dict(candidate or {})
+    recipient = (safe_candidate.get("email") or "").strip()
+    assessment_code = normalize_assessment_code(safe_candidate.get("assessment_code"))
+    if not recipient or not assessment_code:
+        return None
+
+    company_name = _get_career_public_company_name_local()
+    candidate_name = (safe_candidate.get("candidate_name") or "Kandidat").strip()
+    position_title = (
+        safe_candidate.get("vacancy_title")
+        or safe_candidate.get("position_title")
+        or "posisi yang Anda lamar"
+    )
+    assessment_url = build_career_public_url(
+        "career.assessment",
+        force_external=True,
+        code=assessment_code,
+    )
+    expiry_label = _format_hris_datetime_display(
+        safe_candidate.get("assessment_expires_at"),
+        include_date=True,
+    )
+    duration_minutes = safe_candidate.get("assessment_duration_minutes")
+    duration_label = (
+        f"{int(duration_minutes)} menit"
+        if duration_minutes
+        else "Tidak dibatasi khusus oleh sistem"
+    )
+    body_lines = [
+        f"Halo {candidate_name},",
+        "",
+        f"Lamaran Anda untuk posisi {position_title} di {company_name} telah lolos screening awal HR.",
+        "Silakan lanjut ke tahap tes menggunakan detail berikut:",
+        f"Kode tes: {assessment_code}",
+        f"Tautan tes: {assessment_url}",
+        f"Masa berlaku kode: {expiry_label if expiry_label != '-' else 'Belum diatur khusus oleh HR.'}",
+        f"Durasi tes: {duration_label}",
+        "",
+        "Gunakan satu perangkat dan pastikan koneksi stabil saat mengerjakan tes.",
+        "",
+        "Salam,",
+        f"{company_name} Career",
+    ]
+    subject = f"Kode Tes Karir {company_name} - {position_title}"
+    return send_email(recipient, subject, "\n".join(body_lines))
+
+
+def _send_recruitment_rejection_email(candidate):
+    safe_candidate = dict(candidate or {})
+    recipient = (safe_candidate.get("email") or "").strip()
+    if not recipient:
+        return None
+
+    company_name = _get_career_public_company_name_local()
+    candidate_name = (safe_candidate.get("candidate_name") or "Kandidat").strip()
+    position_title = (
+        safe_candidate.get("vacancy_title")
+        or safe_candidate.get("position_title")
+        or "posisi yang Anda lamar"
+    )
+    body_lines = [
+        f"Halo {candidate_name},",
+        "",
+        f"Terima kasih sudah melamar posisi {position_title} di {company_name}.",
+        "Setelah melalui screening awal, saat ini kami belum dapat melanjutkan lamaran Anda ke tahap berikutnya.",
+        "Kami menghargai waktu dan minat Anda, dan data lamaran akan tetap tersimpan sebagai arsip rekrutmen internal.",
+        "",
+        "Salam,",
+        f"{company_name} Career",
+    ]
+    subject = f"Update Lamaran Karir {company_name} - {position_title}"
+    return send_email(recipient, subject, "\n".join(body_lines))
 
 
 def _get_onboarding_by_id(db, onboarding_id):
@@ -5256,6 +5348,166 @@ def _build_biometric_summary(biometric_logs):
     }
 
 
+BIOMETRIC_WORKSPACE_VIEWS = {
+    "overview": {
+        "label": "Pusat Modul",
+        "description": "Pilih area kerja Attendance Geotag yang ingin dibuka dari kartu modul di bawah.",
+        "icon": "GT",
+        "accent": "accent-blue",
+        "kicker": "Module Center",
+        "empty_title": "Pilih modul kerja yang paling relevan untuk review geotag.",
+        "empty_body": "Attendance Geotag sekarang dibagi menjadi beberapa area kerja terpisah supaya HR tidak perlu menelusuri satu halaman panjang hanya untuk satu aksi tertentu.",
+        "highlights": [
+            "Mulai dari kartu modul yang sesuai kebutuhan review.",
+            "Kerjakan form atau audit hanya pada area yang dipilih.",
+            "Kembali ke pusat modul kapan saja untuk pindah tugas.",
+        ],
+    },
+    "manual_overtime": {
+        "label": "Tambah Lembur Manual",
+        "description": "Form koreksi lembur manual dan histori saldo lembur yang ditambahkan HR.",
+        "icon": "LM",
+        "accent": "accent-emerald",
+        "kicker": "Koreksi Saldo",
+        "highlights": [
+            "Tambah kredit lembur manual untuk koreksi operasional.",
+            "Pantau histori penambahan saldo dari HR atau sistem.",
+            "Cocok untuk event, support malam, dan stock opname.",
+        ],
+    },
+    "shift_override": {
+        "label": "Override Shift",
+        "description": "Pengaturan shift harian khusus dan histori override yang pernah disimpan.",
+        "icon": "OS",
+        "accent": "accent-indigo",
+        "kicker": "Pola Shift",
+        "highlights": [
+            "Atur shift khusus tanpa mengubah setup jadwal global.",
+            "Cek histori override yang pernah disimpan.",
+            "Berguna untuk penyesuaian mendadak dan pergantian ritme kerja.",
+        ],
+    },
+    "overtime_balance": {
+        "label": "Saldo & Pemakaian Lembur",
+        "description": "Rekap saldo lembur staff, form pengurangan saldo, dan histori pemakaian.",
+        "icon": "SL",
+        "accent": "accent-amber",
+        "kicker": "Saldo & Audit",
+        "highlights": [
+            "Lihat saldo aktif setiap staff pada scope yang dipilih.",
+            "Kurangi saldo secara manual saat dibutuhkan HR.",
+            "Audit histori pemakaian dan cashout lembur dari satu halaman.",
+        ],
+    },
+    "attendance_detail": {
+        "label": "Detail Rekap Geotag",
+        "description": "Validasi attendance harian, status hadir, jam masuk-pulang, dan data geotag staff.",
+        "icon": "DG",
+        "accent": "accent-sky",
+        "kicker": "Validasi Harian",
+        "highlights": [
+            "Review status hadir, jam, dan hasil geotag harian.",
+            "Cocok untuk final check attendance sebelum proses berikutnya.",
+            "Membantu memastikan data sinkron dengan kondisi lapangan.",
+        ],
+    },
+}
+
+
+def _normalize_biometric_workspace_view(value):
+    safe_view = str(value or "").strip().lower().replace("-", "_")
+    return safe_view if safe_view in BIOMETRIC_WORKSPACE_VIEWS else "overview"
+
+
+def _build_biometric_workspace_cards(
+    *,
+    selected_view="overview",
+    selected_warehouse="",
+    date_from="",
+    date_to="",
+    search="",
+    punch_type="all",
+    sync_status="all",
+    biometric_recap_rows=None,
+    biometric_shift_override_rows=None,
+    overtime_recap_rows=None,
+    overtime_adjustment_history=None,
+):
+    shared_args = {}
+    if selected_warehouse:
+        shared_args["warehouse"] = selected_warehouse
+    if date_from:
+        shared_args["date_from"] = date_from
+    if date_to:
+        shared_args["date_to"] = date_to
+    if search:
+        shared_args["q"] = search
+    if punch_type and punch_type != "all":
+        shared_args["punch_type"] = punch_type
+    if sync_status and sync_status != "all":
+        shared_args["sync_status"] = sync_status
+
+    def _build_href(view_key):
+        if view_key == "overview":
+            return url_for("hris.hris_index", module_slug="biometric", **shared_args)
+        return url_for("hris.hris_index", module_slug="biometric", view=view_key, **shared_args)
+
+    return [
+        {
+            "key": "manual_overtime",
+            "icon": "LM",
+            "accent": "accent-emerald",
+            "eyebrow": "Koreksi Saldo",
+            "title": "Tambah Lembur Manual",
+            "description": "Tambah koreksi lembur manual lalu review histori penambahan saldo.",
+            "points": ["Tambah", "Audit", "Koreksi"],
+            "note": "Modul ini dipakai saat saldo lembur perlu ditambahkan di luar log geotag otomatis.",
+            "badge": f"{len(overtime_adjustment_history or [])} histori",
+            "href": _build_href("manual_overtime"),
+            "is_active": selected_view == "manual_overtime",
+        },
+        {
+            "key": "shift_override",
+            "icon": "OS",
+            "accent": "accent-indigo",
+            "eyebrow": "Pola Shift",
+            "title": "Override Shift",
+            "description": "Atur shift harian khusus dan cek histori override terbaru.",
+            "points": ["Shift", "Jadwal", "Riwayat"],
+            "note": "Gunakan untuk penyesuaian shift tertentu tanpa mengubah jadwal utama seluruh tim.",
+            "badge": f"{len(biometric_shift_override_rows or [])} override",
+            "href": _build_href("shift_override"),
+            "is_active": selected_view == "shift_override",
+        },
+        {
+            "key": "overtime_balance",
+            "icon": "SL",
+            "accent": "accent-amber",
+            "eyebrow": "Saldo & Audit",
+            "title": "Saldo & Pemakaian",
+            "description": "Kurangi saldo lembur, lihat saldo staff, dan audit pemakaiannya.",
+            "points": ["Saldo", "Pakai", "Cashout"],
+            "note": "Area ini merangkum saldo aktif staff sekaligus jejak pemakaian lemburnya.",
+            "badge": f"{len(overtime_recap_rows or [])} staff",
+            "href": _build_href("overtime_balance"),
+            "is_active": selected_view == "overtime_balance",
+        },
+        {
+            "key": "attendance_detail",
+            "icon": "DG",
+            "accent": "accent-sky",
+            "eyebrow": "Validasi Harian",
+            "title": "Detail Rekap Geotag",
+            "description": "Buka validasi attendance harian lengkap dengan status, jam, geo, dan log.",
+            "points": ["Status", "Jam", "Lokasi"],
+            "note": "Masuk ke modul ini saat perlu memeriksa detail presensi lapangan per hari.",
+            "badge": f"{len(biometric_recap_rows or [])} baris",
+            "href": _build_href("attendance_detail"),
+            "is_active": selected_view == "attendance_detail",
+        },
+    ]
+
+
 def _build_announcement_summary(announcements):
     return {
         "total": len(announcements),
@@ -7348,6 +7600,9 @@ def hris_index(module_slug=None):
     biometric_employees = []
     biometric_recap_rows = []
     biometric_shift_override_rows = []
+    biometric_workspace_view = "overview"
+    biometric_workspace_view_meta = BIOMETRIC_WORKSPACE_VIEWS["overview"]
+    biometric_workspace_cards = []
     overtime_recap_rows = []
     overtime_recap_summary = None
     overtime_adjustment_history = []
@@ -7536,6 +7791,7 @@ def hris_index(module_slug=None):
     elif selected_module["slug"] == "biometric":
         biometric_logs, search, punch_type, sync_status, selected_warehouse, date_from, date_to = _fetch_biometric_logs(db)
         biometric_summary = _build_biometric_summary(biometric_logs)
+        biometric_workspace_view = _normalize_biometric_workspace_view(request.args.get("view"))
         try:
             biometric_recap_rows = _build_biometric_recap_rows(db, biometric_logs)
             biometric_shift_override_rows = _fetch_recent_attendance_shift_overrides(
@@ -7595,6 +7851,23 @@ def hris_index(module_slug=None):
             "date_from": date_from,
             "date_to": date_to,
         }
+        biometric_workspace_view_meta = BIOMETRIC_WORKSPACE_VIEWS.get(
+            biometric_workspace_view,
+            BIOMETRIC_WORKSPACE_VIEWS["overview"],
+        )
+        biometric_workspace_cards = _build_biometric_workspace_cards(
+            selected_view=biometric_workspace_view,
+            selected_warehouse=selected_warehouse,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+            punch_type=punch_type,
+            sync_status=sync_status,
+            biometric_recap_rows=biometric_recap_rows,
+            biometric_shift_override_rows=biometric_shift_override_rows,
+            overtime_recap_rows=overtime_recap_rows,
+            overtime_adjustment_history=overtime_adjustment_history,
+        )
         biometric_employees = _fetch_employee_options(db, "biometric")
     elif selected_module["slug"] == "announcement":
         announcements, search, audience, status, selected_warehouse = _fetch_announcements(db)
@@ -7688,6 +7961,9 @@ def hris_index(module_slug=None):
         biometric_employees=biometric_employees,
         biometric_recap_rows=biometric_recap_rows,
         biometric_shift_override_rows=biometric_shift_override_rows,
+        biometric_workspace_view=biometric_workspace_view,
+        biometric_workspace_view_meta=biometric_workspace_view_meta,
+        biometric_workspace_cards=biometric_workspace_cards,
         overtime_recap_rows=overtime_recap_rows,
         overtime_recap_summary=overtime_recap_summary,
         overtime_adjustment_history=overtime_adjustment_history,
@@ -8970,6 +9246,8 @@ def update_recruitment(candidate_id):
         flash("Data recruitment tidak ditemukan", "error")
         return redirect("/hris/recruitment")
     candidate = dict(candidate)
+    previous_status = _normalize_recruitment_status(candidate.get("status"))
+    previous_assessment_code = normalize_assessment_code(candidate.get("assessment_code"))
 
     candidate_name = (request.form.get("candidate_name") or "").strip()
     position_title = (request.form.get("position_title") or "").strip()
@@ -9018,6 +9296,12 @@ def update_recruitment(candidate_id):
         return redirect("/hris/recruitment")
 
     handled_by, handled_at = _build_recruitment_handling(status)
+    stored_assessment_code = assessment_code or previous_assessment_code or None
+    should_issue_assessment_code = _is_recruitment_candidate_ready_for_assessment(
+        stage,
+        status,
+        stored_assessment_code or "",
+    )
     if assessment_manual_score is not None:
         assessment_final_score = assessment_manual_score
         if assessment_status in {"pending", "started"}:
@@ -9075,7 +9359,7 @@ def update_recruitment(candidate_id):
             vacancy_id,
             portfolio_url or None,
             placement_warehouse_ids_value,
-            assessment_code or candidate.get("assessment_code"),
+            stored_assessment_code,
             assessment_expires_at,
             assessment_duration_minutes,
             assessment_status,
@@ -9090,14 +9374,32 @@ def update_recruitment(candidate_id):
             candidate_id,
         ),
     )
-    final_assessment_code = ensure_candidate_assessment_code(
-        db,
-        candidate_id,
-        assessment_code or candidate.get("assessment_code"),
-    )
+    final_assessment_code = normalize_assessment_code(stored_assessment_code)
+    if should_issue_assessment_code and not final_assessment_code:
+        final_assessment_code = ensure_candidate_assessment_code(db, candidate_id, "")
     db.commit()
 
-    flash(f"Kandidat recruitment berhasil diupdate. Kode tes: {final_assessment_code}", "success")
+    updated_candidate = _get_recruitment_candidate_by_id(db, candidate_id)
+    just_issued_assessment_code = bool(final_assessment_code) and not previous_assessment_code and should_issue_assessment_code
+    just_rejected = status == "rejected" and previous_status != "rejected"
+
+    flash("Kandidat recruitment berhasil diupdate.", "success")
+    if just_issued_assessment_code:
+        email_result = _send_recruitment_assessment_code_email(updated_candidate or candidate)
+        if email_result is True:
+            flash("Kode tes sudah dibuat dan dikirim ke email kandidat.", "success")
+        elif email_result is False:
+            flash("Kode tes berhasil dibuat, tetapi email kandidat belum berhasil dikirim.", "error")
+        else:
+            flash("Kode tes berhasil dibuat, tetapi email kandidat belum tersedia sehingga belum bisa dikirim.", "info")
+    elif just_rejected:
+        email_result = _send_recruitment_rejection_email(updated_candidate or candidate)
+        if email_result is True:
+            flash("Email penolakan sudah dikirim ke kandidat.", "success")
+        elif email_result is False:
+            flash("Status penolakan tersimpan, tetapi email penolakan belum berhasil dikirim.", "error")
+        else:
+            flash("Status penolakan tersimpan, tetapi email kandidat belum tersedia.", "info")
     return redirect("/hris/recruitment")
 
 

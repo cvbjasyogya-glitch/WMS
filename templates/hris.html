@@ -2422,7 +2422,7 @@
             </div>
             <div>
                 <label>Kode Tes 5 Digit</label>
-                <input name="assessment_code" placeholder="Kosongkan untuk generate otomatis">
+                <input name="assessment_code" placeholder="Kosongkan sampai kandidat lolos screening">
             </div>
             <div>
                 <label>Berlaku Sampai</label>
@@ -2564,7 +2564,7 @@
                         </div>
                         <div>
                             <label>Kode Tes 5 Digit</label>
-                            <input name="assessment_code" value="{{ candidate.assessment_code or '' }}" placeholder="Generate otomatis jika kosong">
+                            <input name="assessment_code" value="{{ candidate.assessment_code or '' }}" placeholder="Isi manual atau biarkan kosong sampai screening disetujui">
                         </div>
                         <div>
                             <label>Berlaku Sampai</label>
@@ -2608,7 +2608,7 @@
                             <a class="ghost-button" href="{{ url_for('career.assessment', code=candidate.assessment_code) }}" target="_blank" rel="noopener">Buka Halaman Tes</a>
                             <span class="helper-text">Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_minutes_value if candidate.assessment_duration_minutes_value else 'Tanpa batas waktu' }}.</span>
                             {% else %}
-                            <span class="helper-text">Kode tes akan dibuat saat disimpan.</span>
+                            <span class="helper-text">Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes.</span>
                             {% endif %}
                         </div>
                         <div>
@@ -4503,10 +4503,129 @@
         <small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. {% if overtime_balance_cap_enabled %}Saldo aktif tiap staff maksimal {{ overtime_balance_cap_label }} dan kelebihan approval di atas batas tidak disimpan sebagai saldo.{% else %}Saldo aktif tiap staff tidak dibatasi maksimal.{% endif %} Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
     </div>
 </div>
+{% set biometric_overview_url = url_for(
+    'hris.hris_index',
+    module_slug='biometric',
+    warehouse=biometric_filters.warehouse_id,
+    date_from=biometric_filters.date_from,
+    date_to=biometric_filters.date_to,
+    q=biometric_filters.search,
+    punch_type=biometric_filters.punch_type,
+    sync_status=biometric_filters.sync_status
+) %}
+{% set biometric_active_card = namespace(value=None) %}
+{% for card in biometric_workspace_cards %}
+    {% if card.key == biometric_workspace_view %}
+        {% set biometric_active_card.value = card %}
+    {% endif %}
+{% endfor %}
 
-{% if can_manage_biometric %}
-{% if can_manage_attendance_approval %}
-<details class="form-box panel-disclosure biometric-action-panel accent-emerald">
+<section class="recruitment-workspace biometric-workspace-modules">
+    <div class="section-title">
+        <div>
+            <h2>Pusat Modul Attendance Geotag</h2>
+            <p>Klik kartu modul untuk pindah ke halaman kerja yang lebih fokus. Jadi area biometric tidak lagi berupa satu halaman panjang.</p>
+        </div>
+    </div>
+    <div class="recruitment-workspace-grid biometric-workspace-grid">
+        {% for card in biometric_workspace_cards %}
+        <a href="{{ card.href }}" class="recruitment-workspace-card biometric-workspace-card {{ card.accent }} {% if card.is_active %}active{% endif %}">
+            <div class="biometric-module-head">
+                <span class="biometric-module-mark">
+                    <span class="biometric-module-mark-core">{{ card.icon }}</span>
+                    <span class="biometric-module-mark-dot"></span>
+                </span>
+                <span class="biometric-module-badge">{{ card.badge }}</span>
+            </div>
+            <span class="biometric-module-eyebrow">{{ card.eyebrow }}</span>
+            <div class="recruitment-workspace-copy biometric-module-copy">
+                <strong>{{ card.title }}</strong>
+                <small>{{ card.description }}</small>
+            </div>
+            <div class="biometric-module-points">
+                {% for point in card.points %}
+                <span>{{ point }}</span>
+                {% endfor %}
+            </div>
+            <div class="biometric-module-footer">
+                <small>{{ card.note }}</small>
+                <span class="biometric-module-link">Buka Modul</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+
+{% if biometric_workspace_view == 'overview' %}
+<div class="table-box biometric-workspace-center-stage">
+    <div class="biometric-stage-shell">
+        <div class="biometric-stage-art {{ biometric_workspace_view_meta.accent }}" aria-hidden="true">
+            <span class="biometric-stage-art-chip">{{ biometric_workspace_view_meta.icon }}</span>
+            <span class="biometric-stage-orbit orbit-one"></span>
+            <span class="biometric-stage-orbit orbit-two"></span>
+            <span class="biometric-stage-orbit orbit-three"></span>
+        </div>
+        <div class="biometric-stage-copy">
+            <span class="biometric-stage-kicker">{{ biometric_workspace_view_meta.kicker }}</span>
+            <h2>{{ biometric_workspace_view_meta.empty_title }}</h2>
+            <p>{{ biometric_workspace_view_meta.empty_body }}</p>
+            <div class="biometric-stage-points">
+                {% for point in biometric_workspace_view_meta.highlights %}
+                <span>{{ point }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="biometric-stage-grid">
+        {% for card in biometric_workspace_cards %}
+        <a href="{{ card.href }}" class="biometric-stage-mini {{ card.accent }}">
+            <span>{{ card.eyebrow }}</span>
+            <strong>{{ card.title }}</strong>
+            <small>{{ card.badge }}</small>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="table-box biometric-workspace-focus-card {{ biometric_workspace_view_meta.accent }}">
+    <div class="biometric-focus-head">
+        <div class="biometric-focus-intro">
+            <span class="biometric-focus-icon">{{ biometric_workspace_view_meta.icon }}</span>
+            <div class="biometric-focus-copy">
+                <span class="biometric-focus-kicker">{{ biometric_workspace_view_meta.kicker }}</span>
+            <h2>{{ biometric_workspace_view_meta.label }}</h2>
+            <p>{{ biometric_workspace_view_meta.description }}</p>
+            </div>
+        </div>
+        <div class="split-actions">
+            <a href="{{ biometric_overview_url }}" class="ghost-button">Kembali ke Pusat Modul</a>
+        </div>
+    </div>
+    <div class="biometric-focus-meta">
+        <div class="biometric-focus-meta-card">
+            <span>Modul Aktif</span>
+            <strong>{{ biometric_active_card.value.title if biometric_active_card.value else biometric_workspace_view_meta.label }}</strong>
+        </div>
+        <div class="biometric-focus-meta-card">
+            <span>Scope Aktif</span>
+            <strong>{{ biometric_scope.label }}</strong>
+        </div>
+        <div class="biometric-focus-meta-card">
+            <span>Ringkasan Cepat</span>
+            <strong>{{ biometric_active_card.value.badge if biometric_active_card.value else '-' }}</strong>
+        </div>
+    </div>
+    <div class="biometric-focus-points">
+        {% for point in biometric_workspace_view_meta.highlights %}
+        <span>{{ point }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if biometric_workspace_view == 'manual_overtime' %}
+{% if can_manage_biometric and can_manage_attendance_approval %}
+<details class="form-box panel-disclosure biometric-action-panel accent-emerald" open>
     <summary class="panel-summary">
         <div class="section-title biometric-section-title accent-emerald" data-panel-icon="LM">
             <div>
@@ -4552,8 +4671,50 @@
     </div>
 </details>
 {% endif %}
+<div class="table-box biometric-data-card accent-emerald">
+    <div class="section-title biometric-section-title accent-emerald" data-panel-icon="HL">
+        <div>
+            <h2>Histori Penambahan Lembur</h2>
+            <p>Riwayat ini menyimpan saldo lembur yang benar-benar sudah masuk, baik dari approval lembur otomatis maupun input manual HR, supaya audit koreksi saldo tetap mudah ditelusuri.</p>
+        </div>
+    </div>
 
-<details class="form-box panel-disclosure biometric-action-panel accent-indigo">
+    {% if overtime_adjustment_history %}
+    <table>
+        <thead>
+            <tr>
+                <th>Tanggal</th>
+                <th>Code</th>
+                <th>Nama</th>
+                <th>Gudang</th>
+                <th>Sumber</th>
+                <th>Ditambah</th>
+                <th>Catatan</th>
+                <th>Input Oleh</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for adjustment in overtime_adjustment_history %}
+            <tr>
+                <td>{{ adjustment.adjustment_date }}</td>
+                <td class="mono">{{ adjustment.employee_code }}</td>
+                <td>{{ adjustment.full_name }}</td>
+                <td>{{ adjustment.warehouse_name or '-' }}</td>
+                <td><span class="badge {% if adjustment.source_type == 'biometric_auto' %}green{% else %}blue{% endif %}">{{ adjustment.source_label }}</span></td>
+                <td><strong class="biometric-overtime-duration">{{ adjustment.duration_label }}</strong></td>
+                <td>{{ adjustment.note }}</td>
+                <td>{{ adjustment.handled_by_name }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">Belum ada transaksi penambahan lembur yang tercatat pada scope ini.</div>
+    {% endif %}
+</div>
+{% elif biometric_workspace_view == 'shift_override' %}
+{% if can_manage_biometric %}
+<details class="form-box panel-disclosure biometric-action-panel accent-indigo" open>
     <summary class="panel-summary">
         <div class="section-title biometric-section-title accent-indigo" data-panel-icon="OS">
             <div>
@@ -4602,6 +4763,7 @@
     </form>
     </div>
 </details>
+{% endif %}
 
 <div class="table-box biometric-data-card accent-indigo">
     <div class="section-title biometric-section-title accent-indigo" data-panel-icon="RO">
@@ -4643,8 +4805,9 @@
     <div class="empty-state">Belum ada override shift harian pada filter ini.</div>
     {% endif %}
 </div>
-
-<details class="form-box panel-disclosure biometric-action-panel accent-amber">
+{% elif biometric_workspace_view == 'overtime_balance' %}
+{% if can_manage_biometric %}
+<details class="form-box panel-disclosure biometric-action-panel accent-amber" open>
     <summary class="panel-summary">
         <div class="section-title biometric-section-title accent-amber" data-panel-icon="KL">
             <div>
@@ -4749,49 +4912,6 @@
     <div class="empty-state">Belum ada data staff yang bisa direkap pada scope lembur ini.</div>
     {% endif %}
 </div>
-
-<div class="table-box biometric-data-card accent-emerald">
-    <div class="section-title biometric-section-title accent-emerald" data-panel-icon="HL">
-        <div>
-            <h2>Histori Penambahan Lembur</h2>
-            <p>Riwayat ini menyimpan saldo lembur yang benar-benar sudah masuk, baik dari approval lembur otomatis maupun input manual HR, supaya audit koreksi saldo tetap mudah ditelusuri.</p>
-        </div>
-    </div>
-
-    {% if overtime_adjustment_history %}
-    <table>
-        <thead>
-            <tr>
-                <th>Tanggal</th>
-                <th>Code</th>
-                <th>Nama</th>
-                <th>Gudang</th>
-                <th>Sumber</th>
-                <th>Ditambah</th>
-                <th>Catatan</th>
-                <th>Input Oleh</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for adjustment in overtime_adjustment_history %}
-            <tr>
-                <td>{{ adjustment.adjustment_date }}</td>
-                <td class="mono">{{ adjustment.employee_code }}</td>
-                <td>{{ adjustment.full_name }}</td>
-                <td>{{ adjustment.warehouse_name or '-' }}</td>
-                <td><span class="badge {% if adjustment.source_type == 'biometric_auto' %}green{% else %}blue{% endif %}">{{ adjustment.source_label }}</span></td>
-                <td><strong class="biometric-overtime-duration">{{ adjustment.duration_label }}</strong></td>
-                <td>{{ adjustment.note }}</td>
-                <td>{{ adjustment.handled_by_name }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">Belum ada transaksi penambahan lembur yang tercatat pada scope ini.</div>
-    {% endif %}
-</div>
-
 <div class="table-box biometric-data-card accent-amber">
     <div class="section-title biometric-section-title accent-amber" data-panel-icon="HP">
         <div>
@@ -4842,7 +4962,7 @@
     <div class="empty-state">Belum ada transaksi pemakaian lembur yang tercatat pada scope ini.</div>
     {% endif %}
 </div>
-
+{% elif biometric_workspace_view == 'attendance_detail' %}
 <div class="table-box biometric-data-card accent-sky">
     <div class="section-title biometric-section-title accent-sky" data-panel-icon="DG">
         <div>
@@ -5057,6 +5177,7 @@
     <div class="empty-state">Belum ada rekap geotag pada filter yang dipilih.</div>
     {% endif %}
 </div>
+{% endif %}
 </div>
 {% elif selected_module.slug == "announcement" %}
 <div class="summary">

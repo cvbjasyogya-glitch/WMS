@@ -368,9 +368,13 @@
                                 class="pos-payment-method{% if loop.first %} is-active{% endif %}"
                                 data-pos-payment-method="{{ method }}"
                             >
-                                {{ "TF" if method|lower == "transfer" else method|upper }}
+                                {{ "TF" if method|lower == "transfer" else ("CV" if method|lower == "cv" else method|upper) }}
                             </button>
                             {% endfor %}
+                        </div>
+                        <div class="split-actions">
+                            <button type="button" class="pos-vintage-mini" id="posCvTransactionButton">Transaksi CV</button>
+                            <small class="helper-text">Pakai tombol ini kalau transaksi harus masuk ke rekap CV saat tutup kasir. Metode bayar akan otomatis pindah ke CV.</small>
                         </div>
                         <label class="pos-ipos-split-toggle" for="posSplitPaymentToggle">
                             <span class="pos-ipos-split-toggle-main">
