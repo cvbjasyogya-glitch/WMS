@@ -1846,7 +1846,7 @@
 <form method="GET" class="top-bar products-filter-bar">
     <input type="text" name="q" value="{{ recruitment_filters.search }}" placeholder="Cari kandidat, posisi, departemen, source, atau lowongan">
     <select name="warehouse" {% if recruitment_scope_warehouse %}disabled{% endif %}>
-        <option value="">Semua Gudang</option>
+        <option value="">Semua Homebase</option>
         {% for w in warehouses %}
         <option value="{{ w.id }}" {% if recruitment_filters.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
         {% endfor %}
@@ -2347,15 +2347,37 @@
                 </select>
             </div>
             <div>
-                <label>Gudang Hiring</label>
+                <label>Homebase Utama</label>
                 <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
-                    <option value="">Pilih Gudang</option>
+                    <option value="">Pilih Homebase</option>
                     {% for w in warehouses %}
                     <option value="{{ w.id }}" {% if recruitment_scope_warehouse == w.id %}selected{% endif %}>{{ w.name }}</option>
                     {% endfor %}
                 </select>
                 {% if recruitment_scope_warehouse %}
                 <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+                {% endif %}
+                <small class="helper-text">Homebase utama dipakai sebagai owner pipeline kandidat.</small>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label>Homebase Penempatan / Rolling</label>
+                <div class="helper-text">Centang lebih dari satu jika kandidat bisa di-rolling ke Mataram dan Mega.</div>
+                <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;">
+                    {% for w in warehouses %}
+                    <label style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid rgba(148,163,184,0.28); border-radius:12px; background:rgba(255,255,255,0.72);">
+                        <input
+                            type="checkbox"
+                            name="placement_warehouse_ids"
+                            value="{{ w.id }}"
+                            {% if recruitment_scope_warehouse == w.id %}checked{% endif %}
+                            {% if recruitment_scope_warehouse and recruitment_scope_warehouse != w.id %}disabled{% endif %}
+                        >
+                        <span>{{ w.name }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% if recruitment_scope_warehouse %}
+                <input type="hidden" name="placement_warehouse_ids" value="{{ recruitment_scope_warehouse }}">
                 {% endif %}
             </div>
             <div>
@@ -2472,7 +2494,7 @@
                             </select>
                         </div>
                         <div>
-                            <label>Gudang Hiring</label>
+                            <label>Homebase Utama</label>
                             <select name="warehouse_id" required {% if recruitment_scope_warehouse %}disabled{% endif %}>
                                 {% for w in warehouses %}
                                 <option value="{{ w.id }}" {% if candidate.warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
@@ -2480,6 +2502,28 @@
                             </select>
                             {% if recruitment_scope_warehouse %}
                             <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+                            {% endif %}
+                            <small class="helper-text">Homebase utama dipakai sebagai owner pipeline kandidat.</small>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Homebase Penempatan / Rolling</label>
+                            <div class="helper-text">Centang semua homebase yang bisa menerima kandidat ini.</div>
+                            <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;">
+                                {% for w in warehouses %}
+                                <label style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid rgba(148,163,184,0.28); border-radius:12px; background:rgba(255,255,255,0.72);">
+                                    <input
+                                        type="checkbox"
+                                        name="placement_warehouse_ids"
+                                        value="{{ w.id }}"
+                                        {% if w.id in candidate.placement_warehouse_id_list %}checked{% endif %}
+                                        {% if recruitment_scope_warehouse and recruitment_scope_warehouse != w.id %}disabled{% endif %}
+                                    >
+                                    <span>{{ w.name }}</span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                            {% if recruitment_scope_warehouse %}
+                            <input type="hidden" name="placement_warehouse_ids" value="{{ recruitment_scope_warehouse }}">
                             {% endif %}
                         </div>
                         <div>
@@ -2597,7 +2641,7 @@
                     <th>Nama</th>
                     <th>Posisi</th>
                     <th>Lowongan</th>
-                    <th>Gudang</th>
+                    <th>Homebase</th>
                     <th>Stage</th>
                     <th>Status</th>
                     <th>Kontak</th>
@@ -2609,7 +2653,7 @@
                     <td>{{ candidate.candidate_name }}</td>
                     <td>{{ candidate.position_title }}</td>
                     <td>{{ candidate.vacancy_title or '-' }}</td>
-                    <td>{{ candidate.warehouse_name or '-' }}</td>
+                    <td>{{ candidate.homebase_names_display or candidate.warehouse_name or '-' }}</td>
                     <td>{{ candidate.stage }}</td>
                     <td><span class="badge {{ 'green' if candidate.status in ['active', 'closed'] else 'orange' if candidate.status == 'on_hold' else 'red' }}">{{ candidate.status }}</span></td>
                     <td>{{ candidate.email or candidate.phone or '-' }}</td>

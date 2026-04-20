@@ -53,6 +53,7 @@ from services.event_notification_policy import get_event_notification_policy
 from services.career_service import (
     assign_candidate_assessment_code,
     build_career_resume_path,
+    encode_recruitment_homebase_ids,
     ensure_candidate_assessment_code,
     ensure_career_schema,
     extract_inserted_row_id,
@@ -64,6 +65,7 @@ from services.career_service import (
     normalize_career_application_channel,
     normalize_career_employment_type,
     normalize_career_opening_status,
+    normalize_recruitment_homebase_ids,
     score_assessment_questions,
 )
 from services.kpi_catalog import (
@@ -2419,6 +2421,55 @@ def _resolve_employee_warehouse(db, raw_warehouse_id, allow_empty=False):
     return warehouse["id"] if warehouse else None
 
 
+def _resolve_recruitment_homebase_ids(raw_values, *, primary_warehouse_id=None):
+    scope_warehouse = get_hris_scope()
+    if scope_warehouse:
+        return [scope_warehouse]
+
+    normalized_ids = normalize_recruitment_homebase_ids(raw_values)
+    primary_id = _to_int(primary_warehouse_id)
+    if primary_id is not None:
+        normalized_ids = [warehouse_id for warehouse_id in normalized_ids if warehouse_id != primary_id]
+        normalized_ids.insert(0, primary_id)
+    return normalized_ids
+
+
+def _build_warehouse_name_map(db):
+    return {
+        int(row["id"]): str(row["name"] or "").strip() or f"WH {row['id']}"
+        for row in db.execute("SELECT id, name FROM warehouses ORDER BY id ASC").fetchall()
+    }
+
+
+def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
+    safe_candidate = dict(candidate or {})
+    primary_warehouse_id = _to_int(safe_candidate.get("warehouse_id"))
+    homebase_ids = normalize_recruitment_homebase_ids(safe_candidate.get("placement_warehouse_ids"))
+    if primary_warehouse_id is not None:
+        homebase_ids = [warehouse_id for warehouse_id in homebase_ids if warehouse_id != primary_warehouse_id]
+        homebase_ids.insert(0, primary_warehouse_id)
+    if not homebase_ids and primary_warehouse_id is not None:
+        homebase_ids = [primary_warehouse_id]
+
+    names = []
+    seen_names = set()
+    warehouse_name_map = warehouse_name_map or {}
+    for warehouse_id in homebase_ids:
+        warehouse_name = warehouse_name_map.get(warehouse_id)
+        if not warehouse_name and warehouse_id == primary_warehouse_id:
+            warehouse_name = str(safe_candidate.get("warehouse_name") or "").strip()
+        warehouse_name = warehouse_name or f"WH {warehouse_id}"
+        if warehouse_name in seen_names:
+            continue
+        seen_names.add(warehouse_name)
+        names.append(warehouse_name)
+
+    safe_candidate["placement_warehouse_id_list"] = homebase_ids
+    safe_candidate["placement_warehouse_names"] = names
+    safe_candidate["homebase_names_display"] = " / ".join(names) if names else (safe_candidate.get("warehouse_name") or "-")
+    return safe_candidate
+
+
 def _get_accessible_employee(db, employee_id):
     scope_warehouse = get_hris_scope()
     query = """
@@ -2593,13 +2644,13 @@ def _get_recruitment_candidate_by_id(db, candidate_id):
         LEFT JOIN users u ON r.handled_by = u.id
         WHERE r.id=?
     """
-    params = [candidate_id]
-
-    if scope_warehouse:
-        query += " AND r.warehouse_id=?"
-        params.append(scope_warehouse)
-
-    return db.execute(query, params).fetchone()
+    row = db.execute(query, [candidate_id]).fetchone()
+    if not row:
+        return None
+    candidate = _decorate_recruitment_candidate(row, _build_warehouse_name_map(db))
+    if scope_warehouse and scope_warehouse not in candidate.get("placement_warehouse_id_list", []):
+        return None
+    return candidate
 
 
 def _get_onboarding_by_id(db, onboarding_id):
@@ -6220,13 +6271,19 @@ def _fetch_recruitment_candidates(db):
         query += " AND r.status=?"
         params.append(status)
 
-    if selected_warehouse:
-        query += " AND r.warehouse_id=?"
-        params.append(selected_warehouse)
-
     query += " ORDER BY r.created_at DESC, r.candidate_name COLLATE NOCASE ASC, r.id DESC"
 
-    recruitment_candidates = [dict(row) for row in db.execute(query, params).fetchall()]
+    warehouse_name_map = _build_warehouse_name_map(db)
+    recruitment_candidates = [
+        _decorate_recruitment_candidate(row, warehouse_name_map)
+        for row in db.execute(query, params).fetchall()
+    ]
+    if selected_warehouse:
+        recruitment_candidates = [
+            candidate
+            for candidate in recruitment_candidates
+            if selected_warehouse in candidate.get("placement_warehouse_id_list", [])
+        ]
     for candidate in recruitment_candidates:
         candidate["assessment_expires_at_input"] = _format_datetime_local_input(candidate.get("assessment_expires_at"))
         candidate["assessment_expires_at_label"] = (
@@ -8761,6 +8818,11 @@ def add_recruitment():
     )
     vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    placement_warehouse_ids = _resolve_recruitment_homebase_ids(
+        request.form.getlist("placement_warehouse_ids"),
+        primary_warehouse_id=warehouse_id,
+    )
+    placement_warehouse_ids_value = encode_recruitment_homebase_ids(placement_warehouse_ids)
 
     if not candidate_name or not position_title:
         flash("Nama kandidat dan posisi wajib diisi", "error")
@@ -8793,6 +8855,7 @@ def add_recruitment():
             vacancy_id,
             application_channel,
             portfolio_url,
+            placement_warehouse_ids,
             assessment_code,
             assessment_expires_at,
             assessment_duration_minutes,
@@ -8800,7 +8863,7 @@ def add_recruitment():
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             candidate_name,
@@ -8817,6 +8880,7 @@ def add_recruitment():
             vacancy_id,
             normalize_career_application_channel("manual_hr"),
             portfolio_url or None,
+            placement_warehouse_ids_value,
             assessment_code or None,
             assessment_expires_at,
             assessment_duration_minutes,
@@ -8896,6 +8960,11 @@ def update_recruitment(candidate_id):
     assessment_review_notes = (request.form.get("assessment_review_notes") or "").strip()
     vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
+    placement_warehouse_ids = _resolve_recruitment_homebase_ids(
+        request.form.getlist("placement_warehouse_ids"),
+        primary_warehouse_id=warehouse_id,
+    )
+    placement_warehouse_ids_value = encode_recruitment_homebase_ids(placement_warehouse_ids)
     assessment_manual_score = (
         _to_float(assessment_manual_score_raw, default=None)
         if assessment_manual_score_raw
@@ -8942,6 +9011,7 @@ def update_recruitment(candidate_id):
             note=?,
             vacancy_id=?,
             portfolio_url=?,
+            placement_warehouse_ids=?,
             assessment_code=?,
             assessment_expires_at=?,
             assessment_duration_minutes=?,
@@ -8970,6 +9040,7 @@ def update_recruitment(candidate_id):
             note or None,
             vacancy_id,
             portfolio_url or None,
+            placement_warehouse_ids_value,
             assessment_code or candidate.get("assessment_code"),
             assessment_expires_at,
             assessment_duration_minutes,

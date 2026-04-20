@@ -11936,7 +11936,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """
                 SELECT candidate_name, warehouse_id, position_title, stage, status,
                        phone, email, application_channel, vacancy_id, portfolio_url,
-                       resume_original_name, resume_path
+                       resume_original_name, resume_path, placement_warehouse_ids
                 FROM recruitment_candidates
                 WHERE candidate_name=?
                 """,
@@ -11955,6 +11955,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate["portfolio_url"], "https://example.com/aldo")
         self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
         self.assertTrue(candidate["resume_path"])
+        self.assertEqual(json.loads(candidate["placement_warehouse_ids"]), [2])
 
     def test_public_career_apply_prevents_duplicate_active_application_and_reuses_code(self):
         with self.app.app_context():
@@ -12794,6 +12795,36 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Pendaftaran Sudah Tersimpan", pending_html)
         self.assertNotIn("Email Verifikasi Terkirim", pending_html)
 
+    def test_public_career_signup_email_uses_absolute_verification_url_on_recruitment_host(self):
+        self.app.config["CANONICAL_SCHEME"] = "https"
+        self.app.config["ALLOWED_HOSTS"] = ["erp.test", "recruitment.test"]
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+
+        with patch("routes.career.send_email", return_value=True) as mocked_send, patch(
+            "services.career_service.secrets.token_urlsafe",
+            return_value="verify-link-absolute",
+        ):
+            response = self.client.post(
+                "/signin/register-request",
+                data={
+                    "candidate_name": "Febrio Dwi Putra",
+                    "email": "febrio@example.com",
+                    "password": "password123",
+                    "password_confirmation": "password123",
+                    "next": "/karir/lowongan/3",
+                },
+                headers={"Host": "recruitment.test"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_send.assert_called_once()
+        email_body = mocked_send.call_args.args[2]
+        self.assertIn(
+            "https://recruitment.test/signin/verify?token=verify-link-absolute&next=/karir/lowongan/3",
+            email_body,
+        )
+
     def test_public_career_verify_link_activates_account_automatically(self):
         with patch("routes.career.send_email", return_value=True), patch(
             "services.career_service.secrets.token_urlsafe",
@@ -13042,6 +13073,89 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("WHERE id=?", str(db.execute.call_args_list[1].args[0]))
         self.assertEqual(db.execute.call_args_list[1].args[1], (88,))
         mocked_ensure.assert_called_once_with(db, 88, "")
+
+    def test_hr_recruitment_can_store_multiple_homebases_for_candidate(self):
+        self.login_hr_user("hr_multi_homebase", "pass1234")
+
+        response = self.client.post(
+            "/hris/recruitment/add",
+            data={
+                "candidate_name": "Rina Multi Homebase",
+                "position_title": "Store Support",
+                "warehouse_id": "2",
+                "placement_warehouse_ids": ["1", "2"],
+                "department": "Retail",
+                "stage": "applied",
+                "status": "active",
+                "source": "Referral",
+                "phone": "6281111000222",
+                "email": "rina.multi@example.com",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT warehouse_id, placement_warehouse_ids
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Rina Multi Homebase",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["warehouse_id"], 2)
+        self.assertEqual(json.loads(candidate["placement_warehouse_ids"]), [2, 1])
+
+    def test_hr_recruitment_filter_matches_secondary_homebase_assignment(self):
+        self.login_hr_user("hr_multi_filter", "pass1234")
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name,
+                    warehouse_id,
+                    position_title,
+                    department,
+                    stage,
+                    status,
+                    source,
+                    placement_warehouse_ids,
+                    application_channel,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Rina Filter Homebase",
+                    2,
+                    "Store Support",
+                    "Retail",
+                    "applied",
+                    "active",
+                    "Referral",
+                    json.dumps([2, 1]),
+                    "manual_hr",
+                ),
+            )
+            db.commit()
+
+        mataram_response = self.client.get("/hris/recruitment?warehouse=1")
+        self.assertEqual(mataram_response.status_code, 200)
+        self.assertIn("Rina Filter Homebase", mataram_response.get_data(as_text=True))
+
+        mega_response = self.client.get("/hris/recruitment?warehouse=2")
+        self.assertEqual(mega_response.status_code, 200)
+        self.assertIn("Rina Filter Homebase", mega_response.get_data(as_text=True))
 
     def test_public_career_auth_post_redirects_back_to_recruitment_host(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"

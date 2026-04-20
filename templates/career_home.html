@@ -57,9 +57,10 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     top: 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
     align-items: center;
-    gap: 28px;
+    gap: 10px 28px;
     padding: 18px 40px;
     border-radius: 0 0 22px 22px;
     background: rgba(255, 255, 255, 0.96);
@@ -67,19 +68,37 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     backdrop-filter: blur(14px);
 }
 
-.career-astra-brand {
+.career-astra-brand-mark {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: center;
     display: inline-flex;
     align-items: center;
-    gap: 12px;
     color: #0f172a;
     text-decoration: none;
-    font-weight: 800;
 }
 
-.career-astra-brand img {
+.career-astra-brand-mark img {
     width: 126px;
     height: auto;
     display: block;
+}
+
+.career-astra-topbar-head {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
+}
+
+.career-astra-brand-copy-link {
+    min-width: 0;
+    display: inline-flex;
+    color: #0f172a;
+    text-decoration: none;
 }
 
 .career-astra-brand-copy {
@@ -88,6 +107,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 }
 
 .career-astra-brand-copy strong {
+    font-weight: 800;
     font-size: 0.98rem;
     letter-spacing: -0.02em;
 }
@@ -124,6 +144,16 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     font-weight: 600;
     white-space: nowrap;
     transition: color 0.18s ease;
+}
+
+.career-astra-topbar-panel {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
 }
 
 .career-astra-nav a:hover,
@@ -802,8 +832,30 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
 @media (max-width: 1260px) {
     .career-astra-topbar {
         grid-template-columns: 1fr;
-        justify-items: start;
+        gap: 18px;
         padding-inline: 24px;
+    }
+
+    .career-astra-brand-mark,
+    .career-astra-topbar-head,
+    .career-astra-topbar-panel {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .career-astra-brand-mark {
+        justify-self: start;
+    }
+
+    .career-astra-topbar-head {
+        width: 100%;
+        align-items: center;
+    }
+
+    .career-astra-topbar-panel {
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .career-astra-nav {
@@ -859,14 +911,32 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
     }
 
     .career-astra-topbar {
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        gap: 10px 12px;
         padding: 12px 14px;
     }
 
     .career-astra-topbar-head {
+        grid-column: 2;
+        grid-row: 1;
         gap: 12px;
     }
 
-    .career-astra-brand img {
+    .career-astra-brand-mark {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .career-astra-topbar-panel {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .career-astra-brand-mark img {
         width: 54px;
     }
 
@@ -977,7 +1047,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-home-page {
         padding: 10px 12px;
     }
 
-    .career-astra-brand img {
+    .career-astra-brand-mark img {
         width: 50px;
     }
 

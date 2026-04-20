@@ -10,6 +10,7 @@ from database import get_db
 from services.career_service import (
     activate_career_public_account,
     create_public_account_request,
+    encode_recruitment_homebase_ids,
     get_career_public_account_by_email,
     get_career_public_account_by_id,
     get_career_public_account_by_verification_token,
@@ -161,14 +162,14 @@ def _get_primary_recruitment_public_host():
     return ""
 
 
-def build_career_public_url(endpoint, **values):
+def build_career_public_url(endpoint, force_external=False, **values):
     target_path = url_for(endpoint, **values)
     recruitment_host = _get_primary_recruitment_public_host()
-    if not recruitment_host:
+    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
+    if not recruitment_host and not force_external:
         return target_path
 
-    current_host = str(request.host or "").strip().split(":", 1)[0].lower()
-    if current_host == recruitment_host.lower():
+    if recruitment_host and current_host == recruitment_host.lower() and not force_external:
         return target_path
 
     target_scheme = (
@@ -177,7 +178,10 @@ def build_career_public_url(endpoint, **values):
         .lower()
         or "https"
     )
-    return f"{target_scheme}://{recruitment_host}{target_path}"
+    target_host = recruitment_host or current_host
+    if not target_host:
+        return target_path
+    return f"{target_scheme}://{target_host}{target_path}"
 
 
 @career_bp.before_request
@@ -835,6 +839,7 @@ def signin_register_request():
     career_company_name = _get_career_public_company_name()
     verification_url = build_career_public_url(
         "career.verify_public_account",
+        force_external=True,
         token=verification_token,
         **({"next": next_target} if next_target else {}),
     )
@@ -1048,11 +1053,12 @@ def apply():
             vacancy_id,
             application_channel,
             portfolio_url,
+            placement_warehouse_ids,
             resume_original_name,
             resume_path,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
         """,
         (
             candidate_name,
@@ -1068,6 +1074,7 @@ def apply():
             opening["id"],
             normalize_career_application_channel("public_portal"),
             portfolio_url or None,
+            encode_recruitment_homebase_ids([opening["warehouse_id"]]),
             resume_original_name,
             resume_path,
         ),

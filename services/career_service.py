@@ -1,4 +1,5 @@
 import json
+import json
 import os
 import random
 import re
@@ -137,6 +138,43 @@ def normalize_assessment_duration_minutes(value, default=0, maximum=720):
     if maximum and safe_value > int(maximum):
         return int(maximum)
     return safe_value
+
+
+def normalize_recruitment_homebase_ids(values):
+    if values is None:
+        return []
+
+    raw_items = values
+    if isinstance(values, str):
+        safe_value = values.strip()
+        if not safe_value:
+            return []
+        try:
+            parsed = json.loads(safe_value)
+            raw_items = parsed if isinstance(parsed, (list, tuple, set)) else [parsed]
+        except Exception:
+            raw_items = re.split(r"[\s,|]+", safe_value)
+
+    if not isinstance(raw_items, (list, tuple, set)):
+        raw_items = [raw_items]
+
+    normalized = []
+    seen = set()
+    for raw_item in raw_items:
+        try:
+            safe_id = int(str(raw_item or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if safe_id <= 0 or safe_id in seen:
+            continue
+        seen.add(safe_id)
+        normalized.append(safe_id)
+    return normalized
+
+
+def encode_recruitment_homebase_ids(values):
+    normalized = normalize_recruitment_homebase_ids(values)
+    return json.dumps(normalized) if normalized else None
 
 
 def _get_table_columns(db, table_name):
@@ -312,6 +350,7 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_violation_count INTEGER DEFAULT 0",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_expires_at TIMESTAMP",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_duration_minutes INTEGER DEFAULT 0",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS placement_warehouse_ids TEXT",
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
                 id SERIAL PRIMARY KEY,
@@ -454,6 +493,7 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_violation_count", "INTEGER DEFAULT 0")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_expires_at", "TIMESTAMP")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_duration_minutes", "INTEGER DEFAULT 0")
+        _sqlite_ensure_column(db, "recruitment_candidates", "placement_warehouse_ids", "TEXT")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
