@@ -23,7 +23,7 @@ from services.event_notification_policy import (
     get_event_notification_policy,
     save_event_notification_policy,
 )
-from app import create_app, repair_restored_data
+from app import create_app, repair_restored_data, _derive_shared_session_cookie_domain
 from config import Config
 from database import get_db, _replace_qmark_placeholders, _translate_sqlite_query_to_postgres, _replace_like_operators
 from routes.pos import (
@@ -177,6 +177,22 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertIn("CAST(h.date AS timestamp)", translated)
         self.assertIn("INTERVAL '+7 hours'", translated)
+
+    def test_shared_session_cookie_domain_derives_parent_for_erp_and_sms_hosts(self):
+        derived = _derive_shared_session_cookie_domain(
+            ["erp.cvbjasyogya.cloud", "sms.cvbjasyogya.cloud"]
+        )
+        self.assertEqual(derived, ".cvbjasyogya.cloud")
+
+    def test_shared_session_cookie_domain_skips_non_shared_local_or_test_hosts(self):
+        self.assertEqual(
+            _derive_shared_session_cookie_domain(["localhost", "sms.localhost"]),
+            "",
+        )
+        self.assertEqual(
+            _derive_shared_session_cookie_domain(["erp.test", "sms.test"]),
+            "",
+        )
 
     def test_database_translation_supports_parameterized_datetime_modifier(self):
         translated = _translate_sqlite_query_to_postgres(

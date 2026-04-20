@@ -158,6 +158,7 @@ class Config:
     SECRET_KEY = SECRET_KEY_DEFAULT
 
     SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "wms_session")
+    SESSION_COOKIE_DOMAIN = (os.getenv("SESSION_COOKIE_DOMAIN") or "").strip() or None
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     # Cookie session akan otomatis ditandai Secure saat request datang lewat HTTPS.

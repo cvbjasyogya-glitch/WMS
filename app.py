@@ -340,6 +340,42 @@ def _split_host_port(raw_host):
     return _normalized_host_name(parsed.hostname or candidate), parsed.port
 
 
+def _derive_shared_session_cookie_domain(host_candidates):
+    normalized_hosts = []
+    for candidate in host_candidates or []:
+        safe_host = _normalized_host_name(candidate)
+        if not safe_host:
+            continue
+        if safe_host == "localhost":
+            continue
+        if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", safe_host):
+            continue
+        if ":" in safe_host:
+            continue
+        labels = [part for part in safe_host.split(".") if part]
+        if len(labels) < 3:
+            continue
+        normalized_hosts.append(labels)
+
+    if len(normalized_hosts) < 2:
+        return ""
+
+    common_tail = []
+    for reversed_labels in zip(*(reversed(labels) for labels in normalized_hosts)):
+        if len(set(reversed_labels)) != 1:
+            break
+        common_tail.append(reversed_labels[0])
+
+    if len(common_tail) < 2:
+        return ""
+
+    shared_labels = list(reversed(common_tail))
+    if any(len(labels) <= len(shared_labels) for labels in normalized_hosts):
+        return ""
+
+    return "." + ".".join(shared_labels)
+
+
 def _request_origin_signatures():
     signatures = set()
 
@@ -767,6 +803,15 @@ def create_app():
 
     app.config["APP_BUILD_TOKEN"] = build_runtime_build_token()
     app.config.setdefault("DOCUMENT_RECORD_SIGNATURE_MAX_BYTES", 2 * 1024 * 1024)
+    if not app.config.get("SESSION_COOKIE_DOMAIN"):
+        shared_cookie_domain = _derive_shared_session_cookie_domain(
+            [
+                app.config.get("CANONICAL_HOST"),
+                *(app.config.get("SMS_PUBLIC_HOSTS") or []),
+            ]
+        )
+        if shared_cookie_domain:
+            app.config["SESSION_COOKIE_DOMAIN"] = shared_cookie_domain
 
     app.session_interface = RequestAwareSessionInterface()
     app.wsgi_app = ProxyFix(

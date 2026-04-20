@@ -2035,6 +2035,10 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     text-transform: uppercase;
 }
 
+.career-profile-document-status-card small.is-optional {
+    color: #6f7f92;
+}
+
 .career-profile-document-item {
     padding: 16px 18px;
     display: flex;

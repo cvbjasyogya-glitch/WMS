@@ -217,9 +217,19 @@
                 {% for item in selected_profile_document_statuses %}
                 <article class="career-profile-document-status-card {% if item.uploaded %}is-complete{% endif %}">
                     <strong>{{ item.label }}</strong>
-                    <span>{{ 'Sudah diunggah' if item.uploaded else 'Belum diunggah' }}</span>
+                    <span>
+                        {% if item.uploaded %}
+                        Sudah diunggah
+                        {% elif item.required %}
+                        Belum diunggah
+                        {% else %}
+                        Boleh dilewati
+                        {% endif %}
+                    </span>
                     {% if item.required %}
                     <small>Wajib</small>
+                    {% else %}
+                    <small class="is-optional">Opsional</small>
                     {% endif %}
                 </article>
                 {% endfor %}

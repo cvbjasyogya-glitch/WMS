@@ -3,6 +3,7 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 1. Copy [.env.production.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/.env.production.example) to your VPS `.env` or `EnvironmentFile`.
    Important:
    For VPS PostgreSQL, set `DATABASE_BACKEND=postgresql` and fill `DATABASE_URL` with the production DSN before restarting `wms.service`.
+   For ERP + SMS SSO across subdomains, set `SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud` so one login can be reused by `erp.cvbjasyogya.cloud` and `sms.cvbjasyogya.cloud`.
 2. Copy [deploy/nginx/wms_upstream.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/wms_upstream.conf) to `/etc/nginx/conf.d/wms_upstream.conf`.
 3. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
 4. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
@@ -30,6 +31,7 @@ Public recruitment domain:
 Public SMS cloud storage domain:
 - Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) if you want `sms.cvbjasyogya.cloud` to point to the same Gunicorn socket.
 - Add `SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud` to `.env`.
+- To enable seamless SSO between ERP and SMS, keep `SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud` in `.env`.
 - Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the SMS host routes `/` directly to `/sms/`.
 - Point DNS `sms.cvbjasyogya.cloud` to the same VPS as the main ERP before requesting the TLS certificate.
 
