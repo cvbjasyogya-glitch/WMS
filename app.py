@@ -699,7 +699,6 @@ def create_app():
 
     app = Flask(__name__)
     app.config.from_object(Config)
-    app.config.setdefault("APP_BUILD_TOKEN", uuid4().hex)
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.setdefault(
         "IPOS4_IMPORT_RUNTIME_DIR",
@@ -744,6 +743,29 @@ def create_app():
         "DOCUMENT_RECORD_SIGNATURE_URL_PREFIX",
         "/static/uploads/document_signatures",
     )
+
+    def build_runtime_build_token():
+        version_tokens = [str(app.config.get("APP_VERSION") or "dev").strip() or "dev"]
+        candidate_paths = [
+            os.path.abspath(__file__),
+            os.path.join(app.static_folder or "", "js", "push_service_worker.js"),
+            os.path.join(app.static_folder or "", "js", "app_shell.js"),
+            os.path.join(app.root_path, "templates", "base.html"),
+            os.path.join(app.root_path, "templates", "login.html"),
+        ]
+
+        for candidate_path in candidate_paths:
+            safe_path = os.path.abspath(str(candidate_path or ""))
+            if not os.path.isfile(safe_path):
+                continue
+            try:
+                version_tokens.append(str(os.stat(safe_path).st_mtime_ns))
+            except OSError:
+                continue
+
+        return "-".join(token for token in version_tokens if token)
+
+    app.config["APP_BUILD_TOKEN"] = build_runtime_build_token()
     app.config.setdefault("DOCUMENT_RECORD_SIGNATURE_MAX_BYTES", 2 * 1024 * 1024)
 
     app.session_interface = RequestAwareSessionInterface()
