@@ -49,9 +49,7 @@
         {% endif %}
     </form>
 
-    {% if not can_full_manage_product_master and can('manage_product_master') %}
-    <small class="helper-text">Admin dan leader hanya edit barang lama. Tambah, import, hapus, dan pokok khusus owner atau super admin.</small>
-    {% elif not can('manage_product_master') %}
+    {% if not can('manage_product_master') %}
     <small class="helper-text">Mode lihat saja.</small>
     {% endif %}
 

@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta
 from uuid import uuid4
 
-from flask import Blueprint, current_app, has_app_context, render_template, request, redirect, flash, session, url_for, send_file
+from flask import Blueprint, current_app, has_app_context, jsonify, render_template, request, redirect, flash, session, url_for, send_file
 from werkzeug.utils import secure_filename
 
 from database import get_db, is_postgresql_backend
@@ -2775,13 +2775,16 @@ def _get_career_public_company_name_local():
     return safe_name or "CV Berkah Jaya Abadi Sports"
 
 
-def _is_recruitment_candidate_ready_for_assessment(stage, status, assessment_code=""):
+def _is_recruitment_candidate_ready_for_assessment(stage, status, assessment_code="", assessment_status=""):
     safe_status = _normalize_recruitment_status(status)
     if safe_status != "active":
         return False
-    if normalize_assessment_code(assessment_code):
+    safe_stage = _normalize_recruitment_stage(stage)
+    if safe_stage in {"screening", "interview", "offer", "hired"}:
         return True
-    return _normalize_recruitment_stage(stage) in {"screening", "interview", "offer", "hired"}
+    if not normalize_assessment_code(assessment_code):
+        return False
+    return normalize_career_assessment_status(assessment_status) in {"started", "submitted", "reviewed"}
 
 
 def _send_recruitment_assessment_code_email(candidate):
@@ -6647,11 +6650,14 @@ def _fetch_recruitment_candidates(db):
                 OR r.position_title LIKE ?
                 OR COALESCE(r.department, '') LIKE ?
                 OR COALESCE(r.source, '') LIKE ?
+                OR COALESCE(r.phone, '') LIKE ?
+                OR COALESCE(r.email, '') LIKE ?
+                OR COALESCE(r.portfolio_url, '') LIKE ?
                 OR COALESCE(o.title, '') LIKE ?
             )
         """
         like = f"%{search}%"
-        params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like])
 
     if stage in RECRUITMENT_STAGES:
         query += " AND r.stage=?"
@@ -6684,6 +6690,15 @@ def _fetch_recruitment_candidates(db):
         duration_minutes = normalize_assessment_duration_minutes(candidate.get("assessment_duration_minutes"))
         candidate["assessment_duration_minutes_value"] = duration_minutes if duration_minutes > 0 else ""
     return recruitment_candidates, search, stage, status, selected_warehouse
+
+
+def _safe_hris_recruitment_next_target(value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return "/hris/recruitment"
+    if not safe_value.startswith("/hris/recruitment"):
+        return "/hris/recruitment"
+    return safe_value
 
 
 def _fetch_career_openings(db, selected_warehouse=None):
@@ -9356,10 +9371,18 @@ def update_recruitment(candidate_id):
 
     db = get_db()
     ensure_career_schema(db)
+    next_target = _safe_hris_recruitment_next_target(request.form.get("next"))
+    wants_json = (
+        str(request.form.get("async") or "").strip() == "1"
+        or str(request.headers.get("X-Requested-With") or "").strip().lower() == "xmlhttprequest"
+        or "application/json" in str(request.headers.get("Accept") or "").lower()
+    )
     candidate = _get_recruitment_candidate_by_id(db, candidate_id)
     if not candidate:
+        if wants_json:
+            return jsonify({"ok": False, "message": "Data recruitment tidak ditemukan."}), 404
         flash("Data recruitment tidak ditemukan", "error")
-        return redirect("/hris/recruitment")
+        return redirect(next_target)
     candidate = dict(candidate)
     previous_status = _normalize_recruitment_status(candidate.get("status"))
     previous_assessment_code = normalize_assessment_code(candidate.get("assessment_code"))
@@ -9407,16 +9430,22 @@ def update_recruitment(candidate_id):
         status = "rejected"
 
     if not candidate_name or not position_title:
+        if wants_json:
+            return jsonify({"ok": False, "message": "Nama kandidat dan posisi wajib diisi."}), 400
         flash("Nama kandidat dan posisi wajib diisi", "error")
-        return redirect("/hris/recruitment")
+        return redirect(next_target)
 
     if warehouse_id is None:
+        if wants_json:
+            return jsonify({"ok": False, "message": "Gudang hiring wajib diisi."}), 400
         flash("Gudang hiring wajib diisi", "error")
-        return redirect("/hris/recruitment")
+        return redirect(next_target)
 
     if vacancy_id and _get_career_opening_by_id(db, vacancy_id) is None:
+        if wants_json:
+            return jsonify({"ok": False, "message": "Lowongan yang dipilih tidak ditemukan untuk scope akun ini."}), 400
         flash("Lowongan yang dipilih tidak ditemukan untuk scope akun ini.", "error")
-        return redirect("/hris/recruitment")
+        return redirect(next_target)
 
     handled_by, handled_at = _build_recruitment_handling(status)
     stored_assessment_code = assessment_code or previous_assessment_code or None
@@ -9424,6 +9453,7 @@ def update_recruitment(candidate_id):
         stage,
         status,
         stored_assessment_code or "",
+        assessment_status,
     )
     if assessment_manual_score is not None:
         assessment_final_score = assessment_manual_score
@@ -9506,24 +9536,68 @@ def update_recruitment(candidate_id):
     just_issued_assessment_code = bool(final_assessment_code) and not previous_assessment_code and should_issue_assessment_code
     just_rejected = status == "rejected" and previous_status != "rejected"
 
-    flash("Kandidat recruitment berhasil diupdate.", "success")
+    response_messages = ["Kandidat recruitment berhasil diupdate."]
     if just_issued_assessment_code:
         email_result = _send_recruitment_assessment_code_email(updated_candidate or candidate)
         if email_result is True:
-            flash("Kode tes sudah dibuat dan dikirim ke email kandidat.", "success")
+            response_messages.append("Kode tes sudah dibuat dan dikirim ke email kandidat.")
+            if not wants_json:
+                flash("Kode tes sudah dibuat dan dikirim ke email kandidat.", "success")
         elif email_result is False:
-            flash("Kode tes berhasil dibuat, tetapi email kandidat belum berhasil dikirim.", "error")
+            response_messages.append("Kode tes berhasil dibuat, tetapi email kandidat belum berhasil dikirim.")
+            if not wants_json:
+                flash("Kode tes berhasil dibuat, tetapi email kandidat belum berhasil dikirim.", "error")
         else:
-            flash("Kode tes berhasil dibuat, tetapi email kandidat belum tersedia sehingga belum bisa dikirim.", "info")
+            response_messages.append("Kode tes berhasil dibuat, tetapi email kandidat belum tersedia sehingga belum bisa dikirim.")
+            if not wants_json:
+                flash("Kode tes berhasil dibuat, tetapi email kandidat belum tersedia sehingga belum bisa dikirim.", "info")
     elif just_rejected:
         email_result = _send_recruitment_rejection_email(updated_candidate or candidate)
         if email_result is True:
-            flash("Email penolakan sudah dikirim ke kandidat.", "success")
+            response_messages.append("Email penolakan sudah dikirim ke kandidat.")
+            if not wants_json:
+                flash("Email penolakan sudah dikirim ke kandidat.", "success")
         elif email_result is False:
-            flash("Status penolakan tersimpan, tetapi email penolakan belum berhasil dikirim.", "error")
+            response_messages.append("Status penolakan tersimpan, tetapi email penolakan belum berhasil dikirim.")
+            if not wants_json:
+                flash("Status penolakan tersimpan, tetapi email penolakan belum berhasil dikirim.", "error")
         else:
-            flash("Status penolakan tersimpan, tetapi email kandidat belum tersedia.", "info")
-    return redirect("/hris/recruitment")
+            response_messages.append("Status penolakan tersimpan, tetapi email kandidat belum tersedia.")
+            if not wants_json:
+                flash("Status penolakan tersimpan, tetapi email kandidat belum tersedia.", "info")
+    else:
+        if not wants_json:
+            flash("Kandidat recruitment berhasil diupdate.", "success")
+
+    if wants_json:
+        safe_updated_candidate = dict(updated_candidate or candidate or {})
+        safe_assessment_code = normalize_assessment_code(safe_updated_candidate.get("assessment_code"))
+        safe_assessment_url = (
+            url_for("career.assessment", code=safe_assessment_code)
+            if safe_assessment_code
+            else ""
+        )
+        safe_duration_value = safe_updated_candidate.get("assessment_duration_minutes_value")
+        safe_duration_label = (
+            f"{safe_duration_value} menit"
+            if safe_duration_value
+            else "Tanpa batas waktu"
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "candidate_id": candidate_id,
+                "status": status,
+                "stage": stage,
+                "removed_from_pipeline": bool(status == "rejected"),
+                "message": " ".join(item for item in response_messages if item).strip(),
+                "assessment_code": safe_assessment_code,
+                "assessment_url": safe_assessment_url,
+                "assessment_expires_at_label": safe_updated_candidate.get("assessment_expires_at_label") or "-",
+                "assessment_duration_label": safe_duration_label,
+            }
+        )
+    return redirect(next_target)
 
 
 @hris_bp.route("/recruitment/delete/<int:candidate_id>", methods=["POST"])
@@ -9533,16 +9607,17 @@ def delete_recruitment(candidate_id):
         return redirect("/hris/recruitment")
 
     db = get_db()
+    next_target = _safe_hris_recruitment_next_target(request.form.get("next"))
     candidate = _get_recruitment_candidate_by_id(db, candidate_id)
     if not candidate:
         flash("Data recruitment tidak ditemukan", "error")
-        return redirect("/hris/recruitment")
+        return redirect(next_target)
 
     db.execute("DELETE FROM recruitment_candidates WHERE id=?", (candidate_id,))
     db.commit()
 
     flash("Kandidat recruitment berhasil dihapus", "success")
-    return redirect("/hris/recruitment")
+    return redirect(next_target)
 
 
 @hris_bp.route("/recruitment/resume/<int:candidate_id>")

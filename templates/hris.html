@@ -1844,7 +1844,7 @@
 </div>
 
 <form method="GET" class="top-bar products-filter-bar">
-    <input type="text" name="q" value="{{ recruitment_filters.search }}" placeholder="Cari kandidat, posisi, departemen, source, atau lowongan">
+    <input type="text" name="q" value="{{ recruitment_filters.search }}" placeholder="Cari kandidat, posisi, telepon, email, source, atau lowongan">
     <select name="warehouse" {% if recruitment_scope_warehouse %}disabled{% endif %}>
         <option value="">Semua Homebase</option>
         {% for w in warehouses %}
@@ -2486,8 +2486,9 @@
         {% if can_manage_recruitment %}
         <div class="stack-scroll-list">
             {% for candidate in recruitment_candidates %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;">
-                <form method="POST" action="/hris/recruitment/update/{{ candidate.id }}">
+            <div class="box stack-scroll-card" style="margin-bottom:0;" data-recruitment-candidate-card="{{ candidate.id }}">
+                <form method="POST" action="/hris/recruitment/update/{{ candidate.id }}" data-recruitment-update-form>
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
                     <div class="form-grid">
                         <div>
                             <label>Nama Kandidat</label>
@@ -2615,16 +2616,16 @@
                             <label>Catatan Review Tes</label>
                             <textarea name="assessment_review_notes" rows="3">{{ candidate.assessment_review_notes or '' }}</textarea>
                         </div>
-                        <div>
+                        <div class="recruitment-assessment-access" data-recruitment-assessment-access>
                             <label>Link Tes Kandidat</label>
                             {% if candidate.assessment_code %}
-                            <a class="ghost-button" href="{{ url_for('career.assessment', code=candidate.assessment_code) }}" target="_blank" rel="noopener">Buka Halaman Tes</a>
-                            <span class="helper-text">Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_minutes_value if candidate.assessment_duration_minutes_value else 'Tanpa batas waktu' }}.</span>
+                            <a class="ghost-button" href="{{ url_for('career.assessment', code=candidate.assessment_code) }}" target="_blank" rel="noopener" data-recruitment-assessment-link>Buka Halaman Tes</a>
+                            <span class="helper-text" data-recruitment-assessment-meta>Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_minutes_value if candidate.assessment_duration_minutes_value else 'Tanpa batas waktu' }}.</span>
                             {% else %}
-                            <span class="helper-text">Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes.</span>
+                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes.</span>
                             {% endif %}
-                            <div class="split-actions" style="margin-top:12px; gap:10px; flex-wrap:wrap;">
-                                <button type="submit" name="decision_action" value="approve_assessment">
+                            <div class="split-actions recruitment-quick-actions">
+                                <button type="submit" name="decision_action" value="approve_assessment" data-recruitment-quick-action>
                                     Setujui ke Tahap Tes
                                 </button>
                                 <button
@@ -2632,6 +2633,7 @@
                                     name="decision_action"
                                     value="reject_candidate"
                                     class="danger-button"
+                                    data-recruitment-quick-action
                                     onclick="return confirm('Tolak kandidat ini dan kirim email penolakan?')"
                                 >
                                     Tolak Kandidat
@@ -2762,6 +2764,7 @@
                     </div>
                 </form>
                 <form method="POST" action="/hris/recruitment/delete/{{ candidate.id }}" style="margin-top:12px;">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
                     <button type="submit" class="danger-button" onclick="return confirm('Hapus kandidat recruitment ini?')">Hapus</button>
                 </form>
             </div>
@@ -2797,14 +2800,14 @@
         {% endif %}
     {% else %}
     {% if recruitment_filter_active %}
-    <div class="empty-state">
+    <div class="empty-state" data-recruitment-empty-state>
         Tidak ada kandidat yang cocok dengan filter saat ini. Pelamar baru dari portal karir biasanya masuk ke stage <strong>Applied</strong> dan status <strong>Active</strong>.
         <div style="margin-top:14px;">
             <a href="/hris/recruitment" class="ghost-button">Lihat Semua Kandidat</a>
         </div>
     </div>
     {% else %}
-    <div class="empty-state">Belum ada kandidat recruitment. Kandidat dari halaman karir akan otomatis masuk ke pipeline ini.</div>
+    <div class="empty-state" data-recruitment-empty-state>Belum ada kandidat recruitment. Kandidat dari halaman karir akan otomatis masuk ke pipeline ini.</div>
     {% endif %}
     {% endif %}
     </div>
@@ -2820,6 +2823,116 @@
     const panels = cards
         .map((card) => document.getElementById(card.dataset.recruitmentTarget || ""))
         .filter(Boolean);
+    const pipelinePanel = document.getElementById("recruitmentPanelPipeline");
+    const pipelineList = pipelinePanel ? pipelinePanel.querySelector(".stack-scroll-list") : null;
+    const pipelineWorkspaceBadge = workspace.querySelector('[data-recruitment-target="recruitmentPanelPipeline"] .recruitment-workspace-badge');
+    const pipelinePanelBadge = pipelinePanel ? pipelinePanel.querySelector(".panel-summary-meta .badge") : null;
+    const ensurePipelineNotice = () => {
+        if (!pipelinePanel) {
+            return null;
+        }
+        let notice = pipelinePanel.querySelector("[data-recruitment-async-notice]");
+        if (!notice) {
+            notice = document.createElement("div");
+            notice.setAttribute("data-recruitment-async-notice", "1");
+            notice.style.marginBottom = "14px";
+            notice.style.padding = "12px 14px";
+            notice.style.borderRadius = "12px";
+            notice.style.background = "rgba(15, 118, 110, 0.08)";
+            notice.style.border = "1px solid rgba(13, 148, 136, 0.18)";
+            notice.style.color = "#0f172a";
+            const content = pipelinePanel.querySelector(".panel-content");
+            if (content) {
+                content.insertBefore(notice, content.firstChild);
+            }
+        }
+        return notice;
+    };
+    const renderPipelineEmptyState = () => {
+        if (!pipelinePanel || !pipelineList) {
+            return;
+        }
+        const remainingCards = pipelineList.querySelectorAll("[data-recruitment-candidate-card]");
+        if (remainingCards.length > 0) {
+            return;
+        }
+        let emptyState = pipelinePanel.querySelector("[data-recruitment-empty-state]");
+        if (!emptyState) {
+            emptyState = document.createElement("div");
+            emptyState.className = "empty-state";
+            emptyState.setAttribute("data-recruitment-empty-state", "1");
+            emptyState.textContent = "Belum ada kandidat recruitment. Kandidat dari halaman karir akan otomatis masuk ke pipeline ini.";
+            const content = pipelinePanel.querySelector(".panel-content");
+            if (content) {
+                content.appendChild(emptyState);
+            }
+        }
+    };
+    const syncPipelineCount = () => {
+        if (!pipelineList) {
+            return;
+        }
+        const count = pipelineList.querySelectorAll("[data-recruitment-candidate-card]").length;
+        if (pipelineWorkspaceBadge) {
+            pipelineWorkspaceBadge.textContent = `${count} kandidat`;
+        }
+        if (pipelinePanelBadge) {
+            pipelinePanelBadge.textContent = `${count} kandidat`;
+        }
+    };
+    const currentFilters = new URLSearchParams(window.location.search || "");
+    const matchesCurrentPipelineFilters = (payload) => {
+        const stageFilter = String(currentFilters.get("stage") || "all").trim().toLowerCase();
+        const statusFilter = String(currentFilters.get("status") || "all").trim().toLowerCase();
+        if (stageFilter && stageFilter !== "all" && payload.stage !== stageFilter) {
+            return false;
+        }
+        if (statusFilter && statusFilter !== "all" && payload.status !== statusFilter) {
+            return false;
+        }
+        return true;
+    };
+    const updateRecruitmentCardState = (form, payload) => {
+        const stageField = form.querySelector('select[name="stage"]');
+        const statusField = form.querySelector('select[name="status"]');
+        const assessmentCodeField = form.querySelector('input[name="assessment_code"]');
+        const assessmentAccess = form.querySelector("[data-recruitment-assessment-access]");
+        if (stageField && payload.stage) {
+            stageField.value = payload.stage;
+        }
+        if (statusField && payload.status) {
+            statusField.value = payload.status;
+        }
+        if (assessmentCodeField) {
+            assessmentCodeField.value = payload.assessment_code || "";
+        }
+        if (!assessmentAccess) {
+            return;
+        }
+        let assessmentLink = assessmentAccess.querySelector("[data-recruitment-assessment-link]");
+        let assessmentMeta = assessmentAccess.querySelector("[data-recruitment-assessment-meta]");
+        if (!assessmentMeta) {
+            assessmentMeta = document.createElement("span");
+            assessmentMeta.className = "helper-text";
+            assessmentMeta.setAttribute("data-recruitment-assessment-meta", "1");
+            const actions = assessmentAccess.querySelector(".split-actions");
+            assessmentAccess.insertBefore(assessmentMeta, actions || null);
+        }
+        if (payload.assessment_code && payload.assessment_url) {
+            if (!assessmentLink) {
+                assessmentLink = document.createElement("a");
+                assessmentLink.className = "ghost-button";
+                assessmentLink.target = "_blank";
+                assessmentLink.rel = "noopener";
+                assessmentLink.setAttribute("data-recruitment-assessment-link", "1");
+                assessmentLink.textContent = "Buka Halaman Tes";
+                const actions = assessmentAccess.querySelector(".split-actions");
+                assessmentAccess.insertBefore(assessmentLink, assessmentMeta || actions || null);
+            }
+            assessmentLink.href = payload.assessment_url;
+            assessmentMeta.textContent = `Masa berlaku: ${payload.assessment_expires_at_label || '-'}. Durasi: ${payload.assessment_duration_label || 'Tanpa batas waktu'}.`;
+        }
+    };
 
     const syncCardState = () => {
         cards.forEach((card) => {
@@ -2867,6 +2980,65 @@
     } else {
         syncCardState();
     }
+
+    workspace.querySelectorAll("[data-recruitment-update-form]").forEach((form) => {
+        form.addEventListener("submit", async (event) => {
+            const submitter = event.submitter;
+            if (!submitter || submitter.dataset.recruitmentQuickAction === undefined) {
+                return;
+            }
+            event.preventDefault();
+            const formData = new FormData(form);
+            if (submitter.name) {
+                formData.set(submitter.name, submitter.value || "");
+            }
+            formData.set("async", "1");
+            const card = form.closest("[data-recruitment-candidate-card]");
+            const notice = ensurePipelineNotice();
+            submitter.disabled = true;
+            submitter.dataset.originalLabel = submitter.textContent;
+            submitter.textContent = "Memproses...";
+            try {
+                const response = await fetch(form.action, {
+                    method: "POST",
+                    body: formData,
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "application/json"
+                    },
+                    credentials: "same-origin"
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || !payload.ok) {
+                    throw new Error(payload.message || "Gagal memperbarui status kandidat.");
+                }
+                if (notice) {
+                    notice.style.background = "rgba(15, 118, 110, 0.08)";
+                    notice.style.borderColor = "rgba(13, 148, 136, 0.18)";
+                    notice.textContent = payload.message || "Status kandidat berhasil diperbarui.";
+                }
+                const shouldRemoveCard = Boolean(payload.removed_from_pipeline) || !matchesCurrentPipelineFilters(payload);
+                if (shouldRemoveCard && card) {
+                    card.remove();
+                    syncPipelineCount();
+                    renderPipelineEmptyState();
+                } else {
+                    updateRecruitmentCardState(form, payload);
+                }
+            } catch (error) {
+                if (notice) {
+                    notice.style.background = "rgba(185, 28, 28, 0.08)";
+                    notice.style.borderColor = "rgba(220, 38, 38, 0.2)";
+                    notice.textContent = error.message || "Gagal memperbarui status kandidat.";
+                } else {
+                    window.alert(error.message || "Gagal memperbarui status kandidat.");
+                }
+            } finally {
+                submitter.disabled = false;
+                submitter.textContent = submitter.dataset.originalLabel || "Tolak Kandidat";
+            }
+        });
+    });
 })();
 </script>
 {% elif selected_module.slug == "onboarding" %}

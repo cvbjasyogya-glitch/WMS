@@ -24,6 +24,7 @@ Brevo SMTP for career and auth emails:
   `SMTP_FROM_NAME=CV Berkah Jaya Abadi Sports Career`
 - `SMTP_FROM_EMAIL` and `SMTP_FROM_NAME` are optional overrides for the sender shown to candidates. If omitted, the app falls back to `SMTP_USER`.
 - If you do not want internal ERP notifications to be sent by email, set `ERP_NOTIFICATION_EMAIL_ENABLED=0`. This only disables ERP internal notification fan-out from `notification_service`; career portal and auth emails still work.
+- If you want to fully disable app auto-update / PWA service worker to avoid automatic refresh after deploy, keep `SERVICE_WORKER_ENABLED=0`. This disables service worker registration on ERP pages and lets `app_shell.js` clean up any old worker still cached in the browser.
 
 Public recruitment domain:
 - Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.

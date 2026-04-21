@@ -112,7 +112,7 @@ IPOS4_IMPORT_UI_MODES = {
 }
 
 PRODUCT_MASTER_FULL_ACCESS_ROLES = {"owner", "super_admin"}
-PRODUCT_MASTER_LIMITED_EDIT_ROLES = {"admin", "leader"}
+PRODUCT_MASTER_LIMITED_EDIT_ROLES = set()
 
 
 def _resolve_ipos4_path(raw_value, fallback: Path) -> Path:
@@ -427,7 +427,7 @@ def _require_product_master_access(json_mode=False):
     if _can_manage_product_master():
         return None
 
-    message = "Akses master produk hanya tersedia untuk admin, leader, owner, atau super admin."
+    message = "Akses master produk hanya tersedia untuk owner atau super admin."
     if json_mode or _is_ajax_request():
         return _products_json_error(message, 403)
 
@@ -451,7 +451,7 @@ def _require_product_master_edit_access(json_mode=False):
     if _can_edit_existing_product_master():
         return None
 
-    message = "Edit produk hanya tersedia untuk admin, leader, owner, atau super admin."
+    message = "Edit produk hanya tersedia untuk owner atau super admin."
     if json_mode or _is_ajax_request():
         return _products_json_error(message, 403)
 

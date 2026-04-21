@@ -1277,7 +1277,7 @@ self.addEventListener("fetch", () => {{}});
         shell_break_timer = _build_shell_break_timer_state() if session.get("user_id") else {"active": False}
         use_homebase_ui = _should_use_homebase_ui(request.path)
         public_host_mode = _get_public_host_mode(app, request.host)
-        service_worker_enabled = not bool(public_host_mode)
+        service_worker_enabled = bool(app.config.get("SERVICE_WORKER_ENABLED", False)) and not bool(public_host_mode)
         return {
             "can": lambda permission: has_permission(role, permission),
             "can_access_pos_terminal": lambda: can_access_pos_terminal(role),

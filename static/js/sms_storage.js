@@ -27,6 +27,19 @@
       x: 0,
       y: 0
     },
+    sharedContext: {
+      shareId: "",
+      currentPath: "",
+      ownerUsername: "",
+      label: ""
+    },
+    shareDialog: {
+      recipients: [],
+      search: "",
+      selectedUserIds: [],
+      targets: [],
+      isSubmitting: false
+    },
     moveDialog: {
       mode: "move",
       items: [],
@@ -114,6 +127,15 @@
     previewDialog: document.getElementById("preview-dialog"),
     previewTitle: document.getElementById("preview-title"),
     previewBody: document.getElementById("preview-body"),
+    shareDialog: document.getElementById("share-dialog"),
+    shareDialogTitle: document.getElementById("shareDialogTitle"),
+    shareDialogTargetSummary: document.getElementById("shareDialogTargetSummary"),
+    shareDialogSearchInput: document.getElementById("shareDialogSearchInput"),
+    shareDialogSelectedCount: document.getElementById("shareDialogSelectedCount"),
+    shareDialogList: document.getElementById("shareDialogList"),
+    shareDialogCloseButton: document.getElementById("shareDialogCloseButton"),
+    shareDialogCancelButton: document.getElementById("shareDialogCancelButton"),
+    shareDialogSubmitButton: document.getElementById("shareDialogSubmitButton"),
     moveDialog: document.getElementById("move-dialog"),
     moveDialogTitle: document.getElementById("moveDialogTitle"),
     moveDialogTargetSummary: document.getElementById("moveDialogTargetSummary"),
@@ -206,6 +228,11 @@
   }
 
   function getCurrentSectionLabel() {
+    if (state.section === "shared" && state.sharedContext.shareId) {
+      return state.sharedContext.currentPath
+        ? state.sharedContext.currentPath.split("/").pop()
+        : state.sharedContext.label || "Shared";
+    }
     if (state.section === "trash") return "Trash";
     if (state.section === "recent") return "Recent";
     if (state.section === "starred") return "Starred";
@@ -217,10 +244,13 @@
   }
 
   function getCurrentSectionSubtitle() {
+    if (state.section === "shared" && state.sharedContext.shareId) {
+      return `Membuka item yang dibagikan oleh ${state.sharedContext.ownerUsername || "rekan kerja"} dalam mode baca.`;
+    }
     if (state.section === "trash") return "Kelola item yang sudah dipindahkan ke trash atau hapus permanen bila sudah tidak dibutuhkan.";
     if (state.section === "recent") return "Kumpulan file terakhir yang berubah di ruang storage pribadimu.";
     if (state.section === "starred") return "Daftar file dan folder penting yang kamu tandai untuk akses cepat lintas workspace.";
-    if (state.section === "shared") return "Kumpulan item yang sudah kamu tandai siap dibagikan atau di-follow up lebih lanjut.";
+    if (state.section === "shared") return "Kumpulan file dan folder yang kamu bagikan atau kamu terima dari user lain.";
     if (state.section === "shortcuts") return "Daftar jalan pintas ke file dan folder penting tanpa perlu bolak-balik cari lokasi aslinya.";
     if (state.section === "all") return "Index seluruh file dan folder milik akun aktif.";
     if (state.section === "home") return "Ringkasan workspace dan folder yang paling sering kamu buka.";
@@ -228,6 +258,7 @@
   }
 
   function getWorkspaceKicker() {
+    if (state.section === "shared" && state.sharedContext.shareId) return "Shared Access";
     if (state.section === "trash") return "Recycle";
     if (state.section === "recent") return "Recent";
     if (state.section === "starred") return "Starred";
@@ -253,11 +284,31 @@
     return item?.shortcutTargetPath || item?.shortcut_target_path || item?.path || "";
   }
 
+  function isExternalSharedItem(item) {
+    return Boolean(item?.sharedExternal || item?.shared_external);
+  }
+
+  function canManageShareItem(item) {
+    if (!item) return false;
+    return !isExternalSharedItem(item) || Boolean(item?.canManageShare || item?.can_manage_share);
+  }
+
   function getShortcutParentPath(item) {
     return item?.shortcutParentPath || item?.shortcut_parent_path || "";
   }
 
   function getItemLocationLabel(item) {
+    if (isExternalSharedItem(item)) {
+      const owner = item?.sharedOwnerUsername || item?.shared_owner_username || "rekan kerja";
+      const sharePath = item?.shareRelativePath || item?.share_relative_path || "";
+      return sharePath ? `Dibagikan oleh ${owner} | ${sharePath}` : `Dibagikan oleh ${owner}`;
+    }
+    if (item?.sharedDirection === "outgoing" || item?.shared_direction === "outgoing") {
+      const recipients = Array.isArray(item?.sharedRecipients || item?.shared_recipients)
+        ? (item.sharedRecipients || item.shared_recipients)
+        : [];
+      return recipients.length ? `Shared ke ${recipients.length} user` : (item?.path || "My Drive");
+    }
     if (!item?.shortcut) {
       return item?.path || "My Drive";
     }
@@ -285,15 +336,20 @@
   }
 
   function canToggleSharedSelection() {
-    return getSelectedItems().length > 0 && !isTrashView();
+    const selectedItems = getSelectedItems();
+    return (
+      selectedItems.length > 0 &&
+      !isTrashView() &&
+      selectedItems.every((item) => !item.shortcut && canManageShareItem(item))
+    );
   }
 
   function canCreateShortcutSelection() {
-    return getSelectedItems().filter((item) => !item.shortcut).length > 0 && !isTrashView();
+    return getSelectedItems().filter((item) => !item.shortcut && !isExternalSharedItem(item)).length > 0 && !isTrashView();
   }
 
   function canMoveSelection() {
-    return getSelectedItems().filter((item) => !item.shortcut).length > 0 && !isTrashView();
+    return getSelectedItems().filter((item) => !item.shortcut && !isExternalSharedItem(item)).length > 0 && !isTrashView();
   }
 
   function clearSelection() {
@@ -446,12 +502,14 @@
     }
     const openLabel = item.kind === "folder" ? "Buka" : (item.previewable ? "Preview" : "Download");
     const starLabel = item.starred ? "Lepas Bintang" : "Bintangi";
-    const shareLabel = item.shared ? "Batal Shared" : "Shared";
+    const shareLabel = isExternalSharedItem(item)
+      ? "Read only"
+      : (item.shared ? "Kelola Shared" : "Bagikan");
     const shortcutLabel = item.shortcut ? "Hapus Shortcut" : "Shortcut Cepat";
     if (item.shortcut) {
       return `
         <button type="button" class="file-action-btn" data-action="open" data-key="${escapeHtml(getItemKey(item))}">${openLabel}</button>
-        <button type="button" class="file-action-btn ${item.shared ? "is-shared" : ""}" data-action="toggle-shared" data-key="${escapeHtml(getItemKey(item))}">${shareLabel}</button>
+        <button type="button" class="file-action-btn ${item.shared ? "is-shared" : ""}" data-action="toggle-shared" data-key="${escapeHtml(getItemKey(item))}" disabled>${shareLabel}</button>
         <button type="button" class="file-action-btn is-shortcut" data-action="toggle-shortcut" data-key="${escapeHtml(getItemKey(item))}">${shortcutLabel}</button>
         <button type="button" class="file-action-btn" data-action="download" data-key="${escapeHtml(getItemKey(item))}">Download</button>
         <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}">Hapus</button>
@@ -459,12 +517,12 @@
     }
     return `
       <button type="button" class="file-action-btn" data-action="open" data-key="${escapeHtml(getItemKey(item))}">${openLabel}</button>
-      <button type="button" class="file-action-btn ${item.starred ? "is-starred" : ""}" data-action="toggle-star" data-key="${escapeHtml(getItemKey(item))}">${starLabel}</button>
-      <button type="button" class="file-action-btn ${item.shared ? "is-shared" : ""}" data-action="toggle-shared" data-key="${escapeHtml(getItemKey(item))}">${shareLabel}</button>
+      <button type="button" class="file-action-btn ${item.starred ? "is-starred" : ""}" data-action="toggle-star" data-key="${escapeHtml(getItemKey(item))}" ${isExternalSharedItem(item) ? "disabled" : ""}>${starLabel}</button>
+      <button type="button" class="file-action-btn ${item.shared ? "is-shared" : ""}" data-action="toggle-shared" data-key="${escapeHtml(getItemKey(item))}" ${!canManageShareItem(item) ? "disabled" : ""}>${shareLabel}</button>
       <button type="button" class="file-action-btn ${item.shortcut ? "is-shortcut" : ""}" data-action="toggle-shortcut" data-key="${escapeHtml(getItemKey(item))}">${shortcutLabel}</button>
       <button type="button" class="file-action-btn" data-action="download" data-key="${escapeHtml(getItemKey(item))}">Download</button>
-      <button type="button" class="file-action-btn" data-action="move" data-key="${escapeHtml(getItemKey(item))}">Pindah</button>
-      <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}">Delete</button>
+      <button type="button" class="file-action-btn" data-action="move" data-key="${escapeHtml(getItemKey(item))}" ${isExternalSharedItem(item) ? "disabled" : ""}>Pindah</button>
+      <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}" ${isExternalSharedItem(item) ? "disabled" : ""}>Delete</button>
     `;
   }
 
@@ -542,13 +600,15 @@
     elements.selectionStatus.textContent = `${numberFormatter.format(selectedItems.length)} item dipilih`;
 
     const canUpload = canMutateCurrentLocation();
-    const canRename = selectedItems.length === 1 && !isTrashView();
+    const canRename = selectedItems.length === 1 && !isTrashView() && !isExternalSharedItem(selectedItems[0]);
     const canDownload = selectedItems.length === 1 && !isTrashView();
     const canMove = canMoveSelection();
     const canShare = canToggleSharedSelection();
     const canShortcut = canCreateShortcutSelection();
     const canRestore = isTrashView() && selectedItems.length > 0;
-    const canDelete = selectedItems.length > 0;
+    const canDelete = isTrashView()
+      ? selectedItems.length > 0
+      : selectedItems.length > 0 && selectedItems.every((item) => !isExternalSharedItem(item));
     const canOpen = selectedItems.length === 1;
     const allSelectedAreShortcuts = selectedItems.length > 0 && selectedItems.every((item) => item.shortcut);
 
@@ -575,12 +635,14 @@
       : `${numberFormatter.format(selectedItems.length)} item dipilih`;
     elements.selectionBarSubtitle.textContent = isTrashView()
       ? "Gunakan restore atau hapus permanen untuk item di trash."
-      : selectedItems.some((item) => item.shortcut)
+      : selectedItems.some((item) => isExternalSharedItem(item))
+        ? "Item shared dari user lain hanya bisa dibuka atau diunduh."
+        : selectedItems.some((item) => item.shortcut)
         ? "Shortcut bisa dibuka, dibagikan, atau dihapus dari daftar."
         : "Kelola item terpilih tanpa perlu kembali ke toolbar utama.";
     elements.selectionOpenBtn.disabled = !canOpen;
     elements.selectionDownloadBtn.disabled = !canDownload;
-    elements.selectionStarBtn.disabled = isTrashView() || selectedItems.length === 0;
+    elements.selectionStarBtn.disabled = isTrashView() || selectedItems.length === 0 || selectedItems.some((item) => isExternalSharedItem(item));
     elements.selectionShareBtn.disabled = !canShare;
     elements.selectionShortcutBtn.disabled = !canShortcut && !selectedItems.every((item) => item.shortcut);
     elements.selectionShortcutBtn.textContent = allSelectedAreShortcuts ? "Hapus Shortcut" : "Shortcut ke Folder";
@@ -609,11 +671,13 @@
 
     elements.contextOpenBtn.textContent = item.kind === "folder" ? "Buka Folder" : "Buka";
     elements.contextStarBtn.textContent = item.starred ? "Lepas Starred" : "Tambahkan Starred";
-    elements.contextShareBtn.textContent = item.shared ? "Batal Shared" : "Tandai Shared";
+    elements.contextShareBtn.textContent = item.shortcut ? "Shortcut" : (isExternalSharedItem(item) ? "Read only" : (item.shared ? "Kelola Shared" : "Bagikan"));
     elements.contextShortcutBtn.textContent = item.shortcut ? "Hapus Shortcut" : "Shortcut Cepat";
-    elements.contextMoveBtn.disabled = item.shortcut || isTrashView();
-    elements.contextRenameBtn.disabled = item.shortcut || isTrashView();
-    elements.contextShortcutTargetBtn.disabled = item.shortcut || isTrashView();
+    elements.contextStarBtn.disabled = isExternalSharedItem(item);
+    elements.contextMoveBtn.disabled = item.shortcut || isTrashView() || isExternalSharedItem(item);
+    elements.contextRenameBtn.disabled = item.shortcut || isTrashView() || isExternalSharedItem(item);
+    elements.contextShortcutTargetBtn.disabled = item.shortcut || isTrashView() || isExternalSharedItem(item);
+    elements.contextShareBtn.disabled = item.shortcut || !canManageShareItem(item);
     elements.contextRestoreBtn.classList.toggle("hidden", !isTrashView());
     elements.contextDeleteBtn.textContent = isTrashView() ? "Hapus Permanen" : (item.shortcut ? "Hapus Shortcut" : "Delete");
 
@@ -767,7 +831,16 @@
     } else if (state.section === "starred") {
       payload = await requestJson(endpoints.starred);
     } else if (state.section === "shared") {
-      payload = await requestJson(endpoints.shared);
+      if (state.sharedContext.shareId) {
+        payload = await requestJson(
+          buildUrl(endpoints.sharedBrowse, {
+            share_id: state.sharedContext.shareId,
+            path: state.sharedContext.currentPath || ""
+          })
+        );
+      } else {
+        payload = await requestJson(endpoints.shared);
+      }
     } else if (state.section === "shortcuts") {
       payload = await requestJson(endpoints.shortcuts);
     } else if (state.section === "all") {
@@ -781,6 +854,11 @@
     state.items = Array.isArray(payload.items) ? payload.items : [];
     state.breadcrumbs = Array.isArray(payload.breadcrumbs) ? payload.breadcrumbs : [];
     state.summary = payload.summary || { fileCount: 0, folderCount: 0 };
+    if (state.section === "shared" && state.sharedContext.shareId) {
+      state.sharedContext.ownerUsername = payload.sharedOwnerUsername || payload.shared_owner_username || state.sharedContext.ownerUsername;
+      state.sharedContext.label = payload.sharedLabel || payload.shared_label || state.sharedContext.label;
+      state.sharedContext.currentPath = payload.currentPath || payload.current_path || state.sharedContext.currentPath;
+    }
     if (state.section === "home") {
       state.homeData.rootFolders = state.items.filter((item) => item.kind === "folder").slice(0, 5);
     }
@@ -810,6 +888,21 @@
 
   function setSection(section) {
     state.section = section;
+    if (section !== "shared") {
+      state.sharedContext = {
+        shareId: "",
+        currentPath: "",
+        ownerUsername: "",
+        label: ""
+      };
+    } else {
+      state.sharedContext = {
+        shareId: "",
+        currentPath: "",
+        ownerUsername: "",
+        label: ""
+      };
+    }
     if (section === "home") {
       state.currentPath = "";
     }
@@ -821,6 +914,12 @@
   }
 
   function navigateTo(pathValue) {
+    if (state.section === "shared" && state.sharedContext.shareId) {
+      state.sharedContext.currentPath = pathValue || "";
+      clearSelection();
+      refreshWorkspace().catch(handleError);
+      return;
+    }
     state.section = "drive";
     state.currentPath = pathValue || "";
     clearSelection();
@@ -852,7 +951,12 @@
     if (!item) return;
     elements.previewTitle.textContent = item.name || "Preview";
 
-    const previewUrl = buildUrl(endpoints.preview, { path: getItemResolvedPath(item) });
+    const previewUrl = isExternalSharedItem(item)
+      ? buildUrl(endpoints.sharedPreview, {
+        share_id: item.shareId || item.share_id,
+        path: item.shareRelativePath || item.share_relative_path || ""
+      })
+      : buildUrl(endpoints.preview, { path: getItemResolvedPath(item) });
     if (item.kind === "folder") {
       elements.previewBody.innerHTML = `
         <div class="preview-meta">
@@ -888,11 +992,28 @@
 
   function downloadItem(item) {
     if (!item) return;
+    if (isExternalSharedItem(item)) {
+      window.location.href = buildUrl(endpoints.sharedDownload, {
+        share_id: item.shareId || item.share_id,
+        path: item.shareRelativePath || item.share_relative_path || ""
+      });
+      return;
+    }
     window.location.href = buildUrl(endpoints.download, { path: getItemResolvedPath(item) });
   }
 
   async function openItem(item) {
     if (!item) return;
+    if (isExternalSharedItem(item) && item.kind === "folder") {
+      state.section = "shared";
+      state.sharedContext.shareId = item.shareId || item.share_id || "";
+      state.sharedContext.currentPath = item.shareRelativePath || item.share_relative_path || "";
+      state.sharedContext.ownerUsername = item.sharedOwnerUsername || item.shared_owner_username || "";
+      state.sharedContext.label = item.name || "";
+      clearSelection();
+      await refreshWorkspace();
+      return;
+    }
     if (item.kind === "folder") {
       navigateTo(getItemResolvedPath(item));
       return;
@@ -902,6 +1023,120 @@
       return;
     }
     downloadItem(item);
+  }
+
+  function getShareDialogVisibleRecipients() {
+    const query = state.shareDialog.search.trim().toLowerCase();
+    if (!query) return state.shareDialog.recipients;
+    return state.shareDialog.recipients.filter((item) => {
+      const haystack = `${item.username || ""} ${item.role || ""} ${item.label || ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  function renderShareDialog() {
+    const visibleRecipients = getShareDialogVisibleRecipients();
+    const selectedSet = new Set(state.shareDialog.selectedUserIds);
+    const targetCount = state.shareDialog.targets.length;
+    elements.shareDialogTitle.textContent = targetCount > 1 ? "Bagikan Beberapa Item" : "Bagikan Item";
+    elements.shareDialogTargetSummary.textContent = targetCount > 1
+      ? `${targetCount} item akan dibagikan ke user yang kamu pilih.`
+      : `Pilih user yang bisa melihat ${state.shareDialog.targets[0]?.name || "item ini"}.`;
+    elements.shareDialogSelectedCount.textContent = `${selectedSet.size} user`;
+    elements.shareDialogSubmitButton.textContent = state.shareDialog.isSubmitting
+      ? "Menyimpan..."
+      : (selectedSet.size ? "Simpan Shared" : "Cabut Shared");
+    elements.shareDialogSubmitButton.disabled = state.shareDialog.isSubmitting;
+
+    if (!visibleRecipients.length) {
+      elements.shareDialogList.innerHTML = '<div class="move-dialog-empty">Belum ada user lain yang bisa dipilih.</div>';
+      return;
+    }
+
+    elements.shareDialogList.innerHTML = visibleRecipients.map((recipient) => `
+      <label class="move-dialog-item ${selectedSet.has(recipient.userId || recipient.user_id) ? "is-selected" : ""}">
+        <div class="move-dialog-item-copy">
+          <strong>${escapeHtml(recipient.username)}</strong>
+          <span class="move-dialog-item-path">${escapeHtml(recipient.role || "user")}</span>
+        </div>
+        <span class="move-dialog-item-badge">
+          <input
+            type="checkbox"
+            class="share-dialog-check"
+            data-user-id="${escapeHtml(String(recipient.userId || recipient.user_id))}"
+            ${selectedSet.has(recipient.userId || recipient.user_id) ? "checked" : ""}
+          >
+        </span>
+      </label>
+    `).join("");
+  }
+
+  async function openShareDialog(targetItems = null) {
+    const selectedItems = Array.isArray(targetItems) && targetItems.length ? targetItems : getSelectedItems();
+    const manageableItems = selectedItems.filter((item) => !item.shortcut && canManageShareItem(item));
+    if (!manageableItems.length) {
+      throw new Error("Pilih file atau folder milikmu yang ingin dibagikan.");
+    }
+    const recipientsPayload = await requestJson(endpoints.shareRecipients);
+    state.shareDialog.recipients = Array.isArray(recipientsPayload.items) ? recipientsPayload.items : [];
+    state.shareDialog.search = "";
+    state.shareDialog.targets = manageableItems.map((item) => ({
+      key: getItemKey(item),
+      name: item.name || "Item",
+      path: getItemResolvedPath(item),
+      recipients: Array.isArray(item.sharedRecipients || item.shared_recipients) ? (item.sharedRecipients || item.shared_recipients) : []
+    }));
+    if (state.shareDialog.targets.length === 1) {
+      state.shareDialog.selectedUserIds = state.shareDialog.targets[0].recipients
+        .map((recipient) => Number(recipient.userId || recipient.user_id || 0))
+        .filter((value) => Number.isFinite(value) && value > 0);
+    } else {
+      state.shareDialog.selectedUserIds = [];
+    }
+    state.shareDialog.isSubmitting = false;
+    elements.shareDialogSearchInput.value = "";
+    renderShareDialog();
+    if (typeof elements.shareDialog.showModal === "function") {
+      elements.shareDialog.showModal();
+    }
+  }
+
+  function closeShareDialog() {
+    state.shareDialog.isSubmitting = false;
+    if (elements.shareDialog.open) {
+      elements.shareDialog.close();
+    }
+  }
+
+  async function submitShareDialog() {
+    if (!state.shareDialog.targets.length) {
+      throw new Error("Tidak ada item yang dipilih untuk dibagikan.");
+    }
+    state.shareDialog.isSubmitting = true;
+    renderShareDialog();
+    try {
+      await requestJson(endpoints.shared, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paths: state.shareDialog.targets.map((item) => item.path),
+          recipient_user_ids: state.shareDialog.selectedUserIds
+        })
+      });
+      const selectedCount = state.shareDialog.selectedUserIds.length;
+      closeShareDialog();
+      showFeedback(
+        selectedCount
+          ? `${state.shareDialog.targets.length} item dibagikan ke ${selectedCount} user.`
+          : `Akses shared untuk ${state.shareDialog.targets.length} item dicabut.`
+      );
+      clearSelection();
+      await refreshWorkspace();
+    } catch (error) {
+      state.shareDialog.isSubmitting = false;
+      renderShareDialog();
+      throw error;
+    }
   }
 
   async function createFolder() {
@@ -1058,6 +1293,9 @@
 
   async function toggleStarred(item) {
     if (!item || !getItemResolvedPath(item)) return;
+    if (isExternalSharedItem(item)) {
+      throw new Error("Item shared dari user lain tidak bisa diubah status starred-nya dari sini.");
+    }
     const shouldStar = !item.starred;
     await requestJson(endpoints.starred, {
       method: "POST",
@@ -1076,26 +1314,18 @@
   }
 
   async function toggleShared(item) {
-    if (!item || !getItemResolvedPath(item)) return;
-    const shouldShare = !item.shared;
-    await requestJson(endpoints.shared, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paths: [getItemResolvedPath(item)],
-        shared: shouldShare
-      })
-    });
-    showFeedback(
-      shouldShare
-        ? `${item.name} ditandai sebagai shared.`
-        : `${item.name} dihapus dari shared.`
-    );
-    await refreshWorkspace();
+    if (!item) return;
+    if (!canManageShareItem(item)) {
+      throw new Error("Item shared dari user lain hanya bisa dilihat, tidak bisa diatur ulang.");
+    }
+    await openShareDialog([item]);
   }
 
   async function toggleShortcut(item) {
     if (!item) return;
+    if (isExternalSharedItem(item)) {
+      throw new Error("Item shared dari user lain tidak bisa dibuatkan shortcut langsung.");
+    }
     if (item.shortcut) {
       await requestJson(endpoints.shortcuts, {
         method: "DELETE",
@@ -1425,26 +1655,10 @@
     elements.shareBtn.addEventListener("click", () => {
       const selected = getSelectedItems();
       if (!selected.length) {
-        handleError(new Error("Pilih item yang ingin ditandai shared."));
+        handleError(new Error("Pilih item yang ingin dibagikan."));
         return;
       }
-      const shouldShare = selected.some((item) => !item.shared);
-      requestJson(endpoints.shared, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paths: selected.map((item) => getItemResolvedPath(item)),
-          shared: shouldShare
-        })
-      }).then(() => {
-        showFeedback(
-          shouldShare
-            ? `${selected.length} item ditandai shared.`
-            : `${selected.length} item dihapus dari shared.`
-        );
-        clearSelection();
-        return refreshWorkspace();
-      }).catch(handleError);
+      openShareDialog(selected).catch(handleError);
     });
     elements.shortcutBtn.addEventListener("click", () => {
       const shortcutItems = getSelectedItems().filter((item) => item.shortcut);
@@ -1561,12 +1775,32 @@
       state.moveDialog.search = event.target.value || "";
       renderMoveDialog();
     });
+    elements.shareDialogSearchInput.addEventListener("input", (event) => {
+      state.shareDialog.search = event.target.value || "";
+      renderShareDialog();
+    });
+    elements.shareDialogList.addEventListener("change", (event) => {
+      const checkbox = event.target.closest(".share-dialog-check");
+      if (!checkbox) return;
+      const userId = Number(checkbox.dataset.userId || 0);
+      const selected = new Set(state.shareDialog.selectedUserIds);
+      if (checkbox.checked) {
+        selected.add(userId);
+      } else {
+        selected.delete(userId);
+      }
+      state.shareDialog.selectedUserIds = Array.from(selected);
+      renderShareDialog();
+    });
     elements.moveDialogList.addEventListener("click", (event) => {
       const button = event.target.closest(".move-dialog-item");
       if (!button) return;
       state.moveDialog.destinationPath = button.dataset.path || "";
       renderMoveDialog();
     });
+    elements.shareDialogCancelButton.addEventListener("click", closeShareDialog);
+    elements.shareDialogCloseButton.addEventListener("click", closeShareDialog);
+    elements.shareDialogSubmitButton.addEventListener("click", () => submitShareDialog().catch(handleError));
     elements.moveDialogCancelButton.addEventListener("click", closeMoveDialog);
     elements.moveDialogCloseButton.addEventListener("click", closeMoveDialog);
     elements.moveDialogSubmitButton.addEventListener("click", () => submitMoveSelection().catch(handleError));
@@ -1664,6 +1898,10 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !elements.contextMenu.classList.contains("hidden")) {
         closeContextMenu();
+        return;
+      }
+      if (event.key === "Escape" && elements.shareDialog.open) {
+        closeShareDialog();
         return;
       }
       if (event.key === "Escape" && elements.previewDialog.open) {

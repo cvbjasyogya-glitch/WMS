@@ -11,7 +11,10 @@ from flask import (
     url_for,
 )
 
+from database import get_db
+from services.rbac import normalize_role
 from services.sms_storage_service import (
+    build_shared_folder_payload,
     build_recent_items_payload,
     build_shared_items_payload,
     build_starred_items_payload,
@@ -19,6 +22,8 @@ from services.sms_storage_service import (
     build_shortcuts_payload,
     build_download_payload,
     build_preview_payload,
+    build_shared_download_payload,
+    build_shared_preview_payload,
     create_shortcuts,
     create_folder,
     delete_items,
@@ -35,6 +40,7 @@ from services.sms_storage_service import (
     restore_trash_items,
     remove_shortcuts,
     save_uploaded_files,
+    share_items_with_users,
     set_shared_items,
     set_starred_items,
 )
@@ -103,6 +109,77 @@ def _json_payload():
 
 def _actor_label():
     return (session.get("username") or "").strip() or "ERP User"
+
+
+def _build_share_recipient_items():
+    try:
+        current_user_id = int(session.get("user_id") or 0)
+    except (TypeError, ValueError):
+        current_user_id = 0
+    try:
+        rows = get_db().execute(
+            """
+            SELECT id, username, role
+            FROM users
+            ORDER BY username COLLATE NOCASE ASC, id ASC
+            """
+        ).fetchall()
+    except Exception:
+        return []
+
+    items = []
+    for row in rows or []:
+        try:
+            user_id = int(row["id"] or 0)
+        except (TypeError, ValueError):
+            user_id = 0
+        if user_id <= 0 or user_id == current_user_id:
+            continue
+        username = str(row["username"] or "").strip()
+        if not username:
+            continue
+        role = normalize_role(row["role"])
+        items.append(
+            {
+                "id": user_id,
+                "user_id": user_id,
+                "userId": user_id,
+                "username": username,
+                "role": role,
+                "label": f"{username} ({role})" if role else username,
+            }
+        )
+    return items
+
+
+def _resolve_share_recipient_users(payload):
+    user_ids = payload.get("recipient_user_ids")
+    if not isinstance(user_ids, list):
+        user_ids = payload.get("recipientUserIds")
+    if not isinstance(user_ids, list):
+        user_ids = []
+
+    requested_ids = set()
+    for user_id in user_ids:
+        try:
+            normalized_id = int(user_id or 0)
+        except (TypeError, ValueError):
+            normalized_id = 0
+        if normalized_id > 0:
+            requested_ids.add(normalized_id)
+
+    if not requested_ids:
+        return []
+
+    return [
+        {
+            "user_id": item["user_id"],
+            "userId": item["user_id"],
+            "username": item["username"],
+        }
+        for item in _build_share_recipient_items()
+        if int(item["user_id"]) in requested_ids
+    ]
 
 
 @sms_storage_bp.before_request
@@ -204,6 +281,29 @@ def api_shared():
     )
 
 
+@sms_storage_bp.get("/api/shared/recipients")
+def api_share_recipients():
+    return jsonify(
+        {
+            "status": "ok",
+            "items": _build_share_recipient_items(),
+        }
+    )
+
+
+@sms_storage_bp.get("/api/shared/browse")
+def api_browse_shared_folder():
+    return jsonify(
+        {
+            "status": "ok",
+            **build_shared_folder_payload(
+                request.args.get("share_id", ""),
+                request.args.get("path", ""),
+            ),
+        }
+    )
+
+
 @sms_storage_bp.post("/api/shared")
 def api_toggle_shared():
     payload = request.get_json(silent=True) or {}
@@ -211,6 +311,21 @@ def api_toggle_shared():
     if not isinstance(paths, list):
         single_path = (payload.get("path") or "").strip()
         paths = [single_path] if single_path else []
+    recipient_users = _resolve_share_recipient_users(payload)
+    if recipient_users or "recipient_user_ids" in payload or "recipientUserIds" in payload:
+        changed = share_items_with_users(
+            paths,
+            recipient_users,
+            actor=_actor_label(),
+        )
+        return jsonify(
+            {
+                "status": "ok",
+                "changed_paths": changed,
+                "shared": bool(recipient_users),
+                **build_shared_items_payload(),
+            }
+        )
     changed = set_shared_items(
         paths,
         shared=payload.get("shared", True),
@@ -428,9 +543,45 @@ def api_download():
     return response
 
 
+@sms_storage_bp.get("/api/shared/download")
+def api_shared_download():
+    payload = build_shared_download_payload(
+        request.args.get("share_id", ""),
+        request.args.get("path", ""),
+    )
+    response = send_file(
+        payload["path"],
+        as_attachment=True,
+        download_name=payload["download_name"],
+        conditional=True,
+    )
+    if payload.get("cleanup_after"):
+        @response.call_on_close
+        def _cleanup_temp_shared_download():
+            try:
+                os.remove(payload["path"])
+            except OSError:
+                return
+    return response
+
+
 @sms_storage_bp.get("/api/preview")
 def api_preview():
     payload = build_preview_payload(request.args.get("path", ""))
+    return send_file(
+        payload["path"],
+        mimetype=payload["mime_type"],
+        as_attachment=False,
+        conditional=True,
+    )
+
+
+@sms_storage_bp.get("/api/shared/preview")
+def api_shared_preview():
+    payload = build_shared_preview_payload(
+        request.args.get("share_id", ""),
+        request.args.get("path", ""),
+    )
     return send_file(
         payload["path"],
         mimetype=payload["mime_type"],

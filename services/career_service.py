@@ -277,7 +277,15 @@ def extract_inserted_row_id(cursor):
     return inserted_id if inserted_id > 0 else 0
 
 
-def find_duplicate_public_application(db, opening_id, *, email="", phone="", exclude_candidate_id=0):
+def find_duplicate_public_application(
+    db,
+    opening_id,
+    *,
+    email="",
+    phone="",
+    public_account_id=0,
+    exclude_candidate_id=0,
+):
     try:
         safe_opening_id = int(opening_id or 0)
     except (TypeError, ValueError):
@@ -287,6 +295,10 @@ def find_duplicate_public_application(db, opening_id, *, email="", phone="", exc
 
     normalized_email = normalize_candidate_email(email)
     normalized_phone = normalize_candidate_phone(phone)
+    try:
+        safe_public_account_id = int(public_account_id or 0)
+    except (TypeError, ValueError):
+        safe_public_account_id = 0
     if not normalized_email and not normalized_phone:
         return None
 
@@ -297,6 +309,7 @@ def find_duplicate_public_application(db, opening_id, *, email="", phone="", exc
             candidate_name,
             phone,
             email,
+            public_account_id,
             assessment_code,
             stage,
             status,
@@ -321,9 +334,15 @@ def find_duplicate_public_application(db, opening_id, *, email="", phone="", exc
         row_dict = dict(row)
         row_email = normalize_candidate_email(row_dict.get("email"))
         row_phone = normalize_candidate_phone(row_dict.get("phone"))
+        try:
+            row_public_account_id = int(row_dict.get("public_account_id") or 0)
+        except (TypeError, ValueError):
+            row_public_account_id = 0
+        if safe_public_account_id > 0 and row_public_account_id == safe_public_account_id:
+            return row_dict
         if normalized_email and row_email == normalized_email:
             return row_dict
-        if normalized_phone and row_phone == normalized_phone:
+        if not normalized_email and normalized_phone and row_phone == normalized_phone:
             return row_dict
     return None
 

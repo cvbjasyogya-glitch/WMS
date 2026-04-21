@@ -130,7 +130,7 @@
 {% if application_feedback_modal and selected_opening %}
 <div class="career-code-modal career-candidate-success-modal" id="careerApplicationSuccessModal">
     <div class="career-code-modal-card">
-        <button type="button" class="career-code-modal-close" data-career-success-close aria-label="Tutup pop up">×</button>
+        <button type="button" class="career-code-modal-close" data-career-success-close aria-label="Tutup pop up">&times;</button>
         <span class="career-code-modal-kicker">{{ application_feedback_modal.kicker }}</span>
         <h3>{{ application_feedback_modal.title }}</h3>
         {% for paragraph in application_feedback_modal.body %}
@@ -146,6 +146,13 @@
 document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('careerApplicationSuccessModal');
     if (!modal) return;
+    if (window.history && typeof window.history.replaceState === 'function') {
+        const cleanedUrl = new URL(window.location.href);
+        cleanedUrl.searchParams.delete('applied');
+        cleanedUrl.searchParams.delete('application_notice');
+        const normalized = cleanedUrl.pathname + (cleanedUrl.search ? cleanedUrl.search : '') + (cleanedUrl.hash || '');
+        window.history.replaceState({}, '', normalized);
+    }
     const closeModal = function () {
         modal.remove();
     };

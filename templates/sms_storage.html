@@ -210,7 +210,7 @@
                         <button id="upload-btn" class="action-btn action-btn-primary" type="button">Upload file</button>
                         <button id="folder-btn" class="action-btn" type="button">Folder</button>
                         <button id="refresh-btn" class="action-btn" type="button">Refresh</button>
-                        <button id="share-btn" class="action-btn" type="button">Shared</button>
+                        <button id="share-btn" class="action-btn" type="button">Bagikan</button>
                         <button id="shortcut-btn" class="action-btn" type="button">Shortcut ke Folder</button>
                         <button id="download-btn" class="action-btn" type="button">Download</button>
                         <button id="move-btn" class="action-btn" type="button">Pindah</button>
@@ -285,7 +285,7 @@
                     <button id="selection-open-btn" class="action-btn" type="button">Buka</button>
                     <button id="selection-download-btn" class="action-btn" type="button">Download</button>
                     <button id="selection-star-btn" class="action-btn" type="button">Starred</button>
-                    <button id="selection-share-btn" class="action-btn" type="button">Shared</button>
+                    <button id="selection-share-btn" class="action-btn" type="button">Bagikan</button>
                     <button id="selection-shortcut-btn" class="action-btn" type="button">Shortcut ke Folder</button>
                     <button id="selection-move-btn" class="action-btn" type="button">Pindah</button>
                     <button id="selection-rename-btn" class="action-btn" type="button">Rename</button>
@@ -341,12 +341,12 @@
                     <div class="sidebar-section-head">
                         <div>
                             <p class="section-kicker">Shared</p>
-                            <strong>Siap dibagikan</strong>
+                            <strong>Dibagikan</strong>
                         </div>
                         <span class="surface-badge">Share</span>
                     </div>
                     <div id="home-shared-list" class="home-panel-list">
-                        <p class="section-note">Item yang kamu tandai sebagai shared akan muncul di sini.</p>
+                        <p class="section-note">Item yang kamu bagikan atau kamu terima dari user lain akan muncul di sini.</p>
                     </div>
                 </article>
 
@@ -410,6 +410,10 @@
                 recent: {{ url_for('sms_storage.api_recent')|tojson }},
                 starred: {{ url_for('sms_storage.api_starred')|tojson }},
                 shared: {{ url_for('sms_storage.api_shared')|tojson }},
+                shareRecipients: {{ url_for('sms_storage.api_share_recipients')|tojson }},
+                sharedBrowse: {{ url_for('sms_storage.api_browse_shared_folder')|tojson }},
+                sharedDownload: {{ url_for('sms_storage.api_shared_download')|tojson }},
+                sharedPreview: {{ url_for('sms_storage.api_shared_preview')|tojson }},
                 shortcuts: {{ url_for('sms_storage.api_shortcuts')|tojson }},
                 index: {{ url_for('sms_storage.api_index')|tojson }},
                 stats: {{ url_for('sms_storage.api_stats')|tojson }},
@@ -428,6 +432,37 @@
             }
         };
     </script>
+    <dialog id="share-dialog" class="preview-dialog move-dialog">
+        <form method="dialog" class="preview-shell">
+            <div class="preview-head">
+                <div>
+                    <strong id="shareDialogTitle">Bagikan Item</strong>
+                    <div class="preview-meta" id="shareDialogTargetSummary">Pilih user yang bisa melihat file atau folder ini.</div>
+                </div>
+                <button type="submit" class="preview-close" id="shareDialogCloseButton" aria-label="Tutup">&times;</button>
+            </div>
+            <div class="preview-body">
+                <label class="top-search-shell move-dialog-search" for="shareDialogSearchInput">
+                    <span class="top-search-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"></circle>
+                            <path d="M16 16L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        </svg>
+                    </span>
+                    <input id="shareDialogSearchInput" type="search" placeholder="Cari user penerima">
+                </label>
+                <div class="move-dialog-selection">
+                    <span>User dipilih</span>
+                    <strong id="shareDialogSelectedCount">0 user</strong>
+                </div>
+                <div id="shareDialogList" class="move-dialog-list"></div>
+                <div class="move-dialog-actions">
+                    <button type="button" class="action-btn" id="shareDialogCancelButton">Batal</button>
+                    <button type="button" class="action-btn action-btn-primary" id="shareDialogSubmitButton">Simpan Shared</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
     <dialog id="move-dialog" class="preview-dialog move-dialog">
         <form method="dialog" class="preview-shell">
             <div class="preview-head">
@@ -464,7 +499,7 @@
         <button id="context-open-btn" class="context-menu-item" type="button" role="menuitem">Buka</button>
         <button id="context-download-btn" class="context-menu-item" type="button" role="menuitem">Download</button>
         <button id="context-star-btn" class="context-menu-item" type="button" role="menuitem">Toggle Starred</button>
-        <button id="context-share-btn" class="context-menu-item" type="button" role="menuitem">Toggle Shared</button>
+        <button id="context-share-btn" class="context-menu-item" type="button" role="menuitem">Bagikan</button>
         <button id="context-shortcut-btn" class="context-menu-item" type="button" role="menuitem">Toggle Shortcut</button>
         <button id="context-shortcut-target-btn" class="context-menu-item" type="button" role="menuitem">Shortcut ke Folder...</button>
         <button id="context-move-btn" class="context-menu-item" type="button" role="menuitem">Pindah</button>

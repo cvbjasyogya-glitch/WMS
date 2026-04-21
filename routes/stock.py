@@ -1359,7 +1359,7 @@ def adjust():
 def update_field():
     if not _can_edit_existing_product_master():
         return _stock_json_error(
-            "Edit produk hanya tersedia untuk admin, leader, owner, atau super admin.",
+            "Edit produk hanya tersedia untuk owner atau super admin.",
             403,
         )
 
@@ -1488,7 +1488,7 @@ def update_field():
 def update_detail():
     if not _can_edit_existing_product_master():
         return _stock_json_error(
-            "Edit produk hanya tersedia untuk admin, leader, owner, atau super admin.",
+            "Edit produk hanya tersedia untuk owner atau super admin.",
             403,
         )
 

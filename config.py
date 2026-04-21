@@ -240,6 +240,8 @@ class Config:
         "NOTIFICATION_LOG_CLEANUP_INTERVAL_SECONDS",
         3600,
     )
+    # Default dimatikan agar ERP tidak lagi auto-update atau auto-reload lewat service worker.
+    SERVICE_WORKER_ENABLED = _env_flag("SERVICE_WORKER_ENABLED", False)
     POS_HIDDEN_ARCHIVE_PASSWORD = _first_env_value("POS_HIDDEN_ARCHIVE_PASSWORD", default="susu")
     POS_HIDDEN_ARCHIVE_UNLOCK_SECONDS = _int_env("POS_HIDDEN_ARCHIVE_UNLOCK_SECONDS", 1800)
     IPOS4_IMPORT_RUNTIME_DIR = os.getenv(

@@ -12,6 +12,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from database import get_db
+from services.hris_catalog import can_manage_hris_module
+from services.rbac import normalize_role
 from services.career_service import (
     CAREER_RESUME_EXTENSIONS,
     activate_career_public_account,
@@ -1074,10 +1076,8 @@ def _get_hr_sms_recipient_users(db):
             """
             SELECT id, username, role
             FROM users
-            WHERE role IN (?, ?)
-            ORDER BY role ASC, username COLLATE NOCASE ASC, id ASC
+            ORDER BY username COLLATE NOCASE ASC, id ASC
             """,
-            ("hr", "super_admin"),
         ).fetchall()
     except Exception:
         return []
@@ -1090,10 +1090,19 @@ def _get_hr_sms_recipient_users(db):
             user_id = int(row["id"] or 0)
         except (TypeError, ValueError):
             user_id = 0
+        normalized_role = normalize_role(row["role"])
         if user_id <= 0 or user_id in seen_user_ids:
             continue
+        if not can_manage_hris_module(normalized_role, "recruitment"):
+            continue
         seen_user_ids.add(user_id)
-        recipients.append({"id": user_id, "username": row["username"], "role": row["role"]})
+        recipients.append(
+            {
+                "id": user_id,
+                "username": row["username"],
+                "role": normalized_role,
+            }
+        )
     return recipients
 
 
@@ -1283,7 +1292,12 @@ def _attach_legacy_public_applications_to_account(db, account):
         row_email = normalize_candidate_email(row_data.get("email"))
         row_phone = normalize_candidate_phone(row_data.get("phone"))
         email_match = bool(account_email and row_email and row_email == account_email)
-        phone_match = bool(account_phone and row_phone and row_phone == account_phone)
+        phone_match = bool(
+            account_phone
+            and row_phone
+            and row_phone == account_phone
+            and not row_email
+        )
         if email_match or phone_match:
             try:
                 candidate_id = int(row_data.get("id") or 0)
@@ -1335,24 +1349,29 @@ def _fetch_candidate_workspace_applications(db, account):
         LEFT JOIN career_openings o ON r.vacancy_id = o.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
         WHERE (
-              r.application_channel=?
-              OR LOWER(COALESCE(r.source, ''))='halaman karir'
-          )
-          AND (
               r.public_account_id=?
-              OR (r.public_account_id IS NULL AND LOWER(COALESCE(r.email, ''))=LOWER(?))
+              OR (
+                    r.public_account_id IS NULL
+                AND (
+                        r.application_channel=?
+                        OR LOWER(COALESCE(r.source, ''))='halaman karir'
+                    )
+                AND LOWER(COALESCE(r.email, ''))=LOWER(?)
+              )
           )
         ORDER BY r.created_at DESC, r.id DESC
         """,
         (
-            normalize_career_application_channel("public_portal"),
             account_id,
+            normalize_career_application_channel("public_portal"),
             account_email,
         ),
     ).fetchall()
     applications = []
     for row in rows:
         application = _annotate_public_candidate_display(dict(row))
+        safe_status = _normalize_public_recruitment_status(application.get("status"))
+        safe_stage = _normalize_public_recruitment_stage(application.get("stage"))
         application["title_display"] = application.get("vacancy_title") or application.get("position_title") or "Posisi aktif"
         application["employment_type_display"] = normalize_career_employment_type(
             application.get("opening_employment_type") or application.get("employment_type")
@@ -1364,26 +1383,81 @@ def _fetch_candidate_workspace_applications(db, account):
             if int(application.get("vacancy_id") or 0) > 0
             else build_career_public_url("career.index")
         )
-        application["assessment_ready"] = bool(
-            normalize_assessment_code(application.get("assessment_code"))
-        )
+        application["assessment_ready"] = _is_public_candidate_assessment_ready(application)
         application["assessment_url"] = (
-            build_career_public_url("career.assessment", code=application.get("assessment_code"))
+            build_career_public_url("career.assessment")
             if application["assessment_ready"]
             else ""
         )
         application["assessment_code_display"] = (
             application.get("assessment_code")
             if application["assessment_ready"]
-            else "Menunggu screening HR"
+            else _get_public_candidate_assessment_status_display(safe_status, safe_stage)
         )
         application["progress_note"] = (
             "Kode tes sudah tersedia. Silakan cek email atau lanjut dari tombol tes ketika siap mengerjakan."
             if application["assessment_ready"]
-            else "Lamaran sudah masuk ke pipeline rekrutmen. Tim HR akan melakukan screening awal terlebih dahulu sebelum mengirim kode tes ke email Anda."
+            else _get_public_candidate_progress_note(safe_status, safe_stage)
         )
         applications.append(application)
     return applications
+
+
+def _get_public_candidate_assessment_status_display(status, stage):
+    safe_status = _normalize_public_recruitment_status(status)
+    safe_stage = _normalize_public_recruitment_stage(stage)
+    if safe_status == "rejected":
+        return "Tidak lanjut"
+    if safe_status not in {"active", ""}:
+        return "Tidak aktif"
+    if safe_stage == "interview":
+        return "Tahap interview"
+    if safe_stage in {"offer", "hired"}:
+        return "Proses lanjut"
+    if safe_stage == "screening":
+        return "Menunggu tes"
+    return "Menunggu screening HR"
+
+
+def _get_public_candidate_progress_note(status, stage):
+    safe_status = _normalize_public_recruitment_status(status)
+    safe_stage = _normalize_public_recruitment_stage(stage)
+    if safe_status == "rejected":
+        return "Lamaran ini belum dapat dilanjutkan. Silakan cek email untuk melihat pemberitahuan hasil screening dari tim HR dan pantau lowongan lain yang masih aktif."
+    if safe_status not in {"active", ""}:
+        return "Lamaran ini sedang tidak aktif. Jika Anda membutuhkan informasi lebih lanjut, silakan hubungi tim HR melalui kanal resmi yang tersedia."
+    if safe_stage == "interview":
+        return "Lamaran Anda sudah bergerak ke tahap interview. Silakan cek email secara berkala untuk jadwal atau instruksi lanjutan dari tim HR."
+    if safe_stage in {"offer", "hired"}:
+        return "Lamaran Anda sudah masuk ke tahap lanjutan. Silakan cek email secara berkala untuk instruksi atau dokumen berikutnya dari tim HR."
+    if safe_stage == "screening":
+        return "Lamaran Anda sedang diproses ke tahap tes. Jika kode tes sudah diterbitkan, pemberitahuan akan dikirim ke email Anda."
+    return "Lamaran sudah masuk ke pipeline rekrutmen. Tim HR akan melakukan screening awal terlebih dahulu sebelum mengirim kode tes ke email Anda."
+
+
+def _normalize_public_recruitment_stage(value):
+    return str(value or "applied").strip().lower().replace("-", "_").replace(" ", "_") or "applied"
+
+
+def _normalize_public_recruitment_status(value):
+    return str(value or "active").strip().lower().replace("-", "_").replace(" ", "_") or "active"
+
+
+def _is_public_candidate_assessment_ready(application):
+    safe_application = dict(application or {})
+    safe_code = normalize_assessment_code(safe_application.get("assessment_code"))
+    if not safe_code:
+        return False
+    safe_status = _normalize_public_recruitment_status(safe_application.get("status"))
+    if safe_status != "active":
+        return False
+    safe_stage = _normalize_public_recruitment_stage(safe_application.get("stage"))
+    safe_assessment_status = normalize_career_assessment_status(
+        safe_application.get("assessment_status")
+    )
+    if safe_assessment_status in {"started", "submitted", "reviewed"}:
+        return True
+    return safe_stage in {"screening", "interview", "offer", "hired"}
 
 
 def _fetch_candidate_workspace_saved_openings(db, account_id):
@@ -2620,6 +2694,7 @@ def apply():
         opening["id"],
         email=email,
         phone=phone,
+        public_account_id=active_account.get("id"),
     )
     if duplicate_candidate:
         existing_code = normalize_assessment_code(duplicate_candidate.get("assessment_code"))
