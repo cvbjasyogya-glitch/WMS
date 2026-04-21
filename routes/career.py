@@ -2806,34 +2806,44 @@ def apply():
         public_account_id=active_account["id"],
         resume_path=resume_path,
     )
+    hr_storage_sync_failed = False
     if created_candidate_id > 0:
-        hr_storage_folder, archived_files, archived_documents = _sync_candidate_hr_intake_storage(
-            candidate_id=created_candidate_id,
-            candidate_name=candidate_name,
-            profile_snapshot=profile_snapshot,
-            profile_documents=profile_documents,
-            resume_original_name=resume_original_name,
-            resume_stored_name=resume_path,
-        )
-        hr_sms_targets = _sync_candidate_intake_to_hr_sms_workspaces(db, hr_storage_folder)
-        db.execute(
-            """
-            UPDATE recruitment_candidates
-            SET profile_documents_json=?,
-                hr_storage_folder=?,
-                hr_storage_files_json=?,
-                hr_sms_targets_json=?,
-                updated_at=CURRENT_TIMESTAMP
-            WHERE id=?
-            """,
-            (
-                json.dumps(archived_documents, ensure_ascii=True, sort_keys=True),
-                hr_storage_folder or None,
-                json.dumps(archived_files, ensure_ascii=True, sort_keys=True),
-                json.dumps(hr_sms_targets, ensure_ascii=True, sort_keys=True),
+        try:
+            hr_storage_folder, archived_files, archived_documents = _sync_candidate_hr_intake_storage(
+                candidate_id=created_candidate_id,
+                candidate_name=candidate_name,
+                profile_snapshot=profile_snapshot,
+                profile_documents=profile_documents,
+                resume_original_name=resume_original_name,
+                resume_stored_name=resume_path,
+            )
+            hr_sms_targets = _sync_candidate_intake_to_hr_sms_workspaces(db, hr_storage_folder)
+            db.execute(
+                """
+                UPDATE recruitment_candidates
+                SET profile_documents_json=?,
+                    hr_storage_folder=?,
+                    hr_storage_files_json=?,
+                    hr_sms_targets_json=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    json.dumps(archived_documents, ensure_ascii=True, sort_keys=True),
+                    hr_storage_folder or None,
+                    json.dumps(archived_files, ensure_ascii=True, sort_keys=True),
+                    json.dumps(hr_sms_targets, ensure_ascii=True, sort_keys=True),
+                    created_candidate_id,
+                ),
+            )
+        except Exception:
+            hr_storage_sync_failed = True
+            current_app.logger.exception(
+                "CAREER APPLY STORAGE SYNC ERROR candidate_id=%s opening_id=%s public_account_id=%s",
                 created_candidate_id,
-            ),
-        )
+                opening["id"],
+                active_account.get("id"),
+            )
     db.commit()
 
     if source_view != "portal_candidate":
@@ -2841,6 +2851,11 @@ def apply():
             "Lamaran berhasil dikirim dan sudah masuk ke HRIS untuk screening. Jika lolos review awal, kode tes akan dikirim otomatis ke email Anda.",
             "success",
         )
+        if hr_storage_sync_failed:
+            flash(
+                "Lamaran tetap berhasil dikirim, tetapi arsip HR belum tersalin otomatis. Tim HR tetap menerima data lamaran Anda.",
+                "info",
+            )
     return redirect(success_redirect_url)
 
 

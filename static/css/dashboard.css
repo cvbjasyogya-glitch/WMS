@@ -24901,4 +24901,41 @@ html[data-theme="light"] body .app-version-badge {
     }
 }
 
+body .hris-recruitment-portal-box {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    color: #0f172a;
+}
+
+body .hris-recruitment-portal-note {
+    color: #64748b;
+}
+
+body .hris-recruitment-portal-card {
+    background: rgba(248, 250, 252, 0.96);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    color: #0f172a;
+}
+
+body .hris-recruitment-portal-card-title,
+body .hris-recruitment-portal-field-value {
+    color: #0f172a;
+}
+
+body .hris-recruitment-portal-field-label {
+    color: #64748b;
+}
+
+html[data-theme] body .hris-recruitment-portal-box,
+html[data-theme] body .hris-recruitment-portal-card,
+html[data-theme] body .hris-recruitment-portal-card-title,
+html[data-theme] body .hris-recruitment-portal-field-value {
+    color: #0f172a !important;
+}
+
+html[data-theme] body .hris-recruitment-portal-note,
+html[data-theme] body .hris-recruitment-portal-field-label {
+    color: #64748b !important;
+}
+
 

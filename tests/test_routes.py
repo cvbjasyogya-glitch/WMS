@@ -12351,6 +12351,80 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(any(item["category"] == "profile_document" for item in hr_storage_files))
         self.assertTrue(any(item["username"] == "hr_recruitment_sink" for item in hr_sms_targets))
 
+    def test_public_career_application_survives_hr_storage_sync_failure(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Storage Sync Failure Vacancy",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Tetap simpan lamaran walau sinkronisasi arsip HR gagal.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Storage Sync Failure Vacancy",),
+            ).fetchone()
+
+        account = self.login_public_career_account_session(
+            email="storage-failure@example.com",
+            full_name="Storage Sync Failure",
+            ready_profile=True,
+        )
+        with patch("routes.career._sync_candidate_hr_intake_storage", side_effect=RuntimeError("storage broken")):
+            response = self.client.post(
+                "/karir/apply",
+                data={
+                    "opening_id": str(opening["id"]),
+                    "candidate_name": "Storage Sync Failure",
+                    "phone": "0812 9999 1111",
+                    "note": "Tetap masuk walau sinkronisasi arsip HR gagal.",
+                    "resume_file": (BytesIO(b"resume-storage-broken"), "storage-broken.pdf"),
+                },
+                content_type="multipart/form-data",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT candidate_name, email, stage, status, public_account_id,
+                       hr_storage_folder, hr_storage_files_json, hr_sms_targets_json
+                FROM recruitment_candidates
+                WHERE email=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("storage-failure@example.com",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["candidate_name"], "Storage Sync Failure")
+        self.assertEqual(candidate["stage"], "applied")
+        self.assertEqual(candidate["status"], "active")
+        self.assertEqual(candidate["public_account_id"], int(account["id"]))
+        self.assertFalse(candidate["hr_storage_folder"])
+        self.assertFalse(candidate["hr_storage_files_json"])
+        self.assertFalse(candidate["hr_sms_targets_json"])
+
     def test_public_career_application_uses_profile_cv_without_reuploading_resume(self):
         with self.app.app_context():
             db = get_db()

@@ -2652,38 +2652,38 @@
                         <div style="grid-column: 1 / -1;">
                             <label>Data Profil Kandidat dari Portal</label>
                             {% if candidate.profile_identity_fields or candidate.profile_address_fields or candidate.profile_additional_fields or candidate.profile_documents or candidate.profile_section_summaries %}
-                            <div class="box" style="margin-top:10px; padding:16px; background:rgba(255,255,255,0.82); border:1px solid rgba(148,163,184,0.22);">
-                                <div class="helper-text" style="margin-bottom:14px;">Snapshot ini diambil saat pelamar mengirim lamaran dari portal kandidat publik.</div>
-                                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px;">
+                            <div class="box hris-recruitment-portal-box" style="margin-top:10px; padding:16px;">
+                                <div class="helper-text hris-recruitment-portal-note" style="margin-bottom:14px;">Snapshot ini diambil saat pelamar mengirim lamaran dari portal kandidat publik.</div>
+                                <div class="hris-recruitment-portal-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px;">
                                     {% if candidate.profile_identity_fields %}
-                                    <div style="padding:14px; border-radius:14px; background:rgba(248,250,252,0.95); border:1px solid rgba(148,163,184,0.18);">
-                                        <div style="font-weight:700; margin-bottom:10px;">Identitas</div>
+                                    <div class="hris-recruitment-portal-card" style="padding:14px; border-radius:14px;">
+                                        <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin-bottom:10px;">Identitas</div>
                                         {% for field in candidate.profile_identity_fields %}
-                                        <div style="margin-bottom:10px;">
-                                            <div class="helper-text">{{ field.label }}</div>
-                                            <div>{{ field.value }}</div>
+                                        <div class="hris-recruitment-portal-field" style="margin-bottom:10px;">
+                                            <div class="helper-text hris-recruitment-portal-field-label">{{ field.label }}</div>
+                                            <div class="hris-recruitment-portal-field-value">{{ field.value }}</div>
                                         </div>
                                         {% endfor %}
                                     </div>
                                     {% endif %}
                                     {% if candidate.profile_address_fields %}
-                                    <div style="padding:14px; border-radius:14px; background:rgba(248,250,252,0.95); border:1px solid rgba(148,163,184,0.18);">
-                                        <div style="font-weight:700; margin-bottom:10px;">Alamat & Domisili</div>
+                                    <div class="hris-recruitment-portal-card" style="padding:14px; border-radius:14px;">
+                                        <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin-bottom:10px;">Alamat & Domisili</div>
                                         {% for field in candidate.profile_address_fields %}
-                                        <div style="margin-bottom:10px;">
-                                            <div class="helper-text">{{ field.label }}</div>
-                                            <div>{{ field.value }}</div>
+                                        <div class="hris-recruitment-portal-field" style="margin-bottom:10px;">
+                                            <div class="helper-text hris-recruitment-portal-field-label">{{ field.label }}</div>
+                                            <div class="hris-recruitment-portal-field-value">{{ field.value }}</div>
                                         </div>
                                         {% endfor %}
                                     </div>
                                     {% endif %}
                                     {% if candidate.profile_additional_fields %}
-                                    <div style="padding:14px; border-radius:14px; background:rgba(248,250,252,0.95); border:1px solid rgba(148,163,184,0.18);">
-                                        <div style="font-weight:700; margin-bottom:10px;">Info Tambahan</div>
+                                    <div class="hris-recruitment-portal-card" style="padding:14px; border-radius:14px;">
+                                        <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin-bottom:10px;">Info Tambahan</div>
                                         {% for field in candidate.profile_additional_fields %}
-                                        <div style="margin-bottom:10px;">
-                                            <div class="helper-text">{{ field.label }}</div>
-                                            <div>{{ field.value }}</div>
+                                        <div class="hris-recruitment-portal-field" style="margin-bottom:10px;">
+                                            <div class="helper-text hris-recruitment-portal-field-label">{{ field.label }}</div>
+                                            <div class="hris-recruitment-portal-field-value">{{ field.value }}</div>
                                         </div>
                                         {% endfor %}
                                     </div>
@@ -2691,12 +2691,12 @@
                                 </div>
                                 {% if candidate.profile_section_summaries %}
                                 <div style="margin-top:16px;">
-                                    <div style="font-weight:700; margin-bottom:10px;">Ringkasan Section Lain</div>
+                                    <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin-bottom:10px;">Ringkasan Section Lain</div>
                                     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;">
                                         {% for section in candidate.profile_section_summaries %}
-                                        <div style="padding:14px; border-radius:14px; background:rgba(248,250,252,0.95); border:1px solid rgba(148,163,184,0.18);">
-                                            <div class="helper-text">{{ section.label }}</div>
-                                            <div>{{ section.value }}</div>
+                                        <div class="hris-recruitment-portal-card" style="padding:14px; border-radius:14px;">
+                                            <div class="helper-text hris-recruitment-portal-field-label">{{ section.label }}</div>
+                                            <div class="hris-recruitment-portal-field-value">{{ section.value }}</div>
                                         </div>
                                         {% endfor %}
                                     </div>
@@ -2704,34 +2704,34 @@
                                 {% endif %}
                             </div>
                             {% else %}
-                            <span class="helper-text">Belum ada snapshot profil kandidat dari portal publik.</span>
+                            <span class="helper-text hris-recruitment-portal-note">Belum ada snapshot profil kandidat dari portal publik.</span>
                             {% endif %}
                         </div>
                         <div style="grid-column: 1 / -1;">
                             <label>Arsip Dokumen Kandidat</label>
                             {% if candidate.profile_documents or candidate.hr_storage_files %}
-                            <div class="box" style="margin-top:10px; padding:16px; background:rgba(255,255,255,0.82); border:1px solid rgba(148,163,184,0.22);">
+                            <div class="box hris-recruitment-portal-box" style="margin-top:10px; padding:16px;">
                                 {% if candidate.hr_storage_folder %}
-                                <div class="helper-text" style="margin-bottom:12px;">Folder Cloud Storage HR: {{ candidate.hr_storage_folder }}</div>
+                                <div class="helper-text hris-recruitment-portal-note" style="margin-bottom:12px;">Folder Cloud Storage HR: {{ candidate.hr_storage_folder }}</div>
                                 {% endif %}
                                 {% if candidate.profile_documents %}
-                                <div style="font-weight:700; margin-bottom:10px;">Dokumen dari Profil Kandidat</div>
+                                <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin-bottom:10px;">Dokumen dari Profil Kandidat</div>
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
                                     {% for document in candidate.profile_documents %}
-                                    <div style="padding:14px; border-radius:14px; background:rgba(248,250,252,0.95); border:1px solid rgba(148,163,184,0.18);">
-                                        <div style="font-weight:600;">{{ document.label }}</div>
-                                        <div class="helper-text">{{ document.document_type|replace('_', ' ')|title }}</div>
+                                    <div class="hris-recruitment-portal-card" style="padding:14px; border-radius:14px;">
+                                        <div class="hris-recruitment-portal-field-value" style="font-weight:600;">{{ document.label }}</div>
+                                        <div class="helper-text hris-recruitment-portal-field-label">{{ document.document_type|replace('_', ' ')|title }}</div>
                                         {% if document.download_url %}
                                         <a href="{{ document.download_url }}" class="ghost-button" target="_blank" rel="noopener" style="margin-top:10px;">Buka Arsip HR</a>
                                         {% else %}
-                                        <div class="helper-text" style="margin-top:10px;">Belum tersalin ke storage HR.</div>
+                                        <div class="helper-text hris-recruitment-portal-field-label" style="margin-top:10px;">Belum tersalin ke storage HR.</div>
                                         {% endif %}
                                     </div>
                                     {% endfor %}
                                 </div>
                                 {% endif %}
                                 {% if candidate.hr_storage_files %}
-                                <div style="font-weight:700; margin:16px 0 10px;">Cloud Storage HR</div>
+                                <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin:16px 0 10px;">Cloud Storage HR</div>
                                 <div style="display:flex; flex-wrap:wrap; gap:10px;">
                                     {% for file in candidate.hr_storage_files %}
                                     <a href="{{ file.download_url }}" class="ghost-button" target="_blank" rel="noopener">{{ file.label }}</a>
@@ -2739,20 +2739,20 @@
                                 </div>
                                 {% endif %}
                                 {% if candidate.hr_sms_targets %}
-                                <div style="font-weight:700; margin:16px 0 10px;">Masuk ke SMS HR</div>
+                                <div class="hris-recruitment-portal-card-title" style="font-weight:700; margin:16px 0 10px;">Masuk ke SMS HR</div>
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
                                     {% for target in candidate.hr_sms_targets %}
-                                    <div style="padding:14px; border-radius:14px; background:rgba(248,250,252,0.95); border:1px solid rgba(148,163,184,0.18);">
-                                        <div style="font-weight:600;">{{ target.username or ('user_' ~ target.user_id) }}</div>
-                                        <div class="helper-text">{{ target.role|replace('_', ' ')|title }}</div>
-                                        <div style="margin-top:6px;">{{ target.relative_path }}</div>
+                                    <div class="hris-recruitment-portal-card" style="padding:14px; border-radius:14px;">
+                                        <div class="hris-recruitment-portal-field-value" style="font-weight:600;">{{ target.username or ('user_' ~ target.user_id) }}</div>
+                                        <div class="helper-text hris-recruitment-portal-field-label">{{ target.role|replace('_', ' ')|title }}</div>
+                                        <div class="hris-recruitment-portal-field-value" style="margin-top:6px;">{{ target.relative_path }}</div>
                                     </div>
                                     {% endfor %}
                                 </div>
                                 {% endif %}
                             </div>
                             {% else %}
-                            <span class="helper-text">Belum ada arsip dokumen kandidat yang tersinkron ke HR.</span>
+                            <span class="helper-text hris-recruitment-portal-note">Belum ada arsip dokumen kandidat yang tersinkron ke HR.</span>
                             {% endif %}
                         </div>
                         <div style="grid-column: 1 / -1;">
