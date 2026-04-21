@@ -6,7 +6,7 @@
     --career-muted: #6c8098;
     --career-line: #d8e5f1;
     --career-panel: #ffffff;
-    --career-shadow: 0 12px 28px rgba(17, 42, 73, 0.06);
+    --career-shadow: 0 8px 18px rgba(17, 42, 73, 0.045);
 }
 
 body.career-mobile-menu-open {
@@ -25,7 +25,7 @@ body.career-mobile-menu-open {
     padding: 18px 40px;
     border-radius: 0 0 22px 22px;
     background: #ffffff;
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.045);
 }
 
 .career-astra-brand-mark {
@@ -283,7 +283,7 @@ body.career-mobile-menu-open {
     border-radius: 18px;
     background: #fff;
     border: 1px solid #e2edf7;
-    box-shadow: 0 12px 28px rgba(17, 42, 73, 0.06);
+    box-shadow: 0 8px 18px rgba(17, 42, 73, 0.045);
     color: #223d5e;
     font-weight: 600;
 }
@@ -305,32 +305,28 @@ body.career-mobile-menu-open {
 }
 
 body .main.career-public-shell > .page-content {
-    animation: careerPublicPageReveal 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+    animation: careerPublicPageReveal 0.22s ease-out;
     transition:
-        opacity 0.2s ease,
-        transform 0.2s ease,
-        filter 0.2s ease;
+        opacity 0.16s ease,
+        transform 0.16s ease;
     transform-origin: top center;
 }
 
 html.career-page-leaving body .main.career-public-shell > .page-content {
     opacity: 0;
-    transform: translateY(18px);
-    filter: blur(1px);
+    transform: translateY(8px);
     pointer-events: none;
 }
 
 @keyframes careerPublicPageReveal {
     from {
         opacity: 0;
-        transform: translateY(18px);
-        filter: blur(1.5px);
+        transform: translateY(10px);
     }
 
     to {
         opacity: 1;
         transform: translateY(0);
-        filter: blur(0);
     }
 }
 
@@ -569,7 +565,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
     border-radius: 22px;
     background: rgba(255, 255, 255, 0.99);
     border: 1px solid var(--career-line);
-    box-shadow: 0 22px 40px rgba(17, 42, 73, 0.12);
+    box-shadow: 0 14px 28px rgba(17, 42, 73, 0.09);
 }
 
 .career-test-shortcut-card strong,
@@ -629,7 +625,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
     background: linear-gradient(135deg, var(--career-blue), #2b85d4);
     color: #fff !important;
     font-weight: 700;
-    box-shadow: 0 16px 28px rgba(11, 99, 182, 0.18);
+    box-shadow: 0 10px 18px rgba(11, 99, 182, 0.12);
 }
 
 .career-public-login-button:hover {
@@ -672,7 +668,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
     border-radius: 30px;
     background: rgba(255, 255, 255, 0.99);
     border: 1px solid var(--career-line);
-    box-shadow: 0 18px 36px rgba(17, 42, 73, 0.14);
+    box-shadow: 0 12px 24px rgba(17, 42, 73, 0.1);
 }
 
 .career-code-modal-card h3,
@@ -1087,7 +1083,7 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     overflow: hidden;
     background: rgba(255, 255, 255, 0.86);
     border: 1px solid #e3ebf4;
-    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045);
 }
 
 .career-candidate-sidebar {
@@ -1201,7 +1197,7 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     gap: 18px;
     background: rgba(255, 255, 255, 0.94);
     border-bottom: 1px solid #e7eef6;
-    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.035);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
 }
 
 .career-candidate-topbar-copy {
@@ -1733,7 +1729,7 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     inset: 34px 0 0;
     border-radius: 22px;
     background: linear-gradient(180deg, #ffd537, #ffc500);
-    box-shadow: 0 20px 36px rgba(255, 197, 0, 0.24);
+    box-shadow: 0 12px 24px rgba(255, 197, 0, 0.18);
 }
 
 .career-candidate-info-card {
@@ -1743,7 +1739,7 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     border-radius: 24px;
     background: rgba(255, 255, 255, 0.98);
     border: 1px solid #e4ebf3;
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.035);
 }
 
 .career-candidate-card-grid {
@@ -1754,17 +1750,34 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
 
 @supports (content-visibility: auto) {
     .career-astra-section,
+    .career-candidate-shell,
+    .career-candidate-stage,
     .career-candidate-panel,
+    .career-candidate-card-grid,
+    .career-candidate-stack,
     .career-candidate-info-card,
     .career-candidate-job-item,
     .career-candidate-preview-card,
     .career-candidate-empty-stage,
-    .career-code-modal-card {
+    .career-code-modal-card,
+    .career-signin-hero,
+    .career-signin-panel,
+    .career-signin-card,
+    .career-profile-layout,
+    .career-profile-sidebar,
+    .career-profile-summary-card,
+    .career-profile-form-panel,
+    .career-profile-document-status-card {
         content-visibility: auto;
     }
 
     .career-astra-section {
         contain-intrinsic-size: 760px;
+    }
+
+    .career-candidate-shell,
+    .career-candidate-stage {
+        contain-intrinsic-size: 960px;
     }
 
     .career-candidate-panel,
@@ -1773,9 +1786,25 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
         contain-intrinsic-size: 620px;
     }
 
+    .career-candidate-card-grid,
+    .career-candidate-stack,
+    .career-profile-layout,
+    .career-signin-hero,
+    .career-signin-panel {
+        contain-intrinsic-size: 720px;
+    }
+
     .career-candidate-info-card,
-    .career-candidate-job-item {
+    .career-candidate-job-item,
+    .career-profile-document-status-card,
+    .career-signin-card {
         contain-intrinsic-size: 220px;
+    }
+
+    .career-profile-sidebar,
+    .career-profile-summary-card,
+    .career-profile-form-panel {
+        contain-intrinsic-size: 520px;
     }
 
     .career-code-modal-card {

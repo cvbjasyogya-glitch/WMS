@@ -14060,6 +14060,116 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate_after["status"], "active")
         self.assertRegex(candidate_after["assessment_code"], r"^\d{5}$")
 
+    def test_hr_recruitment_quick_approve_handles_duplicate_requested_assessment_code_and_still_sends_email(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name,
+                    warehouse_id,
+                    position_title,
+                    department,
+                    stage,
+                    status,
+                    source,
+                    phone,
+                    email,
+                    assessment_code,
+                    application_channel,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Pemilik Kode Lama",
+                    1,
+                    "Admin Warehouse",
+                    "Warehouse",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "6281234500001",
+                    "existing-code@example.com",
+                    "13591",
+                    "public_portal",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name,
+                    warehouse_id,
+                    position_title,
+                    department,
+                    stage,
+                    status,
+                    source,
+                    phone,
+                    email,
+                    application_channel,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Quick Approve Collision",
+                    1,
+                    "Admin Warehouse",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "6281234567333",
+                    "quick-approve-collision@example.com",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+            candidate = db.execute(
+                "SELECT id FROM recruitment_candidates WHERE candidate_name=? LIMIT 1",
+                ("Quick Approve Collision",),
+            ).fetchone()
+
+        with patch("routes.hris.ensure_candidate_assessment_code", return_value="24680") as mocked_ensure, patch(
+            "routes.hris.send_email", return_value=True
+        ) as mocked_send:
+            response = self.client.post(
+                f"/hris/recruitment/update/{candidate['id']}",
+                data={
+                    "candidate_name": "Quick Approve Collision",
+                    "position_title": "Admin Warehouse",
+                    "warehouse_id": "1",
+                    "department": "Warehouse",
+                    "stage": "applied",
+                    "status": "active",
+                    "source": "Halaman Karir",
+                    "phone": "6281234567333",
+                    "email": "quick-approve-collision@example.com",
+                    "assessment_code": "13591",
+                    "assessment_status": "pending",
+                    "decision_action": "approve_assessment",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_ensure.assert_called_once_with(unittest.mock.ANY, candidate["id"], "")
+        mocked_send.assert_called_once()
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                "SELECT stage, status, assessment_code FROM recruitment_candidates WHERE id=?",
+                (candidate["id"],),
+            ).fetchone()
+
+        self.assertEqual(candidate_after["stage"], "screening")
+        self.assertEqual(candidate_after["status"], "active")
+        self.assertEqual(candidate_after["assessment_code"], "24680")
+
     def test_assign_candidate_assessment_code_retries_after_unique_violation(self):
         db = Mock()
         update_attempts = {"count": 0}

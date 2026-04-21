@@ -9453,7 +9453,7 @@ def update_recruitment(candidate_id):
         return redirect(next_target)
 
     handled_by, handled_at = _build_recruitment_handling(status)
-    stored_assessment_code = assessment_code or previous_assessment_code or None
+    stored_assessment_code = normalize_assessment_code(assessment_code or previous_assessment_code)
     should_issue_assessment_code = _is_recruitment_candidate_ready_for_assessment(
         stage,
         status,
@@ -9470,6 +9470,25 @@ def update_recruitment(candidate_id):
         assessment_final_score = candidate.get("assessment_auto_score") or 0
         assessment_reviewed_by = candidate.get("assessment_reviewed_by")
         assessment_reviewed_at = candidate.get("assessment_reviewed_at")
+
+    conflicting_assessment_code = None
+    if stored_assessment_code:
+        conflicting_assessment_code = db.execute(
+            "SELECT id FROM recruitment_candidates WHERE assessment_code=? AND id<>? LIMIT 1",
+            (stored_assessment_code, candidate_id),
+        ).fetchone()
+    if conflicting_assessment_code and not should_issue_assessment_code:
+        if wants_json:
+            return jsonify({"ok": False, "message": "Kode tes sudah dipakai kandidat lain."}), 400
+        flash("Kode tes sudah dipakai kandidat lain.", "error")
+        return redirect(next_target)
+
+    final_assessment_code = stored_assessment_code or None
+    if should_issue_assessment_code:
+        preferred_assessment_code = ""
+        if stored_assessment_code and not conflicting_assessment_code:
+            preferred_assessment_code = stored_assessment_code
+        final_assessment_code = ensure_candidate_assessment_code(db, candidate_id, preferred_assessment_code)
 
     db.execute(
         """
@@ -9517,7 +9536,7 @@ def update_recruitment(candidate_id):
             vacancy_id,
             portfolio_url or None,
             placement_warehouse_ids_value,
-            stored_assessment_code,
+            final_assessment_code,
             assessment_expires_at,
             assessment_duration_minutes,
             assessment_status,
@@ -9532,9 +9551,7 @@ def update_recruitment(candidate_id):
             candidate_id,
         ),
     )
-    final_assessment_code = normalize_assessment_code(stored_assessment_code)
-    if should_issue_assessment_code and not final_assessment_code:
-        final_assessment_code = ensure_candidate_assessment_code(db, candidate_id, "")
+    final_assessment_code = normalize_assessment_code(final_assessment_code)
     db.commit()
 
     updated_candidate = _get_recruitment_candidate_by_id(db, candidate_id)
