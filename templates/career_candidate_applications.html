@@ -1,6 +1,6 @@
 {% extends "career_candidate_base.html" %}
 {% set candidate_active_page = 'applications' %}
-{% set candidate_page_title = 'Lamaran Saya' %}
+{% set candidate_page_title = 'Riwayat Lamaran' %}
 
 {% block candidate_workspace_content %}
 <section class="career-candidate-stack">
@@ -47,8 +47,8 @@
             <span></span>
         </div>
         <div class="career-candidate-empty-copy">
-            <h2>Tidak ada riwayat lamaran</h2>
-            <p>Anda belum mengirimkan lamaran apa pun. Buka halaman lowongan untuk memilih posisi yang paling sesuai lalu lanjutkan pengisian data kandidat.</p>
+            <h2>Belum ada lamaran</h2>
+            <p>Lamaran yang sudah Anda kirim akan muncul di sini. Kalau sudah siap, buka halaman lowongan dan pilih posisi yang ingin Anda lamar.</p>
         </div>
         <div class="career-candidate-preview-actions">
             <a href="{{ url_for('career.portal_page') }}" class="career-candidate-primary-action">Lihat Lowongan</a>

@@ -1,6 +1,6 @@
 {% extends "career_candidate_base.html" %}
 {% set candidate_active_page = 'saved' %}
-{% set candidate_page_title = 'Lowongan yang Disimpan' %}
+{% set candidate_page_title = 'Lowongan Tersimpan' %}
 
 {% block candidate_workspace_content %}
 <section class="career-candidate-stack">
@@ -31,7 +31,7 @@
                     <span>Status kandidat</span>
                 </article>
             </div>
-            <p class="career-candidate-info-note">{{ opening.description or "Lowongan ini Anda simpan agar mudah dibuka lagi nanti dari dashboard kandidat." }}</p>
+            <p class="career-candidate-info-note">{{ opening.description or "Lowongan ini Anda simpan supaya lebih mudah dibuka lagi saat ingin melamar." }}</p>
             <div class="career-candidate-card-actions">
                 <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}" class="career-candidate-primary-action">Buka Detail</a>
                 <form method="POST" action="{{ url_for('career.toggle_saved_opening') }}">
@@ -50,11 +50,11 @@
             <span></span>
         </div>
         <div class="career-candidate-empty-copy">
-            <h2>Tidak ada lowongan yang disimpan</h2>
-            <p>Simpan lowongan yang menarik dari halaman lowongan supaya Anda bisa membukanya lagi kapan saja tanpa mencari dari awal.</p>
+            <h2>Belum ada lowongan tersimpan</h2>
+            <p>Simpan lowongan yang menarik supaya Anda bisa membukanya lagi kapan saja tanpa mencari dari awal.</p>
         </div>
         <div class="career-candidate-preview-actions">
-            <a href="{{ url_for('career.portal_page') }}" class="career-candidate-primary-action">Cari Lowongan</a>
+            <a href="{{ url_for('career.portal_page') }}" class="career-candidate-primary-action">Lihat Lowongan</a>
         </div>
     </article>
     {% endif %}

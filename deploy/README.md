@@ -31,6 +31,7 @@ Public recruitment domain:
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
 - Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so login kandidat tetap stabil saat menyimpan profil atau upload berkas.
 - Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host stays on the career experience and routes `/` directly to `/signin` instead of bouncing to ERP.
+- After each recruitment deploy, run `python3 scripts/recruitment_vps_smoke_test.py`. This checks the recruitment host redirect flow, `/signin`, `/beranda`, `/karir/tes`, career/recruitment tables, SMTP readiness, and whether at least one HR user can access the recruitment module.
 
 Public SMS cloud storage domain:
 - Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) if you want `sms.cvbjasyogya.cloud` to point to the same Gunicorn socket.
@@ -132,6 +133,7 @@ curl -I https://erp.cvbjasyogya.cloud/login
 curl https://erp.cvbjasyogya.cloud/ready
 python3 scripts/show_database_target.py
 python3 scripts/postgresql_smoke_test.py
+python3 scripts/recruitment_vps_smoke_test.py
 sudo ss -lx | grep gunicorn.sock
 sudo journalctl -u wms.service -n 50 --no-pager
 sudo tail -n 50 /var/log/nginx/error.log

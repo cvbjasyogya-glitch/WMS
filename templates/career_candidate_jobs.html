@@ -23,7 +23,7 @@
         <div class="career-candidate-list-head">
             <div>
                 <strong>{{ openings|length }} lowongan aktif</strong>
-                <p>Pilih lowongan untuk melihat detail dan langkah berikutnya.</p>
+                <p>Pilih posisi yang menarik untuk melihat ringkasan tugas, lokasi, dan langkah selanjutnya.</p>
             </div>
         </div>
 
@@ -51,7 +51,7 @@
                             <span>{{ opening.department or 'Operasional' }}</span>
                         </div>
                         {% if opening.has_applied %}
-                        <div class="career-candidate-inline-state is-success">Sudah dilamar</div>
+                        <div class="career-candidate-inline-state is-success">Sudah Anda lamar</div>
                         {% endif %}
                     </div>
                 </a>
@@ -68,7 +68,7 @@
             {% else %}
             <article class="career-candidate-empty-inline">
                 <strong>Belum ada lowongan yang cocok dengan pencarian ini.</strong>
-                <p>Coba ubah kata kunci pencarian atau buka lagi semua lowongan aktif.</p>
+                <p>Coba ganti kata kunci pencarian atau lihat lagi semua lowongan yang sedang dibuka.</p>
                 <a href="{{ url_for('career.portal_page') }}">Lihat semua lowongan</a>
             </article>
             {% endfor %}
@@ -83,7 +83,7 @@
             <div class="career-candidate-preview-copy">
                 <span class="career-candidate-preview-kicker">Lowongan Dipilih</span>
                 <h2>{{ selected_opening.title }}</h2>
-                <p>{{ (selected_opening.description or "Baca ringkasan peran ini lalu lanjut ke halaman detail untuk melihat gambaran kerja, syarat, dan form lamaran.")|striptags|truncate(220, True) }}</p>
+                <p>{{ (selected_opening.description or "Baca ringkasannya dulu, lalu buka halaman detail untuk melihat tugas, syarat, dan cara melamarnya.")|striptags|truncate(220, True) }}</p>
             </div>
 
             <div class="career-candidate-preview-meta">
@@ -119,8 +119,8 @@
         {% else %}
         <article class="career-candidate-empty-stage">
             <div class="career-candidate-empty-copy">
-                <h2>Pilih lowongan untuk melihat lebih detail.</h2>
-                <p>Daftar posisi aktif ada di panel kiri. Pilih salah satu lowongan agar ringkasan peran, lokasi, dan langkah berikutnya muncul di area ini.</p>
+                <h2>Pilih salah satu lowongan dulu.</h2>
+                <p>Daftar posisi ada di panel kiri. Saat Anda memilih salah satu lowongan, ringkasan tugas dan lokasinya akan tampil di area ini.</p>
             </div>
         </article>
         {% endif %}

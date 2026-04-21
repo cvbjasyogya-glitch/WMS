@@ -1863,6 +1863,7 @@
         <option value="hired" {% if recruitment_filters.stage == 'hired' %}selected{% endif %}>Hired</option>
     </select>
     <select name="status">
+        <option value="pipeline" {% if recruitment_filters.status == 'pipeline' %}selected{% endif %}>Pipeline Aktif</option>
         <option value="all" {% if recruitment_filters.status == 'all' %}selected{% endif %}>Semua Status</option>
         <option value="active" {% if recruitment_filters.status == 'active' %}selected{% endif %}>Active</option>
         <option value="on_hold" {% if recruitment_filters.status == 'on_hold' %}selected{% endif %}>On Hold</option>
@@ -1873,7 +1874,7 @@
     <button type="submit">Filter</button>
 </form>
 
-{% set recruitment_filter_active = recruitment_filters.search or recruitment_filters.stage != 'all' or recruitment_filters.status != 'all' or recruitment_filters.warehouse_id %}
+{% set recruitment_filter_active = recruitment_filters.search or recruitment_filters.stage != 'all' or recruitment_filters.status != 'pipeline' or recruitment_filters.warehouse_id %}
 {% if recruitment_filter_active %}
 <div class="box" style="margin-bottom:16px; padding:16px 18px; border:1px solid rgba(59,130,246,0.18); background:rgba(239,246,255,0.88); display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
     <div>
@@ -2883,11 +2884,15 @@
     const currentFilters = new URLSearchParams(window.location.search || "");
     const matchesCurrentPipelineFilters = (payload) => {
         const stageFilter = String(currentFilters.get("stage") || "all").trim().toLowerCase();
-        const statusFilter = String(currentFilters.get("status") || "all").trim().toLowerCase();
+        const statusFilter = String(currentFilters.get("status") || "pipeline").trim().toLowerCase();
         if (stageFilter && stageFilter !== "all" && payload.stage !== stageFilter) {
             return false;
         }
-        if (statusFilter && statusFilter !== "all" && payload.status !== statusFilter) {
+        if (statusFilter === "pipeline") {
+            if (!["active", "on_hold"].includes(String(payload.status || "").trim().toLowerCase())) {
+                return false;
+            }
+        } else if (statusFilter && statusFilter !== "all" && payload.status !== statusFilter) {
             return false;
         }
         return true;

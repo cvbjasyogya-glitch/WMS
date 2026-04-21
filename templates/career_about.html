@@ -486,16 +486,16 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
         <div class="career-about-hero-banner">
             <div class="career-about-hero-copy">
                 <span class="career-about-kicker">Tentang Kami</span>
-                <h1>Portal karir resmi yang menyatukan lowongan, lamaran, dan assessment dalam satu alur yang lebih jelas.</h1>
-                <p>Portal karir {{ career_company_name }} dibangun sebagai wajah publik dari proses rekrutmen perusahaan, supaya kandidat mendapatkan pengalaman yang lebih meyakinkan sejak pertama kali mencari posisi sampai menyelesaikan tes seleksi.</p>
+                <h1>Portal karir resmi untuk melihat lowongan, mengirim lamaran, dan mengikuti tes dalam satu alur.</h1>
+                <p>Portal karir {{ career_company_name }} dibuat agar pelamar lebih mudah mengikuti proses rekrutmen, mulai dari mencari posisi sampai masuk ke tahap tes.</p>
             </div>
         </div>
 
         <div class="career-about-band">
             <div class="career-about-band-head">
                 <div>
-                    <strong>Semua posisi, form lamaran, dan kode assessment dikelola langsung dari sistem recruitment internal perusahaan.</strong>
-                    <p>Artinya kandidat melihat informasi yang lebih konsisten, HR menerima data yang rapi, dan setiap tahap punya jejak proses yang lebih mudah ditindaklanjuti.</p>
+                    <strong>Lowongan, lamaran, dan akses tes dikelola langsung dari sistem rekrutmen internal perusahaan.</strong>
+                    <p>Artinya informasi yang Anda lihat tetap konsisten, data yang masuk ke HR lebih rapi, dan setiap tahap lebih mudah ditindaklanjuti.</p>
                 </div>
                 <div class="career-about-band-actions">
                     <a href="{{ url_for('career.index') }}">Lihat Lowongan</a>
@@ -506,15 +506,15 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
             <div class="career-about-band-grid">
                 <article class="career-about-band-card">
                     <strong>{{ opening_count }}</strong>
-                    <span>Lowongan publik aktif yang sedang bisa dijelajahi kandidat saat ini.</span>
+                    <span>Lowongan aktif yang sedang bisa Anda lihat saat ini.</span>
                 </article>
                 <article class="career-about-band-card">
                     <strong>5 Digit</strong>
-                    <span>Kode tes unik yang dipakai kandidat untuk lanjut ke assessment tanpa harus membuat alur terpisah.</span>
+                    <span>Kode tes unik yang dipakai untuk masuk ke halaman tes setelah lolos review awal.</span>
                 </article>
                 <article class="career-about-band-card">
                     <strong>Tanpa Biaya</strong>
-                    <span>Seluruh proses seleksi resmi di portal ini tidak memungut biaya pendaftaran dalam bentuk apa pun.</span>
+                    <span>Seluruh proses seleksi resmi di portal ini tidak dipungut biaya dalam bentuk apa pun.</span>
                 </article>
             </div>
         </div>
@@ -524,19 +524,19 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
         <article class="career-about-card">
             <span class="career-about-card-kicker">Mengapa Portal Ini Ada</span>
             <h2>Tentang Kami</h2>
-            <p>Portal karir {{ career_company_name }} menampilkan lowongan aktif resmi perusahaan. Semua posisi dikelola langsung oleh HR dan super admin melalui sistem internal, sehingga kandidat mendapatkan informasi yang konsisten, proses apply yang rapi, dan akses tes yang aman.</p>
-            <p>Portal ini juga membantu menyambungkan sisi publik dan sisi operasional recruitment. Dari sisi kandidat, prosesnya terasa lebih sederhana. Dari sisi tim HR, seluruh data lamaran, assessment code, dan hasil evaluasi bisa mengalir ke pipeline yang sama tanpa perlu input ulang manual.</p>
+            <p>Portal karir {{ career_company_name }} menampilkan lowongan aktif resmi perusahaan. Semua posisi dikelola langsung oleh HR melalui sistem internal, jadi informasi yang tampil lebih konsisten dan langkah melamarnya lebih jelas.</p>
+            <p>Portal ini juga menghubungkan sisi pelamar dan sisi HR dalam satu alur yang sama. Dari sisi pelamar, prosesnya lebih praktis. Dari sisi HR, data lamaran dan hasil tes bisa langsung masuk ke pipeline recruitment tanpa input ulang.</p>
         </article>
 
         <aside class="career-about-sidecard">
             <span class="career-about-card-kicker">Apa Yang Bisa Dilakukan Kandidat</span>
-            <h3>Satu tempat untuk memahami proses dari awal sampai akhir.</h3>
-            <p>Kandidat tidak perlu menebak-nebak langkah berikutnya karena portal ini sudah menyusun titik masuk yang paling penting secara lebih runtut.</p>
+            <h3>Satu tempat untuk mengikuti proses dari awal sampai akhir.</h3>
+            <p>Anda tidak perlu bingung mencari langkah berikutnya karena halaman-halaman penting sudah disusun agar lebih mudah diikuti.</p>
             <ul class="career-about-checklist">
-                <li>Menjelajahi lowongan aktif berdasarkan fungsi, lokasi, dan tipe kerja.</li>
-                <li>Mengirim CV langsung dari halaman detail posisi tanpa berpindah sistem.</li>
-                <li>Menyimpan kode tes dan mengakses assessment dari shortcut yang sama di seluruh halaman.</li>
-                <li>Mendapatkan panduan dasar sebelum apply agar peluang follow-up dari HR tidak hilang.</li>
+                <li>Melihat lowongan aktif berdasarkan fungsi, lokasi, dan tipe kerja.</li>
+                <li>Mengirim lamaran langsung dari halaman detail posisi.</li>
+                <li>Masuk ke halaman tes dengan kode yang dikirim lewat email.</li>
+                <li>Mendapatkan panduan dasar agar proses melamar terasa lebih mudah dipahami.</li>
             </ul>
             {% if signin_url %}
             <a href="{{ signin_url }}" class="career-about-side-action">Masuk ke Portal Kandidat</a>
@@ -548,7 +548,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
         <div class="career-about-section-head">
             <div>
                 <h2>Pilar Pengalaman Kandidat</h2>
-                <p>Empat hal ini jadi dasar kenapa portal baru ini terasa lebih dekat dengan flow korporat yang rapi dibanding halaman lowongan biasa.</p>
+                <p>Empat hal ini menjadi dasar pengalaman pelamar di portal karir ini.</p>
             </div>
         </div>
 
@@ -556,22 +556,22 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
             <article class="career-about-pillar-card">
                 <strong>01</strong>
                 <h3>Lowongan Terpusat</h3>
-                <p>Posisi yang tampil berasal dari data recruitment resmi sehingga kandidat tidak perlu mengecek kanal yang terpisah-pisah.</p>
+                <p>Posisi yang tampil berasal dari data recruitment resmi, jadi Anda tidak perlu mengecek kanal yang terpisah-pisah.</p>
             </article>
             <article class="career-about-pillar-card">
                 <strong>02</strong>
                 <h3>Lamaran Lebih Ringkas</h3>
-                <p>Form apply difokuskan ke informasi inti supaya proses awal cepat selesai tapi tetap cukup untuk review HR.</p>
+                <p>Form lamaran difokuskan ke informasi inti supaya proses awal lebih cepat tanpa mengurangi kebutuhan review HR.</p>
             </article>
             <article class="career-about-pillar-card">
                 <strong>03</strong>
                 <h3>Assessment Terkontrol</h3>
-                <p>Kode tes, sesi pelanggaran, dan hasil penilaian tersimpan dalam satu jalur yang lebih mudah diawasi.</p>
+                <p>Kode tes, catatan sesi, dan hasil penilaian tersimpan dalam satu jalur yang lebih mudah dipantau.</p>
             </article>
             <article class="career-about-pillar-card">
                 <strong>04</strong>
                 <h3>Komunikasi Lebih Jelas</h3>
-                <p>Halaman bantuan, akses kode tes, dan status hasil tes memberi kandidat petunjuk yang lebih mudah dipahami.</p>
+                <p>Halaman bantuan, akses kode tes, dan status lamaran membantu Anda mengikuti proses dengan lebih tenang.</p>
             </article>
         </div>
     </section>
@@ -581,7 +581,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
         <div class="career-about-section-head">
             <div>
                 <h2>Contoh Posisi Yang Sedang Dibuka</h2>
-                <p>Beberapa posisi aktif ini menunjukkan bagaimana portal publik menampilkan lowongan yang sama dengan pipeline recruitment internal.</p>
+                <p>Beberapa posisi aktif ini menunjukkan jenis lowongan yang saat ini bisa Anda temukan di portal karir.</p>
             </div>
         </div>
 
@@ -597,7 +597,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-about-page {
                     <span>{{ type_label }}</span>
                     <span>{{ location_label }}</span>
                 </div>
-                <p>{{ (opening.description or opening.requirements or 'Posisi aktif resmi perusahaan dengan alur apply dan assessment yang sudah terhubung.')|striptags|truncate(150, True) }}</p>
+                <p>{{ (opening.description or opening.requirements or 'Posisi aktif resmi perusahaan yang bisa langsung Anda lihat detail dan kirim lamarannya dari portal ini.')|striptags|truncate(150, True) }}</p>
                 <a href="{{ url_for('career.opening_detail', opening_id=opening.id) }}">Lihat Detail</a>
             </article>
             {% endfor %}

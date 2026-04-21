@@ -78,84 +78,84 @@ CAREER_PROFILE_SECTION_DEFINITIONS = [
         "label": "Pribadi",
         "title": "Data Pribadi",
         "empty_label": "Harus dilengkapi",
-        "summary": "Lengkapi identitas dasar, data KTP, domisili, dan kontak aktif agar HR lebih mudah membaca profil kandidat Anda.",
+        "summary": "Isi data diri, alamat, dan kontak aktif supaya tim HR bisa mengenal Anda dengan lebih lengkap.",
     },
     {
         "key": "family",
         "label": "Keluarga",
         "title": "Data Keluarga",
         "empty_label": "Harus dilengkapi",
-        "summary": "Tambahkan kontak keluarga atau pihak yang bisa dihubungi saat dibutuhkan untuk verifikasi lanjutan.",
+        "summary": "Tambahkan kontak keluarga atau orang terdekat yang bisa dihubungi jika sewaktu-waktu dibutuhkan.",
     },
     {
         "key": "education",
         "label": "Pendidikan",
         "title": "Riwayat Pendidikan",
         "empty_label": "Harus dilengkapi",
-        "summary": "Cantumkan sekolah, jurusan, dan ringkasan pendidikan formal yang paling relevan dengan posisi pilihan Anda.",
+        "summary": "Tuliskan pendidikan terakhir dan jurusan yang paling relevan dengan posisi yang Anda incar.",
     },
     {
         "key": "experience",
         "label": "Pengalaman",
         "title": "Pengalaman Kerja",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Jelaskan pengalaman kerja, magang, freelance, atau proyek yang pernah Anda jalankan.",
+        "summary": "Ceritakan pengalaman kerja, magang, freelance, atau proyek yang pernah Anda jalani.",
     },
     {
         "key": "skills",
         "label": "Keterampilan",
         "title": "Keterampilan",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Masukkan keterampilan utama, tools, dan sertifikasi yang ingin Anda tonjolkan ke tim rekrutmen.",
+        "summary": "Masukkan keterampilan utama, tools, dan sertifikasi yang ingin Anda tampilkan ke tim rekrutmen.",
     },
     {
         "key": "organization",
         "label": "Organisasi",
         "title": "Pengalaman Organisasi",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Isi pengalaman organisasi, volunteer, atau kepanitiaan yang menunjukkan kepemimpinan dan kolaborasi.",
+        "summary": "Isi pengalaman organisasi, volunteer, atau kepanitiaan yang pernah Anda ikuti.",
     },
     {
         "key": "training",
         "label": "Training",
         "title": "Training & Workshop",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Sebutkan pelatihan, workshop, dan pembelajaran nonformal yang pernah Anda ikuti.",
+        "summary": "Tuliskan pelatihan, workshop, atau kelas nonformal yang pernah Anda ikuti.",
     },
     {
         "key": "achievement",
         "label": "Prestasi",
         "title": "Prestasi",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Tampilkan pencapaian akademik, profesional, atau penghargaan yang relevan dengan peran yang Anda incar.",
+        "summary": "Cantumkan pencapaian atau penghargaan yang menurut Anda paling relevan untuk posisi ini.",
     },
     {
         "key": "language",
         "label": "Bahasa",
         "title": "Kemampuan Bahasa",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Jelaskan bahasa yang Anda kuasai beserta tingkat kemampuan yang Anda miliki.",
+        "summary": "Sebutkan bahasa yang Anda kuasai beserta tingkat kemampuan Anda.",
     },
     {
         "key": "passion",
         "label": "Passion",
         "title": "Passion & Minat Karier",
         "empty_label": "Lebih baik dilengkapi",
-        "summary": "Ceritakan bidang yang paling Anda minati dan peran seperti apa yang paling cocok dengan karakter Anda.",
+        "summary": "Ceritakan bidang yang paling Anda minati dan jenis pekerjaan yang terasa paling cocok untuk Anda.",
     },
     {
         "key": "additional",
         "label": "Info Lain",
         "title": "Informasi Tambahan",
         "empty_label": "Harus dilengkapi",
-        "summary": "Tambahkan domisili, preferensi penempatan, ekspektasi gaji, dan catatan lain yang perlu diketahui HR.",
+        "summary": "Tambahkan preferensi area kerja, ekspektasi gaji, atau catatan lain yang ingin Anda sampaikan ke HR.",
     },
     {
         "key": "documents",
         "label": "Upload Berkas",
         "title": "Upload Berkas Pendukung",
         "empty_label": "Harus dilengkapi",
-        "summary": "Unggah scan KTP, CV / Resume, ijazah terakhir, dan dokumen pendukung lain agar profil kandidat siap diproses HR.",
+        "summary": "Unggah KTP, CV, ijazah, dan berkas pendukung lain supaya profil Anda siap diproses tim HR.",
     },
 ]
 CAREER_PROFILE_SECTION_KEYS = {section["key"] for section in CAREER_PROFILE_SECTION_DEFINITIONS}
@@ -1209,8 +1209,8 @@ def _render_candidate_jobs_portal(
                 "kicker": "Lamaran Terkirim",
                 "title": "Terima kasih sudah melamar.",
                 "body": [
-                    f"Lamaran Anda untuk posisi {selected_opening.get('title') or 'ini'} sudah kami terima. Tim HR akan melakukan screening terlebih dahulu.",
-                    "Silakan cek email secara berkala untuk melihat update tahap berikutnya, termasuk pemberitahuan lolos screening atau kode tes jika Anda lanjut ke tahap assessment.",
+                    f"Lamaran Anda untuk posisi {selected_opening.get('title') or 'ini'} sudah kami terima.",
+                    "Tim HR akan meninjau lamaran Anda lebih dulu. Mohon cek email secara berkala untuk melihat update tahap berikutnya.",
                 ],
                 "primary_label": "Lihat Lamaran",
                 "primary_url": url_for("career.applications_page"),
@@ -1221,8 +1221,8 @@ def _render_candidate_jobs_portal(
                 "kicker": "Lamaran Sudah Masuk",
                 "title": "Lamaran Anda sudah kami terima.",
                 "body": [
-                    f"Posisi {selected_opening.get('title') or 'ini'} sudah pernah Anda lamar dan saat ini masih menunggu screening HR.",
-                    "Silakan cek email secara berkala. Jika Anda lolos review awal, undangan atau kode tes akan kami kirim otomatis ke email Anda.",
+                    f"Posisi {selected_opening.get('title') or 'ini'} sudah pernah Anda lamar dan saat ini masih sedang ditinjau.",
+                    "Silakan pantau email secara berkala. Jika Anda lanjut ke tahap berikutnya, undangan atau kode tes akan kami kirim ke email Anda.",
                 ],
                 "primary_label": "Lihat Lamaran",
                 "primary_url": url_for("career.applications_page"),
@@ -1233,8 +1233,8 @@ def _render_candidate_jobs_portal(
                 "kicker": "Lamaran Sudah Tercatat",
                 "title": "Lamaran ini sudah pernah Anda kirim.",
                 "body": [
-                    f"Lamaran untuk posisi {selected_opening.get('title') or 'ini'} sudah ada di dashboard Anda.",
-                    "Jika Anda sudah lolos screening HR, kode tes atau tautan tahap berikutnya bisa dilihat dari email dan halaman lamaran kandidat.",
+                    f"Lamaran untuk posisi {selected_opening.get('title') or 'ini'} sudah ada di daftar lamaran Anda.",
+                    "Kalau Anda sudah lolos tahap review awal, informasi tes atau langkah berikutnya bisa dilihat dari email dan halaman lamaran.",
                 ],
                 "primary_label": "Lihat Lamaran",
                 "primary_url": url_for("career.applications_page"),
@@ -1395,7 +1395,7 @@ def _fetch_candidate_workspace_applications(db, account):
             else _get_public_candidate_assessment_status_display(safe_status, safe_stage)
         )
         application["progress_note"] = (
-            "Kode tes sudah tersedia. Silakan cek email atau lanjut dari tombol tes ketika siap mengerjakan."
+            "Kode tes Anda sudah tersedia. Saat sudah siap, Anda bisa lanjut ke halaman tes dari tombol di bawah."
             if application["assessment_ready"]
             else _get_public_candidate_progress_note(safe_status, safe_stage)
         )
@@ -1423,16 +1423,16 @@ def _get_public_candidate_progress_note(status, stage):
     safe_status = _normalize_public_recruitment_status(status)
     safe_stage = _normalize_public_recruitment_stage(stage)
     if safe_status == "rejected":
-        return "Lamaran ini belum dapat dilanjutkan. Silakan cek email untuk melihat pemberitahuan hasil screening dari tim HR dan pantau lowongan lain yang masih aktif."
+        return "Terima kasih sudah melamar. Untuk posisi ini, prosesnya belum bisa kami lanjutkan. Silakan cek email untuk detailnya dan Anda tetap bisa mencoba lowongan lain."
     if safe_status not in {"active", ""}:
-        return "Lamaran ini sedang tidak aktif. Jika Anda membutuhkan informasi lebih lanjut, silakan hubungi tim HR melalui kanal resmi yang tersedia."
+        return "Lamaran ini sedang tidak aktif. Jika perlu informasi lebih lanjut, silakan hubungi tim HR melalui kanal resmi yang tersedia."
     if safe_stage == "interview":
-        return "Lamaran Anda sudah bergerak ke tahap interview. Silakan cek email secara berkala untuk jadwal atau instruksi lanjutan dari tim HR."
+        return "Lamaran Anda sudah masuk ke tahap interview. Mohon pantau email secara berkala untuk jadwal atau petunjuk selanjutnya."
     if safe_stage in {"offer", "hired"}:
-        return "Lamaran Anda sudah masuk ke tahap lanjutan. Silakan cek email secara berkala untuk instruksi atau dokumen berikutnya dari tim HR."
+        return "Proses lamaran Anda sudah masuk ke tahap lanjutan. Mohon cek email untuk instruksi atau dokumen berikutnya."
     if safe_stage == "screening":
-        return "Lamaran Anda sedang diproses ke tahap tes. Jika kode tes sudah diterbitkan, pemberitahuan akan dikirim ke email Anda."
-    return "Lamaran sudah masuk ke pipeline rekrutmen. Tim HR akan melakukan screening awal terlebih dahulu sebelum mengirim kode tes ke email Anda."
+        return "Lamaran Anda sedang ditinjau untuk lanjut ke tahap tes. Jika disetujui, kode tes akan kami kirim ke email Anda."
+    return "Lamaran Anda sudah kami terima. Tim HR akan meninjau lebih dulu sebelum mengirim kabar berikutnya."
 
 
 def _normalize_public_recruitment_stage(value):

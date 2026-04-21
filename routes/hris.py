@@ -122,6 +122,7 @@ SPECIAL_LEAVE_REASON_PREFIX = "[special_reason:"
 PAYROLL_STATUSES = {"draft", "approved", "paid", "cancelled"}
 RECRUITMENT_STAGES = {"applied", "screening", "interview", "offer", "hired"}
 RECRUITMENT_STATUSES = {"active", "on_hold", "rejected", "withdrawn", "closed"}
+RECRUITMENT_PIPELINE_ACTIVE_STATUSES = ("active", "on_hold")
 CAREER_OPENING_STATUSES = {"draft", "published", "closed", "archived"}
 CAREER_EMPLOYMENT_TYPES = {"full_time", "part_time", "contract", "internship", "freelance"}
 ONBOARDING_STAGES = {"preboarding", "orientation", "system_access", "training", "go_live"}
@@ -6621,7 +6622,7 @@ def _fetch_recruitment_candidates(db):
     ensure_career_schema(db)
     search = (request.args.get("q") or "").strip()
     stage = (request.args.get("stage") or "all").strip().lower()
-    status = (request.args.get("status") or "all").strip().lower()
+    status = (request.args.get("status") or "pipeline").strip().lower()
     scope_warehouse = get_hris_scope()
 
     if scope_warehouse:
@@ -6663,7 +6664,11 @@ def _fetch_recruitment_candidates(db):
         query += " AND r.stage=?"
         params.append(stage)
 
-    if status in RECRUITMENT_STATUSES:
+    if status == "pipeline":
+        placeholders = ",".join("?" for _ in RECRUITMENT_PIPELINE_ACTIVE_STATUSES)
+        query += f" AND r.status IN ({placeholders})"
+        params.extend(RECRUITMENT_PIPELINE_ACTIVE_STATUSES)
+    elif status in RECRUITMENT_STATUSES:
         query += " AND r.status=?"
         params.append(status)
 

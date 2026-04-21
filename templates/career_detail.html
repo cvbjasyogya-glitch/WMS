@@ -700,8 +700,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
         <div class="career-detail-summaryband">
             <div class="career-detail-summary-head">
                 <div>
-                    <strong>Masuk ke overview posisi, proses kandidat, dan form lamaran dalam satu alur yang lebih rapi.</strong>
-                    <p>Informasi posisi, persiapan yang dibutuhkan, dan langkah lamaran disusun dalam satu alur agar kandidat lebih mudah memahami proses.</p>
+                    <strong>Lihat ringkasan posisi, cara melamar, dan akses tes dalam satu halaman.</strong>
+                    <p>Semua informasi penting tentang posisi ini kami susun agar lebih mudah dibaca sebelum Anda memutuskan untuk melamar.</p>
                 </div>
                 <div class="career-detail-actions">
                     <a href="{% if career_public_authenticated %}#careerApplyForm{% else %}{{ opening_register_url }}{% endif %}" class="is-primary">
@@ -723,19 +723,19 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <div class="career-detail-summary-grid">
                 <article class="career-detail-summary-card">
                     <strong>{{ department_label }}</strong>
-                    <span>Fungsi utama yang sedang membutuhkan kandidat untuk posisi ini.</span>
+                    <span>Bidang kerja utama untuk posisi ini.</span>
                 </article>
                 <article class="career-detail-summary-card">
                     <strong>{{ type_label }}</strong>
-                    <span>Skema kerja yang dibuka untuk proses rekrutmen publik saat ini.</span>
+                    <span>Tipe kerja yang dibuka untuk posisi ini.</span>
                 </article>
                 <article class="career-detail-summary-card">
                     <strong>{{ location_label }}</strong>
-                    <span>Lokasi kerja atau area penempatan awal kandidat.</span>
+                    <span>Lokasi kerja atau area penempatan awal.</span>
                 </article>
                 <article class="career-detail-summary-card">
                     <strong>{{ warehouse_label }}</strong>
-                    <span>Unit atau perusahaan tempat lowongan ini dipublikasikan.</span>
+                    <span>Unit penempatan untuk lowongan ini.</span>
                 </article>
             </div>
         </div>
@@ -746,9 +746,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <section class="career-detail-card">
                 <div class="career-detail-section-head">
                     <div>
-                        <span class="career-detail-card-kicker">Role Overview</span>
+                        <span class="career-detail-card-kicker">Ringkasan Posisi</span>
                         <h2>Gambaran Peran</h2>
-                        <p>Ringkasan inti posisi yang sedang dibuka untuk kandidat publik pada portal karir ini.</p>
+                        <p>Gambaran singkat tentang pekerjaan dan tanggung jawab utama untuk posisi ini.</p>
                     </div>
                     <a href="{{ url_for('career.index') }}" class="career-detail-back-link">Lihat semua posisi</a>
                 </div>
@@ -758,26 +758,26 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <section class="career-detail-card">
                 <div class="career-detail-section-head">
                     <div>
-                        <span class="career-detail-card-kicker">Candidate Journey</span>
+                        <span class="career-detail-card-kicker">Langkah Melamar</span>
                         <h2>Alur Kandidat</h2>
-                        <p>Tiga langkah utama yang akan dijalani kandidat mulai dari submit CV, screening HR, sampai masuk ke assessment.</p>
+                        <p>Gambaran singkat proses yang biasanya Anda jalani setelah mengirim lamaran.</p>
                     </div>
                 </div>
                 <div class="career-detail-process-grid">
                     <article class="career-detail-process-card">
                         <span class="career-detail-process-step">1</span>
-                        <h3>Isi data inti dan unggah CV</h3>
-                        <p>Masukkan nama, kontak aktif, lalu unggah CV terbaru agar tim HR bisa menilai profil awal kandidat secara cepat.</p>
+                        <h3>Lengkapi data dan CV</h3>
+                        <p>Pastikan nama, kontak aktif, dan CV terbaru sudah siap agar tim HR bisa meninjau profil Anda dengan lebih mudah.</p>
                     </article>
                     <article class="career-detail-process-card">
                         <span class="career-detail-process-step">2</span>
-                        <h3>Tunggu screening awal HR</h3>
-                        <p>Sesudah lamaran masuk, data kandidat akan direview terlebih dahulu oleh tim HR sebelum lanjut ke tahap tes.</p>
+                        <h3>Tunggu review awal dari HR</h3>
+                        <p>Setelah lamaran masuk, tim HR akan meninjau data Anda terlebih dahulu sebelum menentukan langkah berikutnya.</p>
                     </article>
                     <article class="career-detail-process-card">
                         <span class="career-detail-process-step">3</span>
                         <h3>Terima kode tes lewat email</h3>
-                        <p>Jika screening disetujui, kode tes dan tautan assessment akan dikirim otomatis ke email kandidat beserta masa berlakunya.</p>
+                        <p>Jika Anda lanjut ke tahap tes, kode tes beserta tautan halaman tes akan dikirim ke email Anda.</p>
                     </article>
                 </div>
             </section>
@@ -785,12 +785,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <section class="career-detail-card">
                 <div class="career-detail-section-head">
                     <div>
-                        <span class="career-detail-card-kicker">Requirements</span>
+                        <span class="career-detail-card-kicker">Kualifikasi</span>
                         <h2>Kualifikasi & Kecocokan</h2>
-                        <p>Kriteria dasar yang dilihat HR untuk menilai apakah profil kandidat sesuai dengan kebutuhan posisi.</p>
+                        <p>Beberapa hal dasar yang biasanya menjadi perhatian tim HR saat meninjau posisi ini.</p>
                     </div>
                 </div>
-                <div class="career-detail-richtext">{{ opening.requirements or "Belum ada daftar persyaratan rinci yang dipublikasikan. Tim HR tetap akan menilai pengalaman, kesiapan penempatan, kecocokan fungsi, dan kelengkapan CV yang Anda unggah." }}</div>
+                <div class="career-detail-richtext">{{ opening.requirements or "Belum ada daftar persyaratan rinci yang ditampilkan. Tim HR tetap akan menilai pengalaman, kesiapan penempatan, kecocokan peran, dan kelengkapan CV Anda." }}</div>
             </section>
         </div>
 
@@ -798,9 +798,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             <section class="career-detail-card career-apply-card" id="careerApplyForm">
                 <div class="career-apply-head">
                     <div>
-                        <span class="career-apply-kicker">Apply Now</span>
+                        <span class="career-apply-kicker">Lamar Posisi</span>
                         <h2>Kirim Lamaran</h2>
-                        <p>Form lamaran dibuka untuk akun kandidat yang sudah aktif agar data pelamar tetap terhubung ke email yang terverifikasi.</p>
+                        <p>Lamaran dikirim melalui akun kandidat aktif agar data Anda tetap terhubung ke email yang sudah diverifikasi.</p>
                     </div>
                 </div>
 
@@ -811,21 +811,21 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     </div>
                     <div class="career-apply-step">
                         <span>2</span>
-                        <span>CV dari profil kandidat akan dipakai otomatis. Unggah file baru hanya jika ingin mengganti CV khusus untuk posisi ini.</span>
+                        <span>CV dari profil akan dipakai otomatis. Unggah file baru hanya kalau Anda ingin memakai CV yang berbeda untuk posisi ini.</span>
                     </div>
                     <div class="career-apply-step">
                         <span>3</span>
-                        <span>Sesudah submit, tunggu screening awal HR. Jika disetujui, kode tes akan dikirim langsung ke email Anda.</span>
+                        <span>Setelah mengirim lamaran, tunggu review awal dari HR. Jika lanjut, kode tes akan dikirim ke email Anda.</span>
                     </div>
                 </div>
 
-                <p class="career-note">Lamaran yang baru masuk tidak langsung menampilkan kode tes. Gunakan kontak aktif supaya email persetujuan tes atau informasi penolakan dari HR tidak terlewat.</p>
+                <p class="career-note">Kode tes tidak langsung muncul setelah melamar. Pastikan email dan nomor yang Anda pakai aktif supaya kabar dari HR tidak terlewat.</p>
 
                 {% if career_public_authenticated %}
                 <div class="career-code-inline-card">
                     <span>Akun Aktif</span>
                     <strong>{{ career_public_account_name or public_account.full_name }}</strong>
-                    <p>Email terverifikasi: {{ career_public_account_email or public_account.email }}. Anda bisa langsung melanjutkan pengisian lamaran untuk posisi ini.</p>
+                    <p>Email aktif Anda: {{ career_public_account_email or public_account.email }}. Anda bisa langsung melanjutkan lamaran untuk posisi ini.</p>
                 </div>
 
                 <form method="POST" action="{{ url_for('career.apply') }}" enctype="multipart/form-data" class="career-form">
@@ -876,7 +876,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                 <div class="career-code-inline-card">
                     <span>Akun Kandidat Wajib</span>
                     <strong>Daftar dan verifikasi email dulu</strong>
-                    <p>Sebelum mengisi data diri dan mengirim CV, Anda perlu membuat akun kandidat publik lalu mengaktifkannya dari link verifikasi yang dikirim ke inbox email.</p>
+                    <p>Sebelum mengisi data diri dan mengirim lamaran, buat akun dulu lalu aktifkan dari link verifikasi yang kami kirim ke email Anda.</p>
                 </div>
                 <div class="career-code-modal-actions" style="margin-top: 0;">
                     <a href="{{ opening_register_url }}">Daftar Akun</a>
@@ -886,15 +886,15 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
             </section>
 
             <section class="career-detail-card career-guide-card">
-                <span class="career-guide-kicker">Assessment Access</span>
+                <span class="career-guide-kicker">Akses Tes</span>
                 <h3>Sudah punya kode tes?</h3>
-                <p>Kandidat yang sudah lolos screening HR dan menerima email kode tes bisa langsung masuk ke halaman assessment dari sini tanpa mencari posisi dari awal.</p>
+                <p>Kalau Anda sudah menerima kode tes dari HR, Anda bisa langsung masuk ke halaman tes dari sini.</p>
 
                 {% if latest_assessment_code and latest_candidate %}
                 <div class="career-code-inline-card">
                     <span>Kode Tes Aktif</span>
                     <strong>{{ latest_assessment_code }}</strong>
-                    <p>Kode ini terhubung ke lamaran {{ latest_candidate.candidate_name or 'kandidat' }}. Simpan baik-baik sebelum melanjutkan ke tes.</p>
+                    <p>Kode ini terhubung ke lamaran {{ latest_candidate.candidate_name or 'Anda' }}. Simpan baik-baik sebelum mulai tes.</p>
                 </div>
                 {% endif %}
 
@@ -904,10 +904,10 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                 </form>
 
                 <ul class="career-guide-list">
-                    <li>Pastikan email akun kandidat sudah diverifikasi sebelum mulai melamar posisi ini.</li>
-                    <li>Gunakan nomor WhatsApp yang benar-benar aktif untuk follow-up dari tim HR.</li>
-                    <li>Siapkan CV versi terbaru dengan pengalaman, domisili, dan peran yang relevan agar review awal lebih cepat.</li>
-                    <li>Kode tes baru dikirim setelah screening awal HR disetujui, jadi pantau inbox email secara berkala.</li>
+                    <li>Pastikan email akun Anda sudah aktif sebelum mulai melamar.</li>
+                    <li>Gunakan nomor WhatsApp yang aktif supaya mudah dihubungi tim HR.</li>
+                    <li>Siapkan CV terbaru agar proses review awal lebih cepat.</li>
+                    <li>Kode tes baru dikirim setelah lamaran Anda lolos tahap awal, jadi mohon cek inbox email secara berkala.</li>
                 </ul>
 
                 {% if signin_url %}

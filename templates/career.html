@@ -585,16 +585,16 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
         <div class="career-jobs-hero-banner">
             <div class="career-jobs-hero-copy">
                 <span class="career-jobs-kicker">Lowongan</span>
-                <h1>Temukan posisi yang paling cocok untuk langkah karirmu berikutnya.</h1>
-                <p>Jelajahi lowongan aktif, saring posisi berdasarkan fungsi dan jenjang, lalu lanjutkan ke detail untuk mengirim lamaran dengan alur yang lebih rapi dan terasa korporat.</p>
+                <h1>Temukan posisi yang paling cocok untuk langkah karier Anda berikutnya.</h1>
+                <p>Lihat lowongan yang sedang dibuka, gunakan filter yang tersedia, lalu buka detail posisi untuk memahami kebutuhannya sebelum melamar.</p>
             </div>
         </div>
 
         <form method="GET" action="{{ url_for('career.index') }}" class="career-jobs-searchband">
             <div class="career-jobs-searchband-head">
                 <div>
-                    <strong>{{ openings|length }} lowongan aktif siap dijelajahi</strong>
-                    <span>Mulai dari kata kunci, fungsi, jenjang, atau area penempatan.</span>
+                    <strong>{{ openings|length }} lowongan aktif siap Anda lihat</strong>
+                    <span>Mulai dari kata kunci, fungsi, tipe kerja, atau area penempatan.</span>
                 </div>
                 <div class="career-jobs-search-meta">
                     <a href="{{ url_for('career.home') }}">Kembali ke Beranda</a>
@@ -651,7 +651,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
             <div class="career-jobs-toolbar-head">
                 <div>
                     <h2><span id="careerVisibleCount">{{ openings|length }}</span> lowongan tersedia</h2>
-                    <p>Daftar posisi aktif ini diperbarui langsung dari modul recruitment internal. Kandidat bisa mulai dari pencarian cepat, lalu lanjut ke detail posisi untuk memahami kebutuhan peran dan mengirim CV.</p>
+                    <p>Daftar posisi ini diperbarui langsung dari sistem recruitment. Silakan mulai dari pencarian cepat, lalu buka detail posisi untuk melihat informasi lengkap sebelum mengirim lamaran.</p>
                 </div>
                 <div class="career-jobs-toolbar-stats">
                     <span class="career-jobs-count-chip"><span id="careerResultCount">{{ openings|length }}</span> posisi tampil</span>
@@ -720,7 +720,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
                 </div>
 
                 <p class="career-job-card-summary">
-                    {{ (opening.description or opening.requirements or 'Lowongan aktif resmi perusahaan. Klik detail untuk melihat gambaran posisi, kualifikasi, dan mengirim lamaran kandidat.')|striptags|truncate(185, True) }}
+                    {{ (opening.description or opening.requirements or 'Lowongan aktif resmi perusahaan. Buka detail posisi untuk melihat gambaran pekerjaan, kualifikasi, dan langkah melamarnya.')|striptags|truncate(185, True) }}
                 </p>
 
                 <div class="career-job-card-actions">
@@ -731,14 +731,14 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
             {% endfor %}
         </section>
         <section class="career-jobs-empty" id="careerNoResults" style="display: none;">
-            <h3>Tidak ada lowongan yang cocok dengan filter aktif.</h3>
-            <p>Coba ganti fungsi, jenjang, atau kata kunci yang dipakai. Kalau ingin melihat semua posisi lagi, kosongkan filter lalu cari ulang.</p>
+            <h3>Belum ada lowongan yang cocok dengan filter ini.</h3>
+            <p>Coba ubah fungsi, tipe kerja, area, atau kata kunci yang dipakai. Kalau ingin melihat semua posisi lagi, kosongkan filter lalu cari ulang.</p>
             <a href="{{ url_for('career.index') }}">Reset pencarian</a>
         </section>
         {% else %}
         <section class="career-jobs-empty">
-            <h3>Belum ada lowongan yang cocok dengan pencarian ini.</h3>
-            <p>Silakan ubah filter atau kembali ke beranda untuk memulai eksplorasi dari kategori yang berbeda. Struktur halaman ini tetap siap menampung lowongan berikutnya begitu dipublikasikan.</p>
+            <h3>Belum ada lowongan untuk pencarian ini.</h3>
+            <p>Silakan ubah filter atau kembali ke beranda untuk melihat kategori lain. Begitu ada posisi baru yang dipublikasikan, daftar ini akan ikut diperbarui.</p>
             <a href="{{ url_for('career.home') }}">Kembali ke Beranda</a>
         </section>
         {% endif %}

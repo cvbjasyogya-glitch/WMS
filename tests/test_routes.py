@@ -12094,7 +12094,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/karir")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Temukan posisi yang paling cocok untuk langkah karirmu berikutnya.", html)
+        self.assertIn("Temukan posisi yang paling cocok untuk langkah karier Anda berikutnya.", html)
         self.assertIn("Punya Kode Tes?", html)
         self.assertIn("Staff Gudang Mataram", html)
         self.assertNotIn("Draft Internal", html)
@@ -13578,7 +13578,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         test_gate_page = self.client.get("/karir/tes")
         self.assertEqual(test_gate_page.status_code, 200)
         test_gate_html = test_gate_page.get_data(as_text=True)
-        self.assertIn("Masukkan kode tes untuk membuka semua soal.", test_gate_html)
+        self.assertIn("Masukkan kode tes untuk membuka soal.", test_gate_html)
         self.assertIn('name="assessment_code"', test_gate_html)
         self.assertNotIn("2 + 2 =", test_gate_html)
 
@@ -13668,6 +13668,61 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Pelamar baru dari halaman karir biasanya masuk ke stage", html)
         self.assertIn("Lihat Semua Kandidat", html)
         self.assertNotIn("Filter Applied Kandidat", html)
+
+    def test_hr_recruitment_default_pipeline_hides_rejected_candidates(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Pipeline Active Kandidat",
+                    1,
+                    "Staff Warehouse",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "public_portal",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Pipeline Rejected Kandidat",
+                    1,
+                    "Staff Warehouse",
+                    "Warehouse",
+                    "applied",
+                    "rejected",
+                    "Halaman Karir",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('value="pipeline" selected', html)
+        self.assertIn("Pipeline Active Kandidat", html)
+        self.assertNotIn("Pipeline Rejected Kandidat", html)
+
+        rejected_response = self.client.get("/hris/recruitment?status=rejected")
+        self.assertEqual(rejected_response.status_code, 200)
+        rejected_html = rejected_response.get_data(as_text=True)
+        self.assertIn("Pipeline Rejected Kandidat", rejected_html)
 
     def test_hr_recruitment_search_matches_candidate_email_and_phone(self):
         self.login_hr_user()
@@ -15344,7 +15399,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         saved_page = self.client.get("/karir/tersimpan")
         self.assertEqual(saved_page.status_code, 200)
-        self.assertIn("Lowongan yang Disimpan", saved_page.get_data(as_text=True))
+        self.assertIn("Lowongan Tersimpan", saved_page.get_data(as_text=True))
         self.assertIn("Admin Gudang Tersimpan", saved_page.get_data(as_text=True))
 
     def test_public_career_profile_page_renders_candidate_sections(self):
@@ -15366,7 +15421,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         documents_html = documents_response.get_data(as_text=True)
         self.assertIn("Jenis Berkas *", documents_html)
         self.assertIn('name="documents"', documents_html)
-        self.assertIn("Upload Banyak Berkas Sekaligus", documents_html)
+        self.assertIn("Upload beberapa berkas sekaligus", documents_html)
 
     def test_public_career_applications_page_links_legacy_public_application_to_account(self):
         account = self.login_public_career_account_session(

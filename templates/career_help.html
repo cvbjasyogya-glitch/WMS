@@ -421,7 +421,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
             <div class="career-help-band-head">
                 <div>
                     <strong>Bantuan Kandidat</strong>
-                    <p>Kalau Anda sudah menemukan posisi yang cocok, buka detail lowongan lalu isi data diri dan unggah CV terbaru. Setelah lamaran berhasil dikirim, data Anda akan masuk ke screening HR lebih dulu. Jika disetujui, kode tes dikirim otomatis ke email.</p>
+                    <p>Kalau Anda sudah menemukan posisi yang cocok, buka detail lowongan lalu kirim lamaran. Setelah itu, tim HR akan meninjau data Anda terlebih dahulu. Jika lanjut ke tahap tes, kode tes akan dikirim ke email.</p>
                 </div>
                 <div class="career-help-actions">
                     <a href="{{ url_for('career.index') }}">Lihat Lowongan</a>
@@ -432,19 +432,19 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
             <div class="career-help-band-grid">
                 <article class="career-help-band-card">
                     <strong>{{ opening_count }}</strong>
-                    <span>Posisi aktif yang bisa langsung dilihat kandidat saat ini.</span>
+                    <span>Posisi aktif yang bisa langsung Anda lihat saat ini.</span>
                 </article>
                 <article class="career-help-band-card">
                     <strong>CV Aktif</strong>
-                    <span>Unggah dokumen terbaru supaya review awal HR lebih relevan.</span>
+                    <span>Unggah dokumen terbaru supaya tim HR lebih mudah meninjau profil Anda.</span>
                 </article>
                 <article class="career-help-band-card">
                     <strong>Screening HR</strong>
-                    <span>Lamaran direview dulu sebelum kode tes dibuka untuk kandidat.</span>
+                    <span>Lamaran ditinjau dulu sebelum kode tes dibuka.</span>
                 </article>
                 <article class="career-help-band-card">
                     <strong>{{ "Akun Kandidat" if register_url else "Portal Kandidat" }}</strong>
-                    <span>Anda bisa daftar akun, melamar, lalu menunggu email update dari HR untuk tahap berikutnya.</span>
+                    <span>Anda bisa daftar akun, melamar, lalu menunggu kabar tahap berikutnya lewat email.</span>
                 </article>
             </div>
         </div>
@@ -453,8 +453,8 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
     <section class="career-help-sections">
         <div class="career-help-section-head">
             <div>
-                <h2>Langkah Yang Paling Sering Dicari Kandidat</h2>
-                <p>Tiga tahap ini adalah bagian yang paling sering dicari kandidat. Panduan berikut disusun agar setiap langkah lebih mudah dipahami.</p>
+                <h2>Langkah yang paling sering dicari pelamar</h2>
+                <p>Tiga tahap ini paling sering ditanyakan. Kami rangkum supaya setiap langkahnya lebih mudah dipahami.</p>
             </div>
         </div>
 
@@ -462,54 +462,54 @@ body.minimal-shell .main.career-public-shell > .page-content.career-help-page {
             <article class="career-help-step-card">
                 <span>1</span>
                 <h3>Sebelum Melamar</h3>
-                <p>Pastikan nomor WhatsApp atau email aktif dapat dihubungi, siapkan CV terbaru dalam format yang didukung sistem, dan pilih lowongan yang benar-benar sesuai sebelum mengirim lamaran.</p>
+                <p>Pastikan nomor WhatsApp dan email Anda aktif, siapkan CV terbaru, lalu pilih lowongan yang paling sesuai sebelum mengirim lamaran.</p>
             </article>
             <article class="career-help-step-card">
                 <span>2</span>
                 <h3>Sesudah Submit Lamaran</h3>
-                <p>Lamaran akan masuk ke screening awal HR. Kandidat yang lolos review akan menerima kode tes dan tautan assessment langsung melalui email.</p>
+                <p>Lamaran akan masuk ke review awal HR. Jika Anda lanjut ke tahap tes, kode tes dan tautan halaman tes akan dikirim lewat email.</p>
             </article>
             <article class="career-help-step-card">
                 <span>3</span>
                 <h3>Saat Tes Berlangsung</h3>
-                <p>Gunakan satu tab saja, jangan refresh halaman, dan jangan berpindah fokus terlalu sering karena sistem mencatat pelanggaran selama assessment aktif.</p>
+                <p>Gunakan satu tab saja, jangan refresh halaman, dan hindari sering berpindah aplikasi karena sistem mencatat aktivitas selama tes berlangsung.</p>
             </article>
         </div>
 
         <div class="career-help-section-head">
             <div>
-                <h2>Pertanyaan Yang Paling Sering Muncul</h2>
-                <p>Pertanyaan yang paling sering muncul dirangkum di sini agar kandidat lebih mudah menemukan jawabannya.</p>
+                <h2>Pertanyaan yang paling sering muncul</h2>
+                <p>Kami rangkum pertanyaan yang paling sering ditanyakan agar Anda lebih mudah menemukan jawabannya.</p>
             </div>
         </div>
 
         <div class="career-help-faq-grid">
             <article class="career-help-faq-card">
-                <span class="career-help-card-kicker">Apply</span>
+                <span class="career-help-card-kicker">Lamaran</span>
                 <h3>Kalau tidak punya email, apakah tetap bisa melamar?</h3>
-                <p>Belum bisa. Portal kandidat mewajibkan akun dengan email aktif dan verifikasi email terlebih dahulu sebelum lamaran dapat dikirim ke sistem.</p>
+                <p>Belum bisa. Anda perlu memakai email aktif agar akun bisa diverifikasi sebelum lamaran dikirim ke sistem.</p>
             </article>
             <article class="career-help-faq-card">
                 <span class="career-help-card-kicker">Kode Tes</span>
                 <h3>Bagaimana kalau lupa menyimpan kode tes?</h3>
-                <p>Kode tes dikirim melalui email setelah screening HR disetujui. Jika emailnya belum ditemukan, cek folder spam/promosi atau hubungi HR untuk konfirmasi tahap lamaran Anda.</p>
+                <p>Kode tes dikirim lewat email setelah Anda lolos tahap awal. Jika belum ketemu, cek folder spam/promosi atau hubungi HR untuk memastikan status lamaran Anda.</p>
             </article>
             <article class="career-help-faq-card">
-                <span class="career-help-card-kicker">Assessment</span>
+                <span class="career-help-card-kicker">Tes</span>
                 <h3>Apa yang terjadi jika berpindah tab saat tes?</h3>
-                <p>Sistem menambah catatan pelanggaran. Jika pelanggaran mencapai batas maksimum, sesi bisa direset dan kandidat perlu memulai ulang memakai kode yang baru.</p>
+                <p>Sistem akan mencatat pelanggaran. Jika jumlahnya melewati batas, sesi bisa direset dan Anda mungkin perlu memakai kode baru dari HR.</p>
             </article>
             <article class="career-help-faq-card">
                 <span class="career-help-card-kicker">Akun</span>
                 <h3>Perlu akun untuk melihat lowongan?</h3>
-                <p>Tidak untuk melihat lowongan. Namun untuk mengirim lamaran, kandidat perlu membuat akun, memverifikasi email, lalu masuk terlebih dahulu.</p>
+                <p>Tidak untuk melihat lowongan. Namun untuk mengirim lamaran, Anda perlu membuat akun, memverifikasi email, lalu masuk terlebih dahulu.</p>
             </article>
         </div>
 
         <section class="career-help-cta">
-            <span class="career-help-card-kicker">Butuh Langkah Berikutnya?</span>
-            <h2>Lanjut ke halaman yang paling relevan untukmu.</h2>
-            <p>Kalau Anda masih eksplorasi, mulai dari daftar lowongan. Kalau sudah siap melamar, lanjut ke halaman akses kandidat untuk daftar akun, verifikasi email, lalu masuk.</p>
+            <span class="career-help-card-kicker">Butuh langkah berikutnya?</span>
+            <h2>Pilih halaman yang paling Anda butuhkan.</h2>
+            <p>Kalau masih ingin melihat-lihat posisi, mulai dari daftar lowongan. Kalau sudah siap melamar, lanjut ke halaman masuk atau daftar akun.</p>
             <div class="career-help-cta-actions">
                 <a href="{{ url_for('career.index') }}">Cari Lowongan</a>
                 <a href="{{ signin_url }}">Masuk atau Daftar</a>

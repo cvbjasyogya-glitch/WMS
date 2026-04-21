@@ -38,8 +38,8 @@
 
         {% if candidate_profile_gate is defined and candidate_profile_gate and not candidate_profile_gate.is_ready %}
         <div class="career-profile-lock-banner" role="status" aria-live="polite">
-            <strong>Lengkapi profil wajib terlebih dahulu</strong>
-            <p>Portal kandidat masih dikunci sampai data <b>{{ candidate_profile_gate.missing_labels|join(', ') }}</b> selesai dilengkapi. Setelah itu menu lowongan, lamaran, tersimpan, dan tombol lamar akan otomatis aktif.</p>
+            <strong>Lengkapi dulu data utama Anda</strong>
+            <p>Bagian <b>{{ candidate_profile_gate.missing_labels|join(', ') }}</b> masih perlu dilengkapi. Setelah selesai, menu lowongan, lamaran, tersimpan, dan tombol lamar akan aktif otomatis.</p>
         </div>
         {% endif %}
 
@@ -56,8 +56,8 @@
                     {% endif %}
                 </div>
                 <label class="career-profile-upload-trigger" for="careerProfilePhotoInput">
-                    Klik untuk ganti foto
-                    <small id="careerProfilePhotoMeta">JPG, PNG, WEBP - Max 2MB</small>
+                    Klik untuk ubah foto
+                    <small id="careerProfilePhotoMeta">JPG, PNG, WEBP - maks. 2 MB</small>
                     <input type="file" name="photo_file" id="careerProfilePhotoInput" accept=".jpg,.jpeg,.png,.webp">
                 </label>
             </div>
@@ -255,9 +255,9 @@
                     <small>Format yang diterima: PDF, DOC, DOCX, JPG, JPEG, PNG. Maksimal 5 MB per file.</small>
                 </label>
                 <label class="span-2">
-                    Upload Banyak Berkas Sekaligus
+                    Upload beberapa berkas sekaligus
                     <input type="file" name="documents" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" multiple>
-                    <small>Bisa pilih beberapa file sekaligus. Sistem akan mencoba mengenali nama file seperti KTP, CV, ijazah, NPWP, transkrip, atau sertifikat secara otomatis.</small>
+                    <small>Anda bisa memilih beberapa file sekaligus. Sistem akan mencoba mengenali nama file seperti KTP, CV, ijazah, NPWP, transkrip, atau sertifikat secara otomatis.</small>
                 </label>
             </div>
 
