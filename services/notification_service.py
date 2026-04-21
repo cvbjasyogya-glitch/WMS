@@ -102,6 +102,13 @@ def _normalize_user_ids(user_ids):
     return cleaned
 
 
+def _erp_notification_email_enabled():
+    try:
+        return bool(current_app.config.get("ERP_NOTIFICATION_EMAIL_ENABLED", True))
+    except Exception:
+        return True
+
+
 def _safe_relative_url(value):
     candidate = str(value or "").strip()
     if not candidate:
@@ -1099,7 +1106,7 @@ def notify_roles(
             dedupe_key=dedupe_key,
         )
 
-        if email and r.get("notify_email"):
+        if _erp_notification_email_enabled() and email and r.get("notify_email"):
             if not _notification_exists_recent(db, email, 'email', subject, message):
                 ok = send_email(email, subject, message)
                 results["email"].append({"to": email, "ok": ok})
@@ -1189,7 +1196,7 @@ def notify_user(
         )
         results["push"] = push_results.get("push", [])
 
-        if email and u.get("notify_email"):
+        if _erp_notification_email_enabled() and email and u.get("notify_email"):
             if not _notification_exists_recent(db, email, 'email', subject, message):
                 ok = send_email(email, subject, message)
                 results["email"].append({"to": email, "ok": ok})
@@ -1264,7 +1271,7 @@ def notify_broadcast(
             dedupe_key=dedupe_key or push_tag,
         )
 
-        if email and recipient_info.get("notify_email"):
+        if _erp_notification_email_enabled() and email and recipient_info.get("notify_email"):
             if not _notification_exists_recent(db, email, "email", subject, message):
                 ok = send_email(email, subject, message)
                 results["email"].append({"to": email, "ok": ok})

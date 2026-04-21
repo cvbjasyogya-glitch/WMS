@@ -9229,6 +9229,7 @@ def add_recruitment():
     department = (request.form.get("department") or "").strip()
     stage = _normalize_recruitment_stage(request.form.get("stage"))
     status = _normalize_recruitment_status(request.form.get("status"))
+    decision_action = str(request.form.get("decision_action") or "").strip().lower()
     source = (request.form.get("source") or "").strip()
     phone = (request.form.get("phone") or "").strip()
     email = (request.form.get("email") or "").strip()
@@ -9368,6 +9369,7 @@ def update_recruitment(candidate_id):
     department = (request.form.get("department") or "").strip()
     stage = _normalize_recruitment_stage(request.form.get("stage"))
     status = _normalize_recruitment_status(request.form.get("status"))
+    decision_action = str(request.form.get("decision_action") or "").strip().lower()
     source = (request.form.get("source") or "").strip()
     phone = (request.form.get("phone") or "").strip()
     email = (request.form.get("email") or "").strip()
@@ -9396,6 +9398,13 @@ def update_recruitment(candidate_id):
         if assessment_manual_score_raw
         else None
     )
+
+    if decision_action == "approve_assessment":
+        status = "active"
+        if stage == "applied":
+            stage = "screening"
+    elif decision_action == "reject_candidate":
+        status = "rejected"
 
     if not candidate_name or not position_title:
         flash("Nama kandidat dan posisi wajib diisi", "error")

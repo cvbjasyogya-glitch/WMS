@@ -7495,6 +7495,68 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(result, {"email": [], "wa": []})
         self.assertEqual(count, 0)
 
+    def test_notify_roles_can_disable_erp_email_channel_globally(self):
+        self.create_user(
+            "leader_notification_no_email",
+            "pass1234",
+            "leader",
+            warehouse_id=1,
+            email="leader-no-email@example.com",
+            notify_email=1,
+        )
+        original_flag = self.app.config.get("ERP_NOTIFICATION_EMAIL_ENABLED", True)
+        self.app.config["ERP_NOTIFICATION_EMAIL_ENABLED"] = False
+        try:
+            with self.app.app_context(), patch("services.notification_service.send_email") as mocked_send_email:
+                result = notification_service.notify_roles(
+                    ("leader",),
+                    "Notif ERP",
+                    "Email ERP dimatikan global.",
+                    warehouse_id=1,
+                )
+                mocked_send_email.assert_not_called()
+                db = get_db()
+                email_count = db.execute(
+                    "SELECT COUNT(*) FROM notifications WHERE channel='email' AND subject=?",
+                    ("Notif ERP",),
+                ).fetchone()[0]
+
+            self.assertEqual(result["email"], [])
+            self.assertEqual(email_count, 0)
+        finally:
+            self.app.config["ERP_NOTIFICATION_EMAIL_ENABLED"] = original_flag
+
+    def test_notify_user_can_disable_erp_email_channel_globally(self):
+        self.create_user(
+            "staff_notification_no_email",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="staff-no-email@example.com",
+            notify_email=1,
+        )
+        user_id = self.get_user_id("staff_notification_no_email")
+        original_flag = self.app.config.get("ERP_NOTIFICATION_EMAIL_ENABLED", True)
+        self.app.config["ERP_NOTIFICATION_EMAIL_ENABLED"] = False
+        try:
+            with self.app.app_context(), patch("services.notification_service.send_email") as mocked_send_email:
+                result = notification_service.notify_user(
+                    user_id,
+                    "Notif ERP Personal",
+                    "Email personal ERP dimatikan global.",
+                )
+                mocked_send_email.assert_not_called()
+                db = get_db()
+                email_count = db.execute(
+                    "SELECT COUNT(*) FROM notifications WHERE channel='email' AND subject=?",
+                    ("Notif ERP Personal",),
+                ).fetchone()[0]
+
+            self.assertEqual(result["email"], [])
+            self.assertEqual(email_count, 0)
+        finally:
+            self.app.config["ERP_NOTIFICATION_EMAIL_ENABLED"] = original_flag
+
     def test_schedule_route_renders_for_admin_view_only(self):
         self.login()
         employee_id = self.create_employee_record(
@@ -12892,6 +12954,115 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Punya Kode Tes?", test_html)
         self.assertIn('id="careerAssessmentFirstQuestion"', test_html)
         self.assertIn('id="careerAssessmentSubmitSection"', test_html)
+
+    def test_hr_recruitment_page_shows_explicit_approve_and_reject_buttons(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Button Kandidat",
+                    1,
+                    "Staff Warehouse",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Setujui ke Tahap Tes", html)
+        self.assertIn("Tolak Kandidat", html)
+
+    def test_hr_recruitment_quick_approve_action_moves_candidate_to_screening(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name,
+                    warehouse_id,
+                    position_title,
+                    department,
+                    stage,
+                    status,
+                    source,
+                    phone,
+                    email,
+                    application_channel,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Quick Approve Kandidat",
+                    1,
+                    "Admin Warehouse",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "6281234567123",
+                    "quick-approve@example.com",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+            candidate = db.execute(
+                "SELECT id FROM recruitment_candidates WHERE candidate_name=? LIMIT 1",
+                ("Quick Approve Kandidat",),
+            ).fetchone()
+
+        with patch("routes.hris.send_email", return_value=True) as mocked_send:
+            response = self.client.post(
+                f"/hris/recruitment/update/{candidate['id']}",
+                data={
+                    "candidate_name": "Quick Approve Kandidat",
+                    "position_title": "Admin Warehouse",
+                    "warehouse_id": "1",
+                    "department": "Warehouse",
+                    "stage": "applied",
+                    "status": "active",
+                    "source": "Halaman Karir",
+                    "phone": "6281234567123",
+                    "email": "quick-approve@example.com",
+                    "assessment_status": "pending",
+                    "decision_action": "approve_assessment",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_send.assert_called_once()
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT stage, status, assessment_code
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+
+        self.assertEqual(candidate_after["stage"], "screening")
+        self.assertEqual(candidate_after["status"], "active")
+        self.assertRegex(candidate_after["assessment_code"], r"^\d{5}$")
 
     def test_public_career_test_code_entry_moves_to_header_and_apply_shows_screening_notice(self):
         with self.app.app_context():

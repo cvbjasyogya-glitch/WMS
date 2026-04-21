@@ -2610,6 +2610,20 @@
                             {% else %}
                             <span class="helper-text">Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes.</span>
                             {% endif %}
+                            <div class="split-actions" style="margin-top:12px; gap:10px; flex-wrap:wrap;">
+                                <button type="submit" name="decision_action" value="approve_assessment">
+                                    Setujui ke Tahap Tes
+                                </button>
+                                <button
+                                    type="submit"
+                                    name="decision_action"
+                                    value="reject_candidate"
+                                    class="danger-button"
+                                    onclick="return confirm('Tolak kandidat ini dan kirim email penolakan?')"
+                                >
+                                    Tolak Kandidat
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label>CV</label>
