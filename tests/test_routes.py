@@ -12465,6 +12465,60 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Terima kasih sudah melamar.", html)
         self.assertIn("cek email secara berkala", html)
 
+    def test_public_career_portal_quick_apply_candidate_appears_in_hris_recruitment(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Portal Masuk HRIS",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Lamaran dari portal kandidat harus muncul di HRIS Recruitment.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Portal Masuk HRIS",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="portal-hris@example.com",
+            full_name="Portal HRIS Candidate",
+            ready_profile=True,
+        )
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "source_view": "portal_candidate",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        self.login_hr_user()
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Portal HRIS Candidate", html)
+        self.assertIn("Portal Masuk HRIS", html)
+        self.assertIn("Halaman Karir", html)
+
     def test_public_career_application_appears_in_candidate_history_page(self):
         with self.app.app_context():
             db = get_db()
@@ -13076,6 +13130,39 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Setujui ke Tahap Tes", html)
         self.assertIn("Tolak Kandidat", html)
+
+    def test_hr_recruitment_page_warns_when_filters_hide_new_portal_applicants(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Filter Applied Kandidat",
+                    1,
+                    "Staff Warehouse",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/recruitment?stage=screening")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Filter recruitment sedang aktif.", html)
+        self.assertIn("Pelamar baru dari halaman karir biasanya masuk ke stage", html)
+        self.assertIn("Lihat Semua Kandidat", html)
+        self.assertNotIn("Filter Applied Kandidat", html)
 
     def test_hr_recruitment_quick_approve_action_moves_candidate_to_screening(self):
         self.login_hr_user()

@@ -1873,6 +1873,19 @@
     <button type="submit">Filter</button>
 </form>
 
+{% set recruitment_filter_active = recruitment_filters.search or recruitment_filters.stage != 'all' or recruitment_filters.status != 'all' or recruitment_filters.warehouse_id %}
+{% if recruitment_filter_active %}
+<div class="box" style="margin-bottom:16px; padding:16px 18px; border:1px solid rgba(59,130,246,0.18); background:rgba(239,246,255,0.88); display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+    <div>
+        <div style="font-weight:700; color:#0f172a; margin-bottom:4px;">Filter recruitment sedang aktif.</div>
+        <div class="helper-text" style="color:#1e3a8a;">
+            Pelamar baru dari halaman karir biasanya masuk ke stage <strong>Applied</strong> dengan status <strong>Active</strong>. Jika belum terlihat, reset filter dulu.
+        </div>
+    </div>
+    <a href="/hris/recruitment" class="ghost-button">Reset Filter</a>
+</div>
+{% endif %}
+
 <section class="recruitment-workspace">
     <div class="section-title">
         <div>
@@ -2783,7 +2796,16 @@
         </table>
         {% endif %}
     {% else %}
+    {% if recruitment_filter_active %}
+    <div class="empty-state">
+        Tidak ada kandidat yang cocok dengan filter saat ini. Pelamar baru dari portal karir biasanya masuk ke stage <strong>Applied</strong> dan status <strong>Active</strong>.
+        <div style="margin-top:14px;">
+            <a href="/hris/recruitment" class="ghost-button">Lihat Semua Kandidat</a>
+        </div>
+    </div>
+    {% else %}
     <div class="empty-state">Belum ada kandidat recruitment. Kandidat dari halaman karir akan otomatis masuk ke pipeline ini.</div>
+    {% endif %}
     {% endif %}
     </div>
 </details>
