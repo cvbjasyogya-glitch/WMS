@@ -66,6 +66,7 @@ from routes.schedule import (
 )
 from services.crm_loyalty import ensure_crm_membership_multi_program_schema, get_member_snapshot
 from services.career_service import (
+    assign_candidate_assessment_code,
     create_public_account_request,
     ensure_career_schema,
     get_career_public_profile_sections,
@@ -14058,6 +14059,31 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate_after["stage"], "screening")
         self.assertEqual(candidate_after["status"], "active")
         self.assertRegex(candidate_after["assessment_code"], r"^\d{5}$")
+
+    def test_assign_candidate_assessment_code_retries_after_unique_violation(self):
+        db = Mock()
+        update_attempts = {"count": 0}
+
+        def execute_side_effect(query, params=()):
+            safe_query = " ".join(str(query or "").split())
+            if "SELECT id FROM recruitment_candidates WHERE assessment_code=? LIMIT 1" in safe_query:
+                return Mock(fetchone=Mock(return_value=None))
+            if "UPDATE recruitment_candidates SET assessment_code=?," in safe_query:
+                update_attempts["count"] += 1
+                if update_attempts["count"] == 1:
+                    raise sqlite3.IntegrityError(
+                        'duplicate key value violates unique constraint "idx_recruitment_candidates_assessment_code"'
+                    )
+                return Mock()
+            raise AssertionError(f"Unexpected query in test: {safe_query}")
+
+        db.execute.side_effect = execute_side_effect
+
+        with patch("services.career_service.generate_unique_assessment_code", side_effect=["13591", "24680"]):
+            resolved_code = assign_candidate_assessment_code(db, 77, "")
+
+        self.assertEqual(resolved_code, "24680")
+        self.assertEqual(update_attempts["count"], 2)
 
     def test_hr_recruitment_quick_reject_returns_async_payload_and_marks_candidate_rejected(self):
         self.login_hr_user()

@@ -4,6 +4,7 @@ import random
 import re
 import secrets
 import hashlib
+import sqlite3
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
@@ -1163,6 +1164,11 @@ def generate_unique_assessment_code(db):
     raise RuntimeError("Tidak bisa membuat kode tes unik. Coba lagi.")
 
 
+def _is_assessment_code_unique_violation(exc):
+    safe_message = str(exc or "").lower()
+    return "idx_recruitment_candidates_assessment_code" in safe_message or "assessment_code" in safe_message
+
+
 def assign_candidate_assessment_code(db, candidate_id, preferred_code=""):
     safe_preferred = normalize_assessment_code(preferred_code)
     if safe_preferred:
@@ -1173,19 +1179,34 @@ def assign_candidate_assessment_code(db, candidate_id, preferred_code=""):
         if existing:
             raise ValueError("Kode tes sudah dipakai kandidat lain.")
         safe_code = safe_preferred
-    else:
-        safe_code = generate_unique_assessment_code(db)
+        db.execute(
+            """
+            UPDATE recruitment_candidates
+            SET assessment_code=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (safe_code, candidate_id),
+        )
+        return safe_code
 
-    db.execute(
-        """
-        UPDATE recruitment_candidates
-        SET assessment_code=?,
-            updated_at=CURRENT_TIMESTAMP
-        WHERE id=?
-        """,
-        (safe_code, candidate_id),
-    )
-    return safe_code
+    for _ in range(20):
+        safe_code = generate_unique_assessment_code(db)
+        try:
+            db.execute(
+                """
+                UPDATE recruitment_candidates
+                SET assessment_code=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (safe_code, candidate_id),
+            )
+            return safe_code
+        except sqlite3.IntegrityError as exc:
+            if not _is_assessment_code_unique_violation(exc):
+                raise
+    raise RuntimeError("Tidak bisa membuat kode tes unik karena bentrok berulang. Coba lagi.")
 
 
 def ensure_candidate_assessment_code(db, candidate_id, current_code=""):
