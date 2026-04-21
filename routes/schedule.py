@@ -9,7 +9,10 @@ from services.announcement_center import (
     create_schedule_change_event,
     format_date_range,
 )
-from services.attendance_request_service import queue_attendance_request
+from services.attendance_request_service import (
+    can_manage_attendance_request_approvals,
+    queue_attendance_request,
+)
 from services.notification_service import notify_broadcast
 from services.rbac import has_permission, is_scoped_role
 
@@ -1770,6 +1773,103 @@ def save_schedule_entry():
         "note": note,
         "date_range_label": date_range_label,
     }
+
+    if can_manage_attendance_request_approvals(session.get("role")):
+        try:
+            if shift_code:
+                for current_day in _daterange(start_date, end_date):
+                    db.execute(
+                        """
+                        INSERT INTO schedule_entries(
+                            employee_id,
+                            schedule_date,
+                            shift_code,
+                            note,
+                            updated_by
+                        )
+                        VALUES (?,?,?,?,?)
+                        ON CONFLICT(employee_id, schedule_date) DO UPDATE SET
+                            shift_code=excluded.shift_code,
+                            note=excluded.note,
+                            updated_by=excluded.updated_by,
+                            updated_at=CURRENT_TIMESTAMP
+                        """,
+                        (
+                            employee_id,
+                            current_day.isoformat(),
+                            shift_code,
+                            note or None,
+                            session.get("user_id"),
+                        ),
+                    )
+            else:
+                db.execute(
+                    """
+                    DELETE FROM schedule_entries
+                    WHERE employee_id=?
+                      AND schedule_date BETWEEN ? AND ?
+                    """,
+                    (employee_id, start_date.isoformat(), end_date.isoformat()),
+                )
+
+            if shift_code:
+                shift_label = (shift_meta["label"] or shift_code).strip()
+                schedule_message = f"Jadwal {employee_name} untuk {date_range_label} diubah ke shift {shift_label} ({shift_code})."
+                if note:
+                    schedule_message += f" Catatan: {note}"
+                event_title = f"Perubahan Jadwal {employee_name}"
+                event_kind = "entry_update"
+            else:
+                schedule_message = f"Jadwal manual {employee_name} pada {date_range_label} dibersihkan."
+                if note:
+                    schedule_message += f" Catatan: {note}"
+                event_title = f"Jadwal Manual {employee_name} Dibersihkan"
+                event_kind = "entry_clear"
+
+            event_id = create_schedule_change_event(
+                db,
+                warehouse_id=employee["warehouse_id"],
+                event_kind=event_kind,
+                title=event_title,
+                message=schedule_message,
+                affected_employee_id=employee_id,
+                affected_employee_name=employee_name,
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                created_by=session.get("user_id"),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            flash("Jadwal manual gagal disimpan.", "error")
+            return _schedule_redirect()
+
+        try:
+            notification_payload = build_schedule_change_notification_payload(
+                {
+                    "id": event_id,
+                    "title": event_title,
+                    "message": schedule_message,
+                }
+            )
+            notify_broadcast(
+                notification_payload["subject"],
+                notification_payload["message"],
+                warehouse_id=employee["warehouse_id"],
+                push_title=notification_payload["push_title"],
+                push_body=notification_payload["push_body"],
+                push_url="/announcements/",
+                push_tag=notification_payload["push_tag"],
+                category="schedule",
+            )
+        except Exception:
+            pass
+
+        if shift_code:
+            flash("Jadwal manual berhasil diterapkan.", "success")
+        else:
+            flash("Jadwal manual pada rentang tersebut berhasil dibersihkan.", "success")
+        return _schedule_redirect()
 
     try:
         queue_result = queue_attendance_request(

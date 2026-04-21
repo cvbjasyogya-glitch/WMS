@@ -698,9 +698,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-jobs-page {
                     </div>
                     <div class="career-job-card-logo">
                         {% if site_key == 'mega' %}
-                        <img src="{{ asset_url('brand/receipt-logo-mega.jpg') }}" alt="Mega Sports logo">
+                        <img src="{{ asset_url('brand/receipt-logo-mega.jpg') }}" alt="Mega Sports logo" width="88" height="88" loading="lazy" decoding="async">
                         {% elif site_key == 'mataram' %}
-                        <img src="{{ asset_url('brand/receipt-logo-mataram.jpg') }}" alt="Mataram Sports logo">
+                        <img src="{{ asset_url('brand/receipt-logo-mataram.jpg') }}" alt="Mataram Sports logo" width="88" height="88" loading="lazy" decoding="async">
                         {% else %}
                         {{ (opening.title or 'CV')[:2]|upper }}
                         {% endif %}

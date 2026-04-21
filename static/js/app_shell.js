@@ -1,5 +1,6 @@
 (function () {
     const config = window.wmsAppShellConfig || {};
+    const pageFlags = window.wmsPageFlags || {};
     const serviceWorkerUrl = config.serviceWorkerUrl || "/service-worker.js";
     const serviceWorkerEnabled = config.serviceWorkerEnabled !== false;
     const installButtons = Array.from(document.querySelectorAll("[data-pwa-install-trigger]"));
@@ -14,6 +15,7 @@
     let registeredServiceWorker = null;
     let lastServiceWorkerUpdateCheckAt = 0;
     let hasAutoReloadedForServiceWorkerUpdate = false;
+    let deferredServiceWorkerUpdateNoticeShown = false;
 
     function getSurfaceMode() {
         if (window.innerWidth <= 767) {
@@ -67,6 +69,20 @@
             return;
         }
         window.alert(message);
+    }
+
+    function shouldDeferReloadForServiceWorker() {
+        if (pageFlags.deferSwReload) {
+            return true;
+        }
+        if (typeof window.wmsIsPageSafeForAutoReload === "function") {
+            try {
+                return window.wmsIsPageSafeForAutoReload() === false;
+            } catch (error) {
+                console.warn("ERP app shell reload safety probe failed.", error);
+            }
+        }
+        return false;
     }
 
     function syncInstallUi() {
@@ -194,6 +210,13 @@
 
     function reloadForActivatedServiceWorker() {
         if (!hadActiveServiceWorkerController || hasAutoReloadedForServiceWorkerUpdate) {
+            return;
+        }
+        if (shouldDeferReloadForServiceWorker()) {
+            if (!deferredServiceWorkerUpdateNoticeShown) {
+                deferredServiceWorkerUpdateNoticeShown = true;
+                showMessage("Update aplikasi sudah siap, tapi halaman ini tidak direfresh otomatis agar transaksi tidak terganggu.");
+            }
             return;
         }
         hasAutoReloadedForServiceWorkerUpdate = true;

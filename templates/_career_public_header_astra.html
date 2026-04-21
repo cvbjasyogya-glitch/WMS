@@ -18,10 +18,10 @@
 {% endset %}
 <header class="career-astra-topbar" data-career-mobile-header>
     <a href="{{ header_brand_url }}" class="career-astra-brand-mark" aria-label="{{ career_company_name }}">
-        <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
+        <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo" width="160" height="96" decoding="async" fetchpriority="high">
     </a>
 
-    <div class="career-astra-topbar-head">
+    <div class="career-astra-topbar-head">    
         <a href="{{ header_brand_url }}" class="career-astra-brand-copy-link" aria-label="{{ career_company_name }}">
             <span class="career-astra-brand-copy">
                 <strong>{{ career_company_name }}</strong>
@@ -98,14 +98,6 @@
 
     toggle.addEventListener("click", () => {
         syncOpenState(!header.classList.contains("is-open"));
-    });
-
-    header.querySelectorAll(".career-astra-nav a, .career-astra-register-link, .career-astra-login-link").forEach((link) => {
-        link.addEventListener("click", () => {
-            if (window.innerWidth <= 920) {
-                syncOpenState(false);
-            }
-        });
     });
 
     document.addEventListener("click", (event) => {

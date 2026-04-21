@@ -53,6 +53,7 @@ from services.event_notification_policy import get_event_notification_policy
 from services.career_service import (
     assign_candidate_assessment_code,
     build_career_resume_path,
+    build_sms_storage_absolute_path,
     encode_recruitment_homebase_ids,
     ensure_candidate_assessment_code,
     ensure_career_schema,
@@ -2441,6 +2442,25 @@ def _build_warehouse_name_map(db):
     }
 
 
+def _decode_recruitment_candidate_json(raw_value, default):
+    try:
+        payload = json.loads(raw_value) if raw_value not in (None, "") else default
+    except Exception:
+        payload = default
+    if isinstance(default, list):
+        return payload if isinstance(payload, list) else []
+    if isinstance(default, dict):
+        return payload if isinstance(payload, dict) else {}
+    return payload
+
+
+def _append_recruitment_profile_field(collection, label, value):
+    safe_value = str(value or "").strip()
+    if not safe_value:
+        return
+    collection.append({"label": label, "value": safe_value})
+
+
 def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
     safe_candidate = dict(candidate or {})
     primary_warehouse_id = _to_int(safe_candidate.get("warehouse_id"))
@@ -2467,6 +2487,100 @@ def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
     safe_candidate["placement_warehouse_id_list"] = homebase_ids
     safe_candidate["placement_warehouse_names"] = names
     safe_candidate["homebase_names_display"] = " / ".join(names) if names else (safe_candidate.get("warehouse_name") or "-")
+    profile_snapshot = _decode_recruitment_candidate_json(safe_candidate.get("profile_snapshot_json"), {})
+    profile_sections = dict(profile_snapshot.get("sections") or {})
+    profile_personal = dict(profile_snapshot.get("personal") or {})
+    profile_additional = dict(profile_snapshot.get("additional") or {})
+    profile_documents = _decode_recruitment_candidate_json(safe_candidate.get("profile_documents_json"), [])
+    hr_storage_files = _decode_recruitment_candidate_json(safe_candidate.get("hr_storage_files_json"), [])
+    hr_sms_targets = _decode_recruitment_candidate_json(safe_candidate.get("hr_sms_targets_json"), [])
+
+    storage_download_lookup = {}
+    normalized_storage_files = []
+    for file_index, file_entry in enumerate(hr_storage_files, start=1):
+        if not isinstance(file_entry, dict):
+            continue
+        safe_entry = dict(file_entry)
+        relative_path = str(safe_entry.get("relative_path") or "").strip()
+        if not relative_path:
+            continue
+        safe_entry["download_url"] = f"/hris/recruitment/intake/{int(safe_candidate.get('id') or 0)}/{file_index}"
+        normalized_storage_files.append(safe_entry)
+        storage_download_lookup[relative_path] = safe_entry["download_url"]
+
+    normalized_profile_documents = []
+    for document_entry in profile_documents:
+        if not isinstance(document_entry, dict):
+            continue
+        safe_entry = dict(document_entry)
+        relative_path = str(safe_entry.get("hr_storage_relative_path") or "").strip()
+        safe_entry["download_url"] = storage_download_lookup.get(relative_path, "")
+        normalized_profile_documents.append(safe_entry)
+
+    gender_map = {"male": "Laki-laki", "female": "Perempuan"}
+    marital_map = {"single": "Lajang", "married": "Menikah"}
+    identity_fields = []
+    address_fields = []
+    additional_fields = []
+    section_summaries = []
+
+    birth_place = str(profile_personal.get("birth_place") or "").strip()
+    birth_date = str(profile_personal.get("birth_date") or "").strip()
+    birth_summary = " / ".join(part for part in (birth_place, birth_date) if part)
+
+    _append_recruitment_profile_field(identity_fields, "Nama Lengkap", profile_personal.get("full_name") or safe_candidate.get("candidate_name"))
+    _append_recruitment_profile_field(identity_fields, "Email", profile_personal.get("email") or safe_candidate.get("email"))
+    _append_recruitment_profile_field(identity_fields, "Nomor WhatsApp", profile_personal.get("phone") or safe_candidate.get("phone"))
+    _append_recruitment_profile_field(identity_fields, "Nomor KTP", profile_personal.get("ktp_number"))
+    _append_recruitment_profile_field(identity_fields, "Nomor NPWP", profile_personal.get("npwp_number"))
+    _append_recruitment_profile_field(identity_fields, "Tempat / Tanggal Lahir", birth_summary)
+    _append_recruitment_profile_field(identity_fields, "Jenis Kelamin", gender_map.get(str(profile_personal.get("gender") or "").strip().lower(), profile_personal.get("gender")))
+    _append_recruitment_profile_field(identity_fields, "Status Pernikahan", marital_map.get(str(profile_personal.get("marital_status") or "").strip().lower(), profile_personal.get("marital_status")))
+    _append_recruitment_profile_field(identity_fields, "Agama", profile_personal.get("religion"))
+    _append_recruitment_profile_field(identity_fields, "Facebook / LinkedIn", profile_personal.get("linkedin_url"))
+    instagram_handle = str(profile_personal.get("instagram_handle") or "").strip()
+    _append_recruitment_profile_field(identity_fields, "Instagram", f"@{instagram_handle}" if instagram_handle and not instagram_handle.startswith("@") else instagram_handle)
+
+    _append_recruitment_profile_field(address_fields, "Provinsi Sesuai KTP", profile_personal.get("ktp_province"))
+    _append_recruitment_profile_field(address_fields, "Kota Sesuai KTP", profile_personal.get("ktp_city"))
+    _append_recruitment_profile_field(address_fields, "Alamat Sesuai KTP", profile_personal.get("ktp_address"))
+    _append_recruitment_profile_field(address_fields, "Kode POS KTP", profile_personal.get("ktp_postal_code"))
+    _append_recruitment_profile_field(address_fields, "Kota Domisili", profile_personal.get("domicile_city"))
+    _append_recruitment_profile_field(address_fields, "Alamat Domisili", profile_personal.get("domicile_address"))
+
+    _append_recruitment_profile_field(additional_fields, "Domisili Tambahan", profile_additional.get("domicile"))
+    _append_recruitment_profile_field(additional_fields, "Preferensi Penempatan", profile_additional.get("preferred_area"))
+    _append_recruitment_profile_field(additional_fields, "Ekspektasi Gaji", profile_additional.get("salary_expectation"))
+    _append_recruitment_profile_field(additional_fields, "Ringkasan Profil", profile_personal.get("summary"))
+    _append_recruitment_profile_field(additional_fields, "Catatan Kandidat", profile_additional.get("notes"))
+
+    for section_key, section_label in (
+        ("family", "Keluarga"),
+        ("education", "Pendidikan"),
+        ("experience", "Pengalaman"),
+        ("skills", "Keterampilan"),
+        ("organization", "Organisasi"),
+        ("training", "Training"),
+        ("achievement", "Prestasi"),
+        ("language", "Bahasa"),
+        ("passion", "Passion"),
+    ):
+        section_payload = dict((profile_sections.get(section_key) or {}).get("payload") or {})
+        summary_text = str(section_payload.get("summary") or "").strip()
+        if summary_text:
+            section_summaries.append({"label": section_label, "value": summary_text})
+
+    safe_candidate["profile_snapshot"] = profile_snapshot
+    safe_candidate["profile_sections_snapshot"] = profile_sections
+    safe_candidate["profile_personal"] = profile_personal
+    safe_candidate["profile_additional"] = profile_additional
+    safe_candidate["profile_documents"] = normalized_profile_documents
+    safe_candidate["profile_identity_fields"] = identity_fields
+    safe_candidate["profile_address_fields"] = address_fields
+    safe_candidate["profile_additional_fields"] = additional_fields
+    safe_candidate["profile_section_summaries"] = section_summaries
+    safe_candidate["hr_storage_files"] = normalized_storage_files
+    safe_candidate["hr_sms_targets"] = [dict(item) for item in hr_sms_targets if isinstance(item, dict)]
     return safe_candidate
 
 
@@ -5416,7 +5530,9 @@ BIOMETRIC_WORKSPACE_VIEWS = {
 
 def _normalize_biometric_workspace_view(value):
     safe_view = str(value or "").strip().lower().replace("-", "_")
-    return safe_view if safe_view in BIOMETRIC_WORKSPACE_VIEWS else "overview"
+    if not safe_view:
+        return "attendance_detail"
+    return safe_view if safe_view in BIOMETRIC_WORKSPACE_VIEWS else "attendance_detail"
 
 
 def _build_biometric_workspace_cards(
@@ -5448,8 +5564,6 @@ def _build_biometric_workspace_cards(
         shared_args["sync_status"] = sync_status
 
     def _build_href(view_key):
-        if view_key == "overview":
-            return url_for("hris.hris_index", module_slug="biometric", **shared_args)
         return url_for("hris.hris_index", module_slug="biometric", view=view_key, **shared_args)
 
     return [
@@ -7853,7 +7967,7 @@ def hris_index(module_slug=None):
         }
         biometric_workspace_view_meta = BIOMETRIC_WORKSPACE_VIEWS.get(
             biometric_workspace_view,
-            BIOMETRIC_WORKSPACE_VIEWS["overview"],
+            BIOMETRIC_WORKSPACE_VIEWS["attendance_detail"],
         )
         biometric_workspace_cards = _build_biometric_workspace_cards(
             selected_view=biometric_workspace_view,
@@ -9444,6 +9558,38 @@ def download_recruitment_resume(candidate_id):
         resume_path,
         as_attachment=True,
         download_name=candidate["resume_original_name"] or os.path.basename(resume_path),
+    )
+
+
+@hris_bp.route("/recruitment/intake/<int:candidate_id>/<int:file_index>")
+def download_recruitment_intake_file(candidate_id, file_index):
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk membuka arsip kandidat.", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    candidate = _get_recruitment_candidate_by_id(db, candidate_id)
+    if not candidate:
+        flash("Data recruitment tidak ditemukan", "error")
+        return redirect("/hris/recruitment")
+
+    storage_files = list(candidate.get("hr_storage_files") or [])
+    safe_index = int(file_index or 0) - 1
+    if safe_index < 0 or safe_index >= len(storage_files):
+        flash("Arsip kandidat yang dipilih tidak ditemukan.", "error")
+        return redirect("/hris/recruitment")
+
+    storage_entry = dict(storage_files[safe_index] or {})
+    absolute_path = build_sms_storage_absolute_path(storage_entry.get("relative_path"))
+    if not absolute_path or not os.path.exists(absolute_path):
+        flash("File arsip kandidat tidak ditemukan di cloud storage HR.", "error")
+        return redirect("/hris/recruitment")
+
+    return send_file(
+        absolute_path,
+        as_attachment=True,
+        download_name=storage_entry.get("file_name") or os.path.basename(absolute_path),
     )
 
 

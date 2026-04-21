@@ -521,6 +521,15 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             if not account:
                 return None
+            media_root = os.path.join(self.app.instance_path, "career_public_media", "document")
+            os.makedirs(media_root, exist_ok=True)
+            for file_name, file_bytes in (
+                ("ktp-ready.jpg", b"fake-ktp"),
+                ("cv-ready.pdf", b"fake-cv"),
+                ("ijazah-ready.pdf", b"fake-ijazah"),
+            ):
+                with open(os.path.join(media_root, file_name), "wb") as handle:
+                    handle.write(file_bytes)
             if include_personal:
                 upsert_career_public_profile_section(
                     db,
@@ -2302,6 +2311,98 @@ class WmsRoutesTestCase(unittest.TestCase):
         owner_response = self.client.get("/kasir/hidden-archive", follow_redirects=False)
         self.assertEqual(owner_response.status_code, 302)
         self.assertIn("/kasir/log", owner_response.headers.get("Location", ""))
+
+    def test_pos_page_defers_service_worker_auto_reload_and_keeps_checkout_recovery_helpers(self):
+        self.login_pos_user("owner_pos_recovery_shell", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("deferSwReload: true", html)
+        self.assertIn("POS_DRAFT_STORAGE_KEY", html)
+        self.assertIn("/kasir/checkout-trace/", html)
+        self.assertIn("recoverPendingPosCheckoutIfNeeded", html)
+
+    def test_pos_checkout_trace_reuses_existing_sale_when_client_token_repeated(self):
+        self.create_user("staff_checkout_trace", "pass1234", "staff", warehouse_id=1)
+        cashier_user_id = self.get_user_id("staff_checkout_trace")
+        self.login_pos_user("super_checkout_trace", "super_admin")
+
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-TRACE-001",
+            qty=8,
+            variants="42",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout_payload = {
+            "warehouse_id": 1,
+            "sale_date": "2026-04-14",
+            "cashier_user_id": cashier_user_id,
+            "customer_name": "Customer Trace POS",
+            "customer_phone": "628120001111",
+            "payment_method": "cash",
+            "paid_amount": 120000,
+            "client_checkout_token": "trace-pos-001",
+            "items": [
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "qty": 1,
+                    "unit_price": 120000,
+                }
+            ],
+        }
+
+        first_checkout = self.client.post(
+            "/kasir/checkout",
+            json=checkout_payload,
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(first_checkout.status_code, 200)
+        first_payload = first_checkout.get_json()
+        self.assertEqual(first_payload["status"], "success")
+
+        second_checkout = self.client.post(
+            "/kasir/checkout",
+            json=checkout_payload,
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(second_checkout.status_code, 200)
+        second_payload = second_checkout.get_json()
+        self.assertEqual(second_payload["status"], "success")
+        self.assertEqual(second_payload["receipt_no"], first_payload["receipt_no"])
+        self.assertEqual(second_payload["sale_id"], first_payload["sale_id"])
+        self.assertIn("sudah tersimpan", second_payload["message"])
+
+        trace_response = self.client.get(
+            "/kasir/checkout-trace/trace-pos-001",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(trace_response.status_code, 200)
+        trace_payload = trace_response.get_json()
+        self.assertEqual(trace_payload["status"], "success")
+        self.assertTrue(trace_payload["found"])
+        self.assertEqual(trace_payload["receipt_no"], first_payload["receipt_no"])
+
+        with self.app.app_context():
+            db = get_db()
+            sale_count = db.execute(
+                "SELECT COUNT(*) AS total FROM pos_sales WHERE receipt_no=?",
+                (first_payload["receipt_no"],),
+            ).fetchone()["total"]
+            trace_row = db.execute(
+                "SELECT sale_id, receipt_no FROM pos_checkout_traces WHERE client_token=?",
+                ("trace-pos-001",),
+            ).fetchone()
+
+        self.assertEqual(int(sale_count or 0), 1)
+        self.assertIsNotNone(trace_row)
+        self.assertEqual(int(trace_row["sale_id"] or 0), int(first_payload["sale_id"]))
+        self.assertEqual(trace_row["receipt_no"], first_payload["receipt_no"])
 
     def test_pos_sales_log_shows_revenue_for_leader_and_super_admin(self):
         self.create_user("super_pos_log_revenue", "pass1234", "super_admin")
@@ -12015,6 +12116,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("Yogyakarta/WFO", detail_html)
 
     def test_public_career_application_creates_recruitment_candidate_for_hr_pipeline(self):
+        self.create_user("hr_recruitment_sink", "pass1234", "hr")
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
@@ -12071,7 +12173,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """
                 SELECT candidate_name, warehouse_id, position_title, stage, status,
                        phone, email, application_channel, vacancy_id, portfolio_url,
-                       resume_original_name, resume_path, placement_warehouse_ids
+                       resume_original_name, resume_path, placement_warehouse_ids,
+                       profile_snapshot_json, profile_documents_json, hr_storage_folder, hr_storage_files_json,
+                       hr_sms_targets_json
                 FROM recruitment_candidates
                 WHERE candidate_name=?
                 """,
@@ -12091,6 +12195,297 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(candidate["resume_original_name"], "aldo-resume.pdf")
         self.assertTrue(candidate["resume_path"])
         self.assertEqual(json.loads(candidate["placement_warehouse_ids"]), [2])
+        profile_snapshot = json.loads(candidate["profile_snapshot_json"])
+        profile_documents = json.loads(candidate["profile_documents_json"])
+        hr_storage_files = json.loads(candidate["hr_storage_files_json"])
+        hr_sms_targets = json.loads(candidate["hr_sms_targets_json"])
+        self.assertEqual(profile_snapshot["personal"]["ktp_number"], "3402120000000001")
+        self.assertEqual(profile_snapshot["personal"]["domicile_address"], "Jl. Godean Km 8")
+        self.assertEqual(profile_snapshot["additional"], {})
+        self.assertTrue(any(item["document_type"] == "ktp_scan" for item in profile_documents))
+        self.assertTrue(candidate["hr_storage_folder"])
+        self.assertIn("Aldo Nugraha", candidate["hr_storage_folder"])
+        self.assertTrue(any(item["category"] == "manifest" for item in hr_storage_files))
+        self.assertTrue(any(item["category"] == "resume" for item in hr_storage_files))
+        self.assertTrue(any(item["category"] == "profile_document" for item in hr_storage_files))
+        self.assertTrue(any(item["username"] == "hr_recruitment_sink" for item in hr_sms_targets))
+
+    def test_public_career_application_uses_profile_cv_without_reuploading_resume(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Lamaran Pakai CV Profil",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Tes pakai CV dari profil kandidat.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Lamaran Pakai CV Profil",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="cv-profile@example.com",
+            full_name="CV Profil Kandidat",
+            ready_profile=True,
+        )
+        response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "CV Profil Kandidat",
+                "phone": "0812 4444 5555",
+                "note": "Gunakan CV dari profil kandidat.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT candidate_name, resume_original_name, resume_path, hr_storage_files_json
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("CV Profil Kandidat",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["resume_original_name"], "cv-ready.pdf")
+        self.assertTrue(candidate["resume_path"])
+        hr_storage_files = json.loads(candidate["hr_storage_files_json"])
+        self.assertTrue(any(item["category"] == "resume" for item in hr_storage_files))
+
+    def test_public_career_portal_quick_apply_redirects_back_with_success_popup(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Quick Apply Portal",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Tes apply cepat dari portal kandidat.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Quick Apply Portal",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="quick-apply@example.com",
+            full_name="Quick Apply Candidate",
+            ready_profile=True,
+        )
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "source_view": "portal_candidate",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+        self.assertEqual(
+            apply_response.headers["Location"],
+            f"/karir/portal?vacancy={opening['id']}&applied=1",
+        )
+
+        portal_response = self.client.get(f"/karir/portal?vacancy={opening['id']}&applied=1")
+        self.assertEqual(portal_response.status_code, 200)
+        html = portal_response.get_data(as_text=True)
+        self.assertIn("Terima kasih sudah melamar.", html)
+        self.assertIn("cek email secara berkala", html)
+
+    def test_hris_recruitment_renders_public_candidate_profile_snapshot_and_hr_storage_links(self):
+        self.create_user("hr_snapshot_reader", "pass1234", "hr")
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Snapshot Kandidat Publik",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Role untuk sinkron profil kandidat ke HRIS.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Snapshot Kandidat Publik",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="snapshot-hris@example.com",
+            full_name="Snapshot Kandidat",
+            ready_profile=True,
+        )
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "Snapshot Kandidat",
+                "phone": "0812 3000 9000",
+                "note": "Mohon review data profil kandidat.",
+                "resume_file": (BytesIO(b"resume-snapshot"), "snapshot-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                "SELECT id FROM recruitment_candidates WHERE candidate_name=? ORDER BY id DESC LIMIT 1",
+                ("Snapshot Kandidat",),
+            ).fetchone()
+
+        self.login("hr_snapshot_reader", "pass1234")
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Data Profil Kandidat dari Portal", html)
+        self.assertIn("3402120000000001", html)
+        self.assertIn("Jl. Magelang Km 10", html)
+        self.assertIn("Arsip Dokumen Kandidat", html)
+        self.assertIn("Folder Cloud Storage HR", html)
+        manifest_response = self.client.get(f"/hris/recruitment/intake/{candidate['id']}/1")
+        self.assertEqual(manifest_response.status_code, 200)
+        self.assertTrue(manifest_response.get_data())
+        manifest_response.close()
+
+    def test_public_career_application_pushes_candidate_archive_to_hr_sms_workspace(self):
+        self.create_user("hr_sms_intake", "pass1234", "hr")
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "SMS Intake Kandidat Publik",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Role untuk sinkron profil kandidat ke SMS HR.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("SMS Intake Kandidat Publik",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="sms-intake@example.com",
+            full_name="SMS Intake Kandidat",
+            ready_profile=True,
+        )
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "candidate_name": "SMS Intake Kandidat",
+                "phone": "0812 3000 9000",
+                "note": "Mohon review data profil kandidat.",
+                "resume_file": (BytesIO(b"resume-sms-intake"), "snapshot-resume.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                "SELECT id, hr_sms_targets_json FROM recruitment_candidates WHERE candidate_name=? ORDER BY id DESC LIMIT 1",
+                ("SMS Intake Kandidat",),
+            ).fetchone()
+        hr_sms_targets = json.loads(candidate["hr_sms_targets_json"])
+        self.assertTrue(any(item["username"] == "hr_sms_intake" for item in hr_sms_targets))
+
+        self.login("hr_sms_intake", "pass1234")
+        root_response = self.client.get("/sms/api/list")
+        self.assertEqual(root_response.status_code, 200)
+        root_payload = root_response.get_json()
+        root_names = {item["name"] for item in root_payload["items"]}
+        self.assertIn("Recruitment Intake", root_names)
+
+        intake_response = self.client.get("/sms/api/list?path=Recruitment%20Intake")
+        self.assertEqual(intake_response.status_code, 200)
+        intake_payload = intake_response.get_json()
+        intake_names = {item["name"] for item in intake_payload["items"]}
+        self.assertTrue(any("SMS Intake Kandidat" in name for name in intake_names))
+
+        candidate_folder = next(name for name in intake_names if "SMS Intake Kandidat" in name)
+        archive_response = self.client.get(f"/sms/api/list?path=Recruitment%20Intake/{candidate_folder}")
+        self.assertEqual(archive_response.status_code, 200)
+        archive_payload = archive_response.get_json()
+        archive_names = {item["name"] for item in archive_payload["items"]}
+        self.assertIn("Ringkasan_Profil_Kandidat.json", archive_names)
+        self.assertTrue(any(name.endswith(".pdf") for name in archive_names))
+        self.assertTrue(any("ktp" in name.lower() or "ijazah" in name.lower() for name in archive_names))
 
     def test_public_career_apply_prevents_duplicate_active_application_and_keeps_screening_queue(self):
         with self.app.app_context():
@@ -13414,6 +13809,112 @@ class WmsRoutesTestCase(unittest.TestCase):
             self.assertTrue(session_data.get("career_public_account_id"))
             self.assertEqual(session_data.get("career_public_account_email"), "aktif@example.com")
 
+    def test_recruitment_public_host_uses_dedicated_candidate_session_cookie(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+        self.app.config["SESSION_COOKIE_NAME"] = "wms_session"
+        self.app.config["SESSION_COOKIE_DOMAIN"] = ".example.test"
+        self.app.config["RECRUITMENT_SESSION_COOKIE_NAME"] = "career_public_session"
+        self.create_public_career_account(
+            email="cookie-kandidat@example.com",
+            password="password123",
+            full_name="Cookie Kandidat",
+        )
+
+        response = self.client.post(
+            "/signin/auth",
+            data={
+                "email": "cookie-kandidat@example.com",
+                "password": "password123",
+                "next": "/karir/portal",
+            },
+            base_url="https://recruitment.test",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cookie_headers = response.headers.getlist("Set-Cookie")
+        candidate_cookie = next(
+            (item for item in cookie_headers if item.startswith("career_public_session=")),
+            "",
+        )
+        self.assertTrue(candidate_cookie)
+        self.assertNotIn("Domain=", candidate_cookie)
+        self.assertFalse(any(item.startswith("wms_session=") for item in cookie_headers))
+
+    def test_recruitment_public_profile_save_keeps_candidate_session_after_signin(self):
+        self.app.config["CANONICAL_HOST"] = "erp.test"
+        self.app.config["RECRUITMENT_PUBLIC_HOSTS"] = ["recruitment.test"]
+        self.app.config["SESSION_COOKIE_NAME"] = "wms_session"
+        self.app.config["SESSION_COOKIE_DOMAIN"] = ".example.test"
+        self.app.config["RECRUITMENT_SESSION_COOKIE_NAME"] = "career_public_session"
+        account = self.create_public_career_account(
+            email="profil-host@example.com",
+            password="password123",
+            full_name="Profil Host",
+        )
+
+        signin_response = self.client.post(
+            "/signin/auth",
+            data={
+                "email": "profil-host@example.com",
+                "password": "password123",
+                "next": "/karir/profil?section=personal",
+            },
+            base_url="https://recruitment.test",
+            follow_redirects=False,
+        )
+        self.assertEqual(signin_response.status_code, 302)
+
+        save_response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "personal",
+                "full_name": "Profil Host Diperbarui",
+                "email": "profil-host@example.com",
+                "phone": "0812 3333 4444",
+                "ktp_number": "3402120000000001",
+                "npwp_number": "",
+                "linkedin_url": "linkedin.com/in/profil-host",
+                "instagram_handle": "@profilhost",
+                "birth_place": "Sleman",
+                "birth_date": "2001-05-10",
+                "gender": "male",
+                "marital_status": "single",
+                "religion": "islam",
+                "ktp_province": "DIY",
+                "ktp_city": "Sleman",
+                "ktp_address": "Jl. Magelang Km 10",
+                "ktp_postal_code": "55515",
+                "domicile_city": "Sleman",
+                "domicile_address": "Jl. Godean Km 8",
+                "summary": "Profil tetap tersimpan di domain recruitment.",
+            },
+            base_url="https://recruitment.test",
+            follow_redirects=False,
+        )
+        self.assertEqual(save_response.status_code, 302)
+        self.assertEqual(
+            save_response.headers["Location"],
+            "/karir/profil?section=personal",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json, completion_state
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "personal"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        self.assertEqual(payload["full_name"], "Profil Host Diperbarui")
+        self.assertEqual(section_row["completion_state"], "complete")
+
     def test_public_career_jobs_page_stays_public_and_portal_has_separate_candidate_workspace(self):
         with self.app.app_context():
             db = get_db()
@@ -13464,6 +13965,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Lowongan Kerja", html)
         self.assertIn("Lamaran", html)
         self.assertIn("Tersimpan", html)
+        self.assertIn("is-apply-now", html)
 
     def test_public_career_candidate_can_toggle_saved_opening_and_view_saved_page(self):
         with self.app.app_context():
@@ -13543,6 +14045,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(documents_response.status_code, 200)
         documents_html = documents_response.get_data(as_text=True)
         self.assertIn("Jenis Berkas *", documents_html)
+        self.assertIn('name="documents"', documents_html)
+        self.assertIn("Upload Banyak Berkas Sekaligus", documents_html)
 
     def test_public_career_candidate_can_save_personal_profile_section(self):
         account = self.login_public_career_account_session(
@@ -13702,6 +14206,46 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = json.loads(section_row["payload_json"])
         stored_types = {item.get("document_type") for item in payload["files"]}
         self.assertTrue({"ktp_scan", "cv_resume", "last_diploma"}.issubset(stored_types))
+        self.assertEqual(section_row["completion_state"], "complete")
+
+    def test_public_career_candidate_can_bulk_upload_documents_in_one_submit(self):
+        account = self.login_public_career_account_session(
+            email="dokumen-bulk@example.com",
+            full_name="Dokumen Bulk Kandidat",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "documents": [
+                    (BytesIO(b"ktp-bulk"), "scan-ktp.jpg"),
+                    (BytesIO(b"cv-bulk"), "cv-kandidat.pdf"),
+                    (BytesIO(b"ijazah-bulk"), "ijazah-terakhir.pdf"),
+                    (BytesIO(b"sertifikat-bulk"), "sertifikat-komputer.pdf"),
+                ],
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json, completion_state
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "documents"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        stored_types = {item.get("document_type") for item in payload["files"]}
+        self.assertTrue({"ktp_scan", "cv_resume", "last_diploma", "certificate"}.issubset(stored_types))
         self.assertEqual(section_row["completion_state"], "complete")
 
     def test_public_career_incomplete_profile_redirects_portal_back_to_profile(self):
@@ -13929,6 +14473,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 )
             ),
             Mock(lastrowid=55),
+            Mock(),
+            Mock(),
         ]
 
         with self.app.test_request_context(
@@ -13954,6 +14500,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "routes.career._get_candidate_additional_profile_payload",
                 return_value={},
             ), patch(
+                "routes.career.get_career_public_profile_sections",
+                return_value={},
+            ), patch(
                 "routes.career._guard_candidate_profile_completion",
                 return_value=({"is_ready": True, "next_section_key": "personal"}, None),
             ), patch(
@@ -13970,7 +14519,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "/karir/lowongan/7")
-        self.assertEqual(db.execute.call_count, 2)
+        self.assertEqual(db.execute.call_count, 4)
 
     def test_hr_recruitment_add_uses_inserted_candidate_id_when_lastrowid_is_available(self):
         import routes.hris as hris_routes

@@ -5,14 +5,14 @@
 {% block candidate_workspace_content %}
 <section class="career-profile-layout">
     <aside class="career-candidate-panel career-profile-sidebar">
-        <div class="career-profile-summary-card">
-            <div class="career-profile-avatar">
-                {% if candidate_profile_photo_url %}
-                <img src="{{ candidate_profile_photo_url }}" alt="{{ candidate_account.full_name }}">
-                {% else %}
-                <span>{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
-                {% endif %}
-            </div>
+            <div class="career-profile-summary-card">
+                <div class="career-profile-avatar">
+                    {% if candidate_profile_photo_url %}
+                    <img src="{{ candidate_profile_photo_url }}" alt="{{ candidate_account.full_name }}" decoding="async">
+                    {% else %}
+                    <span>{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
+                    {% endif %}
+                </div>
             <strong>{{ candidate_account.full_name }}</strong>
             <p>{{ candidate_account.email }}</p>
         </div>
@@ -50,7 +50,7 @@
             <div class="career-profile-photo-block">
                 <div class="career-profile-photo-frame" id="careerProfilePhotoFrame">
                     {% if selected_profile_photo_url %}
-                    <img src="{{ selected_profile_photo_url }}" alt="{{ candidate_account.full_name }}" id="careerProfilePhotoPreview">
+                    <img src="{{ selected_profile_photo_url }}" alt="{{ candidate_account.full_name }}" id="careerProfilePhotoPreview" decoding="async">
                     {% else %}
                     <span id="careerProfilePhotoFallback">{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
                     {% endif %}
@@ -253,6 +253,11 @@
                     Berkas
                     <input type="file" name="document_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
                     <small>Format yang diterima: PDF, DOC, DOCX, JPG, JPEG, PNG. Maksimal 5 MB per file.</small>
+                </label>
+                <label class="span-2">
+                    Upload Banyak Berkas Sekaligus
+                    <input type="file" name="documents" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" multiple>
+                    <small>Bisa pilih beberapa file sekaligus. Sistem akan mencoba mengenali nama file seperti KTP, CV, ijazah, NPWP, transkrip, atau sertifikat secara otomatis.</small>
                 </label>
             </div>
 

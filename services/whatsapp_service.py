@@ -1,7 +1,7 @@
 import os
 import re
 
-from flask import current_app
+from flask import current_app, has_app_context
 
 from database import get_db
 from services.announcement_center import user_matches_scope
@@ -132,7 +132,10 @@ def record_whatsapp_delivery(user_id, role, recipient, subject, message, result,
 
 
 def _kirimi_config_value(name):
-    return str(current_app.config.get(name) or os.getenv(name) or "").strip()
+    app_value = ""
+    if has_app_context():
+        app_value = current_app.config.get(name) or ""
+    return str(app_value or os.getenv(name) or "").strip()
 
 
 def _kirimi_first_config_value(*names, default=""):
@@ -206,12 +209,18 @@ def _cash_closing_group_target(*, warehouse_id=None, warehouse_name=None):
 
 
 def _kirimi_credentials(*, warehouse_id=None, warehouse_name=None):
+    timeout_value = _kirimi_config_value("KIRIMI_TIMEOUT_SECONDS") or "15"
+    try:
+        timeout_seconds = max(3, int(timeout_value))
+    except (TypeError, ValueError):
+        timeout_seconds = 15
+
     credentials = {
-        "base_url": str(current_app.config.get("KIRIMI_BASE_URL") or "https://api.kirimi.id").strip().rstrip("/"),
+        "base_url": (_kirimi_config_value("KIRIMI_BASE_URL") or "https://api.kirimi.id").rstrip("/"),
         "user_code": _kirimi_config_value("KIRIMI_USER_CODE"),
         "device_id": _kirimi_config_value("KIRIMI_DEVICE_ID"),
         "secret": _kirimi_config_value("KIRIMI_SECRET"),
-        "timeout": max(3, int(current_app.config.get("KIRIMI_TIMEOUT_SECONDS") or os.getenv("KIRIMI_TIMEOUT_SECONDS") or 15)),
+        "timeout": timeout_seconds,
     }
 
     for alias in _kirimi_warehouse_aliases(warehouse_id=warehouse_id, warehouse_name=warehouse_name):

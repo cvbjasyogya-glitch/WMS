@@ -4,6 +4,7 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
    Important:
    For VPS PostgreSQL, set `DATABASE_BACKEND=postgresql` and fill `DATABASE_URL` with the production DSN before restarting `wms.service`.
    For ERP + SMS SSO across subdomains, set `SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud` so one login can be reused by `erp.cvbjasyogya.cloud` and `sms.cvbjasyogya.cloud`.
+   Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so portal kandidat di `recruitment.cvbjasyogya.cloud` memakai cookie terpisah dan tidak bentrok dengan cookie ERP/SMS.
 2. Copy [deploy/nginx/wms_upstream.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/wms_upstream.conf) to `/etc/nginx/conf.d/wms_upstream.conf`.
 3. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
 4. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
@@ -26,6 +27,7 @@ Brevo SMTP for career and auth emails:
 Public recruitment domain:
 - Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
+- Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so login kandidat tetap stabil saat menyimpan profil atau upload berkas.
 - Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host stays on the career experience and routes `/` directly to `/signin` instead of bouncing to ERP.
 
 Public SMS cloud storage domain:

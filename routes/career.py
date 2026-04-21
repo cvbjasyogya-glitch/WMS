@@ -1,6 +1,8 @@
+import json
 import hashlib
 import os
 import re
+import shutil
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -11,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from database import get_db
 from services.career_service import (
+    CAREER_RESUME_EXTENSIONS,
     activate_career_public_account,
     create_public_account_request,
     decode_career_public_profile_payload,
@@ -25,6 +28,7 @@ from services.career_service import (
     assign_candidate_assessment_code,
     decode_assessment_answers,
     encode_assessment_answers,
+    extract_inserted_row_id,
     ensure_career_schema,
     find_duplicate_public_application,
     normalize_assessment_code,
@@ -38,6 +42,11 @@ from services.career_service import (
     normalize_career_assessment_status,
     normalize_career_application_channel,
     normalize_career_employment_type,
+    build_career_resume_path,
+    build_recruitment_candidate_intake_path,
+    build_recruitment_candidate_intake_relative_folder,
+    build_sms_storage_absolute_path,
+    build_sms_user_storage_root,
     save_career_resume,
     score_assessment_questions,
     set_career_public_saved_opening_state,
@@ -529,6 +538,26 @@ def _resolve_profile_document_label(document_type, custom_label=""):
     )
 
 
+def _guess_profile_document_type_from_filename(filename):
+    safe_name = secure_filename(filename or "").lower()
+    if not safe_name:
+        return "other"
+
+    if "ktp" in safe_name:
+        return "ktp_scan"
+    if "npwp" in safe_name:
+        return "npwp_scan"
+    if "ijazah" in safe_name or "diploma" in safe_name:
+        return "last_diploma"
+    if "transkrip" in safe_name or "transcript" in safe_name or "nilai" in safe_name:
+        return "transcript"
+    if "sertifikat" in safe_name or "certificate" in safe_name or "sertifikasi" in safe_name:
+        return "certificate"
+    if "resume" in safe_name or re.search(r"(^|[-_ ])cv($|[-_ .])", safe_name) or "curriculum" in safe_name:
+        return "cv_resume"
+    return "other"
+
+
 def _normalize_career_profile_section_payload(section_key, form_data, *, existing_payload=None):
     safe_key = normalize_career_public_profile_section_key(section_key)
     current_payload = dict(existing_payload or {})
@@ -827,6 +856,300 @@ def _career_public_media_url(media_kind, stored_name):
     return url_for("career.public_media", media_kind=safe_kind, filename=safe_name, v=safe_name)
 
 
+def _get_career_public_media_absolute_path(media_kind, stored_name):
+    safe_name = secure_filename(stored_name or "")
+    if not safe_name:
+        return ""
+    safe_kind = "photo" if str(media_kind or "").strip().lower() == "photo" else "document"
+    absolute_path = os.path.abspath(os.path.join(_get_career_public_media_root(safe_kind), safe_name))
+    root_path = os.path.abspath(_get_career_public_media_root(safe_kind))
+    if absolute_path != root_path and not absolute_path.startswith(root_path + os.sep):
+        return ""
+    return absolute_path
+
+
+def _build_candidate_profile_snapshot(account, profile_sections):
+    safe_account = dict(account or {})
+    safe_sections = {}
+    for raw_key, raw_section in dict(profile_sections or {}).items():
+        safe_key = normalize_career_public_profile_section_key(raw_key)
+        if not safe_key or not isinstance(raw_section, dict):
+            continue
+        safe_sections[safe_key] = {
+            "payload": dict(raw_section.get("payload") or {}),
+            "completion_state": str(raw_section.get("completion_state") or "incomplete").strip().lower() or "incomplete",
+            "updated_at": raw_section.get("updated_at"),
+        }
+    return {
+        "account_id": int(safe_account.get("id") or 0) or None,
+        "account_name": safe_account.get("full_name") or "",
+        "account_email": normalize_candidate_email(safe_account.get("email")),
+        "personal": dict((safe_sections.get("personal") or {}).get("payload") or {}),
+        "additional": dict((safe_sections.get("additional") or {}).get("payload") or {}),
+        "sections": safe_sections,
+        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def _collect_candidate_profile_documents(profile_sections):
+    documents_payload = dict((dict(profile_sections or {}).get("documents") or {}).get("payload") or {})
+    files = documents_payload.get("files")
+    if not isinstance(files, list):
+        return []
+
+    collected = []
+    for file_entry in files:
+        if not isinstance(file_entry, dict):
+            continue
+        safe_stored_name = secure_filename(file_entry.get("stored_name") or "")
+        if not safe_stored_name:
+            continue
+        document_type = _normalize_profile_document_type(file_entry.get("document_type")) or "other"
+        source_path = _get_career_public_media_absolute_path("document", safe_stored_name)
+        collected.append(
+            {
+                "document_type": document_type,
+                "label": _resolve_profile_document_label(document_type, file_entry.get("label")),
+                "stored_name": safe_stored_name,
+                "uploaded_at": file_entry.get("uploaded_at"),
+                "source_path": source_path,
+                "source_exists": bool(source_path and os.path.exists(source_path)),
+            }
+        )
+    return collected
+
+
+def _get_primary_profile_resume_document(profile_documents):
+    for document_entry in profile_documents or []:
+        safe_entry = dict(document_entry or {})
+        if _normalize_profile_document_type(safe_entry.get("document_type")) != "cv_resume":
+            continue
+        return safe_entry
+    return None
+
+
+def _save_career_resume_from_profile_document(document_entry):
+    safe_entry = dict(document_entry or {})
+    source_path = safe_entry.get("source_path") or ""
+    if not source_path or not os.path.exists(source_path):
+        raise ValueError(
+            "CV pada profil kandidat tidak ditemukan. Perbarui CV di profil atau unggah file baru saat melamar."
+        )
+
+    original_name = secure_filename(safe_entry.get("stored_name") or "")
+    extension = os.path.splitext(original_name)[1].lower()
+    if not extension:
+        extension = os.path.splitext(source_path)[1].lower()
+    if extension not in CAREER_RESUME_EXTENSIONS:
+        raise ValueError("Format CV pada profil harus PDF, DOC, atau DOCX.")
+
+    if not original_name:
+        original_name = f"cv-resume{extension}"
+
+    stored_name = f"{uuid4().hex}{extension}"
+    target_path = build_career_resume_path(stored_name)
+    shutil.copy2(source_path, target_path)
+    return original_name, stored_name
+
+
+def _allocate_candidate_intake_file_path(directory, preferred_name):
+    base_name = secure_filename(preferred_name or "")
+    if not base_name:
+        base_name = f"file-{uuid4().hex[:8]}.bin"
+    stem, extension = os.path.splitext(base_name)
+    candidate_path = os.path.join(directory, base_name)
+    counter = 2
+    while os.path.exists(candidate_path):
+        candidate_path = os.path.join(directory, f"{stem}-{counter}{extension}")
+        counter += 1
+    return candidate_path
+
+
+def _copy_candidate_file_to_hr_intake(source_path, intake_root, preferred_name):
+    if not source_path or not os.path.exists(source_path) or not intake_root:
+        return ""
+    base_name = preferred_name or os.path.basename(source_path)
+    if not os.path.splitext(base_name)[1]:
+        base_name = f"{base_name}{os.path.splitext(source_path)[1].lower()}"
+    target_path = _allocate_candidate_intake_file_path(intake_root, base_name)
+    shutil.copy2(source_path, target_path)
+    return target_path
+
+
+def _sync_candidate_hr_intake_storage(
+    *,
+    candidate_id,
+    candidate_name,
+    profile_snapshot,
+    profile_documents,
+    resume_original_name,
+    resume_stored_name,
+):
+    intake_root = build_recruitment_candidate_intake_path(candidate_id, candidate_name)
+    intake_folder = build_recruitment_candidate_intake_relative_folder(candidate_id, candidate_name)
+    if not intake_root or not intake_folder:
+        return "", [], []
+
+    archived_files = []
+    archived_documents = []
+
+    def register_archived_file(category, label, source_path, preferred_name):
+        copied_path = _copy_candidate_file_to_hr_intake(source_path, intake_root, preferred_name)
+        if not copied_path:
+            return ""
+        relative_path = "/".join(filter(None, [intake_folder, os.path.basename(copied_path)]))
+        archived_files.append(
+            {
+                "category": category,
+                "label": label,
+                "file_name": os.path.basename(copied_path),
+                "relative_path": relative_path,
+            }
+        )
+        return relative_path
+
+    resume_source_path = build_career_resume_path(resume_stored_name)
+    if resume_source_path and os.path.exists(resume_source_path):
+        register_archived_file(
+            "resume",
+            resume_original_name or "CV Lamaran",
+            resume_source_path,
+            resume_original_name or os.path.basename(resume_source_path),
+        )
+
+    personal_payload = dict((dict(profile_snapshot or {}).get("personal") or {}))
+    profile_photo_path = _get_career_public_media_absolute_path("photo", personal_payload.get("photo_path"))
+    if profile_photo_path and os.path.exists(profile_photo_path):
+        register_archived_file(
+            "photo",
+            "Foto Profil Kandidat",
+            profile_photo_path,
+            f"foto-profil{os.path.splitext(profile_photo_path)[1].lower()}",
+        )
+
+    for document_entry in profile_documents or []:
+        safe_entry = dict(document_entry or {})
+        relative_path = register_archived_file(
+            "profile_document",
+            safe_entry.get("label") or "Dokumen Kandidat",
+            safe_entry.get("source_path"),
+            safe_entry.get("label") or safe_entry.get("stored_name") or "dokumen-kandidat",
+        )
+        archived_documents.append(
+            {
+                "document_type": safe_entry.get("document_type") or "other",
+                "label": safe_entry.get("label") or "Dokumen Kandidat",
+                "stored_name": safe_entry.get("stored_name") or "",
+                "uploaded_at": safe_entry.get("uploaded_at"),
+                "available_in_hr_storage": bool(relative_path),
+                "hr_storage_relative_path": relative_path,
+            }
+        )
+
+    manifest_payload = {
+        "candidate_id": int(candidate_id or 0) or None,
+        "candidate_name": candidate_name or "",
+        "copied_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "profile_snapshot": profile_snapshot or {},
+        "profile_documents": archived_documents,
+    }
+    manifest_path = _allocate_candidate_intake_file_path(intake_root, "Ringkasan Profil Kandidat.json")
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest_payload, handle, ensure_ascii=False, indent=2)
+    archived_files.insert(
+        0,
+        {
+            "category": "manifest",
+            "label": "Ringkasan Profil Kandidat",
+            "file_name": os.path.basename(manifest_path),
+            "relative_path": "/".join(filter(None, [intake_folder, os.path.basename(manifest_path)])),
+        },
+    )
+    return intake_folder, archived_files, archived_documents
+
+
+def _get_hr_sms_recipient_users(db):
+    try:
+        rows = db.execute(
+            """
+            SELECT id, username, role
+            FROM users
+            WHERE role IN (?, ?)
+            ORDER BY role ASC, username COLLATE NOCASE ASC, id ASC
+            """,
+            ("hr", "super_admin"),
+        ).fetchall()
+    except Exception:
+        return []
+    if not isinstance(rows, (list, tuple)):
+        return []
+    recipients = []
+    seen_user_ids = set()
+    for row in rows:
+        try:
+            user_id = int(row["id"] or 0)
+        except (TypeError, ValueError):
+            user_id = 0
+        if user_id <= 0 or user_id in seen_user_ids:
+            continue
+        seen_user_ids.add(user_id)
+        recipients.append({"id": user_id, "username": row["username"], "role": row["role"]})
+    return recipients
+
+
+def _sync_candidate_intake_to_hr_sms_workspaces(db, hr_storage_folder):
+    source_root = build_sms_storage_absolute_path(hr_storage_folder)
+    if not source_root or not os.path.isdir(source_root):
+        return []
+
+    mirrored_targets = []
+    candidate_folder_name = os.path.basename(source_root)
+    for user in _get_hr_sms_recipient_users(db):
+        user_root = build_sms_user_storage_root(user["id"])
+        if not user_root:
+            continue
+        intake_root = os.path.join(user_root, "Recruitment Intake")
+        os.makedirs(intake_root, exist_ok=True)
+        target_root = os.path.join(intake_root, candidate_folder_name)
+        shutil.copytree(source_root, target_root, dirs_exist_ok=True)
+        mirrored_targets.append(
+            {
+                "user_id": user["id"],
+                "username": user.get("username") or f"user_{user['id']}",
+                "role": user.get("role") or "",
+                "relative_path": "/".join(("Recruitment Intake", candidate_folder_name)),
+            }
+        )
+    return mirrored_targets
+
+
+def _resolve_created_public_candidate_id(db, candidate_id, *, opening_id, public_account_id, resume_path):
+    try:
+        safe_candidate_id = int(candidate_id or 0)
+    except (TypeError, ValueError):
+        safe_candidate_id = 0
+    if safe_candidate_id > 0:
+        return safe_candidate_id
+
+    row = db.execute(
+        """
+        SELECT id
+        FROM recruitment_candidates
+        WHERE public_account_id=?
+          AND vacancy_id=?
+          AND resume_path=?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (
+            int(public_account_id or 0),
+            int(opening_id or 0),
+            resume_path or "",
+        ),
+    ).fetchone()
+    return int(row["id"] or 0) if row else 0
+
+
 def _render_candidate_jobs_portal(
     db,
     account,
@@ -837,7 +1160,7 @@ def _render_candidate_jobs_portal(
     selected_warehouse_id=None,
     profile_gate=None,
 ):
-    openings = _fetch_public_openings(db, selected_warehouse_id)
+    openings = _fetch_public_opening_summaries(db, selected_warehouse_id)
     openings = [
         opening
         for opening in openings
@@ -860,7 +1183,19 @@ def _render_candidate_jobs_portal(
         selected_opening_id = int(selected_opening_id) if selected_opening_id else None
     except ValueError:
         selected_opening_id = None
-    selected_opening = next((opening for opening in openings if opening["id"] == selected_opening_id), None)
+    selected_opening = None
+    if selected_opening_id:
+        selected_summary = next((opening for opening in openings if opening["id"] == selected_opening_id), None)
+        if selected_summary:
+            selected_opening = _fetch_public_opening_by_id(db, selected_opening_id) or dict(selected_summary)
+            if selected_opening:
+                selected_opening["is_saved"] = selected_summary.get("is_saved")
+                selected_opening["has_applied"] = selected_summary.get("has_applied")
+                selected_opening["application"] = selected_summary.get("application")
+    show_application_success_modal = (
+        str(request.args.get("applied") or "").strip() == "1"
+        and selected_opening is not None
+    )
     return render_template(
         "career_candidate_jobs.html",
         candidate_account=account,
@@ -874,6 +1209,7 @@ def _render_candidate_jobs_portal(
         selected_warehouse_id=selected_warehouse_id,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_opening_ids),
+        show_application_success_modal=show_application_success_modal,
     )
 
 
@@ -987,6 +1323,33 @@ def _fetch_public_openings(db, selected_warehouse=None):
     query = """
         SELECT
             o.*,
+            w.name AS warehouse_name
+        FROM career_openings o
+        LEFT JOIN warehouses w ON o.warehouse_id = w.id
+        WHERE o.status=?
+          AND COALESCE(o.is_public, 1)=1
+    """
+    params = ["published"]
+    if selected_warehouse:
+        query += " AND o.warehouse_id=?"
+        params.append(selected_warehouse)
+    query += " ORDER BY COALESCE(o.sort_order, 0) ASC, o.created_at DESC, o.id DESC"
+    return [_annotate_public_opening_display(dict(row)) for row in db.execute(query, params).fetchall()]
+
+
+def _fetch_public_opening_summaries(db, selected_warehouse=None):
+    query = """
+        SELECT
+            o.id,
+            o.warehouse_id,
+            o.title,
+            o.department,
+            o.employment_type,
+            o.location_label,
+            o.status,
+            o.is_public,
+            o.sort_order,
+            o.created_at,
             w.name AS warehouse_name
         FROM career_openings o
         LEFT JOIN warehouses w ON o.warehouse_id = w.id
@@ -1794,7 +2157,9 @@ def profile_page():
                 for uploaded in request.files.getlist("documents"):
                     if not uploaded or not (uploaded.filename or "").strip():
                         continue
-                    uploaded_files.append((uploaded, "other", ""))
+                    inferred_type = _guess_profile_document_type_from_filename(uploaded.filename)
+                    inferred_label = "" if inferred_type != "other" else secure_filename(uploaded.filename or "")
+                    uploaded_files.append((uploaded, inferred_type, inferred_label))
 
             if uploaded_files and not selected_document_type and uploaded_single and (uploaded_single.filename or "").strip():
                 flash("Pilih jenis berkas terlebih dahulu sebelum upload dokumen.", "error")
@@ -1987,6 +2352,10 @@ def opening_detail(opening_id):
     db = get_db()
     ensure_career_schema(db)
     active_account = _get_current_career_public_account(db)
+    try:
+        profile_sections = get_career_public_profile_sections(db, active_account["id"]) if active_account else {}
+    except TypeError:
+        profile_sections = {}
     if active_account:
         profile_gate, redirect_response = _guard_candidate_profile_completion(
             db,
@@ -1997,6 +2366,17 @@ def opening_detail(opening_id):
             return redirect_response
     personal_payload = _get_candidate_personal_profile_payload(db, active_account["id"]) if active_account else {}
     additional_payload = _get_candidate_additional_profile_payload(db, active_account["id"]) if active_account else {}
+    profile_documents = _collect_candidate_profile_documents(profile_sections)
+    profile_resume_document = _get_primary_profile_resume_document(profile_documents)
+    if profile_resume_document:
+        resume_file_name = profile_resume_document.get("stored_name") or "cv-resume"
+        resume_extension = os.path.splitext(resume_file_name)[1].lower()
+        profile_resume_document = {
+            **profile_resume_document,
+            "download_url": _career_public_media_url("document", profile_resume_document.get("stored_name")),
+            "is_valid_resume_format": resume_extension in CAREER_RESUME_EXTENSIONS,
+            "file_name": resume_file_name,
+        }
 
     opening = _fetch_public_opening_by_id(db, opening_id)
     if not opening:
@@ -2026,6 +2406,7 @@ def opening_detail(opening_id):
         prefill_candidate_note=_normalize_profile_textarea(
             additional_payload.get("notes") or personal_payload.get("summary")
         ),
+        profile_resume_document=profile_resume_document,
         opening_signin_url=build_career_public_url(
             "career.signin_page",
             flow="signin",
@@ -2044,8 +2425,17 @@ def apply():
     db = get_db()
     ensure_career_schema(db)
     active_account = _get_current_career_public_account(db)
+    source_view = str(request.form.get("source_view") or "").strip().lower()
     personal_payload = _get_candidate_personal_profile_payload(db, active_account["id"]) if active_account else {}
     additional_payload = _get_candidate_additional_profile_payload(db, active_account["id"]) if active_account else {}
+    try:
+        profile_sections = get_career_public_profile_sections(db, active_account["id"]) if active_account else {}
+    except TypeError:
+        profile_sections = {}
+    if personal_payload:
+        profile_sections.setdefault("personal", {"payload": dict(personal_payload), "completion_state": "complete"})
+    if additional_payload:
+        profile_sections.setdefault("additional", {"payload": dict(additional_payload), "completion_state": "complete"})
 
     opening_id_raw = (request.form.get("opening_id") or "").strip()
     try:
@@ -2067,6 +2457,16 @@ def apply():
     if not opening or opening["status"] != "published" or int(opening["is_public"] or 0) != 1:
         flash("Lowongan yang dipilih tidak tersedia lagi.", "error")
         return redirect(build_career_public_url("career.index"))
+    success_redirect_url = build_career_public_url("career.opening_detail", opening_id=opening["id"])
+    if source_view == "portal_candidate":
+        success_redirect_url = build_career_public_url(
+            "career.portal_page",
+            vacancy=opening["id"],
+            applied=1,
+        )
+    failure_redirect_url = build_career_public_url("career.opening_detail", opening_id=opening["id"])
+    if source_view == "portal_candidate":
+        failure_redirect_url = build_career_public_url("career.portal_page", vacancy=opening["id"])
     if not active_account:
         flash("Silakan daftar atau masuk ke akun kandidat terlebih dahulu sebelum melamar posisi ini.", "error")
         return redirect(
@@ -2101,16 +2501,18 @@ def apply():
     portfolio_url = raw_portfolio_url_normalized or normalize_candidate_portfolio_url(personal_payload.get("linkedin_url"))
     note = (request.form.get("note") or "").strip() or _normalize_profile_textarea(additional_payload.get("notes"))
     resume_file = request.files.get("resume_file")
+    profile_documents = _collect_candidate_profile_documents(profile_sections)
+    profile_resume_document = _get_primary_profile_resume_document(profile_documents)
 
     if not candidate_name or (not phone and not email):
         flash("Nama kandidat dan minimal satu kontak wajib diisi.", "error")
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+        return redirect(failure_redirect_url)
     if (raw_phone or "").strip() and not raw_phone_normalized:
         flash("Nomor telepon kandidat tidak valid.", "error")
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+        return redirect(failure_redirect_url)
     if (raw_portfolio_url or "").strip() and not raw_portfolio_url_normalized:
         flash("Link portofolio harus berupa URL http:// atau https:// yang valid.", "error")
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+        return redirect(failure_redirect_url)
 
     duplicate_candidate = find_duplicate_public_application(
         db,
@@ -2130,17 +2532,25 @@ def apply():
                 "Lamaran untuk lowongan ini sudah pernah kami terima dan masih menunggu screening HR. Silakan pantau email untuk update tahap berikutnya.",
                 "info",
             )
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+        return redirect(failure_redirect_url)
 
     try:
-        resume_original_name, resume_path = save_career_resume(resume_file)
+        if resume_file and secure_filename(resume_file.filename or ""):
+            resume_original_name, resume_path = save_career_resume(resume_file)
+        else:
+            resume_original_name, resume_path = _save_career_resume_from_profile_document(profile_resume_document)
     except ValueError as exc:
         flash(str(exc), "error")
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+        return redirect(failure_redirect_url)
 
     if not resume_path:
-        flash("CV wajib diunggah agar HR bisa review lamaran.", "error")
-        return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+        flash(
+            "CV belum tersedia. Lengkapi upload CV / Resume di profil atau unggah file baru saat melamar.",
+            "error",
+        )
+        return redirect(failure_redirect_url)
+
+    profile_snapshot = _build_candidate_profile_snapshot(active_account, profile_sections)
 
     insert_cursor = db.execute(
         """
@@ -2162,9 +2572,11 @@ def apply():
             resume_original_name,
             resume_path,
             public_account_id,
+            profile_snapshot_json,
+            profile_documents_json,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
         """,
         (
             candidate_name,
@@ -2184,15 +2596,67 @@ def apply():
             resume_original_name,
             resume_path,
             int(active_account["id"] or 0),
+            json.dumps(profile_snapshot, ensure_ascii=True, sort_keys=True),
+            json.dumps(
+                [
+                    {
+                        "document_type": item.get("document_type") or "other",
+                        "label": item.get("label") or "Dokumen Kandidat",
+                        "stored_name": item.get("stored_name") or "",
+                        "uploaded_at": item.get("uploaded_at"),
+                        "available_in_hr_storage": False,
+                        "hr_storage_relative_path": "",
+                    }
+                    for item in profile_documents
+                ],
+                ensure_ascii=True,
+                sort_keys=True,
+            ),
         ),
     )
+
+    created_candidate_id = _resolve_created_public_candidate_id(
+        db,
+        extract_inserted_row_id(insert_cursor),
+        opening_id=opening["id"],
+        public_account_id=active_account["id"],
+        resume_path=resume_path,
+    )
+    if created_candidate_id > 0:
+        hr_storage_folder, archived_files, archived_documents = _sync_candidate_hr_intake_storage(
+            candidate_id=created_candidate_id,
+            candidate_name=candidate_name,
+            profile_snapshot=profile_snapshot,
+            profile_documents=profile_documents,
+            resume_original_name=resume_original_name,
+            resume_stored_name=resume_path,
+        )
+        hr_sms_targets = _sync_candidate_intake_to_hr_sms_workspaces(db, hr_storage_folder)
+        db.execute(
+            """
+            UPDATE recruitment_candidates
+            SET profile_documents_json=?,
+                hr_storage_folder=?,
+                hr_storage_files_json=?,
+                hr_sms_targets_json=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                json.dumps(archived_documents, ensure_ascii=True, sort_keys=True),
+                hr_storage_folder or None,
+                json.dumps(archived_files, ensure_ascii=True, sort_keys=True),
+                json.dumps(hr_sms_targets, ensure_ascii=True, sort_keys=True),
+                created_candidate_id,
+            ),
+        )
     db.commit()
 
     flash(
         "Lamaran berhasil dikirim dan sudah masuk ke HRIS untuk screening. Jika lolos review awal, kode tes akan dikirim otomatis ke email Anda.",
         "success",
     )
-    return redirect(build_career_public_url("career.opening_detail", opening_id=opening["id"]))
+    return redirect(success_redirect_url)
 
 
 @career_bp.route("/karir/tes")

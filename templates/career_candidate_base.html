@@ -19,7 +19,7 @@
 <div class="career-candidate-shell">
     <aside class="career-candidate-sidebar">
         <a href="{{ url_for('career.portal_page') }}" class="career-candidate-sidebar-brand" aria-label="{{ career_company_name }}">
-            <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo">
+            <img src="{{ asset_url('brand/mataram-logo.png') }}" alt="{{ career_company_name }} logo" width="160" height="96" decoding="async">
         </a>
 
         <nav class="career-candidate-sidebar-nav" aria-label="Menu portal kandidat">
@@ -90,7 +90,7 @@
                 <a href="{{ profile_lock_url if profile_locked else url_for('career.profile_page') }}" class="career-candidate-account-pill" aria-label="Buka profil kandidat">
                     <span class="career-candidate-avatar">
                         {% if candidate_profile_photo_url %}
-                        <img src="{{ candidate_profile_photo_url }}" alt="{{ candidate_account.full_name or 'Kandidat' }}">
+                        <img src="{{ candidate_profile_photo_url }}" alt="{{ candidate_account.full_name or 'Kandidat' }}" decoding="async">
                         {% else %}
                         {{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}
                         {% endif %}

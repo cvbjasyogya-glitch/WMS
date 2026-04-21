@@ -811,7 +811,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                     </div>
                     <div class="career-apply-step">
                         <span>2</span>
-                        <span>Unggah CV terbaru dalam format PDF, DOC, atau DOCX dengan pengalaman yang paling relevan.</span>
+                        <span>CV dari profil kandidat akan dipakai otomatis. Unggah file baru hanya jika ingin mengganti CV khusus untuk posisi ini.</span>
                     </div>
                     <div class="career-apply-step">
                         <span>3</span>
@@ -848,9 +848,20 @@ body.minimal-shell .main.career-public-shell > .page-content.career-detail-page 
                             <input name="portfolio_url" placeholder="https://" value="{{ prefill_candidate_portfolio or '' }}">
                         </label>
                         <label class="span-2">
-                            CV / Resume
-                            <input type="file" name="resume_file" accept=".pdf,.doc,.docx" required>
-                            <small>Format yang diterima: PDF, DOC, DOCX.</small>
+                            CV / Resume {% if profile_resume_document %}(Opsional){% endif %}
+                            <input type="file" name="resume_file" accept=".pdf,.doc,.docx">
+                            {% if profile_resume_document %}
+                            <small>
+                                {% if profile_resume_document.is_valid_resume_format %}
+                                CV dari profil akan dipakai otomatis: <strong>{{ profile_resume_document.label }}</strong> ({{ profile_resume_document.file_name }}).
+                                Unggah file baru hanya jika ingin mengganti CV untuk lamaran ini.
+                                {% else %}
+                                CV di profil sudah ada, tapi formatnya belum sesuai untuk lamaran. Perbarui CV di profil atau unggah file PDF, DOC, atau DOCX di sini.
+                                {% endif %}
+                            </small>
+                            {% else %}
+                            <small>Belum ada CV dari profil. Unggah file PDF, DOC, atau DOCX agar HR bisa review lamaran.</small>
+                            {% endif %}
                         </label>
                         <label class="span-2">
                             Catatan Tambahan

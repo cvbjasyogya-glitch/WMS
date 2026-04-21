@@ -67,6 +67,55 @@ def _get_default_warehouse(db):
     return wh["id"] if wh else 1
 
 
+def _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, warehouse_id):
+    open_batch = db.execute(
+        """
+        SELECT id
+        FROM stock_batches
+        WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+        LIMIT 1
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchone()
+    if open_batch:
+        return
+
+    stock_row = db.execute(
+        """
+        SELECT COALESCE(qty, 0) AS qty
+        FROM stock
+        WHERE product_id=? AND variant_id=? AND warehouse_id=?
+        LIMIT 1
+        """,
+        (product_id, variant_id, warehouse_id),
+    ).fetchone()
+    if not stock_row:
+        return
+
+    try:
+        available_qty = int(stock_row["qty"] or 0)
+    except (TypeError, ValueError):
+        available_qty = 0
+    if available_qty <= 0:
+        return
+
+    db.execute(
+        """
+        INSERT INTO stock_batches(
+            product_id,
+            variant_id,
+            warehouse_id,
+            qty,
+            remaining_qty,
+            cost,
+            created_at
+        )
+        VALUES (?,?,?,?,?,0,datetime('now'))
+        """,
+        (product_id, variant_id, warehouse_id, available_qty, available_qty),
+    )
+
+
 # ==========================
 # ADD STOCK (FIX IMPORT SAFE)
 # ==========================
@@ -190,6 +239,7 @@ def remove_stock(product_id, variant_id, warehouse_id, qty, note="Barang keluar"
         except:
             started = False
 
+        _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, warehouse_id)
         total = _get_total_available(db, product_id, variant_id, warehouse_id)
         if total < qty:
             try:
@@ -310,6 +360,7 @@ def adjust_stock(product_id, variant_id, warehouse_id, qty, note="Stock Adjustme
 
             need = abs(qty)
 
+            _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, warehouse_id)
             total = _get_total_available(db, product_id, variant_id, warehouse_id)
             if total < need:
                 db.rollback()

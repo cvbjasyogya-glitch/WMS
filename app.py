@@ -297,6 +297,21 @@ def _build_security_headers():
 
 
 class RequestAwareSessionInterface(SecureCookieSessionInterface):
+    def get_cookie_name(self, app):
+        public_host_mode = _get_public_host_mode(app, request.host)
+        if public_host_mode == "recruitment":
+            return (
+                str(app.config.get("RECRUITMENT_SESSION_COOKIE_NAME") or "").strip()
+                or "career_public_session"
+            )
+        return super().get_cookie_name(app)
+
+    def get_cookie_domain(self, app):
+        public_host_mode = _get_public_host_mode(app, request.host)
+        if public_host_mode == "recruitment":
+            return None
+        return super().get_cookie_domain(app)
+
     def get_cookie_secure(self, app):
         return bool(app.config.get("SESSION_COOKIE_SECURE")) or request.is_secure
 

@@ -9,6 +9,15 @@
 {% block page_actions %}{% endblock %}
 {% block page_header %}{% endblock %}
 
+{% block extra_head %}
+<script>
+window.wmsPageFlags = Object.assign({}, window.wmsPageFlags || {}, {
+    deferSwReload: true,
+    pageKind: "pos"
+});
+</script>
+{% endblock %}
+
 {% block content %}
 {% include "partials/pos_vintage.html" %}
 {#
@@ -492,6 +501,263 @@ const posEditStockAllowanceState = new Map(
 
 function isPosEditMode() {
     return Boolean(posEditingSale && Number(posEditingSale.id || 0) > 0);
+}
+
+const POS_DRAFT_STORAGE_KEY = `wms-pos-draft:${posWarehouseId || 0}:${posSaleDate || "today"}`;
+const POS_PENDING_CHECKOUT_KEY = `wms-pos-pending:${posWarehouseId || 0}:${posSaleDate || "today"}`;
+let posCurrentCheckoutToken = "";
+
+function safePosStorageGet(key) {
+    try {
+        return window.localStorage.getItem(key);
+    } catch (error) {
+        return "";
+    }
+}
+
+function safePosStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+    } catch (error) {
+        console.warn("POS draft storage set failed.", error);
+    }
+}
+
+function safePosStorageRemove(key) {
+    try {
+        window.localStorage.removeItem(key);
+    } catch (error) {
+        console.warn("POS draft storage remove failed.", error);
+    }
+}
+
+function generatePosCheckoutToken() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return window.crypto.randomUUID();
+    }
+    return `pos-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function buildPosDraftSnapshot() {
+    if (isPosEditMode()) {
+        return null;
+    }
+    return {
+        warehouse_id: posWarehouseId,
+        sale_date: posSaleDate,
+        customer_id: Number(posCustomerId?.value || 0),
+        customer_name: String(posCustomerName?.value || ""),
+        customer_phone: String(posCustomerPhone?.value || ""),
+        cashier_user_id: Number(posCashierUserId?.value || 0),
+        transaction_type: String(posTransactionType?.value || "purchase"),
+        payment_method: String(posPaymentMethod?.value || "cash"),
+        paid_amount: getPosCurrencyValue(posPaidAmount),
+        note: String(posNote?.value || ""),
+        discount_type: String(posDiscountType?.value || "amount"),
+        discount_value: getPosCurrencyValue(posDiscountInput),
+        tax_type: String(posTaxType?.value || "amount"),
+        tax_value: getPosCurrencyValue(posTaxInput),
+        split_enabled: isPosSplitPaymentEnabled(),
+        split_rows: (posSplitPaymentState.rows || []).map((row) => ({
+            method: String(row?.method || ""),
+            amount: row?.amount === "" ? "" : roundPosMoney(row?.amount || 0),
+        })),
+        items: posCart.map((item) => ({
+            product_id: Number(item.product_id || 0),
+            variant_id: Number(item.variant_id || 0),
+            sku: String(item.sku || ""),
+            name: String(item.name || ""),
+            variant_label: String(item.variant_label || "Default"),
+            qty: Math.max(Number(item.qty || 0), 1),
+            unit_price: roundPosMoney(item.unit_price || 0),
+            editable_unit_price: roundPosMoney(item.editable_unit_price || item.unit_price || 0),
+            retail_price: roundPosMoney(item.retail_price || item.unit_price || 0),
+            stock: Number(item.stock || 0),
+        })),
+        saved_at: new Date().toISOString(),
+    };
+}
+
+function persistPosCheckoutDraft() {
+    const snapshot = buildPosDraftSnapshot();
+    if (!snapshot) {
+        safePosStorageRemove(POS_DRAFT_STORAGE_KEY);
+        return;
+    }
+    safePosStorageSet(POS_DRAFT_STORAGE_KEY, JSON.stringify(snapshot));
+}
+
+function clearPosCheckoutDraft() {
+    safePosStorageRemove(POS_DRAFT_STORAGE_KEY);
+}
+
+function savePendingPosCheckout(meta) {
+    if (!meta || !meta.client_checkout_token) {
+        return;
+    }
+    safePosStorageSet(
+        POS_PENDING_CHECKOUT_KEY,
+        JSON.stringify({
+            ...meta,
+            saved_at: new Date().toISOString(),
+        })
+    );
+}
+
+function loadPendingPosCheckout() {
+    const raw = safePosStorageGet(POS_PENDING_CHECKOUT_KEY);
+    if (!raw) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.client_checkout_token) {
+            return null;
+        }
+        return parsed;
+    } catch (error) {
+        return null;
+    }
+}
+
+function clearPendingPosCheckout() {
+    posCurrentCheckoutToken = "";
+    safePosStorageRemove(POS_PENDING_CHECKOUT_KEY);
+}
+
+function restorePosCheckoutDraft() {
+    if (isPosEditMode()) {
+        return;
+    }
+    const raw = safePosStorageGet(POS_DRAFT_STORAGE_KEY);
+    if (!raw) {
+        return;
+    }
+    let snapshot = null;
+    try {
+        snapshot = JSON.parse(raw);
+    } catch (error) {
+        snapshot = null;
+    }
+    if (!snapshot || !Array.isArray(snapshot.items) || !snapshot.items.length) {
+        return;
+    }
+
+    posCart.length = 0;
+    snapshot.items.forEach((item) => {
+        const productId = Number(item.product_id || 0);
+        const variantId = Number(item.variant_id || 0);
+        if (!productId || !variantId) {
+            return;
+        }
+        const retailPrice = normalizePosEditableUnitPrice(item.retail_price || item.unit_price, item.unit_price);
+        const savedUnitPrice = normalizePosEditableUnitPrice(item.unit_price, retailPrice);
+        posCart.push({
+            key: buildPosEditItemKey(productId, variantId),
+            product_id: productId,
+            variant_id: variantId,
+            sku: String(item.sku || "-"),
+            name: String(item.name || "Produk"),
+            variant_label: String(item.variant_label || "Default"),
+            qty: Math.max(Number(item.qty || 0), 1),
+            unit_price: savedUnitPrice,
+            editable_unit_price: normalizePosEditableUnitPrice(
+                item.editable_unit_price || savedUnitPrice,
+                retailPrice
+            ),
+            retail_price: retailPrice,
+            stock: posAllowNegativeStockTemp
+                ? Number(item.stock || 0)
+                : Math.max(Number(item.stock || 0), 0),
+        });
+    });
+
+    if (!posCart.length) {
+        return;
+    }
+
+    if (posCustomerId) {
+        posCustomerId.value = String(Number(snapshot.customer_id || 0) || "");
+    }
+    if (posCustomerName) {
+        posCustomerName.value = String(snapshot.customer_name || "");
+    }
+    if (posCustomerPhone) {
+        posCustomerPhone.value = String(snapshot.customer_phone || "");
+    }
+    if (posCashierUserId && snapshot.cashier_user_id) {
+        posCashierUserId.value = String(Number(snapshot.cashier_user_id || 0) || "");
+    }
+    if (posTransactionType) {
+        posTransactionType.value = String(snapshot.transaction_type || "purchase");
+    }
+    if (posNote) {
+        posNote.value = String(snapshot.note || "");
+    }
+    if (posDiscountType) {
+        posDiscountType.value = String(snapshot.discount_type || "amount");
+    }
+    if (posDiscountInput) {
+        setPosCurrencyValue(posDiscountInput, Number(snapshot.discount_value || 0));
+    }
+    if (posTaxType) {
+        posTaxType.value = String(snapshot.tax_type || "amount");
+    }
+    if (posTaxInput) {
+        setPosCurrencyValue(posTaxInput, Number(snapshot.tax_value || 0));
+    }
+    if (posPaidAmount) {
+        setPosCurrencyValue(posPaidAmount, Number(snapshot.paid_amount || 0));
+    }
+
+    posSplitPaymentState.rows = Array.isArray(snapshot.split_rows)
+        ? snapshot.split_rows.map((row) => createPosSplitPaymentRow(row?.method || "", row?.amount ?? ""))
+        : [];
+
+    if (posSplitPaymentToggle) {
+        posSplitPaymentToggle.checked = Boolean(snapshot.split_enabled);
+    }
+
+    if (!Boolean(snapshot.split_enabled)) {
+        setPosPaymentMethod(snapshot.payment_method || "cash");
+    }
+
+    if (typeof window.showToast === "function") {
+        window.showToast("Draft kasir terakhir dipulihkan otomatis setelah halaman ter-refresh.");
+    }
+}
+
+async function recoverPendingPosCheckoutIfNeeded() {
+    if (isPosEditMode()) {
+        clearPendingPosCheckout();
+        return;
+    }
+    const pending = loadPendingPosCheckout();
+    if (!pending || !pending.client_checkout_token) {
+        return;
+    }
+    posCurrentCheckoutToken = String(pending.client_checkout_token || "");
+
+    try {
+        const response = await fetch(`/kasir/checkout-trace/${encodeURIComponent(posCurrentCheckoutToken)}`, {
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            return;
+        }
+        if (data && data.found && data.receipt_no) {
+            clearPendingPosCheckout();
+            clearPosCheckoutDraft();
+            if (typeof window.showToast === "function") {
+                window.showToast(`Checkout sebelumnya sudah tersimpan: ${data.receipt_no}.`);
+            }
+        }
+    } catch (error) {
+        console.warn("POS checkout trace recovery failed.", error);
+    }
 }
 
 function buildPosEditItemKey(productId, variantId) {
@@ -1619,6 +1885,7 @@ function setPosPaymentMethod(method) {
     if (normalizedMethod !== "split") {
         posSplitPaymentState.previousSingleMethod = normalizedMethod;
     }
+    persistPosCheckoutDraft();
 }
 
 function activatePosCvTransaction() {
@@ -1752,6 +2019,7 @@ function renderPosSplitPaymentRows() {
     if (!isPosSplitPaymentEnabled()) {
         posSplitPaymentRows.innerHTML = "";
         updatePosSplitPaymentSummary();
+        persistPosCheckoutDraft();
         return;
     }
 
@@ -1783,6 +2051,7 @@ function renderPosSplitPaymentRows() {
         `;
     }).join("");
     updatePosSplitPaymentSummary();
+    persistPosCheckoutDraft();
 }
 
 function syncPosSplitPaymentState() {
@@ -1813,6 +2082,7 @@ function syncPosSplitPaymentState() {
     renderPosSplitPaymentRows();
     syncPosSplitPaidAmount();
     updatePosChangePreview();
+    persistPosCheckoutDraft();
 }
 
 function fitPosGrandTotalText(force = false) {
@@ -1978,6 +2248,7 @@ function renderPosCart() {
     }
 
     renderPosCartSummary();
+    persistPosCheckoutDraft();
 }
 
 function fillPosDraftFromItem(item) {
@@ -2337,9 +2608,23 @@ function checkoutPosTransaction() {
             unit_price: Number(item.unit_price),
         })),
     };
+    if (!posCurrentCheckoutToken) {
+        posCurrentCheckoutToken = generatePosCheckoutToken();
+    }
+    payload.client_checkout_token = posCurrentCheckoutToken;
     const isEditingSale = isPosEditMode();
     const endpointUrl = isEditingSale ? `/kasir/sale/${Number(posEditingSale.id || 0)}/edit` : "/kasir/checkout";
     const savingLabel = isEditingSale ? "Menyimpan Edit..." : "Menyimpan...";
+
+    if (!isEditingSale) {
+        savePendingPosCheckout({
+            client_checkout_token: posCurrentCheckoutToken,
+            customer_name: payload.customer_name,
+            customer_phone: payload.customer_phone,
+            total_amount: totals.grandTotal,
+            total_items: posCart.length,
+        });
+    }
 
     posCheckoutButton.disabled = true;
     posCheckoutButton.textContent = savingLabel;
@@ -2390,6 +2675,8 @@ function checkoutPosTransaction() {
             : window.confirm(
                 `${data.message}\nNo. Nota: ${data.receipt_no}\n${waInfoLine}\n\nCustomer minta nota cetak sekarang?`
             );
+        clearPendingPosCheckout();
+        clearPosCheckoutDraft();
         if (shouldPrintReceipt && data.receipt_print_url) {
             await preparePosDesktopPrinterForReceipt();
             window.open(buildPosRuntimeUrl(data.receipt_print_url), "_blank", "noopener");
@@ -2403,6 +2690,9 @@ function checkoutPosTransaction() {
             error.message
             || (isPosEditMode() ? "Edit transaksi gagal diproses." : "Checkout gagal diproses.")
         );
+        if (isEditingSale) {
+            clearPendingPosCheckout();
+        }
     })
     .finally(() => {
         posCheckoutButton.disabled = false;
@@ -2650,6 +2940,7 @@ posSplitPaymentRows?.addEventListener("input", (event) => {
     row.amount = amountInput.value === "" ? "" : roundPosMoney(amountInput.value);
     syncPosSplitPaidAmount();
     updatePosChangePreview();
+    persistPosCheckoutDraft();
 });
 
 posSplitPaymentRows?.addEventListener("change", (event) => {
@@ -2660,6 +2951,7 @@ posSplitPaymentRows?.addEventListener("change", (event) => {
         if (row) {
             row.method = String(methodSelect.value || "").trim().toLowerCase();
             updatePosSplitPaymentSummary();
+            persistPosCheckoutDraft();
         }
         return;
     }
@@ -2677,6 +2969,7 @@ posSplitPaymentRows?.addEventListener("change", (event) => {
     amountInput.value = row.amount === "" ? "" : String(row.amount);
     syncPosSplitPaidAmount();
     updatePosChangePreview();
+    persistPosCheckoutDraft();
 });
 
 posSplitPaymentRows?.addEventListener("click", (event) => {
@@ -2911,6 +3204,23 @@ posDraftQty?.addEventListener("focus", () => setPosKeypadTarget("qty"));
 posCheckoutButton.addEventListener("click", checkoutPosTransaction);
 posCustomerName?.addEventListener("input", clearPosCustomerIdentityValidity);
 posCustomerPhone?.addEventListener("input", clearPosCustomerIdentityValidity);
+[
+    posCustomerId,
+    posCustomerName,
+    posCustomerPhone,
+    posTransactionType,
+    posCashierUserId,
+    posPaymentMethod,
+    posNote,
+    posPaidAmount,
+    posDiscountType,
+    posDiscountInput,
+    posTaxType,
+    posTaxInput,
+].forEach((node) => {
+    node?.addEventListener("input", persistPosCheckoutDraft);
+    node?.addEventListener("change", persistPosCheckoutDraft);
+});
 posDiscountInput?.addEventListener("input", schedulePosAdjustmentPreviewSync);
 posDiscountInput?.addEventListener("change", schedulePosAdjustmentPreviewSync);
 posDiscountInput?.addEventListener("blur", schedulePosAdjustmentPreviewSync);
@@ -3086,14 +3396,16 @@ collectPosCustomerOptions();
 collectPosCashierOptions();
 setPosCustomerSearchSummary(POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY);
 setPosCashierSearchSummary(POS_CASHIER_SEARCH_DEFAULT_SUMMARY);
-applyPosEditingSaleToCart();
-syncPosCashierSelectionState();
 if (isPosEditMode()) {
+    applyPosEditingSaleToCart();
+    syncPosCashierSelectionState();
     if (posTransactionType) {
         posTransactionType.value = String(posEditingSale.transaction_type || "purchase");
     }
     syncPosCustomerLoyaltyHint(false);
 } else {
+    restorePosCheckoutDraft();
+    syncPosCashierSelectionState();
     syncPosCustomerSelectionState();
 }
 syncPosSplitPaymentState();
@@ -3116,5 +3428,6 @@ renderPosCart();
 resetPosDraft();
 resetPosQuickSearch();
 loadPosCatalog(1);
+void recoverPendingPosCheckoutIfNeeded();
 </script>
 {% endblock %}

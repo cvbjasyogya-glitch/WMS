@@ -1565,7 +1565,7 @@ def products():
 
 @products_bp.route("/bulk-delete", methods=["POST"])
 def bulk_delete():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
 
@@ -1653,7 +1653,7 @@ def bulk_delete():
 
 @products_bp.route("/delete-all", methods=["POST"])
 def delete_all_products():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
 
@@ -1755,7 +1755,7 @@ def delete_all_products():
 
 @products_bp.route("/import/preview", methods=["POST"])
 def preview_import():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
 
@@ -1776,7 +1776,7 @@ def preview_import():
 
 @products_bp.route("/import/ipos4", methods=["POST"])
 def import_ipos4_products():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
     if is_postgresql_backend():
@@ -1871,7 +1871,7 @@ def import_ipos4_products():
 
 @products_bp.route("/import/ipos4/latest", methods=["GET"])
 def latest_ipos4_import_run():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
 
@@ -1882,7 +1882,7 @@ def latest_ipos4_import_run():
 
 @products_bp.route("/import/ipos4/undo", methods=["POST"])
 def undo_latest_ipos4_import():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
     if is_postgresql_backend():
@@ -1976,7 +1976,7 @@ def undo_latest_ipos4_import():
 
 @products_bp.route("/add", methods=["POST"])
 def add_product():
-    denied = _require_product_master_full_access()
+    denied = _require_product_master_access()
     if denied:
         return denied
 
@@ -2119,7 +2119,7 @@ def add_product():
 
 @products_bp.route("/delete/<int:id>", methods=["POST"])
 def delete_product(id):
-    denied = _require_product_master_full_access()
+    denied = _require_product_master_access()
     if denied:
         return denied
 
@@ -2160,7 +2160,7 @@ def delete_product(id):
 
 @products_bp.route("/import/progress/<job_id>")
 def import_progress(job_id):
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
 
@@ -2181,11 +2181,12 @@ def import_progress(job_id):
 
 @products_bp.route("/import", methods=["POST"])
 def import_products():
-    denied = _require_product_master_full_access(json_mode=True)
+    denied = _require_product_master_access(json_mode=True)
     if denied:
         return denied
 
     db = get_db()
+    _ensure_product_variant_cost_schema(db)
     file = request.files.get("file")
 
     if not file:

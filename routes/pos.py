@@ -292,6 +292,138 @@ def _ensure_pos_checkout_postgresql_sequences(db):
     runtime_state[cache_key] = True
 
 
+def _ensure_pos_checkout_trace_schema(db):
+    runtime_state = current_app.extensions.setdefault("pos_runtime_state", {})
+    backend = "postgresql" if is_postgresql_backend(current_app.config) else "sqlite"
+    cache_key = f"checkout_trace_schema_ready:{backend}"
+    if runtime_state.get(cache_key):
+        return
+
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pos_checkout_traces(
+            id INTEGER PRIMARY KEY,
+            client_token TEXT NOT NULL UNIQUE,
+            sale_id INTEGER,
+            purchase_id INTEGER,
+            receipt_no TEXT,
+            warehouse_id INTEGER,
+            cashier_user_id INTEGER,
+            sale_date TEXT,
+            customer_name TEXT,
+            customer_phone TEXT,
+            total_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'success',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    if is_postgresql_backend(current_app.config):
+        _ensure_postgresql_id_sequence(db, "pos_checkout_traces")
+
+    runtime_state[cache_key] = True
+
+
+def _fetch_pos_checkout_trace(db, client_token):
+    safe_token = str(client_token or "").strip()
+    if not safe_token:
+        return None
+
+    try:
+        return db.execute(
+            """
+            SELECT
+                id,
+                client_token,
+                sale_id,
+                purchase_id,
+                receipt_no,
+                warehouse_id,
+                cashier_user_id,
+                sale_date,
+                customer_name,
+                customer_phone,
+                total_amount,
+                status,
+                created_at,
+                updated_at
+            FROM pos_checkout_traces
+            WHERE client_token=?
+            LIMIT 1
+            """,
+            (safe_token,),
+        ).fetchone()
+    except Exception:
+        return None
+
+
+def _record_pos_checkout_trace(
+    db,
+    *,
+    client_token,
+    sale_id,
+    purchase_id,
+    receipt_no,
+    warehouse_id,
+    cashier_user_id,
+    sale_date,
+    customer_name,
+    customer_phone,
+    total_amount,
+    status="success",
+):
+    safe_token = str(client_token or "").strip()
+    if not safe_token:
+        return
+
+    db.execute(
+        """
+        INSERT INTO pos_checkout_traces(
+            client_token,
+            sale_id,
+            purchase_id,
+            receipt_no,
+            warehouse_id,
+            cashier_user_id,
+            sale_date,
+            customer_name,
+            customer_phone,
+            total_amount,
+            status,
+            updated_at
+        )
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(client_token) DO UPDATE SET
+            sale_id=excluded.sale_id,
+            purchase_id=excluded.purchase_id,
+            receipt_no=excluded.receipt_no,
+            warehouse_id=excluded.warehouse_id,
+            cashier_user_id=excluded.cashier_user_id,
+            sale_date=excluded.sale_date,
+            customer_name=excluded.customer_name,
+            customer_phone=excluded.customer_phone,
+            total_amount=excluded.total_amount,
+            status=excluded.status,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (
+            safe_token,
+            sale_id,
+            purchase_id,
+            receipt_no,
+            warehouse_id,
+            cashier_user_id,
+            sale_date,
+            customer_name,
+            customer_phone,
+            _currency(total_amount or 0),
+            str(status or "success").strip().lower() or "success",
+        ),
+    )
+
+
 def _normalize_pos_phone(value):
     return normalize_customer_phone(value)
 
@@ -4091,6 +4223,42 @@ def _fetch_pos_sale_detail_by_id(db, sale_id, *, allow_hidden_archive=False):
     )
 
 
+def _build_pos_checkout_success_payload_from_sale_detail(sale_detail, *, message):
+    safe_sale = dict(sale_detail or {})
+    return {
+        "status": "success",
+        "message": str(message or "Checkout kasir berhasil disimpan."),
+        "sale_id": _to_int(safe_sale.get("id"), 0),
+        "receipt_no": safe_sale.get("receipt_no") or "",
+        "purchase_id": _to_int(safe_sale.get("purchase_id"), 0),
+        "customer_name": safe_sale.get("customer_name") or "",
+        "total_items": _to_int(safe_sale.get("total_items"), 0),
+        "subtotal_amount": _currency(safe_sale.get("subtotal_amount") or 0),
+        "discount_amount": _currency(safe_sale.get("discount_amount") or 0),
+        "tax_amount": _currency(safe_sale.get("tax_amount") or 0),
+        "total_amount": _currency(safe_sale.get("total_amount") or 0),
+        "paid_amount": _currency(safe_sale.get("paid_amount") or 0),
+        "change_amount": _currency(safe_sale.get("change_amount") or 0),
+        "payment_method": safe_sale.get("payment_method") or "cash",
+        "payment_method_label": safe_sale.get("payment_method_label")
+        or _format_payment_method_label(safe_sale.get("payment_method")),
+        "payment_breakdown_label": safe_sale.get("payment_breakdown_label") or "",
+        "receipt_print_url": (
+            f"/kasir/receipt/{safe_sale.get('receipt_no')}/print"
+            f"?layout=thermal&copy=customer&autoprint=1&autoclose=1"
+        )
+        if safe_sale.get("receipt_no")
+        else "",
+        "receipt_pdf_public_url": safe_sale.get("receipt_pdf_public_url") or "",
+        "receipt_whatsapp_status": str(safe_sale.get("receipt_whatsapp_status") or "pending").strip().lower(),
+        "receipt_whatsapp_error": str(safe_sale.get("receipt_whatsapp_error") or "").strip(),
+        "status_label": safe_sale.get("status_label") or "POSTED",
+        "status_tone": safe_sale.get("status_tone") or "success",
+        "is_hidden_archive": bool(safe_sale.get("is_hidden_archive")),
+        "hidden_archive_at": safe_sale.get("hidden_archive_at"),
+    }
+
+
 def _normalize_pos_item_keys(item_keys):
     normalized_keys = []
     seen_keys = set()
@@ -6531,6 +6699,7 @@ def pos_checkout():
     payload = request.get_json(silent=True) or {}
     db = get_db()
     _ensure_pos_checkout_postgresql_sequences(db)
+    _ensure_pos_checkout_trace_schema(db)
     ensure_crm_membership_multi_program_schema(db)
 
     warehouse_id = _resolve_pos_warehouse(db, payload.get("warehouse_id"))
@@ -6611,6 +6780,7 @@ def pos_checkout():
     loyalty_members = {}
     resolved_transaction_type = transaction_type
     receipt_no = (payload.get("receipt_no") or "").strip()
+    client_checkout_token = str(payload.get("client_checkout_token") or "").strip()
     negative_stock_alert_items = []
     max_retries = max(
         0,
@@ -6626,6 +6796,19 @@ def pos_checkout():
             or 0.0
         ),
     )
+
+    if client_checkout_token:
+        existing_trace = _fetch_pos_checkout_trace(db, client_checkout_token)
+        existing_sale_id = _to_int(existing_trace["sale_id"], 0) if existing_trace else 0
+        if existing_sale_id > 0:
+            existing_sale = _fetch_pos_sale_detail_by_id(db, existing_sale_id, allow_hidden_archive=True)
+            if existing_sale is not None:
+                return jsonify(
+                    _build_pos_checkout_success_payload_from_sale_detail(
+                        existing_sale,
+                        message="Checkout kasir sebelumnya sudah tersimpan.",
+                    )
+                )
 
     for attempt in range(max_retries + 1):
         try:
@@ -6860,6 +7043,22 @@ def pos_checkout():
                         }
                     )
 
+            if client_checkout_token:
+                _record_pos_checkout_trace(
+                    db,
+                    client_token=client_checkout_token,
+                    sale_id=sale_id,
+                    purchase_id=purchase_id,
+                    receipt_no=receipt_no,
+                    warehouse_id=warehouse_id,
+                    cashier_user_id=selected_cashier["id"],
+                    sale_date=sale_date,
+                    customer_name=customer["customer_name"],
+                    customer_phone=(customer["phone"] if "phone" in customer.keys() else "") or customer_phone,
+                    total_amount=financials["total_amount"],
+                    status="success",
+                )
+
             db.commit()
             break
         except ValueError as exc:
@@ -6975,3 +7174,40 @@ def pos_checkout():
             "receipt_whatsapp_error": str((receipt_delivery or {}).get("error") or "").strip(),
         }
     )
+
+
+@pos_bp.get("/checkout-trace/<client_token>")
+def pos_checkout_trace(client_token):
+    denied = _require_pos_access(json_mode=True)
+    if denied:
+        return denied
+
+    db = get_db()
+    _ensure_pos_checkout_trace_schema(db)
+    trace_row = _fetch_pos_checkout_trace(db, client_token)
+    if trace_row is None:
+        return jsonify({"status": "not_found", "found": False, "message": "Belum ada checkout tersimpan untuk token ini."})
+
+    sale_id = _to_int(trace_row["sale_id"], 0)
+    if sale_id <= 0:
+        return jsonify({"status": "pending", "found": False, "message": "Checkout masih diproses server."})
+
+    sale_detail = _fetch_pos_sale_detail_by_id(db, sale_id, allow_hidden_archive=True)
+    if sale_detail is None:
+        return jsonify(
+            {
+                "status": "not_found",
+                "found": False,
+                "message": "Trace checkout ada, tapi transaksi POS belum bisa dibuka.",
+                "sale_id": sale_id,
+                "receipt_no": trace_row["receipt_no"],
+            }
+        )
+
+    payload = _build_pos_checkout_success_payload_from_sale_detail(
+        sale_detail,
+        message="Checkout kasir sebelumnya sudah ditemukan lagi.",
+    )
+    payload["found"] = True
+    payload["client_checkout_token"] = str(client_token or "").strip()
+    return jsonify(payload)

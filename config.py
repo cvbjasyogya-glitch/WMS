@@ -158,6 +158,9 @@ class Config:
     SECRET_KEY = SECRET_KEY_DEFAULT
 
     SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "wms_session")
+    RECRUITMENT_SESSION_COOKIE_NAME = (
+        os.getenv("RECRUITMENT_SESSION_COOKIE_NAME") or "career_public_session"
+    ).strip() or "career_public_session"
     SESSION_COOKIE_DOMAIN = (os.getenv("SESSION_COOKIE_DOMAIN") or "").strip() or None
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

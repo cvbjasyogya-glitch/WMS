@@ -1,5 +1,4 @@
 import json
-import json
 import os
 import random
 import re
@@ -392,6 +391,11 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_duration_minutes INTEGER DEFAULT 0",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS placement_warehouse_ids TEXT",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS public_account_id INTEGER",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS profile_snapshot_json TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS profile_documents_json TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS hr_storage_folder TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS hr_storage_files_json TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS hr_sms_targets_json TEXT",
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
                 id SERIAL PRIMARY KEY,
@@ -562,6 +566,11 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_duration_minutes", "INTEGER DEFAULT 0")
         _sqlite_ensure_column(db, "recruitment_candidates", "placement_warehouse_ids", "TEXT")
         _sqlite_ensure_column(db, "recruitment_candidates", "public_account_id", "INTEGER")
+        _sqlite_ensure_column(db, "recruitment_candidates", "profile_snapshot_json", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "profile_documents_json", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "hr_storage_folder", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "hr_storage_files_json", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "hr_sms_targets_json", "TEXT")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS recruitment_assessment_questions(
@@ -1274,3 +1283,63 @@ def build_career_resume_path(stored_name):
     if not safe_name:
         return ""
     return os.path.join(get_career_resume_root(), safe_name)
+
+
+def get_sms_storage_base_root():
+    configured_root = str(current_app.config.get("SMS_STORAGE_ROOT") or "").strip()
+    root_path = configured_root or os.path.join(current_app.instance_path, "sms_storage", "storage")
+    os.makedirs(root_path, exist_ok=True)
+    return os.path.abspath(root_path)
+
+
+def build_sms_user_storage_root(user_id):
+    try:
+        safe_user_id = int(user_id or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    if safe_user_id <= 0:
+        return ""
+    root_path = os.path.join(get_sms_storage_base_root(), f"user_{safe_user_id}")
+    os.makedirs(root_path, exist_ok=True)
+    return os.path.abspath(root_path)
+
+
+def build_sms_storage_absolute_path(relative_path=""):
+    base_root = get_sms_storage_base_root()
+    cleaned = str(relative_path or "").replace("\\", "/").strip().strip("/")
+    if not cleaned:
+        return base_root
+    normalized = os.path.normpath(cleaned).replace("\\", "/").strip()
+    if normalized in {"", ".", ".."} or normalized.startswith("../"):
+        return ""
+    absolute_path = os.path.abspath(os.path.join(base_root, normalized))
+    if absolute_path != base_root and not absolute_path.startswith(base_root + os.sep):
+        return ""
+    return absolute_path
+
+
+def sanitize_recruitment_storage_label(value, fallback="Kandidat"):
+    safe_value = re.sub(r'[<>:"/\\\\|?*\x00-\x1f]+', " ", str(value or ""))
+    safe_value = " ".join(safe_value.replace("_", " ").split())
+    if not safe_value:
+        safe_value = str(fallback or "Kandidat").strip() or "Kandidat"
+    return safe_value[:96]
+
+
+def build_recruitment_candidate_intake_relative_folder(candidate_id, candidate_name):
+    try:
+        safe_candidate_id = int(candidate_id or 0)
+    except (TypeError, ValueError):
+        safe_candidate_id = 0
+    label = sanitize_recruitment_storage_label(candidate_name, "Kandidat")
+    folder_name = f"{label} - Kandidat {safe_candidate_id}" if safe_candidate_id > 0 else label
+    return "/".join(("_hr_recruitment_intake", folder_name))
+
+
+def build_recruitment_candidate_intake_path(candidate_id, candidate_name):
+    relative_folder = build_recruitment_candidate_intake_relative_folder(candidate_id, candidate_name)
+    absolute_path = build_sms_storage_absolute_path(relative_folder)
+    if not absolute_path:
+        return ""
+    os.makedirs(absolute_path, exist_ok=True)
+    return absolute_path
