@@ -1192,10 +1192,45 @@ def _render_candidate_jobs_portal(
                 selected_opening["is_saved"] = selected_summary.get("is_saved")
                 selected_opening["has_applied"] = selected_summary.get("has_applied")
                 selected_opening["application"] = selected_summary.get("application")
-    show_application_success_modal = (
-        str(request.args.get("applied") or "").strip() == "1"
-        and selected_opening is not None
-    )
+    application_feedback_modal = None
+    application_notice = str(request.args.get("application_notice") or "").strip().lower()
+    if selected_opening is not None:
+        if str(request.args.get("applied") or "").strip() == "1":
+            application_feedback_modal = {
+                "kicker": "Lamaran Terkirim",
+                "title": "Terima kasih sudah melamar.",
+                "body": [
+                    f"Lamaran Anda untuk posisi {selected_opening.get('title') or 'ini'} sudah kami terima. Tim HR akan melakukan screening terlebih dahulu.",
+                    "Silakan cek email secara berkala untuk melihat update tahap berikutnya, termasuk pemberitahuan lolos screening atau kode tes jika Anda lanjut ke tahap assessment.",
+                ],
+                "primary_label": "Lihat Lamaran",
+                "primary_url": url_for("career.applications_page"),
+                "secondary_label": "Tutup",
+            }
+        elif application_notice == "duplicate_pending":
+            application_feedback_modal = {
+                "kicker": "Lamaran Sudah Masuk",
+                "title": "Lamaran Anda sudah kami terima.",
+                "body": [
+                    f"Posisi {selected_opening.get('title') or 'ini'} sudah pernah Anda lamar dan saat ini masih menunggu screening HR.",
+                    "Silakan cek email secara berkala. Jika Anda lolos review awal, undangan atau kode tes akan kami kirim otomatis ke email Anda.",
+                ],
+                "primary_label": "Lihat Lamaran",
+                "primary_url": url_for("career.applications_page"),
+                "secondary_label": "Tutup",
+            }
+        elif application_notice == "duplicate_ready":
+            application_feedback_modal = {
+                "kicker": "Lamaran Sudah Tercatat",
+                "title": "Lamaran ini sudah pernah Anda kirim.",
+                "body": [
+                    f"Lamaran untuk posisi {selected_opening.get('title') or 'ini'} sudah ada di dashboard Anda.",
+                    "Jika Anda sudah lolos screening HR, kode tes atau tautan tahap berikutnya bisa dilihat dari email dan halaman lamaran kandidat.",
+                ],
+                "primary_label": "Lihat Lamaran",
+                "primary_url": url_for("career.applications_page"),
+                "secondary_label": "Tutup",
+            }
     return render_template(
         "career_candidate_jobs.html",
         candidate_account=account,
@@ -1209,7 +1244,7 @@ def _render_candidate_jobs_portal(
         selected_warehouse_id=selected_warehouse_id,
         candidate_application_count=len(applications),
         candidate_saved_count=len(saved_opening_ids),
-        show_application_success_modal=show_application_success_modal,
+        application_feedback_modal=application_feedback_modal,
     )
 
 
@@ -2522,6 +2557,14 @@ def apply():
     )
     if duplicate_candidate:
         existing_code = normalize_assessment_code(duplicate_candidate.get("assessment_code"))
+        if source_view == "portal_candidate":
+            return redirect(
+                build_career_public_url(
+                    "career.portal_page",
+                    vacancy=opening["id"],
+                    application_notice="duplicate_ready" if existing_code else "duplicate_pending",
+                )
+            )
         if existing_code:
             flash(
                 "Lamaran untuk lowongan ini sudah pernah kami terima. Jika Anda sudah lolos screening HR, kode tes tetap bisa dilihat dari email atau dashboard lamaran kandidat.",
@@ -2652,10 +2695,11 @@ def apply():
         )
     db.commit()
 
-    flash(
-        "Lamaran berhasil dikirim dan sudah masuk ke HRIS untuk screening. Jika lolos review awal, kode tes akan dikirim otomatis ke email Anda.",
-        "success",
-    )
+    if source_view != "portal_candidate":
+        flash(
+            "Lamaran berhasil dikirim dan sudah masuk ke HRIS untuk screening. Jika lolos review awal, kode tes akan dikirim otomatis ke email Anda.",
+            "success",
+        )
     return redirect(success_redirect_url)
 
 

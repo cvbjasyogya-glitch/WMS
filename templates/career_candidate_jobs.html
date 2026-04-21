@@ -127,17 +127,18 @@
     </div>
 </section>
 
-{% if show_application_success_modal and selected_opening %}
+{% if application_feedback_modal and selected_opening %}
 <div class="career-code-modal career-candidate-success-modal" id="careerApplicationSuccessModal">
     <div class="career-code-modal-card">
         <button type="button" class="career-code-modal-close" data-career-success-close aria-label="Tutup pop up">×</button>
-        <span class="career-code-modal-kicker">Lamaran Terkirim</span>
-        <h3>Terima kasih sudah melamar.</h3>
-        <p>Lamaran Anda untuk posisi <strong>{{ selected_opening.title }}</strong> sudah kami terima. Tim HR akan melakukan screening terlebih dahulu.</p>
-        <p>Silakan cek email secara berkala untuk melihat update tahap berikutnya, termasuk pemberitahuan lolos screening atau kode tes jika Anda lanjut ke tahap assessment.</p>
+        <span class="career-code-modal-kicker">{{ application_feedback_modal.kicker }}</span>
+        <h3>{{ application_feedback_modal.title }}</h3>
+        {% for paragraph in application_feedback_modal.body %}
+        <p>{{ paragraph }}</p>
+        {% endfor %}
         <div class="career-code-modal-actions">
-            <a href="{{ url_for('career.applications_page') }}">Lihat Lamaran</a>
-            <button type="button" data-career-success-close>Tutup</button>
+            <a href="{{ application_feedback_modal.primary_url }}">{{ application_feedback_modal.primary_label }}</a>
+            <button type="button" data-career-success-close>{{ application_feedback_modal.secondary_label }}</button>
         </div>
     </div>
 </div>

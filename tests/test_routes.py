@@ -4,8 +4,10 @@ import sqlite3
 import unittest
 import json
 import importlib
+import gc
 from datetime import date as date_cls, datetime, timedelta, timezone
 from io import BytesIO, StringIO
+from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
@@ -15,6 +17,7 @@ import init_db as init_db_module
 import services.notification_service as notification_service
 import services.receipt_pdf_service as receipt_pdf_service
 import services.whatsapp_service as whatsapp_service
+import scripts.backup_sqlite_db as backup_sqlite_db_module
 import scripts.postgresql_smoke_test as postgresql_smoke_test_module
 import scripts.run_configured_backup as run_configured_backup_module
 from openpyxl import Workbook
@@ -311,6 +314,73 @@ class WmsRoutesTestCase(unittest.TestCase):
         finally:
             run_configured_backup_module.Config.DATABASE_BACKEND = original_backend
             run_configured_backup_module.Config.DATABASE_URL = original_url
+
+    def test_sqlite_backup_script_keeps_pos_sales_source_rows_intact(self):
+        backup_output_dir = os.path.join(self.receipt_pdf_root, f"sqlite_backups_{uuid4().hex}")
+        os.makedirs(backup_output_dir, exist_ok=True)
+        source_db_path = os.path.join(self.receipt_pdf_root, f"backup_source_{uuid4().hex}.db")
+
+        conn = sqlite3.connect(source_db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE pos_sales(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receipt_no TEXT,
+                    total_amount REAL
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO pos_sales(receipt_no, total_amount) VALUES (?, ?)",
+                ("POS-20260421-0001", 125000),
+            )
+            conn.commit()
+            source_before = conn.execute(
+                "SELECT COUNT(*) FROM pos_sales"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        backup_path = backup_sqlite_db_module.backup_database(
+            Path(source_db_path),
+            Path(backup_output_dir),
+        )
+
+        conn = sqlite3.connect(source_db_path)
+        try:
+            source_after = conn.execute(
+                "SELECT COUNT(*) FROM pos_sales"
+            ).fetchone()[0]
+            source_receipt = conn.execute(
+                "SELECT receipt_no, total_amount FROM pos_sales ORDER BY id ASC"
+            ).fetchone()
+        finally:
+            conn.close()
+
+        backup_conn = sqlite3.connect(str(backup_path))
+        try:
+            backup_count = backup_conn.execute(
+                "SELECT COUNT(*) FROM pos_sales"
+            ).fetchone()[0]
+            backup_receipt = backup_conn.execute(
+                "SELECT receipt_no, total_amount FROM pos_sales ORDER BY id ASC"
+            ).fetchone()
+        finally:
+            backup_conn.close()
+
+        self.assertTrue(Path(backup_path).exists())
+        self.assertEqual(source_before, 1)
+        self.assertEqual(source_after, source_before)
+        self.assertEqual(source_receipt, backup_receipt)
+        self.assertEqual(backup_count, source_before)
+        gc.collect()
+        if Path(backup_path).exists():
+            os.remove(backup_path)
+        if os.path.exists(source_db_path):
+            os.remove(source_db_path)
+        if os.path.isdir(backup_output_dir):
+            shutil.rmtree(backup_output_dir, ignore_errors=True)
 
     def test_postgresql_smoke_test_reports_missing_career_tables_cleanly(self):
         original_backend = postgresql_smoke_test_module.Config.DATABASE_BACKEND
@@ -12332,6 +12402,74 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = portal_response.get_data(as_text=True)
         self.assertIn("Terima kasih sudah melamar.", html)
         self.assertIn("cek email secara berkala", html)
+
+    def test_public_career_portal_duplicate_apply_shows_info_popup(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Quick Apply Duplicate Portal",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Tes apply duplikat dari portal kandidat.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Quick Apply Duplicate Portal",),
+            ).fetchone()
+
+        self.login_public_career_account_session(
+            email="quick-apply-duplicate@example.com",
+            full_name="Quick Apply Duplicate Candidate",
+            ready_profile=True,
+        )
+        first_apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "source_view": "portal_candidate",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(first_apply_response.status_code, 302)
+
+        duplicate_apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "source_view": "portal_candidate",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(duplicate_apply_response.status_code, 302)
+        self.assertEqual(
+            duplicate_apply_response.headers["Location"],
+            f"/karir/portal?vacancy={opening['id']}&application_notice=duplicate_pending",
+        )
+
+        portal_response = self.client.get(
+            f"/karir/portal?vacancy={opening['id']}&application_notice=duplicate_pending"
+        )
+        self.assertEqual(portal_response.status_code, 200)
+        html = portal_response.get_data(as_text=True)
+        self.assertIn("Lamaran Anda sudah kami terima.", html)
+        self.assertIn("menunggu screening HR", html)
 
     def test_hris_recruitment_renders_public_candidate_profile_snapshot_and_hr_storage_links(self):
         self.create_user("hr_snapshot_reader", "pass1234", "hr")
