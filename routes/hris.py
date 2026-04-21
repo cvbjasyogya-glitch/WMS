@@ -2801,7 +2801,6 @@ def _send_recruitment_assessment_code_email(candidate):
     assessment_url = build_career_public_url(
         "career.assessment",
         force_external=True,
-        code=assessment_code,
     )
     expiry_label = _format_hris_datetime_display(
         safe_candidate.get("assessment_expires_at"),
@@ -2818,8 +2817,9 @@ def _send_recruitment_assessment_code_email(candidate):
         "",
         f"Lamaran Anda untuk posisi {position_title} di {company_name} telah lolos screening awal HR.",
         "Silakan lanjut ke tahap tes menggunakan detail berikut:",
-        f"Kode tes: {assessment_code}",
-        f"Tautan tes: {assessment_url}",
+        f"Kode tes 5 digit: {assessment_code}",
+        f"Halaman masuk tes: {assessment_url}",
+        "Buka halaman tes tersebut, lalu masukkan kode 5 digit di atas untuk membuka semua soal.",
         f"Masa berlaku kode: {expiry_label if expiry_label != '-' else 'Belum diatur khusus oleh HR.'}",
         f"Durasi tes: {duration_label}",
         "",

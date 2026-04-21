@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Masuk Tes Karir{% endblock %}
+
+{% block extra_head %}
+{{ super() }}
+<style>
+.career-assessment-entry-shell {
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top, rgba(0, 91, 170, 0.08), transparent 38%),
+        linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+}
+
+.career-assessment-entry-wrap {
+    width: min(1180px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 18px 0 56px;
+}
+
+.career-assessment-entry-card {
+    width: min(620px, 100%);
+    margin: 36px auto 0;
+    padding: 34px 32px;
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(201, 214, 229, 0.92);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+    display: grid;
+    gap: 20px;
+}
+
+.career-assessment-entry-kicker {
+    display: inline-flex;
+    width: fit-content;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #eef5ff;
+    color: #005baa;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.career-assessment-entry-card h1 {
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 2.9rem);
+    line-height: 1.08;
+    letter-spacing: -0.04em;
+    color: #13233d;
+}
+
+.career-assessment-entry-card p {
+    margin: 0;
+    color: #54657f;
+    font-size: 1.02rem;
+    line-height: 1.75;
+}
+
+.career-assessment-entry-notes {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 8px;
+    color: #3b4f68;
+    line-height: 1.65;
+}
+
+.career-assessment-entry-form {
+    display: grid;
+    gap: 16px;
+}
+
+.career-assessment-entry-form label {
+    display: grid;
+    gap: 8px;
+    color: #21344e;
+    font-weight: 700;
+}
+
+.career-assessment-entry-form input {
+    min-height: 56px;
+    padding: 0 18px;
+    border-radius: 16px;
+    border: 1px solid #cfdae8;
+    background: #fff;
+    color: #13233d;
+    font: inherit;
+    font-size: 1.02rem;
+    letter-spacing: 0.18em;
+}
+
+.career-assessment-entry-form input:focus {
+    outline: none;
+    border-color: #2f80ed;
+    box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.12);
+}
+
+.career-assessment-entry-form button {
+    min-height: 54px;
+    border: none;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #005baa, #1d7ad8);
+    color: #fff;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.career-assessment-entry-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.career-assessment-entry-actions a {
+    min-height: 48px;
+    padding: 0 18px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #cdd9ea;
+    color: #315175;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+@media (max-width: 720px) {
+    .career-assessment-entry-wrap {
+        width: min(100%, calc(100% - 24px));
+        padding: 10px 0 28px;
+    }
+
+    .career-assessment-entry-card {
+        margin-top: 18px;
+        padding: 24px 18px;
+        border-radius: 22px;
+        gap: 16px;
+    }
+
+    .career-assessment-entry-card p,
+    .career-assessment-entry-notes {
+        font-size: 0.96rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="career-assessment-entry-shell">
+    <div class="career-assessment-entry-wrap">
+        {% include "_career_public_header_astra.html" %}
+
+        <section class="career-assessment-entry-card">
+            <span class="career-assessment-entry-kicker">Masuk Tes</span>
+            <h1>Masukkan kode tes untuk membuka semua soal.</h1>
+            <p>
+                Setelah HR menyetujui lamaran Anda, sistem akan mengirimkan email berisi kode tes 5 digit.
+                Buka halaman ini, masukkan kodenya, lalu sesi assessment akan terbuka penuh.
+            </p>
+            <ul class="career-assessment-entry-notes">
+                <li>Gunakan kode tes yang dikirim ke email kandidat Anda.</li>
+                <li>Kode hanya bisa dipakai selama masih aktif dan belum kedaluwarsa.</li>
+                <li>Pastikan koneksi stabil sebelum mulai mengerjakan soal.</li>
+            </ul>
+
+            <form class="career-assessment-entry-form" method="post" action="{{ assessment_entry_action }}">
+                <label for="careerAssessmentEntryCode">
+                    Kode Tes 5 Digit
+                    <input
+                        id="careerAssessmentEntryCode"
+                        type="text"
+                        name="assessment_code"
+                        inputmode="numeric"
+                        pattern="[0-9]{5}"
+                        maxlength="5"
+                        placeholder="Contoh: 12345"
+                        value="{{ assessment_prefill_code or '' }}"
+                        required
+                    >
+                </label>
+                <button type="submit">Buka Soal Tes</button>
+            </form>
+
+            <div class="career-assessment-entry-actions">
+                <a href="{{ url_for('career.signin_page') }}">Kembali ke Masuk Kandidat</a>
+                <a href="{{ url_for('career.help_page') }}">Lihat Bantuan</a>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

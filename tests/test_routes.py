@@ -12465,6 +12465,77 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Terima kasih sudah melamar.", html)
         self.assertIn("cek email secara berkala", html)
 
+    def test_public_career_application_appears_in_candidate_history_page(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "History Candidate Opening",
+                    "Retail",
+                    "full_time",
+                    "Mataram",
+                    "Lamaran ini harus langsung muncul di riwayat kandidat.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("History Candidate Opening",),
+            ).fetchone()
+
+        account = self.login_public_career_account_session(
+            email="history-candidate@example.com",
+            full_name="History Candidate",
+            ready_profile=True,
+        )
+        apply_response = self.client.post(
+            "/karir/apply",
+            data={
+                "opening_id": str(opening["id"]),
+                "source_view": "portal_candidate",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(apply_response.status_code, 302)
+
+        history_response = self.client.get("/karir/lamaran")
+        self.assertEqual(history_response.status_code, 200)
+        html = history_response.get_data(as_text=True)
+        self.assertIn("History Candidate Opening", html)
+        self.assertNotIn("Tidak ada riwayat lamaran", html)
+        self.assertIn("Menunggu screening HR", html)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_row = db.execute(
+                """
+                SELECT public_account_id, application_channel, source
+                FROM recruitment_candidates
+                WHERE email=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("history-candidate@example.com",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate_row)
+        self.assertEqual(int(candidate_row["public_account_id"]), int(account["id"]))
+        self.assertEqual(candidate_row["application_channel"], "public_portal")
+        self.assertEqual(candidate_row["source"], "Halaman Karir")
+
     def test_public_career_portal_duplicate_apply_shows_info_popup(self):
         with self.app.app_context():
             db = get_db()
@@ -12944,14 +13015,34 @@ class WmsRoutesTestCase(unittest.TestCase):
         mocked_send.assert_called_once()
         approval_email_body = mocked_send.call_args.args[2]
         self.assertIn(candidate_after_approval["assessment_code"], approval_email_body)
-        self.assertIn("/karir/tes?code=", approval_email_body)
+        self.assertIn("/karir/tes", approval_email_body)
+        self.assertNotIn(f"/karir/tes?code={candidate_after_approval['assessment_code']}", approval_email_body)
+        self.assertIn("masukkan kode 5 digit", approval_email_body.lower())
 
-        test_page = self.client.get(f"/karir/tes?code={candidate_after_approval['assessment_code']}")
+        test_gate_page = self.client.get("/karir/tes")
+        self.assertEqual(test_gate_page.status_code, 200)
+        test_gate_html = test_gate_page.get_data(as_text=True)
+        self.assertIn("Masukkan kode tes untuk membuka semua soal.", test_gate_html)
+        self.assertIn('name="assessment_code"', test_gate_html)
+        self.assertNotIn("2 + 2 =", test_gate_html)
+
+        test_gate_submit = self.client.post(
+            "/karir/tes",
+            data={"assessment_code": candidate_after_approval["assessment_code"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(test_gate_submit.status_code, 302)
+        self.assertTrue(
+            test_gate_submit.headers["Location"].endswith(
+                f"/karir/tes?code={candidate_after_approval['assessment_code']}"
+            )
+        )
+
+        test_page = self.client.get(test_gate_submit.headers["Location"])
         self.assertEqual(test_page.status_code, 200)
         test_html = test_page.get_data(as_text=True)
         self.assertIn("Tes Karir", test_html)
         self.assertIn("2 + 2 =", test_html)
-        self.assertIn("Punya Kode Tes?", test_html)
         self.assertIn('id="careerAssessmentFirstQuestion"', test_html)
         self.assertIn('id="careerAssessmentSubmitSection"', test_html)
 
@@ -14356,6 +14447,99 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Jenis Berkas *", documents_html)
         self.assertIn('name="documents"', documents_html)
         self.assertIn("Upload Banyak Berkas Sekaligus", documents_html)
+
+    def test_public_career_applications_page_links_legacy_public_application_to_account(self):
+        account = self.login_public_career_account_session(
+            email="legacy-lamaran@example.com",
+            full_name="Legacy Lamaran",
+            ready_profile=True,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Legacy Public Opening",
+                    "Warehouse",
+                    "full_time",
+                    "Mataram",
+                    "Lamaran lama dari portal publik.",
+                    "Teliti dan siap kerja.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Legacy Public Opening",),
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name,
+                    warehouse_id,
+                    position_title,
+                    department,
+                    stage,
+                    status,
+                    source,
+                    phone,
+                    email,
+                    vacancy_id,
+                    application_channel,
+                    public_account_id,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Legacy Lamaran",
+                    1,
+                    "Legacy Public Opening",
+                    "Warehouse",
+                    "applied",
+                    "active",
+                    "Halaman Karir",
+                    "6281233334444",
+                    "legacy-lamaran@example.com",
+                    opening["id"],
+                    "public_portal",
+                    None,
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/karir/lamaran")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Legacy Public Opening", html)
+        self.assertNotIn("Tidak ada riwayat lamaran", html)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT public_account_id
+                FROM recruitment_candidates
+                WHERE email=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("legacy-lamaran@example.com",),
+            ).fetchone()
+
+        self.assertEqual(int(candidate_after["public_account_id"]), int(account["id"]))
 
     def test_public_career_candidate_can_save_personal_profile_section(self):
         account = self.login_public_career_account_session(

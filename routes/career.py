@@ -1248,6 +1248,67 @@ def _render_candidate_jobs_portal(
     )
 
 
+def _attach_legacy_public_applications_to_account(db, account):
+    safe_account = dict(account or {})
+    try:
+        account_id = int(safe_account.get("id") or 0)
+    except (TypeError, ValueError):
+        account_id = 0
+    if account_id <= 0:
+        return 0
+
+    account_email = normalize_candidate_email(safe_account.get("email"))
+    personal_payload = _get_candidate_personal_profile_payload(db, account_id)
+    account_phone = normalize_candidate_phone(personal_payload.get("phone"))
+    if not account_email and not account_phone:
+        return 0
+
+    rows = db.execute(
+        """
+        SELECT id, email, phone
+        FROM recruitment_candidates
+        WHERE public_account_id IS NULL
+          AND (
+              application_channel=?
+              OR LOWER(COALESCE(source, ''))='halaman karir'
+          )
+        ORDER BY created_at DESC, id DESC
+        """,
+        (normalize_career_application_channel("public_portal"),),
+    ).fetchall()
+
+    matched_candidate_ids = []
+    for row in rows:
+        row_data = dict(row)
+        row_email = normalize_candidate_email(row_data.get("email"))
+        row_phone = normalize_candidate_phone(row_data.get("phone"))
+        email_match = bool(account_email and row_email and row_email == account_email)
+        phone_match = bool(account_phone and row_phone and row_phone == account_phone)
+        if email_match or phone_match:
+            try:
+                candidate_id = int(row_data.get("id") or 0)
+            except (TypeError, ValueError):
+                candidate_id = 0
+            if candidate_id > 0:
+                matched_candidate_ids.append(candidate_id)
+
+    if not matched_candidate_ids:
+        return 0
+
+    db.executemany(
+        """
+        UPDATE recruitment_candidates
+        SET public_account_id=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+          AND public_account_id IS NULL
+        """,
+        [(account_id, candidate_id) for candidate_id in matched_candidate_ids],
+    )
+    db.commit()
+    return len(matched_candidate_ids)
+
+
 def _fetch_candidate_workspace_applications(db, account):
     safe_account = dict(account or {})
     try:
@@ -1257,6 +1318,8 @@ def _fetch_candidate_workspace_applications(db, account):
     account_email = normalize_candidate_email(safe_account.get("email"))
     if account_id <= 0 and not account_email:
         return []
+
+    _attach_legacy_public_applications_to_account(db, safe_account)
 
     rows = db.execute(
         """
@@ -1271,7 +1334,10 @@ def _fetch_candidate_workspace_applications(db, account):
         FROM recruitment_candidates r
         LEFT JOIN career_openings o ON r.vacancy_id = o.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
-        WHERE r.application_channel=?
+        WHERE (
+              r.application_channel=?
+              OR LOWER(COALESCE(r.source, ''))='halaman karir'
+          )
           AND (
               r.public_account_id=?
               OR (r.public_account_id IS NULL AND LOWER(COALESCE(r.email, ''))=LOWER(?))
@@ -2703,28 +2769,38 @@ def apply():
     return redirect(success_redirect_url)
 
 
-@career_bp.route("/karir/tes")
+@career_bp.route("/karir/tes", methods=["GET", "POST"])
 def assessment():
     db = get_db()
     ensure_career_schema(db)
+    if request.method == "POST":
+        assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
+        if not assessment_code:
+            flash("Masukkan kode tes 5 digit yang valid.", "error")
+            return redirect(build_career_public_url("career.assessment"))
+        return redirect(build_career_public_url("career.assessment", code=assessment_code))
+
     current_dt = datetime.now()
     assessment_code = normalize_assessment_code(request.args.get("code"))
     if not assessment_code:
-        flash("Masukkan kode tes 5 digit yang valid.", "error")
-        return redirect(build_career_public_url("career.index"))
+        return render_template(
+            "career_assessment_entry.html",
+            assessment_entry_action=build_career_public_url("career.assessment"),
+            assessment_prefill_code="",
+        )
 
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
         flash("Kode tes tidak ditemukan.", "error")
-        return redirect(build_career_public_url("career.index"))
+        return redirect(build_career_public_url("career.assessment"))
     if str(candidate.get("status") or "").strip().lower() != "active":
         flash("Sesi tes ini sudah tidak aktif. Silakan tunggu update terbaru dari tim HR.", "error")
-        return redirect(build_career_public_url("career.index"))
+        return redirect(build_career_public_url("career.assessment"))
 
     questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
     if not questions:
         flash("Soal tes belum disiapkan HR untuk posisi ini.", "error")
-        return redirect(build_career_public_url("career.index", code=assessment_code))
+        return redirect(build_career_public_url("career.assessment"))
 
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
         score_summary = score_assessment_questions(questions, candidate.get("assessment_answers_json"))
@@ -2748,7 +2824,7 @@ def assessment():
         )
     if _is_candidate_assessment_code_expired(candidate, current_dt):
         flash("Kode tes ini sudah melewati masa berlaku. Silakan hubungi HR untuk kode baru.", "error")
-        return redirect(build_career_public_url("career.index"))
+        return redirect(build_career_public_url("career.assessment"))
 
     answers = decode_assessment_answers(candidate.get("assessment_answers_json"))
     if candidate.get("assessment_status") != "started":
@@ -2769,7 +2845,7 @@ def assessment():
 
     if _is_candidate_assessment_duration_expired(candidate, current_dt):
         flash("Waktu pengerjaan tes sudah habis. Silakan hubungi HR untuk tindak lanjut berikutnya.", "error")
-        return redirect(build_career_public_url("career.index"))
+        return redirect(build_career_public_url("career.assessment"))
 
     return render_template(
         "career_assessment.html",
