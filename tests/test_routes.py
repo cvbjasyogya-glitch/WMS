@@ -68,6 +68,7 @@ from services.crm_loyalty import ensure_crm_membership_multi_program_schema, get
 from services.career_service import (
     create_public_account_request,
     ensure_career_schema,
+    get_career_public_profile_sections,
     upsert_career_public_profile_section,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -12424,6 +12425,105 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertFalse(candidate["hr_storage_folder"])
         self.assertFalse(candidate["hr_storage_files_json"])
         self.assertFalse(candidate["hr_sms_targets_json"])
+
+    def test_public_career_application_serializes_profile_snapshot_datetime_fields(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    2,
+                    "Datetime Snapshot Vacancy",
+                    "Retail",
+                    "full_time",
+                    "Mega",
+                    "Lamaran harus tetap sukses walau snapshot profil membawa datetime dari PostgreSQL.",
+                    "Siap screening.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Datetime Snapshot Vacancy",),
+            ).fetchone()
+
+        account = self.login_public_career_account_session(
+            email="snapshot-datetime@example.com",
+            full_name="Snapshot Datetime",
+            ready_profile=True,
+        )
+        snapshot_dt = datetime(2026, 4, 21, 22, 23, 0)
+        with self.app.app_context():
+            db = get_db()
+            patched_sections = get_career_public_profile_sections(db, int(account["id"]))
+        patched_sections.setdefault(
+            "additional",
+            {
+                "payload": {
+                    "domicile": "Yogyakarta",
+                    "preferred_area": "Sleman",
+                    "notes": "Siap diproses.",
+                },
+                "completion_state": "complete",
+                "updated_at": snapshot_dt,
+            },
+        )
+        patched_sections["personal"]["payload"]["availability_checked_at"] = snapshot_dt
+        patched_sections["personal"]["updated_at"] = snapshot_dt
+        patched_sections["additional"]["payload"]["follow_up_at"] = snapshot_dt
+        patched_sections["additional"]["updated_at"] = snapshot_dt
+        files = list((patched_sections.get("documents") or {}).get("payload", {}).get("files") or [])
+        if files:
+            files[0]["uploaded_at"] = snapshot_dt
+        patched_sections["documents"]["payload"]["files"] = files
+        patched_sections["documents"]["updated_at"] = snapshot_dt
+        with patch("routes.career.get_career_public_profile_sections", return_value=patched_sections):
+            response = self.client.post(
+                "/karir/apply",
+                data={
+                    "opening_id": str(opening["id"]),
+                    "candidate_name": "Snapshot Datetime",
+                    "phone": "0812 9999 2222",
+                    "note": "Uji serialisasi datetime dari profil kandidat.",
+                    "resume_file": (BytesIO(b"resume-datetime"), "snapshot-datetime.pdf"),
+                },
+                content_type="multipart/form-data",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT candidate_name, email, profile_snapshot_json, profile_documents_json, public_account_id
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Snapshot Datetime",),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        profile_snapshot = json.loads(candidate["profile_snapshot_json"])
+        profile_documents = json.loads(candidate["profile_documents_json"])
+        self.assertEqual(candidate["email"], "snapshot-datetime@example.com")
+        self.assertEqual(candidate["public_account_id"], int(account["id"]))
+        self.assertEqual(profile_snapshot["personal"]["availability_checked_at"], "2026-04-21T22:23:00")
+        self.assertEqual(profile_snapshot["sections"]["personal"]["updated_at"], "2026-04-21T22:23:00")
+        self.assertEqual(profile_snapshot["additional"]["follow_up_at"], "2026-04-21T22:23:00")
+        self.assertTrue(any(item["uploaded_at"] == "2026-04-21T22:23:00" for item in profile_documents))
 
     def test_public_career_application_uses_profile_cv_without_reuploading_resume(self):
         with self.app.app_context():

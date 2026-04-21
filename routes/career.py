@@ -3,7 +3,7 @@ import hashlib
 import os
 import re
 import shutil
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -870,17 +870,29 @@ def _get_career_public_media_absolute_path(media_kind, stored_name):
     return absolute_path
 
 
+def _make_career_json_safe(value):
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _make_career_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_make_career_json_safe(item) for item in value]
+    return value
+
+
 def _build_candidate_profile_snapshot(account, profile_sections):
-    safe_account = dict(account or {})
+    safe_account = _make_career_json_safe(dict(account or {}))
     safe_sections = {}
     for raw_key, raw_section in dict(profile_sections or {}).items():
         safe_key = normalize_career_public_profile_section_key(raw_key)
         if not safe_key or not isinstance(raw_section, dict):
             continue
         safe_sections[safe_key] = {
-            "payload": dict(raw_section.get("payload") or {}),
+            "payload": _make_career_json_safe(dict(raw_section.get("payload") or {})),
             "completion_state": str(raw_section.get("completion_state") or "incomplete").strip().lower() or "incomplete",
-            "updated_at": raw_section.get("updated_at"),
+            "updated_at": _make_career_json_safe(raw_section.get("updated_at")),
         }
     return {
         "account_id": int(safe_account.get("id") or 0) or None,
@@ -913,7 +925,7 @@ def _collect_candidate_profile_documents(profile_sections):
                 "document_type": document_type,
                 "label": _resolve_profile_document_label(document_type, file_entry.get("label")),
                 "stored_name": safe_stored_name,
-                "uploaded_at": file_entry.get("uploaded_at"),
+                "uploaded_at": _make_career_json_safe(file_entry.get("uploaded_at")),
                 "source_path": source_path,
                 "source_exists": bool(source_path and os.path.exists(source_path)),
             }
@@ -1052,8 +1064,8 @@ def _sync_candidate_hr_intake_storage(
         "candidate_id": int(candidate_id or 0) or None,
         "candidate_name": candidate_name or "",
         "copied_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "profile_snapshot": profile_snapshot or {},
-        "profile_documents": archived_documents,
+        "profile_snapshot": _make_career_json_safe(profile_snapshot or {}),
+        "profile_documents": _make_career_json_safe(archived_documents),
     }
     manifest_path = _allocate_candidate_intake_file_path(intake_root, "Ringkasan Profil Kandidat.json")
     with open(manifest_path, "w", encoding="utf-8") as handle:
