@@ -27,6 +27,14 @@ CAREER_RESUME_EXTENSIONS = {".pdf", ".doc", ".docx"}
 CAREER_APPLICATION_CHANNELS = {"public_portal", "manual_hr"}
 CAREER_ASSESSMENT_STATUSES = {"pending", "started", "submitted", "reviewed"}
 CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d"}
+CAREER_ASSESSMENT_TEST_DEFINITIONS = [
+    {"key": "basic", "label": "Tes Kemampuan Dasar"},
+    {"key": "academic", "label": "Tes Potensi Akademik"},
+    {"key": "case_study", "label": "Studi Kasus"},
+]
+CAREER_ASSESSMENT_TEST_TYPE_MAP = {
+    item["key"]: item for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
+}
 CAREER_PUBLIC_ACCOUNT_REQUEST_STATUSES = {"pending", "processed", "declined"}
 CAREER_PUBLIC_ACCOUNT_STATUSES = {"pending", "active", "disabled"}
 CAREER_DUPLICATE_APPLICATION_STATUSES = {"active", "on_hold"}
@@ -146,6 +154,11 @@ def normalize_assessment_option(value):
     return safe_value if safe_value in CAREER_ASSESSMENT_CORRECT_OPTIONS else ""
 
 
+def normalize_assessment_test_type(value):
+    safe_value = str(value or "").strip().lower()
+    return safe_value if safe_value in CAREER_ASSESSMENT_TEST_TYPE_MAP else "basic"
+
+
 def hash_career_public_verification_token(token):
     safe_token = str(token or "").strip()
     if not safe_token:
@@ -178,6 +191,88 @@ def normalize_assessment_duration_minutes(value, default=0, maximum=720):
     if maximum and safe_value > int(maximum):
         return int(maximum)
     return safe_value
+
+
+def decode_assessment_section_state(raw_value):
+    if not raw_value:
+        return {"current": "", "sections": {}}
+    try:
+        payload = json.loads(raw_value)
+    except Exception:
+        return {"current": "", "sections": {}}
+    if not isinstance(payload, dict):
+        return {"current": "", "sections": {}}
+    sections_payload = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+    normalized_sections = {}
+    for raw_key, raw_section in sections_payload.items():
+        section_key = normalize_assessment_test_type(raw_key)
+        if not isinstance(raw_section, dict):
+            raw_section = {}
+        normalized_sections[section_key] = {
+            "started_at": str(raw_section.get("started_at") or "").strip(),
+            "submitted_at": str(raw_section.get("submitted_at") or "").strip(),
+        }
+    return {
+        "current": normalize_assessment_test_type(payload.get("current")) if payload.get("current") else "",
+        "sections": normalized_sections,
+    }
+
+
+def encode_assessment_section_state(state):
+    if isinstance(state, str):
+        safe_state = decode_assessment_section_state(state)
+    else:
+        payload = state if isinstance(state, dict) else {}
+        sections_payload = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+        normalized_sections = {}
+        for raw_key, raw_section in sections_payload.items():
+            section_key = normalize_assessment_test_type(raw_key)
+            if not isinstance(raw_section, dict):
+                raw_section = {}
+            normalized_sections[section_key] = {
+                "started_at": str(raw_section.get("started_at") or "").strip(),
+                "submitted_at": str(raw_section.get("submitted_at") or "").strip(),
+            }
+        safe_state = {
+            "current": (
+                normalize_assessment_test_type(payload.get("current"))
+                if payload.get("current")
+                else ""
+            ),
+            "sections": normalized_sections,
+        }
+    return json.dumps(safe_state, ensure_ascii=True, sort_keys=True)
+
+
+def decode_assessment_section_durations(raw_value):
+    if not raw_value:
+        return {}
+    try:
+        payload = json.loads(raw_value)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    normalized = {}
+    for raw_key, raw_value in payload.items():
+        section_key = normalize_assessment_test_type(raw_key)
+        duration_value = normalize_assessment_duration_minutes(raw_value)
+        if duration_value > 0:
+            normalized[section_key] = duration_value
+    return normalized
+
+
+def encode_assessment_section_durations(durations):
+    if isinstance(durations, str):
+        normalized = decode_assessment_section_durations(durations)
+    else:
+        normalized = {}
+        for raw_key, raw_value in (durations or {}).items():
+            section_key = normalize_assessment_test_type(raw_key)
+            duration_value = normalize_assessment_duration_minutes(raw_value)
+            if duration_value > 0:
+                normalized[section_key] = duration_value
+    return json.dumps(normalized, ensure_ascii=True, sort_keys=True)
 
 
 def normalize_recruitment_homebase_ids(values):
@@ -409,6 +504,8 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_violation_count INTEGER DEFAULT 0",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_expires_at TIMESTAMP",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_duration_minutes INTEGER DEFAULT 0",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_section_state_json TEXT",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_section_durations_json TEXT",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS placement_warehouse_ids TEXT",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS public_account_id INTEGER",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS profile_snapshot_json TEXT",
@@ -426,6 +523,7 @@ def ensure_career_schema(db):
                 option_c TEXT NOT NULL,
                 option_d TEXT NOT NULL,
                 correct_option TEXT NOT NULL,
+                test_type TEXT DEFAULT 'basic',
                 score_weight INTEGER DEFAULT 10,
                 sort_order INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
@@ -442,6 +540,7 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_c TEXT",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_d TEXT",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS correct_option TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS test_type TEXT DEFAULT 'basic'",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS score_weight INTEGER DEFAULT 10",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1",
@@ -584,6 +683,8 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_violation_count", "INTEGER DEFAULT 0")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_expires_at", "TIMESTAMP")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_duration_minutes", "INTEGER DEFAULT 0")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_section_state_json", "TEXT")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_section_durations_json", "TEXT")
         _sqlite_ensure_column(db, "recruitment_candidates", "placement_warehouse_ids", "TEXT")
         _sqlite_ensure_column(db, "recruitment_candidates", "public_account_id", "INTEGER")
         _sqlite_ensure_column(db, "recruitment_candidates", "profile_snapshot_json", "TEXT")
@@ -602,6 +703,7 @@ def ensure_career_schema(db):
                 option_c TEXT NOT NULL,
                 option_d TEXT NOT NULL,
                 correct_option TEXT NOT NULL,
+                test_type TEXT DEFAULT 'basic',
                 score_weight INTEGER DEFAULT 10,
                 sort_order INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
@@ -611,6 +713,12 @@ def ensure_career_schema(db):
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
+        )
+        _sqlite_ensure_column(
+            db,
+            "recruitment_assessment_questions",
+            "test_type",
+            "TEXT DEFAULT 'basic'",
         )
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_career_openings_public ON career_openings(status, is_public, warehouse_id, sort_order)"

@@ -665,6 +665,80 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (account_id,),
             ).fetchone()
 
+    def build_recruitment_assessment_duration_payload(self, minutes_per_section=15):
+        safe_minutes = int(minutes_per_section or 0)
+        return {
+            "assessment_duration_basic_minutes": str(safe_minutes),
+            "assessment_duration_academic_minutes": str(safe_minutes),
+            "assessment_duration_case_study_minutes": str(safe_minutes),
+        }
+
+    def seed_recruitment_assessment_suite(self, warehouse_id=1):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            question_rows = (
+                (
+                    warehouse_id,
+                    "basic",
+                    "2 + 2 =",
+                    "3",
+                    "4",
+                    "5",
+                    "6",
+                    "b",
+                    40,
+                    1,
+                    1,
+                ),
+                (
+                    warehouse_id,
+                    "academic",
+                    "Lanjutkan pola 2, 4, 6, ...",
+                    "7",
+                    "8",
+                    "9",
+                    "10",
+                    "b",
+                    30,
+                    2,
+                    1,
+                ),
+                (
+                    warehouse_id,
+                    "case_study",
+                    "Saat pelanggan komplain dan stok kosong, langkah terbaik adalah?",
+                    "Diamkan",
+                    "Marah balik",
+                    "Cari solusi dan beri penjelasan",
+                    "Batalkan sepihak",
+                    "c",
+                    30,
+                    3,
+                    1,
+                ),
+            )
+            db.executemany(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id,
+                    test_type,
+                    prompt,
+                    option_a,
+                    option_b,
+                    option_c,
+                    option_d,
+                    correct_option,
+                    score_weight,
+                    sort_order,
+                    is_active
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                question_rows,
+            )
+            db.commit()
+
     def get_user_id(self, username):
         with self.app.app_context():
             db = get_db()
@@ -13124,7 +13198,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(portal_response.status_code, 200)
         html = portal_response.get_data(as_text=True)
         self.assertIn("Lamaran Anda sudah kami terima.", html)
-        self.assertIn("menunggu screening HR", html)
+        self.assertIn("masih sedang ditinjau", html)
+        self.assertIn("akan kami kirim ke email Anda", html)
         self.assertIn("searchParams.delete('application_notice')", html)
 
     def test_public_career_apply_does_not_treat_shared_phone_from_other_account_as_duplicate(self):
@@ -13653,26 +13728,9 @@ class WmsRoutesTestCase(unittest.TestCase):
                     1,
                 ),
             )
-            db.execute(
-                """
-                INSERT INTO recruitment_assessment_questions(
-                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (1, "2 + 2 =", "3", "4", "5", "6", "b", 50, 1, 1),
-            )
-            db.execute(
-                """
-                INSERT INTO recruitment_assessment_questions(
-                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (1, "Huruf setelah A", "C", "D", "B", "E", "c", 50, 2, 1),
-            )
             db.commit()
             opening = db.execute("SELECT id FROM career_openings WHERE title=?", ("Staff Karir Test",)).fetchone()
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
 
         self.login_public_career_account_session(
             email="bima@example.com",
@@ -13723,8 +13781,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "phone": candidate["phone"],
                     "email": candidate["email"],
                     "assessment_expires_at": "2026-04-30T16:30",
-                    "assessment_duration_minutes": "45",
                     "assessment_status": "pending",
+                    **self.build_recruitment_assessment_duration_payload(15),
                 },
                 follow_redirects=False,
             )
@@ -13776,6 +13834,125 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("2 + 2 =", test_html)
         self.assertIn('id="careerAssessmentFirstQuestion"', test_html)
         self.assertIn('id="careerAssessmentSubmitSection"', test_html)
+
+    def test_public_career_assessment_completes_three_sections_with_hidden_score_and_finish_popup(self):
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            question_rows = db.execute(
+                """
+                SELECT id, test_type
+                FROM recruitment_assessment_questions
+                WHERE warehouse_id=?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (1,),
+            ).fetchall()
+            question_map = {row["test_type"]: row["id"] for row in question_rows}
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, assessment_duration_minutes,
+                    assessment_section_durations_json, application_channel, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Kandidat Tiga Sesi",
+                    1,
+                    "Staff Tiga Sesi",
+                    "Warehouse",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "22222",
+                    "pending",
+                    45,
+                    json.dumps({"basic": 15, "academic": 15, "case_study": 15}),
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        first_page = self.client.get("/karir/tes?code=22222")
+        self.assertEqual(first_page.status_code, 200)
+        first_html = first_page.get_data(as_text=True)
+        self.assertIn("Tes Kemampuan Dasar", first_html)
+        self.assertIn("2 + 2 =", first_html)
+
+        first_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": "22222",
+                f"answer_{question_map['basic']}": "b",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(first_submit.status_code, 302)
+        self.assertTrue(first_submit.headers["Location"].endswith("/karir/tes?code=22222"))
+
+        second_page = self.client.get(first_submit.headers["Location"])
+        self.assertEqual(second_page.status_code, 200)
+        second_html = second_page.get_data(as_text=True)
+        self.assertIn("Tes Potensi Akademik", second_html)
+        self.assertIn("Lanjutkan pola 2, 4, 6, ...", second_html)
+
+        second_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": "22222",
+                f"answer_{question_map['academic']}": "b",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(second_submit.status_code, 302)
+        self.assertTrue(second_submit.headers["Location"].endswith("/karir/tes?code=22222"))
+
+        third_page = self.client.get(second_submit.headers["Location"])
+        self.assertEqual(third_page.status_code, 200)
+        third_html = third_page.get_data(as_text=True)
+        self.assertIn("Studi Kasus", third_html)
+        self.assertIn("Saat pelanggan komplain dan stok kosong", third_html)
+
+        third_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": "22222",
+                f"answer_{question_map['case_study']}": "c",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(third_submit.status_code, 302)
+        self.assertTrue(third_submit.headers["Location"].endswith("/karir/tes?code=22222&completed=1"))
+
+        finished_page = self.client.get(third_submit.headers["Location"])
+        self.assertEqual(finished_page.status_code, 200)
+        finished_html = finished_page.get_data(as_text=True)
+        self.assertIn("Terima kasih telah mengikuti tes dari kami.", finished_html)
+        self.assertIn("careerAssessmentFinishPopup", finished_html)
+        self.assertIn("Nilai tidak ditampilkan di halaman ini", finished_html)
+        self.assertNotIn("Skor Anda", finished_html)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_status, assessment_auto_score, assessment_final_score
+                FROM recruitment_candidates
+                WHERE assessment_code=?
+                """,
+                ("22222",),
+            ).fetchone()
+
+        self.assertEqual(candidate_after["assessment_status"], "submitted")
+        self.assertGreater(float(candidate_after["assessment_auto_score"]), 0)
+        self.assertGreater(float(candidate_after["assessment_final_score"]), 0)
 
     def test_hr_recruitment_page_shows_explicit_approve_and_reject_buttons(self):
         self.login_hr_user()
@@ -13984,6 +14161,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_hr_recruitment_quick_approve_action_moves_candidate_to_screening(self):
         self.login_hr_user()
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
@@ -14038,6 +14216,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "email": "quick-approve@example.com",
                     "assessment_status": "pending",
                     "decision_action": "approve_assessment",
+                    **self.build_recruitment_assessment_duration_payload(15),
                 },
                 follow_redirects=False,
             )
@@ -14062,6 +14241,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_hr_recruitment_quick_approve_handles_duplicate_requested_assessment_code_and_still_sends_email(self):
         self.login_hr_user()
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
@@ -14151,6 +14331,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "assessment_code": "13591",
                     "assessment_status": "pending",
                     "decision_action": "approve_assessment",
+                    **self.build_recruitment_assessment_duration_payload(15),
                 },
                 follow_redirects=False,
             )
@@ -14278,6 +14459,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_hr_recruitment_quick_approve_returns_async_payload_with_assessment_access(self):
         self.login_hr_user()
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
@@ -14333,6 +14515,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "assessment_status": "pending",
                     "decision_action": "approve_assessment",
                     "async": "1",
+                    **self.build_recruitment_assessment_duration_payload(15),
                 },
                 headers={
                     "X-Requested-With": "XMLHttpRequest",
@@ -14500,11 +14683,13 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_hr_can_manage_recruitment_assessment_questions_and_manual_candidate_score(self):
         self.login_hr_user()
+        self.seed_recruitment_assessment_suite(warehouse_id=2)
 
         question_create = self.client.post(
             "/hris/recruitment/question/add",
             data={
                 "warehouse_id": "2",
+                "test_type": "basic",
                 "prompt": "SOP outbound adalah?",
                 "option_a": "Langsung kirim",
                 "option_b": "Validasi stok dulu",
@@ -14569,10 +14754,10 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "email": "portal@example.com",
                 "assessment_code": "12345",
                 "assessment_expires_at": "2026-04-30T16:30",
-                "assessment_duration_minutes": "45",
                 "assessment_status": "reviewed",
                 "assessment_manual_score": "88.5",
                 "assessment_review_notes": "Nilai HR dipakai untuk final.",
+                **self.build_recruitment_assessment_duration_payload(15),
             },
             follow_redirects=False,
         )
@@ -14669,19 +14854,11 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_public_career_assessment_rejects_expired_code_configured_by_hr(self):
         expired_at = (datetime.now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
 
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
-            db.execute(
-                """
-                INSERT INTO recruitment_assessment_questions(
-                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (1, "1 + 1 =", "1", "2", "3", "4", "b", 10, 1, 1),
-            )
             db.execute(
                 """
                 INSERT INTO recruitment_candidates(
@@ -14715,26 +14892,19 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_public_career_assessment_rejects_when_duration_has_elapsed(self):
         started_at = (datetime.now() - timedelta(minutes=16)).strftime("%Y-%m-%d %H:%M:%S")
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
 
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
             db.execute(
                 """
-                INSERT INTO recruitment_assessment_questions(
-                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (1, "2 + 3 =", "4", "5", "6", "7", "b", 10, 1, 1),
-            )
-            db.execute(
-                """
                 INSERT INTO recruitment_candidates(
                     candidate_name, warehouse_id, position_title, department, stage, status, source,
-                    assessment_code, assessment_status, assessment_started_at, assessment_duration_minutes, updated_at
+                    assessment_code, assessment_status, assessment_started_at, assessment_duration_minutes,
+                    assessment_section_state_json, updated_at
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 """,
                 (
                     "Durasi Habis",
@@ -14748,6 +14918,16 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "started",
                     started_at,
                     15,
+                    json.dumps(
+                        {
+                            "current": "basic",
+                            "sections": {
+                                "basic": {
+                                    "started_at": started_at,
+                                }
+                            },
+                        }
+                    ),
                 ),
             )
             db.commit()
@@ -14756,7 +14936,24 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Waktu pengerjaan tes sudah habis", html)
+        self.assertIn("Tes Potensi Akademik", html)
+        self.assertIn("Sedang dikerjakan", html)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_status, assessment_section_state_json
+                FROM recruitment_candidates
+                WHERE assessment_code=?
+                """,
+                ("65432",),
+            ).fetchone()
+
+        self.assertEqual(candidate_after["assessment_status"], "started")
+        section_state = json.loads(candidate_after["assessment_section_state_json"] or "{}")
+        self.assertEqual(section_state.get("current"), "academic")
+        self.assertTrue(section_state.get("sections", {}).get("basic", {}).get("submitted_at"))
 
     def test_recruitment_public_host_redirects_root_to_signin(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"
@@ -15322,6 +15519,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Masuk ke Akun", html)
         self.assertIn("Daftar Akun", html)
+        self.assertIn("Cara melamar, langkah demi langkah", html)
+        self.assertIn("Tunggu screening HR", html)
         self.assertIn("Punya Kode Tes?", html)
         self.assertNotIn("Masih Eksplorasi", html)
         self.assertNotIn("Verifikasi Email", html)
@@ -16078,6 +16277,110 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue({"ktp_scan", "cv_resume", "last_diploma", "certificate"}.issubset(stored_types))
         self.assertEqual(section_row["completion_state"], "complete")
 
+    def test_public_career_candidate_can_upload_document_up_to_ten_mb(self):
+        account = self.login_public_career_account_session(
+            email="dokumen-besar@example.com",
+            full_name="Dokumen Besar Kandidat",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "document_type": "cv_resume",
+                "document_file": (BytesIO(b"x" * (6 * 1024 * 1024)), "cv-besar.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "documents"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        self.assertEqual(len(payload["files"]), 1)
+        self.assertEqual(payload["files"][0]["document_type"], "cv_resume")
+
+    def test_public_career_candidate_rejects_document_above_ten_mb(self):
+        self.login_public_career_account_session(
+            email="dokumen-terlalu-besar@example.com",
+            full_name="Dokumen Terlalu Besar",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "document_type": "cv_resume",
+                "document_file": (BytesIO(b"x" * (11 * 1024 * 1024)), "cv-terlalu-besar.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ukuran dokumen maksimal 10 MB.", html)
+
+    def test_public_career_documents_page_shows_file_access_troubleshooting_and_blocks_empty_submit(self):
+        self.login_public_career_account_session(
+            email="dokumen-error-guide@example.com",
+            full_name="Dokumen Error Guide",
+        )
+
+        page_response = self.client.get("/karir/profil?section=documents")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("Kalau muncul pesan file tidak dapat diakses", page_html)
+        self.assertIn("ERR_UPLOAD_FILE_CHANGED", page_html)
+
+        submit_response = self.client.post(
+            "/karir/profil",
+            data={"section": "documents"},
+            follow_redirects=True,
+        )
+        self.assertEqual(submit_response.status_code, 200)
+        submit_html = submit_response.get_data(as_text=True)
+        self.assertIn("Belum ada berkas yang bisa diproses", submit_html)
+        self.assertIn("Upload Berkas Pendukung", submit_html)
+
+    def test_public_career_profile_redirects_back_when_total_upload_payload_too_large(self):
+        self.login_public_career_account_session(
+            email="dokumen-payload-limit@example.com",
+            full_name="Dokumen Payload Limit",
+        )
+        original_limit = self.app.config["MAX_CONTENT_LENGTH"]
+        self.app.config["MAX_CONTENT_LENGTH"] = 1024
+
+        try:
+            response = self.client.post(
+                "/karir/profil",
+                data={
+                    "section": "documents",
+                    "document_type": "cv_resume",
+                    "document_file": (BytesIO(b"x" * 5000), "cv-kandidat.pdf"),
+                },
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        finally:
+            self.app.config["MAX_CONTENT_LENGTH"] = original_limit
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Ukuran upload terlalu besar", html)
+        self.assertIn("Upload Berkas Pendukung", html)
+
     def test_public_career_candidate_can_override_bulk_document_type_before_upload(self):
         account = self.login_public_career_account_session(
             email="dokumen-bulk-override@example.com",
@@ -16565,34 +16868,25 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
 
     def test_finished_career_assessment_cannot_be_submitted_again(self):
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
-            db.execute(
-                """
-                INSERT INTO recruitment_assessment_questions(
-                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (1, "2 + 2 =", "3", "4", "5", "6", "b", 50, 1, 1),
-            )
-            db.execute(
-                """
-                INSERT INTO recruitment_assessment_questions(
-                    warehouse_id, prompt, option_a, option_b, option_c, option_d, correct_option, score_weight, sort_order, is_active
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (1, "Huruf setelah A", "C", "D", "B", "E", "c", 50, 2, 1),
-            )
+            question_ids = [
+                row["id"]
+                for row in db.execute(
+                    "SELECT id FROM recruitment_assessment_questions WHERE warehouse_id=? ORDER BY sort_order ASC, id ASC",
+                    (1,),
+                ).fetchall()
+            ]
             db.execute(
                 """
                 INSERT INTO recruitment_candidates(
                     candidate_name, warehouse_id, position_title, department, stage, status, source,
-                    assessment_code, assessment_status, application_channel, updated_at
+                    assessment_code, assessment_status, assessment_duration_minutes, assessment_answers_json,
+                    assessment_auto_score, assessment_final_score, application_channel, updated_at
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
                 (
                     "Locked Candidate",
@@ -16603,7 +16897,11 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "active",
                     "Halaman Karir",
                     "56789",
-                    "pending",
+                    "submitted",
+                    45,
+                    json.dumps({str(question_ids[0]): "b", str(question_ids[1]): "b", str(question_ids[2]): "c"}),
+                    100,
+                    100,
                     "public_portal",
                 ),
             )
@@ -16620,18 +16918,6 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
         self.assertIsNotNone(candidate)
 
-        first_submit = self.client.post(
-            "/karir/tes/submit",
-            data={
-                "assessment_code": candidate["assessment_code"],
-                "answer_1": "b",
-                "answer_2": "a",
-                "violation_count": "0",
-            },
-            follow_redirects=False,
-        )
-        self.assertEqual(first_submit.status_code, 302)
-
         with self.app.app_context():
             db = get_db()
             before_retry = db.execute(
@@ -16647,8 +16933,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/karir/tes/submit",
             data={
                 "assessment_code": candidate["assessment_code"],
-                "answer_1": "a",
-                "answer_2": "c",
+                f"answer_{question_ids[0]}": "a",
+                f"answer_{question_ids[1]}": "c",
+                f"answer_{question_ids[2]}": "d",
                 "violation_count": "0",
             },
             follow_redirects=False,

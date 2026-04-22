@@ -249,6 +249,17 @@
                 <small>Kalau nama file masih acak seperti <code>IMG_1234</code> atau <code>Document(1)</code>, Anda tetap bisa memperbaiki jenis dokumennya di daftar preview sebelum menyimpan.</small>
             </div>
 
+            <div class="career-profile-upload-warning" id="careerProfileUploadWarning" hidden>
+                <strong>Kalau muncul pesan file tidak dapat diakses</strong>
+                <p>Biasanya file berubah, dipindah, dihapus, atau masih berada di folder sementara seperti WhatsApp, galeri, atau cloud sync. Solusinya:</p>
+                <ol>
+                    <li>Pindahkan file ke folder tetap seperti <code>Downloads</code> atau <code>Documents</code>.</li>
+                    <li>Pastikan nama file sudah final dan file tidak sedang dibuka aplikasi lain.</li>
+                    <li>Pilih ulang file dari form upload, lalu klik <b>Simpan Perubahan</b> lagi.</li>
+                </ol>
+                <small>Kalau file dipilih dari folder sementara, browser bisa menampilkan error seperti <code>ERR_UPLOAD_FILE_CHANGED</code>.</small>
+            </div>
+
             <div class="career-profile-grid">
                 <label>
                     Jenis Berkas *
@@ -266,7 +277,7 @@
                 <label class="span-2">
                     Berkas
                     <input type="file" name="document_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
-                    <small>Format yang diterima: PDF, DOC, DOCX, JPG, JPEG, PNG. Maksimal 5 MB per file.</small>
+                    <small>Format yang diterima: PDF, DOC, DOCX, JPG, JPEG, PNG. Maksimal 10 MB per file.</small>
                 </label>
                 <label class="span-2">
                     Upload beberapa berkas sekaligus
@@ -364,6 +375,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const bulkInput = document.getElementById("careerProfileBulkDocumentsInput");
     const bulkPreview = document.getElementById("careerProfileBulkPreview");
     const bulkPreviewList = document.getElementById("careerProfileBulkPreviewList");
+    const uploadWarning = document.getElementById("careerProfileUploadWarning");
+    const profileForm = document.querySelector('.career-profile-form');
+    const singleDocumentInput = document.querySelector('input[name="document_file"]');
     if (!bulkInput || !bulkPreview || !bulkPreviewList) return;
 
     const documentOptions = {{ profile_document_definitions|tojson }};
@@ -386,6 +400,9 @@ document.addEventListener("DOMContentLoaded", () => {
     bulkInput.addEventListener("change", () => {
         const files = Array.from(bulkInput.files || []);
         bulkPreviewList.innerHTML = "";
+        if (uploadWarning) {
+            uploadWarning.hidden = true;
+        }
         if (!files.length) {
             bulkPreview.hidden = true;
             return;
@@ -416,6 +433,34 @@ document.addEventListener("DOMContentLoaded", () => {
             bulkPreviewList.appendChild(item);
         });
         bulkPreview.hidden = false;
+    });
+
+    singleDocumentInput?.addEventListener("change", () => {
+        if (uploadWarning) {
+            uploadWarning.hidden = true;
+        }
+    });
+
+    profileForm?.addEventListener("submit", (event) => {
+        const sectionInput = profileForm.querySelector('input[name="section"]');
+        if (!sectionInput || sectionInput.value !== "documents") {
+            return;
+        }
+        if (event.submitter && event.submitter.name === "remove_document_index") {
+            return;
+        }
+
+        const hasSingleFile = Boolean(singleDocumentInput && singleDocumentInput.files && singleDocumentInput.files.length);
+        const hasBulkFiles = Boolean(bulkInput.files && bulkInput.files.length);
+        if (hasSingleFile || hasBulkFiles) {
+            return;
+        }
+
+        event.preventDefault();
+        if (uploadWarning) {
+            uploadWarning.hidden = false;
+            uploadWarning.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
     });
 });
 </script>

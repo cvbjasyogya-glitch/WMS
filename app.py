@@ -1471,6 +1471,20 @@ self.addEventListener("fetch", () => {{}});
             )
             return redirect("/hris/biometric")
 
+        if request.path.startswith("/karir/profil"):
+            flash(
+                "Ukuran upload terlalu besar. Maksimal 10 MB per file dan total upload sebaiknya tidak lebih dari 32 MB per sekali kirim.",
+                "error",
+            )
+            return redirect("/karir/profil?section=documents")
+
+        if request.path.startswith("/karir/apply"):
+            flash(
+                "Berkas lamaran terlalu besar. Coba kecilkan ukuran file lalu kirim lagi.",
+                "error",
+            )
+            return redirect("/karir/profil?section=documents")
+
         if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
             return jsonify({"ok": False, "message": "Ukuran data yang dikirim terlalu besar"}), 413
 

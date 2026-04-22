@@ -15,10 +15,14 @@ from database import get_db
 from services.hris_catalog import can_manage_hris_module
 from services.rbac import normalize_role
 from services.career_service import (
+    CAREER_ASSESSMENT_TEST_DEFINITIONS,
     CAREER_RESUME_EXTENSIONS,
     activate_career_public_account,
     create_public_account_request,
+    decode_assessment_section_durations,
+    decode_assessment_section_state,
     decode_career_public_profile_payload,
+    encode_assessment_section_state,
     encode_recruitment_homebase_ids,
     get_career_public_account_by_email,
     get_career_public_account_by_id,
@@ -35,6 +39,8 @@ from services.career_service import (
     find_duplicate_public_application,
     normalize_assessment_code,
     normalize_assessment_duration_minutes,
+    normalize_assessment_option,
+    normalize_assessment_test_type,
     normalize_candidate_email,
     normalize_candidate_identity_name,
     normalize_candidate_phone,
@@ -62,6 +68,10 @@ from services.notification_service import send_email
 
 career_bp = Blueprint("career", __name__)
 CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
+CAREER_ASSESSMENT_TEST_ORDER = [item["key"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS]
+CAREER_ASSESSMENT_TEST_LABELS = {
+    item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
+}
 PUBLIC_CAREER_SITE_DISPLAY = {
     "mega": {
         "unit_label": "Mega Sports Seturan",
@@ -165,7 +175,7 @@ CAREER_PUBLIC_MEDIA_EXTENSIONS = {
 }
 CAREER_PUBLIC_MEDIA_LIMITS = {
     "photo": 2 * 1024 * 1024,
-    "document": 5 * 1024 * 1024,
+    "document": 10 * 1024 * 1024,
 }
 CAREER_PROFILE_RELIGION_OPTIONS = [
     ("islam", "Islam"),
@@ -820,6 +830,32 @@ def _get_career_public_media_root(media_kind):
     return root_path
 
 
+def _get_uploaded_file_size(file_storage):
+    if file_storage is None:
+        return 0
+
+    content_length = getattr(file_storage, "content_length", None)
+    try:
+        safe_length = int(content_length or 0)
+    except (TypeError, ValueError):
+        safe_length = 0
+    if safe_length > 0:
+        return safe_length
+
+    stream = getattr(file_storage, "stream", None)
+    if stream is None or not hasattr(stream, "seek") or not hasattr(stream, "tell"):
+        return 0
+
+    try:
+        current_position = stream.tell()
+        stream.seek(0, os.SEEK_END)
+        size = int(stream.tell() or 0)
+        stream.seek(current_position, os.SEEK_SET)
+        return max(size, 0)
+    except (OSError, ValueError):
+        return 0
+
+
 def _save_career_public_media(file_storage, media_kind):
     if file_storage is None:
         return ""
@@ -836,11 +872,11 @@ def _save_career_public_media(file_storage, media_kind):
             else "Format dokumen harus PDF, DOC, DOCX, JPG, JPEG, atau PNG."
         )
 
-    content_length = getattr(file_storage, "content_length", None)
     max_bytes = CAREER_PUBLIC_MEDIA_LIMITS[safe_kind]
-    if content_length and int(content_length or 0) > max_bytes:
+    uploaded_size = _get_uploaded_file_size(file_storage)
+    if uploaded_size > max_bytes:
         raise ValueError(
-            "Ukuran foto maksimal 2 MB." if safe_kind == "photo" else "Ukuran dokumen maksimal 5 MB."
+            "Ukuran foto maksimal 2 MB." if safe_kind == "photo" else "Ukuran dokumen maksimal 10 MB."
         )
 
     stored_name = f"{uuid4().hex}{extension}"
@@ -1657,7 +1693,117 @@ def _format_career_datetime_iso(value):
 
 
 def _get_candidate_assessment_duration_minutes(candidate):
+    section_durations = _get_candidate_assessment_section_durations(candidate)
+    total_duration = sum(section_durations.values())
+    if total_duration > 0:
+        return total_duration
     return normalize_assessment_duration_minutes((candidate or {}).get("assessment_duration_minutes"))
+
+
+def _get_candidate_assessment_section_durations(candidate, section_keys=None):
+    safe_candidate = dict(candidate or {})
+    normalized_keys = [
+        normalize_assessment_test_type(section_key)
+        for section_key in (section_keys or CAREER_ASSESSMENT_TEST_ORDER)
+        if normalize_assessment_test_type(section_key)
+    ]
+    if not normalized_keys:
+        normalized_keys = list(CAREER_ASSESSMENT_TEST_ORDER)
+    durations = decode_assessment_section_durations(
+        safe_candidate.get("assessment_section_durations_json")
+    )
+    legacy_duration = normalize_assessment_duration_minutes(
+        safe_candidate.get("assessment_duration_minutes")
+    )
+    if legacy_duration > 0:
+        for section_key in normalized_keys:
+            durations.setdefault(section_key, legacy_duration)
+    return {
+        section_key: normalize_assessment_duration_minutes(durations.get(section_key))
+        for section_key in normalized_keys
+    }
+
+
+def _get_candidate_assessment_section_state(candidate):
+    return decode_assessment_section_state((candidate or {}).get("assessment_section_state_json"))
+
+
+def _get_candidate_assessment_section_blueprint(question_groups, candidate=None):
+    safe_question_groups = question_groups or {}
+    section_state = _get_candidate_assessment_section_state(candidate)
+    durations = _get_candidate_assessment_section_durations(candidate)
+    section_blueprint = []
+    for index, definition in enumerate(CAREER_ASSESSMENT_TEST_DEFINITIONS, start=1):
+        section_key = definition["key"]
+        state_entry = dict(section_state.get("sections", {}).get(section_key) or {})
+        duration_minutes = normalize_assessment_duration_minutes(durations.get(section_key))
+        section_blueprint.append(
+            {
+                "index": index,
+                "key": section_key,
+                "label": definition["label"],
+                "questions": list(safe_question_groups.get(section_key) or []),
+                "question_count": len(safe_question_groups.get(section_key) or []),
+                "duration_minutes": duration_minutes,
+                "duration_label": (
+                    f"{duration_minutes} menit" if duration_minutes > 0 else "Belum diatur"
+                ),
+                "started_at": state_entry.get("started_at") or "",
+                "submitted_at": state_entry.get("submitted_at") or "",
+                "is_completed": bool(state_entry.get("submitted_at")),
+            }
+        )
+    return section_blueprint
+
+
+def _get_candidate_next_assessment_section_key(section_blueprint, section_state):
+    safe_state = section_state if isinstance(section_state, dict) else {"current": "", "sections": {}}
+    sections_payload = safe_state.get("sections") if isinstance(safe_state.get("sections"), dict) else {}
+    for section in section_blueprint:
+        section_key = section["key"]
+        if int(section.get("question_count") or 0) <= 0:
+            continue
+        if not str((sections_payload.get(section_key) or {}).get("submitted_at") or "").strip():
+            return section_key
+    return ""
+
+
+def _get_candidate_assessment_section_deadline(candidate, section_key, section_state=None):
+    safe_section_key = normalize_assessment_test_type(section_key)
+    if not safe_section_key:
+        return None
+    safe_state = section_state if isinstance(section_state, dict) else _get_candidate_assessment_section_state(candidate)
+    started_at = _parse_career_datetime(
+        (safe_state.get("sections", {}).get(safe_section_key) or {}).get("started_at")
+    )
+    duration_minutes = normalize_assessment_duration_minutes(
+        _get_candidate_assessment_section_durations(candidate, [safe_section_key]).get(safe_section_key)
+    )
+    if not started_at or duration_minutes <= 0:
+        return None
+    return started_at + timedelta(minutes=duration_minutes)
+
+
+def _get_candidate_assessment_section_remaining_seconds(candidate, section_key, now_dt=None, section_state=None):
+    deadline = _get_candidate_assessment_section_deadline(candidate, section_key, section_state=section_state)
+    if not deadline:
+        return None
+    current_dt = now_dt or datetime.now()
+    return max(int((deadline - current_dt).total_seconds()), 0)
+
+
+def _is_candidate_assessment_section_duration_expired(
+    candidate,
+    section_key,
+    now_dt=None,
+    section_state=None,
+    grace_seconds=5,
+):
+    deadline = _get_candidate_assessment_section_deadline(candidate, section_key, section_state=section_state)
+    if not deadline:
+        return False
+    current_dt = now_dt or datetime.now()
+    return current_dt > (deadline + timedelta(seconds=max(int(grace_seconds or 0), 0)))
 
 
 def _get_candidate_assessment_deadline(candidate):
@@ -1791,14 +1937,24 @@ def _fetch_public_assessment_questions(db, warehouse_id=None, shuffle_seed=""):
         query += " AND warehouse_id IS NULL"
     query += " ORDER BY COALESCE(sort_order, 0) ASC, id ASC"
     questions = [dict(row) for row in db.execute(query, params).fetchall()]
+    for question in questions:
+        question["test_type"] = normalize_assessment_test_type(question.get("test_type"))
     safe_seed = str(shuffle_seed or "").strip()
     if safe_seed:
         questions.sort(
             key=lambda question: hashlib.sha1(
-                f"{safe_seed}:{int(question.get('id') or 0)}".encode("utf-8")
+                f"{safe_seed}:{normalize_assessment_test_type(question.get('test_type'))}:{int(question.get('id') or 0)}".encode("utf-8")
             ).hexdigest()
         )
     return questions
+
+
+def _fetch_public_assessment_question_groups(db, warehouse_id=None, shuffle_seed=""):
+    grouped_questions = {section_key: [] for section_key in CAREER_ASSESSMENT_TEST_ORDER}
+    for question in _fetch_public_assessment_questions(db, warehouse_id, shuffle_seed=shuffle_seed):
+        section_key = normalize_assessment_test_type(question.get("test_type"))
+        grouped_questions.setdefault(section_key, []).append(question)
+    return grouped_questions
 
 
 def _reset_candidate_assessment_session(db, candidate):
@@ -1813,6 +1969,7 @@ def _reset_candidate_assessment_session(db, candidate):
         UPDATE recruitment_candidates
         SET assessment_status=?,
             assessment_answers_json=NULL,
+            assessment_section_state_json=NULL,
             assessment_auto_score=NULL,
             assessment_manual_score=NULL,
             assessment_final_score=NULL,
@@ -1831,6 +1988,135 @@ def _reset_candidate_assessment_session(db, candidate):
         ),
     )
     return new_code
+
+
+def _start_candidate_assessment_section(db, candidate, section_key, current_dt=None):
+    safe_candidate = dict(candidate or {})
+    safe_section_key = normalize_assessment_test_type(section_key)
+    candidate_id = int(safe_candidate.get("id") or 0)
+    assessment_code = normalize_assessment_code(safe_candidate.get("assessment_code"))
+    if candidate_id <= 0 or not safe_section_key or not assessment_code:
+        return safe_candidate
+    current_dt = current_dt or datetime.now()
+    current_timestamp = current_dt.strftime("%Y-%m-%d %H:%M:%S")
+    section_state = _get_candidate_assessment_section_state(safe_candidate)
+    section_entry = dict(section_state.get("sections", {}).get(safe_section_key) or {})
+    if not section_entry.get("started_at"):
+        section_entry["started_at"] = current_timestamp
+    section_state.setdefault("sections", {})[safe_section_key] = section_entry
+    section_state["current"] = safe_section_key
+    db.execute(
+        """
+        UPDATE recruitment_candidates
+        SET assessment_status=?,
+            assessment_started_at=COALESCE(assessment_started_at, ?),
+            assessment_section_state_json=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            normalize_career_assessment_status("started"),
+            current_timestamp,
+            encode_assessment_section_state(section_state),
+            candidate_id,
+        ),
+    )
+    db.commit()
+    return _fetch_candidate_by_assessment_code(db, assessment_code) or safe_candidate
+
+
+def _submit_candidate_assessment_section(
+    db,
+    candidate,
+    question_groups,
+    section_key,
+    submitted_answers=None,
+    current_dt=None,
+    violation_count=None,
+):
+    safe_candidate = dict(candidate or {})
+    safe_section_key = normalize_assessment_test_type(section_key)
+    candidate_id = int(safe_candidate.get("id") or 0)
+    assessment_code = normalize_assessment_code(safe_candidate.get("assessment_code"))
+    if candidate_id <= 0 or not safe_section_key or not assessment_code:
+        return {"completed": False, "next_section_key": "", "candidate": safe_candidate}
+
+    current_dt = current_dt or datetime.now()
+    current_timestamp = current_dt.strftime("%Y-%m-%d %H:%M:%S")
+    all_answers = decode_assessment_answers(safe_candidate.get("assessment_answers_json"))
+    section_questions = list((question_groups or {}).get(safe_section_key) or [])
+    for question in section_questions:
+        question_id = int(question.get("id") or 0)
+        if question_id <= 0:
+            continue
+        safe_answer = normalize_assessment_option((submitted_answers or {}).get(question_id))
+        if safe_answer:
+            all_answers[question_id] = safe_answer
+
+    section_state = _get_candidate_assessment_section_state(safe_candidate)
+    section_entry = dict(section_state.get("sections", {}).get(safe_section_key) or {})
+    if not section_entry.get("started_at"):
+        section_entry["started_at"] = current_timestamp
+    section_entry["submitted_at"] = current_timestamp
+    section_state.setdefault("sections", {})[safe_section_key] = section_entry
+
+    section_blueprint = _get_candidate_assessment_section_blueprint(question_groups, safe_candidate)
+    next_section_key = _get_candidate_next_assessment_section_key(section_blueprint, section_state)
+    assessment_status = normalize_career_assessment_status("started")
+    submitted_at_value = None
+    assessment_auto_score = safe_candidate.get("assessment_auto_score") or 0
+    assessment_final_score = safe_candidate.get("assessment_final_score") or 0
+    if safe_candidate.get("assessment_manual_score") is not None:
+        assessment_final_score = safe_candidate.get("assessment_manual_score")
+
+    if next_section_key:
+        next_entry = dict(section_state.get("sections", {}).get(next_section_key) or {})
+        if not next_entry.get("started_at"):
+            next_entry["started_at"] = current_timestamp
+        section_state["sections"][next_section_key] = next_entry
+        section_state["current"] = next_section_key
+    else:
+        section_state["current"] = ""
+        assessment_status = normalize_career_assessment_status("submitted")
+        submitted_at_value = current_timestamp
+        all_questions = []
+        for definition in CAREER_ASSESSMENT_TEST_DEFINITIONS:
+            all_questions.extend(list((question_groups or {}).get(definition["key"]) or []))
+        score_summary = score_assessment_questions(all_questions, all_answers)
+        assessment_auto_score = score_summary["percentage"]
+        if safe_candidate.get("assessment_manual_score") is None:
+            assessment_final_score = score_summary["percentage"]
+
+    db.execute(
+        """
+        UPDATE recruitment_candidates
+        SET assessment_status=?,
+            assessment_answers_json=?,
+            assessment_section_state_json=?,
+            assessment_auto_score=?,
+            assessment_final_score=?,
+            assessment_submitted_at=?,
+            assessment_violation_count=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+        """,
+        (
+            assessment_status,
+            encode_assessment_answers(all_answers),
+            encode_assessment_section_state(section_state),
+            assessment_auto_score,
+            assessment_final_score,
+            submitted_at_value,
+            max(int(violation_count if violation_count is not None else safe_candidate.get("assessment_violation_count") or 0), 0),
+            candidate_id,
+        ),
+    )
+    updated_candidate = _fetch_candidate_by_assessment_code(db, assessment_code) or safe_candidate
+    return {
+        "completed": not bool(next_section_key),
+        "next_section_key": next_section_key,
+        "candidate": updated_candidate,
+    }
 
 
 @career_bp.route("/karir")
@@ -2363,6 +2649,13 @@ def profile_page():
 
             if uploaded_files and not selected_document_type and uploaded_single and (uploaded_single.filename or "").strip():
                 flash("Pilih jenis berkas terlebih dahulu sebelum upload dokumen.", "error")
+                return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
+
+            if not uploaded_files and remove_index < 0:
+                flash(
+                    "Belum ada berkas yang bisa diproses. Kalau file tadi sempat dipilih lalu muncul pesan file tidak dapat diakses, pindahkan file ke folder tetap seperti Downloads lalu pilih ulang sebelum menyimpan.",
+                    "error",
+                )
                 return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
 
             for uploaded, document_type, custom_label in uploaded_files:
@@ -2912,69 +3205,164 @@ def assessment():
         flash("Sesi tes ini sudah tidak aktif. Silakan tunggu update terbaru dari tim HR.", "error")
         return redirect(build_career_public_url("career.assessment"))
 
-    questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
-    if not questions:
-        flash("Soal tes belum disiapkan HR untuk posisi ini.", "error")
+    question_groups = _fetch_public_assessment_question_groups(
+        db,
+        candidate.get("warehouse_id"),
+        shuffle_seed=assessment_code,
+    )
+    section_blueprint = _get_candidate_assessment_section_blueprint(question_groups, candidate)
+    missing_sections = [
+        section["label"] for section in section_blueprint if int(section.get("question_count") or 0) <= 0
+    ]
+    if missing_sections:
+        flash(
+            "Rangkaian tes belum lengkap. Tim HR masih perlu menyiapkan sesi: "
+            + ", ".join(missing_sections)
+            + ".",
+            "error",
+        )
+        return redirect(build_career_public_url("career.assessment"))
+    missing_durations = [
+        section["label"] for section in section_blueprint if int(section.get("duration_minutes") or 0) <= 0
+    ]
+    if missing_durations:
+        flash(
+            "Durasi tes belum diatur lengkap oleh HR untuk sesi: "
+            + ", ".join(missing_durations)
+            + ".",
+            "error",
+        )
         return redirect(build_career_public_url("career.assessment"))
 
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
-        score_summary = score_assessment_questions(questions, candidate.get("assessment_answers_json"))
-        final_score = candidate.get("assessment_manual_score")
-        if final_score is None:
-            final_score = candidate.get("assessment_final_score")
-        if final_score is None:
-            final_score = score_summary["percentage"]
         return render_template(
             "career_assessment.html",
             candidate=candidate,
-            questions=score_summary["questions"],
+            assessment_sections=section_blueprint,
             assessment_code=assessment_code,
-            score_summary=score_summary,
             assessment_state="finished",
-            final_score=round(float(final_score or 0), 2),
             assessment_duration_minutes=_get_candidate_assessment_duration_minutes(candidate),
-            assessment_deadline_iso=_format_career_datetime_iso(_get_candidate_assessment_deadline(candidate)),
-            assessment_remaining_seconds=_get_candidate_assessment_remaining_seconds(candidate, current_dt),
+            assessment_deadline_iso="",
+            assessment_remaining_seconds=None,
             assessment_code_expires_label=_format_career_datetime_display(candidate.get("assessment_expires_at")),
+            assessment_show_completion_popup=str(request.args.get("completed") or "").strip() == "1",
         )
     if _is_candidate_assessment_code_expired(candidate, current_dt):
         flash("Kode tes ini sudah melewati masa berlaku. Silakan hubungi HR untuk kode baru.", "error")
         return redirect(build_career_public_url("career.assessment"))
 
-    answers = decode_assessment_answers(candidate.get("assessment_answers_json"))
-    if candidate.get("assessment_status") != "started":
-        started_at_value = current_dt.strftime("%Y-%m-%d %H:%M:%S")
+    section_state = _get_candidate_assessment_section_state(candidate)
+    current_section_key = normalize_assessment_test_type(section_state.get("current"))
+    if current_section_key and str(
+        (section_state.get("sections", {}).get(current_section_key) or {}).get("submitted_at") or ""
+    ).strip():
+        current_section_key = ""
+    if not current_section_key:
+        current_section_key = _get_candidate_next_assessment_section_key(section_blueprint, section_state)
+    if not current_section_key:
+        all_questions = []
+        for section in section_blueprint:
+            all_questions.extend(section["questions"])
+        score_summary = score_assessment_questions(all_questions, candidate.get("assessment_answers_json"))
         db.execute(
             """
             UPDATE recruitment_candidates
             SET assessment_status=?,
-                assessment_started_at=COALESCE(assessment_started_at, CURRENT_TIMESTAMP),
+                assessment_auto_score=?,
+                assessment_final_score=CASE
+                    WHEN assessment_manual_score IS NOT NULL THEN assessment_manual_score
+                    ELSE ?
+                END,
+                assessment_submitted_at=COALESCE(assessment_submitted_at, CURRENT_TIMESTAMP),
                 updated_at=CURRENT_TIMESTAMP
             WHERE id=?
             """,
-            (normalize_career_assessment_status("started"), candidate["id"]),
+            (
+                normalize_career_assessment_status("submitted"),
+                score_summary["percentage"],
+                score_summary["percentage"],
+                candidate["id"],
+            ),
         )
         db.commit()
-        candidate["assessment_status"] = "started"
-        candidate["assessment_started_at"] = candidate.get("assessment_started_at") or started_at_value
+        return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
 
-    if _is_candidate_assessment_duration_expired(candidate, current_dt):
-        flash("Waktu pengerjaan tes sudah habis. Silakan hubungi HR untuk tindak lanjut berikutnya.", "error")
+    current_entry = dict(section_state.get("sections", {}).get(current_section_key) or {})
+    if not str(current_entry.get("started_at") or "").strip() or candidate.get("assessment_status") != "started":
+        candidate = _start_candidate_assessment_section(db, candidate, current_section_key, current_dt=current_dt)
+        section_blueprint = _get_candidate_assessment_section_blueprint(question_groups, candidate)
+        section_state = _get_candidate_assessment_section_state(candidate)
+
+    if _is_candidate_assessment_section_duration_expired(
+        candidate,
+        current_section_key,
+        current_dt,
+        section_state=section_state,
+    ):
+        transition = _submit_candidate_assessment_section(
+            db,
+            candidate,
+            question_groups,
+            current_section_key,
+            submitted_answers={},
+            current_dt=current_dt,
+            violation_count=int(candidate.get("assessment_violation_count") or 0),
+        )
+        db.commit()
+        if transition["completed"]:
+            return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
+        return redirect(build_career_public_url("career.assessment", code=assessment_code))
+
+    answers = decode_assessment_answers(candidate.get("assessment_answers_json"))
+    current_section = next(
+        (
+            section
+            for section in section_blueprint
+            if section["key"] == current_section_key
+        ),
+        None,
+    )
+    if current_section is None:
+        flash("Sesi tes saat ini belum berhasil disiapkan. Coba buka ulang halaman tes.", "error")
         return redirect(build_career_public_url("career.assessment"))
+    current_questions = list(current_section.get("questions") or [])
+    current_answers = {
+        int(question["id"]): answers.get(int(question["id"]))
+        for question in current_questions
+        if answers.get(int(question["id"]))
+    }
+    completed_sections_count = sum(1 for section in section_blueprint if section.get("is_completed"))
 
     return render_template(
         "career_assessment.html",
         candidate=candidate,
-        questions=questions,
+        assessment_sections=section_blueprint,
+        current_section=current_section,
+        current_questions=current_questions,
         assessment_code=assessment_code,
         assessment_state="active",
-        existing_answers=answers,
+        existing_answers=current_answers,
         violation_count=int(candidate.get("assessment_violation_count") or 0),
         max_violation_count=CAREER_ASSESSMENT_MAX_VIOLATIONS,
-        assessment_duration_minutes=_get_candidate_assessment_duration_minutes(candidate),
-        assessment_deadline_iso=_format_career_datetime_iso(_get_candidate_assessment_deadline(candidate)),
-        assessment_remaining_seconds=_get_candidate_assessment_remaining_seconds(candidate, current_dt),
+        assessment_duration_minutes=int(current_section.get("duration_minutes") or 0),
+        assessment_total_duration_minutes=_get_candidate_assessment_duration_minutes(candidate),
+        assessment_deadline_iso=_format_career_datetime_iso(
+            _get_candidate_assessment_section_deadline(
+                candidate,
+                current_section_key,
+                section_state=section_state,
+            )
+        ),
+        assessment_remaining_seconds=_get_candidate_assessment_section_remaining_seconds(
+            candidate,
+            current_section_key,
+            current_dt,
+            section_state=section_state,
+        ),
         assessment_code_expires_label=_format_career_datetime_display(candidate.get("assessment_expires_at")),
+        completed_sections_count=completed_sections_count,
+        total_question_count=sum(section.get("question_count") or 0 for section in section_blueprint),
+        assessment_show_completion_popup=False,
     )
 
 
@@ -3053,10 +3441,24 @@ def submit_assessment():
         flash("Sesi tes ini sudah tidak aktif. Silakan tunggu update terbaru dari tim HR.", "error")
         return redirect(build_career_public_url("career.index"))
 
-    questions = _fetch_public_assessment_questions(db, candidate.get("warehouse_id"), shuffle_seed=assessment_code)
-    if not questions:
-        flash("Soal tes belum tersedia.", "error")
-        return redirect(build_career_public_url("career.index", code=assessment_code))
+    question_groups = _fetch_public_assessment_question_groups(
+        db,
+        candidate.get("warehouse_id"),
+        shuffle_seed=assessment_code,
+    )
+    section_blueprint = _get_candidate_assessment_section_blueprint(question_groups, candidate)
+    missing_sections = [
+        section["label"] for section in section_blueprint if int(section.get("question_count") or 0) <= 0
+    ]
+    if missing_sections:
+        flash("Rangkaian tes belum lengkap. Silakan hubungi tim HR untuk bantuan lebih lanjut.", "error")
+        return redirect(build_career_public_url("career.assessment"))
+    missing_durations = [
+        section["label"] for section in section_blueprint if int(section.get("duration_minutes") or 0) <= 0
+    ]
+    if missing_durations:
+        flash("Durasi tes belum diatur lengkap oleh HR. Mohon tunggu informasi selanjutnya.", "error")
+        return redirect(build_career_public_url("career.assessment"))
 
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
         flash("Assessment ini sudah selesai dan tidak bisa dikirim ulang.", "info")
@@ -3064,18 +3466,33 @@ def submit_assessment():
     if _is_candidate_assessment_code_expired(candidate, current_dt):
         flash("Kode tes ini sudah melewati masa berlaku. Silakan hubungi HR untuk kode baru.", "error")
         return redirect(build_career_public_url("career.index"))
-    if _is_candidate_assessment_duration_expired(candidate, current_dt):
-        flash("Waktu pengerjaan tes sudah habis dan jawaban tidak bisa dikirim ulang.", "error")
-        return redirect(build_career_public_url("career.index"))
+
+    section_state = _get_candidate_assessment_section_state(candidate)
+    current_section_key = normalize_assessment_test_type(section_state.get("current"))
+    if current_section_key and str(
+        (section_state.get("sections", {}).get(current_section_key) or {}).get("submitted_at") or ""
+    ).strip():
+        current_section_key = ""
+    if not current_section_key:
+        current_section_key = _get_candidate_next_assessment_section_key(section_blueprint, section_state)
+    if not current_section_key:
+        flash("Semua sesi tes sudah selesai dikerjakan.", "info")
+        return redirect(build_career_public_url("career.assessment", code=assessment_code))
+    if not str(
+        (section_state.get("sections", {}).get(current_section_key) or {}).get("started_at") or ""
+    ).strip():
+        candidate = _start_candidate_assessment_section(db, candidate, current_section_key, current_dt=current_dt)
+        section_state = _get_candidate_assessment_section_state(candidate)
+        section_blueprint = _get_candidate_assessment_section_blueprint(question_groups, candidate)
 
     answers = {}
-    for question in questions:
+    current_questions = list((question_groups or {}).get(current_section_key) or [])
+    for question in current_questions:
         field_name = f"answer_{int(question['id'])}"
         safe_answer = request.form.get(field_name)
         if safe_answer:
             answers[int(question["id"])] = safe_answer
 
-    score_summary = score_assessment_questions(questions, answers)
     violation_count = max(int(request.form.get("violation_count") or 0), 0)
     if violation_count >= CAREER_ASSESSMENT_MAX_VIOLATIONS:
         new_code = _reset_candidate_assessment_session(db, candidate)
@@ -3089,30 +3506,16 @@ def submit_assessment():
         )
         return redirect(build_career_public_url("career.index"))
 
-    answers_json = encode_assessment_answers(answers)
-    db.execute(
-        """
-        UPDATE recruitment_candidates
-        SET assessment_status=?,
-            assessment_answers_json=?,
-            assessment_auto_score=?,
-            assessment_final_score=CASE
-                WHEN assessment_manual_score IS NOT NULL THEN assessment_manual_score
-                ELSE ?
-            END,
-            assessment_submitted_at=CURRENT_TIMESTAMP,
-            assessment_violation_count=?,
-            updated_at=CURRENT_TIMESTAMP
-        WHERE id=?
-        """,
-        (
-            normalize_career_assessment_status("submitted"),
-            answers_json,
-            score_summary["percentage"],
-            score_summary["percentage"],
-            violation_count,
-            candidate["id"],
-        ),
+    transition = _submit_candidate_assessment_section(
+        db,
+        candidate,
+        question_groups,
+        current_section_key,
+        submitted_answers=answers,
+        current_dt=current_dt,
+        violation_count=violation_count,
     )
     db.commit()
+    if transition["completed"]:
+        return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
     return redirect(build_career_public_url("career.assessment", code=assessment_code))

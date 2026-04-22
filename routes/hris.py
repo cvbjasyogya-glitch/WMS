@@ -51,10 +51,13 @@ from services.attendance_request_service import (
 )
 from services.event_notification_policy import get_event_notification_policy
 from services.career_service import (
+    CAREER_ASSESSMENT_TEST_DEFINITIONS,
     assign_candidate_assessment_code,
     build_career_resume_path,
     build_sms_storage_absolute_path,
+    decode_assessment_section_durations,
     encode_recruitment_homebase_ids,
+    encode_assessment_section_durations,
     ensure_candidate_assessment_code,
     ensure_career_schema,
     extract_inserted_row_id,
@@ -62,6 +65,7 @@ from services.career_service import (
     normalize_assessment_code,
     normalize_assessment_duration_minutes,
     normalize_assessment_option,
+    normalize_assessment_test_type,
     normalize_career_assessment_status,
     normalize_career_application_channel,
     normalize_career_employment_type,
@@ -89,6 +93,10 @@ from services.whatsapp_service import send_role_based_notification
 
 
 hris_bp = Blueprint("hris", __name__, url_prefix="/hris")
+CAREER_ASSESSMENT_TEST_LABELS = {
+    item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
+}
+CAREER_ASSESSMENT_TEST_ORDER = [item["key"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS]
 
 EMPLOYEE_STATUSES = {"active", "probation", "leave", "inactive"}
 ATTENDANCE_STATUSES = {"present", "late", "leave", "absent", "half_day"}
@@ -2788,6 +2796,69 @@ def _is_recruitment_candidate_ready_for_assessment(stage, status, assessment_cod
     return normalize_career_assessment_status(assessment_status) in {"started", "submitted", "reviewed"}
 
 
+def _get_recruitment_assessment_duration_map(candidate):
+    safe_candidate = dict(candidate or {})
+    duration_map = decode_assessment_section_durations(
+        safe_candidate.get("assessment_section_durations_json")
+    )
+    legacy_duration = normalize_assessment_duration_minutes(
+        safe_candidate.get("assessment_duration_minutes")
+    )
+    if legacy_duration > 0:
+        for section_key in CAREER_ASSESSMENT_TEST_ORDER:
+            duration_map.setdefault(section_key, legacy_duration)
+    return {
+        section_key: normalize_assessment_duration_minutes(duration_map.get(section_key))
+        for section_key in CAREER_ASSESSMENT_TEST_ORDER
+    }
+
+
+def _format_recruitment_assessment_duration_label(candidate):
+    duration_map = (
+        candidate
+        if isinstance(candidate, dict) and all(key in CAREER_ASSESSMENT_TEST_LABELS for key in candidate.keys())
+        else _get_recruitment_assessment_duration_map(candidate)
+    )
+    duration_items = []
+    for section_key in CAREER_ASSESSMENT_TEST_ORDER:
+        minutes_value = normalize_assessment_duration_minutes(duration_map.get(section_key))
+        if minutes_value > 0:
+            duration_items.append(
+                f"{CAREER_ASSESSMENT_TEST_LABELS[section_key]} {minutes_value} menit"
+            )
+    if duration_items:
+        return " · ".join(duration_items)
+    return "Belum diatur lengkap"
+
+
+def _parse_recruitment_assessment_duration_payload(form_payload):
+    legacy_duration = normalize_assessment_duration_minutes(form_payload.get("assessment_duration_minutes"))
+    duration_map = {}
+    for section_key in CAREER_ASSESSMENT_TEST_ORDER:
+        minutes_value = normalize_assessment_duration_minutes(
+            form_payload.get(f"assessment_duration_{section_key}_minutes")
+        )
+        if minutes_value <= 0 and legacy_duration > 0:
+            minutes_value = legacy_duration
+        if minutes_value > 0:
+            duration_map[section_key] = minutes_value
+    total_duration = sum(duration_map.values()) if duration_map else legacy_duration
+    return duration_map, total_duration
+
+
+def _missing_recruitment_assessment_test_types(assessment_questions):
+    available_types = {
+        normalize_assessment_test_type(question.get("test_type"))
+        for question in (assessment_questions or [])
+        if int(question.get("is_active") or 0)
+    }
+    return [
+        CAREER_ASSESSMENT_TEST_LABELS[section_key]
+        for section_key in CAREER_ASSESSMENT_TEST_ORDER
+        if section_key not in available_types
+    ]
+
+
 def _send_recruitment_assessment_code_email(candidate):
     safe_candidate = dict(candidate or {})
     recipient = (safe_candidate.get("email") or "").strip()
@@ -2810,12 +2881,7 @@ def _send_recruitment_assessment_code_email(candidate):
         safe_candidate.get("assessment_expires_at"),
         include_date=True,
     )
-    duration_minutes = safe_candidate.get("assessment_duration_minutes")
-    duration_label = (
-        f"{int(duration_minutes)} menit"
-        if duration_minutes
-        else "Tidak dibatasi khusus oleh sistem"
-    )
+    duration_label = _format_recruitment_assessment_duration_label(safe_candidate)
     body_lines = [
         f"Halo {candidate_name},",
         "",
@@ -2823,10 +2889,15 @@ def _send_recruitment_assessment_code_email(candidate):
         "Silakan lanjut ke tahap tes menggunakan detail berikut:",
         f"Kode tes 5 digit: {assessment_code}",
         f"Halaman masuk tes: {assessment_url}",
-        "Buka halaman tes tersebut, lalu masukkan kode 5 digit di atas untuk membuka semua soal.",
+        "Buka halaman tes tersebut, lalu masukkan kode 5 digit di atas untuk membuka rangkaian tes.",
+        "Terdapat 3 sesi tes yang wajib dikerjakan secara berurutan:",
+        "1. Tes Kemampuan Dasar",
+        "2. Tes Potensi Akademik",
+        "3. Studi Kasus",
         f"Masa berlaku kode: {expiry_label if expiry_label != '-' else 'Belum diatur khusus oleh HR.'}",
         f"Durasi tes: {duration_label}",
         "",
+        "Saat satu sesi selesai atau waktunya habis, sistem akan langsung memindahkan Anda ke sesi berikutnya.",
         "Gunakan satu perangkat dan pastikan koneksi stabil saat mengerjakan tes.",
         "",
         "Salam,",
@@ -6692,8 +6763,19 @@ def _fetch_recruitment_candidates(db):
             if candidate.get("assessment_expires_at")
             else "Tanpa batas"
         )
+        duration_map = _get_recruitment_assessment_duration_map(candidate)
+        candidate["assessment_section_durations"] = duration_map
+        candidate["assessment_section_duration_items"] = [
+            {
+                "key": section_key,
+                "label": CAREER_ASSESSMENT_TEST_LABELS[section_key],
+                "minutes": duration_map.get(section_key) or "",
+            }
+            for section_key in CAREER_ASSESSMENT_TEST_ORDER
+        ]
         duration_minutes = normalize_assessment_duration_minutes(candidate.get("assessment_duration_minutes"))
         candidate["assessment_duration_minutes_value"] = duration_minutes if duration_minutes > 0 else ""
+        candidate["assessment_duration_label"] = _format_recruitment_assessment_duration_label(duration_map)
     return recruitment_candidates, search, stage, status, selected_warehouse
 
 
@@ -6745,7 +6827,16 @@ def _fetch_recruitment_assessment_questions(db, selected_warehouse=None):
         query += " AND (q.warehouse_id IS NULL OR q.warehouse_id=?)"
         params.append(effective_warehouse)
     query += " ORDER BY COALESCE(q.sort_order, 0) ASC, q.id ASC"
-    return [dict(row) for row in db.execute(query, params).fetchall()]
+    questions = []
+    for row in db.execute(query, params).fetchall():
+        question = dict(row)
+        question["test_type"] = normalize_assessment_test_type(question.get("test_type"))
+        question["test_type_label"] = CAREER_ASSESSMENT_TEST_LABELS.get(
+            question["test_type"],
+            CAREER_ASSESSMENT_TEST_LABELS["basic"],
+        )
+        questions.append(question)
+    return questions
 
 
 def _get_recruitment_assessment_question_by_id(db, question_id):
@@ -6780,11 +6871,16 @@ def _build_recruitment_assessment_summary(recruitment_candidates, assessment_que
         if (candidate.get("assessment_status") or "pending") in {"submitted", "reviewed"}
     ]
     avg_score = round(sum(scored) / len(scored), 2) if scored else 0.0
+    by_type = {section_key: 0 for section_key in CAREER_ASSESSMENT_TEST_ORDER}
+    for question in assessment_questions or []:
+        section_key = normalize_assessment_test_type(question.get("test_type"))
+        by_type[section_key] = by_type.get(section_key, 0) + 1
     return {
         "questions": len(assessment_questions or []),
         "completed": completed,
         "flagged": flagged,
         "avg_score": avg_score,
+        "by_type": by_type,
     }
 
 
@@ -9258,8 +9354,11 @@ def add_recruitment():
     portfolio_url = (request.form.get("portfolio_url") or "").strip()
     assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
     assessment_expires_at = _normalize_datetime_input(request.form.get("assessment_expires_at"))
-    assessment_duration_minutes = normalize_assessment_duration_minutes(
-        request.form.get("assessment_duration_minutes")
+    assessment_section_durations, assessment_duration_minutes = _parse_recruitment_assessment_duration_payload(
+        request.form
+    )
+    assessment_section_durations_json = encode_assessment_section_durations(
+        assessment_section_durations
     )
     vacancy_id = _to_int(request.form.get("vacancy_id"))
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
@@ -9304,11 +9403,12 @@ def add_recruitment():
             assessment_code,
             assessment_expires_at,
             assessment_duration_minutes,
+            assessment_section_durations_json,
             handled_by,
             handled_at,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             candidate_name,
@@ -9329,6 +9429,7 @@ def add_recruitment():
             assessment_code or None,
             assessment_expires_at,
             assessment_duration_minutes,
+            assessment_section_durations_json,
             handled_by,
             handled_at,
             _current_timestamp(),
@@ -9406,8 +9507,11 @@ def update_recruitment(candidate_id):
     portfolio_url = (request.form.get("portfolio_url") or "").strip()
     assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
     assessment_expires_at = _normalize_datetime_input(request.form.get("assessment_expires_at"))
-    assessment_duration_minutes = normalize_assessment_duration_minutes(
-        request.form.get("assessment_duration_minutes")
+    assessment_section_durations, assessment_duration_minutes = _parse_recruitment_assessment_duration_payload(
+        request.form
+    )
+    assessment_section_durations_json = encode_assessment_section_durations(
+        assessment_section_durations
     )
     assessment_status = normalize_career_assessment_status(
         request.form.get("assessment_status") or candidate.get("assessment_status")
@@ -9477,14 +9581,47 @@ def update_recruitment(candidate_id):
             "SELECT id FROM recruitment_candidates WHERE assessment_code=? AND id<>? LIMIT 1",
             (stored_assessment_code, candidate_id),
         ).fetchone()
-    if conflicting_assessment_code and not should_issue_assessment_code:
+    requires_assessment_configuration = bool(should_issue_assessment_code) and (
+        decision_action == "approve_assessment"
+        or not stored_assessment_code
+        or normalize_career_assessment_status(assessment_status) in {"pending", "started"}
+    )
+    if conflicting_assessment_code and not requires_assessment_configuration:
         if wants_json:
             return jsonify({"ok": False, "message": "Kode tes sudah dipakai kandidat lain."}), 400
         flash("Kode tes sudah dipakai kandidat lain.", "error")
         return redirect(next_target)
 
     final_assessment_code = stored_assessment_code or None
-    if should_issue_assessment_code:
+    if requires_assessment_configuration:
+        missing_duration_labels = [
+            CAREER_ASSESSMENT_TEST_LABELS[section_key]
+            for section_key in CAREER_ASSESSMENT_TEST_ORDER
+            if normalize_assessment_duration_minutes(assessment_section_durations.get(section_key)) <= 0
+        ]
+        if missing_duration_labels:
+            message = (
+                "Durasi tiap sesi tes wajib diisi sebelum kandidat disetujui: "
+                + ", ".join(missing_duration_labels)
+                + "."
+            )
+            if wants_json:
+                return jsonify({"ok": False, "message": message}), 400
+            flash(message, "error")
+            return redirect(next_target)
+        missing_test_types = _missing_recruitment_assessment_test_types(
+            _fetch_recruitment_assessment_questions(db, warehouse_id)
+        )
+        if missing_test_types:
+            message = (
+                "Bank soal 3 tes wajib belum lengkap. Lengkapi dulu sesi: "
+                + ", ".join(missing_test_types)
+                + "."
+            )
+            if wants_json:
+                return jsonify({"ok": False, "message": message}), 400
+            flash(message, "error")
+            return redirect(next_target)
         preferred_assessment_code = ""
         if stored_assessment_code and not conflicting_assessment_code:
             preferred_assessment_code = stored_assessment_code
@@ -9510,6 +9647,7 @@ def update_recruitment(candidate_id):
             assessment_code=?,
             assessment_expires_at=?,
             assessment_duration_minutes=?,
+            assessment_section_durations_json=?,
             assessment_status=?,
             assessment_manual_score=?,
             assessment_final_score=?,
@@ -9539,6 +9677,7 @@ def update_recruitment(candidate_id):
             final_assessment_code,
             assessment_expires_at,
             assessment_duration_minutes,
+            assessment_section_durations_json,
             assessment_status,
             assessment_manual_score,
             assessment_final_score,
@@ -9599,11 +9738,9 @@ def update_recruitment(candidate_id):
             if safe_assessment_code
             else ""
         )
-        safe_duration_value = safe_updated_candidate.get("assessment_duration_minutes_value")
         safe_duration_label = (
-            f"{safe_duration_value} menit"
-            if safe_duration_value
-            else "Tanpa batas waktu"
+            safe_updated_candidate.get("assessment_duration_label")
+            or _format_recruitment_assessment_duration_label(safe_updated_candidate)
         )
         return jsonify(
             {
@@ -9863,6 +10000,7 @@ def add_recruitment_question():
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
     correct_option = normalize_assessment_option(request.form.get("correct_option"))
+    test_type = normalize_assessment_test_type(request.form.get("test_type"))
     score_weight = max(_to_int(request.form.get("score_weight"), 10) or 10, 1)
     sort_order = max(_to_int(request.form.get("sort_order"), 0) or 0, 0)
     is_active = 1 if request.form.get("is_active") else 0
@@ -9881,6 +10019,7 @@ def add_recruitment_question():
             option_c,
             option_d,
             correct_option,
+            test_type,
             score_weight,
             sort_order,
             is_active,
@@ -9888,7 +10027,7 @@ def add_recruitment_question():
             updated_by,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
         """,
         (
             warehouse_id,
@@ -9898,6 +10037,7 @@ def add_recruitment_question():
             option_c,
             option_d,
             correct_option,
+            test_type,
             score_weight,
             sort_order,
             is_active,
@@ -9931,6 +10071,7 @@ def update_recruitment_question(question_id):
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
     correct_option = normalize_assessment_option(request.form.get("correct_option"))
+    test_type = normalize_assessment_test_type(request.form.get("test_type"))
     score_weight = max(_to_int(request.form.get("score_weight"), question["score_weight"] or 10) or 10, 1)
     sort_order = max(_to_int(request.form.get("sort_order"), question["sort_order"] or 0) or 0, 0)
     is_active = 1 if request.form.get("is_active") else 0
@@ -9949,6 +10090,7 @@ def update_recruitment_question(question_id):
             option_c=?,
             option_d=?,
             correct_option=?,
+            test_type=?,
             score_weight=?,
             sort_order=?,
             is_active=?,
@@ -9964,6 +10106,7 @@ def update_recruitment_question(question_id):
             option_c,
             option_d,
             correct_option,
+            test_type,
             score_weight,
             sort_order,
             is_active,

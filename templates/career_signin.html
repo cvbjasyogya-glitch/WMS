@@ -127,6 +127,80 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     justify-items: center;
 }
 
+.career-signin-steps {
+    width: min(980px, calc(100% - 24px));
+    margin: 0 auto;
+    display: grid;
+    gap: 18px;
+    padding: 24px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #e5ebf2;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045);
+}
+
+.career-signin-steps-head {
+    display: grid;
+    gap: 8px;
+}
+
+.career-signin-steps-head h3,
+.career-signin-steps-head p,
+.career-signin-step-item strong,
+.career-signin-step-item span {
+    margin: 0;
+}
+
+.career-signin-steps-head h3 {
+    color: #18324e;
+    font-size: clamp(1.2rem, 2vw, 1.5rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+}
+
+.career-signin-steps-head p {
+    color: #64748b;
+    line-height: 1.66;
+}
+
+.career-signin-steps-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.career-signin-step-item {
+    display: grid;
+    gap: 12px;
+    padding: 18px 16px;
+    border-radius: 18px;
+    background: #fbfdff;
+    border: 1px solid #dfe8f1;
+}
+
+.career-signin-step-number {
+    width: 42px;
+    height: 42px;
+    border-radius: 999px;
+    display: inline-grid;
+    place-items: center;
+    background: linear-gradient(135deg, #005baa, #166ab5);
+    color: #fff;
+    font-size: 0.96rem;
+    font-weight: 800;
+}
+
+.career-signin-step-item strong {
+    color: #18324e;
+    font-size: 0.96rem;
+}
+
+.career-signin-step-item span {
+    color: #64748b;
+    font-size: 0.88rem;
+    line-height: 1.62;
+}
+
 .career-signin-card h2,
 .career-signin-card p {
     margin: 0;
@@ -318,6 +392,10 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     .career-signin-panel {
         grid-template-columns: 1fr;
     }
+
+    .career-signin-steps-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 860px) {
@@ -350,6 +428,11 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
         margin-top: -88px;
     }
 
+    .career-signin-steps {
+        width: calc(100% - 12px);
+        padding: 20px 18px;
+    }
+
 }
 
 @media (max-width: 680px) {
@@ -379,6 +462,10 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
     .career-signin-card {
         gap: 16px;
         padding: 22px 18px;
+    }
+
+    .career-signin-steps-grid {
+        grid-template-columns: 1fr;
     }
 
     .career-signin-switch {
@@ -425,6 +512,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
 
     .career-signin-card {
         padding: 20px 16px;
+        border-radius: 16px;
+    }
+
+    .career-signin-steps {
+        width: calc(100% - 10px);
+        padding: 18px 16px;
         border-radius: 16px;
     }
 
@@ -517,6 +610,40 @@ body.minimal-shell .main.career-public-shell > .page-content.career-signin-page 
                 </div>
                 {% endif %}
             </section>
+        </div>
+    </section>
+
+    <section class="career-signin-steps" aria-label="Langkah melamar">
+        <div class="career-signin-steps-head">
+            <h3>Cara melamar, langkah demi langkah</h3>
+            <p>Ikuti urutan ini supaya prosesnya jelas dari awal sampai tahap tes kandidat.</p>
+        </div>
+        <div class="career-signin-steps-grid">
+            <article class="career-signin-step-item">
+                <span class="career-signin-step-number">01</span>
+                <strong>Buat akun</strong>
+                <span>Daftarkan email aktif, buat kata sandi, lalu buka email verifikasi yang kami kirim.</span>
+            </article>
+            <article class="career-signin-step-item">
+                <span class="career-signin-step-number">02</span>
+                <strong>Lengkapi profil</strong>
+                <span>Isi data diri dan unggah berkas wajib seperti KTP, CV, dan ijazah terakhir.</span>
+            </article>
+            <article class="career-signin-step-item">
+                <span class="career-signin-step-number">03</span>
+                <strong>Pilih lowongan</strong>
+                <span>Buka posisi yang cocok, lalu kirim lamaran dari portal kandidat Anda.</span>
+            </article>
+            <article class="career-signin-step-item">
+                <span class="career-signin-step-number">04</span>
+                <strong>Tunggu screening HR</strong>
+                <span>Tim HR akan meninjau lamaran Anda terlebih dahulu. Cek email secara berkala.</span>
+            </article>
+            <article class="career-signin-step-item">
+                <span class="career-signin-step-number">05</span>
+                <strong>Masuk tes dengan kode</strong>
+                <span>Jika lolos tahap awal, Anda akan menerima email berisi kode tes dan link halaman tes.</span>
+            </article>
         </div>
     </section>
 

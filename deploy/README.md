@@ -31,6 +31,7 @@ Public recruitment domain:
 - Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
 - Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so login kandidat tetap stabil saat menyimpan profil atau upload berkas.
 - Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host stays on the career experience and routes `/` directly to `/signin` instead of bouncing to ERP.
+- Recruitment upload sekarang default aman untuk dokumen kandidat sampai `10 MB per file` dengan total request sekitar `32 MB`. Kalau VPS masih pakai limit lama, set `.env` `MAX_CONTENT_LENGTH=33554432` dan pastikan Nginx recruitment memakai `client_max_body_size 32m`.
 - After each recruitment deploy, run `python3 scripts/recruitment_vps_smoke_test.py`. This checks the recruitment host redirect flow, `/signin`, `/beranda`, `/karir/tes`, career/recruitment tables, SMTP readiness, and whether at least one HR user can access the recruitment module.
 
 Public SMS cloud storage domain:

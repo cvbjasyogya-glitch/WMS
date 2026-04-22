@@ -1961,8 +1961,13 @@
                 <p>Soal ini dipakai kandidat yang masuk lewat kode tes 5 digit.</p>
             </div>
         </div>
-        <div class="panel-summary-meta">
+            <div class="panel-summary-meta">
             <span class="badge">{{ recruitment_assessment_questions|length }} soal</span>
+            {% if recruitment_assessment_summary %}
+            <span class="badge">Dasar {{ recruitment_assessment_summary.by_type.basic or 0 }}</span>
+            <span class="badge">TPA {{ recruitment_assessment_summary.by_type.academic or 0 }}</span>
+            <span class="badge">Studi Kasus {{ recruitment_assessment_summary.by_type.case_study or 0 }}</span>
+            {% endif %}
             <span class="panel-summary-state">Buka Form</span>
         </div>
     </summary>
@@ -1986,6 +1991,14 @@
                     {% if recruitment_scope_warehouse %}
                     <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
                     {% endif %}
+                </div>
+                <div>
+                    <label>Jenis Tes</label>
+                    <select name="test_type" required>
+                        <option value="basic">Tes Kemampuan Dasar</option>
+                        <option value="academic">Tes Potensi Akademik</option>
+                        <option value="case_study">Studi Kasus</option>
+                    </select>
                 </div>
                 <div>
                     <label>Bobot Nilai</label>
@@ -2075,6 +2088,14 @@
                             {% if recruitment_scope_warehouse %}
                             <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
                             {% endif %}
+                        </div>
+                        <div>
+                            <label>Jenis Tes</label>
+                            <select name="test_type" required>
+                                <option value="basic" {% if (question.test_type or 'basic') == 'basic' %}selected{% endif %}>Tes Kemampuan Dasar</option>
+                                <option value="academic" {% if question.test_type == 'academic' %}selected{% endif %}>Tes Potensi Akademik</option>
+                                <option value="case_study" {% if question.test_type == 'case_study' %}selected{% endif %}>Studi Kasus</option>
+                            </select>
                         </div>
                         <div>
                             <label>Bobot Nilai</label>
@@ -2434,21 +2455,29 @@
                 <label>Portfolio</label>
                 <input name="portfolio_url" placeholder="https://">
             </div>
-            <div>
-                <label>Kode Tes 5 Digit</label>
-                <input name="assessment_code" placeholder="Kosongkan sampai kandidat lolos screening">
-            </div>
-            <div>
+                        <div>
+                            <label>Kode Tes 5 Digit</label>
+                            <input name="assessment_code" placeholder="Kosongkan sampai kandidat lolos screening">
+                        </div>
+                        <div>
                 <label>Berlaku Sampai</label>
                 <input type="datetime-local" name="assessment_expires_at">
-            </div>
-            <div>
-                <label>Durasi Tes (Menit)</label>
-                <input type="number" min="1" max="720" step="1" name="assessment_duration_minutes" placeholder="Contoh: 45">
-            </div>
-            <div>
-                <label>Expected Join Date</label>
-                <input type="date" name="expected_join_date">
+                        </div>
+                        <div>
+                            <label>Durasi Tes Kemampuan Dasar (Menit)</label>
+                            <input type="number" min="1" max="720" step="1" name="assessment_duration_basic_minutes" placeholder="Contoh: 20">
+                        </div>
+                        <div>
+                            <label>Durasi Tes Potensi Akademik (Menit)</label>
+                            <input type="number" min="1" max="720" step="1" name="assessment_duration_academic_minutes" placeholder="Contoh: 25">
+                        </div>
+                        <div>
+                            <label>Durasi Studi Kasus (Menit)</label>
+                            <input type="number" min="1" max="720" step="1" name="assessment_duration_case_study_minutes" placeholder="Contoh: 30">
+                        </div>
+                        <div>
+                            <label>Expected Join Date</label>
+                            <input type="date" name="expected_join_date">
             </div>
             <div style="grid-column: 1 / -1;">
                 <label>Catatan</label>
@@ -2586,8 +2615,16 @@
                             <input type="datetime-local" name="assessment_expires_at" value="{{ candidate.assessment_expires_at_input }}">
                         </div>
                         <div>
-                            <label>Durasi Tes (Menit)</label>
-                            <input type="number" min="1" max="720" step="1" name="assessment_duration_minutes" value="{{ candidate.assessment_duration_minutes_value }}" placeholder="Kosongkan jika tanpa batas waktu">
+                            <label>Durasi Tes Kemampuan Dasar (Menit)</label>
+                            <input type="number" min="1" max="720" step="1" name="assessment_duration_basic_minutes" value="{{ candidate.assessment_section_durations.basic or '' }}" placeholder="Contoh: 20">
+                        </div>
+                        <div>
+                            <label>Durasi Tes Potensi Akademik (Menit)</label>
+                            <input type="number" min="1" max="720" step="1" name="assessment_duration_academic_minutes" value="{{ candidate.assessment_section_durations.academic or '' }}" placeholder="Contoh: 25">
+                        </div>
+                        <div>
+                            <label>Durasi Studi Kasus (Menit)</label>
+                            <input type="number" min="1" max="720" step="1" name="assessment_duration_case_study_minutes" value="{{ candidate.assessment_section_durations.case_study or '' }}" placeholder="Contoh: 30">
                         </div>
                         <div>
                             <label>Expected Join Date</label>
@@ -2621,9 +2658,9 @@
                             <label>Link Tes Kandidat</label>
                             {% if candidate.assessment_code %}
                             <a class="ghost-button" href="{{ url_for('career.assessment', code=candidate.assessment_code) }}" target="_blank" rel="noopener" data-recruitment-assessment-link>Buka Halaman Tes</a>
-                            <span class="helper-text" data-recruitment-assessment-meta>Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_minutes_value if candidate.assessment_duration_minutes_value else 'Tanpa batas waktu' }}.</span>
+                            <span class="helper-text" data-recruitment-assessment-meta>Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_label }}.</span>
                             {% else %}
-                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes.</span>
+                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes. Kandidat akan menjalani 3 sesi: kemampuan dasar, potensi akademik, dan studi kasus.</span>
                             {% endif %}
                             <div class="split-actions recruitment-quick-actions">
                                 <button type="submit" name="decision_action" value="approve_assessment" data-recruitment-quick-action>
