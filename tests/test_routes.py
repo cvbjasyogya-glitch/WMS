@@ -16026,6 +16026,48 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue({"ktp_scan", "cv_resume", "last_diploma", "certificate"}.issubset(stored_types))
         self.assertEqual(section_row["completion_state"], "complete")
 
+    def test_public_career_candidate_can_override_bulk_document_type_before_upload(self):
+        account = self.login_public_career_account_session(
+            email="dokumen-bulk-override@example.com",
+            full_name="Dokumen Bulk Override",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "bulk_document_type": ["last_diploma", "certificate"],
+                "bulk_document_label": ["Ijazah Paket C", "Sertifikat Bahasa Inggris"],
+                "documents": [
+                    (BytesIO(b"dokumen-random-1"), "document-a.pdf"),
+                    (BytesIO(b"dokumen-random-2"), "document-b.pdf"),
+                ],
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "documents"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        self.assertEqual(len(payload["files"]), 2)
+        self.assertEqual(payload["files"][0]["document_type"], "last_diploma")
+        self.assertEqual(payload["files"][0]["label"], "Ijazah Terakhir")
+        self.assertEqual(payload["files"][1]["document_type"], "certificate")
+        self.assertEqual(payload["files"][1]["label"], "Sertifikat Pendukung")
+
     def test_public_career_incomplete_profile_redirects_portal_back_to_profile(self):
         self.login_public_career_account_session(
             email="gate-personal@example.com",

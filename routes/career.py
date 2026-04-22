@@ -2341,12 +2341,27 @@ def profile_page():
             if uploaded_single and (uploaded_single.filename or "").strip():
                 uploaded_files.append((uploaded_single, selected_document_type, custom_document_label))
             else:
-                for uploaded in request.files.getlist("documents"):
+                bulk_document_types = request.form.getlist("bulk_document_type")
+                bulk_document_labels = request.form.getlist("bulk_document_label")
+                for index, uploaded in enumerate(request.files.getlist("documents")):
                     if not uploaded or not (uploaded.filename or "").strip():
                         continue
                     inferred_type = _guess_profile_document_type_from_filename(uploaded.filename)
-                    inferred_label = "" if inferred_type != "other" else secure_filename(uploaded.filename or "")
-                    uploaded_files.append((uploaded, inferred_type, inferred_label))
+                    selected_bulk_type = _normalize_profile_document_type(
+                        bulk_document_types[index] if index < len(bulk_document_types) else ""
+                    )
+                    selected_bulk_label = _normalize_profile_text(
+                        bulk_document_labels[index] if index < len(bulk_document_labels) else ""
+                    )
+                    normalized_bulk_type = selected_bulk_type or inferred_type
+                    inferred_label = "" if normalized_bulk_type != "other" else secure_filename(uploaded.filename or "")
+                    uploaded_files.append(
+                        (
+                            uploaded,
+                            normalized_bulk_type,
+                            selected_bulk_label or inferred_label,
+                        )
+                    )
 
             if uploaded_files and not selected_document_type and uploaded_single and (uploaded_single.filename or "").strip():
                 flash("Pilih jenis berkas terlebih dahulu sebelum upload dokumen.", "error")

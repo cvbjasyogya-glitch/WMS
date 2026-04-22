@@ -235,6 +235,20 @@
                 {% endfor %}
             </div>
 
+            <div class="career-profile-upload-guide">
+                <strong>Supaya sistem lebih mudah membaca jenis berkas</strong>
+                <p>Kalau ingin deteksi otomatis lebih akurat, gunakan nama file yang jelas sebelum diunggah.</p>
+                <ul>
+                    <li><code>KTP-Febrio.jpg</code></li>
+                    <li><code>CV-Febrio-Putra.pdf</code></li>
+                    <li><code>Ijazah-S1-Febrio.pdf</code></li>
+                    <li><code>NPWP-Febrio.pdf</code></li>
+                    <li><code>Transkrip-Febrio.pdf</code></li>
+                    <li><code>Sertifikat-English-Febrio.pdf</code></li>
+                </ul>
+                <small>Kalau nama file masih acak seperti <code>IMG_1234</code> atau <code>Document(1)</code>, Anda tetap bisa memperbaiki jenis dokumennya di daftar preview sebelum menyimpan.</small>
+            </div>
+
             <div class="career-profile-grid">
                 <label>
                     Jenis Berkas *
@@ -256,9 +270,17 @@
                 </label>
                 <label class="span-2">
                     Upload beberapa berkas sekaligus
-                    <input type="file" name="documents" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" multiple>
+                    <input type="file" name="documents" id="careerProfileBulkDocumentsInput" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" multiple>
                     <small>Anda bisa memilih beberapa file sekaligus. Sistem akan mencoba mengenali nama file seperti KTP, CV, ijazah, NPWP, transkrip, atau sertifikat secara otomatis.</small>
                 </label>
+            </div>
+
+            <div class="career-profile-bulk-preview" id="careerProfileBulkPreview" hidden>
+                <div class="career-profile-bulk-preview-head">
+                    <strong>Periksa dulu berkas yang akan diunggah</strong>
+                    <span>Kalau ada yang salah tebakan, ubah jenis dokumennya sebelum klik Simpan Perubahan.</span>
+                </div>
+                <div class="career-profile-bulk-preview-list" id="careerProfileBulkPreviewList"></div>
             </div>
 
             {% if selected_profile_documents %}
@@ -305,38 +327,95 @@
 {{ super() }}
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-    const input = document.getElementById("careerProfilePhotoInput");
-    const meta = document.getElementById("careerProfilePhotoMeta");
-    const frame = document.getElementById("careerProfilePhotoFrame");
-    if (!input || !meta || !frame) return;
+    const photoInput = document.getElementById("careerProfilePhotoInput");
+    const photoMeta = document.getElementById("careerProfilePhotoMeta");
+    const photoFrame = document.getElementById("careerProfilePhotoFrame");
+    if (photoInput && photoMeta && photoFrame) {
+        photoInput.addEventListener("change", () => {
+            const file = photoInput.files && photoInput.files[0];
+            if (!file) {
+                photoMeta.textContent = "JPG, PNG, WEBP - Max 2MB";
+                return;
+            }
 
-    input.addEventListener("change", () => {
-        const file = input.files && input.files[0];
-        if (!file) {
-            meta.textContent = "JPG, PNG, WEBP - Max 2MB";
+            photoMeta.textContent = `Foto dipilih: ${file.name}`;
+
+            if (!file.type || !file.type.startsWith("image/")) {
+                return;
+            }
+
+            const existingPreview = document.getElementById("careerProfilePhotoPreview");
+            const fallback = document.getElementById("careerProfilePhotoFallback");
+            const preview = existingPreview || document.createElement("img");
+            preview.id = "careerProfilePhotoPreview";
+            preview.alt = "{{ candidate_account.full_name or 'Kandidat' }}";
+            preview.src = URL.createObjectURL(file);
+            preview.onload = () => URL.revokeObjectURL(preview.src);
+
+            if (fallback) {
+                fallback.remove();
+            }
+            if (!existingPreview) {
+                photoFrame.appendChild(preview);
+            }
+        });
+    }
+
+    const bulkInput = document.getElementById("careerProfileBulkDocumentsInput");
+    const bulkPreview = document.getElementById("careerProfileBulkPreview");
+    const bulkPreviewList = document.getElementById("careerProfileBulkPreviewList");
+    if (!bulkInput || !bulkPreview || !bulkPreviewList) return;
+
+    const documentOptions = {{ profile_document_definitions|tojson }};
+    const inferDocumentType = (fileName) => {
+        const safeName = String(fileName || "").trim().toLowerCase();
+        if (!safeName) return "other";
+        if (safeName.includes("ktp")) return "ktp_scan";
+        if (safeName.includes("npwp")) return "npwp_scan";
+        if (safeName.includes("ijazah") || safeName.includes("diploma")) return "last_diploma";
+        if (safeName.includes("transkrip") || safeName.includes("transcript") || safeName.includes("nilai")) return "transcript";
+        if (safeName.includes("sertifikat") || safeName.includes("certificate") || safeName.includes("sertifikasi")) return "certificate";
+        if (safeName.includes("resume") || /(^|[-_ ])cv($|[-_ .])/.test(safeName) || safeName.includes("curriculum")) return "cv_resume";
+        return "other";
+    };
+    const buildOptionMarkup = (selectedType) => documentOptions.map((item) => {
+        const selectedAttr = item.key === selectedType ? " selected" : "";
+        return `<option value="${item.key}"${selectedAttr}>${item.label}${item.required ? " (Wajib)" : ""}</option>`;
+    }).join("");
+
+    bulkInput.addEventListener("change", () => {
+        const files = Array.from(bulkInput.files || []);
+        bulkPreviewList.innerHTML = "";
+        if (!files.length) {
+            bulkPreview.hidden = true;
             return;
         }
 
-        meta.textContent = `Foto dipilih: ${file.name}`;
-
-        if (!file.type || !file.type.startsWith("image/")) {
-            return;
-        }
-
-        const existingPreview = document.getElementById("careerProfilePhotoPreview");
-        const fallback = document.getElementById("careerProfilePhotoFallback");
-        const preview = existingPreview || document.createElement("img");
-        preview.id = "careerProfilePhotoPreview";
-        preview.alt = "{{ candidate_account.full_name or 'Kandidat' }}";
-        preview.src = URL.createObjectURL(file);
-        preview.onload = () => URL.revokeObjectURL(preview.src);
-
-        if (fallback) {
-            fallback.remove();
-        }
-        if (!existingPreview) {
-            frame.appendChild(preview);
-        }
+        files.forEach((file, index) => {
+            const inferredType = inferDocumentType(file.name);
+            const item = document.createElement("article");
+            item.className = "career-profile-bulk-item";
+            item.innerHTML = `
+                <div class="career-profile-bulk-item-head">
+                    <strong>${file.name}</strong>
+                    <span>${(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
+                <div class="career-profile-bulk-item-grid">
+                    <label>
+                        Jenis dokumen
+                        <select name="bulk_document_type">
+                            ${buildOptionMarkup(inferredType)}
+                        </select>
+                    </label>
+                    <label>
+                        Keterangan dokumen
+                        <input type="text" name="bulk_document_label" placeholder="Opsional, isi kalau ingin memberi catatan khusus">
+                    </label>
+                </div>
+            `;
+            bulkPreviewList.appendChild(item);
+        });
+        bulkPreview.hidden = false;
     });
 });
 </script>

@@ -786,12 +786,13 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
 
             <section class="career-assessment-sidecard">
                 <span class="career-assessment-card-kicker">Aturan</span>
-                <strong>Aturan Pengerjaan</strong>
+                <strong>Panduan Pengerjaan</strong>
                 <ul>
-                    <li>Jangan pindah tab, refresh, atau kembali ke halaman lain selama tes berlangsung.</li>
-                    <li>Maksimal pelanggaran {{ max_violation_count or 3 }} kali sebelum sesi direset dari awal.</li>
-                    <li>Kalau sesi direset, soal bisa berubah dan Anda perlu masuk lagi memakai kode baru.</li>
-                    <li>Setelah dikirim, hasil tes akan langsung tersimpan di sistem.</li>
+                    <li>Selama tes berlangsung, tetap di halaman ini agar sesi Anda berjalan lancar.</li>
+                    <li>Kalau Anda berpindah halaman beberapa kali, sistem bisa menganggap sesi terputus.</li>
+                    <li>Batas toleransi perpindahan halaman adalah {{ max_violation_count or 3 }} kali. Setelah itu sesi akan diulang dari awal.</li>
+                    <li>Jika sesi diulang, soal dapat berubah dan Anda perlu masuk kembali memakai kode tes yang aktif.</li>
+                    <li>Setelah jawaban dikirim, hasil tes akan langsung tersimpan di sistem.</li>
                 </ul>
             </section>
 

@@ -2018,6 +2018,122 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     gap: 12px;
 }
 
+.career-profile-bulk-preview {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 20px;
+    border: 1px solid #dbe7f2;
+    background: linear-gradient(180deg, #fbfdff, #f4f8fc);
+}
+
+.career-profile-upload-guide {
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 20px;
+    border: 1px solid #dbe7f2;
+    background: linear-gradient(180deg, #fffefe, #f8fbff);
+}
+
+.career-profile-upload-guide strong,
+.career-profile-upload-guide p,
+.career-profile-upload-guide small,
+.career-profile-upload-guide ul {
+    margin: 0;
+}
+
+.career-profile-upload-guide strong {
+    color: #18324e;
+    font-size: 0.98rem;
+}
+
+.career-profile-upload-guide p,
+.career-profile-upload-guide small {
+    color: #6f8398;
+    line-height: 1.65;
+}
+
+.career-profile-upload-guide ul {
+    padding-left: 18px;
+    display: grid;
+    gap: 6px;
+    color: #4f647b;
+}
+
+.career-profile-upload-guide code {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #eef5fb;
+    color: #17477f;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.career-profile-bulk-preview-head {
+    display: grid;
+    gap: 6px;
+}
+
+.career-profile-bulk-preview-head strong {
+    color: #18324e;
+    font-size: 0.98rem;
+}
+
+.career-profile-bulk-preview-head span {
+    color: #6f8398;
+    font-size: 0.86rem;
+    line-height: 1.6;
+}
+
+.career-profile-bulk-preview-list {
+    display: grid;
+    gap: 12px;
+}
+
+.career-profile-bulk-item {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid #dfe8f1;
+    background: #fff;
+}
+
+.career-profile-bulk-item-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.career-profile-bulk-item-head strong {
+    color: #18324e;
+    font-size: 0.94rem;
+    word-break: break-word;
+}
+
+.career-profile-bulk-item-head span {
+    color: #73879c;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.career-profile-bulk-item-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.career-profile-bulk-item-grid label {
+    display: grid;
+    gap: 8px;
+    color: #5d728a;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
 .career-profile-document-status-grid {
     display: grid;
     gap: 12px;
@@ -2316,6 +2432,10 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
 
     .career-profile-grid label.span-2 {
         grid-column: span 1;
+    }
+
+    .career-profile-bulk-item-grid {
+        grid-template-columns: 1fr;
     }
 
     .career-candidate-preview-illustration,
