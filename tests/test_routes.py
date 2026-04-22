@@ -15945,6 +15945,58 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["npwp_number"], "")
         self.assertEqual(section_row["completion_state"], "complete")
 
+    def test_public_career_candidate_can_save_personal_profile_section_without_linkedin(self):
+        account = self.login_public_career_account_session(
+            email="profil-nolink@example.com",
+            full_name="Profil Tanpa Link",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "personal",
+                "full_name": "Profil Tanpa Link",
+                "email": "profil-nolink@example.com",
+                "phone": "081234567890",
+                "ktp_number": "3402120000000001",
+                "npwp_number": "",
+                "linkedin_url": "",
+                "instagram_handle": "@profilnolink",
+                "birth_place": "Sleman",
+                "birth_date": "1999-12-31",
+                "gender": "male",
+                "marital_status": "single",
+                "religion": "islam",
+                "ktp_province": "DIY",
+                "ktp_city": "Sleman",
+                "ktp_address": "Jl. Magelang Km 10",
+                "ktp_postal_code": "55515",
+                "domicile_city": "Sleman",
+                "domicile_address": "Perumahan Cebongan",
+                "summary": "Siap mengikuti proses recruitment.",
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=personal")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json, completion_state
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "personal"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        self.assertEqual(payload["linkedin_url"], "")
+        self.assertEqual(section_row["completion_state"], "complete")
+
     def test_public_career_candidate_can_upload_required_documents(self):
         account = self.login_public_career_account_session(
             email="dokumen@example.com",

@@ -645,7 +645,6 @@ def _is_profile_payload_complete(section_key, payload, account=None):
         email = normalize_candidate_email(safe_payload.get("email") or (account or {}).get("email"))
         phone = normalize_candidate_phone(safe_payload.get("phone"))
         ktp_number = "".join(ch for ch in str(safe_payload.get("ktp_number") or "") if ch.isdigit())
-        linkedin_url = normalize_candidate_portfolio_url(safe_payload.get("linkedin_url"))
         instagram_handle = _normalize_profile_text(safe_payload.get("instagram_handle")).lstrip("@")
         birth_place = _normalize_profile_text(safe_payload.get("birth_place"))
         birth_date = _normalize_profile_date(safe_payload.get("birth_date"))
@@ -663,7 +662,6 @@ def _is_profile_payload_complete(section_key, payload, account=None):
             and email
             and phone
             and ktp_number
-            and linkedin_url
             and instagram_handle
             and birth_place
             and birth_date
