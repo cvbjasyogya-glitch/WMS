@@ -1035,7 +1035,7 @@ def create_app():
                 duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
             min_delta = int(app.config.get("REQUEST_MEMORY_LOG_MIN_DELTA_BYTES", 0) or 0)
             if abs(rss_delta) >= min_delta:
-                current_app.logger.info(
+                current_app.logger.warning(
                     (
                         "REQUEST_PROFILE method=%s path=%s endpoint=%s status=%s duration_ms=%.2f "
                         "rss_before_mb=%.2f rss_after_mb=%.2f rss_delta_kb=%s request_id=%s"
