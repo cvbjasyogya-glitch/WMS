@@ -2549,3 +2549,17 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
         padding: 14px 16px;
     }
 }
+
+html[data-performance-tier="low"] body .career-public-shell * {
+    animation: none !important;
+    transition: none !important;
+}
+
+html[data-performance-tier="low"] body .career-topbar,
+html[data-performance-tier="low"] body .career-candidate-preview-card,
+html[data-performance-tier="low"] body .career-candidate-empty-state,
+html[data-performance-tier="low"] body .career-candidate-job-card,
+html[data-performance-tier="low"] body .career-candidate-application-card,
+html[data-performance-tier="low"] body .career-profile-form-section {
+    box-shadow: none !important;
+}

@@ -59,6 +59,9 @@
         schedule: { label: "Jadwal", icon: "JD" },
         system: { label: "Sistem", icon: "NT" }
     };
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const lowEndDevice = Boolean(deviceProfile.lowEnd);
+    const balancedDevice = deviceProfile.performanceTier === "balanced";
 
     const state = {
         filters: {
@@ -78,9 +81,9 @@
         lastActivityAt: Date.now()
     };
     let pollTimer = null;
-    const activePollIntervalMs = 12000;
-    const idlePollIntervalMs = 20000;
-    const quietPollIntervalMs = 30000;
+    const activePollIntervalMs = lowEndDevice ? 18000 : (balancedDevice ? 14000 : 12000);
+    const idlePollIntervalMs = lowEndDevice ? 28000 : (balancedDevice ? 22000 : 20000);
+    const quietPollIntervalMs = lowEndDevice ? 42000 : (balancedDevice ? 34000 : 30000);
     const recentPollWindowMs = 90000;
     const leaderRetryIntervalMs = 7000;
     const pollLockKey = "wms:notifications:poll-lock";

@@ -38,11 +38,16 @@
         || ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)
     );
     const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const lowEndDevice = Boolean(deviceProfile.lowEnd);
     const lowDataMode = Boolean(
+        lowEndDevice
+        || (
         navigator.connection
         && (
             navigator.connection.saveData
             || /(?:^|[^a-z])2g/.test(String(navigator.connection.effectiveType || "").toLowerCase())
+        )
         )
     );
     const activeCallPollIntervalMs = lowDataMode ? 3000 : compactViewport ? 2200 : 1800;

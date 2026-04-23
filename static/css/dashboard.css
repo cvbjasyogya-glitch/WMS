@@ -24938,4 +24938,30 @@ html[data-theme] body .hris-recruitment-portal-field-label {
     color: #64748b !important;
 }
 
+html[data-performance-tier="low"] {
+    --shadow-lg: none;
+    --shadow-md: none;
+    --theme-button-shadow: none;
+    --theme-button-hover-shadow: none;
+}
+
+html[data-performance-tier="low"] body,
+html[data-performance-tier="low"] body * {
+    animation: none !important;
+    transition: none !important;
+}
+
+html[data-performance-tier="low"] body .layout,
+html[data-performance-tier="low"] body .panel,
+html[data-performance-tier="low"] body .card,
+html[data-performance-tier="low"] body .sidebar-subnav-panel,
+html[data-performance-tier="low"] body .notification-center-panel,
+html[data-performance-tier="low"] body .chat-incoming-banner,
+html[data-performance-tier="low"] body .chat-widget-panel,
+html[data-performance-tier="low"] body .app-version-badge {
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
 

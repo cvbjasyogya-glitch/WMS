@@ -75,11 +75,16 @@
     const maxAttachmentBytes = Number(shell.dataset.maxAttachmentBytes || 10485760) || 10485760;
     const chatUi = window.WmsChatUi || {};
     const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const lowEndDevice = Boolean(deviceProfile.lowEnd);
     const lowDataMode = Boolean(
+        lowEndDevice
+        || (
         navigator.connection
         && (
             navigator.connection.saveData
             || /(?:^|[^a-z])2g/.test(String(navigator.connection.effectiveType || "").toLowerCase())
+        )
         )
     );
     const activePollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;

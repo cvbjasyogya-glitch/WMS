@@ -1240,7 +1240,6 @@ class WmsRoutesTestCase(unittest.TestCase):
             "/workspace/",
             "/",
             "/announcements/",
-            "/meetings/",
             "/absen/",
             "/libur/",
             "/laporan-harian/",
@@ -1269,11 +1268,13 @@ class WmsRoutesTestCase(unittest.TestCase):
                 self.assertIn('data-theme-toggle', html)
                 self.assertIn('data-pwa-install-trigger', html)
                 self.assertIn('/static/js/app_shell.js', html)
+                self.assertIn('window.wmsDeviceProfile', html)
+                self.assertIn('root.dataset.performanceTier = performanceTier', html)
+                self.assertIn('window.wmsApplyDeviceProfile', html)
                 self.assertNotIn('/static/js/manual_table_sort.js', html)
                 self.assertIn('data-sidebar-icon-rail', html)
                 self.assertIn('aria-label="Pusat Modul"', html)
                 self.assertIn('aria-label="Pengumuman"', html)
-                self.assertIn('aria-label="Meeting Live"', html)
                 self.assertIn('aria-label="Absen"', html)
                 self.assertIn('aria-label="Libur"', html)
                 self.assertIn('aria-label="Report Harian"', html)

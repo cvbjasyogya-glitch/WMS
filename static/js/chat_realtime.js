@@ -37,11 +37,16 @@
     let activeCallRingtone = null;
     let bannerActionInFlight = false;
     const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const lowEndDevice = Boolean(deviceProfile.lowEnd);
     const lowDataMode = Boolean(
+        lowEndDevice
+        || (
         navigator.connection
         && (
             navigator.connection.saveData
             || /(?:^|[^a-z])2g/.test(String(navigator.connection.effectiveType || "").toLowerCase())
+        )
         )
     );
     const unreadPollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;

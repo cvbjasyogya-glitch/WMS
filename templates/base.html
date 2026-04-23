@@ -38,6 +38,30 @@
 <script>
 (() => {
     const root = document.documentElement;
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+    const effectiveType = String((connection && connection.effectiveType) || "").trim().toLowerCase();
+    const saveData = Boolean(connection && connection.saveData);
+    const deviceMemory = Math.max(0, Number(navigator.deviceMemory || 0));
+    const hardwareConcurrency = Math.max(0, Number(navigator.hardwareConcurrency || 0));
+    const compactViewport = window.innerWidth <= 820;
+    const prefersReducedMotion = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+    const lowEndDevice = Boolean(
+        saveData
+        || /(?:^|[^a-z])(slow-2g|2g|3g)/.test(effectiveType)
+        || (deviceMemory > 0 && deviceMemory <= 3)
+        || (compactViewport && hardwareConcurrency > 0 && hardwareConcurrency <= 4)
+    );
+    const balancedDevice = !lowEndDevice && Boolean(
+        compactViewport
+        || (deviceMemory > 0 && deviceMemory <= 6)
+        || (hardwareConcurrency > 0 && hardwareConcurrency <= 6)
+    );
+    const performanceTier = lowEndDevice ? "low" : (balancedDevice ? "balanced" : "full");
+    const reducedEffects = prefersReducedMotion || lowEndDevice;
+    const idleTimeoutFactor = lowEndDevice ? 1.9 : (balancedDevice ? 1.25 : 1);
+    const connectionTier = saveData ? "save-data" : (effectiveType || "default");
 
     try {
         const storedTheme = localStorage.getItem("wms-theme");
@@ -69,6 +93,43 @@
     } catch (error) {
         root.classList.remove("sidebar-minimized-pending");
     }
+
+    root.dataset.performanceTier = performanceTier;
+    root.dataset.connectionTier = connectionTier;
+    if (reducedEffects) {
+        root.dataset.reducedEffects = "1";
+    } else {
+        delete root.dataset.reducedEffects;
+    }
+
+    window.wmsDeviceProfile = {
+        performanceTier,
+        lowEnd: lowEndDevice,
+        balanced: balancedDevice,
+        reducedEffects,
+        saveData,
+        effectiveType,
+        connectionTier,
+        deviceMemory,
+        hardwareConcurrency,
+        compactViewport,
+        idleTimeoutFactor,
+    };
+
+    window.wmsApplyDeviceProfile = window.wmsApplyDeviceProfile || function () {
+        if (!document.body) {
+            return;
+        }
+        document.body.dataset.performanceTier = performanceTier;
+        document.body.dataset.connectionTier = connectionTier;
+        document.body.dataset.lowEndDevice = lowEndDevice ? "1" : "0";
+        document.body.classList.toggle("reduced-effects-mode", reducedEffects);
+    };
+
+    window.wmsApplyDeviceProfile();
+    document.addEventListener("DOMContentLoaded", () => {
+        window.wmsApplyDeviceProfile();
+    }, { once: true });
 })();
 </script>
 <link rel="stylesheet" href="{{ dashboard_css_url }}">
@@ -1462,11 +1523,14 @@ window.wmsRunWhenIdle = window.wmsRunWhenIdle || function (callback, timeout = 8
     if (typeof callback !== "function") {
         return;
     }
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const timeoutFactor = Math.max(1, Number(deviceProfile.idleTimeoutFactor || 1));
+    const safeTimeout = Math.max(1, Math.round(timeout * timeoutFactor));
     if ("requestIdleCallback" in window) {
-        window.requestIdleCallback(() => callback(), { timeout });
+        window.requestIdleCallback(() => callback(), { timeout: safeTimeout });
         return;
     }
-    window.setTimeout(callback, Math.max(1, timeout));
+    window.setTimeout(callback, safeTimeout);
 };
 </script>
 
@@ -1520,9 +1584,12 @@ window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
 (() => {
     const loadScript = window.wmsLoadScript;
     const runWhenIdle = window.wmsRunWhenIdle;
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const lowEndDevice = Boolean(deviceProfile.lowEnd);
+    const balancedDevice = deviceProfile.performanceTier === "balanced";
     runWhenIdle(() => {
         void loadScript("{{ push_notifications_js_url }}");
-    }, 1800);
+    }, lowEndDevice ? 4200 : (balancedDevice ? 2600 : 1800));
 })();
 </script>
 {% endif %}
@@ -1586,18 +1653,23 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
 (() => {
     const loadScript = window.wmsLoadScript;
     const runWhenIdle = window.wmsRunWhenIdle;
+    const deviceProfile = window.wmsDeviceProfile || {};
+    const lowEndDevice = Boolean(deviceProfile.lowEnd);
+    const balancedDevice = deviceProfile.performanceTier === "balanced";
     const loadChatShared = () => loadScript("{{ chat_ui_shared_js_url }}");
     const loadChatRealtime = () => loadChatShared().then(() => loadScript("{{ chat_realtime_js_url }}"));
 
     runWhenIdle(() => {
         void loadChatRealtime();
-    }, 1200);
+    }, lowEndDevice ? 2400 : (balancedDevice ? 1700 : 1200));
 
     {% if has_app_shell %}
     const loadChatWidget = () => loadChatShared().then(() => loadScript("{{ chat_widget_js_url }}"));
-    runWhenIdle(() => {
-        void loadChatWidget();
-    }, 1800);
+    if (!lowEndDevice) {
+        runWhenIdle(() => {
+            void loadChatWidget();
+        }, balancedDevice ? 2600 : 1800);
+    }
 
     const chatWidgetHints = [
         document.getElementById("chatWidgetLauncher"),
