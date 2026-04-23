@@ -82,7 +82,46 @@
             || /(?:^|[^a-z])2g/.test(String(navigator.connection.effectiveType || "").toLowerCase())
         )
     );
-    const pollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;
+    const activePollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;
+    const idlePollIntervalMs = lowDataMode ? 9000 : compactViewport ? 6000 : 4000;
+    const quietPollIntervalMs = lowDataMode ? 12000 : compactViewport ? 8500 : 5500;
+    const recentPollWindowMs = lowDataMode ? 90000 : 60000;
+    let lastRealtimeActivityAt = Date.now();
+
+    function markRealtimeActivity() {
+        lastRealtimeActivityAt = Date.now();
+    }
+
+    function resolvePollDelayMs() {
+        const elapsedMs = Date.now() - lastRealtimeActivityAt;
+        if (elapsedMs <= recentPollWindowMs) {
+            return activePollIntervalMs;
+        }
+        if (elapsedMs <= recentPollWindowMs * 3) {
+            return idlePollIntervalMs;
+        }
+        return quietPollIntervalMs;
+    }
+
+    function clearPollTimer() {
+        if (pollTimer) {
+            window.clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    function scheduleNextPoll(delayMs) {
+        clearPollTimer();
+        if (document.visibilityState === "hidden") {
+            return;
+        }
+        const nextDelay = Math.max(Number(delayMs || resolvePollDelayMs()), 400);
+        pollTimer = window.setTimeout(async () => {
+            pollTimer = null;
+            await pollNow(false);
+            scheduleNextPoll();
+        }, nextDelay);
+    }
 
     function setSyncState(stateName) {
         if (!syncBadge) {
@@ -369,6 +408,7 @@
         }
 
         const now = Date.now();
+        markRealtimeActivity();
         if (!lastTypingAt || now - lastTypingAt > 1800) {
             lastTypingAt = now;
             sendTypingState(true);
@@ -591,6 +631,7 @@
         if (!messageBoard || !Array.isArray(messages) || !messages.length) {
             return;
         }
+        markRealtimeActivity();
         currentMessages = chatUi.mergeMessages
             ? chatUi.mergeMessages(currentMessages, messages)
             : currentMessages.concat(messages);
@@ -762,6 +803,7 @@
             return;
         }
 
+        markRealtimeActivity();
         sendInFlight = true;
         setComposerState(true);
         try {
@@ -927,6 +969,12 @@
             } else {
                 updateTypingState("");
             }
+            if (
+                (Array.isArray(payload.selected_thread?.messages) && payload.selected_thread.messages.length)
+                || (Array.isArray(payload.incoming) && payload.incoming.length)
+            ) {
+                markRealtimeActivity();
+            }
             setSyncState("ready");
         } catch (error) {
             setSyncState("stale");
@@ -938,6 +986,7 @@
     document.addEventListener("click", (event) => {
         const startButton = event.target.closest("[data-start-chat]");
         if (startButton) {
+            markRealtimeActivity();
             startThread(startButton.dataset.startChat);
             return;
         }
@@ -957,12 +1006,14 @@
 
         const jumpButton = event.target.closest("[data-chat-jump-message-id]");
         if (jumpButton) {
+            markRealtimeActivity();
             focusMessageById(jumpButton.dataset.chatJumpMessageId);
             return;
         }
 
         const searchResultButton = event.target.closest("[data-chat-search-result-id]");
         if (searchResultButton) {
+            markRealtimeActivity();
             focusMessageById(searchResultButton.dataset.chatSearchResultId);
             toggleSearchPanel(false);
             return;
@@ -983,10 +1034,12 @@
     replyPreviewCancel?.addEventListener("click", clearReplyTarget);
 
     searchInput?.addEventListener("input", (event) => {
+        markRealtimeActivity();
         searchQuery = event.target.value || "";
         applySearchFilter();
     });
     threadSearchInput?.addEventListener("input", (event) => {
+        markRealtimeActivity();
         const nextQuery = event.target.value || "";
         if (threadSearchTimer) {
             window.clearTimeout(threadSearchTimer);
@@ -1044,6 +1097,7 @@
     });
 
     voiceCallButton?.addEventListener("click", () => {
+        markRealtimeActivity();
         if (window.WmsChatCall?.startCall) {
             window.WmsChatCall.startCall("voice");
             return;
@@ -1051,6 +1105,7 @@
         sendPayload({ call_mode: "voice" }, false);
     });
     videoCallButton?.addEventListener("click", () => {
+        markRealtimeActivity();
         if (window.WmsChatCall?.startCall) {
             window.WmsChatCall.startCall("video");
             return;
@@ -1059,11 +1114,13 @@
     });
 
     composerInput?.addEventListener("input", () => {
+        markRealtimeActivity();
         autoResizeComposer();
         persistComposerDraft();
         queueTypingHeartbeat();
     });
     composerInput?.addEventListener("keydown", (event) => {
+        markRealtimeActivity();
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             sendCurrentMessage();
@@ -1082,25 +1139,26 @@
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
+            markRealtimeActivity();
             pollNow(false);
+            scheduleNextPoll(activePollIntervalMs);
             queueTypingHeartbeat();
             return;
         }
+        clearPollTimer();
         stopTypingLoop();
     });
 
     window.addEventListener("pageshow", () => {
         if (!pollTimer) {
+            markRealtimeActivity();
             pollNow(false);
-            pollTimer = window.setInterval(() => pollNow(false), pollIntervalMs);
+            scheduleNextPoll(activePollIntervalMs);
         }
     });
 
     window.addEventListener("pagehide", () => {
-        if (pollTimer) {
-            window.clearInterval(pollTimer);
-            pollTimer = null;
-        }
+        clearPollTimer();
         stopTypingLoop();
     });
 
@@ -1126,14 +1184,12 @@
     }
     updateTypingState((bootstrap.selected_thread && bootstrap.selected_thread.typing_label) || "");
     normalizeChatText(shell);
+    markRealtimeActivity();
     pollNow(false);
-    pollTimer = window.setInterval(() => pollNow(false), pollIntervalMs);
+    scheduleNextPoll(activePollIntervalMs);
 
     window.addEventListener("beforeunload", () => {
-        if (pollTimer) {
-            window.clearInterval(pollTimer);
-            pollTimer = null;
-        }
+        clearPollTimer();
         stopTypingLoop();
     });
 })();

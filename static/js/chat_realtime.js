@@ -45,8 +45,11 @@
         )
     );
     const unreadPollIntervalMs = lowDataMode ? 6500 : compactViewport ? 4000 : 2500;
+    const idleUnreadPollIntervalMs = lowDataMode ? 9000 : compactViewport ? 6500 : 4500;
     const heartbeatIntervalMs = lowDataMode ? 45000 : compactViewport ? 30000 : 25000;
     const callPollIntervalMs = lowDataMode ? 3500 : compactViewport ? 2400 : 1800;
+    const idleCallPollIntervalMs = lowDataMode ? 5000 : compactViewport ? 3200 : 2400;
+    let lastRealtimeActivityAt = Date.now();
 
     [
         [primerAudio, configuredVolume],
@@ -294,6 +297,9 @@
         }
 
         const incoming = Array.isArray(payload.incoming) ? payload.incoming : [];
+        if (incoming.length || Number(payload.unread_total || 0) > 0) {
+            markRealtimeActivity();
+        }
         pushIncomingNotifications(incoming, settings.suppressThreadId || null);
         lastToastMessageId = Math.max(lastToastMessageId, latestIncomingId);
     }
@@ -330,6 +336,7 @@
             return;
         }
 
+        markRealtimeActivity();
         const previousCallId = Number(activeIncomingCall?.id || 0);
         activeIncomingCall = call;
         if (incomingBannerAvatar) {
@@ -394,11 +401,11 @@
 
     function stopRealtimeLoops() {
         if (pollTimer) {
-            window.clearInterval(pollTimer);
+            window.clearTimeout(pollTimer);
             pollTimer = null;
         }
         if (callPollTimer) {
-            window.clearInterval(callPollTimer);
+            window.clearTimeout(callPollTimer);
             callPollTimer = null;
         }
         if (heartbeatTimer) {
@@ -407,18 +414,63 @@
         }
     }
 
+    function markRealtimeActivity() {
+        lastRealtimeActivityAt = Date.now();
+    }
+
+    function resolveUnreadPollDelayMs() {
+        const widgetApi = window.WmsChatWidget;
+        const widgetOpen = Boolean(widgetApi && typeof widgetApi.isOpen === "function" && widgetApi.isOpen());
+        if (widgetOpen || Date.now() - lastRealtimeActivityAt <= 60000) {
+            return unreadPollIntervalMs;
+        }
+        return idleUnreadPollIntervalMs;
+    }
+
+    function resolveCallPollDelayMs() {
+        if (activeIncomingCall || Date.now() - lastRealtimeActivityAt <= 60000) {
+            return callPollIntervalMs;
+        }
+        return idleCallPollIntervalMs;
+    }
+
+    function scheduleUnreadPoll(delayMs) {
+        if (window.__WMS_CHAT_PAGE__ || document.visibilityState === "hidden") {
+            return;
+        }
+        if (pollTimer) {
+            window.clearTimeout(pollTimer);
+        }
+        const nextDelay = Math.max(Number(delayMs || resolveUnreadPollDelayMs()), 500);
+        pollTimer = window.setTimeout(async () => {
+            pollTimer = null;
+            await pollUnreadOnly();
+        }, nextDelay);
+    }
+
+    function scheduleCallPoll(delayMs) {
+        if (window.__WMS_CHAT_PAGE__ || document.visibilityState === "hidden") {
+            return;
+        }
+        if (callPollTimer) {
+            window.clearTimeout(callPollTimer);
+        }
+        const nextDelay = Math.max(Number(delayMs || resolveCallPollDelayMs()), 500);
+        callPollTimer = window.setTimeout(async () => {
+            callPollTimer = null;
+            await pollIncomingCalls();
+        }, nextDelay);
+    }
+
     function startRealtimeLoops() {
         if (document.visibilityState === "hidden") {
             return;
         }
 
         if (!window.__WMS_CHAT_PAGE__) {
-            if (!pollTimer) {
-                pollTimer = window.setInterval(pollUnreadOnly, unreadPollIntervalMs);
-            }
-            if (!callPollTimer) {
-                callPollTimer = window.setInterval(pollIncomingCalls, callPollIntervalMs);
-            }
+            markRealtimeActivity();
+            scheduleUnreadPoll(unreadPollIntervalMs);
+            scheduleCallPoll(callPollIntervalMs);
             pollUnreadOnly();
             pollIncomingCalls();
         }
@@ -497,6 +549,7 @@
         } catch (error) {
         } finally {
             pollInFlight = false;
+            scheduleUnreadPoll();
         }
     }
 
@@ -520,6 +573,7 @@
         } catch (error) {
         } finally {
             callPollInFlight = false;
+            scheduleCallPoll();
         }
     }
 
@@ -553,6 +607,7 @@
     };
 
     bindSoundUnlock();
+    markRealtimeActivity();
     sendHeartbeat();
     startRealtimeLoops();
 
@@ -562,11 +617,13 @@
             return;
         }
         sendHeartbeat();
+        markRealtimeActivity();
         startRealtimeLoops();
     });
 
     window.addEventListener("pageshow", () => {
         sendHeartbeat();
+        markRealtimeActivity();
         startRealtimeLoops();
     });
 

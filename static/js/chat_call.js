@@ -37,6 +37,17 @@
         window.isSecureContext
         || ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)
     );
+    const compactViewport = window.matchMedia("(max-width: 1080px)").matches;
+    const lowDataMode = Boolean(
+        navigator.connection
+        && (
+            navigator.connection.saveData
+            || /(?:^|[^a-z])2g/.test(String(navigator.connection.effectiveType || "").toLowerCase())
+        )
+    );
+    const activeCallPollIntervalMs = lowDataMode ? 3000 : compactViewport ? 2200 : 1800;
+    const ringingCallPollIntervalMs = lowDataMode ? 4200 : compactViewport ? 3200 : 2600;
+    const standbyCallPollIntervalMs = lowDataMode ? 6500 : compactViewport ? 5000 : 3600;
 
     const state = {
         afterSignalId: 0,
@@ -53,7 +64,45 @@
         cameraOff: false,
         autoPickupCallId: Number(bootstrap.auto_pickup_call_id || 0) || null,
         autoPickupConsumed: false,
+        lastActivityAt: Date.now(),
     };
+
+    function markCallActivity() {
+        state.lastActivityAt = Date.now();
+    }
+
+    function clearPollTimer() {
+        if (state.pollTimer) {
+            window.clearTimeout(state.pollTimer);
+            state.pollTimer = null;
+        }
+    }
+
+    function resolveCallPollDelayMs() {
+        if (state.call && isOpenCall(state.call)) {
+            return activeCallPollIntervalMs;
+        }
+        if (state.call) {
+            return ringingCallPollIntervalMs;
+        }
+        if (Date.now() - state.lastActivityAt <= 60000) {
+            return ringingCallPollIntervalMs;
+        }
+        return standbyCallPollIntervalMs;
+    }
+
+    function scheduleNextCallPoll(delayMs) {
+        clearPollTimer();
+        const keepPollingWhileHidden = Boolean(state.call && isOpenCall(state.call));
+        if (document.visibilityState === "hidden" && !keepPollingWhileHidden) {
+            return;
+        }
+        const nextDelay = Math.max(Number(delayMs || resolveCallPollDelayMs()), 500);
+        state.pollTimer = window.setTimeout(async () => {
+            state.pollTimer = null;
+            await pollCalls();
+        }, nextDelay);
+    }
 
     function notify(message) {
         if (!message) {
@@ -737,6 +786,9 @@
             const payload = await requestJson(`/chat/call/poll?${params.toString()}`);
             syncCalls(payload.calls);
             const signals = Array.isArray(payload.signals) ? payload.signals : [];
+            if ((Array.isArray(payload.calls) && payload.calls.length) || signals.length) {
+                markCallActivity();
+            }
             for (const signal of signals) {
                 await handleSignal(signal);
             }
@@ -747,10 +799,12 @@
         } catch (error) {
         } finally {
             state.pollInFlight = false;
+            scheduleNextCallPoll();
         }
     }
 
     async function startCall(mode) {
+        markCallActivity();
         if (state.call && isOpenCall(state.call)) {
             renderCall(state.call);
             notify("Masih ada panggilan aktif. Selesaikan dulu sebelum mulai panggilan baru.");
@@ -806,6 +860,7 @@
         }
 
         try {
+            markCallActivity();
             await ensureLocalMedia(state.call.call_mode || "voice");
             await ensurePeerConnection(state.call);
             const payload = await requestJson(`/chat/call/${state.call.id}/accept`, {
@@ -837,6 +892,7 @@
         }
 
         try {
+            markCallActivity();
             const payload = await requestJson(`/chat/call/${state.call.id}/decline`, {
                 method: "POST",
                 body: {},
@@ -867,6 +923,7 @@
 
         state.endingInFlight = true;
         try {
+            markCallActivity();
             const payload = await requestJson(`/chat/call/${state.call.id}/end`, {
                 method: "POST",
                 body: {},
@@ -933,10 +990,7 @@
 
     function cleanupRuntime(options) {
         const settings = options || {};
-        if (state.pollTimer) {
-            window.clearInterval(state.pollTimer);
-            state.pollTimer = null;
-        }
+        clearPollTimer();
         stopIncomingRingtone();
         if (settings.endOpenCall) {
             sendEndBeacon(state.call?.id);
@@ -967,14 +1021,20 @@
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
+            markCallActivity();
             pollCalls();
             refreshNetworkUi();
+            scheduleNextCallPoll(activeCallPollIntervalMs);
+            return;
         }
+        clearPollTimer();
     });
 
     window.addEventListener("online", () => {
+        markCallActivity();
         refreshNetworkUi();
         pollCalls();
+        scheduleNextCallPoll(activeCallPollIntervalMs);
     });
 
     window.addEventListener("offline", () => {
@@ -983,10 +1043,9 @@
 
     window.addEventListener("pageshow", () => {
         if (!state.pollTimer) {
+            markCallActivity();
             pollCalls();
-            state.pollTimer = window.setInterval(() => {
-                pollCalls();
-            }, 1800);
+            scheduleNextCallPoll(activeCallPollIntervalMs);
         }
     });
 
@@ -998,10 +1057,9 @@
     if (hintText) {
         hintText.textContent = defaultHint(null);
     }
+    markCallActivity();
     pollCalls();
-    state.pollTimer = window.setInterval(() => {
-        pollCalls();
-    }, 1800);
+    scheduleNextCallPoll(activeCallPollIntervalMs);
 
     if (bootstrap.auto_start_call_mode) {
         const nextMode = bootstrap.auto_start_call_mode === "video" ? "video" : "voice";
