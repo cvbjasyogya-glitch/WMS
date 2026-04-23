@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from uuid import uuid4
 from urllib.parse import urlsplit
 
@@ -174,6 +175,20 @@ def _format_shell_timer_clock(total_seconds):
     if hours:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _read_process_rss_bytes():
+    # Linux VPS path: current resident set size from /proc without extra dependency.
+    try:
+        with open("/proc/self/status", "r", encoding="utf-8") as status_file:
+            for raw_line in status_file:
+                if raw_line.startswith("VmRSS:"):
+                    parts = raw_line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    except Exception:
+        pass
+    return 0
 
 
 def _endpoint_matches_role_rule(endpoint, rule):
@@ -855,6 +870,9 @@ def create_app():
             (request.headers.get(request_id_header) or "").strip()
             or uuid4().hex
         )
+        if app.config.get("REQUEST_MEMORY_LOG_ENABLED"):
+            g.request_started_at_perf = time.perf_counter()
+            g.request_rss_before_bytes = _read_process_rss_bytes()
 
     @app.before_request
     def enforce_canonical_host():
@@ -1001,6 +1019,37 @@ def create_app():
         ):
             response.headers["Cache-Control"] = "no-store, max-age=0"
             response.headers["Pragma"] = "no-cache"
+
+        if app.config.get("REQUEST_MEMORY_LOG_ENABLED"):
+            if not app.config.get("REQUEST_MEMORY_LOG_INCLUDE_STATIC") and (
+                (request.endpoint or "") == "static" or request.path.startswith("/static/")
+            ):
+                return response
+
+            started_at = getattr(g, "request_started_at_perf", None)
+            rss_before = int(getattr(g, "request_rss_before_bytes", 0) or 0)
+            rss_after = _read_process_rss_bytes()
+            rss_delta = rss_after - rss_before
+            duration_ms = 0.0
+            if started_at is not None:
+                duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            min_delta = int(app.config.get("REQUEST_MEMORY_LOG_MIN_DELTA_BYTES", 0) or 0)
+            if abs(rss_delta) >= min_delta:
+                current_app.logger.info(
+                    (
+                        "REQUEST_PROFILE method=%s path=%s endpoint=%s status=%s duration_ms=%.2f "
+                        "rss_before_mb=%.2f rss_after_mb=%.2f rss_delta_kb=%s request_id=%s"
+                    ),
+                    request.method,
+                    request.path,
+                    request.endpoint or "",
+                    response.status_code,
+                    duration_ms,
+                    rss_before / (1024 * 1024),
+                    rss_after / (1024 * 1024),
+                    int(rss_delta / 1024),
+                    getattr(g, "request_id", ""),
+                )
 
         return response
 

@@ -140,6 +140,37 @@ sudo journalctl -u wms.service -n 50 --no-pager
 sudo tail -n 50 /var/log/nginx/error.log
 ```
 
+Profiling RAM per route di VPS:
+
+```bash
+cd ~/WMS
+grep -q '^REQUEST_MEMORY_LOG_ENABLED=' /root/WMS/.env \
+  && sudo sed -i 's/^REQUEST_MEMORY_LOG_ENABLED=.*/REQUEST_MEMORY_LOG_ENABLED=1/' /root/WMS/.env \
+  || echo 'REQUEST_MEMORY_LOG_ENABLED=1' | sudo tee -a /root/WMS/.env
+grep -q '^REQUEST_MEMORY_LOG_MIN_DELTA_BYTES=' /root/WMS/.env \
+  && sudo sed -i 's/^REQUEST_MEMORY_LOG_MIN_DELTA_BYTES=.*/REQUEST_MEMORY_LOG_MIN_DELTA_BYTES=524288/' /root/WMS/.env \
+  || echo 'REQUEST_MEMORY_LOG_MIN_DELTA_BYTES=524288' | sudo tee -a /root/WMS/.env
+sudo systemctl restart wms.service
+```
+
+Setelah restart, buka halaman yang biasa dipakai user selama beberapa menit lalu rangkum route yang paling berat:
+
+```bash
+cd ~/WMS
+sudo journalctl -u wms.service --since "30 min ago" --no-pager | python3 scripts/summarize_request_profile.py --limit 20
+sudo journalctl -u wms.service --since "30 min ago" --no-pager | grep REQUEST_PROFILE | tail -n 50
+```
+
+Catatan:
+- `REQUEST_PROFILE` mencatat `path`, `endpoint`, `duration_ms`, dan perubahan `rss_delta_kb` pada worker Gunicorn saat route dipanggil.
+- Ini membantu menemukan halaman yang benar-benar menambah RAM saat dibuka, bukan sekadar halaman yang ada di kode.
+- Kalau sudah selesai profiling, matikan lagi agar log tidak ramai:
+
+```bash
+sudo sed -i 's/^REQUEST_MEMORY_LOG_ENABLED=.*/REQUEST_MEMORY_LOG_ENABLED=0/' /root/WMS/.env
+sudo systemctl restart wms.service
+```
+
 Set up automatic DB backups (02:00 and 12:00 server time):
 
 ```bash

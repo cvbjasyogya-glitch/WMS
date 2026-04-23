@@ -1469,7 +1469,7 @@ def _get_public_candidate_progress_note(status, stage):
     safe_status = _normalize_public_recruitment_status(status)
     safe_stage = _normalize_public_recruitment_stage(stage)
     if safe_status == "rejected":
-        return "Terima kasih sudah melamar. Untuk posisi ini, prosesnya belum bisa kami lanjutkan. Silakan cek email untuk detailnya dan Anda tetap bisa mencoba lowongan lain."
+        return "Terima kasih sudah melamar. Untuk posisi ini, prosesnya belum dapat dilanjutkan. Silakan cek email untuk detailnya, dan Anda tetap bisa mencoba lowongan lain yang lebih cocok."
     if safe_status not in {"active", ""}:
         return "Lamaran ini sedang tidak aktif. Jika perlu informasi lebih lanjut, silakan hubungi tim HR melalui kanal resmi yang tersedia."
     if safe_stage == "interview":
