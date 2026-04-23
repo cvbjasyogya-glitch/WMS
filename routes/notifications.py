@@ -47,14 +47,21 @@ def notifications_api():
     current_filter = _current_filter()
     since_id = request.args.get("since_id")
     limit = _parse_limit(request.args.get("limit"), 12)
-    items = fetch_user_web_notifications(
-        session.get("user_id"),
-        unread_only=current_filter == "unread",
-        hide_read=True,
-        limit=limit,
-        since_id=since_id,
-    )
     summary = get_user_web_notification_summary(session.get("user_id"))
+    try:
+        normalized_since_id = int(since_id) if since_id is not None else None
+    except (TypeError, ValueError):
+        normalized_since_id = None
+
+    items = []
+    if normalized_since_id is None or normalized_since_id < int(summary["latest_id"] or 0):
+        items = fetch_user_web_notifications(
+            session.get("user_id"),
+            unread_only=current_filter == "unread",
+            hide_read=True,
+            limit=limit,
+            since_id=since_id,
+        )
     return jsonify(
         {
             "status": "ok",

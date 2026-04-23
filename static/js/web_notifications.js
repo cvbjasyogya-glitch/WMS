@@ -72,9 +72,34 @@
         bootstrapped: false,
         pollInFlight: false,
         shownBrowserIds: new Set(),
-        deviceState: null
+        deviceState: null,
+        unreadCount: 0,
+        totalCount: 0,
+        lastActivityAt: Date.now()
     };
     let pollTimer = null;
+    const activePollIntervalMs = 12000;
+    const idlePollIntervalMs = 20000;
+    const quietPollIntervalMs = 30000;
+    const recentPollWindowMs = 90000;
+
+    function markNotificationActivity() {
+        state.lastActivityAt = Date.now();
+    }
+
+    function panelIsOpen() {
+        return Boolean(root && root.classList.contains("is-open"));
+    }
+
+    function resolvePollDelayMs() {
+        if (panelIsOpen() || pageShell || state.unreadCount > 0) {
+            return activePollIntervalMs;
+        }
+        if (Date.now() - state.lastActivityAt <= recentPollWindowMs) {
+            return idlePollIntervalMs;
+        }
+        return quietPollIntervalMs;
+    }
 
     function escapeHtml(value) {
         return String(value || "")
@@ -155,13 +180,16 @@
 
     function updateTotals(totalCount, unreadCount) {
         const normalizedTotalCount = Math.max(0, Number(totalCount || 0));
+        const normalizedUnreadCount = Math.max(0, Number(unreadCount || 0));
+        state.totalCount = normalizedTotalCount;
+        state.unreadCount = normalizedUnreadCount;
         totalNodes.forEach((node) => {
             node.textContent = String(normalizedTotalCount);
         });
         deleteAllButtons.forEach((button) => {
             button.disabled = normalizedTotalCount <= 0;
         });
-        updateBadge(unreadCount);
+        updateBadge(normalizedUnreadCount);
     }
 
     function updateSurfaceSummary(surfaceName, payload) {
@@ -544,6 +572,8 @@
                 return;
             }
 
+            markNotificationActivity();
+
             if (document.visibilityState === "hidden" || !document.hasFocus()) {
                 const ordered = [...newItems].reverse();
                 for (const item of ordered) {
@@ -556,6 +586,7 @@
         } catch (error) {
         } finally {
             state.pollInFlight = false;
+            startPolling();
         }
     }
 
@@ -583,30 +614,38 @@
 
     function stopPolling() {
         if (pollTimer) {
-            window.clearInterval(pollTimer);
+            window.clearTimeout(pollTimer);
             pollTimer = null;
         }
     }
 
-    function startPolling() {
-        if (pollTimer || document.visibilityState === "hidden") {
+    function startPolling(forceDelayMs) {
+        if (document.visibilityState === "hidden") {
             return;
         }
-        pollTimer = window.setInterval(pollForNewNotifications, 12000);
+        stopPolling();
+        const nextDelay = Math.max(Number(forceDelayMs || resolvePollDelayMs()), 1500);
+        pollTimer = window.setTimeout(async () => {
+            pollTimer = null;
+            await pollForNewNotifications();
+        }, nextDelay);
     }
 
     if (panelToggle) {
         panelToggle.addEventListener("click", async () => {
             if (root.classList.contains("is-open")) {
                 closePanel();
+                startPolling();
                 return;
             }
 
+            markNotificationActivity();
             openPanel();
             try {
                 await refreshSurface("panel");
             } catch (error) {
             }
+            startPolling(activePollIntervalMs);
         });
     }
 
@@ -634,6 +673,7 @@
                 return;
             }
 
+            markNotificationActivity();
             state.filters[surfaceName] = nextFilter;
             setFilterButtons(surfaceName);
 
@@ -641,6 +681,7 @@
                 await refreshSurface(surfaceName);
             } catch (error) {
             }
+            startPolling(activePollIntervalMs);
         });
     });
 
@@ -654,6 +695,7 @@
             }
 
             try {
+                markNotificationActivity();
                 const payload = await deleteNotification(notificationId);
                 updateTotals(payload.total_count || 0, payload.unread_count || 0);
                 removeNotificationEntries(notificationId);
@@ -667,6 +709,7 @@
                     window.showToast("Gagal menghapus notifikasi.");
                 }
             }
+            startPolling(activePollIntervalMs);
             return;
         }
 
@@ -686,6 +729,7 @@
 
         try {
             if (notificationId > 0) {
+                markNotificationActivity();
                 const payload = await markNotificationRead(notificationId);
                 updateBadge(payload.unread_count || 0);
                 removeNotificationEntries(notificationId);
@@ -695,12 +739,14 @@
         } catch (error) {
         }
 
+        startPolling(activePollIntervalMs);
         await readThenNavigate(href);
     });
 
     markAllButtons.forEach((button) => {
         button.addEventListener("click", async () => {
             try {
+                markNotificationActivity();
                 const payload = await markAllRead();
                 updateTotals(payload.total_count || 0, payload.unread_count || 0);
                 await refreshSurface("panel");
@@ -713,6 +759,7 @@
                     window.showToast("Gagal menandai semua notifikasi.");
                 }
             }
+            startPolling(activePollIntervalMs);
         });
     });
 
@@ -723,6 +770,7 @@
             }
 
             try {
+                markNotificationActivity();
                 const payload = await deleteAllNotifications();
                 updateTotals(payload.total_count || 0, payload.unread_count || 0);
                 await refreshSurface("panel");
@@ -735,6 +783,7 @@
                     window.showToast("Gagal menghapus semua notifikasi.");
                 }
             }
+            startPolling(activePollIntervalMs);
         });
     });
 
@@ -742,6 +791,7 @@
         button.addEventListener("click", async () => {
             button.disabled = true;
             try {
+                markNotificationActivity();
                 await enableDeviceNotifications();
             } catch (error) {
                 if (typeof window.showToast === "function") {
@@ -750,16 +800,18 @@
             } finally {
                 button.disabled = false;
             }
+            startPolling(activePollIntervalMs);
         });
     });
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
+            markNotificationActivity();
             refreshSurface("panel").catch(() => {});
             refreshSurface("page").catch(() => {});
             refreshDeviceState().catch(() => {});
             pollForNewNotifications().catch(() => {});
-            startPolling();
+            startPolling(activePollIntervalMs);
             return;
         }
 
@@ -771,7 +823,8 @@
     });
 
     window.addEventListener("pageshow", () => {
-        startPolling();
+        markNotificationActivity();
+        startPolling(activePollIntervalMs);
     });
 
     window.addEventListener("pagehide", () => {

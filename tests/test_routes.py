@@ -8048,6 +8048,38 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(after_all_payload["total_count"], 0)
         self.assertEqual(after_all_payload["items"], [])
 
+    def test_notifications_api_since_id_returns_empty_when_client_is_up_to_date(self):
+        self.create_user("staff_notif_since", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_notif_since", "pass1234")
+        user_id = self.get_user_id("staff_notif_since")
+
+        with self.app.app_context():
+            notification_service.create_web_notification(
+                user_id,
+                "Tes Since ID",
+                "Notif ini dipakai untuk memastikan polling hemat saat inbox sudah sinkron.",
+                category="system",
+                link_url="/notifications/",
+                source_type="test_notification",
+                source_id="since-id-case",
+            )
+
+        initial_response = self.client.get("/notifications/api?filter=all&limit=10")
+        self.assertEqual(initial_response.status_code, 200)
+        initial_payload = initial_response.get_json()
+        self.assertEqual(initial_payload["status"], "ok")
+        self.assertEqual(len(initial_payload["items"]), 1)
+
+        latest_id = initial_payload["latest_id"]
+        followup_response = self.client.get(f"/notifications/api?filter=all&limit=10&since_id={latest_id}")
+        self.assertEqual(followup_response.status_code, 200)
+        followup_payload = followup_response.get_json()
+        self.assertEqual(followup_payload["status"], "ok")
+        self.assertEqual(followup_payload["latest_id"], latest_id)
+        self.assertEqual(followup_payload["unread_count"], 1)
+        self.assertEqual(followup_payload["total_count"], 1)
+        self.assertEqual(followup_payload["items"], [])
+
     def test_schedule_changes_are_logged_and_visible_in_announcement_center(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ANN-SCH",
