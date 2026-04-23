@@ -82,9 +82,62 @@
     const idlePollIntervalMs = 20000;
     const quietPollIntervalMs = 30000;
     const recentPollWindowMs = 90000;
+    const leaderRetryIntervalMs = 7000;
+    const pollLockKey = "wms:notifications:poll-lock";
+    const pollLockTtlMs = 45000;
+    const tabId = `notif-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
     function markNotificationActivity() {
         state.lastActivityAt = Date.now();
+    }
+
+    function readPollLock() {
+        try {
+            const raw = window.localStorage ? window.localStorage.getItem(pollLockKey) : null;
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.id) {
+                return null;
+            }
+            return parsed;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function writePollLock() {
+        const nextLock = {
+            id: tabId,
+            expiresAt: Date.now() + pollLockTtlMs
+        };
+        try {
+            if (window.localStorage) {
+                window.localStorage.setItem(pollLockKey, JSON.stringify(nextLock));
+            }
+            return true;
+        } catch (error) {
+            return true;
+        }
+    }
+
+    function canPollInThisTab() {
+        const activeLock = readPollLock();
+        if (!activeLock || Number(activeLock.expiresAt || 0) <= Date.now() || activeLock.id === tabId) {
+            return writePollLock();
+        }
+        return false;
+    }
+
+    function releasePollLeadership() {
+        try {
+            const activeLock = readPollLock();
+            if (activeLock && activeLock.id === tabId && window.localStorage) {
+                window.localStorage.removeItem(pollLockKey);
+            }
+        } catch (error) {
+        }
     }
 
     function panelIsOpen() {
@@ -555,6 +608,10 @@
         if (state.pollInFlight) {
             return;
         }
+        if (!canPollInThisTab()) {
+            startPolling(leaderRetryIntervalMs);
+            return;
+        }
 
         state.pollInFlight = true;
         try {
@@ -586,6 +643,7 @@
         } catch (error) {
         } finally {
             state.pollInFlight = false;
+            writePollLock();
             startPolling();
         }
     }
@@ -624,6 +682,13 @@
             return;
         }
         stopPolling();
+        if (!canPollInThisTab()) {
+            pollTimer = window.setTimeout(() => {
+                pollTimer = null;
+                startPolling();
+            }, leaderRetryIntervalMs);
+            return;
+        }
         const nextDelay = Math.max(Number(forceDelayMs || resolvePollDelayMs()), 1500);
         pollTimer = window.setTimeout(async () => {
             pollTimer = null;
@@ -816,6 +881,7 @@
         }
 
         stopPolling();
+        releasePollLeadership();
     });
 
     bootstrap().then(() => {
@@ -829,5 +895,18 @@
 
     window.addEventListener("pagehide", () => {
         stopPolling();
+        releasePollLeadership();
+    });
+
+    window.addEventListener("beforeunload", () => {
+        stopPolling();
+        releasePollLeadership();
+    });
+
+    window.addEventListener("storage", (event) => {
+        if (event.key !== pollLockKey || document.visibilityState !== "visible") {
+            return;
+        }
+        startPolling(leaderRetryIntervalMs);
     });
 })();

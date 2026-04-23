@@ -50,6 +50,10 @@
     const callPollIntervalMs = lowDataMode ? 3500 : compactViewport ? 2400 : 1800;
     const idleCallPollIntervalMs = lowDataMode ? 5000 : compactViewport ? 3200 : 2400;
     let lastRealtimeActivityAt = Date.now();
+    const leaderRetryIntervalMs = 7000;
+    const pollLockKey = "wms:chat:global-poll-lock";
+    const pollLockTtlMs = 30000;
+    const tabId = `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
     [
         [primerAudio, configuredVolume],
@@ -418,6 +422,55 @@
         lastRealtimeActivityAt = Date.now();
     }
 
+    function readPollLock() {
+        try {
+            const raw = window.localStorage ? window.localStorage.getItem(pollLockKey) : null;
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.id) {
+                return null;
+            }
+            return parsed;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function writePollLock() {
+        const nextLock = {
+            id: tabId,
+            expiresAt: Date.now() + pollLockTtlMs,
+        };
+        try {
+            if (window.localStorage) {
+                window.localStorage.setItem(pollLockKey, JSON.stringify(nextLock));
+            }
+            return true;
+        } catch (error) {
+            return true;
+        }
+    }
+
+    function canPollInThisTab() {
+        const activeLock = readPollLock();
+        if (!activeLock || Number(activeLock.expiresAt || 0) <= Date.now() || activeLock.id === tabId) {
+            return writePollLock();
+        }
+        return false;
+    }
+
+    function releasePollLeadership() {
+        try {
+            const activeLock = readPollLock();
+            if (activeLock && activeLock.id === tabId && window.localStorage) {
+                window.localStorage.removeItem(pollLockKey);
+            }
+        } catch (error) {
+        }
+    }
+
     function resolveUnreadPollDelayMs() {
         const widgetApi = window.WmsChatWidget;
         const widgetOpen = Boolean(widgetApi && typeof widgetApi.isOpen === "function" && widgetApi.isOpen());
@@ -441,7 +494,9 @@
         if (pollTimer) {
             window.clearTimeout(pollTimer);
         }
-        const nextDelay = Math.max(Number(delayMs || resolveUnreadPollDelayMs()), 500);
+        const nextDelay = canPollInThisTab()
+            ? Math.max(Number(delayMs || resolveUnreadPollDelayMs()), 500)
+            : leaderRetryIntervalMs;
         pollTimer = window.setTimeout(async () => {
             pollTimer = null;
             await pollUnreadOnly();
@@ -455,7 +510,9 @@
         if (callPollTimer) {
             window.clearTimeout(callPollTimer);
         }
-        const nextDelay = Math.max(Number(delayMs || resolveCallPollDelayMs()), 500);
+        const nextDelay = canPollInThisTab()
+            ? Math.max(Number(delayMs || resolveCallPollDelayMs()), 500)
+            : leaderRetryIntervalMs;
         callPollTimer = window.setTimeout(async () => {
             callPollTimer = null;
             await pollIncomingCalls();
@@ -509,6 +566,10 @@
         if (window.__WMS_CHAT_PAGE__ || pollInFlight || document.visibilityState === "hidden") {
             return;
         }
+        if (!canPollInThisTab()) {
+            scheduleUnreadPoll(leaderRetryIntervalMs);
+            return;
+        }
 
         pollInFlight = true;
         try {
@@ -549,12 +610,17 @@
         } catch (error) {
         } finally {
             pollInFlight = false;
+            writePollLock();
             scheduleUnreadPoll();
         }
     }
 
     async function pollIncomingCalls() {
         if (window.__WMS_CHAT_PAGE__ || !callPollUrl || callPollInFlight || document.visibilityState === "hidden") {
+            return;
+        }
+        if (!canPollInThisTab()) {
+            scheduleCallPoll(leaderRetryIntervalMs);
             return;
         }
 
@@ -573,6 +639,7 @@
         } catch (error) {
         } finally {
             callPollInFlight = false;
+            writePollLock();
             scheduleCallPoll();
         }
     }
@@ -614,6 +681,7 @@
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState !== "visible") {
             stopRealtimeLoops();
+            releasePollLeadership();
             return;
         }
         sendHeartbeat();
@@ -630,10 +698,21 @@
     window.addEventListener("pagehide", () => {
         stopRealtimeLoops();
         stopCallRingtone();
+        releasePollLeadership();
     });
 
     window.addEventListener("beforeunload", () => {
         stopRealtimeLoops();
         stopCallRingtone();
+        releasePollLeadership();
+    });
+
+    window.addEventListener("storage", (event) => {
+        if (event.key !== pollLockKey || document.visibilityState !== "visible" || window.__WMS_CHAT_PAGE__) {
+            return;
+        }
+        markRealtimeActivity();
+        scheduleUnreadPoll(leaderRetryIntervalMs);
+        scheduleCallPoll(leaderRetryIntervalMs);
     });
 })();
