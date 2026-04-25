@@ -2649,10 +2649,11 @@ function checkoutPosTransaction() {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Checkout gagal.");
         }
+        const resolvedSaleDate = String(data.sale_date || posSaleDate || "");
         if (isEditingSale) {
             window.alert(`${data.message}\nNo. Nota: ${data.receipt_no}`);
             window.location.href = buildPosRuntimeUrl(
-                `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(posSaleDate)}`
+                `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(resolvedSaleDate)}`
             );
             return;
         }
@@ -2682,7 +2683,7 @@ function checkoutPosTransaction() {
             window.open(buildPosRuntimeUrl(data.receipt_print_url), "_blank", "noopener");
         }
         window.location.href = buildPosRuntimeUrl(
-            `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(posSaleDate)}`
+            `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(resolvedSaleDate)}`
         );
     })
     .catch((error) => {

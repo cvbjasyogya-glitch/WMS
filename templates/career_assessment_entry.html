@@ -8,103 +8,238 @@
 .career-assessment-entry-shell {
     min-height: 100vh;
     background:
-        radial-gradient(circle at top, rgba(0, 91, 170, 0.08), transparent 38%),
-        linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+        radial-gradient(circle at top, rgba(215, 188, 137, 0.18), transparent 34%),
+        linear-gradient(180deg, #fcfbf7 0%, #f7f4ec 100%);
+    color: #2b2b2b;
+    font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
 }
 
 .career-assessment-entry-wrap {
-    width: min(1180px, calc(100% - 40px));
+    width: min(920px, calc(100% - 28px));
     margin: 0 auto;
-    padding: 18px 0 56px;
+    padding: 18px 0 42px;
+    display: grid;
+    gap: 18px;
+}
+
+.career-assessment-entry-topbar,
+.career-assessment-entry-card {
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(224, 218, 204, 0.92);
+    border-radius: 28px;
+    box-shadow: 0 18px 40px rgba(66, 49, 19, 0.08);
+}
+
+.career-assessment-entry-topbar {
+    padding: 16px 18px;
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.career-assessment-entry-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: #5b5141;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.career-assessment-entry-brand-mark {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle, rgba(245, 227, 178, 0.9) 0%, rgba(214, 178, 109, 0.95) 48%, rgba(176, 138, 72, 1) 100%);
+    box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.88);
+}
+
+.career-assessment-entry-brand-copy,
+.career-assessment-entry-back,
+.career-assessment-entry-card h1,
+.career-assessment-entry-card p,
+.career-assessment-entry-section strong,
+.career-assessment-entry-section span,
+.career-assessment-entry-notes h2,
+.career-assessment-entry-notes li,
+.career-assessment-entry-form label,
+.career-assessment-entry-form button,
+.career-assessment-entry-actions a {
+    margin: 0;
+}
+
+.career-assessment-entry-brand-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.career-assessment-entry-brand-copy strong {
+    color: #43351d;
+    font-size: 0.98rem;
+    letter-spacing: -0.02em;
+}
+
+.career-assessment-entry-brand-copy span {
+    color: #8a7b62;
+    font-size: 0.82rem;
+}
+
+.career-assessment-entry-back {
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #ece2cf;
+    color: #6c5f48;
+    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 700;
+    background: #faf7ef;
 }
 
 .career-assessment-entry-card {
-    width: min(620px, 100%);
-    margin: 36px auto 0;
-    padding: 34px 32px;
-    border-radius: 28px;
-    background: rgba(255, 255, 255, 0.98);
-    border: 1px solid rgba(201, 214, 229, 0.92);
-    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+    padding: 28px 24px 24px;
     display: grid;
     gap: 20px;
 }
 
+.career-assessment-entry-head {
+    display: grid;
+    gap: 10px;
+}
+
 .career-assessment-entry-kicker {
     display: inline-flex;
-    width: fit-content;
     align-items: center;
     gap: 8px;
-    padding: 8px 14px;
+    width: fit-content;
+    min-height: 34px;
+    padding: 0 14px;
     border-radius: 999px;
-    background: #eef5ff;
-    color: #005baa;
-    font-size: 0.82rem;
+    background: #f8f3e7;
+    border: 1px solid #e8dcc4;
+    color: #8c7751;
+    font-size: 0.8rem;
     font-weight: 800;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
 }
 
 .career-assessment-entry-card h1 {
-    margin: 0;
-    font-size: clamp(2rem, 4vw, 2.9rem);
+    color: #493c27;
+    font-size: clamp(1.9rem, 4vw, 2.8rem);
     line-height: 1.08;
     letter-spacing: -0.04em;
-    color: #13233d;
 }
 
 .career-assessment-entry-card p {
-    margin: 0;
-    color: #54657f;
-    font-size: 1.02rem;
-    line-height: 1.75;
+    max-width: 62ch;
+    color: #8a7c64;
+    line-height: 1.78;
 }
 
-.career-assessment-entry-notes {
+.career-assessment-entry-sections {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.career-assessment-entry-section {
+    padding: 18px 16px;
+    border-radius: 22px;
+    border: 1px solid #ece3d1;
+    background: #fffdf8;
+    display: grid;
+    gap: 8px;
+}
+
+.career-assessment-entry-section strong {
+    color: #4c3e29;
+    font-size: 1rem;
+}
+
+.career-assessment-entry-section span {
+    color: #91826a;
+    line-height: 1.65;
+    font-size: 0.9rem;
+}
+
+.career-assessment-entry-main {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+    align-items: start;
+}
+
+.career-assessment-entry-notes,
+.career-assessment-entry-form-shell {
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid #ece3d1;
+    background: #fffdf8;
+    display: grid;
+    gap: 14px;
+}
+
+.career-assessment-entry-notes h2 {
+    color: #4c3e29;
+    font-size: 1.12rem;
+    letter-spacing: -0.02em;
+}
+
+.career-assessment-entry-notes ul {
     margin: 0;
     padding-left: 18px;
     display: grid;
     gap: 8px;
-    color: #3b4f68;
-    line-height: 1.65;
+    color: #8a7c64;
+    line-height: 1.72;
 }
 
 .career-assessment-entry-form {
     display: grid;
-    gap: 16px;
+    gap: 14px;
 }
 
 .career-assessment-entry-form label {
     display: grid;
     gap: 8px;
-    color: #21344e;
-    font-weight: 700;
+    color: #5d4f38;
+    font-size: 0.92rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .career-assessment-entry-form input {
-    min-height: 56px;
+    min-height: 58px;
     padding: 0 18px;
-    border-radius: 16px;
-    border: 1px solid #cfdae8;
+    border-radius: 18px;
+    border: 1px solid #e7dcc9;
     background: #fff;
-    color: #13233d;
+    color: #4b3e28;
     font: inherit;
-    font-size: 1.02rem;
-    letter-spacing: 0.18em;
+    font-size: 1.08rem;
+    font-weight: 800;
+    letter-spacing: 0.2em;
 }
 
 .career-assessment-entry-form input:focus {
     outline: none;
-    border-color: #2f80ed;
-    box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.12);
+    border-color: #d2b078;
+    box-shadow: 0 0 0 4px rgba(210, 176, 120, 0.14);
 }
 
 .career-assessment-entry-form button {
-    min-height: 54px;
-    border: none;
+    min-height: 56px;
+    border: 0;
     border-radius: 16px;
-    background: linear-gradient(135deg, #005baa, #1d7ad8);
-    color: #fff;
+    background: linear-gradient(135deg, #dcc08a, #b78f4f);
+    color: #fffdf9;
     font: inherit;
     font-weight: 800;
     cursor: pointer;
@@ -117,34 +252,46 @@
 }
 
 .career-assessment-entry-actions a {
-    min-height: 48px;
-    padding: 0 18px;
+    min-height: 46px;
+    padding: 0 16px;
     border-radius: 14px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #cdd9ea;
-    color: #315175;
+    border: 1px solid #e0d2b6;
+    color: #705d3d;
     text-decoration: none;
     font-weight: 700;
+    background: #fff;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
     .career-assessment-entry-wrap {
-        width: min(100%, calc(100% - 24px));
-        padding: 10px 0 28px;
+        width: min(100%, calc(100% - 18px));
+        padding: 14px 0 28px;
+    }
+
+    .career-assessment-entry-topbar,
+    .career-assessment-entry-card {
+        border-radius: 22px;
     }
 
     .career-assessment-entry-card {
-        margin-top: 18px;
-        padding: 24px 18px;
-        border-radius: 22px;
-        gap: 16px;
+        padding: 20px 16px 18px;
     }
 
-    .career-assessment-entry-card p,
-    .career-assessment-entry-notes {
-        font-size: 0.96rem;
+    .career-assessment-entry-topbar,
+    .career-assessment-entry-main {
+        grid-template-columns: 1fr;
+    }
+
+    .career-assessment-entry-topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .career-assessment-entry-sections {
+        grid-template-columns: 1fr;
     }
 }
 </style>
@@ -153,44 +300,78 @@
 {% block content %}
 <div class="career-assessment-entry-shell">
     <div class="career-assessment-entry-wrap">
-        {% include "_career_public_header_astra.html" %}
+        <header class="career-assessment-entry-topbar">
+            <a href="{{ url_for('career.index') }}" class="career-assessment-entry-brand">
+                <span class="career-assessment-entry-brand-mark" aria-hidden="true"></span>
+                <span class="career-assessment-entry-brand-copy">
+                    <strong>Tes Karir</strong>
+                    <span>Rangkaian assessment kandidat</span>
+                </span>
+            </a>
+
+            <a href="{{ url_for('career.signin_page') }}" class="career-assessment-entry-back">Kembali ke Masuk Kandidat</a>
+        </header>
 
         <section class="career-assessment-entry-card">
-            <span class="career-assessment-entry-kicker">Masuk Tes</span>
-            <h1>Masukkan kode tes untuk membuka soal.</h1>
-            <p>
-                Setelah lamaran Anda lolos tahap awal, tim HR akan mengirim email berisi kode tes 5 digit.
-                Masukkan kode tersebut di halaman ini, lalu Anda bisa mulai mengerjakan tiga sesi tes
-                secara berurutan dengan tenang.
-            </p>
-            <ul class="career-assessment-entry-notes">
-                <li>Gunakan kode tes yang dikirim ke email Anda.</li>
-                <li>Kode hanya bisa dipakai selama masih aktif.</li>
-                <li>Anda akan mengerjakan Tes Kemampuan Dasar, Tes Potensi Akademik, dan Studi Kasus.</li>
-                <li>Pastikan koneksi stabil sebelum mulai mengerjakan soal.</li>
-            </ul>
+            <div class="career-assessment-entry-head">
+                <span class="career-assessment-entry-kicker">Masuk Tes</span>
+                <h1>Masukkan kode tes untuk membuka soal.</h1>
+                <p>
+                    Setelah lolos screening awal, tim HR akan mengirim kode tes 5 digit ke email Anda.
+                    Masukkan kodenya di halaman ini untuk langsung masuk ke sesi assessment yang aktif.
+                </p>
+            </div>
 
-            <form class="career-assessment-entry-form" method="post" action="{{ assessment_entry_action }}">
-                <label for="careerAssessmentEntryCode">
-                    Kode Tes 5 Digit
-                    <input
-                        id="careerAssessmentEntryCode"
-                        type="text"
-                        name="assessment_code"
-                        inputmode="numeric"
-                        pattern="[0-9]{5}"
-                        maxlength="5"
-                        placeholder="Contoh: 12345"
-                        value="{{ assessment_prefill_code or '' }}"
-                        required
-                    >
-                </label>
-                <button type="submit">Mulai Tes</button>
-            </form>
+            <div class="career-assessment-entry-sections">
+                <article class="career-assessment-entry-section">
+                    <strong>Tes Kemampuan Dasar</strong>
+                    <span>Fokus pada logika dasar, keputusan cepat, dan pemahaman instruksi.</span>
+                </article>
+                <article class="career-assessment-entry-section">
+                    <strong>Tes Potensi Akademik</strong>
+                    <span>Menguji pola, hitungan sederhana, dan ketelitian saat membaca soal.</span>
+                </article>
+                <article class="career-assessment-entry-section">
+                    <strong>Studi Kasus</strong>
+                    <span>Skenario kerja yang menilai komunikasi, prioritas, dan cara mengambil keputusan.</span>
+                </article>
+            </div>
 
-            <div class="career-assessment-entry-actions">
-                <a href="{{ url_for('career.signin_page') }}">Kembali ke Masuk Kandidat</a>
-                <a href="{{ url_for('career.help_page') }}">Lihat Bantuan</a>
+            <div class="career-assessment-entry-main">
+                <section class="career-assessment-entry-notes">
+                    <h2>Sebelum memulai</h2>
+                    <ul>
+                        <li>Selesaikan assessment dalam satu sesi yang tenang dan fokus.</li>
+                        <li>Setiap sesi punya batas waktu sendiri dan timer akan tampil saat tes berjalan.</li>
+                        <li>Usahakan tetap di halaman assessment sampai sesi selesai.</li>
+                        <li>Siapkan koneksi stabil, kertas catatan bila perlu, dan hindari bantuan eksternal.</li>
+                    </ul>
+                </section>
+
+                <section class="career-assessment-entry-form-shell">
+                    <form class="career-assessment-entry-form" method="post" action="{{ assessment_entry_action }}">
+                        <label for="careerAssessmentEntryCode">
+                            Kode Tes 5 Digit
+                            <input
+                                id="careerAssessmentEntryCode"
+                                type="text"
+                                name="assessment_code"
+                                inputmode="numeric"
+                                pattern="[0-9]{5}"
+                                maxlength="5"
+                                placeholder="Contoh: 12345"
+                                value="{{ assessment_prefill_code or '' }}"
+                                required
+                            >
+                        </label>
+                        <button type="submit">Mulai Tes</button>
+                    </form>
+
+                    <div class="career-assessment-entry-actions">
+                        <a href="{{ url_for('career.help_page') }}">Lihat Bantuan</a>
+                        <a href="{{ url_for('career.index') }}">Kembali ke Lowongan</a>
+                    </div>
+                </section>
             </div>
         </section>
     </div>

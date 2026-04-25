@@ -12,10 +12,7 @@
         </div>
     </div>
     <nav class="career-nav" aria-label="Navigasi karir">
-        <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
         <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
-        <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
-        <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Bantuan</a>
         <span class="career-nav-utility">
             <div class="career-test-shortcut">
                 <details class="career-test-shortcut-panel">

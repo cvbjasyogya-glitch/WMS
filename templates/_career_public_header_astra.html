@@ -45,17 +45,7 @@
 
     <div class="career-astra-topbar-panel" id="careerAstraTopbarPanel">
         <nav class="career-astra-nav" aria-label="Navigasi karir publik">
-            <a href="{{ url_for('career.home') }}" class="{% if active_page == 'home' %}is-active{% endif %}">Beranda</a>
             <a href="{{ url_for('career.index') }}" class="{% if active_page == 'jobs' %}is-active{% endif %}">Lowongan</a>
-            {% if show_home_program_nav is not defined or show_home_program_nav %}
-            <a href="{{ url_for('career.home') }}#program-kami">Program Kami</a>
-            {% endif %}
-            <a href="{{ url_for('career.home') }}#agenda-karir">Agenda</a>
-            {% if show_home_story_nav is not defined or show_home_story_nav %}
-            <a href="{{ url_for('career.home') }}#berita-karir">Berita dan Artikel</a>
-            {% endif %}
-            <a href="{{ url_for('career.about_page') }}" class="{% if active_page == 'about' %}is-active{% endif %}">Tentang Kami</a>
-            <a href="{{ url_for('career.help_page') }}" class="{% if active_page == 'help' %}is-active{% endif %}">Pusat Bantuan</a>
         </nav>
 
         <div class="career-astra-topbar-actions">

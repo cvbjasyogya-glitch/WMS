@@ -284,6 +284,8 @@
                     data-receipt-preview-url="{{ sale.receipt_print_url }}"
                     data-receipt-thermal-url="{{ sale.receipt_thermal_url }}"
                     data-can-edit-payment="{{ 1 if sale.can_edit_payment_method else 0 }}"
+                    data-can-edit-sale-date="{{ 1 if sale.can_edit_sale_date else 0 }}"
+                    data-payment-method-url="/kasir/sale/{{ sale.id }}/payment-method"
                     data-payment-method="{{ sale.payment_method }}"
                     data-wa-status="{{ sale.receipt_whatsapp_status }}"
                     data-wa-error="{{ sale.receipt_whatsapp_error }}"
@@ -470,10 +472,13 @@ function buildPosSalesContextMenu(row) {
     const waStatus = String(row.dataset.waStatus || "").trim() || "-";
     const waError = String(row.dataset.waError || "").trim();
     const canEditPayment = Number(row.dataset.canEditPayment || 0) > 0;
+    const canEditSaleDate = Number(row.dataset.canEditSaleDate || 0) > 0;
+    const paymentMethodUrl = String(row.dataset.paymentMethodUrl || "").trim();
     const currentPaymentMethod = String(row.dataset.paymentMethod || "").trim();
     const returnUrl = String(row.dataset.returnUrl || "").trim();
     const canArchive = Number(row.dataset.canArchive || 0) > 0;
     const archiveUrl = String(row.dataset.archiveUrl || "").trim();
+    const currentSaleDate = String(row.dataset.saleDate || "").trim();
 
     posSalesContextBody.innerHTML = "";
     const fragment = document.createDocumentFragment();
@@ -490,6 +495,12 @@ function buildPosSalesContextMenu(row) {
 
     if (editUrl) {
         appendPosSalesContextLink(fragment, "Edit Transaksi", editUrl);
+    }
+    if (canEditSaleDate && saleId) {
+        appendPosSalesContextButton(fragment, "Edit Tanggal Transaksi", () => {
+            closePosSalesContextMenu();
+            promptPosSaleDateUpdate(row, saleId, receiptNo, currentSaleDate);
+        });
     }
     appendPosSalesContextLink(fragment, "PDF Nota", pdfUrl, { newTab: true });
     appendPosSalesContextLink(fragment, "Preview Nota", previewUrl, { newTab: true });
@@ -518,7 +529,7 @@ function buildPosSalesContextMenu(row) {
 
         const form = document.createElement("form");
         form.method = "POST";
-        form.action = `/kasir/sale/${saleId}/payment-method`;
+        form.action = paymentMethodUrl || `/kasir/sale/${saleId}/payment-method`;
         form.className = "pos-sales-context-form";
         form.addEventListener("submit", (event) => {
             if (!window.confirm(`Ganti metode pembayaran untuk transaksi ${receiptNo || "-"}?`)) {
@@ -584,6 +595,50 @@ function openPosSalesContextMenu(event, row) {
 
     posSalesContextMenu.style.left = `${Math.max(left, 12)}px`;
     posSalesContextMenu.style.top = `${Math.max(top, 12)}px`;
+}
+
+async function submitPosSaleDateUpdate(row, saleId, nextSaleDate) {
+    const response = await fetch(`/kasir/sale/${saleId}/sale-date`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify({
+            sale_date: nextSaleDate,
+        }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || "Tanggal transaksi gagal diperbarui.");
+    }
+    if (row) {
+        row.dataset.saleDate = String(data.sale_date || nextSaleDate || "");
+    }
+    window.alert(data.message || "Tanggal transaksi berhasil diperbarui.");
+    window.location.reload();
+}
+
+function promptPosSaleDateUpdate(row, saleId, receiptNo, currentSaleDate) {
+    const nextSaleDate = String(
+        window.prompt(
+            `Perbaiki tanggal transaksi ${receiptNo || "-"}.\nPakai format YYYY-MM-DD.`,
+            currentSaleDate || ""
+        ) || ""
+    ).trim();
+    if (!nextSaleDate) {
+        return;
+    }
+    if (nextSaleDate === currentSaleDate) {
+        window.alert(`Tanggal transaksi ${receiptNo || "-"} sudah ${currentSaleDate || "-"}.`);
+        return;
+    }
+    if (!window.confirm(`Ubah tanggal transaksi ${receiptNo || "-"} dari ${currentSaleDate || "-"} ke ${nextSaleDate}?`)) {
+        return;
+    }
+    submitPosSaleDateUpdate(row, saleId, nextSaleDate).catch((error) => {
+        window.alert(error.message || "Tanggal transaksi gagal diperbarui.");
+    });
 }
 
 document.addEventListener("contextmenu", (event) => {

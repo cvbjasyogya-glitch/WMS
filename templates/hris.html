@@ -1978,6 +1978,18 @@
                 <p>Buka area ini saat ingin menambah soal baru ke bank tes kandidat.</p>
             </div>
         </div>
+        <form method="POST" action="/hris/recruitment/question/generate-sports-retail" class="box" style="margin-bottom:16px; padding:16px 18px; border:1px solid rgba(190,149,68,0.18); background:linear-gradient(135deg, rgba(255,248,236,0.96), rgba(255,255,255,0.98));">
+            {% if recruitment_scope_warehouse %}
+            <input type="hidden" name="warehouse_id" value="{{ recruitment_scope_warehouse }}">
+            {% endif %}
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+                <div>
+                    <strong style="display:block; color:#6a4d1f; margin-bottom:4px;">Generate Bank Soal Retail Olahraga</strong>
+                    <p style="margin:0; color:#7d6b54; line-height:1.6;">Sekali klik untuk mengisi bank soal yang lebih relevan ke toko olahraga: sepatu, apparel, stok, promo, layanan pelanggan, dan operasional floor.</p>
+                </div>
+                <button type="submit" style="min-width:240px;">Isi Bank Soal Retail Olahraga</button>
+            </div>
+        </form>
         <form method="POST" action="/hris/recruitment/question/add">
             <div class="form-grid">
                 <div>
@@ -2015,6 +2027,7 @@
                         <option value="b">B</option>
                         <option value="c">C</option>
                         <option value="d">D</option>
+                        <option value="e">E</option>
                     </select>
                 </div>
                 <div style="display:flex;align-items:flex-end;">
@@ -2026,6 +2039,7 @@
                 <div style="grid-column: 1 / -1;">
                     <label>Pertanyaan</label>
                     <textarea name="prompt" rows="3" placeholder="Tulis pertanyaan tes kandidat." required></textarea>
+                    <small style="display:block;margin-top:8px;color:#7f8aa3;">Opsi E boleh dipakai untuk soal 5 pilihan atau skala 1-5 seperti Big 5 / OCEAN. Kalau kunci jawaban memilih E, isi kolom opsi E juga.</small>
                 </div>
                 <div>
                     <label>Opsi A</label>
@@ -2042,6 +2056,10 @@
                 <div>
                     <label>Opsi D</label>
                     <input name="option_d" required>
+                </div>
+                <div>
+                    <label>Opsi E <span style="color:#8e9bb4;">(opsional)</span></label>
+                    <input name="option_e" placeholder="Contoh: Sangat Setuju">
                 </div>
             </div>
             <div class="split-actions" style="margin-top:16px;">
@@ -2108,7 +2126,7 @@
                         <div>
                             <label>Kunci Jawaban</label>
                             <select name="correct_option" required>
-                                {% for option in ['a','b','c','d'] %}
+                                {% for option in ['a','b','c','d','e'] %}
                                 <option value="{{ option }}" {% if (question.correct_option or 'a') == option %}selected{% endif %}>{{ option|upper }}</option>
                                 {% endfor %}
                             </select>
@@ -2122,6 +2140,7 @@
                         <div style="grid-column: 1 / -1;">
                             <label>Pertanyaan</label>
                             <textarea name="prompt" rows="3" required>{{ question.prompt }}</textarea>
+                            <small style="display:block;margin-top:8px;color:#7f8aa3;">Isi opsi E kalau soal ini memang 5 pilihan atau skala 1-5. Biarkan kosong kalau soalnya tetap 4 pilihan biasa.</small>
                         </div>
                         <div>
                             <label>Opsi A</label>
@@ -2138,6 +2157,10 @@
                         <div>
                             <label>Opsi D</label>
                             <input name="option_d" value="{{ question.option_d }}" required>
+                        </div>
+                        <div>
+                            <label>Opsi E <span style="color:#8e9bb4;">(opsional)</span></label>
+                            <input name="option_e" value="{{ question.option_e or '' }}" placeholder="Contoh: Sangat Setuju">
                         </div>
                     </div>
                     <div class="split-actions" style="margin-top:16px;">

@@ -97,6 +97,222 @@ CAREER_ASSESSMENT_TEST_LABELS = {
     item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
 }
 CAREER_ASSESSMENT_TEST_ORDER = [item["key"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS]
+SPORTS_RETAIL_ASSESSMENT_PRESET = {
+    "basic": [
+        {
+            "prompt": "Pelanggan mencari sepatu lari untuk pemakaian harian tapi belum tahu kebutuhannya. Langkah awal terbaik?",
+            "option_a": "Langsung tunjuk model termahal supaya pelanggan melihat opsi terbaik",
+            "option_b": "Tanya rutinitas latihan, frekuensi pakai, dan preferensi rasa di kaki sebelum merekomendasikan",
+            "option_c": "Suruh pelanggan cek review sendiri di marketplace lalu kembali kalau sudah yakin",
+            "option_d": "Tawarkan diskon dulu tanpa menjelaskan perbedaan produknya",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Pelanggan bertanya apakah smartwatch sport tertentu aman dipakai berenang, tapi Anda belum yakin spesifikasinya. Apa yang dilakukan?",
+            "option_a": "Jawab saja aman supaya pelanggan tidak menunggu terlalu lama",
+            "option_b": "Bilang kemungkinan aman karena kebanyakan produk serupa juga tahan air",
+            "option_c": "Cek spesifikasi resmi produk atau minta bantuan rekan yang tahu sebelum memberi jawaban pasti",
+            "option_d": "Sarankan pelanggan ambil risiko sendiri karena nanti bisa klaim garansi",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Seorang orang tua ingin membeli raket badminton untuk anak SMP yang baru mulai latihan. Pilihan paling tepat?",
+            "option_a": "Raket paling berat agar cepat terbiasa dengan level kompetisi",
+            "option_b": "Raket ringan dengan grip nyaman dan kontrol mudah untuk pemula",
+            "option_c": "Raket yang dipakai atlet profesional tanpa mempertimbangkan kemampuan anak",
+            "option_d": "Raket apa saja karena semua raket sama untuk pemula",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Pelanggan mencoba jersey tim favoritnya, tapi ukuran yang dipakai terasa terlalu sempit. Respon terbaik?",
+            "option_a": "Bilang nanti juga melar sendiri setelah dipakai beberapa kali",
+            "option_b": "Sarankan ukuran lain, cek potongan modelnya, lalu bantu bandingkan fitting yang paling nyaman",
+            "option_c": "Minta pelanggan tetap ambil ukuran itu karena stok ukuran lain terbatas",
+            "option_d": "Arahkan ke kasir dulu supaya transaksi tidak tertunda",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Pelanggan meminta rekomendasi bola untuk futsal indoor. Apa yang paling tepat dijelaskan dulu?",
+            "option_a": "Warna bola karena itu penentu utama performa permainan",
+            "option_b": "Perbedaan bahan, pantulan, dan penggunaan indoor dibanding bola serbaguna",
+            "option_c": "Harga tertinggi selalu berarti paling cocok untuk semua lapangan",
+            "option_d": "Bola outdoor tetap sama saja karena bentuknya juga bulat",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Saat promo weekend, pelanggan bingung apakah kaus kaki sport termasuk paket bundling sepatu. Apa yang harus Anda lakukan?",
+            "option_a": "Pastikan dulu aturan promonya di POS atau materi promo, lalu jelaskan dengan jelas ke pelanggan",
+            "option_b": "Langsung bilang termasuk supaya pelanggan cepat checkout",
+            "option_c": "Bilang tidak termasuk tanpa cek apa pun agar aman",
+            "option_d": "Minta pelanggan bertanya ke kasir lain saja",
+            "correct_option": "a",
+        },
+        {
+            "prompt": "Pelanggan datang dengan item retur tapi hang tag sudah lepas. Langkah paling profesional?",
+            "option_a": "Tolak mentah-mentah tanpa melihat struk atau kondisi barang",
+            "option_b": "Terima saja apa pun kondisinya agar tidak ada komplain",
+            "option_c": "Cek struk, kondisi produk, dan kebijakan retur toko sebelum memutuskan atau eskalasi ke supervisor",
+            "option_d": "Minta pelanggan beli item baru dulu baru retur diproses",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Pelanggan membandingkan dua sepatu training dan bertanya bedanya, sementara kedua model terlihat mirip. Jawaban terbaik?",
+            "option_a": "Jelaskan perbedaan fungsi, cushioning, dan penggunaan utama masing-masing model",
+            "option_b": "Bilang pilih berdasarkan warna saja supaya lebih cepat",
+            "option_c": "Sarankan ambil yang paling mahal tanpa alasan tambahan",
+            "option_d": "Bilang keduanya sama persis agar pelanggan segera memutuskan",
+            "correct_option": "a",
+        },
+    ],
+    "academic": [
+        {
+            "prompt": "Satu rak berisi 24 botol minum sport. Pagi ini terjual 9 botol lalu restock 6 botol. Berapa botol sekarang?",
+            "option_a": "19",
+            "option_b": "20",
+            "option_c": "21",
+            "option_d": "22",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Harga sepatu training Rp375.000 dengan diskon 20 persen. Berapa harga setelah diskon?",
+            "option_a": "Rp295.000",
+            "option_b": "Rp300.000",
+            "option_c": "Rp305.000",
+            "option_d": "Rp315.000",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Dua bola basket masing-masing Rp165.000 dan satu pompa Rp45.000. Promo 10 persen hanya berlaku untuk dua bola. Total belanja pelanggan?",
+            "option_a": "Rp330.000",
+            "option_b": "Rp337.000",
+            "option_c": "Rp342.000",
+            "option_d": "Rp349.000",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Ukuran sepatu di display tersusun 39, 40, 41, 39, 40, ... Ukuran berikutnya adalah?",
+            "option_a": "38",
+            "option_b": "39",
+            "option_c": "40",
+            "option_d": "41",
+            "correct_option": "d",
+        },
+        {
+            "prompt": "Satu karton berisi 5 jersey. Toko menerima 42 jersey. Minimal karton yang dibutuhkan untuk menyimpan semuanya adalah?",
+            "option_a": "7",
+            "option_b": "8",
+            "option_c": "9",
+            "option_d": "10",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Ada 3 staf di area fitness: A shift 08.00-16.00, B shift 10.00-18.00, C shift 12.00-20.00. Pukul 13.00 ada berapa staf yang sedang bertugas?",
+            "option_a": "1",
+            "option_b": "2",
+            "option_c": "3",
+            "option_d": "4",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Setiap raket tenis dijual dengan 2 overgrip bonus. Jika terjual 7 raket, berapa overgrip bonus yang harus disiapkan?",
+            "option_a": "9",
+            "option_b": "12",
+            "option_c": "14",
+            "option_d": "16",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Toko punya 18 kotak shuttlecock. Setiap kotak berisi 6. Jika 37 shuttlecock terjual, sisa shuttlecock berapa?",
+            "option_a": "61",
+            "option_b": "69",
+            "option_c": "71",
+            "option_d": "81",
+            "correct_option": "c",
+        },
+    ],
+    "case_study": [
+        {
+            "prompt": "Saat toko ramai, dua pelanggan datang bersamaan. Satu ingin tanya ukuran sepatu, satu lagi ingin bayar cepat. Apa yang paling tepat?",
+            "option_a": "Layani pembayaran cepat dulu tanpa memberi tahu pelanggan lain apa pun",
+            "option_b": "Akui kehadiran keduanya, minta izin sebentar, lalu tangani transaksi tercepat sambil menjaga pelanggan lain tetap terupdate",
+            "option_c": "Pilih pelanggan yang suaranya paling keras agar situasi cepat tenang",
+            "option_d": "Minta mereka saling menunggu tanpa estimasi atau penjelasan",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Rak ukuran sepatu lari populer hampir kosong di jam ramai, sementara stok cadangan ada di backroom. Tindakan terbaik?",
+            "option_a": "Tunggu sampai rak benar-benar kosong baru ambil stok",
+            "option_b": "Biarkan shift berikutnya yang mengurus karena Anda sedang sibuk",
+            "option_c": "Info supervisor atau rekan lalu restock cepat dari stok cadangan sambil tetap menjaga pelayanan berjalan",
+            "option_d": "Tutup display-nya supaya pelanggan tidak melihat kekosongan",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Pelanggan menerima ukuran jersey yang salah setelah transaksi selesai. Apa yang harus dilakukan pertama?",
+            "option_a": "Bilang kesalahan seperti ini wajar terjadi saat toko ramai",
+            "option_b": "Minta maaf, cek pesanan asli, lalu proses penukaran atau solusi secepatnya",
+            "option_c": "Suruh pelanggan kembali besok agar situasi toko lebih sepi",
+            "option_d": "Tanya dulu siapa staf yang salah sebelum bicara ke pelanggan",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Barcode scanner kasir mendadak bermasalah saat antrean sedang panjang. Respon paling tepat?",
+            "option_a": "Berhenti melayani sampai teknisi datang",
+            "option_b": "Pindah ke metode backup atau input manual sambil informasikan supervisor",
+            "option_c": "Minta pelanggan menunggu tanpa penjelasan",
+            "option_d": "Tutup kasir tersebut dan pulang ke gudang",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Anda baru minggu pertama dan pelanggan bertanya soal perbedaan grip raket padel yang belum Anda kuasai. Langkah terbaik?",
+            "option_a": "Jawab seadanya supaya terlihat percaya diri",
+            "option_b": "Jujur bahwa Anda akan cek ke rekan atau referensi produk lalu kembali dengan jawaban yang tepat",
+            "option_c": "Bilang pelanggan bisa cari sendiri di internet",
+            "option_d": "Sarankan produk yang paling mahal tanpa penjelasan",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Shift Anda hampir selesai, tetapi rombongan komunitas lari baru datang untuk belanja seragam tim. Apa tindakan paling profesional?",
+            "option_a": "Langsung pulang tepat waktu tanpa handover apa pun",
+            "option_b": "Ambil kebutuhan awal mereka lalu handover jelas ke tim berikutnya supaya pelayanan tetap rapi",
+            "option_c": "Tolak melayani karena sudah dekat jam pulang",
+            "option_d": "Menangani sendiri semuanya meski tanpa koordinasi dan membuat tim berikutnya bingung",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Ada pelanggan online pickup datang, tetapi paket raketnya belum selesai dipacking. Apa yang dilakukan?",
+            "option_a": "Bilang tunggu saja sampai dipanggil tanpa cek status",
+            "option_b": "Cek status order, beri estimasi realistis, lalu koordinasikan percepatan penyiapan",
+            "option_c": "Minta pelanggan batalkan saja pesanannya",
+            "option_d": "Bilang pesanan belum ada walau belum dicek",
+            "correct_option": "b",
+        },
+        {
+            "prompt": "Saat closing, Anda menemukan pelindung tulang kering milik pelanggan tertinggal di fitting area. Langkah paling tepat?",
+            "option_a": "Biarkan di tempat semula agar pemiliknya nanti cari sendiri",
+            "option_b": "Bawa pulang dulu supaya aman lalu kembalikan besok",
+            "option_c": "Serahkan ke supervisor atau titik lost-and-found sesuai prosedur sekarang juga",
+            "option_d": "Buka tas pelanggan untuk cari identitas lebih cepat",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Di jam promo besar, satu rekan meminta Anda cover area apparel 5 menit, tapi area sepatu Anda sendiri sedang ramai. Respon terbaik?",
+            "option_a": "Terima saja dan tinggalkan area Anda walau berisiko kacau",
+            "option_b": "Tolak mentah-mentah tanpa menawarkan solusi",
+            "option_c": "Jelaskan kondisi area Anda dan bantu cari opsi coverage paling aman lewat supervisor atau rekan lain",
+            "option_d": "Pura-pura tidak dengar agar tidak dilibatkan",
+            "correct_option": "c",
+        },
+        {
+            "prompt": "Pelanggan ingin beli sepeda statis display, tetapi unit gudang habis. Langkah terbaik?",
+            "option_a": "Bilang kosong lalu akhiri percakapan",
+            "option_b": "Tawarkan cek cabang lain, pre-order, atau alternatif setara sambil menjelaskan opsinya",
+            "option_c": "Janji barang pasti ada besok walau belum dicek",
+            "option_d": "Suruh pelanggan datang lagi kapan-kapan tanpa catatan",
+            "correct_option": "b",
+        },
+    ],
+}
 
 EMPLOYEE_STATUSES = {"active", "probation", "leave", "inactive"}
 ATTENDANCE_STATUSES = {"present", "late", "leave", "absent", "half_day"}
@@ -6788,6 +7004,125 @@ def _safe_hris_recruitment_next_target(value):
     return safe_value
 
 
+def _build_recruitment_assessment_prompt_key(test_type, prompt):
+    safe_type = normalize_assessment_test_type(test_type)
+    safe_prompt = re.sub(r"\s+", " ", str(prompt or "").strip()).lower()
+    return f"{safe_type}::{safe_prompt}"
+
+
+def _fetch_recruitment_assessment_existing_prompt_keys(db, warehouse_id=None):
+    ensure_career_schema(db)
+    if warehouse_id:
+        rows = db.execute(
+            """
+            SELECT test_type, prompt
+            FROM recruitment_assessment_questions
+            WHERE warehouse_id IS NULL OR warehouse_id=?
+            """,
+            (warehouse_id,),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """
+            SELECT test_type, prompt
+            FROM recruitment_assessment_questions
+            WHERE warehouse_id IS NULL
+            """
+        ).fetchall()
+    return {
+        _build_recruitment_assessment_prompt_key(row["test_type"], row["prompt"])
+        for row in rows
+        if str(row["prompt"] or "").strip()
+    }
+
+
+def _fetch_recruitment_assessment_next_sort_orders(db, warehouse_id=None):
+    ensure_career_schema(db)
+    if warehouse_id:
+        rows = db.execute(
+            """
+            SELECT test_type, MAX(COALESCE(sort_order, 0)) AS max_sort
+            FROM recruitment_assessment_questions
+            WHERE warehouse_id=?
+            GROUP BY test_type
+            """,
+            (warehouse_id,),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """
+            SELECT test_type, MAX(COALESCE(sort_order, 0)) AS max_sort
+            FROM recruitment_assessment_questions
+            WHERE warehouse_id IS NULL
+            GROUP BY test_type
+            """
+        ).fetchall()
+    next_sort_orders = {test_type: 0 for test_type in CAREER_ASSESSMENT_TEST_ORDER}
+    for row in rows:
+        test_type = normalize_assessment_test_type(row["test_type"])
+        next_sort_orders[test_type] = int(row["max_sort"] or 0)
+    return next_sort_orders
+
+
+def _bootstrap_sports_retail_assessment_questions(db, warehouse_id=None, user_id=None):
+    ensure_career_schema(db)
+    existing_prompt_keys = _fetch_recruitment_assessment_existing_prompt_keys(db, warehouse_id)
+    next_sort_orders = _fetch_recruitment_assessment_next_sort_orders(db, warehouse_id)
+    inserted = 0
+    skipped = 0
+
+    for test_type in CAREER_ASSESSMENT_TEST_ORDER:
+        question_bank = SPORTS_RETAIL_ASSESSMENT_PRESET.get(test_type) or []
+        for question in question_bank:
+            prompt_key = _build_recruitment_assessment_prompt_key(test_type, question.get("prompt"))
+            if prompt_key in existing_prompt_keys:
+                skipped += 1
+                continue
+            next_sort_orders[test_type] = int(next_sort_orders.get(test_type) or 0) + 10
+            db.execute(
+                """
+                INSERT INTO recruitment_assessment_questions(
+                    warehouse_id,
+                    prompt,
+                    option_a,
+                    option_b,
+                    option_c,
+                    option_d,
+                    option_e,
+                    correct_option,
+                    test_type,
+                    score_weight,
+                    sort_order,
+                    is_active,
+                    created_by,
+                    updated_by,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    warehouse_id,
+                    str(question.get("prompt") or "").strip(),
+                    str(question.get("option_a") or "").strip(),
+                    str(question.get("option_b") or "").strip(),
+                    str(question.get("option_c") or "").strip(),
+                    str(question.get("option_d") or "").strip(),
+                    (str(question.get("option_e") or "").strip() or None),
+                    normalize_assessment_option(question.get("correct_option")),
+                    normalize_assessment_test_type(test_type),
+                    10,
+                    next_sort_orders[test_type],
+                    1,
+                    user_id,
+                    user_id,
+                ),
+            )
+            existing_prompt_keys.add(prompt_key)
+            inserted += 1
+
+    return {"inserted": inserted, "skipped": skipped}
+
+
 def _fetch_career_openings(db, selected_warehouse=None):
     ensure_career_schema(db)
     query = """
@@ -9985,6 +10320,32 @@ def delete_recruitment_opening(opening_id):
     return redirect("/hris/recruitment")
 
 
+@hris_bp.route("/recruitment/question/generate-sports-retail", methods=["POST"])
+def generate_recruitment_sports_retail_question_bank():
+    if not can_manage_recruitment_records():
+        flash("Tidak punya akses untuk mengelola soal recruitment", "error")
+        return redirect("/hris/recruitment")
+
+    db = get_db()
+    ensure_career_schema(db)
+    warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"), allow_empty=True)
+    result = _bootstrap_sports_retail_assessment_questions(
+        db,
+        warehouse_id=warehouse_id,
+        user_id=session.get("user_id"),
+    )
+    db.commit()
+
+    if result["inserted"] > 0:
+        flash(
+            f"Bank soal retail olahraga berhasil ditambahkan. {result['inserted']} soal baru masuk, {result['skipped']} soal mirip dilewati.",
+            "success",
+        )
+    else:
+        flash("Bank soal retail olahraga untuk scope ini sudah terisi semua. Tidak ada soal baru yang ditambahkan.", "info")
+    return redirect("/hris/recruitment")
+
+
 @hris_bp.route("/recruitment/question/add", methods=["POST"])
 def add_recruitment_question():
     if not can_manage_recruitment_records():
@@ -9999,6 +10360,7 @@ def add_recruitment_question():
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
+    option_e = (request.form.get("option_e") or "").strip()
     correct_option = normalize_assessment_option(request.form.get("correct_option"))
     test_type = normalize_assessment_test_type(request.form.get("test_type"))
     score_weight = max(_to_int(request.form.get("score_weight"), 10) or 10, 1)
@@ -10006,7 +10368,11 @@ def add_recruitment_question():
     is_active = 1 if request.form.get("is_active") else 0
 
     if not prompt or not option_a or not option_b or not option_c or not option_d or not correct_option:
-        flash("Soal, 4 opsi jawaban, dan kunci jawaban wajib diisi.", "error")
+        flash("Soal, 4 opsi utama, dan kunci jawaban wajib diisi.", "error")
+        return redirect("/hris/recruitment")
+
+    if correct_option == "e" and not option_e:
+        flash("Kalau kunci jawaban memakai opsi E, isi dulu teks opsi E-nya.", "error")
         return redirect("/hris/recruitment")
 
     db.execute(
@@ -10018,6 +10384,7 @@ def add_recruitment_question():
             option_b,
             option_c,
             option_d,
+            option_e,
             correct_option,
             test_type,
             score_weight,
@@ -10027,7 +10394,7 @@ def add_recruitment_question():
             updated_by,
             updated_at
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """,
         (
             warehouse_id,
@@ -10036,6 +10403,7 @@ def add_recruitment_question():
             option_b,
             option_c,
             option_d,
+            option_e or None,
             correct_option,
             test_type,
             score_weight,
@@ -10070,6 +10438,7 @@ def update_recruitment_question(question_id):
     option_b = (request.form.get("option_b") or "").strip()
     option_c = (request.form.get("option_c") or "").strip()
     option_d = (request.form.get("option_d") or "").strip()
+    option_e = (request.form.get("option_e") or "").strip()
     correct_option = normalize_assessment_option(request.form.get("correct_option"))
     test_type = normalize_assessment_test_type(request.form.get("test_type"))
     score_weight = max(_to_int(request.form.get("score_weight"), question["score_weight"] or 10) or 10, 1)
@@ -10077,7 +10446,11 @@ def update_recruitment_question(question_id):
     is_active = 1 if request.form.get("is_active") else 0
 
     if not prompt or not option_a or not option_b or not option_c or not option_d or not correct_option:
-        flash("Soal, 4 opsi jawaban, dan kunci jawaban wajib diisi.", "error")
+        flash("Soal, 4 opsi utama, dan kunci jawaban wajib diisi.", "error")
+        return redirect("/hris/recruitment")
+
+    if correct_option == "e" and not option_e:
+        flash("Kalau kunci jawaban memakai opsi E, isi dulu teks opsi E-nya.", "error")
         return redirect("/hris/recruitment")
 
     db.execute(
@@ -10089,6 +10462,7 @@ def update_recruitment_question(question_id):
             option_b=?,
             option_c=?,
             option_d=?,
+            option_e=?,
             correct_option=?,
             test_type=?,
             score_weight=?,
@@ -10105,6 +10479,7 @@ def update_recruitment_question(question_id):
             option_b,
             option_c,
             option_d,
+            option_e or None,
             correct_option,
             test_type,
             score_weight,

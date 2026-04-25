@@ -204,7 +204,16 @@
                 </label>
                 <label>
                     Ekspektasi gaji
-                    <input type="text" name="salary_expectation" value="{{ selected_profile_payload.salary_expectation or '' }}" placeholder="Opsional">
+                    <input
+                        type="text"
+                        name="salary_expectation"
+                        value="{{ selected_profile_payload.salary_expectation or '' }}"
+                        placeholder="Contoh: 5000000"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        data-salary-expectation-input
+                    >
+                    <small>Ketik angka saja seperti <b>5000000</b>. Sistem akan merapikan jadi nominal rupiah.</small>
                 </label>
                 <label class="span-2">
                     Catatan tambahan
@@ -338,6 +347,80 @@
 {{ super() }}
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+    const salaryInput = document.querySelector('[data-salary-expectation-input]');
+    const formatRupiahAmount = (amount) => {
+        const safeAmount = Number(amount || 0);
+        if (!Number.isFinite(safeAmount) || safeAmount <= 0) {
+            return "";
+        }
+        return `Rp ${Math.round(safeAmount).toLocaleString("id-ID")}`;
+    };
+    const parseSalaryAmount = (rawValue) => {
+        const safeValue = String(rawValue || "").trim().toLowerCase();
+        if (!safeValue) {
+            return null;
+        }
+
+        const normalized = safeValue
+            .replace(/rupiah/g, "")
+            .replace(/idr/g, "")
+            .replace(/rp/g, "")
+            .trim();
+        if (!normalized) {
+            return null;
+        }
+
+        let multiplier = 1;
+        if (/\b(miliar|milyar)\b/.test(normalized)) {
+            multiplier = 1000000000;
+        } else if (/\b(juta|jt)\b/.test(normalized)) {
+            multiplier = 1000000;
+        } else if (/\b(ribu|rb|k)\b/.test(normalized)) {
+            multiplier = 1000;
+        }
+
+        if (multiplier > 1) {
+            const numberMatch = normalized.match(/(\d+(?:[.,]\d+)?)/);
+            if (!numberMatch) {
+                return null;
+            }
+            const numericText = numberMatch[1];
+            let normalizedNumeric = numericText;
+            if (numericText.includes(",") && numericText.includes(".")) {
+                normalizedNumeric = numericText.lastIndexOf(",") > numericText.lastIndexOf(".")
+                    ? numericText.replace(/\./g, "").replace(",", ".")
+                    : numericText.replace(/,/g, "");
+            } else {
+                normalizedNumeric = numericText.replace(",", ".");
+            }
+            const parsedAmount = Number.parseFloat(normalizedNumeric);
+            if (!Number.isFinite(parsedAmount)) {
+                return null;
+            }
+            return Math.round(parsedAmount * multiplier);
+        }
+
+        const digitsOnly = normalized.replace(/\D/g, "");
+        if (!digitsOnly) {
+            return null;
+        }
+        const parsedAmount = Number.parseInt(digitsOnly, 10);
+        return Number.isFinite(parsedAmount) ? parsedAmount : null;
+    };
+    const syncSalaryInputValue = () => {
+        if (!salaryInput) {
+            return;
+        }
+        const parsedAmount = parseSalaryAmount(salaryInput.value);
+        if (parsedAmount === null) {
+            return;
+        }
+        salaryInput.value = formatRupiahAmount(parsedAmount);
+    };
+    salaryInput?.addEventListener("blur", syncSalaryInputValue);
+    salaryInput?.addEventListener("change", syncSalaryInputValue);
+    syncSalaryInputValue();
+
     const photoInput = document.getElementById("careerProfilePhotoInput");
     const photoMeta = document.getElementById("careerProfilePhotoMeta");
     const photoFrame = document.getElementById("careerProfilePhotoFrame");

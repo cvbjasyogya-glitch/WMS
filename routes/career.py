@@ -72,6 +72,26 @@ CAREER_ASSESSMENT_TEST_ORDER = [item["key"] for item in CAREER_ASSESSMENT_TEST_D
 CAREER_ASSESSMENT_TEST_LABELS = {
     item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
 }
+CAREER_ASSESSMENT_SECTION_UI_META = {
+    "basic": {
+        "eyebrow": "Pemecahan Masalah",
+        "summary": "Logika dasar, keputusan cepat, dan respons yang tetap rapi saat situasi berubah.",
+        "helper_text": "Pilih jawaban paling masuk akal untuk situasi kerja yang diberikan.",
+        "theme": "mint",
+    },
+    "academic": {
+        "eyebrow": "Potensi Akademik",
+        "summary": "Pola, urutan, hitungan sederhana, dan ketelitian membaca instruksi di bawah tekanan waktu.",
+        "helper_text": "Kerjakan perlahan tapi mantap. Fokus pada pola dan detail kecil yang sering terlewat.",
+        "theme": "amber",
+    },
+    "case_study": {
+        "eyebrow": "Studi Kasus",
+        "summary": "Komunikasi kerja, prioritas layanan, dan keputusan yang tetap profesional di lapangan.",
+        "helper_text": "Bayangkan Anda sedang benar-benar menghadapi situasi ini di area kerja.",
+        "theme": "lavender",
+    },
+}
 PUBLIC_CAREER_SITE_DISPLAY = {
     "mega": {
         "unit_label": "Mega Sports Seturan",
@@ -533,6 +553,75 @@ def _normalize_profile_date(value):
         return ""
 
 
+def _format_rupiah_amount(value):
+    try:
+        safe_amount = int(round(float(value or 0)))
+    except (TypeError, ValueError):
+        safe_amount = 0
+    if safe_amount <= 0:
+        return ""
+    return f"Rp {safe_amount:,}".replace(",", ".")
+
+
+def _parse_profile_salary_expectation_amount(value):
+    safe_value = _normalize_profile_text(value).lower()
+    if not safe_value:
+        return None
+
+    normalized_value = (
+        safe_value
+        .replace("rupiah", "")
+        .replace("idr", "")
+        .replace("rp", "")
+        .strip()
+    )
+    if not normalized_value:
+        return None
+
+    multiplier = 1
+    if re.search(r"\b(miliar|milyar)\b", normalized_value):
+        multiplier = 1_000_000_000
+    elif re.search(r"\b(juta|jt)\b", normalized_value):
+        multiplier = 1_000_000
+    elif re.search(r"\b(ribu|rb|k)\b", normalized_value):
+        multiplier = 1_000
+
+    if multiplier > 1:
+        number_match = re.search(r"(\d+(?:[.,]\d+)?)", normalized_value)
+        if not number_match:
+            return None
+        numeric_text = number_match.group(1)
+        if "," in numeric_text and "." in numeric_text:
+            if numeric_text.rfind(",") > numeric_text.rfind("."):
+                normalized_numeric = numeric_text.replace(".", "").replace(",", ".")
+            else:
+                normalized_numeric = numeric_text.replace(",", "")
+        else:
+            normalized_numeric = numeric_text.replace(",", ".")
+        try:
+            return int(round(float(normalized_numeric) * multiplier))
+        except ValueError:
+            return None
+
+    digits_only = "".join(ch for ch in normalized_value if ch.isdigit())
+    if not digits_only:
+        return None
+    try:
+        return int(digits_only)
+    except ValueError:
+        return None
+
+
+def _normalize_profile_salary_expectation(value):
+    safe_value = _normalize_profile_text(value)
+    if not safe_value:
+        return ""
+    amount = _parse_profile_salary_expectation_amount(safe_value)
+    if amount is None:
+        return safe_value
+    return _format_rupiah_amount(amount) or safe_value
+
+
 def _normalize_profile_document_type(value):
     safe_value = str(value or "").strip().lower()
     return safe_value if safe_value in CAREER_PROFILE_DOCUMENT_TYPE_MAP else ""
@@ -634,7 +723,7 @@ def _normalize_career_profile_section_payload(section_key, form_data, *, existin
         return {
             "domicile": _normalize_profile_text(form_data.get("domicile")),
             "preferred_area": _normalize_profile_text(form_data.get("preferred_area")),
-            "salary_expectation": _normalize_profile_text(form_data.get("salary_expectation")),
+            "salary_expectation": _normalize_profile_salary_expectation(form_data.get("salary_expectation")),
             "notes": _normalize_profile_textarea(form_data.get("notes")),
         }
 
@@ -928,12 +1017,21 @@ def _build_candidate_profile_snapshot(account, profile_sections):
             "completion_state": str(raw_section.get("completion_state") or "incomplete").strip().lower() or "incomplete",
             "updated_at": _make_career_json_safe(raw_section.get("updated_at")),
         }
+    additional_payload = dict((safe_sections.get("additional") or {}).get("payload") or {})
+    if additional_payload:
+        additional_payload["salary_expectation"] = _normalize_profile_salary_expectation(
+            additional_payload.get("salary_expectation")
+        )
+        safe_sections["additional"] = {
+            **dict(safe_sections.get("additional") or {}),
+            "payload": additional_payload,
+        }
     return {
         "account_id": int(safe_account.get("id") or 0) or None,
         "account_name": safe_account.get("full_name") or "",
         "account_email": normalize_candidate_email(safe_account.get("email")),
         "personal": dict((safe_sections.get("personal") or {}).get("payload") or {}),
-        "additional": dict((safe_sections.get("additional") or {}).get("payload") or {}),
+        "additional": additional_payload,
         "sections": safe_sections,
         "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -1728,6 +1826,18 @@ def _get_candidate_assessment_section_state(candidate):
     return decode_assessment_section_state((candidate or {}).get("assessment_section_state_json"))
 
 
+def _get_career_assessment_section_ui_meta(section_key):
+    safe_key = normalize_assessment_test_type(section_key)
+    defaults = {
+        "eyebrow": CAREER_ASSESSMENT_TEST_LABELS.get(safe_key, "Tes Karir"),
+        "summary": "Kerjakan sesi ini dengan tenang dan pilih jawaban terbaik sesuai situasi yang diberikan.",
+        "helper_text": "Pastikan Anda membaca setiap pilihan sampai selesai sebelum lanjut.",
+        "theme": "neutral",
+    }
+    defaults.update(CAREER_ASSESSMENT_SECTION_UI_META.get(safe_key) or {})
+    return defaults
+
+
 def _get_candidate_assessment_section_blueprint(question_groups, candidate=None):
     safe_question_groups = question_groups or {}
     section_state = _get_candidate_assessment_section_state(candidate)
@@ -1737,11 +1847,16 @@ def _get_candidate_assessment_section_blueprint(question_groups, candidate=None)
         section_key = definition["key"]
         state_entry = dict(section_state.get("sections", {}).get(section_key) or {})
         duration_minutes = normalize_assessment_duration_minutes(durations.get(section_key))
+        ui_meta = _get_career_assessment_section_ui_meta(section_key)
         section_blueprint.append(
             {
                 "index": index,
                 "key": section_key,
                 "label": definition["label"],
+                "eyebrow": ui_meta["eyebrow"],
+                "summary": ui_meta["summary"],
+                "helper_text": ui_meta["helper_text"],
+                "theme": ui_meta["theme"],
                 "questions": list(safe_question_groups.get(section_key) or []),
                 "question_count": len(safe_question_groups.get(section_key) or []),
                 "duration_minutes": duration_minutes,
@@ -1939,6 +2054,8 @@ def _fetch_public_assessment_questions(db, warehouse_id=None, shuffle_seed=""):
     questions = [dict(row) for row in db.execute(query, params).fetchall()]
     for question in questions:
         question["test_type"] = normalize_assessment_test_type(question.get("test_type"))
+        question["render_variant"] = _detect_assessment_question_render_variant(question)
+        question["option_items"] = _build_assessment_question_option_items(question)
     safe_seed = str(shuffle_seed or "").strip()
     if safe_seed:
         questions.sort(
@@ -1947,6 +2064,59 @@ def _fetch_public_assessment_questions(db, warehouse_id=None, shuffle_seed=""):
             ).hexdigest()
         )
     return questions
+
+
+def _detect_assessment_question_render_variant(question):
+    safe_question = question if isinstance(question, dict) else {}
+    option_texts = [
+        str(safe_question.get(f"option_{option_key}") or "").strip().lower()
+        for option_key in ("a", "b", "c", "d", "e")
+    ]
+    if not option_texts[-1]:
+        return "multiple_choice"
+    joined = " ".join(option_texts)
+    likert_keywords = (
+        "sangat tidak setuju",
+        "tidak setuju",
+        "netral",
+        "setuju",
+        "sangat setuju",
+        "strongly disagree",
+        "disagree",
+        "neutral",
+        "agree",
+        "strongly agree",
+    )
+    if any(keyword in joined for keyword in likert_keywords):
+        return "scale_five"
+    return "multiple_choice"
+
+
+def _build_assessment_question_option_items(question):
+    safe_question = question if isinstance(question, dict) else {}
+    variant = _detect_assessment_question_render_variant(safe_question)
+    option_keys = ["a", "b", "c", "d"]
+    if str(safe_question.get("option_e") or "").strip():
+        option_keys.append("e")
+
+    option_items = []
+    for index, option_key in enumerate(option_keys, start=1):
+        option_value = str(safe_question.get(f"option_{option_key}") or "").strip()
+        if not option_value:
+            continue
+        option_items.append(
+            {
+                "key": option_key,
+                "value": option_value,
+                "badge": str(index) if variant == "scale_five" else option_key.upper(),
+                "label": (
+                    f"Skala {index} dari 5"
+                    if variant == "scale_five"
+                    else f"Pilihan {option_key.upper()}"
+                ),
+            }
+        )
+    return option_items
 
 
 def _fetch_public_assessment_question_groups(db, warehouse_id=None, shuffle_seed=""):
@@ -2712,6 +2882,10 @@ def profile_page():
     if selected_section_key == "personal":
         selected_payload.setdefault("full_name", account.get("full_name") or "")
         selected_payload.setdefault("email", account.get("email") or "")
+    elif selected_section_key == "additional":
+        selected_payload["salary_expectation"] = _normalize_profile_salary_expectation(
+            selected_payload.get("salary_expectation")
+        )
     selected_photo_url = _career_public_media_url("photo", selected_payload.get("photo_path")) if selected_section_key == "personal" else ""
     account_photo_url = _career_public_media_url("photo", personal_section_payload.get("photo_path"))
     document_files = []
@@ -3235,6 +3409,7 @@ def assessment():
         return redirect(build_career_public_url("career.assessment"))
 
     if candidate.get("assessment_status") in {"submitted", "reviewed"}:
+        completed_sections_count = sum(1 for section in section_blueprint if section.get("is_completed"))
         return render_template(
             "career_assessment.html",
             candidate=candidate,
@@ -3245,6 +3420,8 @@ def assessment():
             assessment_deadline_iso="",
             assessment_remaining_seconds=None,
             assessment_code_expires_label=_format_career_datetime_display(candidate.get("assessment_expires_at")),
+            completed_sections_count=completed_sections_count,
+            total_question_count=sum(section.get("question_count") or 0 for section in section_blueprint),
             assessment_show_completion_popup=str(request.args.get("completed") or "").strip() == "1",
         )
     if _is_candidate_assessment_code_expired(candidate, current_dt):
@@ -3288,10 +3465,52 @@ def assessment():
         return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
 
     current_entry = dict(section_state.get("sections", {}).get(current_section_key) or {})
-    if not str(current_entry.get("started_at") or "").strip() or candidate.get("assessment_status") != "started":
+    current_section = next(
+        (
+            section
+            for section in section_blueprint
+            if section["key"] == current_section_key
+        ),
+        None,
+    )
+    if current_section is None:
+        flash("Sesi tes saat ini belum berhasil disiapkan. Coba buka ulang halaman tes.", "error")
+        return redirect(build_career_public_url("career.assessment"))
+
+    should_force_start = str(request.args.get("start") or "").strip().lower() in {"1", "true", "yes", "start"}
+    has_started_current_section = bool(str(current_entry.get("started_at") or "").strip())
+    if not has_started_current_section and candidate.get("assessment_status") == "pending" and not should_force_start:
+        completed_sections_count = sum(1 for section in section_blueprint if section.get("is_completed"))
+        return render_template(
+            "career_assessment.html",
+            candidate=candidate,
+            assessment_sections=section_blueprint,
+            current_section=current_section,
+            assessment_code=assessment_code,
+            assessment_state="intro",
+            assessment_start_url=build_career_public_url("career.assessment", code=assessment_code, start=1),
+            assessment_duration_minutes=int(current_section.get("duration_minutes") or 0),
+            assessment_total_duration_minutes=_get_candidate_assessment_duration_minutes(candidate),
+            assessment_deadline_iso="",
+            assessment_remaining_seconds=None,
+            assessment_code_expires_label=_format_career_datetime_display(candidate.get("assessment_expires_at")),
+            completed_sections_count=completed_sections_count,
+            total_question_count=sum(section.get("question_count") or 0 for section in section_blueprint),
+            assessment_show_completion_popup=False,
+        )
+
+    if not has_started_current_section or candidate.get("assessment_status") != "started":
         candidate = _start_candidate_assessment_section(db, candidate, current_section_key, current_dt=current_dt)
         section_blueprint = _get_candidate_assessment_section_blueprint(question_groups, candidate)
         section_state = _get_candidate_assessment_section_state(candidate)
+        current_section = next(
+            (
+                section
+                for section in section_blueprint
+                if section["key"] == current_section_key
+            ),
+            None,
+        )
 
     if _is_candidate_assessment_section_duration_expired(
         candidate,
@@ -3311,17 +3530,9 @@ def assessment():
         db.commit()
         if transition["completed"]:
             return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
-        return redirect(build_career_public_url("career.assessment", code=assessment_code))
+        return redirect(build_career_public_url("career.assessment", code=assessment_code, start=1))
 
     answers = decode_assessment_answers(candidate.get("assessment_answers_json"))
-    current_section = next(
-        (
-            section
-            for section in section_blueprint
-            if section["key"] == current_section_key
-        ),
-        None,
-    )
     if current_section is None:
         flash("Sesi tes saat ini belum berhasil disiapkan. Coba buka ulang halaman tes.", "error")
         return redirect(build_career_public_url("career.assessment"))

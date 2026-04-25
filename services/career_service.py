@@ -26,7 +26,7 @@ CAREER_EMPLOYMENT_TYPES = {
 CAREER_RESUME_EXTENSIONS = {".pdf", ".doc", ".docx"}
 CAREER_APPLICATION_CHANNELS = {"public_portal", "manual_hr"}
 CAREER_ASSESSMENT_STATUSES = {"pending", "started", "submitted", "reviewed"}
-CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d"}
+CAREER_ASSESSMENT_CORRECT_OPTIONS = {"a", "b", "c", "d", "e"}
 CAREER_ASSESSMENT_TEST_DEFINITIONS = [
     {"key": "basic", "label": "Tes Kemampuan Dasar"},
     {"key": "academic", "label": "Tes Potensi Akademik"},
@@ -522,6 +522,7 @@ def ensure_career_schema(db):
                 option_b TEXT NOT NULL,
                 option_c TEXT NOT NULL,
                 option_d TEXT NOT NULL,
+                option_e TEXT,
                 correct_option TEXT NOT NULL,
                 test_type TEXT DEFAULT 'basic',
                 score_weight INTEGER DEFAULT 10,
@@ -539,6 +540,7 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_b TEXT",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_c TEXT",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_d TEXT",
+            "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS option_e TEXT",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS correct_option TEXT",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS test_type TEXT DEFAULT 'basic'",
             "ALTER TABLE recruitment_assessment_questions ADD COLUMN IF NOT EXISTS score_weight INTEGER DEFAULT 10",
@@ -702,6 +704,7 @@ def ensure_career_schema(db):
                 option_b TEXT NOT NULL,
                 option_c TEXT NOT NULL,
                 option_d TEXT NOT NULL,
+                option_e TEXT,
                 correct_option TEXT NOT NULL,
                 test_type TEXT DEFAULT 'basic',
                 score_weight INTEGER DEFAULT 10,
@@ -720,6 +723,7 @@ def ensure_career_schema(db):
             "test_type",
             "TEXT DEFAULT 'basic'",
         )
+        _sqlite_ensure_column(db, "recruitment_assessment_questions", "option_e", "TEXT")
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_career_openings_public ON career_openings(status, is_public, warehouse_id, sort_order)"
         )

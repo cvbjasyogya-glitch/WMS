@@ -1492,6 +1492,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Customer umum tetap wajib isi nama dan no HP sebelum checkout.", html)
         self.assertIn('fetch(`/kasir/options/customers?${params.toString()}`', html)
 
+    def test_pos_page_ignores_stale_sale_date_for_new_transaction_view(self):
+        self.login_pos_user("owner_pos_fresh_date", "owner")
+        original_allow_manual = self.app.config.get("POS_ALLOW_MANUAL_SALE_DATE")
+        self.app.config["POS_ALLOW_MANUAL_SALE_DATE"] = False
+        try:
+            with patch("routes.pos._get_pos_today", return_value=date_cls(2026, 4, 25)):
+                response = self.client.get("/kasir/?warehouse=1&sale_date=2026-04-24")
+        finally:
+            self.app.config["POS_ALLOW_MANUAL_SALE_DATE"] = original_allow_manual
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-sale-date="2026-04-25"', html)
+        self.assertNotIn('data-sale-date="2026-04-24"', html)
+
     def test_pos_customer_options_endpoint_finds_member_beyond_initial_dropdown_limit(self):
         self.login_pos_user("owner_pos_customer_endpoint", "owner")
 
@@ -2593,6 +2608,79 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(FixedDateTime.captured_tz, POS_DISPLAY_TIMEZONE)
 
+    def test_pos_checkout_forces_active_pos_date_when_payload_still_uses_yesterday(self):
+        self.create_user("staff_checkout_date_guard", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_checkout_date_guard")
+        self.login_pos_user("super_checkout_date_guard", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-DATE-GUARD-001",
+            qty=6,
+            variants="42",
+            warehouse_id="1",
+            name="Produk Guard Tanggal POS",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+        original_allow_manual = self.app.config.get("POS_ALLOW_MANUAL_SALE_DATE")
+        self.app.config["POS_ALLOW_MANUAL_SALE_DATE"] = False
+        try:
+            with patch("routes.pos._get_pos_today", return_value=date_cls(2026, 4, 25)), patch(
+                "routes.pos.send_whatsapp_document",
+                return_value={"ok": False, "provider": "kirimi", "receiver": "", "error": "skip"},
+            ):
+                checkout = self.client.post(
+                    "/kasir/checkout",
+                    json={
+                        "warehouse_id": 1,
+                        "sale_date": "2026-04-24",
+                        "cashier_user_id": selected_cashier_user_id,
+                        "customer_name": "Customer Guard Date",
+                        "customer_phone": "628120008888",
+                        "payment_method": "cash",
+                        "paid_amount": 151000,
+                        "items": [
+                            {
+                                "product_id": product_id,
+                                "variant_id": variant_id,
+                                "qty": 1,
+                                "unit_price": 150000,
+                            }
+                        ],
+                    },
+                    headers={"X-Requested-With": "XMLHttpRequest"},
+                )
+        finally:
+            self.app.config["POS_ALLOW_MANUAL_SALE_DATE"] = original_allow_manual
+
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["sale_date"], "2026-04-25")
+        self.assertTrue(payload["sale_date_adjusted"])
+        self.assertIn("disesuaikan ke hari ini", payload["message"].lower())
+
+        with self.app.app_context():
+            db = get_db()
+            sale_row = db.execute(
+                """
+                SELECT sale_date, purchase_id
+                FROM pos_sales
+                WHERE receipt_no=?
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+            purchase_row = db.execute(
+                """
+                SELECT purchase_date
+                FROM crm_purchase_records
+                WHERE id=?
+                """,
+                (sale_row["purchase_id"],),
+            ).fetchone()
+
+        self.assertEqual(sale_row["sale_date"], "2026-04-25")
+        self.assertEqual(purchase_row["purchase_date"], "2026-04-25")
+
     def test_super_admin_can_update_processed_pos_payment_method(self):
         self.create_user("staff_payment_edit", "pass1234", "staff", warehouse_id=1)
         selected_cashier_user_id = self.get_user_id("staff_payment_edit")
@@ -3011,6 +3099,130 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(stock_a_after["qty"], 5)
         self.assertEqual(stock_b_after["qty"], 4)
+
+    def test_super_admin_can_correct_pos_sale_date_without_changing_receipt_or_created_time(self):
+        self.create_user("staff_pos_edit_date", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_pos_edit_date")
+        self.login_pos_user("super_pos_edit_date", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-EDIT-DATE-001",
+            qty=8,
+            variants="42",
+            warehouse_id="1",
+            name="Produk Edit Tanggal POS",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        with patch(
+            "routes.pos.send_whatsapp_document",
+            return_value={"ok": False, "provider": "kirimi", "receiver": "", "error": "skip"},
+        ):
+            checkout = self.client.post(
+                "/kasir/checkout",
+                json={
+                    "warehouse_id": 1,
+                    "sale_date": "2026-04-11",
+                    "cashier_user_id": selected_cashier_user_id,
+                    "customer_name": "Customer Edit Date",
+                    "customer_phone": "628120005556",
+                    "payment_method": "cash",
+                    "paid_amount": 181000,
+                    "items": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "qty": 1,
+                            "unit_price": 180000,
+                        }
+                    ],
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(checkout.status_code, 200)
+        checkout_payload = checkout.get_json()
+
+        with self.app.app_context():
+            db = get_db()
+            sale_before = db.execute(
+                """
+                SELECT id, purchase_id, receipt_no, sale_date, created_at
+                FROM pos_sales
+                WHERE id=?
+                """,
+                (checkout_payload["sale_id"],),
+            ).fetchone()
+            db.execute(
+                """
+                UPDATE pos_sales
+                SET
+                    receipt_pdf_path=?,
+                    receipt_pdf_url=?,
+                    receipt_whatsapp_status='sent',
+                    receipt_whatsapp_error='old-status',
+                    receipt_whatsapp_sent_at='2026-04-11 11:30:00'
+                WHERE id=?
+                """,
+                ("/tmp/old-pos-date.pdf", "https://erp.test/static/old-pos-date.pdf", checkout_payload["sale_id"]),
+            )
+            db.commit()
+
+        with patch("routes.pos._get_pos_today", return_value=date_cls(2026, 4, 25)):
+            update_response = self.client.post(
+                f"/kasir/sale/{checkout_payload['sale_id']}/sale-date",
+                json={"sale_date": "2026-04-12"},
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        self.assertEqual(update_response.status_code, 200)
+        update_payload = update_response.get_json()
+        self.assertEqual(update_payload["status"], "success")
+        self.assertEqual(update_payload["receipt_no"], checkout_payload["receipt_no"])
+        self.assertEqual(update_payload["previous_sale_date"], "2026-04-11")
+        self.assertEqual(update_payload["sale_date"], "2026-04-12")
+        self.assertIn("No nota dan jam awal tetap", update_payload["message"])
+
+        with self.app.app_context():
+            db = get_db()
+            sale_after = db.execute(
+                """
+                SELECT receipt_no, sale_date, created_at, receipt_pdf_path, receipt_pdf_url,
+                       receipt_whatsapp_status, receipt_whatsapp_error, receipt_whatsapp_sent_at
+                FROM pos_sales
+                WHERE id=?
+                """,
+                (checkout_payload["sale_id"],),
+            ).fetchone()
+            purchase_after = db.execute(
+                """
+                SELECT purchase_date
+                FROM crm_purchase_records
+                WHERE id=?
+                """,
+                (sale_before["purchase_id"],),
+            ).fetchone()
+            member_record_rows = db.execute(
+                """
+                SELECT record_date
+                FROM crm_member_records
+                WHERE purchase_id=?
+                ORDER BY id ASC
+                """,
+                (sale_before["purchase_id"],),
+            ).fetchall()
+
+        self.assertEqual(sale_after["receipt_no"], sale_before["receipt_no"])
+        self.assertEqual(sale_after["sale_date"], "2026-04-12")
+        self.assertEqual(sale_after["created_at"], sale_before["created_at"])
+        self.assertIsNone(sale_after["receipt_pdf_path"])
+        self.assertIsNone(sale_after["receipt_pdf_url"])
+        self.assertEqual(sale_after["receipt_whatsapp_status"], "pending")
+        self.assertIsNone(sale_after["receipt_whatsapp_error"])
+        self.assertIsNone(sale_after["receipt_whatsapp_sent_at"])
+        self.assertEqual(purchase_after["purchase_date"], "2026-04-12")
+        self.assertTrue(member_record_rows)
+        self.assertTrue(all(row["record_date"] == "2026-04-12" for row in member_record_rows))
 
     def test_pos_sales_log_supports_quick_filter_for_failed_whatsapp_transactions(self):
         self.create_user("staff_sales_log_filter", "pass1234", "staff", warehouse_id=1)
@@ -13864,9 +14076,82 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(test_page.status_code, 200)
         test_html = test_page.get_data(as_text=True)
         self.assertIn("Tes Karir", test_html)
-        self.assertIn("2 + 2 =", test_html)
-        self.assertIn('id="careerAssessmentFirstQuestion"', test_html)
-        self.assertIn('id="careerAssessmentSubmitSection"', test_html)
+        self.assertIn("Ringkasan Assessment", test_html)
+        self.assertIn("Lanjut - Tes Kemampuan Dasar ->", test_html)
+        self.assertNotIn("2 + 2 =", test_html)
+
+        started_page = self.client.get(f"/karir/tes?code={candidate_after_approval['assessment_code']}&start=1")
+        self.assertEqual(started_page.status_code, 200)
+        started_html = started_page.get_data(as_text=True)
+        self.assertIn("2 + 2 =", started_html)
+        self.assertIn('id="careerAssessmentFirstQuestion"', started_html)
+        self.assertIn('id="careerAssessmentSubmitSection"', started_html)
+
+    def test_public_career_assessment_renders_five_point_scale_questions(self):
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                UPDATE recruitment_assessment_questions
+                SET prompt=?,
+                    option_a=?,
+                    option_b=?,
+                    option_c=?,
+                    option_d=?,
+                    option_e=?,
+                    correct_option=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE warehouse_id=? AND test_type=?
+                """,
+                (
+                    "Saya tetap tenang saat pekerjaan mendadak berubah cepat.",
+                    "Sangat Tidak Setuju",
+                    "Tidak Setuju",
+                    "Netral",
+                    "Setuju",
+                    "Sangat Setuju",
+                    "e",
+                    1,
+                    "basic",
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, assessment_duration_minutes,
+                    assessment_section_durations_json, application_channel, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Kandidat Skala Lima",
+                    1,
+                    "Staff Gudang",
+                    "Warehouse",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "55555",
+                    "pending",
+                    45,
+                    json.dumps({"basic": 15, "academic": 15, "case_study": 15}),
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/karir/tes?code=55555&start=1")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-question-variant="scale_five"', html)
+        self.assertIn("Sangat Tidak Setuju", html)
+        self.assertIn("Sangat Setuju", html)
+        self.assertIn('value="e"', html)
+        self.assertIn("Pilih tingkat persetujuan yang paling mendekati diri Anda", html)
 
     def test_public_career_assessment_completes_three_sections_with_hidden_score_and_finish_popup(self):
         self.seed_recruitment_assessment_suite(warehouse_id=1)
@@ -13914,7 +14199,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(first_page.status_code, 200)
         first_html = first_page.get_data(as_text=True)
         self.assertIn("Tes Kemampuan Dasar", first_html)
-        self.assertIn("2 + 2 =", first_html)
+        self.assertIn("Ringkasan Assessment", first_html)
+        self.assertIn("Lanjut - Tes Kemampuan Dasar ->", first_html)
+        self.assertNotIn("2 + 2 =", first_html)
+
+        first_started_page = self.client.get("/karir/tes?code=22222&start=1")
+        self.assertEqual(first_started_page.status_code, 200)
+        first_started_html = first_started_page.get_data(as_text=True)
+        self.assertIn("2 + 2 =", first_started_html)
 
         first_submit = self.client.post(
             "/karir/tes/submit",
@@ -14728,7 +15020,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "option_b": "Validasi stok dulu",
                 "option_c": "Abaikan sistem",
                 "option_d": "Tutup gudang",
-                "correct_option": "b",
+                "option_e": "Verifikasi akhir lalu eskalasi kalau ada selisih",
+                "correct_option": "e",
                 "score_weight": "25",
                 "sort_order": "1",
                 "is_active": "1",
@@ -14766,12 +15059,14 @@ class WmsRoutesTestCase(unittest.TestCase):
                 ("Portal Luar",),
             ).fetchone()
             question = db.execute(
-                "SELECT id, prompt, correct_option FROM recruitment_assessment_questions WHERE prompt=?",
+                "SELECT id, prompt, option_e, correct_option FROM recruitment_assessment_questions WHERE prompt=?",
                 ("SOP outbound adalah?",),
             ).fetchone()
 
         self.assertEqual(candidate["assessment_code"], "12345")
         self.assertIsNotNone(question)
+        self.assertEqual(question["correct_option"], "e")
+        self.assertEqual(question["option_e"], "Verifikasi akhir lalu eskalasi kalau ada selisih")
 
         update_response = self.client.post(
             f"/hris/recruitment/update/{candidate['id']}",
@@ -14812,6 +15107,53 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(float(candidate_after["assessment_final_score"]), 88.5)
         self.assertEqual(candidate_after["assessment_expires_at"], "2026-04-30 16:30:00")
         self.assertEqual(int(candidate_after["assessment_duration_minutes"]), 45)
+
+    def test_hr_can_generate_sports_retail_assessment_bank_without_duplicates(self):
+        self.login_hr_user()
+
+        first_generate = self.client.post(
+            "/hris/recruitment/question/generate-sports-retail",
+            data={"warehouse_id": "2"},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_generate.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            inserted_questions = db.execute(
+                """
+                SELECT test_type, prompt
+                FROM recruitment_assessment_questions
+                WHERE warehouse_id=?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (2,),
+            ).fetchall()
+
+        self.assertEqual(len(inserted_questions), 26)
+        inserted_prompts = {row["prompt"] for row in inserted_questions}
+        inserted_types = {row["test_type"] for row in inserted_questions}
+        self.assertIn("Pelanggan mencari sepatu lari untuk pemakaian harian tapi belum tahu kebutuhannya. Langkah awal terbaik?", inserted_prompts)
+        self.assertIn("Harga sepatu training Rp375.000 dengan diskon 20 persen. Berapa harga setelah diskon?", inserted_prompts)
+        self.assertIn("Barcode scanner kasir mendadak bermasalah saat antrean sedang panjang. Respon paling tepat?", inserted_prompts)
+        self.assertEqual(inserted_types, {"basic", "academic", "case_study"})
+
+        second_generate = self.client.post(
+            "/hris/recruitment/question/generate-sports-retail",
+            data={"warehouse_id": "2"},
+            follow_redirects=False,
+        )
+        self.assertEqual(second_generate.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            total_after_second_generate = db.execute(
+                "SELECT COUNT(*) AS total FROM recruitment_assessment_questions WHERE warehouse_id=?",
+                (2,),
+            ).fetchone()["total"]
+
+        self.assertEqual(int(total_after_second_generate), 26)
 
     def test_hr_recruitment_rejection_sends_candidate_email(self):
         self.login_hr_user()
@@ -16125,6 +16467,51 @@ class WmsRoutesTestCase(unittest.TestCase):
         portal_response = self.client.get("/karir/portal")
         self.assertEqual(portal_response.status_code, 302)
         self.assertEqual(portal_response.headers["Location"], "/karir/profil?section=documents")
+
+    def test_public_career_candidate_additional_section_normalizes_salary_expectation_to_rupiah(self):
+        account = self.login_public_career_account_session(
+            email="profil-gaji@example.com",
+            full_name="Profil Gaji",
+        )
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "additional",
+                "domicile": "Sleman",
+                "preferred_area": "Sleman / Yogyakarta",
+                "salary_expectation": "5,5 juta",
+                "notes": "Siap interview pekan ini.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=additional")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json, completion_state
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "additional"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        self.assertEqual(payload["domicile"], "Sleman")
+        self.assertEqual(payload["preferred_area"], "Sleman / Yogyakarta")
+        self.assertEqual(payload["salary_expectation"], "Rp 5.500.000")
+        self.assertEqual(payload["notes"], "Siap interview pekan ini.")
+        self.assertEqual(section_row["completion_state"], "complete")
+
+        page_response = self.client.get("/karir/profil?section=additional")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn('value="Rp 5.500.000"', page_html)
+        self.assertIn("Sistem akan merapikan jadi nominal rupiah.", page_html)
 
     def test_public_career_candidate_can_save_personal_profile_section_without_npwp(self):
         account = self.login_public_career_account_session(

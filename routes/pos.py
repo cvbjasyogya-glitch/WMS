@@ -832,6 +832,31 @@ def _normalize_sale_date(raw_value):
         return _get_pos_today().isoformat()
 
 
+def _resolve_active_pos_sale_date(raw_value=None, *, allow_historical=False):
+    normalized_date = _normalize_sale_date(raw_value)
+    allow_manual_override = current_app.config.get("POS_ALLOW_MANUAL_SALE_DATE")
+    if allow_manual_override is None:
+        allow_manual_override = bool(current_app.testing)
+    if allow_historical or allow_manual_override:
+        return normalized_date
+    return _get_pos_today().isoformat()
+
+
+def _normalize_editable_pos_sale_date(raw_value):
+    safe_value = str(raw_value or "").strip()
+    if not safe_value:
+        raise ValueError("Tanggal transaksi wajib diisi.")
+    try:
+        parsed_date = date_cls.fromisoformat(safe_value)
+    except ValueError as exc:
+        raise ValueError("Tanggal transaksi tidak valid.") from exc
+
+    today = _get_pos_today()
+    if parsed_date > today:
+        raise ValueError("Tanggal transaksi tidak boleh melebihi hari ini.")
+    return parsed_date.isoformat()
+
+
 def _is_sqlite_lock_error(exc):
     message = str(exc or "").strip().lower()
     return (
@@ -3425,6 +3450,7 @@ def _validate_and_build_items(
 
 
 def _fetch_pos_stock_balance_snapshot(db, product_id, variant_id, warehouse_id):
+    _ensure_pos_legacy_stock_batch_shadow(db, [(product_id, variant_id)], warehouse_id)
     row = db.execute(
         """
         SELECT
@@ -4002,6 +4028,7 @@ def _fetch_pos_sale_logs(
             and not any(max(_to_int(item.get("void_qty"), 0), 0) > 0 for item in items)
             and any(max(_to_int(item.get("active_qty"), 0), 0) > 0 for item in items)
         )
+        can_edit_sale_date = has_permission(session.get("role"), "manage_pos") and not is_hidden_archive
 
         normalized_rows.append(
             {
@@ -4023,6 +4050,7 @@ def _fetch_pos_sale_logs(
                 "tax_rule_label": _format_pos_adjustment_rule_label(row.get("tax_type"), row.get("tax_value")),
                 "payment_method_label": _format_payment_method_label(row.get("payment_method")),
                 "can_edit_transaction": can_edit_transaction,
+                "can_edit_sale_date": can_edit_sale_date,
                 "is_hidden_archive": is_hidden_archive,
                 "hidden_archive_at": row.get("hidden_archive_at"),
                 "hidden_archive_note": row.get("hidden_archive_note") or "",
@@ -4231,6 +4259,7 @@ def _build_pos_checkout_success_payload_from_sale_detail(sale_detail, *, message
         "sale_id": _to_int(safe_sale.get("id"), 0),
         "receipt_no": safe_sale.get("receipt_no") or "",
         "purchase_id": _to_int(safe_sale.get("purchase_id"), 0),
+        "sale_date": str(safe_sale.get("sale_date") or "").strip(),
         "customer_name": safe_sale.get("customer_name") or "",
         "total_items": _to_int(safe_sale.get("total_items"), 0),
         "subtotal_amount": _currency(safe_sale.get("subtotal_amount") or 0),
@@ -4271,6 +4300,55 @@ def _normalize_pos_item_keys(item_keys):
         seen_keys.add(normalized_key)
         normalized_keys.append(normalized_key)
     return normalized_keys
+
+
+def _ensure_pos_legacy_stock_batch_shadow(db, item_keys, warehouse_id):
+    normalized_keys = _normalize_pos_item_keys(item_keys)
+    safe_warehouse_id = _to_int(warehouse_id, 0)
+    if safe_warehouse_id <= 0 or not normalized_keys:
+        return
+
+    for product_id, variant_id in normalized_keys:
+        open_batch = db.execute(
+            """
+            SELECT id
+            FROM stock_batches
+            WHERE product_id=? AND variant_id=? AND warehouse_id=? AND COALESCE(remaining_qty, 0) > 0
+            LIMIT 1
+            """,
+            (product_id, variant_id, safe_warehouse_id),
+        ).fetchone()
+        if open_batch:
+            continue
+
+        stock_row = db.execute(
+            """
+            SELECT COALESCE(qty, 0) AS qty
+            FROM stock
+            WHERE product_id=? AND variant_id=? AND warehouse_id=?
+            LIMIT 1
+            """,
+            (product_id, variant_id, safe_warehouse_id),
+        ).fetchone()
+        available_qty = max(_to_int(stock_row["qty"], 0), 0) if stock_row else 0
+        if available_qty <= 0:
+            continue
+
+        db.execute(
+            """
+            INSERT INTO stock_batches(
+                product_id,
+                variant_id,
+                warehouse_id,
+                qty,
+                remaining_qty,
+                cost,
+                created_at
+            )
+            VALUES (?,?,?,?,?,0,datetime('now'))
+            """,
+            (product_id, variant_id, safe_warehouse_id, available_qty, available_qty),
+        )
 
 
 def _chunk_pos_values(values, chunk_size=POS_BULK_LOOKUP_CHUNK_SIZE):
@@ -4337,6 +4415,8 @@ def _fetch_pos_stock_balance_map(db, warehouse_id, item_keys):
     normalized_keys = _normalize_pos_item_keys(item_keys)
     if not normalized_keys:
         return {}
+
+    _ensure_pos_legacy_stock_batch_shadow(db, normalized_keys, warehouse_id)
 
     balance_map = {
         item_key: {
@@ -4427,6 +4507,8 @@ def _remove_pos_positive_stock_batches(db, product_id, variant_id, warehouse_id,
     safe_qty = _to_int(qty, 0)
     if safe_qty <= 0:
         return {"ok": True, "removed_qty": 0}
+
+    _ensure_pos_legacy_stock_batch_shadow(db, [(product_id, variant_id)], warehouse_id)
 
     acting_user_id = _to_int(session.get("user_id"), 0) or None
     ip_address = request.remote_addr if request else None
@@ -4911,8 +4993,8 @@ def pos_page():
     db = get_db()
     can_view_pos_revenue = _can_view_pos_revenue()
     selected_warehouse = _resolve_pos_warehouse(db, request.args.get("warehouse"))
-    sale_date = _normalize_sale_date(request.args.get("sale_date"))
     requested_edit_sale_id = _to_int(request.args.get("edit_sale_id"), 0)
+    sale_date = _resolve_active_pos_sale_date(request.args.get("sale_date"))
     scoped_warehouse = session.get("warehouse_id") if is_scoped_role(session.get("role")) else None
     editing_sale_payload = None
 
@@ -5771,6 +5853,112 @@ def pos_update_sale_payment_method(sale_id):
 
     flash(success_message, "success")
     return redirect(_sanitize_pos_cash_closing_return_url(request_data.get("return_url")))
+
+
+@pos_bp.post("/sale/<int:sale_id>/sale-date")
+def pos_update_sale_date(sale_id):
+    denied = _require_pos_access(json_mode=True)
+    if denied:
+        return denied
+
+    if not has_permission(session.get("role"), "manage_pos"):
+        return _json_error("Role ini belum punya izin mengubah tanggal transaksi POS.", 403)
+
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    ensure_crm_membership_multi_program_schema(db)
+    sale = _fetch_pos_sale_detail_by_id(db, sale_id)
+    if sale is None:
+        return _json_error("Transaksi POS tidak ditemukan atau tidak bisa diakses.", 404)
+
+    purchase_id = _to_int(sale.get("purchase_id"), 0)
+    if purchase_id <= 0:
+        return _json_error("Transaksi POS ini belum punya relasi data pembelian yang bisa dikoreksi.", 400)
+
+    try:
+        requested_sale_date = _normalize_editable_pos_sale_date(payload.get("sale_date"))
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    current_sale_date = _normalize_sale_date(sale.get("sale_date"))
+    if requested_sale_date == current_sale_date:
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"Tanggal transaksi {sale['receipt_no']} sudah {current_sale_date}.",
+                "sale_id": sale["id"],
+                "receipt_no": sale["receipt_no"],
+                "sale_date": current_sale_date,
+                "unchanged": True,
+            }
+        )
+
+    old_sale_snapshot = {**dict(sale), "sale_date": current_sale_date}
+    new_sale_snapshot = {**dict(sale), "sale_date": requested_sale_date}
+    had_old_cash_closing_report = _has_pos_cash_closing_report(db, old_sale_snapshot)
+    had_new_cash_closing_report = _has_pos_cash_closing_report(db, new_sale_snapshot)
+
+    try:
+        db.execute("BEGIN")
+        db.execute(
+            """
+            UPDATE pos_sales
+            SET
+                sale_date=?,
+                receipt_pdf_path=NULL,
+                receipt_pdf_url=NULL,
+                receipt_whatsapp_status='pending',
+                receipt_whatsapp_error=NULL,
+                receipt_whatsapp_sent_at=NULL,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (requested_sale_date, sale["id"]),
+        )
+        db.execute(
+            """
+            UPDATE crm_purchase_records
+            SET
+                purchase_date=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (requested_sale_date, purchase_id),
+        )
+        db.execute(
+            """
+            UPDATE crm_member_records
+            SET record_date=?
+            WHERE purchase_id=?
+            """,
+            (requested_sale_date, purchase_id),
+        )
+        _sync_pos_cash_closing_report_snapshot(db, old_sale_snapshot)
+        _sync_pos_cash_closing_report_snapshot(db, new_sale_snapshot)
+        db.commit()
+    except Exception:
+        db.rollback()
+        current_app.logger.exception("POS sale date update failed")
+        return _json_error("Tanggal transaksi gagal diperbarui. Coba ulangi beberapa detik lagi.", 500)
+
+    success_message = (
+        f"Tanggal transaksi {sale['receipt_no']} dipindah dari {current_sale_date} ke {requested_sale_date}. "
+        "No nota dan jam awal tetap dipertahankan."
+    )
+    if had_old_cash_closing_report or had_new_cash_closing_report:
+        success_message += " Rekap tutup kasir terkait ikut disinkronkan otomatis."
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": success_message,
+            "sale_id": sale["id"],
+            "receipt_no": sale["receipt_no"],
+            "sale_date": requested_sale_date,
+            "previous_sale_date": current_sale_date,
+            "had_cash_closing_report": had_old_cash_closing_report or had_new_cash_closing_report,
+        }
+    )
 
 
 @pos_bp.get("/cash-closing/defaults")
@@ -6703,7 +6891,17 @@ def pos_checkout():
     ensure_crm_membership_multi_program_schema(db)
 
     warehouse_id = _resolve_pos_warehouse(db, payload.get("warehouse_id"))
-    sale_date = _normalize_sale_date(payload.get("sale_date"))
+    requested_sale_date = _normalize_sale_date(payload.get("sale_date"))
+    sale_date = _resolve_active_pos_sale_date(requested_sale_date)
+    sale_date_adjusted = requested_sale_date != sale_date
+    if sale_date_adjusted:
+        current_app.logger.warning(
+            "POS checkout sale_date adjusted from %s to %s for warehouse_id=%s cashier_user_id=%s",
+            requested_sale_date,
+            sale_date,
+            warehouse_id,
+            payload.get("cashier_user_id"),
+        )
     payment_method = _normalize_payment_method(payload.get("payment_method"))
     discount_type = _normalize_adjustment_type(payload.get("discount_type"))
     discount_value = _to_decimal(payload.get("discount_value"), "0")
@@ -7147,13 +7345,19 @@ def pos_checkout():
         except Exception as exc:
             print("POS NEGATIVE STOCK NOTIFICATION ERROR:", exc)
 
+    success_message = "Checkout kasir berhasil disimpan."
+    if sale_date_adjusted:
+        success_message += " Tanggal transaksi otomatis disesuaikan ke hari ini karena halaman kasir masih membawa tanggal lama."
+
     return jsonify(
         {
             "status": "success",
-            "message": "Checkout kasir berhasil disimpan.",
+            "message": success_message,
             "sale_id": sale_id,
             "receipt_no": receipt_no,
             "purchase_id": purchase_id,
+            "sale_date": sale_date,
+            "sale_date_adjusted": sale_date_adjusted,
             "customer_name": customer["customer_name"],
             "total_items": financials["total_items"],
             "subtotal_amount": _currency(financials["subtotal_amount"]),
