@@ -15035,6 +15035,7 @@ body .hris-clean-shell .biometric-meta-icon.accent-sky {
     --biometric-accent-gradient: linear-gradient(145deg, #34b4ff 0%, #7bdcf8 100%);
     --biometric-accent-border: rgba(90, 208, 255, 0.24);
     --biometric-accent-glow: rgba(52, 180, 255, 0.22);
+    --biometric-card-bg: linear-gradient(145deg, rgba(7, 39, 60, 0.98), rgba(7, 21, 37, 0.99));
 }
 
 body .hris-clean-shell .biometric-workspace-stat.accent-indigo,
@@ -15051,6 +15052,7 @@ body .hris-clean-shell .biometric-meta-icon.accent-indigo {
     --biometric-accent-gradient: linear-gradient(145deg, #3451c5 0%, #6685ff 100%);
     --biometric-accent-border: rgba(102, 133, 255, 0.22);
     --biometric-accent-glow: rgba(73, 109, 239, 0.22);
+    --biometric-card-bg: linear-gradient(145deg, rgba(21, 27, 64, 0.98), rgba(9, 15, 35, 0.99));
 }
 
 body .hris-clean-shell .biometric-workspace-stat.accent-emerald,
@@ -15067,6 +15069,7 @@ body .hris-clean-shell .biometric-meta-icon.accent-emerald {
     --biometric-accent-gradient: linear-gradient(145deg, #0f9d72 0%, #4ed7a8 100%);
     --biometric-accent-border: rgba(78, 215, 168, 0.22);
     --biometric-accent-glow: rgba(15, 157, 114, 0.22);
+    --biometric-card-bg: linear-gradient(145deg, rgba(5, 47, 36, 0.98), rgba(7, 22, 31, 0.99));
 }
 
 body .hris-clean-shell .biometric-workspace-stat.accent-amber,
@@ -15083,6 +15086,7 @@ body .hris-clean-shell .biometric-meta-icon.accent-amber {
     --biometric-accent-gradient: linear-gradient(145deg, #c98514 0%, #ffcc57 100%);
     --biometric-accent-border: rgba(255, 204, 87, 0.24);
     --biometric-accent-glow: rgba(201, 133, 20, 0.22);
+    --biometric-card-bg: linear-gradient(145deg, rgba(58, 39, 11, 0.98), rgba(29, 20, 10, 0.99));
 }
 
 body .hris-clean-shell .biometric-workspace-stat.accent-blue,
@@ -15099,6 +15103,49 @@ body .hris-clean-shell .biometric-meta-icon.accent-blue {
     --biometric-accent-gradient: linear-gradient(145deg, #1c6dff 0%, #4ab3ff 100%);
     --biometric-accent-border: rgba(74, 179, 255, 0.24);
     --biometric-accent-glow: rgba(28, 109, 255, 0.22);
+    --biometric-card-bg: linear-gradient(145deg, rgba(9, 36, 70, 0.98), rgba(7, 18, 38, 0.99));
+}
+
+body .hris-clean-shell .biometric-workspace-card {
+    border-color: var(--biometric-accent-border, rgba(74, 179, 255, 0.22));
+    background:
+        radial-gradient(circle at 92% 6%, var(--biometric-accent-glow, rgba(74, 179, 255, 0.2)), transparent 34%),
+        radial-gradient(circle at 0% 100%, rgba(255, 255, 255, 0.06), transparent 30%),
+        var(--biometric-card-bg, linear-gradient(145deg, rgba(15, 31, 54, 0.98), rgba(8, 18, 32, 0.99)));
+    color: #eef7ff;
+    box-shadow: 0 20px 44px rgba(2, 8, 20, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+body .hris-clean-shell .biometric-workspace-card:hover,
+body .hris-clean-shell .biometric-workspace-card.active {
+    border-color: var(--biometric-accent-border, rgba(74, 179, 255, 0.3));
+    box-shadow: 0 22px 48px rgba(2, 8, 20, 0.34), 0 0 0 1px var(--biometric-accent-border, rgba(74, 179, 255, 0.18));
+}
+
+body .hris-clean-shell .biometric-workspace-card .biometric-module-mark,
+body .hris-clean-shell .biometric-workspace-card .biometric-module-badge,
+body .hris-clean-shell .biometric-workspace-card .biometric-module-eyebrow,
+body .hris-clean-shell .biometric-workspace-card .biometric-module-points span {
+    background: rgba(3, 13, 25, 0.42);
+    border-color: rgba(255, 255, 255, 0.11);
+    color: rgba(239, 247, 255, 0.9);
+}
+
+body .hris-clean-shell .biometric-workspace-card .biometric-module-copy strong {
+    color: #f8fbff;
+}
+
+body .hris-clean-shell .biometric-workspace-card .biometric-module-copy small,
+body .hris-clean-shell .biometric-workspace-card .biometric-module-footer small {
+    color: rgba(224, 235, 247, 0.82);
+}
+
+body .hris-clean-shell .biometric-workspace-card .biometric-module-footer {
+    border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+body .hris-clean-shell .biometric-workspace-card .biometric-module-link {
+    color: #ffffff;
 }
 
 body .hris-clean-shell .biometric-workspace-hero {
