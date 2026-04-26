@@ -2320,7 +2320,12 @@ def _get_overtime_balance_cap_label():
     return _format_duration_minutes_label(cap_minutes) if cap_minutes > 0 else "Tanpa Batas"
 
 
-def _get_overtime_balance_usage_hint_label(available_seconds=0):
+def _get_overtime_balance_usage_hint_label(available_seconds=0, debt_seconds=0):
+    if debt_seconds > 0:
+        return (
+            f"Utang lembur {_format_break_duration_label(debt_seconds, has_break_activity=True)} | "
+            "saldo baru otomatis menutup utang dulu"
+        )
     if available_seconds <= 0:
         return "Belum ada saldo"
     weekly_limit_label = _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES)
@@ -2355,12 +2360,20 @@ def _infer_overtime_add_source_type(raw_value, *context_values):
 
 def _normalize_overtime_usage_mode(value):
     normalized = str(value or "").strip().lower()
-    return normalized if normalized in {"regular", "cashout_all"} else "regular"
+    return normalized if normalized in {"regular", "cashout_all", "early_leave_debt"} else "regular"
 
 
 def _get_overtime_usage_mode_label(value):
     normalized = _normalize_overtime_usage_mode(value)
-    return "Uangkan Semua Saldo" if normalized == "cashout_all" else "Pakai Jam Lembur"
+    if normalized == "cashout_all":
+        return "Uangkan Semua Saldo"
+    if normalized == "early_leave_debt":
+        return "Pulang Lebih Cepat / Utang Lembur"
+    return "Pakai Jam Lembur"
+
+
+def _is_overtime_debt_usage_mode(value):
+    return _normalize_overtime_usage_mode(value) == "early_leave_debt"
 
 
 def _get_overtime_week_range(reference_date=None):
@@ -2401,7 +2414,7 @@ def _sum_pending_overtime_use_minutes_for_week(db, employee_id, reference_date, 
         if exclude_request_id and _to_int(row["id"]) == _to_int(exclude_request_id):
             continue
         payload = parse_attendance_request_payload(row.get("payload"))
-        if _normalize_overtime_usage_mode(payload.get("usage_mode")) == "cashout_all":
+        if _normalize_overtime_usage_mode(payload.get("usage_mode")) in {"cashout_all", "early_leave_debt"}:
             continue
         usage_date = _parse_iso_date(payload.get("usage_date"))
         minutes_used = max(0, _to_int(payload.get("minutes_used"), 0) or 0)
@@ -2426,7 +2439,7 @@ def _build_weekly_overtime_usage_meta(
         usage_date = _parse_iso_date(row.get("usage_date"))
         if usage_date is None or not (week_start <= usage_date <= week_end):
             continue
-        if _normalize_overtime_usage_mode(row.get("usage_mode")) == "cashout_all":
+        if _normalize_overtime_usage_mode(row.get("usage_mode")) in {"cashout_all", "early_leave_debt"}:
             continue
         used_minutes += max(0, int(row.get("minutes_used") or 0))
 
@@ -4158,20 +4171,21 @@ def _summarize_overtime_balance_ledger(
         )
     )
 
-    available_minutes = 0
+    signed_balance_minutes = 0
     for event in events:
         activity_date = event.get("activity_date") or ""
         is_in_period = _is_iso_date_within_range(activity_date, period_date_from, period_date_to)
         if event.get("kind") == "credit":
             credit_minutes = max(0, int(event.get("minutes") or 0))
             if balance_cap_enabled:
-                remaining_capacity = max(0, balance_cap_minutes - available_minutes)
+                # Credit may first close an overtime debt, then fill active balance up to the cap.
+                remaining_capacity = max(0, balance_cap_minutes - signed_balance_minutes)
                 applied_minutes = min(credit_minutes, remaining_capacity)
                 capped_credit_minutes += max(0, credit_minutes - applied_minutes)
             else:
                 applied_minutes = credit_minutes
             if applied_minutes > 0:
-                available_minutes += applied_minutes
+                signed_balance_minutes += applied_minutes
                 if event.get("source_type") == "biometric_auto":
                     earned_total_minutes += applied_minutes
                     if is_in_period:
@@ -4183,19 +4197,22 @@ def _summarize_overtime_balance_ledger(
             continue
 
         usage_minutes = max(0, int(event.get("minutes") or 0))
-        applied_minutes = min(available_minutes, usage_minutes)
-        excess_usage_minutes += max(0, usage_minutes - applied_minutes)
-        if applied_minutes > 0:
-            available_minutes = max(0, available_minutes - applied_minutes)
-            used_total_minutes += applied_minutes
+        if usage_minutes > 0:
+            signed_balance_minutes -= usage_minutes
+            used_total_minutes += usage_minutes
             if is_in_period:
-                used_period_minutes += applied_minutes
+                used_period_minutes += usage_minutes
+
+    available_minutes = max(0, signed_balance_minutes)
+    debt_minutes = max(0, -signed_balance_minutes)
+    excess_usage_minutes = debt_minutes
 
     return {
         "raw_earned_minutes": raw_earned_minutes,
         "raw_added_minutes": raw_added_minutes,
         "raw_used_minutes": raw_used_minutes,
         "raw_available_minutes": max(0, raw_earned_minutes + raw_added_minutes - raw_used_minutes),
+        "raw_debt_minutes": max(0, raw_used_minutes - raw_earned_minutes - raw_added_minutes),
         "earned_total_minutes": earned_total_minutes,
         "added_total_minutes": added_total_minutes,
         "used_total_minutes": used_total_minutes,
@@ -4203,6 +4220,8 @@ def _summarize_overtime_balance_ledger(
         "added_period_minutes": added_period_minutes,
         "used_period_minutes": used_period_minutes,
         "available_minutes": available_minutes,
+        "debt_minutes": debt_minutes,
+        "net_balance_minutes": signed_balance_minutes,
         "capped_credit_minutes": capped_credit_minutes,
         "excess_usage_minutes": excess_usage_minutes,
         "last_overtime_date": last_overtime_date,
@@ -4231,6 +4250,8 @@ def _build_employee_overtime_balance(db, employee_id, reference_date=None, *, in
     raw_available_minutes = ledger_summary["raw_available_minutes"]
     available_minutes = ledger_summary["available_minutes"]
     available_seconds = available_minutes * 60
+    debt_minutes = ledger_summary["debt_minutes"]
+    debt_seconds = debt_minutes * 60
     balance_cap_minutes = _get_overtime_balance_cap_minutes()
     balance_cap_enabled = balance_cap_minutes > 0
     remaining_capacity_minutes = (
@@ -4255,12 +4276,18 @@ def _build_employee_overtime_balance(db, employee_id, reference_date=None, *, in
         "raw_added_minutes": ledger_summary["raw_added_minutes"],
         "raw_used_minutes": ledger_summary["raw_used_minutes"],
         "raw_available_minutes": raw_available_minutes,
+        "raw_debt_minutes": ledger_summary["raw_debt_minutes"],
         "available_seconds": available_seconds,
         "available_minutes": available_minutes,
+        "debt_seconds": debt_seconds,
+        "debt_minutes": debt_minutes,
+        "net_balance_minutes": ledger_summary["net_balance_minutes"],
         "earned_label": _format_duration_minutes_label(earned_seconds // 60, zero_label="0 mnt"),
         "added_label": _format_duration_minutes_label(added_minutes, zero_label="0 mnt"),
         "used_label": _format_duration_minutes_label(used_minutes, zero_label="0 mnt"),
         "available_label": _format_duration_minutes_label(available_minutes, zero_label="0 mnt"),
+        "debt_label": _format_duration_minutes_label(debt_minutes, zero_label="0 mnt"),
+        "has_overtime_debt": debt_minutes > 0,
         "capped_credit_minutes": ledger_summary["capped_credit_minutes"],
         "capped_credit_label": _format_duration_minutes_label(
             ledger_summary["capped_credit_minutes"],
@@ -4360,6 +4387,8 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         used_period_seconds = ledger_summary["used_period_minutes"] * 60
         available_minutes = ledger_summary["available_minutes"]
         available_seconds = available_minutes * 60
+        debt_minutes = ledger_summary["debt_minutes"]
+        debt_seconds = debt_minutes * 60
         if not ledger_summary["has_activity"]:
             continue
         recap_rows.append(
@@ -4401,6 +4430,11 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                 "available_seconds": available_seconds,
                 "available_minutes": available_minutes,
                 "available_label": _format_duration_minutes_label(available_minutes, zero_label="0 mnt"),
+                "debt_seconds": debt_seconds,
+                "debt_minutes": debt_minutes,
+                "debt_label": _format_duration_minutes_label(debt_minutes, zero_label="0 mnt"),
+                "has_overtime_debt": debt_seconds > 0,
+                "net_balance_minutes": ledger_summary["net_balance_minutes"],
                 "has_available_balance": available_seconds > 0,
                 "latest_activity_date": (
                     ledger_summary["last_usage_date"]
@@ -4408,7 +4442,7 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
                     or ledger_summary["last_overtime_date"]
                     or "-"
                 ),
-                "usage_hint_label": _get_overtime_balance_usage_hint_label(available_seconds),
+                "usage_hint_label": _get_overtime_balance_usage_hint_label(available_seconds, debt_seconds),
             }
         )
 
@@ -4424,10 +4458,12 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
     summary = {
         "staff_total": len(recap_rows),
         "staff_with_balance": sum(1 for row in recap_rows if row["has_available_balance"]),
+        "staff_with_debt": sum(1 for row in recap_rows if row["has_overtime_debt"]),
         "earned_period_seconds": sum(row["earned_period_seconds"] for row in recap_rows),
         "added_period_seconds": sum(row["added_period_seconds"] for row in recap_rows),
         "used_period_seconds": sum(row["used_period_seconds"] for row in recap_rows),
         "available_total_seconds": sum(row["available_seconds"] for row in recap_rows),
+        "debt_total_seconds": sum(row["debt_seconds"] for row in recap_rows),
         "earned_period_label": _format_break_duration_label(
             sum(row["earned_period_seconds"] for row in recap_rows),
             has_break_activity=sum(row["earned_period_seconds"] for row in recap_rows) > 0,
@@ -4443,6 +4479,10 @@ def _build_overtime_recap(db, selected_warehouse=None, period_date_from=None, pe
         "available_total_label": _format_break_duration_label(
             sum(row["available_seconds"] for row in recap_rows),
             has_break_activity=sum(row["available_seconds"] for row in recap_rows) > 0,
+        ),
+        "debt_total_label": _format_break_duration_label(
+            sum(row["debt_seconds"] for row in recap_rows),
+            has_break_activity=sum(row["debt_seconds"] for row in recap_rows) > 0,
         ),
         "history_count": min(len(usage_rows), OVERTIME_USAGE_HISTORY_LIMIT),
         "period_label": (
@@ -4994,6 +5034,7 @@ def _apply_attendance_request(db, request_row):
         minutes_used = _to_int(payload.get("minutes_used"), default=None)
         note = str(payload.get("note") or "").strip()
         usage_mode = _normalize_overtime_usage_mode(payload.get("usage_mode"))
+        is_debt_mode = _is_overtime_debt_usage_mode(usage_mode)
         employee = _get_accessible_employee(db, employee_id)
         if employee is None:
             raise ValueError("Staff untuk pengurangan lembur tidak ditemukan.")
@@ -5009,9 +5050,9 @@ def _apply_attendance_request(db, request_row):
                 raise ValueError("Saldo lembur saat ini kosong, jadi tidak ada yang bisa diuangkan.")
         elif minutes_used is None or minutes_used <= 0:
             raise ValueError("Durasi pengurangan lembur tidak valid.")
-        if minutes_used > overtime_balance["available_minutes"]:
+        if not is_debt_mode and minutes_used > overtime_balance["available_minutes"]:
             raise ValueError("Saldo lembur saat ini tidak cukup untuk request tersebut.")
-        if usage_mode != "cashout_all":
+        if usage_mode != "cashout_all" and not is_debt_mode:
             weekly_usage_meta = _build_weekly_overtime_usage_meta(
                 db,
                 employee["id"],
@@ -5049,6 +5090,11 @@ def _apply_attendance_request(db, request_row):
         )
         if usage_mode == "cashout_all":
             return f"Saldo lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_used)} berhasil diuangkan."
+        if is_debt_mode:
+            return (
+                f"Utang lembur / pulang lebih cepat {employee['full_name']} sebesar "
+                f"{_format_duration_minutes_label(minutes_used)} berhasil dicatat."
+            )
         return f"Pengurangan lembur {employee['full_name']} sebesar {_format_duration_minutes_label(minutes_used)} berhasil diterapkan."
 
     if request_type == "overtime_usage_delete":
@@ -5823,7 +5869,7 @@ BIOMETRIC_WORKSPACE_VIEWS = {
 def _normalize_biometric_workspace_view(value):
     safe_view = str(value or "").strip().lower().replace("-", "_")
     if not safe_view:
-        return "attendance_detail"
+        return "overview"
     return safe_view if safe_view in BIOMETRIC_WORKSPACE_VIEWS else "attendance_detail"
 
 
@@ -8386,14 +8432,17 @@ def hris_index(module_slug=None):
             overtime_recap_summary = {
                 "staff_total": 0,
                 "staff_with_balance": 0,
+                "staff_with_debt": 0,
                 "earned_period_seconds": 0,
                 "added_period_seconds": 0,
                 "used_period_seconds": 0,
                 "available_total_seconds": 0,
+                "debt_total_seconds": 0,
                 "earned_period_label": "-",
                 "added_period_label": "-",
                 "used_period_label": "-",
                 "available_total_label": "-",
+                "debt_total_label": "-",
                 "history_count": 0,
                 "period_label": (
                     f"{date_from} s/d {date_to}"
@@ -12483,6 +12532,7 @@ def use_biometric_overtime():
     usage_date = _parse_iso_date((request.form.get("usage_date") or "").strip())
     minutes_used = _to_int(request.form.get("minutes_used"), default=None)
     usage_mode = _normalize_overtime_usage_mode(request.form.get("usage_mode"))
+    is_debt_mode = _is_overtime_debt_usage_mode(usage_mode)
     note = (request.form.get("note") or "").strip()
 
     employee = _get_accessible_employee(db, employee_id)
@@ -12513,13 +12563,13 @@ def use_biometric_overtime():
     elif minutes_used is None or minutes_used <= 0:
         flash("Durasi pemakaian lembur wajib diisi dalam menit dan lebih dari 0.", "error")
         return redirect(return_to)
-    if minutes_used > overtime_balance["available_minutes"]:
+    if not is_debt_mode and minutes_used > overtime_balance["available_minutes"]:
         flash(
             f"Saldo lembur staff ini tidak cukup. Sisa yang tersedia hanya { _format_duration_minutes_label(overtime_balance['available_minutes'], zero_label='0 mnt') }.",
             "error",
         )
         return redirect(return_to)
-    if usage_mode != "cashout_all" and minutes_used > overtime_balance["weekly_remaining_minutes"]:
+    if usage_mode != "cashout_all" and not is_debt_mode and minutes_used > overtime_balance["weekly_remaining_minutes"]:
         flash(
             f"Pemakaian lembur reguler maksimal {overtime_balance['weekly_limit_label']} per minggu. "
             f"Sisa minggu ini hanya {overtime_balance['weekly_remaining_label']} untuk periode {overtime_balance['weekly_period_label']}.",
@@ -12549,11 +12599,14 @@ def use_biometric_overtime():
             summary_title=(
                 f"{employee['full_name']} - Uangkan Lembur"
                 if usage_mode == "cashout_all"
+                else f"{employee['full_name']} - Utang Lembur / Pulang Cepat"
+                if is_debt_mode
                 else f"{employee['full_name']} - Pengurangan Lembur"
             ),
             summary_note=(
                 f"{_format_duration_minutes_label(minutes_used)} pada {usage_date.isoformat()}"
                 f"{' | Uangkan semua saldo' if usage_mode == 'cashout_all' else ''}"
+                f"{' | Pulang lebih cepat / utang lembur' if is_debt_mode else ''}"
                 f"{f' | {note}' if note else ''}"
             ),
             payload=payload,
@@ -12568,6 +12621,8 @@ def use_biometric_overtime():
         flash(
             "Permintaan uangkan lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
             if usage_mode == "cashout_all"
+            else "Permintaan utang lembur / pulang cepat yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
+            if is_debt_mode
             else "Permintaan pengurangan saldo lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui.",
             "info",
         )
@@ -12576,6 +12631,8 @@ def use_biometric_overtime():
             (
                 f"Permintaan uangkan lembur {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval."
                 if usage_mode == "cashout_all"
+                else f"Permintaan utang lembur / pulang cepat {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval."
+                if is_debt_mode
                 else f"Permintaan pengurangan lembur {employee['full_name']} sebesar { _format_duration_minutes_label(minutes_used) } berhasil dikirim ke approval."
             ),
             "success",

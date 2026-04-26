@@ -18,11 +18,11 @@ ATTENDANCE_REQUEST_TYPE_META = {
         "category": "overtime",
     },
     "overtime_use": {
-        "label": "Pengurangan Saldo Lembur",
+        "label": "Pemakaian / Utang Lembur",
         "category": "overtime",
     },
     "overtime_usage_delete": {
-        "label": "Pembatalan Pengurangan Lembur",
+        "label": "Pembatalan Pemakaian Lembur",
         "category": "overtime",
     },
 }

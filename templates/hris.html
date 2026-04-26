@@ -1109,7 +1109,11 @@
                         | {{ item.payload_map.swap_with_employee_name or '-' }}: {{ item.payload_map.partner_current_shift_label or item.payload_map.partner_current_shift_code or '-' }}{% if item.payload_map.partner_current_shift_code %} ({{ item.payload_map.partner_current_shift_code }}){% endif %}
                     </p>
                     {% elif item.request_type == 'overtime_use' %}
-                    <p class="helper-text" style="margin-top:10px;">Tanggal: {{ item.payload_map.usage_date or '-' }} | Durasi: {{ item.payload_map.duration_label or '-' }}</p>
+                    <p class="helper-text" style="margin-top:10px;">
+                        Tanggal: {{ item.payload_map.usage_date or '-' }}
+                        | Mode: {{ item.payload_map.usage_mode_label or '-' }}
+                        | Durasi: {{ item.payload_map.duration_label or '-' }}
+                    </p>
                     {% elif item.request_type == 'overtime_usage_delete' %}
                     <p class="helper-text" style="margin-top:10px;">Membatalkan transaksi lembur pada {{ item.payload_map.usage_date or '-' }} | Durasi: {{ item.payload_map.duration_label or '-' }}</p>
                     {% endif %}
@@ -4879,7 +4883,7 @@
     </div>
 
     <div class="biometric-workspace-footnote">
-        <small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. {% if overtime_balance_cap_enabled %}Saldo aktif tiap staff maksimal {{ overtime_balance_cap_label }} dan kelebihan approval di atas batas tidak disimpan sebagai saldo.{% else %}Saldo aktif tiap staff tidak dibatasi maksimal.{% endif %} Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
+        <small class="helper-text">Saldo tersedia dihitung dari lembur yang sudah di-approve HR / Super Admin, lalu dikurangi transaksi pemakaian lembur. Pulang cepat saat saldo belum cukup akan masuk sebagai utang lembur, dan saldo baru otomatis menutup utang dulu. {% if overtime_balance_cap_enabled %}Saldo aktif tiap staff maksimal {{ overtime_balance_cap_label }} dan kelebihan approval di atas batas tidak disimpan sebagai saldo.{% else %}Saldo aktif tiap staff tidak dibatasi maksimal.{% endif %} Rekap per periode di bawah tetap mengikuti filter tanggal supaya review harian, mingguan, atau bulanan tetap rapi.</small>
     </div>
 </div>
 {% set biometric_overview_url = url_for(
@@ -5159,8 +5163,8 @@
     <summary class="panel-summary">
         <div class="section-title biometric-section-title accent-amber" data-panel-icon="KL">
             <div>
-                <h2>Kurangi Saldo Lembur</h2>
-                <p>Catat saat staff memakai lemburnya untuk pulang lebih awal, tukar jam, atau kebutuhan operasional lain supaya saldo tetap rapi dan bisa diaudit.</p>
+                <h2>Pakai / Utang Lembur</h2>
+                <p>Catat saat staff memakai lemburnya untuk pulang lebih awal, tukar jam, atau mencatat pulang cepat sebagai utang lembur supaya saldo tetap rapi dan bisa diaudit.</p>
             </div>
         </div>
         <div class="panel-summary-meta">
@@ -5174,8 +5178,8 @@
                 <label>Staff</label>
                 <select name="employee_id" required>
                     <option value="">Pilih staff</option>
-                    {% for row in overtime_recap_rows %}
-                    <option value="{{ row.id }}">{{ row.full_name }} | {{ row.warehouse_name or "Tanpa Gudang" }} | Saldo {{ row.available_label }}</option>
+                    {% for row in biometric_employees %}
+                    <option value="{{ row.id }}">{{ row.full_name }}{% if row.employee_code %} | {{ row.employee_code }}{% endif %}{% if row.warehouse_name %} | {{ row.warehouse_name }}{% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -5186,12 +5190,13 @@
             <div>
                 <label>Durasi Dipakai (menit)</label>
                 <input type="number" name="minutes_used" min="1" step="1" placeholder="Contoh: 60" required>
-                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler maksimal 2 jam per minggu. Kalau pilih uangkan semua, nilai ini akan otomatis diabaikan saat backend memproses request.</small>
+                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler maksimal 2 jam per minggu. Kalau pilih uangkan semua, nilai ini otomatis diabaikan saat backend memproses request. Kalau pilih pulang cepat / utang lembur, request tetap boleh masuk meski saldo belum cukup.</small>
             </div>
             <div>
                 <label>Mode Pemakaian</label>
                 <select name="usage_mode">
                     <option value="regular">Pakai Jam Lembur</option>
+                    <option value="early_leave_debt">Pulang Lebih Cepat / Utang Lembur</option>
                     <option value="cashout_all">Uangkan Semua Saldo</option>
                 </select>
             </div>
@@ -5202,7 +5207,7 @@
         </div>
         <input type="hidden" name="return_to" value="{{ report_return_to }}">
         <div class="split-actions" style="margin-top:16px;">
-            <button type="submit">Kurangi Saldo Lembur</button>
+            <button type="submit">Kirim Request Lembur</button>
         </div>
     </form>
     </div>
@@ -5213,7 +5218,7 @@
     <div class="section-title biometric-section-title accent-blue" data-panel-icon="RS">
         <div>
             <h2>Rekap Saldo Lembur Staff</h2>
-            <p>Tabel ini menampilkan saldo lembur staff dari approval lembur otomatis, penambahan manual, dan pemakaian lembur yang sudah tercatat pada scope aktif. {% if overtime_balance_cap_enabled %}Batas saldo aktif per staff maksimal {{ overtime_balance_cap_label }}.{% else %}Saldo aktif per staff saat ini tidak dibatasi maksimal.{% endif %}</p>
+            <p>Tabel ini menampilkan saldo lembur staff dari approval lembur otomatis, penambahan manual, pemakaian lembur, dan utang lembur yang sudah tercatat pada scope aktif. {% if overtime_balance_cap_enabled %}Batas saldo aktif per staff maksimal {{ overtime_balance_cap_label }}.{% else %}Saldo aktif per staff saat ini tidak dibatasi maksimal.{% endif %}</p>
         </div>
     </div>
 
@@ -5229,6 +5234,7 @@
                 <th>Total Lembur</th>
                 <th>Total Dipakai</th>
                 <th>Saldo Tersedia</th>
+                <th>Utang Lembur</th>
                 <th>Aktivitas Terakhir</th>
             </tr>
         </thead>
@@ -5251,6 +5257,9 @@
                     <span class="badge {% if row.has_available_balance %}green{% else %}orange{% endif %}">{{ row.available_label }}</span>
                     <div><small class="helper-text">{{ row.usage_hint_label }}</small></div>
                 </td>
+                <td>
+                    <span class="badge {% if row.has_overtime_debt %}red{% else %}green{% endif %}">{{ row.debt_label }}</span>
+                </td>
                 <td>{{ row.latest_activity_date }}</td>
             </tr>
             {% endfor %}
@@ -5264,7 +5273,7 @@
     <div class="section-title biometric-section-title accent-amber" data-panel-icon="HP">
         <div>
             <h2>Histori Pemakaian Lembur</h2>
-            <p>Riwayat ini menyimpan transaksi pengurangan saldo lembur terbaru agar perubahan tetap bisa dilacak dan dibatalkan bila ada salah input.</p>
+            <p>Riwayat ini menyimpan transaksi pemakaian, cashout, dan utang lembur terbaru agar perubahan tetap bisa dilacak dan dibatalkan bila ada salah input.</p>
         </div>
     </div>
 
@@ -5276,6 +5285,7 @@
                 <th>Code</th>
                 <th>Nama</th>
                 <th>Gudang</th>
+                <th>Mode</th>
                 <th>Dipakai</th>
                 <th>Catatan</th>
                 <th>Input Oleh</th>
@@ -5291,6 +5301,7 @@
                 <td class="mono">{{ usage.employee_code }}</td>
                 <td>{{ usage.full_name }}</td>
                 <td>{{ usage.warehouse_name or '-' }}</td>
+                <td><span class="badge {% if usage.usage_mode == 'early_leave_debt' %}red{% elif usage.usage_mode == 'cashout_all' %}blue{% else %}orange{% endif %}">{{ usage.usage_mode_label }}</span></td>
                 <td><strong class="biometric-overtime-duration">{{ usage.duration_label }}</strong></td>
                 <td>{{ usage.note }}</td>
                 <td>{{ usage.handled_by_name }}</td>

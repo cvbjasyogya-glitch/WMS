@@ -10,6 +10,7 @@ from routes.hris import (
     _format_duration_minutes_label,
     _get_overtime_balance_cap_label,
     _is_overtime_balance_cap_enabled,
+    _is_overtime_debt_usage_mode,
     _get_overtime_usage_mode_label,
     _get_self_service_employee,
     _normalize_overtime_usage_mode,
@@ -189,6 +190,7 @@ def submit():
     request_date = _parse_iso_date((request.form.get("request_date") or "").strip())
     minutes_value = _to_int(request.form.get("minutes_amount"), default=None)
     usage_mode = _normalize_overtime_usage_mode(request.form.get("usage_mode"))
+    is_debt_mode = _is_overtime_debt_usage_mode(usage_mode)
     reason = (request.form.get("reason") or "").strip()
 
     allowed_request_modes = {"reduce"}
@@ -254,13 +256,13 @@ def submit():
             return redirect("/lembur/")
 
         duration_label = _format_duration_minutes_label(minutes_value)
-        if minutes_value > int(balance.get("available_minutes") or 0):
+        if not is_debt_mode and minutes_value > int(balance.get("available_minutes") or 0):
             flash(
                 f"Saldo lembur saat ini tidak cukup. Sisa tersedia hanya {balance.get('available_label') or _format_duration_minutes_label(balance.get('available_minutes'), zero_label='0 mnt')}.",
                 "error",
             )
             return redirect("/lembur/")
-        if usage_mode != "cashout_all" and minutes_value > int(balance.get("weekly_remaining_minutes") or 0):
+        if usage_mode != "cashout_all" and not is_debt_mode and minutes_value > int(balance.get("weekly_remaining_minutes") or 0):
             flash(
                 f"Pemakaian lembur reguler maksimal {balance.get('weekly_limit_label')} per minggu. "
                 f"Sisa minggu ini hanya {balance.get('weekly_remaining_label')} untuk periode {balance.get('weekly_period_label')}.",
@@ -271,6 +273,8 @@ def submit():
         summary_title = (
             f"{linked_employee['full_name']} - Uangkan Lembur"
             if usage_mode == "cashout_all"
+            else f"{linked_employee['full_name']} - Utang Lembur / Pulang Cepat"
+            if is_debt_mode
             else f"{linked_employee['full_name']} - Kurangi Lembur"
         )
         payload = {
@@ -287,11 +291,15 @@ def submit():
         success_message = (
             f"Pengajuan uangkan saldo lembur {duration_label} berhasil dikirim ke approval."
             if usage_mode == "cashout_all"
+            else f"Pengajuan utang lembur / pulang cepat {duration_label} berhasil dikirim ke approval."
+            if is_debt_mode
             else f"Pengajuan pengurangan lembur {duration_label} berhasil dikirim ke approval."
         )
         duplicate_message = (
             "Pengajuan uangkan saldo lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
             if usage_mode == "cashout_all"
+            else "Pengajuan utang lembur / pulang cepat yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
+            if is_debt_mode
             else "Pengajuan pengurangan lembur yang sama masih menunggu approval. Saldo belum berubah sebelum disetujui."
         )
 
@@ -306,6 +314,7 @@ def submit():
             summary_note=(
                 f"{duration_label} pada {request_date.isoformat()}"
                 f"{' | Uangkan semua saldo' if request_mode == 'reduce' and usage_mode == 'cashout_all' else ''}"
+                f"{' | Pulang lebih cepat / utang lembur' if request_mode == 'reduce' and is_debt_mode else ''}"
                 f" | {reason}"
             ),
             payload=payload,

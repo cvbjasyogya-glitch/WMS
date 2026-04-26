@@ -19572,6 +19572,104 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(usage_count, 1)
 
+    def test_hr_can_record_early_leave_overtime_debt_without_available_balance(self):
+        self.login_hr_user("hr_overtime_debt", "pass1234")
+        date_value = "2026-09-11"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-DEBT",
+            full_name="Naufal Utang Lembur",
+            warehouse_id=1,
+        )
+
+        submit_response = self.client.post(
+            "/hris/biometric/overtime/use",
+            data={
+                "employee_id": str(employee_id),
+                "usage_date": date_value,
+                "usage_mode": "early_leave_debt",
+                "minutes_used": "75",
+                "note": "Pulang lebih cepat, dicatat sebagai utang lembur.",
+                "return_to": f"/hris/biometric?view=overtime_balance&date_from={date_value}&date_to={date_value}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            debt_request = db.execute(
+                """
+                SELECT id, request_type, status, summary_title, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(debt_request["status"], "pending")
+        self.assertIn("Utang Lembur", debt_request["summary_title"])
+        debt_payload = json.loads(debt_request["payload"])
+        self.assertEqual(debt_payload["usage_mode"], "early_leave_debt")
+        self.assertEqual(debt_payload["usage_mode_label"], "Pulang Lebih Cepat / Utang Lembur")
+        self.assertEqual(debt_payload["minutes_used"], 75)
+
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{debt_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Utang lembur disetujui."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_row = db.execute(
+                """
+                SELECT minutes_used, usage_mode, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance_after_debt = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(usage_row["usage_mode"], "early_leave_debt")
+        self.assertEqual(usage_row["minutes_used"], 75)
+        self.assertEqual(balance_after_debt["available_minutes"], 0)
+        self.assertEqual(balance_after_debt["debt_minutes"], 75)
+        self.assertTrue(balance_after_debt["has_overtime_debt"])
+
+        credit_request_id = self.create_overtime_add_request_record(
+            employee_id,
+            date_value,
+            120,
+            source_type="manual_request",
+            note="Lembur berikutnya untuk menutup utang.",
+            status="approved",
+        )
+        future_credit_timestamp = (datetime.now() + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE attendance_action_requests
+                SET handled_at=?, updated_at=?
+                WHERE id=?
+                """,
+                (future_credit_timestamp, future_credit_timestamp, credit_request_id),
+            )
+            db.commit()
+            with self.app.test_request_context():
+                balance_after_credit = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(balance_after_credit["debt_minutes"], 0)
+        self.assertEqual(balance_after_credit["available_minutes"], 45)
+        self.assertEqual(balance_after_credit["available_label"], "45 mnt")
+
     def test_overtime_portal_restricts_add_requests_to_hr_and_keeps_reduce_for_staff(self):
         date_value = "2026-09-07"
         employee_id = self.create_employee_record(
@@ -19594,11 +19692,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         page_response = self.client.get("/lembur/")
         self.assertEqual(page_response.status_code, 200)
         page_html = page_response.get_data(as_text=True)
-        self.assertIn("Ajukan Kurangi Lembur", page_html)
+        self.assertIn("Ajukan Pakai / Utang Lembur", page_html)
         self.assertIn("1j 00m", page_html)
         self.assertIn('<option value="reduce">Kurangi Lembur</option>', page_html)
+        self.assertIn('<option value="early_leave_debt">Pulang Lebih Cepat / Utang Lembur</option>', page_html)
         self.assertNotIn('<option value="add">Tambah Lembur</option>', page_html)
-        self.assertIn("Penambahan saldo lembur hanya bisa diajukan oleh HR.", page_html)
+        self.assertIn("pulang cepat boleh dipakai meski saldo belum cukup", page_html)
 
         add_response = self.client.post(
             "/lembur/submit",
@@ -19687,6 +19786,85 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(usage_row["note"], "Dipakai izin pulang lebih awal.")
         self.assertEqual((60 - 30), 30)
 
+    def test_overtime_portal_staff_can_request_early_leave_debt_without_balance(self):
+        date_value = "2026-09-12"
+        employee_id = self.create_employee_record(
+            employee_code="EMP-OT-PORTAL-DEBT",
+            full_name="Nadia Portal Utang Lembur",
+            warehouse_id=1,
+        )
+        self.create_user(
+            "portal_overtime_debt",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            employee_id=employee_id,
+        )
+
+        self.login("portal_overtime_debt", "pass1234")
+        response = self.client.post(
+            "/lembur/submit",
+            data={
+                "request_mode": "reduce",
+                "usage_mode": "early_leave_debt",
+                "request_date": date_value,
+                "minutes_amount": "60",
+                "reason": "Pulang lebih cepat dan masuk utang lembur.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            debt_request = db.execute(
+                """
+                SELECT id, status, summary_title, summary_note, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertEqual(debt_request["status"], "pending")
+        self.assertIn("Utang Lembur", debt_request["summary_title"])
+        self.assertIn("Pulang lebih cepat / utang lembur", debt_request["summary_note"])
+        payload = json.loads(debt_request["payload"])
+        self.assertEqual(payload["usage_mode"], "early_leave_debt")
+        self.assertEqual(payload["minutes_used"], 60)
+
+        self.logout()
+        self.login_hr_user("hr_overtime_portal_debt_approval", "pass1234")
+        approve_response = self.client.post(
+            f"/hris/approval/attendance-request/{debt_request['id']}/process",
+            data={"decision": "approved", "decision_note": "Pulang cepat disetujui."},
+            follow_redirects=False,
+        )
+        self.assertEqual(approve_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            usage_row = db.execute(
+                """
+                SELECT minutes_used, usage_mode, note
+                FROM overtime_usage_records
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            with self.app.test_request_context():
+                balance = _build_employee_overtime_balance(db, employee_id)
+
+        self.assertEqual(usage_row["usage_mode"], "early_leave_debt")
+        self.assertEqual(usage_row["minutes_used"], 60)
+        self.assertEqual(usage_row["note"], "Pulang lebih cepat dan masuk utang lembur.")
+        self.assertEqual(balance["available_minutes"], 0)
+        self.assertEqual(balance["debt_minutes"], 60)
+
     def test_overtime_portal_gracefully_handles_schema_errors(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-PORTAL-SCHEMA",
@@ -19719,7 +19897,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         page_response = self.client.get("/lembur/")
         self.assertEqual(page_response.status_code, 200)
         page_html = page_response.get_data(as_text=True)
-        self.assertIn("Ajukan Tambah / Kurangi Lembur", page_html)
+        self.assertIn("Ajukan Tambah / Pakai Lembur", page_html)
         self.assertIn('<option value="add">Tambah Lembur</option>', page_html)
         self.assertIn('<option value="reduce">Kurangi Lembur</option>', page_html)
 
