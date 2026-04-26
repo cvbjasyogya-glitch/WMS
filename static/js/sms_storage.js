@@ -164,6 +164,7 @@
 
   const numberFormatter = new Intl.NumberFormat("id-ID");
   const dateFormatter = new Intl.DateTimeFormat("id-ID", {
+    timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
     day: "2-digit",
     month: "short",
     year: "numeric",

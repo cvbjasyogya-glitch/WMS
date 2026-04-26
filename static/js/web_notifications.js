@@ -209,6 +209,7 @@
         }
 
         return new Intl.DateTimeFormat("id-ID", {
+            timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
             day: "2-digit",
             month: "short",
             hour: "2-digit",

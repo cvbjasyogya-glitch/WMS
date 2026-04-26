@@ -296,11 +296,14 @@
         }
         try {
             return new Intl.DateTimeFormat("id-ID", {
+                timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
                 dateStyle: "medium",
                 timeStyle: "short",
             }).format(new Date(timestamp));
         } catch (error) {
-            return new Date(timestamp).toLocaleString("id-ID");
+            return new Date(timestamp).toLocaleString("id-ID", {
+                timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
+            });
         }
     };
 

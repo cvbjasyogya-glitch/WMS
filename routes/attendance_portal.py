@@ -419,7 +419,8 @@ def _resolve_default_shift_code(linked_employee, requested_time=None):
     if requested_time and len(requested_time) >= 16:
         hour_value = int(requested_time[11:13])
     else:
-        hour_value = datetime.now().hour
+        current_timestamp = _current_timestamp()
+        hour_value = int(current_timestamp[11:13]) if len(current_timestamp) >= 13 else datetime.now().hour
     return "siang" if hour_value >= 13 else "pagi"
 
 
@@ -1598,7 +1599,7 @@ def submit_cash_closing():
     warehouse_label = _build_cash_closing_warehouse_label(linked_employee)
     employee_label = (linked_employee.get("full_name") or session.get("username") or "Staff").strip()
     submitted_at = _current_timestamp()
-    submitted_time_label = submitted_at[11:16] if len(submitted_at) >= 16 else datetime.now().strftime("%H:%M")
+    submitted_time_label = submitted_at[11:16] if len(submitted_at) >= 16 else _current_timestamp()[11:16]
     subject = (
         f"Tutup Kasir {warehouse_label} "
         f"{_format_cash_closing_date_label(closing_date)} | {employee_label} | {submitted_time_label}"

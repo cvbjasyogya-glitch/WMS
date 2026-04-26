@@ -1431,10 +1431,11 @@ function getPosGrandTotal() {
 function updatePosClock() {
     if (!posClockDisplay) return;
     posClockDisplay.textContent = new Intl.DateTimeFormat("id-ID", {
+        timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
-    }).format(new Date());
+    }).format(typeof window.wmsNowDate === "function" ? window.wmsNowDate() : new Date());
 }
 
 function closePosHeaderMenus(exceptMenu = null) {

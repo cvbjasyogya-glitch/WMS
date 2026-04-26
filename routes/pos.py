@@ -6073,7 +6073,7 @@ def pos_cash_closing_submit():
     warehouse_label = format_receipt_homebase_label(warehouse_name)
     if warehouse_label == "-":
         warehouse_label = warehouse_name or "Gudang"
-    submitted_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    submitted_at = datetime.now(POS_DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
     subject = (
         f"Tutup Kasir {warehouse_label} "
         f"{_format_pos_cash_closing_date_label(closing_date)}"

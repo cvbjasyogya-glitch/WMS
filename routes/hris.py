@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 from collections import defaultdict
-from datetime import date as date_cls, datetime, timedelta
+from datetime import date as date_cls, datetime, timedelta, timezone
 from uuid import uuid4
 
 from flask import Blueprint, current_app, has_app_context, jsonify, render_template, request, redirect, flash, session, url_for, send_file
@@ -93,6 +93,7 @@ from services.whatsapp_service import send_role_based_notification
 
 
 hris_bp = Blueprint("hris", __name__, url_prefix="/hris")
+HRIS_DISPLAY_TIMEZONE = timezone(timedelta(hours=7))
 CAREER_ASSESSMENT_TEST_LABELS = {
     item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
 }
@@ -1187,7 +1188,7 @@ def _calculate_leave_days(start_date, end_date):
 
 
 def _current_timestamp():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(HRIS_DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _format_hris_datetime_display(raw_value, include_date=False):
@@ -2518,7 +2519,7 @@ def _is_iso_date_within_range(iso_date, date_from=None, date_to=None):
 
 def _summarize_break_activity(logs_sorted, current_time=None):
     safe_logs = logs_sorted or []
-    now_value = current_time or datetime.now()
+    now_value = current_time or datetime.now(HRIS_DISPLAY_TIMEZONE).replace(tzinfo=None)
     completed_seconds = 0
     open_break_started_at = None
     open_break_started_raw = ""

@@ -435,6 +435,8 @@
     let locationRequestPromise = null;
     let previewRefreshTimer = null;
     let resolvedGpsAddress = "";
+    const JAKARTA_TIME_ZONE = window.wmsDisplayTimeZone || "Asia/Jakarta";
+    const JAKARTA_UTC_OFFSET_MINUTES = 7 * 60;
 
     const LOCATION_SCOPE_LABELS = {
         mataram: "Gudang Mataram",
@@ -473,12 +475,26 @@
     };
 
     const formatDateTimeLocal = (date) => {
-        const pad = (value) => String(value).padStart(2, "0");
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+        const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: JAKARTA_TIME_ZONE,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+        }).formatToParts(date).reduce((acc, part) => {
+            if (part.type !== "literal") {
+                acc[part.type] = part.value;
+            }
+            return acc;
+        }, {});
+        return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
     };
 
     const formatDateTimeLabel = (date) => {
         return date.toLocaleString("id-ID", {
+            timeZone: JAKARTA_TIME_ZONE,
             day: "2-digit",
             month: "short",
             year: "numeric",
@@ -486,6 +502,10 @@
             minute: "2-digit",
         });
     };
+
+    const getJakartaClockNow = () => (
+        typeof window.wmsNowDate === "function" ? window.wmsNowDate() : new Date()
+    );
 
     const getViewportOrientation = () => {
         if (window.matchMedia && window.matchMedia("(orientation: landscape)").matches) {
@@ -520,7 +540,7 @@
         if (portalLocked) {
             return;
         }
-        const now = new Date();
+        const now = getJakartaClockNow();
         punchTimeInput.value = formatDateTimeLocal(now);
         punchTimeDisplay.value = formatDateTimeLabel(now);
     };
@@ -549,10 +569,20 @@
     const parsePunchDate = () => {
         const rawValue = punchTimeInput.value;
         if (!rawValue) {
-            return new Date();
+            return getJakartaClockNow();
         }
-        const parsed = new Date(rawValue);
-        return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+        const match = String(rawValue).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+        if (!match) {
+            return getJakartaClockNow();
+        }
+        const year = Number(match[1]);
+        const month = Number(match[2]) - 1;
+        const day = Number(match[3]);
+        const hour = Number(match[4]);
+        const minute = Number(match[5]);
+        const second = Number(match[6] || 0);
+        const parsed = new Date(Date.UTC(year, month, day, hour, minute - JAKARTA_UTC_OFFSET_MINUTES, second));
+        return Number.isNaN(parsed.getTime()) ? getJakartaClockNow() : parsed;
     };
 
     const getPunchTypeLabel = () => {
@@ -1221,10 +1251,12 @@
         };
         const punchDate = parsePunchDate();
         const timeLabel = punchDate.toLocaleTimeString("id-ID", {
+            timeZone: JAKARTA_TIME_ZONE,
             hour: "2-digit",
             minute: "2-digit",
         });
         const dateLabel = punchDate.toLocaleDateString("id-ID", {
+            timeZone: JAKARTA_TIME_ZONE,
             weekday: "long",
             day: "2-digit",
             month: "long",
@@ -1281,7 +1313,7 @@
         context.fillStyle = "rgba(255,255,255,0.9)";
         context.font = `500 ${layout.footerCaptionFontSize}px 'Segoe UI', Arial, sans-serif`;
         context.fillText(
-            `${employeeName} | ${getPunchTypeCaption()} | ${todayDate || punchDate.toLocaleDateString("id-ID")}`,
+            `${employeeName} | ${getPunchTypeCaption()} | ${todayDate || punchDate.toLocaleDateString("id-ID", { timeZone: JAKARTA_TIME_ZONE })}`,
             layout.infoCardX + 24,
             layout.footerCaptionY
         );

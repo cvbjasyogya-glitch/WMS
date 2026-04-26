@@ -9,7 +9,7 @@ from flask import Flask, session, redirect, url_for, request, flash, g, jsonify,
 from flask.sessions import SecureCookieSessionInterface
 from config import Config
 from database import close_db, get_db
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from services.notification_retention import cleanup_notification_history
 from services.notification_service import send_email, send_whatsapp
 from services.rbac import (
@@ -25,6 +25,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from init_db import init_db
 import sqlite3
+
+
+APP_DISPLAY_TIMEZONE_NAME = "Asia/Jakarta"
+APP_DISPLAY_TIMEZONE = timezone(timedelta(hours=7))
 
 
 # ==============================
@@ -1327,6 +1331,7 @@ self.addEventListener("fetch", () => {{}});
         use_homebase_ui = _should_use_homebase_ui(request.path)
         public_host_mode = _get_public_host_mode(app, request.host)
         service_worker_enabled = bool(app.config.get("SERVICE_WORKER_ENABLED", False)) and not bool(public_host_mode)
+        shell_server_now = datetime.now(APP_DISPLAY_TIMEZONE)
         return {
             "can": lambda permission: has_permission(role, permission),
             "can_access_pos_terminal": lambda: can_access_pos_terminal(role),
@@ -1345,6 +1350,9 @@ self.addEventListener("fetch", () => {{}});
             "use_homebase_ui": use_homebase_ui,
             "public_host_mode": public_host_mode,
             "service_worker_enabled": service_worker_enabled,
+            "app_display_time_zone": APP_DISPLAY_TIMEZONE_NAME,
+            "app_server_time_iso": shell_server_now.isoformat(),
+            "app_server_time_epoch_ms": int(shell_server_now.timestamp() * 1000),
             "ui_scope_label": (
                 lambda value: _replace_scope_label_with_homebase(value)
                 if use_homebase_ui

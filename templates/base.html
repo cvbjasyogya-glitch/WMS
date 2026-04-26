@@ -133,6 +133,26 @@
 })();
 </script>
 <link rel="stylesheet" href="{{ dashboard_css_url }}">
+<script>
+window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
+(() => {
+    const serverEpochMs = Number({{ app_server_time_epoch_ms|tojson }});
+    const renderedPerfMs = (window.performance && typeof window.performance.now === "function")
+        ? window.performance.now()
+        : Date.now();
+    const hasServerClock = Number.isFinite(serverEpochMs) && serverEpochMs > 0;
+
+    window.wmsNowDate = window.wmsNowDate || function () {
+        if (!hasServerClock) {
+            return new Date();
+        }
+        const currentPerfMs = (window.performance && typeof window.performance.now === "function")
+            ? window.performance.now()
+            : Date.now();
+        return new Date(serverEpochMs + Math.max(0, currentPerfMs - renderedPerfMs));
+    };
+})();
+</script>
 {% block extra_head %}{% endblock %}
 </head>
 {% set has_app_shell = session.get("user_id") %}
