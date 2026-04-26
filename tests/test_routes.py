@@ -18741,7 +18741,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tambah Lembur Manual", overview_html)
         self.assertIn("Saldo &amp; Pemakaian", overview_html)
         self.assertIn("view=overtime_balance", overview_html)
-        self.assertIn("biometric-stage-shell", overview_html)
+        self.assertNotIn("biometric-stage-shell", overview_html)
+        self.assertNotIn("Pilih modul kerja yang paling relevan", overview_html)
         self.assertIn("biometric-module-badge", overview_html)
 
         response = self.client.get(f"/hris/biometric?view=overtime_balance&date_from={date_value}&date_to={date_value}")

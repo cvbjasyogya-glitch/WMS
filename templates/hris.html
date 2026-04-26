@@ -4896,12 +4896,6 @@
     punch_type=biometric_filters.punch_type,
     sync_status=biometric_filters.sync_status
 ) %}
-{% set biometric_active_card = namespace(value=None) %}
-{% for card in biometric_workspace_cards %}
-    {% if card.key == biometric_workspace_view %}
-        {% set biometric_active_card.value = card %}
-    {% endif %}
-{% endfor %}
 
 <section class="recruitment-workspace biometric-workspace-modules">
     <div class="section-title">
@@ -4939,37 +4933,7 @@
     </div>
 </section>
 
-{% if biometric_workspace_view == 'overview' %}
-<div class="table-box biometric-workspace-center-stage">
-    <div class="biometric-stage-shell">
-        <div class="biometric-stage-art {{ biometric_workspace_view_meta.accent }}" aria-hidden="true">
-            <span class="biometric-stage-art-chip">{{ biometric_workspace_view_meta.icon }}</span>
-            <span class="biometric-stage-orbit orbit-one"></span>
-            <span class="biometric-stage-orbit orbit-two"></span>
-            <span class="biometric-stage-orbit orbit-three"></span>
-        </div>
-        <div class="biometric-stage-copy">
-            <span class="biometric-stage-kicker">{{ biometric_workspace_view_meta.kicker }}</span>
-            <h2>{{ biometric_workspace_view_meta.empty_title }}</h2>
-            <p>{{ biometric_workspace_view_meta.empty_body }}</p>
-            <div class="biometric-stage-points">
-                {% for point in biometric_workspace_view_meta.highlights %}
-                <span>{{ point }}</span>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-    <div class="biometric-stage-grid">
-        {% for card in biometric_workspace_cards %}
-        <a href="{{ card.href }}" class="biometric-stage-mini {{ card.accent }}">
-            <span>{{ card.eyebrow }}</span>
-            <strong>{{ card.title }}</strong>
-            <small>{{ card.badge }}</small>
-        </a>
-        {% endfor %}
-    </div>
-</div>
-{% else %}
+{% if biometric_workspace_view != 'overview' %}
 <div class="biometric-workspace-subnav">
     <a href="{{ biometric_overview_url }}" class="ghost-button">Kembali ke Pusat Modul</a>
 </div>
