@@ -40,10 +40,13 @@
     .manual-delivery-box { border: 1px solid #dbe3f0; border-radius: 14px; padding: 14px 16px; }
     .manual-delivery-box span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
     .manual-delivery-box strong { display: block; margin-top: 8px; font-size: 14px; }
-    .manual-delivery-box p { margin: 8px 0 0; font-size: 12px; color: #334155; white-space: pre-line; }
-    .manual-delivery-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .manual-delivery-box p { margin: 8px 0 0; font-size: 12px; color: #334155; white-space: pre-line; overflow-wrap: anywhere; }
+    .manual-delivery-table-wrap { overflow-x: auto; border: 1px solid #dbe3f0; border-radius: 14px; }
+    .manual-delivery-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
     .manual-delivery-table thead th { padding: 10px 8px; background: #214e79; color: #ffffff; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; }
-    .manual-delivery-table tbody td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    .manual-delivery-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
+    .manual-delivery-table tbody td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; }
+    .manual-delivery-table tbody td:first-child { width: 60px; text-align: center; }
     .manual-delivery-table tbody td:last-child { text-align: center; width: 96px; }
     .manual-delivery-note { display: grid; gap: 8px; font-size: 12px; color: #334155; }
     .manual-delivery-note strong { font-size: 13px; color: #0f172a; }
@@ -58,11 +61,26 @@
         .manual-delivery-footer { grid-template-columns: 1fr; }
     }
 
+    @media (max-width: 720px) {
+        .manual-delivery-topbar {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .manual-delivery-title {
+            text-align: left;
+        }
+        .manual-delivery-table {
+            min-width: 560px;
+        }
+    }
+
     @media print {
+        @page { size: A4 portrait; margin: 10mm; }
         body { background: #ffffff !important; }
         body > *:not(.layout) { display: none !important; }
         .sidebar,
         .mobile-nav,
+        .mobile-sidebar-backdrop,
         .layout > header,
         .mobile-command-deck,
         .page-hero,
@@ -77,13 +95,34 @@
         .chat-widget-root,
         .chat-widget-root *,
         .manual-delivery-tools { display: none !important; }
-        .manual-delivery-preview { box-shadow: none; border: none; padding: 0; }
-        .manual-delivery-sheet { border: none; }
-        .layout { padding: 0 !important; }
+        html,
+        body { margin: 0 !important; padding: 0 !important; color: #0f172a !important; }
+        body * {
+            text-shadow: none !important;
+            box-shadow: none !important;
+            animation: none !important;
+            transition: none !important;
+        }
+        .manual-delivery-preview { box-shadow: none; border: none; padding: 0; background: #ffffff !important; }
+        .manual-delivery-sheet {
+            border: none;
+            color: #0f172a !important;
+            font-family: Arial, "Helvetica Neue", sans-serif !important;
+            font-weight: 500 !important;
+        }
+        .layout { padding: 0 !important; display: block !important; }
+        .main,
+        .page-content { padding: 0 !important; }
+        .wms-page-stack { gap: 0 !important; }
+        .manual-delivery-layout { display: block !important; }
         .manual-delivery-topbar,
         .manual-delivery-bottom-bar {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+        }
+        .manual-delivery-table-wrap {
+            overflow: visible !important;
+            border-color: #dbe3f0 !important;
         }
         .manual-delivery-table thead th {
             background: #ffffff !important;
@@ -113,8 +152,8 @@
     <div class="manual-delivery-layout">
         <section class="manual-delivery-tools">
             <div class="form-box helper-card">
-                <strong>Surat jalan terhubung</strong>
-                <p>Halaman ini membaca draft yang sama dengan invoice manual. Jadi saat kamu isi data customer, nomor invoice, dan item di invoice manual, surat jalan ini langsung ikut.</p>
+                <strong>Draft surat jalan terhubung</strong>
+                <p>Halaman ini membaca draft yang sama dengan invoice manual. Jadi saat data customer, nomor invoice, dan item diperbarui di invoice manual, surat jalan ini langsung ikut menyesuaikan.</p>
                 <ul>
                     <li>Nomor invoice dipakai sebagai referensi dokumen.</li>
                     <li>Nama customer, kontak, alamat, catatan, dan item ikut sinkron.</li>
@@ -122,15 +161,15 @@
                 </ul>
                 <div class="manual-delivery-actions">
                     <a href="/kasir/invoice/manual" class="ghost-button accent" target="_blank" rel="noopener">Buka Invoice Manual</a>
-                    <button type="button" class="ghost-button" id="manualDeliveryRefresh">Refresh Data</button>
-                    <button type="button" class="ghost-button primary" id="manualDeliveryPrint">Cetak Surat Jalan</button>
+                    <button type="button" class="ghost-button" id="manualDeliveryRefresh">Muat Ulang Draft</button>
+                    <button type="button" class="ghost-button primary" id="manualDeliveryPrint">Cetak / Simpan PDF</button>
                 </div>
             </div>
 
             <div class="manual-delivery-meta">
                 <div class="manual-delivery-meta-card">
                     <span>Status sinkron</span>
-                    <strong id="manualDeliverySyncStatus">Belum ada draft invoice manual.</strong>
+                    <strong id="manualDeliverySyncStatus">Belum ada draft invoice manual yang siap dipakai.</strong>
                 </div>
                 <div class="manual-delivery-meta-card">
                     <span>Update terakhir</span>
@@ -179,20 +218,22 @@
                         </div>
                     </div>
 
-                    <table class="manual-delivery-table">
-                        <thead>
-                            <tr>
-                                <th>No</th>
-                                <th>Deskripsi Barang</th>
-                                <th>Qty</th>
-                            </tr>
-                        </thead>
-                        <tbody id="manualDeliveryItems">
-                            <tr>
-                                <td colspan="3">Belum ada item dari invoice manual.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <div class="manual-delivery-table-wrap">
+                        <table class="manual-delivery-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">No</th>
+                                    <th>Deskripsi Barang</th>
+                                    <th style="width: 96px;">Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody id="manualDeliveryItems">
+                                <tr>
+                                    <td colspan="3">Belum ada item dari draft invoice manual.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
                     <div class="manual-delivery-note">
                         <strong>Catatan / Keterangan</strong>
@@ -335,7 +376,7 @@
         previewItems.innerHTML = "";
         if (!items.length) {
             const row = document.createElement("tr");
-            row.innerHTML = '<td colspan="3">Belum ada item dari invoice manual.</td>';
+            row.innerHTML = '<td colspan="3">Belum ada item dari draft invoice manual.</td>';
             previewItems.appendChild(row);
         } else {
             items.forEach((item, index) => {
@@ -355,7 +396,7 @@
         if (items.length || activeDraft.customer_name || activeDraft.invoice_no) {
             syncStatus.textContent = "Terhubung ke draft invoice manual.";
         } else {
-            syncStatus.textContent = "Belum ada draft invoice manual.";
+            syncStatus.textContent = "Belum ada draft invoice manual yang siap dipakai.";
         }
         lastSyncNode.textContent = formatSyncTime(activeDraft.updated_at);
     };

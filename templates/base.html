@@ -440,10 +440,13 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
                         <img src="{{ asset_url('icons/workspace/wms-stok-produk.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Stok &amp; Produk</span>
                     </a>
+                    {% set barcode_access_role = (session.get("role") or "")|replace(" ", "_")|replace("-", "_")|lower %}
+                    {% if barcode_access_role in ["owner", "leader", "super_admin"] %}
                     <a href="/stock/barcode" class="sidebar-subtile {% if request.path.startswith('/stock/barcode') %}active{% endif %}" aria-label="Barcode">
                         <img src="{{ asset_url('icons/workspace/utility-generic.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Barcode</span>
                     </a>
+                    {% endif %}
                     {% if can_access_pos_terminal() %}
                     <a href="/kasir/" class="sidebar-subtile {% if is_pos_active %}active{% endif %}" aria-label="Kasir Harian">
                         <img src="{{ asset_url('icons/workspace/wms-kasir.svg') }}" alt="" class="sidebar-subtile-icon">

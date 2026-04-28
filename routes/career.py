@@ -3,7 +3,7 @@ import hashlib
 import os
 import re
 import shutil
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -68,9 +68,24 @@ from services.notification_service import send_email
 
 career_bp = Blueprint("career", __name__)
 CAREER_ASSESSMENT_MAX_VIOLATIONS = 3
+CAREER_DISPLAY_TIMEZONE = timezone(timedelta(hours=7))
 CAREER_ASSESSMENT_TEST_ORDER = [item["key"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS]
 CAREER_ASSESSMENT_TEST_LABELS = {
     item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
+}
+CAREER_ASSESSMENT_VIOLATION_EVENT_META = {
+    "tab_hidden": {
+        "label": "Tab atau aplikasi berpindah sehingga halaman tes tersembunyi.",
+    },
+    "window_blur": {
+        "label": "Fokus browser berpindah dari halaman tes.",
+    },
+    "page_leave": {
+        "label": "Halaman tes ditutup atau ditinggalkan saat sesi masih aktif.",
+    },
+    "system_reset": {
+        "label": "Sesi tes direset otomatis setelah batas pelanggaran tercapai.",
+    },
 }
 CAREER_ASSESSMENT_SECTION_UI_META = {
     "basic": {
@@ -1037,6 +1052,123 @@ def _build_candidate_profile_snapshot(account, profile_sections):
     }
 
 
+def _normalize_candidate_profile_summary_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Ya" if value else "Tidak"
+    safe_value = str(value).strip()
+    return re.sub(r"\s+", " ", safe_value)
+
+
+def _append_candidate_profile_summary_field(lines, label, value):
+    safe_value = _normalize_candidate_profile_summary_value(value)
+    if not safe_value:
+        return
+    lines.append(f"- {label}: {safe_value}")
+
+
+def _build_candidate_profile_summary_text(
+    *,
+    candidate_id,
+    candidate_name,
+    profile_snapshot,
+    archived_documents,
+    resume_original_name,
+):
+    safe_snapshot = dict(profile_snapshot or {})
+    personal_payload = dict(safe_snapshot.get("personal") or {})
+    additional_payload = dict(safe_snapshot.get("additional") or {})
+    section_payloads = dict(safe_snapshot.get("sections") or {})
+    lines = [
+        "RINGKASAN PROFIL KANDIDAT",
+        "=========================",
+        "",
+        "Identitas Kandidat",
+    ]
+    _append_candidate_profile_summary_field(lines, "ID Kandidat", int(candidate_id or 0) or "-")
+    _append_candidate_profile_summary_field(lines, "Nama Kandidat", candidate_name or safe_snapshot.get("account_name"))
+    _append_candidate_profile_summary_field(lines, "Email Akun", safe_snapshot.get("account_email") or personal_payload.get("email"))
+    _append_candidate_profile_summary_field(lines, "Waktu Arsip Dibuat", safe_snapshot.get("captured_at"))
+    if resume_original_name:
+        _append_candidate_profile_summary_field(lines, "CV / Resume", resume_original_name)
+
+    lines.extend(["", "Data Pribadi"])
+    personal_fields = [
+        ("Nama Lengkap", personal_payload.get("full_name") or candidate_name),
+        ("Email", personal_payload.get("email") or safe_snapshot.get("account_email")),
+        ("Nomor WhatsApp", personal_payload.get("phone")),
+        ("Nomor KTP", personal_payload.get("ktp_number")),
+        ("Nomor NPWP", personal_payload.get("npwp_number")),
+        ("Tempat Lahir", personal_payload.get("birth_place")),
+        ("Tanggal Lahir", personal_payload.get("birth_date")),
+        ("Jenis Kelamin", personal_payload.get("gender")),
+        ("Status Pernikahan", personal_payload.get("marital_status")),
+        ("Agama", personal_payload.get("religion")),
+        ("Facebook / LinkedIn", personal_payload.get("linkedin_url")),
+        ("Instagram", personal_payload.get("instagram_handle")),
+        ("Ringkasan Profil", personal_payload.get("summary")),
+    ]
+    for label, value in personal_fields:
+        _append_candidate_profile_summary_field(lines, label, value)
+
+    lines.extend(["", "Alamat & Domisili"])
+    address_fields = [
+        ("Provinsi Sesuai KTP", personal_payload.get("ktp_province")),
+        ("Kota Sesuai KTP", personal_payload.get("ktp_city")),
+        ("Alamat Sesuai KTP", personal_payload.get("ktp_address")),
+        ("Kode POS KTP", personal_payload.get("ktp_postal_code")),
+        ("Kota Domisili", personal_payload.get("domicile_city")),
+        ("Alamat Domisili", personal_payload.get("domicile_address")),
+    ]
+    for label, value in address_fields:
+        _append_candidate_profile_summary_field(lines, label, value)
+
+    lines.extend(["", "Informasi Tambahan"])
+    additional_fields = [
+        ("Domisili Tambahan", additional_payload.get("domicile")),
+        ("Preferensi Penempatan", additional_payload.get("preferred_area")),
+        ("Ekspektasi Gaji", additional_payload.get("salary_expectation")),
+        ("Catatan Kandidat", additional_payload.get("notes")),
+        ("Follow Up", additional_payload.get("follow_up_at")),
+    ]
+    for label, value in additional_fields:
+        _append_candidate_profile_summary_field(lines, label, value)
+
+    section_lines = []
+    for definition in CAREER_PROFILE_SECTION_DEFINITIONS:
+        section_key = definition["key"]
+        if section_key in {"personal", "additional", "documents"}:
+            continue
+        section_entry = dict(section_payloads.get(section_key) or {})
+        section_data = dict(section_entry.get("payload") or {})
+        summary_text = _normalize_candidate_profile_summary_value(section_data.get("summary"))
+        if not summary_text:
+            continue
+        section_lines.append(f"- {definition['title']}: {summary_text}")
+    if section_lines:
+        lines.extend(["", "Ringkasan Per Bagian"])
+        lines.extend(section_lines)
+
+    lines.extend(["", "Dokumen Kandidat"])
+    if archived_documents:
+        for document_entry in archived_documents:
+            safe_entry = dict(document_entry or {})
+            document_label = _normalize_candidate_profile_summary_value(
+                safe_entry.get("label") or safe_entry.get("document_type") or "Dokumen Kandidat"
+            )
+            status_label = (
+                "Tersalin ke arsip HR"
+                if bool(safe_entry.get("available_in_hr_storage"))
+                else "Belum tersalin ke arsip HR"
+            )
+            lines.append(f"- {document_label}: {status_label}")
+    else:
+        lines.append("- Tidak ada dokumen profil tambahan yang tersalin.")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def _collect_candidate_profile_documents(profile_sections):
     documents_payload = dict((dict(profile_sections or {}).get("documents") or {}).get("payload") or {})
     files = documents_payload.get("files")
@@ -1192,16 +1324,16 @@ def _sync_candidate_hr_intake_storage(
             }
         )
 
-    manifest_payload = {
-        "candidate_id": int(candidate_id or 0) or None,
-        "candidate_name": candidate_name or "",
-        "copied_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "profile_snapshot": _make_career_json_safe(profile_snapshot or {}),
-        "profile_documents": _make_career_json_safe(archived_documents),
-    }
-    manifest_path = _allocate_candidate_intake_file_path(intake_root, "Ringkasan Profil Kandidat.json")
+    manifest_text = _build_candidate_profile_summary_text(
+        candidate_id=candidate_id,
+        candidate_name=candidate_name,
+        profile_snapshot=_make_career_json_safe(profile_snapshot or {}),
+        archived_documents=_make_career_json_safe(archived_documents),
+        resume_original_name=resume_original_name,
+    )
+    manifest_path = _allocate_candidate_intake_file_path(intake_root, "Ringkasan Profil Kandidat.txt")
     with open(manifest_path, "w", encoding="utf-8") as handle:
-        json.dump(manifest_payload, handle, ensure_ascii=False, indent=2)
+        handle.write(manifest_text)
     archived_files.insert(
         0,
         {
@@ -1738,6 +1870,83 @@ def _fetch_public_opening_by_id(db, opening_id):
     return _annotate_public_opening_display(dict(row)) if row else None
 
 
+def _coerce_non_negative_int(value, default=0):
+    try:
+        if value in (None, ""):
+            return max(int(default or 0), 0)
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return max(int(default or 0), 0)
+
+
+def _current_career_timestamp():
+    return datetime.now(CAREER_DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _decode_assessment_violation_log(raw_value):
+    if not raw_value:
+        return []
+    try:
+        payload = json.loads(raw_value)
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    safe_items = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        event_type = str(item.get("event_type") or item.get("type") or "").strip().lower()
+        section_key = normalize_assessment_test_type(item.get("section_key"))
+        meta = CAREER_ASSESSMENT_VIOLATION_EVENT_META.get(event_type) or {}
+        label = str(item.get("label") or meta.get("label") or "Pelanggaran assessment terdeteksi.").strip()
+        safe_items.append(
+            {
+                "event_type": event_type,
+                "label": label or "Pelanggaran assessment terdeteksi.",
+                "recorded_at": str(item.get("recorded_at") or "").strip(),
+                "assessment_code": normalize_assessment_code(item.get("assessment_code")),
+                "section_key": section_key,
+                "section_label": CAREER_ASSESSMENT_TEST_LABELS.get(section_key, ""),
+                "violation_count": _coerce_non_negative_int(item.get("violation_count"), 0),
+                "note": str(item.get("note") or "").strip(),
+            }
+        )
+    return safe_items
+
+
+def _encode_assessment_violation_log(events):
+    safe_items = []
+    for item in _decode_assessment_violation_log(json.dumps(events or [])):
+        safe_items.append(item)
+    return json.dumps(safe_items[-30:], ensure_ascii=True)
+
+
+def _build_assessment_violation_event(candidate, violation_count, *, event_type="", section_key="", note=""):
+    safe_event_type = str(event_type or "").strip().lower()
+    meta = CAREER_ASSESSMENT_VIOLATION_EVENT_META.get(safe_event_type) or {}
+    safe_section_key = normalize_assessment_test_type(section_key)
+    safe_label = str(meta.get("label") or "Pelanggaran assessment terdeteksi.").strip()
+    return {
+        "event_type": safe_event_type,
+        "label": safe_label,
+        "recorded_at": _current_career_timestamp(),
+        "assessment_code": normalize_assessment_code((candidate or {}).get("assessment_code")),
+        "section_key": safe_section_key,
+        "section_label": CAREER_ASSESSMENT_TEST_LABELS.get(safe_section_key, ""),
+        "violation_count": _coerce_non_negative_int(violation_count, 0),
+        "note": str(note or "").strip(),
+    }
+
+
+def _append_assessment_violation_event(existing_events, event):
+    safe_events = list(existing_events or [])
+    if isinstance(event, dict) and str(event.get("label") or "").strip():
+        safe_events.append(event)
+    return safe_events[-30:]
+
+
 def _fetch_candidate_by_assessment_code(db, code):
     safe_code = normalize_assessment_code(code)
     if not safe_code:
@@ -2133,7 +2342,24 @@ def _reset_candidate_assessment_session(db, candidate):
     if candidate_id <= 0:
         raise ValueError("Kandidat tes tidak valid.")
 
+    violation_log = _decode_assessment_violation_log(
+        safe_candidate.get("assessment_violation_log_json")
+    )
+    previous_code = normalize_assessment_code(safe_candidate.get("assessment_code"))
     new_code = assign_candidate_assessment_code(db, candidate_id)
+    violation_log = _append_assessment_violation_event(
+        violation_log,
+        {
+            "event_type": "system_reset",
+            "label": CAREER_ASSESSMENT_VIOLATION_EVENT_META["system_reset"]["label"],
+            "recorded_at": _current_career_timestamp(),
+            "assessment_code": previous_code,
+            "section_key": "",
+            "section_label": "",
+            "violation_count": CAREER_ASSESSMENT_MAX_VIOLATIONS,
+            "note": f"Kode tes sebelumnya {previous_code or '-'} direset. Kode baru {new_code}.",
+        },
+    )
     db.execute(
         """
         UPDATE recruitment_candidates
@@ -2149,11 +2375,13 @@ def _reset_candidate_assessment_session(db, candidate):
             assessment_started_at=NULL,
             assessment_submitted_at=NULL,
             assessment_violation_count=0,
+            assessment_violation_log_json=?,
             updated_at=CURRENT_TIMESTAMP
         WHERE id=?
         """,
         (
             normalize_career_assessment_status("pending"),
+            _encode_assessment_violation_log(violation_log),
             candidate_id,
         ),
     )
@@ -3599,8 +3827,26 @@ def record_assessment_violation():
         )
 
     violation_count = max(int(request.form.get("violation_count") or 0), 0)
+    violation_type = str(request.form.get("violation_type") or "").strip().lower()
+    section_key = normalize_assessment_test_type(request.form.get("section_key"))
+    violation_log = _decode_assessment_violation_log(candidate.get("assessment_violation_log_json"))
+    violation_log = _append_assessment_violation_event(
+        violation_log,
+        _build_assessment_violation_event(
+            candidate,
+            violation_count,
+            event_type=violation_type,
+            section_key=section_key,
+        ),
+    )
     if violation_count >= CAREER_ASSESSMENT_MAX_VIOLATIONS:
-        new_code = _reset_candidate_assessment_session(db, candidate)
+        new_code = _reset_candidate_assessment_session(
+            db,
+            {
+                **dict(candidate),
+                "assessment_violation_log_json": _encode_assessment_violation_log(violation_log),
+            },
+        )
         db.commit()
         return jsonify(
             {
@@ -3619,11 +3865,13 @@ def record_assessment_violation():
         """
         UPDATE recruitment_candidates
         SET assessment_violation_count=?,
+            assessment_violation_log_json=?,
             updated_at=CURRENT_TIMESTAMP
         WHERE id=?
         """,
         (
             violation_count,
+            _encode_assessment_violation_log(violation_log),
             candidate["id"],
         ),
     )

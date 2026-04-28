@@ -1,12 +1,13 @@
 import csv
+import json
 import re
 from datetime import datetime
 from io import StringIO
 from urllib.parse import urlencode
 
-from flask import Blueprint, Response, render_template, request, session, redirect, flash, jsonify
+from flask import Blueprint, Response, g, render_template, request, session, redirect, flash, jsonify
 
-from database import get_db
+from database import get_db, is_postgresql_backend
 
 from services.event_notification_policy import get_event_notification_policy
 from services.stock_service import adjust_stock
@@ -32,10 +33,565 @@ from routes.products import (
 stock_bp = Blueprint("stock", __name__, url_prefix="/stock")
 LOW_STOCK_THRESHOLD = 5
 WORKSPACE_MODES = {"inventory", "products"}
+BARCODE_STUDIO_ROLES = {"owner", "leader", "super_admin"}
+BARCODE_TEMPLATE_OPTION_DEFAULTS = {
+    "show_warehouse": False,
+    "show_variant": True,
+    "show_category": True,
+    "show_code_text": True,
+    "show_price": True,
+    "show_note": True,
+}
+BARCODE_LAYOUT_ELEMENT_DEFAULTS = {
+    "warehouse": {
+        "kind": "text",
+        "label": "Warehouse",
+        "x": 6,
+        "y": 6,
+        "w": 88,
+        "h": 7,
+        "font": 6.2,
+        "align": "left",
+        "weight": 700,
+        "visible": False,
+    },
+    "name": {
+        "kind": "text",
+        "label": "Name",
+        "x": 6,
+        "y": 15,
+        "w": 88,
+        "h": 16,
+        "font": 8.6,
+        "align": "left",
+        "weight": 700,
+        "visible": True,
+    },
+    "variant": {
+        "kind": "text",
+        "label": "Variant",
+        "x": 6,
+        "y": 32,
+        "w": 42,
+        "h": 7,
+        "font": 5.9,
+        "align": "left",
+        "weight": 600,
+        "visible": True,
+    },
+    "category": {
+        "kind": "text",
+        "label": "Category",
+        "x": 50,
+        "y": 32,
+        "w": 44,
+        "h": 7,
+        "font": 5.9,
+        "align": "right",
+        "weight": 600,
+        "visible": True,
+    },
+    "barcode": {
+        "kind": "barcode",
+        "label": "Barcode",
+        "x": 6,
+        "y": 41,
+        "w": 88,
+        "h": 26,
+        "font": 0,
+        "align": "center",
+        "weight": 400,
+        "visible": True,
+    },
+    "code": {
+        "kind": "text",
+        "label": "Code",
+        "x": 6,
+        "y": 68,
+        "w": 88,
+        "h": 7,
+        "font": 6.1,
+        "align": "center",
+        "weight": 700,
+        "visible": True,
+    },
+    "price": {
+        "kind": "text",
+        "label": "Price",
+        "x": 6,
+        "y": 77,
+        "w": 88,
+        "h": 8,
+        "font": 6.8,
+        "align": "left",
+        "weight": 700,
+        "visible": True,
+    },
+    "note": {
+        "kind": "text",
+        "label": "Note",
+        "x": 6,
+        "y": 87,
+        "w": 88,
+        "h": 7,
+        "font": 5.5,
+        "align": "left",
+        "weight": 500,
+        "visible": True,
+    },
+}
+BARCODE_LAYOUT_VISIBILITY_KEYS = {
+    "warehouse": "show_warehouse",
+    "variant": "show_variant",
+    "category": "show_category",
+    "code": "show_code_text",
+    "price": "show_price",
+    "note": "show_note",
+}
+BARCODE_STUDIO_DEFAULT_TEMPLATES = (
+    {
+        "id": "KERTAS_A4",
+        "label": "Kertas A4",
+        "paper": "210x297",
+        "width": 50,
+        "height": 25,
+        "cols": 2,
+        "gap": 6,
+        "margin": 6,
+        "barcode_height": 34,
+        "font_scale": 100,
+        "options": dict(BARCODE_TEMPLATE_OPTION_DEFAULTS),
+        "is_custom": False,
+    },
+    {
+        "id": "RAK_A4",
+        "label": "Rak A4",
+        "paper": "210x297",
+        "width": 70,
+        "height": 30,
+        "cols": 2,
+        "gap": 6,
+        "margin": 6,
+        "barcode_height": 36,
+        "font_scale": 100,
+        "options": {**BARCODE_TEMPLATE_OPTION_DEFAULTS, "show_warehouse": True},
+        "is_custom": False,
+    },
+    {
+        "id": "ROL_106x15",
+        "label": "Rol 106 x 15",
+        "paper": "106x200",
+        "width": 106,
+        "height": 15,
+        "cols": 1,
+        "gap": 2,
+        "margin": 4,
+        "barcode_height": 26,
+        "font_scale": 90,
+        "options": dict(BARCODE_TEMPLATE_OPTION_DEFAULTS),
+        "is_custom": False,
+    },
+    {
+        "id": "ROL_106x28",
+        "label": "Rol 106 x 28",
+        "paper": "106x200",
+        "width": 106,
+        "height": 28,
+        "cols": 1,
+        "gap": 2,
+        "margin": 4,
+        "barcode_height": 32,
+        "font_scale": 100,
+        "options": dict(BARCODE_TEMPLATE_OPTION_DEFAULTS),
+        "is_custom": False,
+    },
+    {
+        "id": "THERMAL_58",
+        "label": "Thermal 58mm",
+        "paper": "58x160",
+        "width": 48,
+        "height": 30,
+        "cols": 1,
+        "gap": 2,
+        "margin": 3,
+        "barcode_height": 28,
+        "font_scale": 90,
+        "options": dict(BARCODE_TEMPLATE_OPTION_DEFAULTS),
+        "is_custom": False,
+    },
+    {
+        "id": "THERMAL_80",
+        "label": "Thermal 80mm",
+        "paper": "80x200",
+        "width": 72,
+        "height": 38,
+        "cols": 1,
+        "gap": 2,
+        "margin": 4,
+        "barcode_height": 32,
+        "font_scale": 100,
+        "options": {**BARCODE_TEMPLATE_OPTION_DEFAULTS, "show_warehouse": True},
+        "is_custom": False,
+    },
+)
+
+
+def _ensure_postgresql_id_sequence(db, table_name):
+    default_row = db.execute(
+        """
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_schema='public'
+          AND table_name=?
+          AND column_name='id'
+        """,
+        (table_name,),
+    ).fetchone()
+    try:
+        column_default = str(default_row["column_default"] or "").lower()
+    except Exception:
+        column_default = ""
+    if "nextval(" in column_default:
+        return
+
+    sequence_name = f"{table_name}_id_seq"
+    db.execute(f"CREATE SEQUENCE IF NOT EXISTS {sequence_name}")
+    db.execute(f"ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id")
+    db.execute(
+        f"ALTER TABLE {table_name} ALTER COLUMN id SET DEFAULT nextval('{sequence_name}')"
+    )
+    db.execute(
+        f"SELECT setval('{sequence_name}', COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, false)"
+    )
+
+
+def _has_postgresql_unique_index(db, table_name, required_columns):
+    safe_columns = tuple(str(column or "").strip().lower() for column in (required_columns or ()))
+    if not safe_columns:
+        return False
+
+    rows = db.execute(
+        """
+        SELECT indexdef
+        FROM pg_indexes
+        WHERE schemaname='public'
+          AND tablename=?
+        """,
+        (table_name,),
+    ).fetchall()
+    for row in rows or []:
+        index_definition = " ".join(str(row["indexdef"] or "").lower().split())
+        if "create unique index" not in index_definition:
+            continue
+        if f"({', '.join(safe_columns)})" in index_definition:
+            return True
+    return False
 
 
 def _can_view_inventory_value():
     return normalize_role(session.get("role")) in {"owner", "super_admin"}
+
+
+def _can_access_barcode_studio():
+    return normalize_role(session.get("role")) in BARCODE_STUDIO_ROLES
+
+
+def _coerce_barcode_bool(value, default=False):
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_barcode_template_number(value, default, minimum, maximum=None, integer=False):
+    try:
+        parsed = int(value) if integer else float(value)
+    except (TypeError, ValueError):
+        parsed = default
+
+    parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return int(round(parsed)) if integer else parsed
+
+
+def _sanitize_barcode_template_key(value):
+    raw_value = str(value or "").strip().upper()
+    safe_value = re.sub(r"[^A-Z0-9]+", "_", raw_value).strip("_")
+    return safe_value[:72] or "CUSTOM"
+
+
+def _normalize_barcode_template_options(raw_options):
+    safe_options = raw_options if isinstance(raw_options, dict) else {}
+    raw_flags = safe_options.get("flags") if isinstance(safe_options.get("flags"), dict) else safe_options
+    flags = {
+        key: _coerce_barcode_bool(raw_flags.get(key), default)
+        for key, default in BARCODE_TEMPLATE_OPTION_DEFAULTS.items()
+    }
+    raw_elements = safe_options.get("elements") if isinstance(safe_options.get("elements"), dict) else {}
+    normalized_elements = {}
+
+    for element_key, element_default in BARCODE_LAYOUT_ELEMENT_DEFAULTS.items():
+        raw_element = raw_elements.get(element_key) if isinstance(raw_elements, dict) else {}
+        safe_element = raw_element if isinstance(raw_element, dict) else {}
+        visible_flag_key = BARCODE_LAYOUT_VISIBILITY_KEYS.get(element_key)
+        visible_default = flags.get(visible_flag_key, element_default.get("visible", True))
+        normalized_elements[element_key] = {
+            "kind": element_default["kind"],
+            "label": str(safe_element.get("label") or element_default["label"]).strip()[:32] or element_default["label"],
+            "x": _normalize_barcode_template_number(safe_element.get("x"), element_default["x"], 0, 96),
+            "y": _normalize_barcode_template_number(safe_element.get("y"), element_default["y"], 0, 96),
+            "w": _normalize_barcode_template_number(safe_element.get("w"), element_default["w"], 4, 100),
+            "h": _normalize_barcode_template_number(safe_element.get("h"), element_default["h"], 4, 100),
+            "font": _normalize_barcode_template_number(safe_element.get("font"), element_default["font"], 0, 24),
+            "align": (
+                str(safe_element.get("align") or element_default["align"]).strip().lower()
+                if str(safe_element.get("align") or element_default["align"]).strip().lower() in {"left", "center", "right"}
+                else element_default["align"]
+            ),
+            "weight": _normalize_barcode_template_number(
+                safe_element.get("weight"),
+                element_default["weight"],
+                400,
+                800,
+                integer=True,
+            ),
+            "visible": _coerce_barcode_bool(safe_element.get("visible"), visible_default),
+        }
+        if visible_flag_key:
+            normalized_elements[element_key]["visible"] = flags[visible_flag_key]
+
+    return {
+        **flags,
+        "elements": normalized_elements,
+    }
+
+
+def _normalize_barcode_template_payload(payload):
+    safe_payload = payload if isinstance(payload, dict) else {}
+    label = " ".join(str(safe_payload.get("label") or safe_payload.get("template_name") or "").split())
+    if not label:
+        label = "Template Baru"
+
+    template_key = _sanitize_barcode_template_key(
+        safe_payload.get("template_key")
+        or safe_payload.get("id")
+        or label
+    )
+
+    return {
+        "template_key": template_key,
+        "label": label[:80],
+        "paper": str(safe_payload.get("paper") or "210x297").strip()[:32] or "210x297",
+        "width": _normalize_barcode_template_number(safe_payload.get("width"), 50, 10, 300),
+        "height": _normalize_barcode_template_number(safe_payload.get("height"), 25, 10, 300),
+        "cols": _normalize_barcode_template_number(safe_payload.get("cols"), 2, 1, 8, integer=True),
+        "gap": _normalize_barcode_template_number(safe_payload.get("gap"), 6, 0, 40),
+        "margin": _normalize_barcode_template_number(safe_payload.get("margin"), 6, 0, 40),
+        "barcode_height": _normalize_barcode_template_number(
+            safe_payload.get("barcode_height"),
+            34,
+            20,
+            80,
+            integer=True,
+        ),
+        "font_scale": _normalize_barcode_template_number(
+            safe_payload.get("font_scale"),
+            100,
+            70,
+            180,
+            integer=True,
+        ),
+        "options": _normalize_barcode_template_options(safe_payload.get("options")),
+        "is_custom": True,
+    }
+
+
+def _serialize_barcode_template_row(row):
+    raw_options = str(row["options_json"] or "").strip()
+    try:
+        parsed_options = json.loads(raw_options or "{}")
+    except Exception:
+        parsed_options = {}
+    options_payload = _normalize_barcode_template_options(parsed_options)
+    return {
+        "id": row["template_key"],
+        "label": row["template_name"],
+        "paper": row["paper_size"],
+        "width": float(row["label_width"] or 50),
+        "height": float(row["label_height"] or 25),
+        "cols": int(row["columns_count"] or 2),
+        "gap": float(row["gap_mm"] or 6),
+        "margin": float(row["margin_mm"] or 6),
+        "barcode_height": int(row["barcode_height_px"] or 34),
+        "font_scale": int(row["font_scale_percent"] or 100),
+        "options": options_payload,
+        "is_custom": True,
+    }
+
+
+def _barcode_default_templates_payload():
+    return [
+        {
+            **template,
+            "options": _normalize_barcode_template_options(template.get("options") or {}),
+        }
+        for template in BARCODE_STUDIO_DEFAULT_TEMPLATES
+    ]
+
+
+def _ensure_barcode_template_schema(db):
+    if getattr(g, "_barcode_template_schema_ready", False):
+        return
+
+    if is_postgresql_backend():
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS barcode_label_templates (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                template_key TEXT NOT NULL,
+                template_name TEXT NOT NULL,
+                paper_size TEXT NOT NULL DEFAULT '210x297',
+                label_width DOUBLE PRECISION NOT NULL DEFAULT 50,
+                label_height DOUBLE PRECISION NOT NULL DEFAULT 25,
+                columns_count INTEGER NOT NULL DEFAULT 2,
+                gap_mm DOUBLE PRECISION NOT NULL DEFAULT 6,
+                margin_mm DOUBLE PRECISION NOT NULL DEFAULT 6,
+                barcode_height_px INTEGER NOT NULL DEFAULT 34,
+                font_scale_percent INTEGER NOT NULL DEFAULT 100,
+                options_json TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, template_key)
+            )
+            """,
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS user_id INTEGER",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS template_key TEXT",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS template_name TEXT",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS paper_size TEXT NOT NULL DEFAULT '210x297'",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS label_width DOUBLE PRECISION NOT NULL DEFAULT 50",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS label_height DOUBLE PRECISION NOT NULL DEFAULT 25",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS columns_count INTEGER NOT NULL DEFAULT 2",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS gap_mm DOUBLE PRECISION NOT NULL DEFAULT 6",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS margin_mm DOUBLE PRECISION NOT NULL DEFAULT 6",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS barcode_height_px INTEGER NOT NULL DEFAULT 34",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS font_scale_percent INTEGER NOT NULL DEFAULT 100",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS options_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            """
+            CREATE INDEX IF NOT EXISTS idx_barcode_label_templates_user
+            ON barcode_label_templates(user_id)
+            """,
+        ]
+        for statement in statements:
+            db.execute(statement)
+        if not _has_postgresql_unique_index(
+            db,
+            "barcode_label_templates",
+            ("user_id", "template_key"),
+        ):
+            db.execute(
+                """
+                CREATE UNIQUE INDEX idx_barcode_label_templates_user_key
+                ON barcode_label_templates(user_id, template_key)
+                """
+            )
+        _ensure_postgresql_id_sequence(db, "barcode_label_templates")
+    else:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS barcode_label_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                template_key TEXT NOT NULL,
+                template_name TEXT NOT NULL,
+                paper_size TEXT NOT NULL DEFAULT '210x297',
+                label_width REAL NOT NULL DEFAULT 50,
+                label_height REAL NOT NULL DEFAULT 25,
+                columns_count INTEGER NOT NULL DEFAULT 2,
+                gap_mm REAL NOT NULL DEFAULT 6,
+                margin_mm REAL NOT NULL DEFAULT 6,
+                barcode_height_px INTEGER NOT NULL DEFAULT 34,
+                font_scale_percent INTEGER NOT NULL DEFAULT 100,
+                options_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        indexes = {
+            str(row["name"] or "").strip().lower()
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='barcode_label_templates'"
+            ).fetchall()
+        }
+        if "idx_barcode_label_templates_user" not in indexes:
+            db.execute(
+                """
+                CREATE INDEX idx_barcode_label_templates_user
+                ON barcode_label_templates(user_id)
+                """
+            )
+        if "idx_barcode_label_templates_user_key" not in indexes:
+            db.execute(
+                """
+                CREATE UNIQUE INDEX idx_barcode_label_templates_user_key
+                ON barcode_label_templates(user_id, template_key)
+                """
+            )
+
+    try:
+        db.commit()
+    except Exception:
+        pass
+    g._barcode_template_schema_ready = True
+
+
+def _load_barcode_templates_for_user(db, user_id):
+    try:
+        safe_user_id = int(user_id or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    if safe_user_id <= 0:
+        return []
+
+    _ensure_barcode_template_schema(db)
+    rows = db.execute(
+        """
+        SELECT
+            template_key,
+            template_name,
+            paper_size,
+            label_width,
+            label_height,
+            columns_count,
+            gap_mm,
+            margin_mm,
+            barcode_height_px,
+            font_scale_percent,
+            options_json
+        FROM barcode_label_templates
+        WHERE user_id=?
+        ORDER BY updated_at DESC, id DESC
+        """,
+        (safe_user_id,),
+    ).fetchall()
+    return [_serialize_barcode_template_row(row) for row in rows]
+
+
+def _require_barcode_studio_access(json_mode=False):
+    if _can_access_barcode_studio():
+        return None
+
+    message = "Halaman barcode hanya tersedia untuk owner, leader, dan super admin."
+    if json_mode:
+        return _stock_json_error(message, 403)
+
+    flash(message, "error")
+    return redirect("/stock/")
 
 
 def _extract_stock_date_prefix(value):
@@ -982,7 +1538,12 @@ def stock_table():
 
 @stock_bp.route("/barcode")
 def stock_barcode_page():
+    access_denied = _require_barcode_studio_access()
+    if access_denied:
+        return access_denied
+
     db = get_db()
+    _ensure_barcode_template_schema(db)
     warehouses = db.execute("SELECT id, name FROM warehouses ORDER BY name").fetchall()
     warehouse_id = _resolve_stock_warehouse(db)
     selected_warehouse_name = next(
@@ -996,11 +1557,158 @@ def stock_barcode_page():
         warehouse_id=warehouse_id,
         selected_warehouse_name=selected_warehouse_name,
         is_scoped_user=is_scoped_role(session.get("role")),
+        barcode_workspace_scope=f"{int(session.get('user_id') or 0)}:{int(warehouse_id or 0)}",
+        barcode_default_templates=_barcode_default_templates_payload(),
+        barcode_custom_templates=_load_barcode_templates_for_user(db, session.get("user_id")),
+    )
+
+
+@stock_bp.route("/barcode/templates", methods=["POST"])
+def stock_barcode_save_template():
+    access_denied = _require_barcode_studio_access(json_mode=True)
+    if access_denied:
+        return access_denied
+
+    payload = request.get_json(silent=True) or {}
+    normalized = _normalize_barcode_template_payload(payload)
+    db = get_db()
+    _ensure_barcode_template_schema(db)
+
+    try:
+        safe_user_id = int(session.get("user_id") or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    if safe_user_id <= 0:
+        return _stock_json_error("Sesi user tidak valid.", 403)
+
+    db.execute(
+        """
+        INSERT INTO barcode_label_templates (
+            user_id,
+            template_key,
+            template_name,
+            paper_size,
+            label_width,
+            label_height,
+            columns_count,
+            gap_mm,
+            margin_mm,
+            barcode_height_px,
+            font_scale_percent,
+            options_json,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, template_key)
+        DO UPDATE SET
+            template_name=excluded.template_name,
+            paper_size=excluded.paper_size,
+            label_width=excluded.label_width,
+            label_height=excluded.label_height,
+            columns_count=excluded.columns_count,
+            gap_mm=excluded.gap_mm,
+            margin_mm=excluded.margin_mm,
+            barcode_height_px=excluded.barcode_height_px,
+            font_scale_percent=excluded.font_scale_percent,
+            options_json=excluded.options_json,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (
+            safe_user_id,
+            normalized["template_key"],
+            normalized["label"],
+            normalized["paper"],
+            normalized["width"],
+            normalized["height"],
+            normalized["cols"],
+            normalized["gap"],
+            normalized["margin"],
+            normalized["barcode_height"],
+            normalized["font_scale"],
+            json.dumps(normalized["options"], ensure_ascii=True),
+        ),
+    )
+    db.commit()
+
+    saved_row = db.execute(
+        """
+        SELECT
+            template_key,
+            template_name,
+            paper_size,
+            label_width,
+            label_height,
+            columns_count,
+            gap_mm,
+            margin_mm,
+            barcode_height_px,
+            font_scale_percent,
+            options_json
+        FROM barcode_label_templates
+        WHERE user_id=? AND template_key=?
+        """,
+        (safe_user_id, normalized["template_key"]),
+    ).fetchone()
+    if not saved_row:
+        return _stock_json_error("Template barcode gagal disimpan.", 500)
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Template barcode tersimpan.",
+            "template": _serialize_barcode_template_row(saved_row),
+        }
+    )
+
+
+@stock_bp.route("/barcode/templates/<template_key>", methods=["DELETE"])
+def stock_barcode_delete_template(template_key):
+    access_denied = _require_barcode_studio_access(json_mode=True)
+    if access_denied:
+        return access_denied
+
+    safe_template_key = _sanitize_barcode_template_key(template_key)
+    db = get_db()
+    _ensure_barcode_template_schema(db)
+
+    try:
+        safe_user_id = int(session.get("user_id") or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    if safe_user_id <= 0:
+        return _stock_json_error("Sesi user tidak valid.", 403)
+
+    existing = db.execute(
+        """
+        SELECT id
+        FROM barcode_label_templates
+        WHERE user_id=? AND template_key=?
+        """,
+        (safe_user_id, safe_template_key),
+    ).fetchone()
+    if not existing:
+        return _stock_json_error("Template barcode tidak ditemukan.", 404)
+
+    db.execute(
+        "DELETE FROM barcode_label_templates WHERE user_id=? AND template_key=?",
+        (safe_user_id, safe_template_key),
+    )
+    db.commit()
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Template barcode dihapus.",
+            "template_key": safe_template_key,
+        }
     )
 
 
 @stock_bp.route("/barcode/items")
 def stock_barcode_items():
+    access_denied = _require_barcode_studio_access(json_mode=True)
+    if access_denied:
+        return access_denied
+
     db = get_db()
     warehouse_id = _resolve_stock_warehouse(db)
     search = _normalize_stock_search(request.args.get("q"))

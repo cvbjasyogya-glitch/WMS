@@ -2464,9 +2464,26 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
     change_amount = _currency(sale.get("change_amount") or 0)
     created_time_label = _format_pos_time_label(sale.get("created_at"))
 
+    delivery_note_items = []
+    delivery_note_total_qty = 0
+    for item in items:
+        delivery_qty = max(_to_int(item.get("active_qty"), _to_int(item.get("qty"), 0)), 0)
+        if delivery_qty <= 0:
+            continue
+        delivery_note_total_qty += delivery_qty
+        delivery_note_items.append(
+            {
+                **item,
+                "delivery_qty": delivery_qty,
+            }
+        )
+
     sale_detail = {
         **sale,
         "items": items,
+        "delivery_note_items": delivery_note_items,
+        "delivery_note_total_qty": delivery_note_total_qty,
+        "delivery_note_total_lines": len(delivery_note_items),
         "total_items": int(sale.get("total_items") or 0),
         "total_amount": total_amount,
         "paid_amount": paid_amount,
@@ -4180,10 +4197,26 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no, *, allow_hidden_archive=Fa
         sale.get("payment_breakdown_json"),
     )
     created_time_label = _format_pos_time_label(sale.get("created_at"))
+    delivery_note_items = []
+    delivery_note_total_qty = 0
+    for item in items:
+        delivery_qty = max(_to_int(item.get("active_qty"), _to_int(item.get("qty"), 0)), 0)
+        if delivery_qty <= 0:
+            continue
+        delivery_note_total_qty += delivery_qty
+        delivery_note_items.append(
+            {
+                **item,
+                "delivery_qty": delivery_qty,
+            }
+        )
 
     sale_detail = {
         **sale,
         "items": items,
+        "delivery_note_items": delivery_note_items,
+        "delivery_note_total_qty": delivery_note_total_qty,
+        "delivery_note_total_lines": len(delivery_note_items),
         "total_items": int(sale.get("total_items") or 0),
         "total_amount": total_amount,
         "paid_amount": paid_amount,

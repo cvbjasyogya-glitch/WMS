@@ -3,11 +3,300 @@
 {% block title %}Buat Surat Jalan POS | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}POS Tools{% endblock %}
 {% block page_title %}Buat Surat Jalan{% endblock %}
-{% block page_subtitle %}Masukkan nomor receipt POS untuk membuat surat jalan.{% endblock %}
+{% block page_subtitle %}Cari receipt POS lalu siapkan surat jalan yang rapi untuk print atau simpan PDF.{% endblock %}
+
+{% block extra_head %}
+<style>
+    .delivery-note-search.top-bar { gap: 12px; flex-wrap: wrap; }
+    .delivery-note-search input[type="search"] { min-width: min(420px, 100%); }
+    .delivery-note-shell { display: grid; gap: 18px; overflow: hidden; }
+    .delivery-note-brandbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 18px 20px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(33, 78, 121, 0.96), rgba(18, 41, 68, 0.96));
+        color: #f8fafc;
+    }
+    .delivery-note-brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: 0;
+    }
+    .delivery-note-logo,
+    .delivery-note-logo-fallback {
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        background: #ffffff;
+        flex: 0 0 auto;
+    }
+    .delivery-note-logo {
+        object-fit: contain;
+        padding: 6px;
+    }
+    .delivery-note-logo-fallback {
+        display: grid;
+        place-items: center;
+        color: #214e79;
+        font-size: 18px;
+        font-weight: 700;
+    }
+    .delivery-note-brand-copy {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        font-size: 12px;
+        color: rgba(226, 232, 240, 0.92);
+    }
+    .delivery-note-brand-copy strong {
+        font-size: 15px;
+        color: #ffffff;
+    }
+    .delivery-note-brand-copy div {
+        overflow-wrap: anywhere;
+    }
+    .delivery-note-title {
+        display: grid;
+        gap: 6px;
+        justify-items: end;
+        text-align: right;
+    }
+    .delivery-note-title span {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: rgba(226, 232, 240, 0.76);
+    }
+    .delivery-note-title strong {
+        font-size: 24px;
+        letter-spacing: 0.16em;
+        line-height: 1.1;
+        color: #ffffff;
+    }
+    .delivery-note-title small {
+        max-width: 260px;
+        font-size: 12px;
+        color: rgba(226, 232, 240, 0.82);
+    }
+    .delivery-note-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+    .delivery-note-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 13px;
+        color: rgba(226, 232, 240, 0.78);
+    }
+    .delivery-note-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.48);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        color: #f8fafc;
+    }
+    .delivery-note-meta-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .delivery-note-meta-card {
+        display: grid;
+        gap: 8px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(9, 18, 32, 0.44);
+    }
+    .delivery-note-meta-card span {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: rgba(148, 163, 184, 0.82);
+    }
+    .delivery-note-meta-card strong {
+        font-size: 14px;
+        color: #f8fafc;
+        overflow-wrap: anywhere;
+    }
+    .delivery-note-panel-grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .delivery-note-panel,
+    .delivery-note-note {
+        display: grid;
+        gap: 10px;
+        padding: 16px 18px;
+        border-radius: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(9, 18, 32, 0.46);
+    }
+    .delivery-note-panel h3,
+    .delivery-note-note h3 {
+        margin: 0;
+        font-size: 14px;
+        color: #f8fafc;
+    }
+    .delivery-note-detail-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+    }
+    .delivery-note-detail-row {
+        display: grid;
+        gap: 4px;
+    }
+    .delivery-note-detail-row span {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(148, 163, 184, 0.78);
+    }
+    .delivery-note-detail-row strong,
+    .delivery-note-note p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: rgba(226, 232, 240, 0.92);
+        overflow-wrap: anywhere;
+        white-space: pre-line;
+    }
+    .delivery-note-table-wrap {
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 18px;
+        overflow: hidden;
+        background: rgba(7, 12, 22, 0.28);
+    }
+    .delivery-note-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+    .delivery-note-table thead th {
+        padding: 12px 10px;
+        background: rgba(33, 78, 121, 0.92);
+        color: #f8fafc;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        text-align: left;
+    }
+    .delivery-note-table tbody td {
+        padding: 12px 10px;
+        border-top: 1px solid rgba(148, 163, 184, 0.16);
+        vertical-align: top;
+        font-size: 13px;
+        color: rgba(226, 232, 240, 0.92);
+        overflow-wrap: anywhere;
+    }
+    .delivery-note-table tbody td strong {
+        color: #f8fafc;
+    }
+    .delivery-note-table-meta {
+        margin-top: 4px;
+        font-size: 12px;
+        color: rgba(148, 163, 184, 0.82);
+    }
+    .delivery-note-qty {
+        text-align: center;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .delivery-note-status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+    }
+    .delivery-note-status-badge.tone-green {
+        background: rgba(34, 197, 94, 0.16);
+        color: #bbf7d0;
+        border: 1px solid rgba(34, 197, 94, 0.26);
+    }
+    .delivery-note-status-badge.tone-orange {
+        background: rgba(249, 115, 22, 0.16);
+        color: #fed7aa;
+        border: 1px solid rgba(249, 115, 22, 0.26);
+    }
+    .delivery-note-empty-row {
+        text-align: center;
+        color: rgba(148, 163, 184, 0.92);
+    }
+
+    @media (max-width: 980px) {
+        .delivery-note-meta-grid,
+        .delivery-note-panel-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .delivery-note-brandbar,
+        .delivery-note-title {
+            justify-items: start;
+            text-align: left;
+        }
+        .delivery-note-brandbar {
+            flex-direction: column;
+        }
+        .delivery-note-meta-grid,
+        .delivery-note-panel-grid {
+            grid-template-columns: 1fr;
+        }
+        .delivery-note-table thead {
+            display: none;
+        }
+        .delivery-note-table,
+        .delivery-note-table tbody,
+        .delivery-note-table tr,
+        .delivery-note-table td {
+            display: block;
+            width: 100%;
+        }
+        .delivery-note-table tbody tr {
+            padding: 12px;
+            border-top: 1px solid rgba(148, 163, 184, 0.16);
+        }
+        .delivery-note-table tbody td {
+            padding: 6px 0;
+            border: none;
+        }
+        .delivery-note-table tbody td::before {
+            content: attr(data-label);
+            display: block;
+            margin-bottom: 3px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(148, 163, 184, 0.78);
+        }
+        .delivery-note-qty {
+            text-align: left;
+        }
+    }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="wms-page-stack">
-    <form method="GET" class="top-bar">
+    <form method="GET" class="top-bar delivery-note-search">
         <input
             type="search"
             name="receipt_no"
@@ -25,56 +314,145 @@
     </form>
 
     {% if sale_detail %}
-    <section class="form-box">
-        <div class="section-title">
-            <div>
-                <h2>Surat Jalan {{ sale_detail.receipt_no }}</h2>
-                <p>{{ branding.get('business_name', '-') }}{% if branding.get('business_address') %} | {{ branding.get('business_address') }}{% endif %}</p>
+    <section class="form-box delivery-note-shell">
+        <div class="delivery-note-brandbar">
+            <div class="delivery-note-brand">
+                {% if branding.get('logo_url') %}
+                <img src="{{ branding.get('logo_url') }}" alt="Logo {{ branding.get('business_name', 'Toko') }}" class="delivery-note-logo">
+                {% else %}
+                <div class="delivery-note-logo-fallback">CV</div>
+                {% endif %}
+                <div class="delivery-note-brand-copy">
+                    <strong>{{ branding.get('business_name', '-') }}</strong>
+                    {% if branding.get('business_address') %}<div>{{ branding.get('business_address') }}</div>{% endif %}
+                    {% if branding.get('customer_service_phone') %}<div>Kontak toko: {{ branding.get('customer_service_phone') }}</div>{% endif %}
+                </div>
             </div>
-            <div class="split-actions">
-                <a class="ghost-button" href="/kasir/surat-jalan/{{ sale_detail.receipt_no }}/print" target="_blank" rel="noopener">Cetak Surat Jalan</a>
+            <div class="delivery-note-title">
+                <span>Surat Jalan</span>
+                <strong>{{ sale_detail.get('receipt_no', '-') }}</strong>
+                <small>Dokumen serah terima barang dari transaksi POS.</small>
             </div>
         </div>
 
-        <div class="meta-grid">
-            <div class="meta-card">
-                <span>Tanggal</span>
-                <strong>{{ sale_detail.get('sale_date', '-') }} {{ sale_detail.get('created_time_label', '-') }}</strong>
+        <div class="delivery-note-toolbar">
+            <div class="delivery-note-summary">
+                <div class="delivery-note-pill">{{ sale_detail.get('delivery_note_total_lines', 0) }} baris aktif</div>
+                <div class="delivery-note-pill">{{ sale_detail.get('delivery_note_total_qty', 0) }} qty kirim</div>
+                <div class="delivery-note-pill">Status {{ sale_detail.get('status_label', 'POSTED') }}</div>
             </div>
-            <div class="meta-card">
+            <div class="split-actions">
+                <a class="ghost-button" href="/kasir/surat-jalan/{{ sale_detail.get('receipt_no', '') }}/print" target="_blank" rel="noopener">Buka Versi Print / PDF</a>
+            </div>
+        </div>
+
+        <div class="delivery-note-meta-grid">
+            <div class="delivery-note-meta-card">
+                <span>Tanggal dan Jam</span>
+                <strong>{{ sale_detail.get('created_datetime_label', sale_detail.get('sale_date', '-')) }}</strong>
+            </div>
+            <div class="delivery-note-meta-card">
                 <span>Gudang</span>
                 <strong>{{ sale_detail.get('warehouse_name', '-') }}</strong>
             </div>
-            <div class="meta-card">
+            <div class="delivery-note-meta-card">
                 <span>Kasir</span>
                 <strong>{{ sale_detail.get('cashier_identity_label', '-') }}</strong>
             </div>
-            <div class="meta-card">
+            <div class="delivery-note-meta-card">
                 <span>Customer</span>
                 <strong>{{ sale_detail.get('customer_name', '-') }}</strong>
             </div>
-            <div class="meta-card">
-                <span>Kontak</span>
+            <div class="delivery-note-meta-card">
+                <span>Kontak Customer</span>
                 <strong>{{ sale_detail.get('customer_phone_label', '-') }}</strong>
+            </div>
+            <div class="delivery-note-meta-card">
+                <span>Referensi POS</span>
+                <strong>{{ sale_detail.get('receipt_no', '-') }}</strong>
             </div>
         </div>
 
-        <div class="table-box" data-scrollable-table="1">
-            <table>
+        <div class="delivery-note-panel-grid">
+            <section class="delivery-note-panel">
+                <h3>Informasi Toko</h3>
+                <div class="delivery-note-detail-list">
+                    <div class="delivery-note-detail-row">
+                        <span>Nama Usaha</span>
+                        <strong>{{ branding.get('business_name', '-') }}</strong>
+                    </div>
+                    <div class="delivery-note-detail-row">
+                        <span>Alamat</span>
+                        <strong>{{ branding.get('business_address', '-') }}</strong>
+                    </div>
+                    <div class="delivery-note-detail-row">
+                        <span>Kontak</span>
+                        <strong>{{ branding.get('customer_service_phone', '-') }}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="delivery-note-panel">
+                <h3>Penerima</h3>
+                <div class="delivery-note-detail-list">
+                    <div class="delivery-note-detail-row">
+                        <span>Nama Customer</span>
+                        <strong>{{ sale_detail.get('customer_name', '-') }}</strong>
+                    </div>
+                    <div class="delivery-note-detail-row">
+                        <span>Kontak</span>
+                        <strong>{{ sale_detail.get('customer_phone_label', '-') }}</strong>
+                    </div>
+                    <div class="delivery-note-detail-row">
+                        <span>Gudang Asal</span>
+                        <strong>{{ sale_detail.get('warehouse_name', '-') }}</strong>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        {% if sale_detail.get('note') %}
+        <section class="delivery-note-note">
+            <h3>Catatan Transaksi</h3>
+            <p>{{ sale_detail.get('note') }}</p>
+        </section>
+        {% endif %}
+
+        <div class="delivery-note-table-wrap">
+            <table class="delivery-note-table">
                 <thead>
                     <tr>
-                        <th>Item</th>
-                        <th>Qty</th>
+                        <th style="width: 56px;">No</th>
+                        <th style="width: 180px;">SKU / Varian</th>
+                        <th>Nama Barang</th>
+                        <th style="width: 110px;">Qty Kirim</th>
+                        <th style="width: 140px;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in sale_detail.items %}
+                    {% for item in sale_detail.get('delivery_note_items', []) %}
                     <tr>
-                        <td>
-                            <strong>{{ item.get('product_name', '-') }}</strong>
-                            <div class="helper-text">{{ item.get('variant_name', '-') }} | {{ item.get('sku', '-') }}</div>
+                        <td data-label="No">{{ loop.index }}</td>
+                        <td data-label="SKU / Varian">
+                            <strong>{{ item.get('sku', '-') }}</strong>
+                            <div class="delivery-note-table-meta">{{ item.get('variant_name', '-') }}</div>
                         </td>
-                        <td>{{ item.get('qty', 0) }}</td>
+                        <td data-label="Nama Barang">
+                            <strong>{{ item.get('product_name', '-') }}</strong>
+                            {% if item.get('void_qty', 0) > 0 %}
+                            <div class="delivery-note-table-meta">Qty aktif {{ item.get('delivery_qty', 0) }} dari total transaksi {{ item.get('qty', 0) }}.</div>
+                            {% endif %}
+                        </td>
+                        <td data-label="Qty Kirim" class="delivery-note-qty">{{ item.get('delivery_qty', 0) }}</td>
+                        <td data-label="Status">
+                            <span class="delivery-note-status-badge tone-{{ item.get('status_tone', 'green') }}">
+                                {% if item.get('void_qty', 0) > 0 %}Qty aktif{% else %}Siap kirim{% endif %}
+                            </span>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="delivery-note-empty-row">Tidak ada item aktif untuk ditampilkan pada surat jalan ini.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -82,7 +460,7 @@
         </div>
     </section>
     {% else %}
-    <div class="empty-state">Masukkan nomor receipt untuk menampilkan surat jalan.</div>
+    <div class="empty-state">Masukkan nomor receipt POS untuk menampilkan surat jalan yang siap dicetak.</div>
     {% endif %}
 </div>
 {% endblock %}

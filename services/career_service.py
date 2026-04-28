@@ -502,6 +502,7 @@ def ensure_career_schema(db):
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_reviewed_by INTEGER",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_reviewed_at TIMESTAMP",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_violation_count INTEGER DEFAULT 0",
+            "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_violation_log_json TEXT",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_expires_at TIMESTAMP",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_duration_minutes INTEGER DEFAULT 0",
             "ALTER TABLE recruitment_candidates ADD COLUMN IF NOT EXISTS assessment_section_state_json TEXT",
@@ -683,6 +684,7 @@ def ensure_career_schema(db):
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_reviewed_by", "INTEGER")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_reviewed_at", "TIMESTAMP")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_violation_count", "INTEGER DEFAULT 0")
+        _sqlite_ensure_column(db, "recruitment_candidates", "assessment_violation_log_json", "TEXT")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_expires_at", "TIMESTAMP")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_duration_minutes", "INTEGER DEFAULT 0")
         _sqlite_ensure_column(db, "recruitment_candidates", "assessment_section_state_json", "TEXT")

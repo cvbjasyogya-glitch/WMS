@@ -41,7 +41,7 @@ from routes.pos import (
     _normalize_sale_date,
     POS_DISPLAY_TIMEZONE,
 )
-from routes.stock import _extract_stock_date_prefix, _build_stock_search_clause
+from routes.stock import _extract_stock_date_prefix, _build_stock_search_clause, _ensure_barcode_template_schema
 from routes.products import _ensure_product_variant_cost_schema
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
@@ -232,6 +232,37 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertIn("INSERT INTO chat_thread_members", translated)
         self.assertIn("VALUES (%s, %s) ON CONFLICT DO NOTHING", translated)
+
+    def test_database_translation_preserves_barcode_template_upsert_for_postgresql(self):
+        translated = _translate_sqlite_query_to_postgres(
+            """
+            INSERT INTO barcode_label_templates (
+                user_id,
+                template_key,
+                template_name,
+                paper_size,
+                label_width,
+                label_height,
+                columns_count,
+                gap_mm,
+                margin_mm,
+                barcode_height_px,
+                font_scale_percent,
+                options_json,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, template_key)
+            DO UPDATE SET
+                template_name=excluded.template_name,
+                options_json=excluded.options_json,
+                updated_at=CURRENT_TIMESTAMP
+            """
+        )
+        self.assertIn("VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", translated)
+        self.assertIn("ON CONFLICT(user_id, template_key)", translated)
+        self.assertIn("template_name=excluded.template_name", translated)
+        self.assertIn("options_json=excluded.options_json", translated)
 
     def test_database_translation_converts_like_to_ilike(self):
         translated = _replace_like_operators(
@@ -1739,8 +1770,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("body > *:not(.layout) { display: none !important; }", delivery_html)
         self.assertIn(".attendance-camera-shortcut-root *,", delivery_html)
         self.assertIn(".manual-delivery-table thead th {", delivery_html)
+        self.assertIn(".manual-delivery-table-wrap { overflow-x: auto;", delivery_html)
         self.assertIn("background: #ffffff !important;", delivery_html)
         self.assertIn("border-top: 1px solid #214e79 !important;", delivery_html)
+        self.assertIn("font-family: Arial", delivery_html)
+        self.assertIn("@page { size: A4 portrait; margin: 10mm; }", delivery_html)
+        self.assertIn("Cetak / Simpan PDF", delivery_html)
         self.assertIn("/static/js/pos_manual_document_draft.js", delivery_html)
 
         draft_js_path = os.path.join(self.app.root_path, "static", "js", "pos_manual_document_draft.js")
@@ -1750,6 +1785,72 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("logo_filename", draft_js)
         self.assertIn("use_global_discount", draft_js)
         self.assertIn("tax_value", draft_js)
+
+    def test_pos_delivery_note_page_and_print_render_ready_for_pdf(self):
+        self.create_user("staff_delivery_note", "pass1234", "staff", warehouse_id=1)
+        cashier_user_id = self.get_user_id("staff_delivery_note")
+        self.login_pos_user("pos_delivery_note_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-SJ-001",
+            qty=12,
+            variants="Reguler",
+            warehouse_id="1",
+            name="Rak Gudang Premium",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-21",
+                "cashier_user_id": cashier_user_id,
+                "customer_name": "Customer Surat Jalan",
+                "customer_phone": "628120001234",
+                "payment_method": "transfer",
+                "paid_amount": 375000,
+                "note": "Titip ke bagian receiving.",
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 3,
+                        "unit_price": 125000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        receipt_no = checkout.get_json()["receipt_no"]
+
+        delivery_response = self.client.get(f"/kasir/surat-jalan?receipt_no={receipt_no}")
+        self.assertEqual(delivery_response.status_code, 200)
+        delivery_html = delivery_response.get_data(as_text=True)
+        self.assertIn("Dokumen serah terima barang dari transaksi POS.", delivery_html)
+        self.assertIn("Tanggal dan Jam", delivery_html)
+        self.assertIn("Qty Kirim", delivery_html)
+        self.assertIn("Status", delivery_html)
+        self.assertIn("Buka Versi Print / PDF", delivery_html)
+        self.assertIn("Customer Surat Jalan", delivery_html)
+        self.assertIn("Rak Gudang Premium", delivery_html)
+        self.assertIn("Titip ke bagian receiving.", delivery_html)
+        self.assertIn("3 qty kirim", delivery_html)
+
+        print_response = self.client.get(f"/kasir/surat-jalan/{receipt_no}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+        self.assertIn("SURAT JALAN", print_html)
+        self.assertIn("Tanggal dan Jam", print_html)
+        self.assertIn("Qty Kirim", print_html)
+        self.assertIn("Status dokumen", print_html)
+        self.assertIn("Rak Gudang Premium", print_html)
+        self.assertIn("Customer Surat Jalan", print_html)
+        self.assertIn("Titip ke bagian receiving.", print_html)
+        self.assertIn("@page { size: A4 portrait; margin: 10mm; }", print_html)
+        self.assertIn("display: table-header-group;", print_html)
+        self.assertIn("font-family: Arial, \"Helvetica Neue\", sans-serif;", print_html)
 
     def test_pos_printer_driver_center_lists_official_driver_links(self):
         self.login_pos_user("owner_pos_driver_center", "owner")
@@ -13654,7 +13755,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Folder Cloud Storage HR", html)
         manifest_response = self.client.get(f"/hris/recruitment/intake/{candidate['id']}/1")
         self.assertEqual(manifest_response.status_code, 200)
-        self.assertTrue(manifest_response.get_data())
+        manifest_text = manifest_response.get_data(as_text=True)
+        self.assertIn("RINGKASAN PROFIL KANDIDAT", manifest_text)
+        self.assertIn("Nama Kandidat: Snapshot Kandidat", manifest_text)
+        self.assertIn("Nomor KTP: 3402120000000001", manifest_text)
+        self.assertIn("Alamat Sesuai KTP: Jl. Magelang Km 10", manifest_text)
         manifest_response.close()
 
     def test_public_career_application_pushes_candidate_archive_to_hr_sms_workspace(self):
@@ -13735,7 +13840,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(archive_response.status_code, 200)
         archive_payload = archive_response.get_json()
         archive_names = {item["name"] for item in archive_payload["items"]}
-        self.assertIn("Ringkasan_Profil_Kandidat.json", archive_names)
+        self.assertIn("Ringkasan_Profil_Kandidat.txt", archive_names)
         self.assertTrue(any(name.endswith(".pdf") for name in archive_names))
         self.assertTrue(any("ktp" in name.lower() or "ijazah" in name.lower() for name in archive_names))
 
@@ -14995,7 +15100,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             candidate_after = db.execute(
                 """
-                SELECT assessment_code, assessment_status, assessment_violation_count, assessment_answers_json
+                SELECT assessment_code, assessment_status, assessment_violation_count, assessment_answers_json, assessment_violation_log_json
                 FROM recruitment_candidates
                 WHERE id=?
                 """,
@@ -15005,6 +15110,99 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(int(candidate_after["assessment_violation_count"]), 0)
         self.assertFalse(candidate_after["assessment_answers_json"])
         self.assertEqual(candidate_after["assessment_code"], violation_payload["new_code"])
+        self.assertIn("system_reset", candidate_after["assessment_violation_log_json"])
+        self.assertIn("Kode baru", candidate_after["assessment_violation_log_json"])
+
+    def test_career_assessment_violation_history_is_visible_in_hris_recruitment_panel(self):
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Vina Violation Detail",
+                    1,
+                    "Staff Karir Violation",
+                    "HR",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "54321",
+                    "started",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+            candidate = db.execute(
+                """
+                SELECT id, assessment_code
+                FROM recruitment_candidates
+                WHERE candidate_name=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                ("Vina Violation Detail",),
+            ).fetchone()
+        self.assertIsNotNone(candidate)
+
+        hidden_response = self.client.post(
+            "/karir/tes/violation",
+            data={
+                "assessment_code": candidate["assessment_code"],
+                "violation_count": "1",
+                "violation_type": "tab_hidden",
+                "section_key": "basic",
+            },
+        )
+        self.assertEqual(hidden_response.status_code, 200)
+
+        blur_response = self.client.post(
+            "/karir/tes/violation",
+            data={
+                "assessment_code": candidate["assessment_code"],
+                "violation_count": "2",
+                "violation_type": "window_blur",
+                "section_key": "academic",
+            },
+        )
+        self.assertEqual(blur_response.status_code, 200)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_violation_count, assessment_violation_log_json
+                FROM recruitment_candidates
+                WHERE id=?
+                """,
+                (candidate["id"],),
+            ).fetchone()
+
+        self.assertEqual(int(candidate_after["assessment_violation_count"]), 2)
+        violation_log = json.loads(candidate_after["assessment_violation_log_json"] or "[]")
+        self.assertEqual(len(violation_log), 2)
+        self.assertEqual(violation_log[0]["event_type"], "tab_hidden")
+        self.assertEqual(violation_log[1]["event_type"], "window_blur")
+        self.assertEqual(violation_log[0]["section_key"], "basic")
+        self.assertEqual(violation_log[1]["section_key"], "academic")
+
+        self.login_hr_user()
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Vina Violation Detail", html)
+        self.assertIn("Riwayat Pelanggaran Tes", html)
+        self.assertIn("Counter aktif sesi sekarang: 2/3.", html)
+        self.assertIn("Tab atau aplikasi berpindah sehingga halaman tes tersembunyi.", html)
+        self.assertIn("Fokus browser berpindah dari halaman tes.", html)
+        self.assertIn("Tes Kemampuan Dasar", html)
+        self.assertIn("Tes Potensi Akademik", html)
 
     def test_hr_can_manage_recruitment_assessment_questions_and_manual_candidate_score(self):
         self.login_hr_user()
@@ -26254,6 +26452,60 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("CAST(COALESCE(p.name, '') AS TEXT) LIKE ?", clause)
         self.assertTrue(params)
 
+    def test_barcode_template_schema_repairs_missing_postgresql_id_default(self):
+        executed_statements = []
+
+        class ProxyDB:
+            def execute(self, sql, params=()):
+                statement = " ".join(str(sql).split())
+                executed_statements.append((statement, params))
+                if "FROM information_schema.columns" in statement:
+                    return Mock(fetchone=Mock(return_value={"column_default": None}))
+                return Mock(fetchone=Mock(return_value=None), fetchall=Mock(return_value=[]))
+
+            def commit(self):
+                executed_statements.append(("COMMIT", ()))
+
+        proxy_db = ProxyDB()
+        original_backend = self.app.config.get("DATABASE_BACKEND")
+        try:
+            with self.app.app_context():
+                self.app.config["DATABASE_BACKEND"] = "postgresql"
+                _ensure_barcode_template_schema(proxy_db)
+        finally:
+            self.app.config["DATABASE_BACKEND"] = original_backend
+
+        self.assertTrue(
+            any(
+                "CREATE TABLE IF NOT EXISTS barcode_label_templates" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "ALTER TABLE barcode_label_templates ADD COLUMN IF NOT EXISTS options_json TEXT NOT NULL DEFAULT '{}'" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "CREATE INDEX IF NOT EXISTS idx_barcode_label_templates_user ON barcode_label_templates(user_id)" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "CREATE UNIQUE INDEX idx_barcode_label_templates_user_key ON barcode_label_templates(user_id, template_key)" in statement
+                for statement, _ in executed_statements
+            )
+        )
+        self.assertTrue(
+            any(
+                "ALTER TABLE barcode_label_templates ALTER COLUMN id SET DEFAULT nextval('barcode_label_templates_id_seq')" in statement
+                for statement, _ in executed_statements
+            )
+        )
+
     def test_stock_page_groups_same_name_products_even_when_they_come_from_different_masters(self):
         self.login()
         response_one, product_one_id, _ = self.create_product(
@@ -29965,6 +30217,185 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(export.status_code, 200)
         self.assertIn("text/csv", export.content_type)
         self.assertIn("Harga Retail", export.get_data(as_text=True))
+
+    def test_barcode_page_is_limited_to_owner_super_admin_and_leader(self):
+        self.create_user("owner_barcode_access", "pass1234", "owner")
+        self.login("owner_barcode_access", "pass1234")
+
+        owner_response = self.client.get("/stock/barcode?warehouse=1", follow_redirects=False)
+        self.assertEqual(owner_response.status_code, 200)
+        owner_html = owner_response.get_data(as_text=True)
+        self.assertIn("Barcode Studio", owner_html)
+        self.assertIn(">File<", owner_html)
+        self.assertIn(">Layouts<", owner_html)
+        self.assertIn(">Editing<", owner_html)
+        self.assertIn('id="barcodeHeaderToolbar"', owner_html)
+        self.assertIn("Thermal 58mm", owner_html)
+        self.assertIn("Thermal 80mm", owner_html)
+        self.assertIn('id="barcodeSaveTemplate"', owner_html)
+        self.assertIn('id="barcodeCanvasStage"', owner_html)
+        self.assertIn('id="barcodeLayerActionGrid"', owner_html)
+        self.assertIn('id="barcodeExportEscpos"', owner_html)
+        self.assertIn('id="barcodeSelectionToolbar"', owner_html)
+        self.assertIn('id="barcodeViewModes"', owner_html)
+        self.assertIn('id="barcodeStageFooter"', owner_html)
+        self.assertIn('data-layer-action="fit"', owner_html)
+        self.assertIn('aria-label="Barcode"', owner_html)
+
+        self.logout()
+        self.create_user("leader_barcode_access", "pass1234", "leader", warehouse_id=2)
+        self.login("leader_barcode_access", "pass1234")
+
+        leader_response = self.client.get("/stock/barcode?warehouse=1", follow_redirects=False)
+        self.assertEqual(leader_response.status_code, 200)
+        leader_html = leader_response.get_data(as_text=True)
+        self.assertIn("Gudang Mega", leader_html)
+        self.assertIn('id="barcodeWarehouse" disabled', leader_html)
+        self.assertIn(">Elements<", leader_html)
+
+        self.logout()
+        self.login()
+
+        admin_workspace = self.client.get("/workspace/")
+        self.assertEqual(admin_workspace.status_code, 200)
+        self.assertNotIn('aria-label="Barcode"', admin_workspace.get_data(as_text=True))
+
+        admin_response = self.client.get("/stock/barcode", follow_redirects=False)
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertIn("/stock/", admin_response.headers.get("Location", ""))
+
+    def test_barcode_items_endpoint_rejects_admin_and_returns_owner_payload(self):
+        self.create_user("owner_barcode_items", "pass1234", "owner")
+        self.login("owner_barcode_items", "pass1234")
+        _, product_id, variants_rows = self.create_product(
+            sku="BARCODE-001",
+            variants="default",
+            warehouse_id="1",
+            name="Produk Barcode Studio",
+        )
+        variant_id = variants_rows[0]["id"]
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE product_variants
+                SET gtin=?, price_cost=?
+                WHERE id=? AND product_id=?
+                """,
+                ("8990001112223", 91000, variant_id, product_id),
+            )
+            db.commit()
+
+        owner_response = self.client.get(
+            "/stock/barcode/items?q=8990001112223&warehouse=1",
+            follow_redirects=False,
+        )
+        self.assertEqual(owner_response.status_code, 200)
+        owner_payload = owner_response.get_json()
+        self.assertEqual(len(owner_payload["items"]), 1)
+        self.assertEqual(owner_payload["items"][0]["sku"], "BARCODE-001")
+        self.assertEqual(owner_payload["items"][0]["gtin"], "8990001112223")
+        self.assertEqual(owner_payload["items"][0]["variant_id"], variant_id)
+        self.assertEqual(owner_payload["items"][0]["price_cost"], 91000)
+
+        self.logout()
+        self.login()
+
+        admin_response = self.client.get(
+            "/stock/barcode/items?q=8990001112223&warehouse=1",
+            follow_redirects=False,
+        )
+        self.assertEqual(admin_response.status_code, 403)
+        admin_payload = admin_response.get_json()
+        self.assertEqual(admin_payload["status"], "error")
+        self.assertIn("Halaman barcode", admin_payload["message"])
+
+    def test_barcode_template_api_saves_and_deletes_custom_layout(self):
+        self.create_user("owner_barcode_template", "pass1234", "owner")
+        owner_user_id = self.get_user_id("owner_barcode_template")
+        self.login("owner_barcode_template", "pass1234")
+
+        save_response = self.client.post(
+            "/stock/barcode/templates",
+            json={
+                "id": "RAK_KASIR_CUSTOM",
+                "label": "Rak Kasir Custom",
+                "paper": "210x297",
+                "width": 68,
+                "height": 32,
+                "cols": 2,
+                "gap": 5,
+                "margin": 4,
+                "barcode_height": 38,
+                "font_scale": 105,
+                "options": {
+                    "show_warehouse": True,
+                    "show_variant": True,
+                    "show_category": False,
+                    "show_code_text": True,
+                    "show_price": False,
+                    "show_note": True,
+                },
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(save_response.status_code, 200)
+        save_payload = save_response.get_json()
+        self.assertEqual(save_payload["status"], "success")
+        self.assertEqual(save_payload["template"]["id"], "RAK_KASIR_CUSTOM")
+        self.assertEqual(save_payload["template"]["label"], "Rak Kasir Custom")
+        self.assertEqual(save_payload["template"]["barcode_height"], 38)
+        self.assertTrue(save_payload["template"]["options"]["show_warehouse"])
+        self.assertFalse(save_payload["template"]["options"]["show_price"])
+        self.assertIn("elements", save_payload["template"]["options"])
+        self.assertIn("name", save_payload["template"]["options"]["elements"])
+        self.assertIn("barcode", save_payload["template"]["options"]["elements"])
+
+        with self.app.app_context():
+            db = get_db()
+            template_row = db.execute(
+                """
+                SELECT template_name, paper_size, options_json
+                FROM barcode_label_templates
+                WHERE user_id=? AND template_key=?
+                """,
+                (owner_user_id, "RAK_KASIR_CUSTOM"),
+            ).fetchone()
+
+        self.assertIsNotNone(template_row)
+        self.assertEqual(template_row["template_name"], "Rak Kasir Custom")
+        self.assertEqual(template_row["paper_size"], "210x297")
+        self.assertIn('"show_warehouse": true', template_row["options_json"])
+        self.assertIn('"elements"', template_row["options_json"])
+        self.assertIn('"barcode"', template_row["options_json"])
+
+        page_response = self.client.get("/stock/barcode?warehouse=1", follow_redirects=False)
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("Rak Kasir Custom", page_html)
+
+        delete_response = self.client.delete(
+            "/stock/barcode/templates/RAK_KASIR_CUSTOM",
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 200)
+        delete_payload = delete_response.get_json()
+        self.assertEqual(delete_payload["status"], "success")
+        self.assertEqual(delete_payload["template_key"], "RAK_KASIR_CUSTOM")
+
+        with self.app.app_context():
+            db = get_db()
+            deleted_row = db.execute(
+                """
+                SELECT id
+                FROM barcode_label_templates
+                WHERE user_id=? AND template_key=?
+                """,
+                (owner_user_id, "RAK_KASIR_CUSTOM"),
+            ).fetchone()
+
+        self.assertIsNone(deleted_row)
 
     def test_stock_page_supports_clickable_header_sorting(self):
         self.login()

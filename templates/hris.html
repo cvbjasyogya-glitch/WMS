@@ -2681,6 +2681,46 @@
                             <label>Catatan Review Tes</label>
                             <textarea name="assessment_review_notes" rows="3">{{ candidate.assessment_review_notes or '' }}</textarea>
                         </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>Riwayat Pelanggaran Tes</label>
+                            <div class="box" style="margin-top:10px; padding:14px;">
+                                <div class="helper-text" style="margin-bottom:10px;">
+                                    Counter aktif sesi sekarang: {{ candidate.assessment_violation_count or 0 }}/3.
+                                    {% if candidate.assessment_has_violation_history %}
+                                    Riwayat pelanggaran lama tetap disimpan untuk bahan review HR.
+                                    {% else %}
+                                    Belum ada pelanggaran yang tercatat untuk kandidat ini.
+                                    {% endif %}
+                                </div>
+                                {% if candidate.assessment_violation_events %}
+                                <div style="display:grid; gap:10px;">
+                                    {% for event in candidate.assessment_violation_events %}
+                                    <div style="padding:12px 14px; border:1px solid rgba(148,163,184,0.22); border-radius:12px; background:rgba(248,250,252,0.72);">
+                                        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                                            <strong>{{ event.label }}</strong>
+                                            <span class="badge">
+                                                {% if event.event_type == 'system_reset' %}
+                                                Reset Otomatis
+                                                {% else %}
+                                                Pelanggaran {{ event.violation_count or 0 }}
+                                                {% endif %}
+                                            </span>
+                                        </div>
+                                        <div class="helper-text" style="margin-top:6px;">
+                                            {{ event.section_label or 'Semua sesi' }} · {{ event.recorded_at_label }}
+                                            {% if event.assessment_code %}· Kode {{ event.assessment_code }}{% endif %}
+                                        </div>
+                                        {% if event.note %}
+                                        <div class="helper-text" style="margin-top:4px;">{{ event.note }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <div class="helper-text">Belum ada riwayat pelanggaran assessment yang tersimpan.</div>
+                                {% endif %}
+                            </div>
+                        </div>
                         <div class="recruitment-assessment-access" data-recruitment-assessment-access>
                             <label>Link Tes Kandidat</label>
                             {% if candidate.assessment_code %}

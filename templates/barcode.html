@@ -2,240 +2,1224 @@
 
 {% block title %}Barcode | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}WMS Tools{% endblock %}
-{% block page_title %}Pembuatan Barcode{% endblock %}
-{% block page_subtitle %}Susun label barcode, pilih template, lalu preview dan cetak sesuai kebutuhan rak atau barang.{% endblock %}
+{% block page_title %}Barcode Studio{% endblock %}
+{% block page_subtitle %}Editor barcode{% endblock %}
 
 {% block extra_head %}
 <style>
-    .barcode-shell { display: grid; gap: 18px; }
-    .barcode-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-    .barcode-toolbar .top-bar { flex: 1 1 420px; }
-    .barcode-toolbar .top-bar select,
-    .barcode-toolbar .top-bar input { min-width: 0; }
-    .barcode-layout { display: grid; grid-template-columns: minmax(240px, 0.42fr) minmax(320px, 0.9fr) minmax(280px, 0.6fr); gap: 18px; }
-    .barcode-panel { background: rgba(9, 18, 32, 0.85); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 16px; padding: 16px; display: grid; gap: 16px; }
-    .barcode-panel h3 { margin: 0; font-size: 16px; }
-    .barcode-options { display: grid; gap: 10px; }
-    .barcode-options label { display: flex; gap: 10px; align-items: center; font-size: 13px; color: rgba(226, 232, 240, 0.9); }
-    .barcode-options input[type="radio"] { accent-color: #60a5fa; }
-    .barcode-template-list { display: grid; gap: 8px; max-height: 220px; overflow: auto; padding-right: 4px; }
-    .barcode-template-card { border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-    .barcode-template-card.active { border-color: rgba(59, 130, 246, 0.7); background: rgba(37, 99, 235, 0.12); }
-    .barcode-template-card span { font-size: 13px; }
-    .barcode-template-actions { display: flex; gap: 8px; }
+    .barcode-app {
+        display: grid;
+        gap: 18px;
+        font-family: "Space Grotesk", "Plus Jakarta Sans", sans-serif;
+        color: #0f172a;
+    }
 
-    .barcode-search-row { display: grid; gap: 10px; grid-template-columns: 130px minmax(0, 1fr) auto; }
-    .barcode-search-row select,
-    .barcode-search-row input { border-radius: 12px; padding: 10px 12px; background: rgba(8, 16, 28, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
-    .barcode-search-row button { border-radius: 999px; padding: 8px 14px; }
+    .barcode-shellbar,
+    .barcode-pane,
+    .barcode-stage-shell {
+        border-radius: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+        box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+    }
 
-    .barcode-item-list { display: grid; gap: 10px; }
-    .barcode-item-row { display: grid; grid-template-columns: 1fr 90px 120px 50px; gap: 8px; align-items: center; background: rgba(8, 16, 28, 0.7); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; padding: 8px; }
-    .barcode-item-row input { border-radius: 8px; padding: 6px 8px; background: rgba(8, 16, 28, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
-    .barcode-item-row button { border-radius: 999px; padding: 6px 10px; }
+    .barcode-shellbar {
+        display: grid;
+        gap: 14px;
+        padding: 14px 16px;
+        background:
+            linear-gradient(135deg, rgba(11, 196, 214, 0.96), rgba(52, 128, 226, 0.94) 54%, rgba(108, 60, 218, 0.96)),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+        color: #f8fbff;
+        overflow: visible;
+        position: relative;
+    }
 
-    .barcode-meta-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .barcode-meta-grid label { display: grid; gap: 6px; font-size: 12px; color: rgba(226, 232, 240, 0.8); }
-    .barcode-meta-grid input,
-    .barcode-meta-grid select { border-radius: 12px; padding: 8px 10px; background: rgba(8, 16, 28, 0.9); border: 1px solid rgba(148, 163, 184, 0.25); color: #e2e8f0; }
+    .barcode-header-main,
+    .barcode-workbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
 
-    .barcode-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .barcode-actions .ghost-button.primary { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.45); color: #dbeafe; }
-    .barcode-radio-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: rgba(226, 232, 240, 0.85); }
-    .barcode-radio-row label { display: flex; gap: 6px; align-items: center; }
+    .barcode-header-main {
+        justify-content: space-between;
+    }
 
-    .barcode-preview { background: #ffffff; color: #111827; border-radius: 16px; padding: 12px; }
-    .barcode-preview .preview-sheet { background: #ffffff; border: 1px solid #cbd5f5; padding: 10px; display: grid; place-items: start; overflow: auto; }
-    .barcode-preview-grid { display: grid; gap: var(--barcode-gap, 6mm); grid-template-columns: repeat(var(--barcode-cols, 2), var(--barcode-label-width, 50mm)); }
-    .barcode-label { border: 1px solid #d1d5db; padding: 6px; border-radius: 6px; display: grid; gap: 2px; font-size: 10px; color: #111827; min-height: var(--barcode-label-height, 25mm); }
-    .barcode-label strong { font-size: 10px; font-weight: 600; }
-    .barcode-label .barcode-code { font-size: 9px; letter-spacing: 0.1em; }
-    .barcode-label svg { width: 100%; height: 32px; }
-    .barcode-label .barcode-price { font-weight: 600; font-size: 10px; }
+    .barcode-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
 
-    .barcode-print-area { position: fixed; inset: 0; background: #ffffff; color: #111827; padding: 0; display: none; }
-    .barcode-print-sheet { width: var(--barcode-paper-width, 210mm); min-height: var(--barcode-paper-height, 297mm); padding: var(--barcode-margin, 6mm); display: grid; place-items: start; }
-    .barcode-print-grid { display: grid; gap: var(--barcode-gap, 6mm); grid-template-columns: repeat(var(--barcode-cols, 2), var(--barcode-label-width, 50mm)); }
+    .barcode-brand strong {
+        font-size: 20px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        color: #ffffff;
+    }
 
-    .barcode-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 1000; }
-    .barcode-modal .modal-backdrop { position: absolute; inset: 0; background: rgba(3, 7, 18, 0.6); }
-    .barcode-modal .modal-panel { position: relative; background: #0f172a; border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 16px; padding: 16px; width: min(760px, 92vw); display: grid; gap: 12px; }
-    .barcode-design-grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .barcode-design-preview { background: #ffffff; color: #111827; border-radius: 12px; padding: 12px; border: 1px solid #cbd5f5; }
-    .barcode-design-label { border: 1px dashed #94a3b8; border-radius: 8px; padding: 6px; display: grid; gap: 2px; align-content: start; }
-    .barcode-design-label svg { width: 100%; }
+    .barcode-save-pill,
+    .barcode-mini-pill,
+    .barcode-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(7, 23, 54, 0.16);
+        color: #eef6ff;
+        font-size: 12px;
+        line-height: 1.2;
+        backdrop-filter: blur(12px);
+    }
 
-    @media (max-width: 1200px) {
-        .barcode-layout { grid-template-columns: 1fr; }
-        .barcode-preview { order: 3; }
+    .barcode-save-pill.saved {
+        background: rgba(8, 188, 114, 0.18);
+        color: #dbfff0;
+    }
+
+    .barcode-save-pill.draft {
+        background: rgba(255, 209, 102, 0.22);
+        color: #fff7df;
+    }
+
+    .barcode-save-pill.error {
+        background: rgba(255, 104, 104, 0.22);
+        color: #fff1f1;
+    }
+
+    .barcode-tag {
+        background: rgba(255, 255, 255, 0.12);
+        color: #eef6ff;
+    }
+
+    .barcode-shell-actions,
+    .barcode-stage-toolrow,
+    .barcode-stage-meta,
+    .barcode-chip-row,
+    .barcode-align-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .barcode-shell-actions {
+        margin-left: auto;
+    }
+
+    .barcode-btn,
+    .barcode-chip {
+        appearance: none;
+        border: 0;
+        font: inherit;
+        cursor: pointer;
+        transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+    }
+
+    .barcode-btn {
+        padding: 10px 14px;
+        border-radius: 14px;
+        background: #0f172a;
+        color: #f8fafc;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16);
+    }
+
+    .barcode-btn:hover,
+    .barcode-chip:hover {
+        transform: translateY(-1px);
+    }
+
+    .barcode-btn.secondary {
+        background: rgba(255, 255, 255, 0.14);
+        color: #f8fbff;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        box-shadow: none;
+        backdrop-filter: blur(12px);
+    }
+
+    .barcode-btn.primary {
+        background: #ffffff;
+        color: #0f172a;
+    }
+
+    .barcode-btn.danger {
+        background: rgba(255, 255, 255, 0.12);
+        color: #fff4f4;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: none;
+    }
+
+    .barcode-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-radius: 999px;
+        background: #ffffff;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        color: #334155;
+        font-size: 12px;
+        line-height: 1.2;
+    }
+
+    .barcode-chip.active {
+        background: #0f172a;
+        border-color: #0f172a;
+        color: #f8fafc;
+    }
+
+    .barcode-editor {
+        display: block;
+    }
+
+    .barcode-stage {
+        min-width: 0;
+    }
+
+    .barcode-stage {
+        margin-top: 18px;
+    }
+
+    .barcode-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1 1 360px;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .barcode-toolbar-menu {
+        position: relative;
+        min-width: 0;
+    }
+
+    .barcode-toolbar-menu > summary {
+        list-style: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 42px;
+        padding: 10px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(8, 21, 45, 0.16);
+        color: #f8fbff;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        box-sizing: border-box;
+        user-select: none;
+        backdrop-filter: blur(14px);
+    }
+
+    .barcode-toolbar-menu > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .barcode-toolbar-menu[open] > summary {
+        background: rgba(6, 17, 39, 0.76);
+        color: #ffffff;
+        border-color: rgba(255, 255, 255, 0.22);
+        box-shadow: 0 14px 30px rgba(4, 13, 32, 0.24);
+    }
+
+    .barcode-toolbar-panel {
+        position: absolute;
+        top: calc(100% + 12px);
+        left: 0;
+        z-index: 35;
+        width: min(92vw, 420px);
+    }
+
+    .barcode-toolbar-panel.wide {
+        width: min(92vw, 520px);
+    }
+
+    .barcode-toolbar-panel.slim {
+        width: min(92vw, 260px);
+    }
+
+    .barcode-workbar {
+        justify-content: space-between;
+    }
+
+    .barcode-workgroups {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        min-width: 0;
+        flex: 1 1 620px;
+    }
+
+    .barcode-workgroup,
+    .barcode-workmeta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 8px 10px;
+        border-radius: 16px;
+        background: rgba(5, 18, 39, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(12px);
+        box-sizing: border-box;
+    }
+
+    .barcode-workmeta {
+        justify-content: space-between;
+        flex-wrap: wrap;
+        min-width: 220px;
+        color: #eef6ff;
+        font-size: 12px;
+    }
+
+    .barcode-workmeta strong {
+        color: #ffffff;
+        font-weight: 700;
+    }
+
+    .barcode-pane,
+    .barcode-stage-shell {
+        display: grid;
+        gap: 14px;
+        padding: 16px;
+    }
+
+    .barcode-toolbar-panel .barcode-pane {
+        max-height: min(72vh, 640px);
+        overflow: auto;
+    }
+
+    .barcode-pane-head,
+    .barcode-stage-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .barcode-pane-head h3,
+    .barcode-stage-head h3 {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.2;
+        color: #0f172a;
+    }
+
+    .barcode-template-list,
+    .barcode-layer-list,
+    .barcode-item-list {
+        display: grid;
+        gap: 10px;
+        max-height: 340px;
+        overflow: auto;
+        padding-right: 4px;
+    }
+
+    .barcode-template-card,
+    .barcode-layer-card,
+    .barcode-item-card {
+        display: grid;
+        gap: 8px;
+        width: 100%;
+        padding: 12px;
+        border-radius: 18px;
+        background: #ffffff;
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        text-align: left;
+        box-sizing: border-box;
+    }
+
+    .barcode-template-card,
+    .barcode-layer-card,
+    .barcode-item-card,
+    .barcode-layer-visibility {
+        cursor: pointer;
+    }
+
+    .barcode-template-card.active,
+    .barcode-layer-card.active,
+    .barcode-item-card.active {
+        border-color: rgba(14, 165, 233, 0.42);
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+    }
+
+    .barcode-template-card-top,
+    .barcode-layer-card-top,
+    .barcode-item-card-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .barcode-template-card strong,
+    .barcode-layer-card strong,
+    .barcode-item-copy strong {
+        font-size: 13px;
+        line-height: 1.35;
+        color: #0f172a;
+    }
+
+    .barcode-template-card span,
+    .barcode-layer-card span,
+    .barcode-item-copy span,
+    .barcode-item-copy small {
+        font-size: 12px;
+        line-height: 1.45;
+        color: #64748b;
+    }
+
+    .barcode-template-thumb {
+        height: 56px;
+        border-radius: 14px;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.96)),
+            linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(15, 23, 42, 0.04));
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        color: #475569;
+    }
+
+    .barcode-layer-card {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+    }
+
+    .barcode-layer-copy {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .barcode-layer-visibility {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 54px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: #f8fafc;
+        color: #475569;
+        font-size: 11px;
+    }
+
+    .barcode-layer-visibility.active {
+        background: #dcfce7;
+        color: #166534;
+        border-color: rgba(34, 197, 94, 0.22);
+    }
+
+    .barcode-source-grid,
+    .barcode-inspector-grid,
+    .barcode-nudge-grid {
+        display: grid;
+        gap: 10px;
+    }
+
+    .barcode-source-grid label,
+    .barcode-inspector-grid label,
+    .barcode-inline-field {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        color: #475569;
+    }
+
+    .barcode-inline-grid,
+    .barcode-inspector-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .barcode-stack-row {
+        display: grid;
+        grid-template-columns: 116px minmax(0, 1fr) auto;
+        gap: 10px;
+    }
+
+    .barcode-app input,
+    .barcode-app select {
+        width: 100%;
+        min-width: 0;
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: #ffffff;
+        color: #0f172a;
+        box-sizing: border-box;
+        font: inherit;
+    }
+
+    .barcode-app input[readonly] {
+        color: #64748b;
+        background: #f8fafc;
+    }
+
+    .barcode-item-card {
+        grid-template-columns: minmax(0, 1fr) 86px auto;
+        align-items: center;
+    }
+
+    .barcode-item-copy,
+    .barcode-selected-layer {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .barcode-item-qty {
+        display: grid;
+        gap: 4px;
+    }
+
+    .barcode-item-qty span,
+    .barcode-muted {
+        font-size: 11px;
+        color: #94a3b8;
+    }
+
+    .barcode-empty {
+        display: grid;
+        place-items: center;
+        min-height: 120px;
+        padding: 20px;
+        border-radius: 18px;
+        border: 1px dashed rgba(148, 163, 184, 0.4);
+        background: #f8fafc;
+        color: #64748b;
+        text-align: center;
+        font-size: 12px;
+        line-height: 1.55;
+    }
+
+    .barcode-quick-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .barcode-stage-shell {
+        gap: 16px;
+        padding: 14px;
+        background:
+            radial-gradient(circle at top, rgba(14, 165, 233, 0.08), transparent 28%),
+            linear-gradient(180deg, rgba(252, 252, 253, 0.98), rgba(243, 246, 250, 0.98));
+    }
+
+    .barcode-stage-meta {
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    .barcode-canvas-wrap {
+        position: relative;
+        min-height: 680px;
+        padding: 18px;
+        border-radius: 24px;
+        background:
+            linear-gradient(45deg, rgba(148, 163, 184, 0.1) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.1) 75%),
+            linear-gradient(45deg, rgba(148, 163, 184, 0.1) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.1) 75%);
+        background-position: 0 0, 12px 12px;
+        background-size: 24px 24px;
+        overflow: auto;
+        display: grid;
+        place-items: center;
+    }
+
+    .barcode-canvas {
+        width: 100%;
+        min-height: 620px;
+        display: grid;
+        place-items: center;
+        transform-origin: center center;
+        transition: transform 0.16s ease;
+    }
+
+    .barcode-artboard {
+        width: min(100%, var(--barcode-artboard-width, 860px));
+        padding: 24px;
+        border-radius: 28px;
+        background: #ffffff;
+        box-shadow: 0 26px 70px rgba(15, 23, 42, 0.16);
+        box-sizing: border-box;
+    }
+
+    .barcode-artboard-label,
+    .barcode-label-layout {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 18px;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        container-type: size;
+        box-sizing: border-box;
+    }
+
+    .barcode-artboard-label {
+        min-height: 260px;
+        background-image:
+            linear-gradient(to right, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+        background-size: 10% 10%;
+        user-select: none;
+        cursor: default;
+    }
+
+    .barcode-artboard-label[data-grid="off"] {
+        background-image: none;
+    }
+
+    .barcode-artboard-label::after {
+        content: "";
+        position: absolute;
+        inset: 10px;
+        border: 1px dashed rgba(14, 165, 233, 0.16);
+        border-radius: 14px;
+        pointer-events: none;
+    }
+
+    .barcode-artboard-label[data-safe-area="off"]::after {
+        opacity: 0;
+    }
+
+    .barcode-preview-grid,
+    .barcode-print-grid {
+        display: grid;
+        align-content: start;
+        justify-content: start;
+        gap: var(--barcode-gap, 6mm);
+        grid-template-columns: repeat(var(--barcode-cols, 2), var(--barcode-label-width, 50mm));
+    }
+
+    .barcode-label {
+        position: relative;
+        height: var(--barcode-label-height, 25mm);
+        min-height: var(--barcode-label-height, 25mm);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        box-sizing: border-box;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        container-type: size;
+    }
+
+    .barcode-element {
+        position: absolute;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .barcode-element[data-kind="text"] {
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        padding: 2px 4px;
+        color: #0f172a;
+        line-height: 1.15;
+        word-break: break-word;
+        text-wrap: pretty;
+    }
+
+    .barcode-element[data-align="center"] {
+        justify-content: center;
+        text-align: center;
+    }
+
+    .barcode-element[data-align="right"] {
+        justify-content: flex-end;
+        text-align: right;
+    }
+
+    .barcode-element[data-kind="barcode"] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: transparent;
+    }
+
+    .barcode-element[data-kind="barcode"] svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .barcode-artboard-label .barcode-element {
+        cursor: grab;
+        touch-action: none;
+    }
+
+    .barcode-artboard-label .barcode-element.selected {
+        outline: 2px solid rgba(14, 165, 233, 0.82);
+        outline-offset: 1px;
+        box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.16);
+        z-index: 3;
+    }
+
+    .barcode-artboard-label .barcode-element.selected::after {
+        content: "";
+        position: absolute;
+        right: 4px;
+        top: 4px;
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #0ea5e9;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+    }
+
+    .barcode-resize-handle {
+        position: absolute;
+        right: -7px;
+        bottom: -7px;
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background: #0ea5e9;
+        border: 2px solid #ffffff;
+        box-shadow: 0 8px 18px rgba(14, 165, 233, 0.24);
+        cursor: nwse-resize;
+    }
+
+    .barcode-artboard-label .barcode-element.hidden-preview {
+        opacity: 0.26;
+        outline: 1px dashed rgba(148, 163, 184, 0.5);
+    }
+
+    .barcode-canvas-bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 120px auto auto;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .barcode-stage-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        background: rgba(255, 255, 255, 0.9);
+        color: #475569;
+        font-size: 12px;
+    }
+
+    .barcode-stage-footer strong {
+        color: #0f172a;
+    }
+
+    .barcode-selection-toolbar {
+        position: absolute;
+        z-index: 25;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+        backdrop-filter: blur(12px);
+        max-width: min(92%, 760px);
+    }
+
+    .barcode-selection-toolbar[hidden] {
+        display: none !important;
+    }
+
+    .barcode-selection-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-right: 4px;
+    }
+
+    .barcode-selection-sep {
+        width: 1px;
+        height: 20px;
+        background: rgba(203, 213, 225, 0.9);
+    }
+
+    .barcode-selection-toolbar .barcode-chip,
+    .barcode-selection-toolbar .barcode-btn.secondary {
+        min-height: 36px;
+        padding: 8px 12px;
+        color: #0f172a;
+        background: #ffffff;
+        border-color: rgba(203, 213, 225, 0.95);
+    }
+
+    .barcode-selection-toolbar .barcode-chip.active {
+        background: #0f172a;
+        color: #f8fbff;
+        border-color: #0f172a;
+    }
+
+    .barcode-selection-toolbar .barcode-btn.secondary:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+    }
+
+    .barcode-align-row .barcode-chip {
+        min-width: 62px;
+    }
+
+    .barcode-nudge-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .barcode-print-area {
+        position: fixed;
+        inset: 0;
+        display: none;
+        overflow: auto;
+        background: #ffffff;
+        color: #111827;
+    }
+
+    .barcode-print-sheet {
+        width: var(--barcode-paper-width, 210mm);
+        min-height: var(--barcode-paper-height, 297mm);
+        padding: var(--barcode-margin, 6mm);
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 1420px) {
+        .barcode-toolbar {
+            flex: 1 1 100%;
+        }
+
+        .barcode-shell-actions {
+            margin-left: 0;
+        }
+
+        .barcode-canvas-wrap {
+            min-height: 520px;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .barcode-shellbar,
+        .barcode-pane,
+        .barcode-stage-shell {
+            padding: 14px;
+            border-radius: 20px;
+        }
+
+        .barcode-toolbar {
+            width: 100%;
+            overflow: auto;
+            flex-wrap: nowrap;
+            padding-bottom: 4px;
+        }
+
+        .barcode-toolbar-menu {
+            flex: 0 0 auto;
+        }
+
+        .barcode-toolbar-panel,
+        .barcode-toolbar-panel.wide,
+        .barcode-toolbar-panel.slim {
+            position: fixed;
+            left: 16px;
+            right: 16px;
+            top: 112px;
+            width: auto;
+        }
+
+        .barcode-header-main,
+        .barcode-workbar {
+            align-items: stretch;
+        }
+
+        .barcode-workgroups,
+        .barcode-workmeta {
+            width: 100%;
+        }
+
+        .barcode-selection-toolbar {
+            left: 12px !important;
+            right: 12px;
+            max-width: none;
+            width: auto;
+        }
+
+        .barcode-stack-row,
+        .barcode-inline-grid,
+        .barcode-inspector-grid,
+        .barcode-canvas-bottom,
+        .barcode-item-card,
+        .barcode-nudge-grid,
+        .barcode-quick-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .barcode-stage-footer {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .barcode-canvas-wrap {
+            padding: 12px;
+            min-height: 360px;
+        }
+
+        .barcode-artboard {
+            padding: 14px;
+            width: 100%;
+        }
     }
 
     @media print {
-        body { background: #ffffff !important; }
+        body {
+            background: #ffffff !important;
+        }
+
         .layout,
-        .barcode-shell { display: none !important; }
-        .barcode-print-area { display: block !important; }
+        .barcode-app {
+            display: none !important;
+        }
+
+        .barcode-print-area {
+            display: block !important;
+        }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="wms-page-stack barcode-shell">
-    <div class="barcode-toolbar">
-        <form method="GET" class="top-bar">
-            <select id="barcodeWarehouse" name="warehouse" {% if is_scoped_user %}disabled{% endif %}>
-                {% for w in warehouses %}
-                <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
-                {% endfor %}
-            </select>
-            {% if is_scoped_user %}
-            <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
-            {% endif %}
-            <input type="text" value="{{ selected_warehouse_name }}" readonly>
-            <button type="button" class="ghost-button" id="barcodePickItem">Pilih Item Cetak</button>
-        </form>
-    </div>
-
-    <div class="barcode-layout">
-        <section class="barcode-panel">
-            <h3>Opsi Pilihan Cetak</h3>
-            <div class="barcode-options" id="barcodePrintModes">
-                <label><input type="radio" name="barcode_print_mode" value="single" checked> Cetak 1 Item untuk tempel di barang</label>
-                <label><input type="radio" name="barcode_print_mode" value="all"> Cetak Semua Item untuk ditaruh pada rak</label>
-                <label><input type="radio" name="barcode_print_mode" value="multi"> Cetak Beberapa Item tempel di barang</label>
-                <label><input type="radio" name="barcode_print_mode" value="rack"> Tempel Beberapa Item ditaruh pada rak</label>
+<div class="wms-page-stack barcode-app">
+    <header class="barcode-shellbar">
+        <div class="barcode-header-main">
+            <div class="barcode-brand">
+                <strong>Barcode Studio</strong>
+                <span class="barcode-save-pill" id="barcodeSaveStatus">Ready</span>
+                <span class="barcode-mini-pill" id="barcodeCanvasSummary">0 item | 0 label</span>
             </div>
+            <div class="barcode-toolbar" id="barcodeHeaderToolbar">
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>File</summary>
+                    <div class="barcode-toolbar-panel slim">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>File</h3>
+                            </div>
+                            <div class="barcode-inline-grid">
+                                <button type="button" class="barcode-btn secondary" data-file-action="new">New</button>
+                                <button type="button" class="barcode-btn secondary" data-file-action="duplicate">Duplicate</button>
+                                <button type="button" class="barcode-btn secondary" data-file-action="save">Save</button>
+                                <button type="button" class="barcode-btn secondary" data-file-action="delete">Delete</button>
+                                <button type="button" class="barcode-btn secondary" data-file-action="print">Print</button>
+                                <button type="button" class="barcode-btn secondary" data-file-action="escpos">ESC/POS</button>
+                                <button type="button" class="barcode-btn secondary" data-file-action="csv">CSV</button>
+                            </div>
+                        </section>
+                    </div>
+                </details>
 
-            <div>
-                <h3>Template Label</h3>
-                <div class="barcode-template-list" id="barcodeTemplateList"></div>
-                <div class="barcode-template-actions">
-                    <button type="button" class="ghost-button" id="barcodeTemplateNew">Baru</button>
-                    <button type="button" class="ghost-button" id="barcodeTemplateEdit">Desain</button>
-                    <button type="button" class="ghost-button danger" id="barcodeTemplateDelete">Hapus</button>
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>Layouts</summary>
+                    <div class="barcode-toolbar-panel">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>Layouts</h3>
+                                <span class="barcode-tag" id="barcodeTemplateMeta">Default</span>
+                            </div>
+                            <div class="barcode-template-list" id="barcodeTemplateList"></div>
+                        </section>
+                    </div>
+                </details>
+
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>Elements</summary>
+                    <div class="barcode-toolbar-panel">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>Elements</h3>
+                                <span class="barcode-tag" id="barcodeTemplateKeyTag">KERTAS_A4</span>
+                            </div>
+                            <div class="barcode-layer-list" id="barcodeLayerList"></div>
+                        </section>
+                    </div>
+                </details>
+
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>Content</summary>
+                    <div class="barcode-toolbar-panel wide">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>Content</h3>
+                                <span class="barcode-tag" id="barcodeItemCountBadge">0</span>
+                            </div>
+                            <div class="barcode-source-grid">
+                                <label>
+                                    Warehouse
+                                    <select id="barcodeWarehouse" {% if is_scoped_user %}disabled{% endif %}>
+                                        {% for w in warehouses %}
+                                        <option value="{{ w.id }}" {% if warehouse_id == w.id %}selected{% endif %}>{{ w.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                                <div class="barcode-stack-row">
+                                    <select id="barcodeSearchField">
+                                        <option value="sku">SKU</option>
+                                        <option value="barcode">Barcode</option>
+                                    </select>
+                                    <input type="text" id="barcodeSearchInput" placeholder="Cari item">
+                                    <button type="button" class="barcode-btn secondary" id="barcodeSearchButton">Find</button>
+                                </div>
+                                <div class="barcode-inline-grid">
+                                    <button type="button" class="barcode-btn secondary" id="barcodePickItem">Add Item</button>
+                                    <button type="button" class="barcode-btn secondary" id="barcodeClearItems">Clear</button>
+                                </div>
+                            </div>
+                            <div class="barcode-item-list" id="barcodeItemList"></div>
+                        </section>
+                    </div>
+                </details>
+
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>Resize</summary>
+                    <div class="barcode-toolbar-panel wide">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>Resize</h3>
+                            </div>
+                            <div class="barcode-inspector-grid">
+                                <label>
+                                    Name
+                                    <input type="text" id="templateNameInput">
+                                </label>
+                                <label>
+                                    Paper
+                                    <input type="text" id="templatePaperInput" placeholder="210x297">
+                                </label>
+                                <label>
+                                    W
+                                    <input type="number" id="templateLabelWidth" min="10" step="1">
+                                </label>
+                                <label>
+                                    H
+                                    <input type="number" id="templateLabelHeight" min="10" step="1">
+                                </label>
+                                <label>
+                                    Cols
+                                    <input type="number" id="templateColumns" min="1" step="1">
+                                </label>
+                                <label>
+                                    Gap
+                                    <input type="number" id="templateGap" min="0" step="1">
+                                </label>
+                                <label>
+                                    Margin
+                                    <input type="number" id="templateMargin" min="0" step="1">
+                                </label>
+                                <label>
+                                    Bar H
+                                    <input type="number" id="barcodeHeightInput" min="20" max="80" step="1">
+                                </label>
+                                <label>
+                                    Text %
+                                    <input type="number" id="barcodeFontScale" min="70" max="180" step="5">
+                                </label>
+                                <label>
+                                    Code
+                                    <select id="barcodeCodeField">
+                                        <option value="sku">SKU</option>
+                                        <option value="gtin">Barcode</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </section>
+                    </div>
+                </details>
+
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>Editing</summary>
+                    <div class="barcode-toolbar-panel wide">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>Editing</h3>
+                                <span class="barcode-tag" id="barcodeSelectedElementTag">name</span>
+                            </div>
+                            <div class="barcode-selected-layer">
+                                <strong id="barcodeSelectedElementTitle">Name</strong>
+                                <span id="barcodeSelectedElementHint">Klik layer di canvas atau panel elements untuk mulai edit.</span>
+                            </div>
+                            <div class="barcode-chip-row">
+                                <button type="button" class="barcode-chip active" id="barcodeElementVisibleToggle">Visible</button>
+                            </div>
+                            <div class="barcode-inspector-grid">
+                                <label>
+                                    X
+                                    <input type="number" id="barcodeElementX" min="0" max="96" step="0.5">
+                                </label>
+                                <label>
+                                    Y
+                                    <input type="number" id="barcodeElementY" min="0" max="96" step="0.5">
+                                </label>
+                                <label>
+                                    W
+                                    <input type="number" id="barcodeElementW" min="4" max="100" step="0.5">
+                                </label>
+                                <label>
+                                    H
+                                    <input type="number" id="barcodeElementH" min="4" max="100" step="0.5">
+                                </label>
+                                <label>
+                                    Font
+                                    <input type="number" id="barcodeElementFont" min="0" max="24" step="0.1">
+                                </label>
+                                <label>
+                                    Weight
+                                    <input type="number" id="barcodeElementWeight" min="400" max="800" step="100">
+                                </label>
+                            </div>
+                            <div class="barcode-align-row" id="barcodeAlignModes">
+                                <button type="button" class="barcode-chip active" data-align="left">Left</button>
+                                <button type="button" class="barcode-chip" data-align="center">Center</button>
+                                <button type="button" class="barcode-chip" data-align="right">Right</button>
+                            </div>
+                            <div class="barcode-quick-grid" id="barcodeLayerActionGrid">
+                                <button type="button" class="barcode-btn secondary" data-layer-action="left">Left</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="center">Center</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="right">Right</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="fit">Fit</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="top">Top</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="middle">Middle</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="bottom">Bottom</button>
+                                <button type="button" class="barcode-btn secondary" data-layer-action="reset">Reset</button>
+                            </div>
+                            <div class="barcode-nudge-grid">
+                                <button type="button" class="barcode-btn secondary" data-nudge="-1,0">Left</button>
+                                <button type="button" class="barcode-btn secondary" data-nudge="0,-1">Up</button>
+                                <button type="button" class="barcode-btn secondary" data-nudge="1,0">Right</button>
+                                <button type="button" class="barcode-btn secondary" data-nudge="0,1">Down</button>
+                                <button type="button" class="barcode-btn secondary" data-nudge-size="1">Fine</button>
+                                <button type="button" class="barcode-btn secondary" data-nudge-size="5">Fast</button>
+                            </div>
+                        </section>
+                    </div>
+                </details>
+            </div>
+            <div class="barcode-shell-actions">
+                <button type="button" class="barcode-btn secondary" id="barcodeNewTemplate">New</button>
+                <button type="button" class="barcode-btn secondary" id="barcodeDuplicateTemplate">Duplicate</button>
+                <button type="button" class="barcode-btn secondary" id="barcodeSaveTemplate">Save</button>
+                <button type="button" class="barcode-btn danger" id="barcodeDeleteTemplate">Delete</button>
+                <button type="button" class="barcode-btn primary" id="barcodePrintButton">Print</button>
+            </div>
+        </div>
+
+        <div class="barcode-workbar">
+            <div class="barcode-workgroups">
+                <div class="barcode-workgroup" id="barcodePrintModes">
+                    <button type="button" class="barcode-chip active" data-mode="single">Single</button>
+                    <button type="button" class="barcode-chip" data-mode="multi">Multi</button>
+                    <button type="button" class="barcode-chip" data-mode="all">All</button>
+                    <button type="button" class="barcode-chip" data-mode="rack">Rack</button>
+                </div>
+
+                <div class="barcode-workgroup" id="barcodeCodeSourceModes">
+                    <button type="button" class="barcode-chip active" data-code-source="sku">SKU</button>
+                    <button type="button" class="barcode-chip" data-code-source="gtin">Barcode</button>
+                </div>
+
+                <div class="barcode-workgroup" id="barcodePriceModes">
+                    <button type="button" class="barcode-chip active" data-price-mode="sell">Sell</button>
+                    <button type="button" class="barcode-chip" data-price-mode="cost">Cost</button>
+                    <button type="button" class="barcode-chip" data-price-mode="both">Both</button>
+                </div>
+
+                <div class="barcode-workgroup" id="barcodeZoomModes">
+                    <button type="button" class="barcode-chip active" data-zoom="1">100%</button>
+                    <button type="button" class="barcode-chip" data-zoom="1.25">125%</button>
+                    <button type="button" class="barcode-chip" data-zoom="1.5">150%</button>
+                </div>
+
+                <div class="barcode-workgroup" id="barcodeViewModes">
+                    <button type="button" class="barcode-chip active" data-view-mode="grid">Guides</button>
+                    <button type="button" class="barcode-chip active" data-view-mode="safe">Safe</button>
+                    <button type="button" class="barcode-chip active" data-view-mode="snap">Snap</button>
                 </div>
             </div>
-        </section>
 
-        <section class="barcode-panel">
-            <div class="barcode-search-row">
-                <select id="barcodeSearchField">
-                    <option value="sku">Kode Item</option>
-                    <option value="barcode">Kode Barcode</option>
-                </select>
-                <input type="text" id="barcodeSearchInput" placeholder="Masukkan kode item atau barcode">
-                <button type="button" class="ghost-button" id="barcodeSearchButton">Cari</button>
+            <div class="barcode-workmeta">
+                <span id="barcodeWarehouseName">{{ selected_warehouse_name }}</span>
+                <span id="barcodePreviewLimit">Preview 0 / 48</span>
             </div>
+        </div>
+    </header>
 
-            <div class="barcode-meta-grid">
-                <label>
-                    Kolom yang diambil
-                    <select id="barcodeCodeField">
-                        <option value="sku">Kode Item</option>
-                        <option value="gtin">Kode Barcode</option>
-                    </select>
-                </label>
-                <label>
-                    Jumlah Barcode (mode 1 item)
-                    <input type="number" id="barcodeSingleQty" value="1" min="1" step="1">
-                </label>
-            </div>
-
-            <div class="barcode-meta-grid">
-                <label>
-                    Jenis
-                    <input type="text" id="barcodeJenis" placeholder="Jenis item" readonly>
-                </label>
-                <label>
-                    Satuan
-                    <input type="text" id="barcodeSatuan" placeholder="Satuan" readonly>
-                </label>
-                <label>
-                    Merek
-                    <input type="text" id="barcodeMerek" placeholder="Merek" readonly>
-                </label>
-                <label>
-                    Catatan Label
-                    <input type="text" id="barcodeNote" placeholder="Opsional, misal: Promo">
-                </label>
-            </div>
-
-            <div>
-                <div class="barcode-radio-row" id="barcodeHargaMode">
-                    <label>Aktif Sandi:</label>
-                    <label><input type="radio" name="barcode_price_mode" value="cost"> Harga Pokok</label>
-                    <label><input type="radio" name="barcode_price_mode" value="sell" checked> Harga Jual</label>
-                    <label><input type="radio" name="barcode_price_mode" value="both"> Aktif Keduanya</label>
+    <div class="barcode-editor">
+        <main class="barcode-stage">
+            <section class="barcode-stage-shell">
+                <div class="barcode-canvas-wrap">
+                    <div class="barcode-selection-toolbar" id="barcodeSelectionToolbar" hidden>
+                        <span class="barcode-selection-title" id="barcodeSelectionToolbarTitle">Name</span>
+                        <button type="button" class="barcode-chip" id="barcodeSelectionVisible">Visible</button>
+                        <span class="barcode-selection-sep" aria-hidden="true"></span>
+                        <button type="button" class="barcode-chip" data-selection-align="left">Left</button>
+                        <button type="button" class="barcode-chip" data-selection-align="center">Center</button>
+                        <button type="button" class="barcode-chip" data-selection-align="right">Right</button>
+                        <span class="barcode-selection-sep" aria-hidden="true"></span>
+                        <button type="button" class="barcode-btn secondary" id="barcodeSelectionFontDown">A-</button>
+                        <button type="button" class="barcode-btn secondary" id="barcodeSelectionFontUp">A+</button>
+                        <button type="button" class="barcode-btn secondary" data-selection-action="fit">Fit</button>
+                        <button type="button" class="barcode-btn secondary" data-selection-action="reset">Reset</button>
+                    </div>
+                    <div class="barcode-canvas" id="barcodeCanvasStage">
+                        <div class="barcode-artboard">
+                            <div class="barcode-artboard-label" id="barcodeArtboardLabel"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="barcode-radio-row">
-                    <label>Tipe Harga Jual:</label>
-                    <label><input type="radio" name="barcode_price_type" value="single" checked> Satu Harga</label>
-                    <label><input type="radio" name="barcode_price_type" value="unit"> Satuan</label>
-                    <label><input type="radio" name="barcode_price_type" value="qty"> Jumlah</label>
-                    <label><input type="radio" name="barcode_price_type" value="level"> Level Harga</label>
+
+                <div class="barcode-canvas-bottom">
+                    <input type="text" id="barcodeNote" placeholder="Note">
+                    <input type="number" id="barcodeSingleQty" min="1" step="1" value="1">
+                    <button type="button" class="barcode-btn secondary" id="barcodeExportEscpos">ESC/POS</button>
+                    <button type="button" class="barcode-btn secondary" id="barcodeExportCsv">CSV</button>
                 </div>
-            </div>
 
-            <div class="barcode-item-list" id="barcodeItemList">
-                <div class="empty-state">Belum ada item dipilih.</div>
-            </div>
-
-            <div class="barcode-actions">
-                <button type="button" class="ghost-button primary" id="barcodePreviewPrint">Preview + Cetak</button>
-                <button type="button" class="ghost-button" id="barcodeExportCsv">Print dari BarTender</button>
-            </div>
-
-            <small class="helper-text">
-                Gunakan barcode maksimal 10-12 digit untuk hasil paling tajam. Untuk rak, pilih template kertas A4 atau rak A4.
-            </small>
-        </section>
-
-        <aside class="barcode-panel barcode-preview">
-            <h3>Preview Barcode</h3>
-            <div class="preview-sheet">
-                <div class="barcode-preview-grid" id="barcodePreviewGrid"></div>
-            </div>
-        </aside>
+                <div class="barcode-stage-footer" id="barcodeStageFooter">
+                    <span><strong>Layer:</strong> <span id="barcodeFooterLayer">Name</span></span>
+                    <span><strong>Bounds:</strong> <span id="barcodeFooterBounds">X 0 | Y 0 | W 0 | H 0</span></span>
+                    <span><strong>Canvas:</strong> <span id="barcodeFooterCanvas">50 x 25 mm</span></span>
+                    <span><strong>Snap:</strong> <span id="barcodeFooterSnap">2%</span></span>
+                </div>
+            </section>
+        </main>
     </div>
 </div>
 
-<div class="barcode-modal" id="barcodeTemplateModal">
-    <div class="modal-backdrop" data-template-modal-close></div>
-    <div class="modal-panel">
-        <div class="section-title">
-            <div>
-                <h3>Desain Template Barcode</h3>
-                <p>Atur ukuran label, jumlah kolom, dan margin cetak.</p>
-            </div>
-        </div>
-        <div class="barcode-meta-grid">
-            <label>Nama Template
-                <input type="text" id="templateNameInput">
-            </label>
-            <label>Ukuran Kertas (mm)
-                <input type="text" id="templatePaperInput" placeholder="210x297">
-            </label>
-            <label>Lebar Label (mm)
-                <input type="number" id="templateLabelWidth" value="50" min="10">
-            </label>
-            <label>Tinggi Label (mm)
-                <input type="number" id="templateLabelHeight" value="25" min="10">
-            </label>
-            <label>Jumlah Kolom
-                <input type="number" id="templateColumns" value="2" min="1">
-            </label>
-            <label>Jarak (mm)
-                <input type="number" id="templateGap" value="6" min="0">
-            </label>
-            <label>Margin (mm)
-                <input type="number" id="templateMargin" value="6" min="0">
-            </label>
-        </div>
-        <div class="barcode-actions">
-            <button type="button" class="ghost-button primary" id="templateSaveButton">Simpan</button>
-            <button type="button" class="ghost-button" data-template-modal-close>Batal</button>
-        </div>
-    </div>
+<div hidden aria-hidden="true">
+    <div class="barcode-preview-grid" id="barcodePreviewGrid"></div>
 </div>
 
 <div class="barcode-print-area" id="barcodePrintArea">
@@ -252,44 +1236,306 @@
 <script src="/static/js/item_picker.js"></script>
 <script>
 (() => {
-    const templates = [
-        { id: "KERTAS_A4", label: "KERTAS_A4", paper: "210x297", width: 50, height: 25, cols: 2, gap: 6, margin: 6 },
-        { id: "RAK_A4", label: "RAK_A4", paper: "210x297", width: 70, height: 30, cols: 2, gap: 6, margin: 6 },
-        { id: "ROL_106x15", label: "ROL_106x15", paper: "106x200", width: 106, height: 15, cols: 1, gap: 2, margin: 4 },
-        { id: "ROL_106x28", label: "ROL_106x28mm", paper: "106x200", width: 106, height: 28, cols: 1, gap: 2, margin: 4 },
-        { id: "ROL_73x15", label: "ROL_73x15", paper: "73x200", width: 73, height: 15, cols: 1, gap: 2, margin: 4 },
-        { id: "ROL_96x18", label: "ROL_96x18mm", paper: "96x200", width: 96, height: 18, cols: 1, gap: 2, margin: 4 },
-    ];
+    const defaultTemplatesRaw = {{ barcode_default_templates|tojson }};
+    const customTemplatesRaw = {{ barcode_custom_templates|tojson }};
+    const initialWarehouseName = {{ selected_warehouse_name|tojson }};
+    const workspaceScope = {{ barcode_workspace_scope|tojson }};
+    const previewLimitCount = 48;
+    const layerOrder = ["warehouse", "name", "variant", "category", "barcode", "code", "price", "note"];
+    const layerLabels = {
+        warehouse: "Warehouse",
+        name: "Name",
+        variant: "Variant",
+        category: "Category",
+        barcode: "Barcode",
+        code: "Code",
+        price: "Price",
+        note: "Note",
+    };
+    const layerKinds = {
+        warehouse: "text",
+        name: "text",
+        variant: "text",
+        category: "text",
+        barcode: "barcode",
+        code: "text",
+        price: "text",
+        note: "text",
+    };
+    const defaultLayerModel = {
+        warehouse: { kind: "text", label: "Warehouse", x: 6, y: 6, w: 88, h: 7, font: 6.2, align: "left", weight: 700, visible: false },
+        name: { kind: "text", label: "Name", x: 6, y: 15, w: 88, h: 16, font: 8.6, align: "left", weight: 700, visible: true },
+        variant: { kind: "text", label: "Variant", x: 6, y: 32, w: 42, h: 7, font: 5.9, align: "left", weight: 600, visible: true },
+        category: { kind: "text", label: "Category", x: 50, y: 32, w: 44, h: 7, font: 5.9, align: "right", weight: 600, visible: true },
+        barcode: { kind: "barcode", label: "Barcode", x: 6, y: 41, w: 88, h: 26, font: 0, align: "center", weight: 400, visible: true },
+        code: { kind: "text", label: "Code", x: 6, y: 68, w: 88, h: 7, font: 6.1, align: "center", weight: 700, visible: true },
+        price: { kind: "text", label: "Price", x: 6, y: 77, w: 88, h: 8, font: 6.8, align: "left", weight: 700, visible: true },
+        note: { kind: "text", label: "Note", x: 6, y: 87, w: 88, h: 7, font: 5.5, align: "left", weight: 500, visible: true },
+    };
 
+    const escapeHtml = (value) => String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const toNumber = (value, fallback, minimum, maximum = null, integer = false) => {
+        const parsed = integer ? parseInt(value, 10) : parseFloat(value);
+        let safeValue = Number.isFinite(parsed) ? parsed : fallback;
+        safeValue = Math.max(minimum, safeValue);
+        if (maximum !== null) {
+            safeValue = Math.min(maximum, safeValue);
+        }
+        return integer ? Math.round(safeValue) : safeValue;
+    };
+
+    const normalizeTemplateId = (value) => {
+        const safeValue = String(value || "")
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "");
+        return safeValue || `CUSTOM_${Date.now().toString(36).toUpperCase()}`;
+    };
+
+    const normalizeLayer = (key, rawLayer) => {
+        const source = rawLayer && typeof rawLayer === "object" ? rawLayer : {};
+        const fallback = defaultLayerModel[key];
+        return {
+            kind: layerKinds[key],
+            label: String(source.label || fallback.label).trim() || fallback.label,
+            x: toNumber(source.x, fallback.x, 0, 96),
+            y: toNumber(source.y, fallback.y, 0, 96),
+            w: toNumber(source.w, fallback.w, 4, 100),
+            h: toNumber(source.h, fallback.h, 4, 100),
+            font: toNumber(source.font, fallback.font, 0, 24),
+            align: ["left", "center", "right"].includes(String(source.align || fallback.align).toLowerCase())
+                ? String(source.align || fallback.align).toLowerCase()
+                : fallback.align,
+            weight: toNumber(source.weight, fallback.weight, 400, 800, true),
+            visible: typeof source.visible === "boolean" ? source.visible : fallback.visible,
+        };
+    };
+
+    const normalizeOptions = (rawOptions) => {
+        const source = rawOptions && typeof rawOptions === "object" ? rawOptions : {};
+        const elementsSource = source.elements && typeof source.elements === "object" ? source.elements : {};
+        const options = {
+            show_warehouse: Boolean(source.show_warehouse),
+            show_variant: source.show_variant !== false,
+            show_category: source.show_category !== false,
+            show_code_text: source.show_code_text !== false,
+            show_price: source.show_price !== false,
+            show_note: source.show_note !== false,
+            elements: {},
+        };
+
+        layerOrder.forEach((key) => {
+            const nextLayer = normalizeLayer(key, elementsSource[key]);
+            if (key === "warehouse") nextLayer.visible = options.show_warehouse;
+            if (key === "variant") nextLayer.visible = options.show_variant;
+            if (key === "category") nextLayer.visible = options.show_category;
+            if (key === "code") nextLayer.visible = options.show_code_text;
+            if (key === "price") nextLayer.visible = options.show_price;
+            if (key === "note") nextLayer.visible = options.show_note;
+            options.elements[key] = nextLayer;
+        });
+
+        return options;
+    };
+
+    const normalizeTemplate = (template, origin = "custom") => {
+        const source = template || {};
+        return {
+            id: normalizeTemplateId(source.id || source.template_key || source.label),
+            label: String(source.label || "Untitled").trim() || "Untitled",
+            paper: String(source.paper || "210x297").trim() || "210x297",
+            width: toNumber(source.width, 50, 10, 300),
+            height: toNumber(source.height, 25, 10, 300),
+            cols: toNumber(source.cols, 2, 1, 8, true),
+            gap: toNumber(source.gap, 6, 0, 40),
+            margin: toNumber(source.margin, 6, 0, 40),
+            barcode_height: toNumber(source.barcode_height, 34, 20, 80, true),
+            font_scale: toNumber(source.font_scale, 100, 70, 180, true),
+            options: normalizeOptions(source.options),
+            origin,
+        };
+    };
+
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+
+    const parsePaper = (value) => {
+        const match = String(value || "").match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        if (!match) {
+            return { width: 210, height: 297 };
+        }
+        return {
+            width: toNumber(match[1], 210, 10, 500),
+            height: toNumber(match[2], 297, 10, 500),
+        };
+    };
+
+    const sanitizeEscPosText = (value) => String(value == null ? "" : value)
+        .replace(/[<>\[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const getEscPosProfile = (template) => {
+        const paper = parsePaper(template?.paper);
+        const widthMm = Math.round(Math.min(Number(template?.width || 58), Number(paper.width || template?.width || 58)));
+        if (widthMm <= 58) {
+            return { widthMm, charsPerLine: 32 };
+        }
+        if (widthMm <= 80) {
+            return { widthMm, charsPerLine: 48 };
+        }
+        return { widthMm, charsPerLine: 64 };
+    };
+
+    const resolveEscPosBarcodeTag = (value, template) => {
+        const code = String(value || "").trim();
+        if (!code) return "";
+        const numericOnly = /^\d+$/.test(code);
+        let barcodeType = "128";
+        if (numericOnly && code.length === 8) barcodeType = "ean8";
+        else if (numericOnly && code.length === 12) barcodeType = "upca";
+        else if (numericOnly && code.length === 13) barcodeType = "ean13";
+        const heightMm = Math.max(10, Math.min(22, Math.round(Number(template?.height || 30) * 0.38)));
+        return `[C]<barcode type='${barcodeType}' height='${heightMm}' text='below'>${sanitizeEscPosText(code)}</barcode>`;
+    };
+
+    const buildEscPosLine = (left, right, charsPerLine) => {
+        const leftText = sanitizeEscPosText(left);
+        const rightText = sanitizeEscPosText(right);
+        if (!rightText) {
+            return leftText ? `[L]${leftText}` : "";
+        }
+        const safeChars = Math.max(16, Number(charsPerLine || 32));
+        const maxRight = Math.max(8, Math.floor(safeChars * 0.45));
+        const rightPart = rightText.slice(0, maxRight);
+        const leftRoom = Math.max(4, safeChars - rightPart.length);
+        const leftPart = leftText.slice(0, leftRoom);
+        return `[L]${leftPart}[R]${rightPart}`;
+    };
+
+    const buildEscPosDocument = () => {
+        const labels = buildPrintLabels();
+        const template = getTemplate();
+        if (!template || !labels.length) return "";
+        const profile = getEscPosProfile(template);
+        const visible = template.options?.elements || {};
+        const separator = "-".repeat(profile.charsPerLine);
+
+        return labels.map((label, index) => {
+            const lines = [];
+            lines.push("[C]<b>BARCODE LABEL</b>");
+            lines.push(`[C]${sanitizeEscPosText(template.label || "Template")}`);
+            lines.push(`[C]${sanitizeEscPosText(`Label ${index + 1} / ${labels.length}`)}`);
+            lines.push(`[C]${separator}`);
+
+            if (visible.warehouse?.visible && label.warehouse) {
+                lines.push(buildEscPosLine("Gudang", label.warehouse, profile.charsPerLine));
+            }
+
+            if (visible.name?.visible && label.name) {
+                lines.push("[L]<b>Nama Item</b>");
+                lines.push(`[L]${sanitizeEscPosText(label.name)}`);
+            }
+
+            if (visible.variant?.visible && label.variant) {
+                lines.push(buildEscPosLine("Varian", label.variant, profile.charsPerLine));
+            }
+
+            if (visible.category?.visible && label.category) {
+                lines.push(buildEscPosLine("Kategori", label.category, profile.charsPerLine));
+            }
+
+            if (visible.barcode?.visible && label.barcode) {
+                lines.push(resolveEscPosBarcodeTag(label.barcode, template));
+            }
+
+            if (visible.code?.visible && label.code) {
+                lines.push(`[C]${sanitizeEscPosText(label.code)}`);
+            }
+
+            if (visible.price?.visible && label.price) {
+                String(label.price)
+                    .split("|")
+                    .map((part) => sanitizeEscPosText(part))
+                    .filter(Boolean)
+                    .forEach((priceLine, priceIndex) => {
+                        lines.push(buildEscPosLine(priceIndex === 0 ? "Harga" : "", priceLine, profile.charsPerLine));
+                    });
+            }
+
+            if (visible.note?.visible && label.note) {
+                lines.push("[L]Catatan");
+                lines.push(`[L]${sanitizeEscPosText(label.note)}`);
+            }
+
+            lines.push(`[C]${separator}`);
+            return lines.filter(Boolean).join("\n");
+        }).join("\n\n\n");
+    };
+
+    const defaultTemplates = defaultTemplatesRaw.map((template) => normalizeTemplate(template, "default"));
     const state = {
-        selectedTemplateId: templates[0].id,
+        templates: [],
+        defaultTemplateMap: new Map(defaultTemplates.map((template) => [template.id, clone(template)])),
+        serverTemplateKeys: new Set(),
+        selectedTemplateId: null,
         selectedItems: [],
         activeItemId: null,
+        selectedElementKey: "name",
+        printMode: "single",
+        codeSource: "sku",
+        priceMode: "sell",
+        note: "",
+        singleQty: 1,
+        zoom: 1,
+        drag: null,
+        nudgeStep: 1,
+        showGrid: true,
+        showSafeArea: true,
+        snapEnabled: true,
+        snapStep: 2,
     };
 
     const templateList = document.getElementById("barcodeTemplateList");
+    const layerList = document.getElementById("barcodeLayerList");
+    const itemList = document.getElementById("barcodeItemList");
+    const artboardLabel = document.getElementById("barcodeArtboardLabel");
     const previewGrid = document.getElementById("barcodePreviewGrid");
     const printGrid = document.getElementById("barcodePrintGrid");
-    const printArea = document.getElementById("barcodePrintArea");
+    const canvasStage = document.getElementById("barcodeCanvasStage");
+    const warehouseSelect = document.getElementById("barcodeWarehouse");
     const searchField = document.getElementById("barcodeSearchField");
     const searchInput = document.getElementById("barcodeSearchInput");
     const searchButton = document.getElementById("barcodeSearchButton");
-    const itemList = document.getElementById("barcodeItemList");
-    const codeField = document.getElementById("barcodeCodeField");
-    const priceModeInputs = document.querySelectorAll("input[name='barcode_price_mode']");
-    const priceTypeInputs = document.querySelectorAll("input[name='barcode_price_type']");
-    const singleQty = document.getElementById("barcodeSingleQty");
-    const noteInput = document.getElementById("barcodeNote");
-    const barcodeJenis = document.getElementById("barcodeJenis");
-    const barcodeSatuan = document.getElementById("barcodeSatuan");
-    const barcodeMerek = document.getElementById("barcodeMerek");
-    const previewButton = document.getElementById("barcodePreviewPrint");
-    const exportButton = document.getElementById("barcodeExportCsv");
-    const printModes = document.getElementById("barcodePrintModes");
-    const warehouseSelect = document.getElementById("barcodeWarehouse");
     const pickButton = document.getElementById("barcodePickItem");
-
-    const templateModal = document.getElementById("barcodeTemplateModal");
+    const clearItemsButton = document.getElementById("barcodeClearItems");
+    const saveButton = document.getElementById("barcodeSaveTemplate");
+    const newButton = document.getElementById("barcodeNewTemplate");
+    const duplicateButton = document.getElementById("barcodeDuplicateTemplate");
+    const deleteButton = document.getElementById("barcodeDeleteTemplate");
+    const printButton = document.getElementById("barcodePrintButton");
+    const exportButton = document.getElementById("barcodeExportCsv");
+    const exportEscposButton = document.getElementById("barcodeExportEscpos");
+    const saveStatus = document.getElementById("barcodeSaveStatus");
+    const canvasSummary = document.getElementById("barcodeCanvasSummary");
+    const templateMeta = document.getElementById("barcodeTemplateMeta");
+    const templateKeyTag = document.getElementById("barcodeTemplateKeyTag");
+    const itemCountBadge = document.getElementById("barcodeItemCountBadge");
+    const warehouseName = document.getElementById("barcodeWarehouseName");
+    const previewLimit = document.getElementById("barcodePreviewLimit");
+    const footerLayer = document.getElementById("barcodeFooterLayer");
+    const footerBounds = document.getElementById("barcodeFooterBounds");
+    const footerCanvas = document.getElementById("barcodeFooterCanvas");
+    const footerSnap = document.getElementById("barcodeFooterSnap");
+    const noteInput = document.getElementById("barcodeNote");
+    const singleQtyInput = document.getElementById("barcodeSingleQty");
+    const codeFieldSelect = document.getElementById("barcodeCodeField");
     const templateNameInput = document.getElementById("templateNameInput");
     const templatePaperInput = document.getElementById("templatePaperInput");
     const templateLabelWidth = document.getElementById("templateLabelWidth");
@@ -297,147 +1543,655 @@
     const templateColumns = document.getElementById("templateColumns");
     const templateGap = document.getElementById("templateGap");
     const templateMargin = document.getElementById("templateMargin");
-    const templateSaveButton = document.getElementById("templateSaveButton");
-    const templateNewButton = document.getElementById("barcodeTemplateNew");
-    const templateEditButton = document.getElementById("barcodeTemplateEdit");
-    const templateDeleteButton = document.getElementById("barcodeTemplateDelete");
+    const barcodeHeightInput = document.getElementById("barcodeHeightInput");
+    const barcodeFontScale = document.getElementById("barcodeFontScale");
+    const selectedElementTag = document.getElementById("barcodeSelectedElementTag");
+    const selectedElementTitle = document.getElementById("barcodeSelectedElementTitle");
+    const selectedElementHint = document.getElementById("barcodeSelectedElementHint");
+    const elementVisibleToggle = document.getElementById("barcodeElementVisibleToggle");
+    const elementXInput = document.getElementById("barcodeElementX");
+    const elementYInput = document.getElementById("barcodeElementY");
+    const elementWInput = document.getElementById("barcodeElementW");
+    const elementHInput = document.getElementById("barcodeElementH");
+    const elementFontInput = document.getElementById("barcodeElementFont");
+    const elementWeightInput = document.getElementById("barcodeElementWeight");
+    const selectionToolbar = document.getElementById("barcodeSelectionToolbar");
+    const selectionToolbarTitle = document.getElementById("barcodeSelectionToolbarTitle");
+    const selectionVisibleButton = document.getElementById("barcodeSelectionVisible");
+    const selectionFontDownButton = document.getElementById("barcodeSelectionFontDown");
+    const selectionFontUpButton = document.getElementById("barcodeSelectionFontUp");
+    const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
+    const codeSourceButtons = Array.from(document.querySelectorAll("[data-code-source]"));
+    const zoomButtons = Array.from(document.querySelectorAll("[data-zoom]"));
+    const priceModeButtons = Array.from(document.querySelectorAll("[data-price-mode]"));
+    const viewModeButtons = Array.from(document.querySelectorAll("[data-view-mode]"));
+    const alignButtons = Array.from(document.querySelectorAll("[data-align]"));
+    const nudgeButtons = Array.from(document.querySelectorAll("[data-nudge]"));
+    const nudgeSizeButtons = Array.from(document.querySelectorAll("[data-nudge-size]"));
+    const layerActionButtons = Array.from(document.querySelectorAll("[data-layer-action]"));
+    const fileActionButtons = Array.from(document.querySelectorAll("[data-file-action]"));
+    const selectionAlignButtons = Array.from(document.querySelectorAll("[data-selection-align]"));
+    const selectionActionButtons = Array.from(document.querySelectorAll("[data-selection-action]"));
+    const toolbarMenus = Array.from(document.querySelectorAll("[data-toolbar-menu]"));
+    const workspaceDraftKey = `barcode_studio_draft:${workspaceScope}`;
+    let persistDraftTimer = null;
 
     const formatIdr = (value) => `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
 
-    const getSelectedPriceMode = () => (
-        document.querySelector("input[name='barcode_price_mode']:checked")?.value || "sell"
-    );
-
-    const resolvePrice = (item, mode) => {
-        const sell = Number(item.price_retail || 0) || Number(item.price_discount || 0) || Number(item.price_nett || 0);
-        const cost = Number(item.price_nett || 0) || Number(item.price_discount || 0) || Number(item.price_retail || 0);
-        if (mode === "cost") return [{ label: "HPP", value: formatIdr(cost) }];
-        if (mode === "both") return [{ label: "HPP", value: formatIdr(cost) }, { label: "H.Jual", value: formatIdr(sell) }];
-        return [{ label: "Harga", value: formatIdr(sell) }];
+    const readWorkspaceDraft = () => {
+        try {
+            const rawDraft = window.localStorage.getItem(workspaceDraftKey);
+            return rawDraft ? JSON.parse(rawDraft) : null;
+        } catch (error) {
+            return null;
+        }
     };
 
-    const getSelectedTemplate = () => templates.find((tpl) => tpl.id === state.selectedTemplateId) || templates[0];
-
-    const renderTemplates = () => {
-        templateList.innerHTML = templates.map((tpl) => `
-            <div class="barcode-template-card ${tpl.id === state.selectedTemplateId ? "active" : ""}" data-template-id="${tpl.id}">
-                <span>${tpl.label}</span>
-                <small>${tpl.paper}</small>
-            </div>
-        `).join("");
+    const persistWorkspaceDraft = () => {
+        try {
+            const draftPayload = {
+                templates: state.templates,
+                selectedTemplateId: state.selectedTemplateId,
+                selectedElementKey: state.selectedElementKey,
+                printMode: state.printMode,
+                codeSource: state.codeSource,
+                priceMode: state.priceMode,
+                note: state.note,
+                singleQty: state.singleQty,
+                zoom: state.zoom,
+                nudgeStep: state.nudgeStep,
+                showGrid: state.showGrid,
+                showSafeArea: state.showSafeArea,
+                snapEnabled: state.snapEnabled,
+                snapStep: state.snapStep,
+            };
+            window.localStorage.setItem(workspaceDraftKey, JSON.stringify(draftPayload));
+        } catch (error) {
+            // Abaikan error storage browser supaya editor tetap jalan.
+        }
     };
 
-    const setTemplateCSS = (tpl) => {
-        const [paperWidth, paperHeight] = tpl.paper.split("x").map((val) => `${Number(val)}mm`);
-        document.documentElement.style.setProperty("--barcode-paper-width", paperWidth);
-        document.documentElement.style.setProperty("--barcode-paper-height", paperHeight);
-        document.documentElement.style.setProperty("--barcode-label-width", `${tpl.width}mm`);
-        document.documentElement.style.setProperty("--barcode-label-height", `${tpl.height}mm`);
-        document.documentElement.style.setProperty("--barcode-cols", tpl.cols);
-        document.documentElement.style.setProperty("--barcode-gap", `${tpl.gap}mm`);
-        document.documentElement.style.setProperty("--barcode-margin", `${tpl.margin}mm`);
+    const schedulePersistWorkspaceDraft = () => {
+        window.clearTimeout(persistDraftTimer);
+        persistDraftTimer = window.setTimeout(persistWorkspaceDraft, 220);
     };
 
-    const renderItems = () => {
-        if (!state.selectedItems.length) {
-            itemList.innerHTML = `<div class="empty-state">Belum ada item dipilih.</div>`;
+    const setStatus = (label, tone = "saved") => {
+        saveStatus.textContent = label;
+        saveStatus.className = `barcode-save-pill ${tone}`;
+    };
+
+    const markDraft = () => setStatus("Draft", "draft");
+    const closeToolbarMenus = () => {
+        toolbarMenus.forEach((menu) => {
+            menu.open = false;
+        });
+    };
+
+    const positionSelectionToolbar = () => {
+        if (!selectionToolbar || selectionToolbar.hidden) return;
+        const canvasWrap = canvasStage.closest(".barcode-canvas-wrap");
+        const targetNode = artboardLabel.querySelector(`[data-element-key="${state.selectedElementKey}"]`);
+        if (!canvasWrap || !targetNode) {
+            selectionToolbar.hidden = true;
             return;
         }
 
-        itemList.innerHTML = state.selectedItems.map((item, index) => `
-            <div class="barcode-item-row" data-item-id="${item.id}">
-                <div>
-                    <strong>${item.sku || "-"}</strong>
-                    <div class="helper-text">${item.name} · ${item.variant_label || "Default"}</div>
+        const wrapRect = canvasWrap.getBoundingClientRect();
+        const targetRect = targetNode.getBoundingClientRect();
+        const toolbarWidth = selectionToolbar.offsetWidth || 320;
+        const toolbarHeight = selectionToolbar.offsetHeight || 46;
+        const centerX = targetRect.left - wrapRect.left + (targetRect.width / 2);
+        const idealLeft = centerX - (toolbarWidth / 2);
+        const left = Math.max(12, Math.min(idealLeft, wrapRect.width - toolbarWidth - 12));
+        const enoughTopSpace = targetRect.top - wrapRect.top > toolbarHeight + 18;
+        const rawTop = enoughTopSpace
+            ? targetRect.top - wrapRect.top - toolbarHeight - 10
+            : targetRect.bottom - wrapRect.top + 10;
+        const top = Math.max(12, Math.min(rawTop, wrapRect.height - toolbarHeight - 12));
+
+        selectionToolbar.style.left = `${Math.round(left)}px`;
+        selectionToolbar.style.top = `${Math.round(top)}px`;
+    };
+
+    const syncCanvasViewState = () => {
+        artboardLabel.dataset.grid = state.showGrid ? "on" : "off";
+        artboardLabel.dataset.safeArea = state.showSafeArea ? "on" : "off";
+        footerSnap.textContent = state.snapEnabled ? `${state.snapStep}%` : "Off";
+    };
+
+    const currentWarehouseLabel = () => warehouseSelect?.options[warehouseSelect.selectedIndex]?.text || initialWarehouseName;
+
+    const getTemplate = () => state.templates.find((template) => template.id === state.selectedTemplateId) || state.templates[0] || null;
+
+    const getElement = () => {
+        const template = getTemplate();
+        if (!template) return null;
+        return template.options.elements[state.selectedElementKey] || template.options.elements.name || null;
+    };
+
+    const activeItem = () => state.selectedItems.find((item) => item.id === state.activeItemId) || state.selectedItems[0] || null;
+
+    const sampleContent = () => {
+        const currentItem = activeItem();
+        const priceRetail = Number(currentItem?.price_retail || 150000);
+        const priceCost = Number(currentItem?.price_cost || 100000);
+        const noteValue = state.note.trim();
+        const labelCode = state.codeSource === "gtin"
+            ? (currentItem?.gtin || "8990001112223")
+            : (currentItem?.sku || "SKU-DEMO-001");
+        let priceLines = [];
+        if (state.priceMode === "cost") {
+            priceLines = [`HPP: ${formatIdr(priceCost)}`];
+        } else if (state.priceMode === "both") {
+            priceLines = [`HPP: ${formatIdr(priceCost)}`, `Jual: ${formatIdr(priceRetail)}`];
+        } else {
+            priceLines = [`Jual: ${formatIdr(priceRetail)}`];
+        }
+        return {
+            warehouse: currentWarehouseLabel(),
+            name: currentItem?.name || "Sample Product Name",
+            variant: currentItem?.variant_label || "Default",
+            category: currentItem?.category || "Category",
+            barcode: labelCode,
+            code: labelCode,
+            price: priceLines.join(" | "),
+            note: noteValue || "Promo",
+        };
+    };
+
+    const buildPrintLabels = () => {
+        const items = state.printMode === "single"
+            ? (activeItem() ? [activeItem()] : [])
+            : state.selectedItems;
+
+        return items.flatMap((item) => {
+            const qty = state.printMode === "single"
+                ? toNumber(state.singleQty, 1, 1, 999, true)
+                : toNumber(item.label_qty, 1, 1, 999, true);
+            const codeValue = state.codeSource === "gtin"
+                ? (item.gtin || item.sku || "-")
+                : (item.sku || item.gtin || "-");
+            const priceRetail = Number(item.price_retail || 0);
+            const priceCost = Number(item.price_cost || item.price_nett || priceRetail || 0);
+            let priceLines = [];
+            if (state.priceMode === "cost") {
+                priceLines = [`HPP: ${formatIdr(priceCost)}`];
+            } else if (state.priceMode === "both") {
+                priceLines = [`HPP: ${formatIdr(priceCost)}`, `Jual: ${formatIdr(priceRetail)}`];
+            } else {
+                priceLines = [`Jual: ${formatIdr(priceRetail)}`];
+            }
+
+            return Array.from({ length: qty }, () => ({
+                warehouse: currentWarehouseLabel(),
+                name: item.name || "-",
+                variant: item.variant_label || "Default",
+                category: item.category || "",
+                barcode: codeValue,
+                code: codeValue,
+                price: priceLines.join(" | "),
+                note: state.note.trim(),
+            }));
+        });
+    };
+
+    const elementStyle = (layer, previewMode) => {
+        const fontScale = previewMode === "stage" ? 1 : (getTemplate()?.font_scale || 100) / 100;
+        return [
+            `left:${layer.x}%;`,
+            `top:${layer.y}%;`,
+            `width:${layer.w}%;`,
+            `height:${layer.h}%;`,
+            `font-size:${layer.font > 0 ? `calc(${layer.font * fontScale} * 1cqw)` : "0px"};`,
+            `font-weight:${layer.weight};`,
+        ].join("");
+    };
+
+    const buildElementHtml = (key, layer, data, previewMode, selected = false) => {
+        const safeValue = key === "barcode" ? (data.barcode || "-") : (data[key] || "");
+        const classes = ["barcode-element"];
+        if (selected && previewMode === "stage") classes.push("selected");
+        if (!layer.visible && previewMode === "stage") classes.push("hidden-preview");
+        if (!layer.visible && previewMode !== "stage") return "";
+        if (!safeValue && key !== "barcode" && previewMode !== "stage") return "";
+        const resizeHandle = selected && previewMode === "stage"
+            ? '<span class="barcode-resize-handle" data-resize-handle="corner" aria-hidden="true"></span>'
+            : "";
+
+        const sharedAttrs = [
+            `class="${classes.join(" ")}"`,
+            `data-element-key="${escapeHtml(key)}"`,
+            `data-kind="${escapeHtml(layer.kind)}"`,
+            `data-align="${escapeHtml(layer.align)}"`,
+            `style="${escapeHtml(elementStyle(layer, previewMode))}"`,
+        ].join(" ");
+
+        if (layer.kind === "barcode") {
+            return `<div ${sharedAttrs}><svg data-barcode-value="${escapeHtml(data.barcode || "-")}"></svg>${resizeHandle}</div>`;
+        }
+
+        return `<div ${sharedAttrs}>${escapeHtml(safeValue)}${resizeHandle}</div>`;
+    };
+
+    const activateBarcodes = (rootNode, previewMode) => {
+        if (!window.JsBarcode || !rootNode) return;
+        const template = getTemplate();
+        const baseHeight = previewMode === "stage"
+            ? Math.max(48, Number(template?.barcode_height || 34) * 3)
+            : Math.max(24, Number(template?.barcode_height || 34) * 2.2);
+        rootNode.querySelectorAll("svg[data-barcode-value]").forEach((svg) => {
+            const barcodeValue = svg.getAttribute("data-barcode-value") || "";
+            try {
+                window.JsBarcode(svg, barcodeValue, {
+                    format: "CODE128",
+                    displayValue: false,
+                    width: 1.4,
+                    height: baseHeight,
+                    margin: 0,
+                });
+            } catch (error) {
+                const fallback = document.createElement("div");
+                fallback.textContent = barcodeValue;
+                fallback.className = "barcode-muted";
+                svg.replaceWith(fallback);
+            }
+        });
+    };
+
+    const applyTemplateCss = () => {
+        const template = getTemplate();
+        if (!template) return;
+        const paper = parsePaper(template.paper);
+        document.documentElement.style.setProperty("--barcode-paper-width", `${paper.width}mm`);
+        document.documentElement.style.setProperty("--barcode-paper-height", `${paper.height}mm`);
+        document.documentElement.style.setProperty("--barcode-label-width", `${template.width}mm`);
+        document.documentElement.style.setProperty("--barcode-label-height", `${template.height}mm`);
+        document.documentElement.style.setProperty("--barcode-cols", String(template.cols));
+        document.documentElement.style.setProperty("--barcode-gap", `${template.gap}mm`);
+        document.documentElement.style.setProperty("--barcode-margin", `${template.margin}mm`);
+    };
+
+    const syncTemplateForm = () => {
+        const template = getTemplate();
+        if (!template) return;
+        templateNameInput.value = template.label;
+        templatePaperInput.value = template.paper;
+        templateLabelWidth.value = template.width;
+        templateLabelHeight.value = template.height;
+        templateColumns.value = template.cols;
+        templateGap.value = template.gap;
+        templateMargin.value = template.margin;
+        barcodeHeightInput.value = template.barcode_height;
+        barcodeFontScale.value = template.font_scale;
+        codeFieldSelect.value = state.codeSource;
+        templateMeta.textContent = template.origin === "default" && !state.serverTemplateKeys.has(template.id) ? "Default" : "Custom";
+        templateKeyTag.textContent = template.id;
+    };
+
+    const syncTemplateFromForm = () => {
+        const template = getTemplate();
+        if (!template) return;
+        template.label = templateNameInput.value.trim() || "Untitled";
+        template.paper = templatePaperInput.value.trim() || "210x297";
+        template.width = toNumber(templateLabelWidth.value, template.width, 10, 300);
+        template.height = toNumber(templateLabelHeight.value, template.height, 10, 300);
+        template.cols = toNumber(templateColumns.value, template.cols, 1, 8, true);
+        template.gap = toNumber(templateGap.value, template.gap, 0, 40);
+        template.margin = toNumber(templateMargin.value, template.margin, 0, 40);
+        template.barcode_height = toNumber(barcodeHeightInput.value, template.barcode_height, 20, 80, true);
+        template.font_scale = toNumber(barcodeFontScale.value, template.font_scale, 70, 180, true);
+        applyTemplateCss();
+    };
+
+    const syncElementInspector = () => {
+        const template = getTemplate();
+        const layer = getElement();
+        if (!template || !layer) {
+            if (selectionToolbar) selectionToolbar.hidden = true;
+            return;
+        }
+        selectedElementTag.textContent = state.selectedElementKey;
+        selectedElementTitle.textContent = layer.label || layerLabels[state.selectedElementKey];
+        selectedElementHint.textContent = `${layer.kind === "barcode" ? "Barcode" : "Text"} | drag di canvas atau ubah nilai di inspector`;
+        elementVisibleToggle.classList.toggle("active", layer.visible);
+        elementVisibleToggle.textContent = layer.visible ? "Visible" : "Hidden";
+        elementXInput.value = layer.x;
+        elementYInput.value = layer.y;
+        elementWInput.value = layer.w;
+        elementHInput.value = layer.h;
+        elementFontInput.value = layer.font;
+        elementWeightInput.value = layer.weight;
+        elementFontInput.disabled = layer.kind === "barcode";
+        elementWeightInput.disabled = layer.kind === "barcode";
+        alignButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.align === layer.align);
+        });
+        selectionToolbar.hidden = false;
+        selectionToolbarTitle.textContent = layer.label || layerLabels[state.selectedElementKey];
+        selectionVisibleButton.textContent = layer.visible ? "Visible" : "Hidden";
+        selectionVisibleButton.classList.toggle("active", layer.visible);
+        selectionAlignButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.selectionAlign === layer.align);
+        });
+        const fontButtonsDisabled = layer.kind === "barcode";
+        selectionFontDownButton.disabled = fontButtonsDisabled;
+        selectionFontUpButton.disabled = fontButtonsDisabled;
+        footerLayer.textContent = layer.label || layerLabels[state.selectedElementKey];
+        footerBounds.textContent = `X ${Number(layer.x).toFixed(1)} | Y ${Number(layer.y).toFixed(1)} | W ${Number(layer.w).toFixed(1)} | H ${Number(layer.h).toFixed(1)}`;
+        footerCanvas.textContent = `${Number(template.width).toFixed(0)} x ${Number(template.height).toFixed(0)} mm`;
+    };
+
+    const syncModeChips = () => {
+        modeButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.mode === state.printMode);
+        });
+        codeSourceButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.codeSource === state.codeSource);
+        });
+        zoomButtons.forEach((button) => {
+            button.classList.toggle("active", Number(button.dataset.zoom || 1) === state.zoom);
+        });
+        priceModeButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.priceMode === state.priceMode);
+        });
+        viewModeButtons.forEach((button) => {
+            const mode = button.dataset.viewMode || "";
+            const isActive = (mode === "grid" && state.showGrid)
+                || (mode === "safe" && state.showSafeArea)
+                || (mode === "snap" && state.snapEnabled);
+            button.classList.toggle("active", isActive);
+        });
+        nudgeSizeButtons.forEach((button) => {
+            button.classList.toggle("active", Number(button.dataset.nudgeSize || 1) === state.nudgeStep);
+        });
+        singleQtyInput.disabled = state.printMode !== "single";
+    };
+
+    const renderTemplateList = () => {
+        templateList.innerHTML = state.templates.map((template) => {
+            const escPosProfile = getEscPosProfile(template);
+            return `
+            <button type="button" class="barcode-template-card ${template.id === state.selectedTemplateId ? "active" : ""}" data-template-id="${escapeHtml(template.id)}">
+                <div class="barcode-template-card-top">
+                    <strong>${escapeHtml(template.label)}</strong>
+                    <span class="barcode-tag">${template.origin === "default" && !state.serverTemplateKeys.has(template.id) ? "Default" : "Custom"}</span>
                 </div>
-                <input type="number" min="1" step="1" value="${item.qty}" data-item-qty>
-                <div class="helper-text">${item.gtin || "-"}<br>${formatIdr(item.price_retail || 0)}</div>
-                <button type="button" class="ghost-button danger" data-remove-item="${index}">Hapus</button>
+                <div class="barcode-template-thumb">${escapeHtml(template.paper)} | ${escapeHtml(String(template.cols))} col</div>
+                <span>${escapeHtml(String(escPosProfile.widthMm))} mm | ${escapeHtml(String(escPosProfile.charsPerLine))} chr</span>
+                <span>${escapeHtml(String(template.width))} x ${escapeHtml(String(template.height))} mm</span>
+            </button>
+            `;
+        }).join("");
+    };
+
+    const renderLayerList = () => {
+        const template = getTemplate();
+        if (!template) {
+            layerList.innerHTML = `<div class="barcode-empty">Template belum siap.</div>`;
+            return;
+        }
+
+        layerList.innerHTML = layerOrder.map((key) => {
+            const layer = template.options.elements[key];
+            const locationLabel = `${Math.round(layer.x)} / ${Math.round(layer.y)}`;
+            return `
+                <div class="barcode-layer-card ${key === state.selectedElementKey ? "active" : ""}" data-layer-key="${escapeHtml(key)}">
+                    <div class="barcode-layer-copy">
+                        <strong>${escapeHtml(layer.label || layerLabels[key])}</strong>
+                        <span>${escapeHtml(layer.kind)} | ${escapeHtml(locationLabel)}</span>
+                    </div>
+                    <button type="button" class="barcode-layer-visibility ${layer.visible ? "active" : ""}" data-toggle-layer="${escapeHtml(key)}">
+                        ${layer.visible ? "On" : "Off"}
+                    </button>
+                </div>
+            `;
+        }).join("");
+    };
+
+    const renderItemList = () => {
+        itemCountBadge.textContent = String(state.selectedItems.length);
+        if (!state.selectedItems.length) {
+            itemList.innerHTML = `<div class="barcode-empty">Belum ada item.</div>`;
+            return;
+        }
+        itemList.innerHTML = state.selectedItems.map((item, index) => `
+            <div class="barcode-item-card ${item.id === state.activeItemId ? "active" : ""}" data-item-id="${escapeHtml(String(item.id))}">
+                <div class="barcode-item-copy">
+                    <strong>${escapeHtml(item.sku || "-")}</strong>
+                    <span>${escapeHtml(item.name || "-")}</span>
+                    <small>${escapeHtml(item.variant_label || "Default")}${item.category ? ` | ${escapeHtml(item.category)}` : ""}</small>
+                </div>
+                <label class="barcode-item-qty">
+                    <span>Qty</span>
+                    <input type="number" min="1" step="1" value="${escapeHtml(String(item.label_qty || 1))}" data-item-qty>
+                </label>
+                <button type="button" class="barcode-btn secondary" data-remove-item="${escapeHtml(String(index))}">X</button>
             </div>
         `).join("");
     };
 
-    const buildLabelPayloads = () => {
-        const mode = document.querySelector("input[name='barcode_print_mode']:checked")?.value || "single";
-        const field = codeField.value;
-        const note = noteInput.value.trim();
-        const priceMode = getSelectedPriceMode();
-
-        const items = mode === "single"
-            ? state.selectedItems.filter((item) => item.id === state.activeItemId).slice(0, 1)
-            : state.selectedItems;
-
-        if (!items.length && state.selectedItems.length) {
-            items.push(state.selectedItems[0]);
+    const renderArtboard = () => {
+        const template = getTemplate();
+        if (!template) {
+            artboardLabel.innerHTML = "";
+            if (selectionToolbar) selectionToolbar.hidden = true;
+            return;
         }
 
-        const labels = [];
-        items.forEach((item) => {
-            const qty = mode === "single"
-                ? Number(singleQty.value || 1)
-                : Number(item.qty || 1);
-            const prices = resolvePrice(item, priceMode);
-            const codeValue = (field === "gtin" ? item.gtin : item.sku) || item.sku || item.gtin || "-";
-            const safeQty = Math.max(1, qty);
-            for (let i = 0; i < safeQty; i += 1) {
-                labels.push({
-                    name: item.name,
-                    code: codeValue,
-                    prices,
-                    note,
-                });
-            }
-        });
+        const paperRatio = template.width / Math.max(template.height, 1);
+        const canvasWrap = canvasStage.closest(".barcode-canvas-wrap");
+        const wrapWidth = Number(canvasWrap?.clientWidth || 0);
+        const artboardFramePadding = 96;
+        const availableWidth = Math.max(420, wrapWidth - artboardFramePadding);
+        const preferredWidth = paperRatio >= 1.3
+            ? Math.min(1100, Math.max(760, availableWidth))
+            : Math.min(920, Math.max(620, availableWidth));
+        const naturalHeight = preferredWidth / Math.max(paperRatio, 0.1);
 
-        return labels;
+        document.documentElement.style.setProperty("--barcode-artboard-width", `${preferredWidth}px`);
+        artboardLabel.style.aspectRatio = `${template.width} / ${template.height}`;
+        artboardLabel.style.minHeight = `${Math.round(Math.max(320, Math.min(620, naturalHeight)))}px`;
+        syncCanvasViewState();
+
+        const content = sampleContent();
+        artboardLabel.innerHTML = layerOrder
+            .map((key) => buildElementHtml(key, template.options.elements[key], content, "stage", key === state.selectedElementKey))
+            .join("");
+        activateBarcodes(artboardLabel, "stage");
+        canvasStage.style.transform = `scale(${state.zoom})`;
+        window.requestAnimationFrame(positionSelectionToolbar);
+        schedulePersistWorkspaceDraft();
     };
 
-    const renderLabels = () => {
-        const labels = buildLabelPayloads();
-        const renderLabelHtml = (label) => `
+    const renderPrintPreview = () => {
+        const template = getTemplate();
+        if (!template) {
+            previewGrid.innerHTML = "";
+            printGrid.innerHTML = "";
+            return;
+        }
+
+        const labels = buildPrintLabels();
+        const renderLabel = (content) => `
             <div class="barcode-label">
-                <strong>${label.name}</strong>
-                ${label.note ? `<div class="helper-text">${label.note}</div>` : ""}
-                <svg class="barcode-svg" data-code="${label.code}"></svg>
-                <div class="barcode-code">${label.code}</div>
-                ${label.prices.map((price) => `<div class="barcode-price">${price.label}: ${price.value}</div>`).join("")}
+                <div class="barcode-label-layout">
+                    ${layerOrder.map((key) => buildElementHtml(key, template.options.elements[key], content, "print", false)).join("")}
+                </div>
             </div>
         `;
 
-        previewGrid.innerHTML = labels.length
-            ? labels.map(renderLabelHtml).join("")
-            : `<div class="empty-state">Pilih item untuk melihat preview.</div>`;
-        printGrid.innerHTML = labels.map(renderLabelHtml).join("");
+        previewGrid.innerHTML = labels.slice(0, previewLimitCount).map(renderLabel).join("");
+        printGrid.innerHTML = labels.map(renderLabel).join("");
+        activateBarcodes(previewGrid, "print");
+        activateBarcodes(printGrid, "print");
+        previewLimit.textContent = `Preview ${Math.min(labels.length, previewLimitCount)} / ${previewLimitCount}`;
+        canvasSummary.textContent = `${state.selectedItems.length} item | ${labels.length} label`;
+        warehouseName.textContent = currentWarehouseLabel();
+        schedulePersistWorkspaceDraft();
+    };
 
-        if (window.JsBarcode) {
-            document.querySelectorAll(".barcode-svg").forEach((svg) => {
-                const code = svg.getAttribute("data-code") || "";
-                try {
-                    window.JsBarcode(svg, code, {
-                        format: "CODE128",
-                        displayValue: false,
-                        width: 1.4,
-                        height: 32,
-                        margin: 0,
-                    });
-                } catch (error) {
-                    svg.replaceWith(document.createTextNode(code));
-                }
-            });
+    const rerender = () => {
+        applyTemplateCss();
+        syncTemplateForm();
+        syncElementInspector();
+        syncModeChips();
+        renderTemplateList();
+        renderLayerList();
+        renderItemList();
+        renderArtboard();
+        renderPrintPreview();
+        schedulePersistWorkspaceDraft();
+    };
+
+    const setTemplateSelection = (templateId) => {
+        if (!state.templates.some((template) => template.id === templateId)) return;
+        state.selectedTemplateId = templateId;
+        state.selectedElementKey = "name";
+        closeToolbarMenus();
+        rerender();
+    };
+
+    const clampLayerBounds = (layer) => {
+        layer.w = toNumber(layer.w, layer.w, 4, 100);
+        layer.h = toNumber(layer.h, layer.h, 4, 100);
+        layer.x = toNumber(layer.x, layer.x, 0, Math.max(0, 100 - layer.w));
+        layer.y = toNumber(layer.y, layer.y, 0, Math.max(0, 100 - layer.h));
+        layer.font = toNumber(layer.font, layer.font, 0, 24);
+        layer.weight = toNumber(layer.weight, layer.weight, 400, 800, true);
+    };
+
+    const snapLayerToGrid = (layer) => {
+        if (!state.snapEnabled) return;
+        const step = Math.max(0.5, Number(state.snapStep || 2));
+        const snapValue = (value) => Math.round(Number(value || 0) / step) * step;
+        layer.x = snapValue(layer.x);
+        layer.y = snapValue(layer.y);
+        layer.w = snapValue(layer.w);
+        layer.h = snapValue(layer.h);
+    };
+
+    const syncLayerVisibilityFlags = () => {
+        const template = getTemplate();
+        if (!template) return;
+        template.options.show_warehouse = Boolean(template.options.elements.warehouse.visible);
+        template.options.show_variant = Boolean(template.options.elements.variant.visible);
+        template.options.show_category = Boolean(template.options.elements.category.visible);
+        template.options.show_code_text = Boolean(template.options.elements.code.visible);
+        template.options.show_price = Boolean(template.options.elements.price.visible);
+        template.options.show_note = Boolean(template.options.elements.note.visible);
+    };
+
+    const updateSelectedLayer = (updater) => {
+        const layer = getElement();
+        if (!layer) return;
+        updater(layer);
+        snapLayerToGrid(layer);
+        clampLayerBounds(layer);
+        syncLayerVisibilityFlags();
+        markDraft();
+        rerender();
+    };
+
+    const applyLayerAction = (action) => {
+        const defaultLayer = defaultLayerModel[state.selectedElementKey];
+        if (!defaultLayer) return;
+        updateSelectedLayer((layer) => {
+            if (action === "left") layer.x = 0;
+            if (action === "center") layer.x = (100 - layer.w) / 2;
+            if (action === "right") layer.x = 100 - layer.w;
+            if (action === "fit") {
+                layer.x = 0;
+                layer.w = 100;
+            }
+            if (action === "top") layer.y = 0;
+            if (action === "middle") layer.y = (100 - layer.h) / 2;
+            if (action === "bottom") layer.y = 100 - layer.h;
+            if (action === "reset") {
+                Object.assign(layer, clone(defaultLayer));
+            }
+        });
+    };
+
+    const buildInitialTemplates = () => {
+        state.templates = defaultTemplates.map((template) => clone(template));
+        customTemplatesRaw.map((template) => normalizeTemplate(template, "custom")).forEach((template) => {
+            state.serverTemplateKeys.add(template.id);
+            const existingIndex = state.templates.findIndex((entry) => entry.id === template.id);
+            if (existingIndex >= 0) {
+                state.templates[existingIndex] = template;
+            } else {
+                state.templates.push(template);
+            }
+        });
+        state.selectedTemplateId = state.templates[0]?.id || "KERTAS_A4";
+    };
+
+    const restoreWorkspaceDraft = () => {
+        const draft = readWorkspaceDraft();
+        if (!draft || !Array.isArray(draft.templates)) return false;
+
+        draft.templates.map((template) => normalizeTemplate(template, template.origin || "custom")).forEach((template) => {
+            const existingIndex = state.templates.findIndex((entry) => entry.id === template.id);
+            if (existingIndex >= 0) {
+                state.templates[existingIndex] = template;
+            } else {
+                state.templates.push(template);
+            }
+        });
+
+        if (state.templates.some((template) => template.id === draft.selectedTemplateId)) {
+            state.selectedTemplateId = draft.selectedTemplateId;
         }
+        if (layerOrder.includes(String(draft.selectedElementKey || ""))) {
+            state.selectedElementKey = String(draft.selectedElementKey);
+        }
+        if (["single", "multi", "all", "rack"].includes(String(draft.printMode || ""))) {
+            state.printMode = String(draft.printMode);
+        }
+        if (["sku", "gtin"].includes(String(draft.codeSource || ""))) {
+            state.codeSource = String(draft.codeSource);
+        }
+        if (["sell", "cost", "both"].includes(String(draft.priceMode || ""))) {
+            state.priceMode = String(draft.priceMode);
+        }
+        state.note = String(draft.note || "");
+        state.singleQty = toNumber(draft.singleQty, 1, 1, 999, true);
+        state.zoom = toNumber(draft.zoom, 1, 0.75, 2);
+        state.nudgeStep = toNumber(draft.nudgeStep, 1, 1, 10, true);
+        state.showGrid = draft.showGrid !== false;
+        state.showSafeArea = draft.showSafeArea !== false;
+        state.snapEnabled = draft.snapEnabled !== false;
+        state.snapStep = toNumber(draft.snapStep, 2, 0.5, 10);
+        return true;
     };
 
-    const updateActiveMeta = (item) => {
-        if (!item) return;
-        barcodeJenis.value = item.category || "-";
-        barcodeSatuan.value = item.variant_label || "Default";
-        barcodeMerek.value = item.brand || "";
+    const createCustomTemplate = (seedTemplate, label) => {
+        const base = clone(seedTemplate || getTemplate() || defaultTemplates[0]);
+        base.id = normalizeTemplateId(`custom_${Date.now()}`);
+        base.label = label || "Untitled";
+        base.origin = "custom";
+        state.templates.push(base);
+        state.selectedTemplateId = base.id;
+        state.selectedElementKey = "name";
+        markDraft();
+        rerender();
     };
 
-    const addItem = (item) => {
+    const fetchBarcodeItems = async (params) => {
+        const response = await fetch(`/stock/barcode/items?${params.toString()}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.message || "Data barcode gagal dimuat.");
+        }
+        return payload.items || [];
+    };
+
+    const addPickedItem = (item) => {
         const existing = state.selectedItems.find((entry) => entry.id === item.variant_id);
         if (existing) {
-            existing.qty += 1;
+            existing.label_qty = Math.max(1, Number(existing.label_qty || 1) + 1);
+            state.activeItemId = existing.id;
         } else {
             state.selectedItems.push({
                 id: item.variant_id,
@@ -447,76 +2201,16 @@
                 price_retail: item.price_retail,
                 price_discount: item.price_discount,
                 price_nett: item.price_nett,
+                price_cost: item.price_cost,
                 variant_label: item.variant_label || "Default",
                 category: item.category || "",
-                brand: item.brand || "",
-                qty: 1,
+                label_qty: 1,
             });
             state.activeItemId = item.variant_id;
         }
-        updateActiveMeta(item);
-        renderItems();
-        renderLabels();
-    };
-
-    const openTemplateModal = (template) => {
-        const tpl = template || getSelectedTemplate();
-        templateNameInput.value = tpl.label || "";
-        templatePaperInput.value = tpl.paper || "210x297";
-        templateLabelWidth.value = tpl.width || 50;
-        templateLabelHeight.value = tpl.height || 25;
-        templateColumns.value = tpl.cols || 2;
-        templateGap.value = tpl.gap || 6;
-        templateMargin.value = tpl.margin || 6;
-        templateModal.style.display = "flex";
-    };
-
-    const closeTemplateModal = () => {
-        templateModal.style.display = "none";
-    };
-
-    const saveTemplate = () => {
-        const name = templateNameInput.value.trim() || "CUSTOM";
-        const tpl = {
-            id: name.replace(/\s+/g, "_").toUpperCase(),
-            label: name,
-            paper: templatePaperInput.value.trim() || "210x297",
-            width: Number(templateLabelWidth.value || 50),
-            height: Number(templateLabelHeight.value || 25),
-            cols: Number(templateColumns.value || 2),
-            gap: Number(templateGap.value || 6),
-            margin: Number(templateMargin.value || 6),
-        };
-        const existingIndex = templates.findIndex((entry) => entry.id === tpl.id);
-        if (existingIndex >= 0) {
-            templates[existingIndex] = tpl;
-        } else {
-            templates.push(tpl);
-        }
-        state.selectedTemplateId = tpl.id;
-        renderTemplates();
-        setTemplateCSS(tpl);
-        renderLabels();
-        closeTemplateModal();
-    };
-
-    const downloadCsv = () => {
-        const labels = buildLabelPayloads();
-        if (!labels.length) {
-            alert("Pilih item terlebih dahulu.");
-            return;
-        }
-        const rows = [["Nama", "Barcode", "Harga"]];
-        labels.forEach((label) => {
-            const price = label.prices.map((p) => `${p.label} ${p.value}`).join(" | ");
-            rows.push([label.name, label.code, price]);
-        });
-        const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/\"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = "barcode_bartender.csv";
-        link.click();
+        renderItemList();
+        renderArtboard();
+        renderPrintPreview();
     };
 
     const picker = createItemPicker({
@@ -530,158 +2224,619 @@
         prevButtonId: "itemPickerPrev",
         nextButtonId: "itemPickerNext",
         getWarehouseId: () => warehouseSelect?.value || "",
-        getWarehouseLabel: () => warehouseSelect?.options[warehouseSelect.selectedIndex]?.text || "",
+        getWarehouseLabel: () => currentWarehouseLabel(),
         onPick: (row, item) => {
-            addItem(item);
+            addPickedItem(item);
         },
     });
 
-    const runSearch = async () => {
-        const query = searchInput.value.trim();
-        if (!query) return;
-        const params = new URLSearchParams({
-            q: query,
-            limit: "60",
-            warehouse: String(warehouseSelect?.value || ""),
+    const saveCurrentTemplate = async () => {
+        const template = getTemplate();
+        if (!template) return;
+        syncTemplateFromForm();
+        const response = await fetch("/stock/barcode/templates", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            body: JSON.stringify({
+                id: template.id,
+                label: template.label,
+                paper: template.paper,
+                width: template.width,
+                height: template.height,
+                cols: template.cols,
+                gap: template.gap,
+                margin: template.margin,
+                barcode_height: template.barcode_height,
+                font_scale: template.font_scale,
+                options: template.options,
+            }),
         });
-        const response = await fetch(`/stock/barcode/items?${params.toString()}`);
-        const data = await response.json();
-        const items = data.items || [];
-        const normalized = query.toLowerCase();
-        const field = searchField.value === "barcode" ? "gtin" : "sku";
-        const exactMatches = items.filter((item) => String(item[field] || "").trim().toLowerCase() === normalized);
-        const picked = exactMatches.length === 1 ? exactMatches[0] : (items.length === 1 ? items[0] : null);
-        if (picked) {
-            addItem(picked);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== "success") {
+            throw new Error(payload.message || "Template gagal disimpan.");
+        }
+        const savedTemplate = normalizeTemplate(payload.template, "custom");
+        const existingIndex = state.templates.findIndex((entry) => entry.id === savedTemplate.id);
+        if (existingIndex >= 0) {
+            state.templates[existingIndex] = savedTemplate;
+        } else {
+            state.templates.push(savedTemplate);
+        }
+        state.serverTemplateKeys.add(savedTemplate.id);
+        state.selectedTemplateId = savedTemplate.id;
+        setStatus("Saved", "saved");
+        rerender();
+    };
+
+    const deleteCurrentTemplate = async () => {
+        const template = getTemplate();
+        if (!template) return;
+        if (!state.serverTemplateKeys.has(template.id)) {
+            if (template.origin === "default") {
+                alert("Preset bawaan tidak bisa dihapus.");
+                return;
+            }
+            state.templates = state.templates.filter((entry) => entry.id !== template.id);
+            state.selectedTemplateId = state.templates[0]?.id || defaultTemplates[0]?.id || null;
+            state.selectedElementKey = "name";
+            setStatus("Removed", "saved");
+            rerender();
             return;
         }
-        const pickerSearch = document.getElementById("itemPickerSearch");
-        if (pickerSearch) pickerSearch.value = query;
-        picker.openForRow(document.body);
+
+        const response = await fetch(`/stock/barcode/templates/${encodeURIComponent(template.id)}`, {
+            method: "DELETE",
+            headers: { "Accept": "application/json" },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== "success") {
+            throw new Error(payload.message || "Template gagal dihapus.");
+        }
+
+        state.serverTemplateKeys.delete(template.id);
+        const defaultTemplate = state.defaultTemplateMap.get(template.id);
+        if (defaultTemplate) {
+            const replaceIndex = state.templates.findIndex((entry) => entry.id === template.id);
+            state.templates[replaceIndex] = clone(defaultTemplate);
+        } else {
+            state.templates = state.templates.filter((entry) => entry.id !== template.id);
+        }
+        state.selectedTemplateId = state.templates[0]?.id || defaultTemplates[0]?.id || null;
+        state.selectedElementKey = "name";
+        setStatus("Removed", "saved");
+        rerender();
     };
+
+    toolbarMenus.forEach((menu) => {
+        menu.addEventListener("toggle", () => {
+            if (!menu.open) return;
+            toolbarMenus.forEach((otherMenu) => {
+                if (otherMenu !== menu) {
+                    otherMenu.open = false;
+                }
+            });
+        });
+    });
+
+    document.addEventListener("click", (event) => {
+        if (event.target.closest("[data-toolbar-menu]")) return;
+        closeToolbarMenus();
+    });
 
     templateList.addEventListener("click", (event) => {
         const card = event.target.closest("[data-template-id]");
         if (!card) return;
-        state.selectedTemplateId = card.dataset.templateId;
-        renderTemplates();
-        setTemplateCSS(getSelectedTemplate());
-        renderLabels();
+        setTemplateSelection(card.dataset.templateId);
+    });
+
+    layerList.addEventListener("click", (event) => {
+        const toggleButton = event.target.closest("[data-toggle-layer]");
+        if (toggleButton) {
+            event.stopPropagation();
+            const key = toggleButton.dataset.toggleLayer;
+            state.selectedElementKey = key;
+            updateSelectedLayer((layer) => {
+                layer.visible = !layer.visible;
+            });
+            return;
+        }
+
+        const card = event.target.closest("[data-layer-key]");
+        if (!card) return;
+        state.selectedElementKey = card.dataset.layerKey;
+        syncElementInspector();
+        renderLayerList();
+        renderArtboard();
+    });
+
+    itemList.addEventListener("click", (event) => {
+        const removeButton = event.target.closest("[data-remove-item]");
+        if (removeButton) {
+            event.stopPropagation();
+            const index = Number(removeButton.dataset.removeItem);
+            state.selectedItems.splice(index, 1);
+            state.activeItemId = state.selectedItems[0]?.id || null;
+            renderItemList();
+            renderArtboard();
+            renderPrintPreview();
+            return;
+        }
+
+        const card = event.target.closest("[data-item-id]");
+        if (!card) return;
+        state.activeItemId = Number(card.dataset.itemId);
+        renderItemList();
+        renderArtboard();
+        renderPrintPreview();
     });
 
     itemList.addEventListener("input", (event) => {
         const qtyInput = event.target.closest("[data-item-qty]");
         if (!qtyInput) return;
-        const row = event.target.closest("[data-item-id]");
-        const item = state.selectedItems.find((entry) => String(entry.id) === row.dataset.itemId);
-        if (item) {
-            item.qty = Math.max(1, Number(qtyInput.value || 1));
-            renderLabels();
-        }
+        const card = event.target.closest("[data-item-id]");
+        const item = state.selectedItems.find((entry) => String(entry.id) === String(card?.dataset.itemId));
+        if (!item) return;
+        item.label_qty = toNumber(qtyInput.value, item.label_qty || 1, 1, 999, true);
+        renderPrintPreview();
     });
 
-    itemList.addEventListener("click", (event) => {
-        const row = event.target.closest("[data-item-id]");
-        if (row) {
-            const item = state.selectedItems.find((entry) => String(entry.id) === row.dataset.itemId);
-            if (item) {
-                state.activeItemId = item.id;
-                updateActiveMeta(item);
-                renderLabels();
-            }
-        }
-        const removeButton = event.target.closest("[data-remove-item]");
-        if (!removeButton) return;
-        const index = Number(removeButton.dataset.removeItem);
-        state.selectedItems.splice(index, 1);
-        if (state.selectedItems.length) {
-            state.activeItemId = state.selectedItems[0].id;
-            updateActiveMeta(state.selectedItems[0]);
+    artboardLabel.addEventListener("pointerdown", (event) => {
+        const layerNode = event.target.closest("[data-element-key]");
+        if (!layerNode) return;
+        closeToolbarMenus();
+        const isResizeHandle = Boolean(event.target.closest("[data-resize-handle]"));
+        const layerKey = layerNode.dataset.elementKey;
+        const template = getTemplate();
+        if (!template || !template.options.elements[layerKey]) return;
+        state.selectedElementKey = layerKey;
+        const layer = template.options.elements[layerKey];
+        const bounds = artboardLabel.getBoundingClientRect();
+        state.drag = {
+            pointerId: event.pointerId,
+            mode: isResizeHandle ? "resize" : "move",
+            key: layerKey,
+            startX: event.clientX,
+            startY: event.clientY,
+            originX: layer.x,
+            originY: layer.y,
+            originW: layer.w,
+            originH: layer.h,
+            boundsWidth: bounds.width || 1,
+            boundsHeight: bounds.height || 1,
+        };
+        artboardLabel.setPointerCapture(event.pointerId);
+        renderLayerList();
+        syncElementInspector();
+        renderArtboard();
+    });
+
+    artboardLabel.addEventListener("pointermove", (event) => {
+        if (!state.drag || state.drag.pointerId !== event.pointerId) return;
+        const template = getTemplate();
+        if (!template) return;
+        const layer = template.options.elements[state.drag.key];
+        if (!layer) return;
+        const dx = ((event.clientX - state.drag.startX) / state.drag.boundsWidth) * 100;
+        const dy = ((event.clientY - state.drag.startY) / state.drag.boundsHeight) * 100;
+        if (state.drag.mode === "resize") {
+            layer.w = state.drag.originW + dx;
+            layer.h = state.drag.originH + dy;
         } else {
-            state.activeItemId = null;
+            layer.x = state.drag.originX + dx;
+            layer.y = state.drag.originY + dy;
         }
-        renderItems();
-        renderLabels();
+        snapLayerToGrid(layer);
+        clampLayerBounds(layer);
+        syncLayerVisibilityFlags();
+        markDraft();
+        syncElementInspector();
+        renderLayerList();
+        renderArtboard();
+        renderPrintPreview();
     });
 
-    templateNewButton.addEventListener("click", () => openTemplateModal(null));
-    templateEditButton.addEventListener("click", () => openTemplateModal(getSelectedTemplate()));
-    templateDeleteButton.addEventListener("click", () => {
-        if (templates.length <= 1) return;
-        const idx = templates.findIndex((tpl) => tpl.id === state.selectedTemplateId);
-        if (idx >= 0) {
-            templates.splice(idx, 1);
-            state.selectedTemplateId = templates[0].id;
-            renderTemplates();
-            setTemplateCSS(getSelectedTemplate());
-            renderLabels();
+    const clearDrag = () => {
+        if (
+            state.drag &&
+            state.drag.pointerId != null &&
+            typeof artboardLabel.hasPointerCapture === "function" &&
+            artboardLabel.hasPointerCapture(state.drag.pointerId)
+        ) {
+            artboardLabel.releasePointerCapture(state.drag.pointerId);
+        }
+        state.drag = null;
+    };
+
+    artboardLabel.addEventListener("pointerup", clearDrag);
+    artboardLabel.addEventListener("pointercancel", clearDrag);
+    artboardLabel.addEventListener("lostpointercapture", clearDrag);
+
+    [
+        templateNameInput,
+        templatePaperInput,
+        templateLabelWidth,
+        templateLabelHeight,
+        templateColumns,
+        templateGap,
+        templateMargin,
+        barcodeHeightInput,
+        barcodeFontScale,
+    ].forEach((input) => {
+        input.addEventListener("input", () => {
+            syncTemplateFromForm();
+            markDraft();
+            rerender();
+        });
+    });
+
+    noteInput.addEventListener("input", () => {
+        state.note = noteInput.value;
+        renderArtboard();
+        renderPrintPreview();
+    });
+
+    singleQtyInput.addEventListener("input", () => {
+        state.singleQty = toNumber(singleQtyInput.value, 1, 1, 999, true);
+        renderPrintPreview();
+    });
+
+    codeFieldSelect.addEventListener("change", () => {
+        state.codeSource = codeFieldSelect.value || "sku";
+        syncModeChips();
+        renderArtboard();
+        renderPrintPreview();
+    });
+
+    [elementXInput, elementYInput, elementWInput, elementHInput, elementFontInput, elementWeightInput].forEach((input) => {
+        input.addEventListener("input", () => {
+            updateSelectedLayer((layer) => {
+                layer.x = toNumber(elementXInput.value, layer.x, 0, 96);
+                layer.y = toNumber(elementYInput.value, layer.y, 0, 96);
+                layer.w = toNumber(elementWInput.value, layer.w, 4, 100);
+                layer.h = toNumber(elementHInput.value, layer.h, 4, 100);
+                layer.font = toNumber(elementFontInput.value, layer.font, 0, 24);
+                layer.weight = toNumber(elementWeightInput.value, layer.weight, 400, 800, true);
+            });
+        });
+    });
+
+    elementVisibleToggle.addEventListener("click", () => {
+        updateSelectedLayer((layer) => {
+            layer.visible = !layer.visible;
+        });
+    });
+
+    alignButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            updateSelectedLayer((layer) => {
+                layer.align = button.dataset.align || "left";
+            });
+        });
+    });
+
+    layerActionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            applyLayerAction(button.dataset.layerAction || "");
+        });
+    });
+
+    fileActionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const action = button.dataset.fileAction || "";
+            if (action === "new") newButton.click();
+            if (action === "duplicate") duplicateButton.click();
+            if (action === "save") saveButton.click();
+            if (action === "delete") deleteButton.click();
+            if (action === "print") printButton.click();
+            if (action === "escpos") exportEscposButton.click();
+            if (action === "csv") exportButton.click();
+            closeToolbarMenus();
+        });
+    });
+
+    selectionVisibleButton.addEventListener("click", () => {
+        elementVisibleToggle.click();
+    });
+
+    selectionAlignButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            updateSelectedLayer((layer) => {
+                layer.align = button.dataset.selectionAlign || "left";
+            });
+        });
+    });
+
+    selectionActionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            applyLayerAction(button.dataset.selectionAction || "");
+        });
+    });
+
+    selectionFontDownButton.addEventListener("click", () => {
+        updateSelectedLayer((layer) => {
+            if (layer.kind === "barcode") return;
+            layer.font = Math.max(0, Number(layer.font || 0) - 0.4);
+        });
+    });
+
+    selectionFontUpButton.addEventListener("click", () => {
+        updateSelectedLayer((layer) => {
+            if (layer.kind === "barcode") return;
+            layer.font = Math.min(24, Number(layer.font || 0) + 0.4);
+        });
+    });
+
+    nudgeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const [dxRaw, dyRaw] = String(button.dataset.nudge || "0,0").split(",");
+            const dx = Number(dxRaw || 0) * state.nudgeStep;
+            const dy = Number(dyRaw || 0) * state.nudgeStep;
+            updateSelectedLayer((layer) => {
+                layer.x += dx;
+                layer.y += dy;
+            });
+        });
+    });
+
+    nudgeSizeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            state.nudgeStep = Number(button.dataset.nudgeSize || 1) || 1;
+            syncModeChips();
+        });
+    });
+
+    searchButton.addEventListener("click", async () => {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        try {
+            const params = new URLSearchParams({
+                q: query,
+                limit: "60",
+                warehouse: String(warehouseSelect?.value || ""),
+            });
+            const items = await fetchBarcodeItems(params);
+            const lookupField = searchField.value === "barcode" ? "gtin" : "sku";
+            const normalized = query.toLowerCase();
+            const exactMatch = items.find((item) => String(item[lookupField] || "").trim().toLowerCase() === normalized) || (items.length === 1 ? items[0] : null);
+            if (exactMatch) {
+                addPickedItem(exactMatch);
+                return;
+            }
+            const pickerSearch = document.getElementById("itemPickerSearch");
+            if (pickerSearch) pickerSearch.value = query;
+            picker.openForRow(document.body);
+        } catch (error) {
+            alert(error.message || "Pencarian gagal.");
         }
     });
 
-    templateSaveButton.addEventListener("click", saveTemplate);
-    templateModal.querySelectorAll("[data-template-modal-close]").forEach((btn) => {
-        btn.addEventListener("click", closeTemplateModal);
-    });
-
-    searchButton.addEventListener("click", runSearch);
     searchInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            runSearch();
-        }
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        searchButton.click();
     });
 
     pickButton.addEventListener("click", () => {
         picker.openForRow(document.body);
     });
 
-    previewButton.addEventListener("click", () => {
-        renderLabels();
+    clearItemsButton.addEventListener("click", () => {
+        state.selectedItems = [];
+        state.activeItemId = null;
+        renderItemList();
+        renderArtboard();
+        renderPrintPreview();
+    });
+
+    modeButtons.forEach((button) => {
+        button.addEventListener("click", async () => {
+            state.printMode = button.dataset.mode || "single";
+            syncModeChips();
+            if (state.printMode === "all") {
+                try {
+                    const params = new URLSearchParams({
+                        limit: "2000",
+                        warehouse: String(warehouseSelect?.value || ""),
+                    });
+                    const items = await fetchBarcodeItems(params);
+                    state.selectedItems = items.map((item) => ({
+                        id: item.variant_id,
+                        sku: item.sku,
+                        name: item.name,
+                        gtin: item.gtin,
+                        price_retail: item.price_retail,
+                        price_discount: item.price_discount,
+                        price_nett: item.price_nett,
+                        price_cost: item.price_cost,
+                        variant_label: item.variant_label || "Default",
+                        category: item.category || "",
+                        label_qty: 1,
+                    }));
+                    state.activeItemId = state.selectedItems[0]?.id || null;
+                    renderItemList();
+                } catch (error) {
+                    alert(error.message || "Item gagal dimuat.");
+                }
+            }
+            renderArtboard();
+            renderPrintPreview();
+        });
+    });
+
+    codeSourceButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            state.codeSource = button.dataset.codeSource || "sku";
+            codeFieldSelect.value = state.codeSource;
+            syncModeChips();
+            renderArtboard();
+            renderPrintPreview();
+        });
+    });
+
+    zoomButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            state.zoom = Number(button.dataset.zoom || 1) || 1;
+            syncModeChips();
+            renderArtboard();
+        });
+    });
+
+    priceModeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            state.priceMode = button.dataset.priceMode || "sell";
+            syncModeChips();
+            renderArtboard();
+            renderPrintPreview();
+        });
+    });
+
+    viewModeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const mode = button.dataset.viewMode || "";
+            if (mode === "grid") state.showGrid = !state.showGrid;
+            if (mode === "safe") state.showSafeArea = !state.showSafeArea;
+            if (mode === "snap") state.snapEnabled = !state.snapEnabled;
+            syncModeChips();
+            renderArtboard();
+            renderPrintPreview();
+        });
+    });
+
+    warehouseSelect?.addEventListener("change", () => {
+        state.selectedItems = [];
+        state.activeItemId = null;
+        picker.refresh();
+        renderItemList();
+        renderArtboard();
+        renderPrintPreview();
+    });
+
+    newButton.addEventListener("click", () => {
+        createCustomTemplate(getTemplate(), "Untitled");
+    });
+
+    duplicateButton.addEventListener("click", () => {
+        const base = getTemplate();
+        createCustomTemplate(base, `${base?.label || "Template"} Copy`);
+    });
+
+    saveButton.addEventListener("click", async () => {
+        try {
+            await saveCurrentTemplate();
+        } catch (error) {
+            setStatus("Error", "error");
+            alert(error.message || "Template gagal disimpan.");
+        }
+    });
+
+    deleteButton.addEventListener("click", async () => {
+        try {
+            await deleteCurrentTemplate();
+        } catch (error) {
+            setStatus("Error", "error");
+            alert(error.message || "Template gagal dihapus.");
+        }
+    });
+
+    printButton.addEventListener("click", () => {
+        renderPrintPreview();
         window.print();
     });
 
-    exportButton.addEventListener("click", downloadCsv);
-
-    printModes.addEventListener("change", async () => {
-        const mode = document.querySelector("input[name='barcode_print_mode']:checked")?.value || "single";
-        if (mode === "all") {
-            const params = new URLSearchParams({
-                limit: "2000",
-                warehouse: String(warehouseSelect?.value || ""),
-            });
-            const response = await fetch(`/stock/barcode/items?${params.toString()}`);
-            const data = await response.json();
-            state.selectedItems = (data.items || []).map((item) => ({
-                id: item.variant_id,
-                sku: item.sku,
-                name: item.name,
-                gtin: item.gtin,
-                price_retail: item.price_retail,
-                price_discount: item.price_discount,
-                price_nett: item.price_nett,
-                variant_label: item.variant_label || "Default",
-                qty: 1,
-                category: item.category || "",
-            }));
-            state.activeItemId = state.selectedItems[0]?.id || null;
-            updateActiveMeta(state.selectedItems[0]);
-            renderItems();
+    exportButton.addEventListener("click", () => {
+        const labels = buildPrintLabels();
+        if (!labels.length) {
+            alert("Belum ada item untuk diexport.");
+            return;
         }
-        renderLabels();
-    });
-    codeField.addEventListener("change", renderLabels);
-    priceModeInputs.forEach((input) => input.addEventListener("change", renderLabels));
-    priceTypeInputs.forEach((input) => input.addEventListener("change", renderLabels));
-    singleQty.addEventListener("change", renderLabels);
-    noteInput.addEventListener("input", renderLabels);
-    warehouseSelect?.addEventListener("change", () => {
-        picker.refresh();
+        const rows = [["Nama", "Barcode", "Harga", "Gudang", "Catatan"]];
+        labels.forEach((label) => {
+            rows.push([
+                label.name,
+                label.barcode,
+                label.price,
+                label.warehouse,
+                label.note || "",
+            ]);
+        });
+        const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/\"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "barcode_bartender.csv";
+        link.click();
+        URL.revokeObjectURL(link.href);
     });
 
-    renderTemplates();
-    setTemplateCSS(getSelectedTemplate());
-    renderItems();
-    renderLabels();
+    exportEscposButton.addEventListener("click", () => {
+        const escPosDocument = buildEscPosDocument();
+        if (!escPosDocument) {
+            alert("Belum ada item untuk diexport.");
+            return;
+        }
+        const blob = new Blob([escPosDocument], { type: "text/plain;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "barcode_escpos.txt";
+        link.click();
+        URL.revokeObjectURL(link.href);
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if ((event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "s") {
+            event.preventDefault();
+            saveButton.click();
+            return;
+        }
+        if ((event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "d") {
+            event.preventDefault();
+            duplicateButton.click();
+            return;
+        }
+        if (event.key === "Escape") {
+            clearDrag();
+            return;
+        }
+        const activeTag = document.activeElement?.tagName || "";
+        if (activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT") {
+            return;
+        }
+        const key = event.key;
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)) {
+            return;
+        }
+        event.preventDefault();
+        const step = event.shiftKey ? 5 : state.nudgeStep;
+        updateSelectedLayer((layer) => {
+            if (key === "ArrowLeft") layer.x -= step;
+            if (key === "ArrowRight") layer.x += step;
+            if (key === "ArrowUp") layer.y -= step;
+            if (key === "ArrowDown") layer.y += step;
+        });
+    });
+
+    window.addEventListener("afterprint", () => {
+        printGrid.innerHTML = "";
+    });
+    window.addEventListener("resize", () => {
+        window.requestAnimationFrame(positionSelectionToolbar);
+    });
+    document.addEventListener("scroll", () => {
+        window.requestAnimationFrame(positionSelectionToolbar);
+    }, true);
+    window.addEventListener("beforeunload", persistWorkspaceDraft);
+
+    buildInitialTemplates();
+    restoreWorkspaceDraft();
+    noteInput.value = state.note;
+    singleQtyInput.value = String(state.singleQty);
+    codeFieldSelect.value = state.codeSource || "sku";
+    applyTemplateCss();
+    rerender();
+    setStatus("Ready", "saved");
 })();
 </script>
 {% endblock %}

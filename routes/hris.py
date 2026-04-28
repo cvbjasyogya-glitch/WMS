@@ -98,6 +98,20 @@ CAREER_ASSESSMENT_TEST_LABELS = {
     item["key"]: item["label"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS
 }
 CAREER_ASSESSMENT_TEST_ORDER = [item["key"] for item in CAREER_ASSESSMENT_TEST_DEFINITIONS]
+CAREER_ASSESSMENT_VIOLATION_EVENT_META = {
+    "tab_hidden": {
+        "label": "Tab atau aplikasi berpindah sehingga halaman tes tersembunyi.",
+    },
+    "window_blur": {
+        "label": "Fokus browser berpindah dari halaman tes.",
+    },
+    "page_leave": {
+        "label": "Halaman tes ditutup atau ditinggalkan saat sesi masih aktif.",
+    },
+    "system_reset": {
+        "label": "Sesi tes direset otomatis setelah batas pelanggaran tercapai.",
+    },
+}
 SPORTS_RETAIL_ASSESSMENT_PRESET = {
     "basic": [
         {
@@ -2733,6 +2747,10 @@ def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
     profile_documents = _decode_recruitment_candidate_json(safe_candidate.get("profile_documents_json"), [])
     hr_storage_files = _decode_recruitment_candidate_json(safe_candidate.get("hr_storage_files_json"), [])
     hr_sms_targets = _decode_recruitment_candidate_json(safe_candidate.get("hr_sms_targets_json"), [])
+    violation_log = _decode_recruitment_candidate_json(
+        safe_candidate.get("assessment_violation_log_json"),
+        [],
+    )
 
     storage_download_lookup = {}
     normalized_storage_files = []
@@ -2755,6 +2773,33 @@ def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
         relative_path = str(safe_entry.get("hr_storage_relative_path") or "").strip()
         safe_entry["download_url"] = storage_download_lookup.get(relative_path, "")
         normalized_profile_documents.append(safe_entry)
+
+    normalized_violation_events = []
+    for event_entry in violation_log:
+        if not isinstance(event_entry, dict):
+            continue
+        event_type = str(event_entry.get("event_type") or event_entry.get("type") or "").strip().lower()
+        section_key = normalize_assessment_test_type(event_entry.get("section_key"))
+        meta = CAREER_ASSESSMENT_VIOLATION_EVENT_META.get(event_type) or {}
+        label = str(event_entry.get("label") or meta.get("label") or "Pelanggaran assessment terdeteksi.").strip()
+        recorded_at = str(event_entry.get("recorded_at") or "").strip()
+        violation_count = max(_to_int(event_entry.get("violation_count"), 0) or 0, 0)
+        normalized_violation_events.append(
+            {
+                "event_type": event_type,
+                "label": label or "Pelanggaran assessment terdeteksi.",
+                "recorded_at": recorded_at,
+                "recorded_at_label": _format_hris_datetime_display(recorded_at, include_date=True),
+                "section_key": section_key,
+                "section_label": CAREER_ASSESSMENT_TEST_LABELS.get(
+                    section_key,
+                    str(event_entry.get("section_label") or "").strip() or "Semua sesi",
+                ),
+                "violation_count": violation_count,
+                "assessment_code": normalize_assessment_code(event_entry.get("assessment_code")),
+                "note": str(event_entry.get("note") or "").strip(),
+            }
+        )
 
     gender_map = {"male": "Laki-laki", "female": "Perempuan"}
     marital_map = {"single": "Lajang", "married": "Menikah"}
@@ -2820,6 +2865,11 @@ def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
     safe_candidate["profile_section_summaries"] = section_summaries
     safe_candidate["hr_storage_files"] = normalized_storage_files
     safe_candidate["hr_sms_targets"] = [dict(item) for item in hr_sms_targets if isinstance(item, dict)]
+    safe_candidate["assessment_violation_events"] = list(reversed(normalized_violation_events[-8:]))
+    safe_candidate["assessment_violation_history_count"] = len(normalized_violation_events)
+    safe_candidate["assessment_has_violation_history"] = any(
+        event.get("event_type") != "system_reset" for event in normalized_violation_events
+    )
     return safe_candidate
 
 
@@ -7242,7 +7292,12 @@ def _build_recruitment_assessment_summary(recruitment_candidates, assessment_que
         for candidate in recruitment_candidates
         if (candidate.get("assessment_status") or "pending") in {"submitted", "reviewed"}
     )
-    flagged = sum(1 for candidate in recruitment_candidates if int(candidate.get("assessment_violation_count") or 0) > 0)
+    flagged = sum(
+        1
+        for candidate in recruitment_candidates
+        if int(candidate.get("assessment_violation_count") or 0) > 0
+        or bool(candidate.get("assessment_has_violation_history"))
+    )
     scored = [
         float(
             candidate.get("assessment_manual_score")

@@ -236,6 +236,30 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     overflow: hidden;
 }
 
+.career-assessment-stage-progress progress {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+}
+
+.career-assessment-stage-progress progress::-webkit-progress-bar {
+    background: transparent;
+}
+
+.career-assessment-stage-progress progress::-webkit-progress-value {
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--assessment-accent), #e4d3af);
+}
+
+.career-assessment-stage-progress progress::-moz-progress-bar {
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--assessment-accent), #e4d3af);
+}
+
 .career-assessment-stage-progress span {
     display: block;
     width: 0;
@@ -952,7 +976,17 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
             {% endfor %}
         </div>
 
-        <form method="POST" action="{{ url_for('career.submit_assessment') }}" class="career-assessment-form" id="careerAssessmentForm">
+        <form
+            method="POST"
+            action="{{ url_for('career.submit_assessment') }}"
+            class="career-assessment-form"
+            id="careerAssessmentForm"
+            data-max-violation-count="{{ max_violation_count|default(3) }}"
+            data-deadline-iso="{{ assessment_deadline_iso or '' }}"
+            data-is-last-section="{{ '1' if current_section.index >= assessment_sections|length else '0' }}"
+            data-violation-url="{{ url_for('career.record_assessment_violation') }}"
+            data-fallback-redirect-url="{{ url_for('career.index') }}"
+        >
             <input type="hidden" name="assessment_code" value="{{ assessment_code }}">
             <input type="hidden" name="violation_count" id="careerAssessmentViolationCount" value="{{ violation_count or 0 }}">
             <input type="hidden" name="current_test_type" value="{{ current_section.key }}">
@@ -997,6 +1031,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
         </form>
     </section>
     {% elif assessment_state == "intro" %}
+    {% set intro_progress_max = assessment_sections|length if assessment_sections|length else 1 %}
     <section class="career-assessment-stage-frame" data-section-theme="{{ current_section.theme }}">
         <div class="career-assessment-stage-meta">
             <div class="career-assessment-stage-line">
@@ -1012,7 +1047,11 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
         </div>
 
         <div class="career-assessment-stage-progress">
-            <span style="width: {{ ((completed_count / (assessment_sections|length or 1)) * 100)|round(0, 'floor') }}%;"></span>
+            <progress
+                class="career-assessment-stage-progress-bar"
+                value="{{ completed_count }}"
+                max="{{ intro_progress_max }}"
+            ></progress>
         </div>
 
         <div class="career-assessment-stage-intro">
@@ -1152,11 +1191,14 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     const progressFill = document.getElementById("careerAssessmentQuestionProgressFill");
     const primaryButton = document.getElementById("careerAssessmentPrimaryButton");
     const assessmentCodeInput = form?.querySelector('input[name="assessment_code"]');
+    const sectionKeyInput = form?.querySelector('input[name="current_test_type"]');
     const questionCards = Array.from(form?.querySelectorAll("[data-question-step]") || []);
     const firstQuestionCard = document.getElementById("careerAssessmentFirstQuestion");
-    const maxViolationCount = {{ max_violation_count|default(3)|tojson }};
-    const deadlineIso = {{ assessment_deadline_iso|default("", true)|tojson }};
-    const isLastAssessmentSection = {{ (current_section.index >= assessment_sections|length)|tojson }};
+    const maxViolationCount = Number(form?.dataset.maxViolationCount || 3);
+    const deadlineIso = String(form?.dataset.deadlineIso || "");
+    const isLastAssessmentSection = form?.dataset.isLastSection === "1";
+    const violationUrl = String(form?.dataset.violationUrl || "");
+    const fallbackRedirectUrl = String(form?.dataset.fallbackRedirectUrl || "");
     if (!form || !violationInput || !primaryButton || !questionCards.length) return;
 
     let submitted = false;
@@ -1198,7 +1240,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
             : "Tetap di halaman ini selama sesi berlangsung.";
     };
 
-    const flagViolation = async () => {
+    const flagViolation = async (reason = "") => {
         if (submitted) return;
         const now = Date.now();
         if ((now - lastViolationAt) < 900) return;
@@ -1209,7 +1251,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
             const payload = new URLSearchParams();
             payload.set("assessment_code", String(assessmentCodeInput?.value || ""));
             payload.set("violation_count", String(violationCount));
-            const response = await fetch('{{ url_for("career.record_assessment_violation") }}', {
+            payload.set("violation_type", String(reason || ""));
+            payload.set("section_key", String(sectionKeyInput?.value || ""));
+            const response = await fetch(violationUrl, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
@@ -1221,7 +1265,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
             if (data && data.reset) {
                 submitted = true;
                 window.alert(data.message || "Sesi tes direset dari awal karena pelanggaran berulang.");
-                window.location.href = data.redirect_url || '{{ url_for("career.index") }}';
+                window.location.href = data.redirect_url || fallbackRedirectUrl;
                 return;
             }
             if (data && typeof data.violation_count !== "undefined") {
@@ -1315,15 +1359,17 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") {
-            flagViolation();
+            flagViolation("tab_hidden");
         }
     });
 
-    window.addEventListener("pagehide", flagViolation);
+    window.addEventListener("pagehide", () => {
+        flagViolation("page_leave");
+    });
     window.addEventListener("blur", () => {
         window.setTimeout(() => {
             if (document.hasFocus && typeof document.hasFocus === "function" && !document.hasFocus()) {
-                flagViolation();
+                flagViolation("window_blur");
             }
         }, 160);
     });
