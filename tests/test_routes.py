@@ -85,6 +85,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.document_upload_root = os.path.join(temp_root, f"document_uploads_{uuid4().hex}")
         self.document_signature_root = os.path.join(temp_root, f"document_signatures_{uuid4().hex}")
         self.receipt_pdf_root = os.path.join(temp_root, f"receipt_pdfs_{uuid4().hex}")
+        self.barcode_upload_root = os.path.join(temp_root, f"barcode_assets_{uuid4().hex}")
         self.ipos4_runtime_root = os.path.join(temp_root, f"ipos4_runtime_{uuid4().hex}")
         self.sms_storage_root = os.path.join(temp_root, f"sms_storage_{uuid4().hex}")
         self.sms_storage_data_root = os.path.join(temp_root, f"sms_storage_data_{uuid4().hex}")
@@ -112,6 +113,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             POS_RECEIPT_PDF_URL_PREFIX="/static/test-pos-receipts",
             POS_RECEIPT_PDF_RENDERER="legacy",
             POS_AUTO_PRINT_AFTER_CHECKOUT=False,
+            BARCODE_STUDIO_UPLOAD_FOLDER=self.barcode_upload_root,
+            BARCODE_STUDIO_UPLOAD_URL_PREFIX="/static/test-barcode-assets",
+            BARCODE_STUDIO_IMAGE_MAX_BYTES=2 * 1024 * 1024,
             PUBLIC_BASE_URL="https://erp.test",
             IPOS4_IMPORT_RUNTIME_DIR=self.ipos4_runtime_root,
             IPOS4_MIRROR_DB_PATH=os.path.join(self.ipos4_runtime_root, "ipos4_mirror.db"),
@@ -141,6 +145,8 @@ class WmsRoutesTestCase(unittest.TestCase):
             shutil.rmtree(self.document_signature_root)
         if os.path.isdir(self.receipt_pdf_root):
             shutil.rmtree(self.receipt_pdf_root)
+        if os.path.isdir(self.barcode_upload_root):
+            shutil.rmtree(self.barcode_upload_root)
         if os.path.isdir(self.ipos4_runtime_root):
             shutil.rmtree(self.ipos4_runtime_root)
         if os.path.isdir(self.sms_storage_root):
@@ -29634,6 +29640,71 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("applyVariantPrices(this, true)", html)
         self.assertIn("syncVariantDerivedPrices(row)", html)
         self.assertIn("Harga nett", html)
+        self.assertIn("getSuggestedVariantNettValue", html)
+        self.assertIn('Harga nett manual ${formatCompactCurrency(nett)} siap disimpan.', html)
+        self.assertNotIn("Math.max(0, retail - discount)", html)
+
+    def test_owner_can_update_product_detail_with_manual_nett_value(self):
+        self.create_user("owner_nett_editor", "pass1234", "owner")
+        self.login("owner_nett_editor", "pass1234")
+
+        response, product_id, variants_rows = self.create_product(
+            sku="OWN-NETT-001",
+            variants="NET-42",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        update_response = self.client.post(
+            "/stock/update-detail",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "sku": "OWN-NETT-001",
+                "name": "Produk Nett Manual",
+                "category_name": "Testing",
+                "unit_label": "pcs",
+                "variant": "NET-43",
+                "price_retail": "250000",
+                "price_discount": "230000",
+                "price_nett": "210000",
+                "price_cost": "175000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertEqual(payload["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            updated_row = db.execute(
+                """
+                SELECT
+                    p.sku,
+                    p.name,
+                    v.variant,
+                    v.price_retail,
+                    v.price_discount,
+                    v.price_nett,
+                    v.price_cost
+                FROM products p
+                JOIN product_variants v ON v.product_id = p.id
+                WHERE p.id=? AND v.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(updated_row["sku"], "OWN-NETT-001")
+        self.assertEqual(updated_row["name"], "Produk Nett Manual")
+        self.assertEqual(updated_row["variant"], "NET-43")
+        self.assertEqual(updated_row["price_retail"], 250000)
+        self.assertEqual(updated_row["price_discount"], 230000)
+        self.assertEqual(updated_row["price_nett"], 210000)
+        self.assertEqual(updated_row["price_cost"], 175000)
 
     def test_owner_can_add_product_with_price_cost(self):
         self.create_user("owner_product_cost", "pass1234", "owner")
@@ -30228,17 +30299,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Barcode Studio", owner_html)
         self.assertIn(">File<", owner_html)
         self.assertIn(">Layouts<", owner_html)
+        self.assertIn(">Uploads<", owner_html)
         self.assertIn(">Editing<", owner_html)
         self.assertIn('id="barcodeHeaderToolbar"', owner_html)
+        self.assertIn('id="barcodeContentMenu"', owner_html)
         self.assertIn("Thermal 58mm", owner_html)
         self.assertIn("Thermal 80mm", owner_html)
         self.assertIn('id="barcodeSaveTemplate"', owner_html)
+        self.assertIn('id="barcodeQuickAddItem"', owner_html)
+        self.assertIn('id="barcodeWorkbarAddItem"', owner_html)
+        self.assertIn('id="barcodeUploadButton"', owner_html)
+        self.assertIn('id="barcodeUploadList"', owner_html)
         self.assertIn('id="barcodeCanvasStage"', owner_html)
         self.assertIn('id="barcodeLayerActionGrid"', owner_html)
         self.assertIn('id="barcodeExportEscpos"', owner_html)
         self.assertIn('id="barcodeSelectionToolbar"', owner_html)
         self.assertIn('id="barcodeViewModes"', owner_html)
         self.assertIn('id="barcodeStageFooter"', owner_html)
+        self.assertIn("Mulai dari Add Item", owner_html)
+        self.assertIn('data-stage-add-item', owner_html)
+        self.assertIn('data-empty-add-item', owner_html)
         self.assertIn('data-layer-action="fit"', owner_html)
         self.assertIn('aria-label="Barcode"', owner_html)
 
@@ -30396,6 +30476,51 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
 
         self.assertIsNone(deleted_row)
+
+    def test_barcode_asset_upload_endpoint_stores_image_for_owner_only(self):
+        self.create_user("owner_barcode_upload", "pass1234", "owner")
+        self.login("owner_barcode_upload", "pass1234")
+
+        upload_response = self.client.post(
+            "/stock/barcode/assets",
+            data={
+                "image": (BytesIO(b"fake-png-binary"), "logo-barcode.png"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(upload_response.status_code, 200)
+        upload_payload = upload_response.get_json()
+        self.assertEqual(upload_payload["status"], "success")
+        self.assertEqual(upload_payload["asset"]["name"], "logo-barcode.png")
+        self.assertTrue(upload_payload["asset"]["url"].startswith("/static/test-barcode-assets/user_"))
+
+        stored_files = []
+        for _, _, files in os.walk(self.barcode_upload_root):
+            stored_files.extend(files)
+        self.assertEqual(len(stored_files), 1)
+        self.assertTrue(stored_files[0].endswith(".png"))
+
+        page_response = self.client.get("/stock/barcode?warehouse=1", follow_redirects=False)
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("logo-barcode.png", page_html)
+
+        self.logout()
+        self.login()
+
+        denied_response = self.client.post(
+            "/stock/barcode/assets",
+            data={
+                "image": (BytesIO(b"fake-png-binary"), "denied.png"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(denied_response.status_code, 403)
+        denied_payload = denied_response.get_json()
+        self.assertEqual(denied_payload["status"], "error")
+        self.assertIn("Halaman barcode", denied_payload["message"])
 
     def test_stock_page_supports_clickable_header_sorting(self):
         self.login()

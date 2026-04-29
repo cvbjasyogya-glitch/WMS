@@ -139,6 +139,13 @@
         transform: translateY(-1px);
     }
 
+    .barcode-chip:disabled,
+    .barcode-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
     .barcode-btn.secondary {
         background: rgba(255, 255, 255, 0.14);
         color: #f8fbff;
@@ -150,6 +157,16 @@
     .barcode-btn.primary {
         background: #ffffff;
         color: #0f172a;
+    }
+
+    .barcode-btn.accent {
+        background: linear-gradient(135deg, #f97316, #ef4444);
+        color: #fff7ed;
+        box-shadow: 0 16px 30px rgba(239, 68, 68, 0.28);
+    }
+
+    .barcode-btn.accent:hover {
+        box-shadow: 0 18px 34px rgba(249, 115, 22, 0.34);
     }
 
     .barcode-btn.danger {
@@ -292,6 +309,34 @@
         font-weight: 700;
     }
 
+    .barcode-item-command {
+        flex-wrap: wrap;
+        padding-right: 12px;
+    }
+
+    .barcode-item-command strong {
+        color: #ffffff;
+        font-size: 12px;
+        line-height: 1.2;
+        letter-spacing: 0.01em;
+    }
+
+    .barcode-item-command small {
+        color: rgba(238, 246, 255, 0.82);
+        font-size: 11px;
+        line-height: 1.3;
+    }
+
+    .barcode-item-command-copy {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .barcode-item-command .barcode-btn {
+        min-height: 42px;
+    }
+
     .barcode-pane,
     .barcode-stage-shell {
         display: grid;
@@ -323,7 +368,8 @@
 
     .barcode-template-list,
     .barcode-layer-list,
-    .barcode-item-list {
+    .barcode-item-list,
+    .barcode-upload-list {
         display: grid;
         gap: 10px;
         max-height: 340px;
@@ -478,6 +524,61 @@
         align-items: center;
     }
 
+    .barcode-upload-card {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr);
+        gap: 12px;
+        width: 100%;
+        padding: 12px;
+        border-radius: 18px;
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        background: #ffffff;
+        box-sizing: border-box;
+        align-items: center;
+    }
+
+    .barcode-upload-card.active {
+        border-color: rgba(249, 115, 22, 0.42);
+        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1);
+    }
+
+    .barcode-upload-thumb {
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.92));
+        display: grid;
+        place-items: center;
+    }
+
+    .barcode-upload-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .barcode-upload-copy,
+    .barcode-upload-actions {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .barcode-upload-copy strong,
+    .barcode-upload-copy span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .barcode-upload-actions {
+        justify-items: start;
+    }
+
     .barcode-item-copy,
     .barcode-selected-layer {
         display: grid;
@@ -508,6 +609,66 @@
         text-align: center;
         font-size: 12px;
         line-height: 1.55;
+    }
+
+    .barcode-empty strong {
+        font-size: 14px;
+        line-height: 1.3;
+        color: #0f172a;
+    }
+
+    .barcode-empty span {
+        max-width: 320px;
+    }
+
+    .barcode-empty-actions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+    }
+
+    .barcode-stage-empty {
+        display: grid;
+        place-items: center;
+        min-height: 100%;
+        padding: 28px;
+        text-align: center;
+    }
+
+    .barcode-stage-empty-card {
+        display: grid;
+        gap: 12px;
+        justify-items: center;
+        width: min(100%, 460px);
+        padding: 30px 24px;
+        border-radius: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+    }
+
+    .barcode-stage-empty-card strong {
+        font-size: 22px;
+        line-height: 1.2;
+        color: #0f172a;
+        letter-spacing: -0.02em;
+    }
+
+    .barcode-stage-empty-card p {
+        margin: 0;
+        max-width: 360px;
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.65;
+    }
+
+    .barcode-stage-empty-card .barcode-tag {
+        background: rgba(15, 23, 42, 0.06);
+        border-color: rgba(148, 163, 184, 0.24);
+        color: #334155;
     }
 
     .barcode-quick-grid {
@@ -635,9 +796,9 @@
         display: flex;
         align-items: flex-start;
         justify-content: flex-start;
-        padding: 2px 4px;
+        padding: 1px 3px;
         color: #0f172a;
-        line-height: 1.15;
+        line-height: 1.05;
         word-break: break-word;
         text-wrap: pretty;
     }
@@ -660,9 +821,44 @@
         background: transparent;
     }
 
+    .barcode-element[data-kind="image"] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: rgba(248, 250, 252, 0.85);
+    }
+
     .barcode-element[data-kind="barcode"] svg {
         width: 100%;
         height: 100%;
+    }
+
+    .barcode-element[data-kind="image"] img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+    }
+
+    .barcode-image-placeholder {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 8px;
+        text-align: center;
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.25;
+        background: repeating-linear-gradient(
+            45deg,
+            rgba(148, 163, 184, 0.12),
+            rgba(148, 163, 184, 0.12) 10px,
+            rgba(255, 255, 255, 0.7) 10px,
+            rgba(255, 255, 255, 0.7) 20px
+        );
     }
 
     .barcode-artboard-label .barcode-element {
@@ -956,6 +1152,24 @@
                 </details>
 
                 <details class="barcode-toolbar-menu" data-toolbar-menu>
+                    <summary>Uploads</summary>
+                    <div class="barcode-toolbar-panel">
+                        <section class="barcode-pane">
+                            <div class="barcode-pane-head">
+                                <h3>Uploads</h3>
+                                <span class="barcode-tag" id="barcodeUploadCountBadge">0</span>
+                            </div>
+                            <div class="barcode-stack-row" style="grid-template-columns: minmax(0, 1fr) auto;">
+                                <span class="barcode-muted">PNG, JPG, WEBP sampai {{ barcode_asset_max_label }}</span>
+                                <button type="button" class="barcode-btn accent" id="barcodeUploadButton">Upload Gambar</button>
+                            </div>
+                            <input type="file" id="barcodeUploadInput" accept="image/png,image/jpeg,image/webp" hidden>
+                            <div class="barcode-upload-list" id="barcodeUploadList"></div>
+                        </section>
+                    </div>
+                </details>
+
+                <details class="barcode-toolbar-menu" data-toolbar-menu>
                     <summary>Elements</summary>
                     <div class="barcode-toolbar-panel">
                         <section class="barcode-pane">
@@ -968,7 +1182,7 @@
                     </div>
                 </details>
 
-                <details class="barcode-toolbar-menu" data-toolbar-menu>
+                <details class="barcode-toolbar-menu" data-toolbar-menu id="barcodeContentMenu">
                     <summary>Content</summary>
                     <div class="barcode-toolbar-panel wide">
                         <section class="barcode-pane">
@@ -994,7 +1208,7 @@
                                     <button type="button" class="barcode-btn secondary" id="barcodeSearchButton">Find</button>
                                 </div>
                                 <div class="barcode-inline-grid">
-                                    <button type="button" class="barcode-btn secondary" id="barcodePickItem">Add Item</button>
+                                    <button type="button" class="barcode-btn accent" id="barcodePickItem">Add Item</button>
                                     <button type="button" class="barcode-btn secondary" id="barcodeClearItems">Clear</button>
                                 </div>
                             </div>
@@ -1128,6 +1342,7 @@
                 </details>
             </div>
             <div class="barcode-shell-actions">
+                <button type="button" class="barcode-btn accent" id="barcodeQuickAddItem">Add Item</button>
                 <button type="button" class="barcode-btn secondary" id="barcodeNewTemplate">New</button>
                 <button type="button" class="barcode-btn secondary" id="barcodeDuplicateTemplate">Duplicate</button>
                 <button type="button" class="barcode-btn secondary" id="barcodeSaveTemplate">Save</button>
@@ -1166,6 +1381,14 @@
                     <button type="button" class="barcode-chip active" data-view-mode="grid">Guides</button>
                     <button type="button" class="barcode-chip active" data-view-mode="safe">Safe</button>
                     <button type="button" class="barcode-chip active" data-view-mode="snap">Snap</button>
+                </div>
+
+                <div class="barcode-workgroup barcode-item-command">
+                    <div class="barcode-item-command-copy">
+                        <strong>Add Item</strong>
+                        <small>Pilih barang dulu supaya preview dan print aktif.</small>
+                    </div>
+                    <button type="button" class="barcode-btn accent" id="barcodeWorkbarAddItem">+ Add Item</button>
                 </div>
             </div>
 
@@ -1234,16 +1457,34 @@
 {% block extra_scripts %}
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script src="/static/js/item_picker.js"></script>
+<script id="barcodeRuntimeData" type="application/json">
+{{ {
+    "default_templates": barcode_default_templates,
+    "custom_templates": barcode_custom_templates,
+    "uploads": barcode_assets,
+    "warehouse_name": selected_warehouse_name,
+    "workspace_scope": barcode_workspace_scope
+}|tojson }}
+</script>
 <script>
 (() => {
-    const defaultTemplatesRaw = {{ barcode_default_templates|tojson }};
-    const customTemplatesRaw = {{ barcode_custom_templates|tojson }};
-    const initialWarehouseName = {{ selected_warehouse_name|tojson }};
-    const workspaceScope = {{ barcode_workspace_scope|tojson }};
+    const runtimeDataNode = document.getElementById("barcodeRuntimeData");
+    let runtimeData = {};
+    try {
+        runtimeData = JSON.parse(runtimeDataNode?.textContent || "{}");
+    } catch (error) {
+        runtimeData = {};
+    }
+    const defaultTemplatesRaw = Array.isArray(runtimeData.default_templates) ? runtimeData.default_templates : [];
+    const customTemplatesRaw = Array.isArray(runtimeData.custom_templates) ? runtimeData.custom_templates : [];
+    const initialUploadsRaw = Array.isArray(runtimeData.uploads) ? runtimeData.uploads : [];
+    const initialWarehouseName = String(runtimeData.warehouse_name || "");
+    const workspaceScope = String(runtimeData.workspace_scope || "");
     const previewLimitCount = 48;
-    const layerOrder = ["warehouse", "name", "variant", "category", "barcode", "code", "price", "note"];
+    const layerOrder = ["warehouse", "image", "name", "variant", "category", "barcode", "code", "price", "note"];
     const layerLabels = {
         warehouse: "Warehouse",
+        image: "Image",
         name: "Name",
         variant: "Variant",
         category: "Category",
@@ -1254,6 +1495,7 @@
     };
     const layerKinds = {
         warehouse: "text",
+        image: "image",
         name: "text",
         variant: "text",
         category: "text",
@@ -1264,6 +1506,7 @@
     };
     const defaultLayerModel = {
         warehouse: { kind: "text", label: "Warehouse", x: 6, y: 6, w: 88, h: 7, font: 6.2, align: "left", weight: 700, visible: false },
+        image: { kind: "image", label: "Image", x: 72, y: 7, w: 20, h: 20, font: 0, align: "center", weight: 400, visible: false, asset_url: "", asset_name: "" },
         name: { kind: "text", label: "Name", x: 6, y: 15, w: 88, h: 16, font: 8.6, align: "left", weight: 700, visible: true },
         variant: { kind: "text", label: "Variant", x: 6, y: 32, w: 42, h: 7, font: 5.9, align: "left", weight: 600, visible: true },
         category: { kind: "text", label: "Category", x: 50, y: 32, w: 44, h: 7, font: 5.9, align: "right", weight: 600, visible: true },
@@ -1315,6 +1558,8 @@
                 : fallback.align,
             weight: toNumber(source.weight, fallback.weight, 400, 800, true),
             visible: typeof source.visible === "boolean" ? source.visible : fallback.visible,
+            asset_url: key === "image" ? String(source.asset_url || fallback.asset_url || "").trim() : "",
+            asset_name: key === "image" ? String(source.asset_name || fallback.asset_name || "").trim() : "",
         };
     };
 
@@ -1482,6 +1727,7 @@
     const defaultTemplates = defaultTemplatesRaw.map((template) => normalizeTemplate(template, "default"));
     const state = {
         templates: [],
+        assets: Array.isArray(initialUploadsRaw) ? initialUploadsRaw.slice() : [],
         defaultTemplateMap: new Map(defaultTemplates.map((template) => [template.id, clone(template)])),
         serverTemplateKeys: new Set(),
         selectedTemplateId: null,
@@ -1503,6 +1749,7 @@
     };
 
     const templateList = document.getElementById("barcodeTemplateList");
+    const uploadList = document.getElementById("barcodeUploadList");
     const layerList = document.getElementById("barcodeLayerList");
     const itemList = document.getElementById("barcodeItemList");
     const artboardLabel = document.getElementById("barcodeArtboardLabel");
@@ -1513,7 +1760,12 @@
     const searchField = document.getElementById("barcodeSearchField");
     const searchInput = document.getElementById("barcodeSearchInput");
     const searchButton = document.getElementById("barcodeSearchButton");
+    const uploadCountBadge = document.getElementById("barcodeUploadCountBadge");
+    const uploadButton = document.getElementById("barcodeUploadButton");
+    const uploadInput = document.getElementById("barcodeUploadInput");
     const pickButton = document.getElementById("barcodePickItem");
+    const quickAddButton = document.getElementById("barcodeQuickAddItem");
+    const workbarAddButton = document.getElementById("barcodeWorkbarAddItem");
     const clearItemsButton = document.getElementById("barcodeClearItems");
     const saveButton = document.getElementById("barcodeSaveTemplate");
     const newButton = document.getElementById("barcodeNewTemplate");
@@ -1573,7 +1825,8 @@
     const selectionAlignButtons = Array.from(document.querySelectorAll("[data-selection-align]"));
     const selectionActionButtons = Array.from(document.querySelectorAll("[data-selection-action]"));
     const toolbarMenus = Array.from(document.querySelectorAll("[data-toolbar-menu]"));
-    const workspaceDraftKey = `barcode_studio_draft:${workspaceScope}`;
+    const contentMenu = document.getElementById("barcodeContentMenu");
+    const workspaceDraftKey = `barcode_studio_draft:v2:${workspaceScope}`;
     let persistDraftTimer = null;
 
     const formatIdr = (value) => `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
@@ -1628,6 +1881,13 @@
         });
     };
 
+    const openToolbarMenu = (menu) => {
+        if (!menu) return;
+        toolbarMenus.forEach((otherMenu) => {
+            otherMenu.open = otherMenu === menu;
+        });
+    };
+
     const positionSelectionToolbar = () => {
         if (!selectionToolbar || selectionToolbar.hidden) return;
         const canvasWrap = canvasStage.closest(".barcode-canvas-wrap");
@@ -1670,6 +1930,12 @@
         return template.options.elements[state.selectedElementKey] || template.options.elements.name || null;
     };
 
+    const getImageLayer = () => {
+        const template = getTemplate();
+        if (!template) return null;
+        return template.options.elements.image || null;
+    };
+
     const activeItem = () => state.selectedItems.find((item) => item.id === state.activeItemId) || state.selectedItems[0] || null;
 
     const sampleContent = () => {
@@ -1698,6 +1964,36 @@
             price: priceLines.join(" | "),
             note: noteValue || "Promo",
         };
+    };
+
+    const renderUploadList = () => {
+        if (!uploadList || !uploadCountBadge) return;
+        uploadCountBadge.textContent = String(state.assets.length);
+        const activeImageUrl = String(getImageLayer()?.asset_url || "");
+        if (!state.assets.length) {
+            uploadList.innerHTML = `<div class="barcode-empty">Belum ada gambar. Upload logo atau elemen visual dulu, lalu pakai ke canvas.</div>`;
+            return;
+        }
+
+        uploadList.innerHTML = state.assets.map((asset) => {
+            const isActive = String(asset.url || "") === activeImageUrl;
+            return `
+                <div class="barcode-upload-card ${isActive ? "active" : ""}" data-upload-id="${escapeHtml(asset.id || "")}">
+                    <div class="barcode-upload-thumb">
+                        <img src="${escapeHtml(asset.url || "")}" alt="${escapeHtml(asset.name || "Upload")}" loading="lazy">
+                    </div>
+                    <div class="barcode-upload-copy">
+                        <strong>${escapeHtml(asset.name || "Image")}</strong>
+                        <span>${escapeHtml(asset.size_label || "")}</span>
+                        <div class="barcode-upload-actions">
+                            <button type="button" class="barcode-chip ${isActive ? "active" : ""}" data-use-upload="${escapeHtml(asset.id || "")}">
+                                ${isActive ? "Dipakai" : "Pakai di Canvas"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join("");
     };
 
     const buildPrintLabels = () => {
@@ -1736,14 +2032,22 @@
         });
     };
 
+    const resolveTextFontSize = (layer, previewMode) => {
+        const templateFontScale = (getTemplate()?.font_scale || 100) / 100;
+        const widthDrivenScale = templateFontScale;
+        const usableHeight = Math.max(3.5, Number(layer?.h || 0) - (previewMode === "stage" ? 1.2 : 1.6));
+        const widthDrivenSize = `calc(${Number(layer?.font || 0) * widthDrivenScale} * 1cqw)`;
+        const heightDrivenSize = `calc(${usableHeight * 0.72} * 1cqh)`;
+        return `min(${widthDrivenSize}, ${heightDrivenSize})`;
+    };
+
     const elementStyle = (layer, previewMode) => {
-        const fontScale = previewMode === "stage" ? 1 : (getTemplate()?.font_scale || 100) / 100;
         return [
             `left:${layer.x}%;`,
             `top:${layer.y}%;`,
             `width:${layer.w}%;`,
             `height:${layer.h}%;`,
-            `font-size:${layer.font > 0 ? `calc(${layer.font * fontScale} * 1cqw)` : "0px"};`,
+            `font-size:${layer.kind === "text" && layer.font > 0 ? resolveTextFontSize(layer, previewMode) : "0px"};`,
             `font-weight:${layer.weight};`,
         ].join("");
     };
@@ -1754,7 +2058,7 @@
         if (selected && previewMode === "stage") classes.push("selected");
         if (!layer.visible && previewMode === "stage") classes.push("hidden-preview");
         if (!layer.visible && previewMode !== "stage") return "";
-        if (!safeValue && key !== "barcode" && previewMode !== "stage") return "";
+        if (!safeValue && key !== "barcode" && layer.kind !== "image" && previewMode !== "stage") return "";
         const resizeHandle = selected && previewMode === "stage"
             ? '<span class="barcode-resize-handle" data-resize-handle="corner" aria-hidden="true"></span>'
             : "";
@@ -1769,6 +2073,15 @@
 
         if (layer.kind === "barcode") {
             return `<div ${sharedAttrs}><svg data-barcode-value="${escapeHtml(data.barcode || "-")}"></svg>${resizeHandle}</div>`;
+        }
+
+        if (layer.kind === "image") {
+            const assetUrl = String(layer.asset_url || "").trim();
+            if (!assetUrl) {
+                if (previewMode !== "stage") return "";
+                return `<div ${sharedAttrs}><span class="barcode-image-placeholder">Upload gambar lalu pakai ke canvas</span>${resizeHandle}</div>`;
+            }
+            return `<div ${sharedAttrs}><img src="${escapeHtml(assetUrl)}" alt="${escapeHtml(layer.asset_name || layer.label || "Image")}" loading="lazy">${resizeHandle}</div>`;
         }
 
         return `<div ${sharedAttrs}>${escapeHtml(safeValue)}${resizeHandle}</div>`;
@@ -1851,9 +2164,16 @@
             if (selectionToolbar) selectionToolbar.hidden = true;
             return;
         }
+        const isTextLayer = layer.kind === "text";
         selectedElementTag.textContent = state.selectedElementKey;
         selectedElementTitle.textContent = layer.label || layerLabels[state.selectedElementKey];
-        selectedElementHint.textContent = `${layer.kind === "barcode" ? "Barcode" : "Text"} | drag di canvas atau ubah nilai di inspector`;
+        if (layer.kind === "image") {
+            selectedElementHint.textContent = layer.asset_url
+                ? "Image | drag atau resize langsung di canvas."
+                : "Image | upload gambar dari menu Uploads lalu pakai ke canvas.";
+        } else {
+            selectedElementHint.textContent = `${layer.kind === "barcode" ? "Barcode" : "Text"} | drag di canvas atau ubah nilai di inspector`;
+        }
         elementVisibleToggle.classList.toggle("active", layer.visible);
         elementVisibleToggle.textContent = layer.visible ? "Visible" : "Hidden";
         elementXInput.value = layer.x;
@@ -1862,19 +2182,21 @@
         elementHInput.value = layer.h;
         elementFontInput.value = layer.font;
         elementWeightInput.value = layer.weight;
-        elementFontInput.disabled = layer.kind === "barcode";
-        elementWeightInput.disabled = layer.kind === "barcode";
+        elementFontInput.disabled = !isTextLayer;
+        elementWeightInput.disabled = !isTextLayer;
         alignButtons.forEach((button) => {
-            button.classList.toggle("active", button.dataset.align === layer.align);
+            button.classList.toggle("active", isTextLayer && button.dataset.align === layer.align);
+            button.disabled = !isTextLayer;
         });
         selectionToolbar.hidden = false;
         selectionToolbarTitle.textContent = layer.label || layerLabels[state.selectedElementKey];
         selectionVisibleButton.textContent = layer.visible ? "Visible" : "Hidden";
         selectionVisibleButton.classList.toggle("active", layer.visible);
         selectionAlignButtons.forEach((button) => {
-            button.classList.toggle("active", button.dataset.selectionAlign === layer.align);
+            button.classList.toggle("active", isTextLayer && button.dataset.selectionAlign === layer.align);
+            button.disabled = !isTextLayer;
         });
-        const fontButtonsDisabled = layer.kind === "barcode";
+        const fontButtonsDisabled = !isTextLayer;
         selectionFontDownButton.disabled = fontButtonsDisabled;
         selectionFontUpButton.disabled = fontButtonsDisabled;
         footerLayer.textContent = layer.label || layerLabels[state.selectedElementKey];
@@ -1952,7 +2274,16 @@
     const renderItemList = () => {
         itemCountBadge.textContent = String(state.selectedItems.length);
         if (!state.selectedItems.length) {
-            itemList.innerHTML = `<div class="barcode-empty">Belum ada item.</div>`;
+            itemList.innerHTML = `
+                <div class="barcode-empty">
+                    <strong>Belum ada item</strong>
+                    <span>Tambahkan barang dulu supaya label, harga, dan barcode tampil di canvas.</span>
+                    <div class="barcode-empty-actions">
+                        <button type="button" class="barcode-btn accent" data-empty-add-item>+ Add Item</button>
+                        <button type="button" class="barcode-btn secondary" data-empty-open-content>Open Content</button>
+                    </div>
+                </div>
+            `;
             return;
         }
         itemList.innerHTML = state.selectedItems.map((item, index) => `
@@ -1982,17 +2313,44 @@
         const paperRatio = template.width / Math.max(template.height, 1);
         const canvasWrap = canvasStage.closest(".barcode-canvas-wrap");
         const wrapWidth = Number(canvasWrap?.clientWidth || 0);
+        const wrapHeight = Number(canvasWrap?.clientHeight || 0);
         const artboardFramePadding = 96;
-        const availableWidth = Math.max(420, wrapWidth - artboardFramePadding);
-        const preferredWidth = paperRatio >= 1.3
-            ? Math.min(1100, Math.max(760, availableWidth))
-            : Math.min(920, Math.max(620, availableWidth));
-        const naturalHeight = preferredWidth / Math.max(paperRatio, 0.1);
+        const availableWidth = Math.max(260, wrapWidth - artboardFramePadding);
+        const availableHeight = Math.max(180, wrapHeight - 120);
+        const maxPreferredWidth = paperRatio >= 1.3 ? 1240 : 960;
+        let preferredWidth = Math.min(maxPreferredWidth, availableWidth);
+        let naturalHeight = preferredWidth / Math.max(paperRatio, 0.1);
+
+        if (naturalHeight > availableHeight) {
+            naturalHeight = availableHeight;
+            preferredWidth = naturalHeight * Math.max(paperRatio, 0.1);
+        }
 
         document.documentElement.style.setProperty("--barcode-artboard-width", `${preferredWidth}px`);
         artboardLabel.style.aspectRatio = `${template.width} / ${template.height}`;
-        artboardLabel.style.minHeight = `${Math.round(Math.max(320, Math.min(620, naturalHeight)))}px`;
+        artboardLabel.style.height = `${Math.round(naturalHeight)}px`;
+        artboardLabel.style.minHeight = "0";
         syncCanvasViewState();
+
+        if (!state.selectedItems.length) {
+            artboardLabel.innerHTML = `
+                <div class="barcode-stage-empty">
+                    <div class="barcode-stage-empty-card">
+                        <span class="barcode-tag">Canvas siap dipakai</span>
+                        <strong>Mulai dari Add Item</strong>
+                        <p>Pilih SKU atau barcode dulu. Setelah item masuk, canvas otomatis menampilkan preview label dan siap diatur seperti editor.</p>
+                        <div class="barcode-empty-actions">
+                            <button type="button" class="barcode-btn accent" data-stage-add-item>+ Add Item</button>
+                            <button type="button" class="barcode-btn secondary" data-stage-open-content>Open Content</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            if (selectionToolbar) selectionToolbar.hidden = true;
+            canvasStage.style.transform = `scale(${state.zoom})`;
+            schedulePersistWorkspaceDraft();
+            return;
+        }
 
         const content = sampleContent();
         artboardLabel.innerHTML = layerOrder
@@ -2037,6 +2395,7 @@
         syncElementInspector();
         syncModeChips();
         renderTemplateList();
+        renderUploadList();
         renderLayerList();
         renderItemList();
         renderArtboard();
@@ -2230,6 +2589,42 @@
         },
     });
 
+    const openItemPicker = () => {
+        closeToolbarMenus();
+        picker.openForRow(document.body);
+    };
+
+    const applyUploadedAssetToCanvas = (asset) => {
+        const template = getTemplate();
+        if (!template || !asset) return;
+        const imageLayer = template.options.elements.image || clone(defaultLayerModel.image);
+        imageLayer.asset_url = String(asset.url || "").trim();
+        imageLayer.asset_name = String(asset.name || "Image").trim();
+        imageLayer.visible = true;
+        template.options.elements.image = imageLayer;
+        state.selectedElementKey = "image";
+        markDraft();
+        rerender();
+        closeToolbarMenus();
+    };
+
+    const uploadImageAsset = async (file) => {
+        const formData = new FormData();
+        formData.append("image", file);
+        const response = await fetch("/stock/barcode/assets", {
+            method: "POST",
+            headers: {
+                "Accept": "application/json",
+            },
+            body: formData,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.status !== "success") {
+            throw new Error(payload.message || "Gambar gagal diupload.");
+        }
+        return payload.asset || null;
+    };
+
     const saveCurrentTemplate = async () => {
         const template = getTemplate();
         if (!template) return;
@@ -2353,6 +2748,16 @@
     });
 
     itemList.addEventListener("click", (event) => {
+        if (event.target.closest("[data-empty-add-item]")) {
+            openItemPicker();
+            return;
+        }
+
+        if (event.target.closest("[data-empty-open-content]")) {
+            openToolbarMenu(contentMenu);
+            return;
+        }
+
         const removeButton = event.target.closest("[data-remove-item]");
         if (removeButton) {
             event.stopPropagation();
@@ -2381,6 +2786,28 @@
         if (!item) return;
         item.label_qty = toNumber(qtyInput.value, item.label_qty || 1, 1, 999, true);
         renderPrintPreview();
+    });
+
+    uploadList?.addEventListener("click", (event) => {
+        const useButton = event.target.closest("[data-use-upload]");
+        if (!useButton) return;
+        const asset = state.assets.find((entry) => String(entry.id || "") === String(useButton.dataset.useUpload || ""));
+        if (!asset) return;
+        applyUploadedAssetToCanvas(asset);
+    });
+
+    artboardLabel.addEventListener("click", (event) => {
+        if (event.target.closest("[data-stage-add-item]")) {
+            openItemPicker();
+            return;
+        }
+
+        if (event.target.closest("[data-stage-open-content]")) {
+            event.preventDefault();
+            event.stopPropagation();
+            openToolbarMenu(contentMenu);
+            return;
+        }
     });
 
     artboardLabel.addEventListener("pointerdown", (event) => {
@@ -2619,8 +3046,42 @@
         searchButton.click();
     });
 
+    uploadButton?.addEventListener("click", () => {
+        uploadInput?.click();
+    });
+
+    uploadInput?.addEventListener("change", async () => {
+        const selectedFile = uploadInput.files?.[0];
+        if (!selectedFile) return;
+        if (uploadButton) uploadButton.disabled = true;
+        setStatus("Uploading", "draft");
+        try {
+            const asset = await uploadImageAsset(selectedFile);
+            if (asset) {
+                state.assets = [asset, ...state.assets.filter((entry) => String(entry.id || "") !== String(asset.id || ""))];
+                applyUploadedAssetToCanvas(asset);
+                setStatus("Uploaded", "saved");
+            }
+        } catch (error) {
+            setStatus("Error", "error");
+            alert(error.message || "Gambar gagal diupload.");
+        } finally {
+            if (uploadButton) uploadButton.disabled = false;
+            uploadInput.value = "";
+            renderUploadList();
+        }
+    });
+
     pickButton.addEventListener("click", () => {
-        picker.openForRow(document.body);
+        openItemPicker();
+    });
+
+    quickAddButton?.addEventListener("click", () => {
+        openItemPicker();
+    });
+
+    workbarAddButton?.addEventListener("click", () => {
+        openItemPicker();
     });
 
     clearItemsButton.addEventListener("click", () => {

@@ -1,11 +1,14 @@
 import csv
 import json
+import os
 import re
 from datetime import datetime
 from io import StringIO
 from urllib.parse import urlencode
+from uuid import uuid4
 
-from flask import Blueprint, Response, g, render_template, request, session, redirect, flash, jsonify
+from flask import Blueprint, Response, current_app, g, render_template, request, session, redirect, flash, jsonify
+from werkzeug.utils import secure_filename
 
 from database import get_db, is_postgresql_backend
 
@@ -42,6 +45,7 @@ BARCODE_TEMPLATE_OPTION_DEFAULTS = {
     "show_price": True,
     "show_note": True,
 }
+BARCODE_STUDIO_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 BARCODE_LAYOUT_ELEMENT_DEFAULTS = {
     "warehouse": {
         "kind": "text",
@@ -54,6 +58,20 @@ BARCODE_LAYOUT_ELEMENT_DEFAULTS = {
         "align": "left",
         "weight": 700,
         "visible": False,
+    },
+    "image": {
+        "kind": "image",
+        "label": "Image",
+        "x": 72,
+        "y": 7,
+        "w": 20,
+        "h": 20,
+        "font": 0,
+        "align": "center",
+        "weight": 400,
+        "visible": False,
+        "asset_url": "",
+        "asset_name": "",
     },
     "name": {
         "kind": "text",
@@ -296,6 +314,164 @@ def _can_access_barcode_studio():
     return normalize_role(session.get("role")) in BARCODE_STUDIO_ROLES
 
 
+def _format_barcode_asset_size(byte_count):
+    try:
+        safe_bytes = int(byte_count or 0)
+    except (TypeError, ValueError):
+        safe_bytes = 0
+    if safe_bytes >= 1024 * 1024:
+        return f"{safe_bytes / (1024 * 1024):.1f} MB"
+    if safe_bytes >= 1024:
+        return f"{safe_bytes / 1024:.0f} KB"
+    return f"{safe_bytes} B"
+
+
+def _get_barcode_asset_root():
+    configured_root = str(current_app.config.get("BARCODE_STUDIO_UPLOAD_FOLDER") or "").strip()
+    root_path = configured_root or os.path.join(current_app.root_path, "static", "uploads", "barcode_assets")
+    os.makedirs(root_path, exist_ok=True)
+    return os.path.abspath(root_path)
+
+
+def _get_barcode_asset_url_prefix():
+    return str(current_app.config.get("BARCODE_STUDIO_UPLOAD_URL_PREFIX") or "/static/uploads/barcode_assets").strip().rstrip("/")
+
+
+def _get_barcode_asset_max_bytes():
+    try:
+        configured = int(current_app.config.get("BARCODE_STUDIO_IMAGE_MAX_BYTES", 2 * 1024 * 1024))
+    except (TypeError, ValueError):
+        configured = 2 * 1024 * 1024
+    return max(256 * 1024, min(configured, 10 * 1024 * 1024))
+
+
+def _build_barcode_asset_user_root(user_id):
+    try:
+        safe_user_id = int(user_id or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    if safe_user_id <= 0:
+        return 0, "", ""
+
+    storage_root = _get_barcode_asset_root()
+    relative_dir = f"user_{safe_user_id}"
+    absolute_dir = os.path.abspath(os.path.join(storage_root, relative_dir))
+    if absolute_dir != storage_root and not absolute_dir.startswith(storage_root + os.sep):
+        return 0, "", ""
+    os.makedirs(absolute_dir, exist_ok=True)
+    return safe_user_id, absolute_dir, relative_dir
+
+
+def _build_barcode_asset_payload(stored_name, relative_dir, file_size=0, modified_at=None):
+    safe_name = secure_filename(stored_name or "")
+    if not safe_name:
+        return None
+    asset_label = safe_name.split("__", 1)[1] if "__" in safe_name else safe_name
+    relative_path = f"{relative_dir}/{safe_name}".replace("\\", "/").strip("/")
+    return {
+        "id": safe_name,
+        "name": asset_label or safe_name,
+        "url": f"{_get_barcode_asset_url_prefix()}/{relative_path}",
+        "size": int(file_size or 0),
+        "size_label": _format_barcode_asset_size(file_size),
+        "modified_at": int(modified_at or 0),
+    }
+
+
+def _list_barcode_assets_for_user(user_id):
+    safe_user_id, absolute_dir, relative_dir = _build_barcode_asset_user_root(user_id)
+    if safe_user_id <= 0 or not absolute_dir:
+        return []
+
+    assets = []
+    for entry in os.scandir(absolute_dir):
+        if not entry.is_file():
+            continue
+        extension = os.path.splitext(entry.name)[1].lower()
+        if extension not in BARCODE_STUDIO_IMAGE_EXTENSIONS:
+            continue
+        try:
+            stat_result = entry.stat()
+        except OSError:
+            continue
+        payload = _build_barcode_asset_payload(
+            entry.name,
+            relative_dir,
+            file_size=getattr(stat_result, "st_size", 0),
+            modified_at=getattr(stat_result, "st_mtime", 0),
+        )
+        if payload:
+            assets.append(payload)
+
+    assets.sort(key=lambda item: (item.get("modified_at") or 0, item.get("id") or ""), reverse=True)
+    return assets
+
+
+def _save_barcode_asset(user_id, file_storage):
+    if file_storage is None:
+        raise ValueError("Pilih gambar dulu.")
+
+    original_name = secure_filename(file_storage.filename or "")
+    if not original_name:
+        raise ValueError("Nama file gambar tidak valid.")
+
+    extension = os.path.splitext(original_name)[1].lower()
+    if extension not in BARCODE_STUDIO_IMAGE_EXTENSIONS:
+        raise ValueError("Format gambar harus PNG, JPG, JPEG, atau WEBP.")
+
+    mime_type = str(file_storage.mimetype or "").strip().lower()
+    if mime_type and not mime_type.startswith("image/"):
+        raise ValueError("File upload harus berupa gambar.")
+
+    safe_user_id, absolute_dir, relative_dir = _build_barcode_asset_user_root(user_id)
+    if safe_user_id <= 0 or not absolute_dir:
+        raise ValueError("Sesi user tidak valid.")
+
+    max_bytes = _get_barcode_asset_max_bytes()
+    input_stream = getattr(file_storage, "stream", None)
+    file_size = 0
+    if input_stream is not None:
+        try:
+            current_position = input_stream.tell()
+        except Exception:
+            current_position = None
+        try:
+            input_stream.seek(0, os.SEEK_END)
+            file_size = int(input_stream.tell() or 0)
+        except Exception:
+            file_size = 0
+        finally:
+            try:
+                input_stream.seek(current_position or 0)
+            except Exception:
+                pass
+    if file_size > max_bytes:
+        raise ValueError(f"Ukuran gambar maksimal {_format_barcode_asset_size(max_bytes)}.")
+
+    asset_stem = os.path.splitext(original_name)[0][:48] or "image"
+    stored_name = f"{uuid4().hex}__{asset_stem}{extension}"
+    absolute_path = os.path.abspath(os.path.join(absolute_dir, stored_name))
+    if absolute_path != absolute_dir and not absolute_path.startswith(absolute_dir + os.sep):
+        raise ValueError("Lokasi simpan gambar tidak valid.")
+
+    file_storage.save(absolute_path)
+    try:
+        saved_stat = os.stat(absolute_path)
+    except OSError:
+        saved_stat = None
+    saved_size = getattr(saved_stat, "st_size", file_size)
+    saved_modified_at = getattr(saved_stat, "st_mtime", 0)
+    payload = _build_barcode_asset_payload(
+        stored_name,
+        relative_dir,
+        file_size=saved_size,
+        modified_at=saved_modified_at,
+    )
+    if not payload:
+        raise ValueError("Gambar gagal diproses.")
+    return payload
+
+
 def _coerce_barcode_bool(value, default=False):
     if value is None:
         return bool(default)
@@ -320,6 +496,13 @@ def _sanitize_barcode_template_key(value):
     raw_value = str(value or "").strip().upper()
     safe_value = re.sub(r"[^A-Z0-9]+", "_", raw_value).strip("_")
     return safe_value[:72] or "CUSTOM"
+
+
+def _sanitize_barcode_asset_url(value):
+    raw_value = str(value or "").strip()
+    if not raw_value or not raw_value.startswith("/"):
+        return ""
+    return raw_value[:400]
 
 
 def _normalize_barcode_template_options(raw_options):
@@ -359,6 +542,13 @@ def _normalize_barcode_template_options(raw_options):
             ),
             "visible": _coerce_barcode_bool(safe_element.get("visible"), visible_default),
         }
+        if element_default["kind"] == "image":
+            normalized_elements[element_key]["asset_url"] = _sanitize_barcode_asset_url(
+                safe_element.get("asset_url") or element_default.get("asset_url")
+            )
+            normalized_elements[element_key]["asset_name"] = (
+                " ".join(str(safe_element.get("asset_name") or element_default.get("asset_name") or "").split())[:120]
+            )
         if visible_flag_key:
             normalized_elements[element_key]["visible"] = flags[visible_flag_key]
 
@@ -1560,6 +1750,8 @@ def stock_barcode_page():
         barcode_workspace_scope=f"{int(session.get('user_id') or 0)}:{int(warehouse_id or 0)}",
         barcode_default_templates=_barcode_default_templates_payload(),
         barcode_custom_templates=_load_barcode_templates_for_user(db, session.get("user_id")),
+        barcode_assets=_list_barcode_assets_for_user(session.get("user_id")),
+        barcode_asset_max_label=_format_barcode_asset_size(_get_barcode_asset_max_bytes()),
     )
 
 
@@ -1699,6 +1891,35 @@ def stock_barcode_delete_template(template_key):
             "status": "success",
             "message": "Template barcode dihapus.",
             "template_key": safe_template_key,
+        }
+    )
+
+
+@stock_bp.route("/barcode/assets", methods=["POST"])
+def stock_barcode_upload_asset():
+    access_denied = _require_barcode_studio_access(json_mode=True)
+    if access_denied:
+        return access_denied
+
+    try:
+        safe_user_id = int(session.get("user_id") or 0)
+    except (TypeError, ValueError):
+        safe_user_id = 0
+    if safe_user_id <= 0:
+        return _stock_json_error("Sesi user tidak valid.", 403)
+
+    try:
+        asset = _save_barcode_asset(safe_user_id, request.files.get("image"))
+    except ValueError as exc:
+        return _stock_json_error(str(exc), 400)
+    except Exception:
+        return _stock_json_error("Gambar gagal diupload.", 500)
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Gambar berhasil diupload.",
+            "asset": asset,
         }
     )
 

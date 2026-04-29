@@ -2174,6 +2174,43 @@ function formatCompactCurrency(value) {
     return "Rp" + new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(amount);
 }
 
+function getVariantNettSyncMode(input) {
+    return String(input?.dataset?.nettSyncMode || "").trim().toLowerCase();
+}
+
+function setVariantNettSyncMode(input, mode) {
+    if (!input) {
+        return;
+    }
+    input.dataset.nettSyncMode = String(mode || "").trim().toLowerCase();
+}
+
+function isVariantNettManual(row) {
+    return getVariantNettSyncMode(row?.querySelector('[data-field="price_nett"]')) === "manual";
+}
+
+function getSuggestedVariantNettValue(retailInput, discountInput) {
+    const retailRaw = String(getStockCurrencyRaw(retailInput) || "").trim();
+    const discountRaw = String(getStockCurrencyRaw(discountInput) || "").trim();
+
+    if (!retailRaw && !discountRaw) {
+        return "";
+    }
+
+    const retail = Math.max(0, getStockCurrencyValue(retailInput));
+    const discount = Math.max(0, getStockCurrencyValue(discountInput));
+
+    if (discountRaw && discount > 0) {
+        return String(discount);
+    }
+
+    if (retailRaw && retail > 0) {
+        return String(retail);
+    }
+
+    return "";
+}
+
 function updateVariantPriceSummary(row) {
     const retail = getStockCurrencyValue(row.querySelector('[data-field="price_retail"]'));
     const discount = getStockCurrencyValue(row.querySelector('[data-field="price_discount"]'));
@@ -2182,6 +2219,15 @@ function updateVariantPriceSummary(row) {
     const summary = row.querySelector('[data-role="price-summary"]');
 
     if (!summary) {
+        return;
+    }
+
+    if (nett > 0 && isVariantNettManual(row)) {
+        if (cost > 0) {
+            summary.textContent = `Nett manual ${formatCompactCurrency(nett)} | Pokok ${formatCompactCurrency(cost)}.`;
+            return;
+        }
+        summary.textContent = `Harga nett manual ${formatCompactCurrency(nett)} siap disimpan.`;
         return;
     }
 
@@ -2217,7 +2263,7 @@ function updateVariantPriceSummary(row) {
     summary.textContent = "Isi harga retail, diskon, atau nett sesuai kebutuhan.";
 }
 
-function syncVariantDerivedPrices(row) {
+function syncVariantDerivedPrices(row, options = {}) {
     if (!row) {
         return;
     }
@@ -2229,16 +2275,19 @@ function syncVariantDerivedPrices(row) {
         return;
     }
 
-    const retailRaw = String(getStockCurrencyRaw(retailInput) || "").trim();
-    const discountRaw = String(getStockCurrencyRaw(discountInput) || "").trim();
-    if (!retailRaw && !discountRaw) {
+    const force = options.force === true;
+    const nettRaw = String(getStockCurrencyRaw(nettInput) || "").trim();
+    const nextNett = getSuggestedVariantNettValue(retailInput, discountInput);
+    if (!nextNett) {
         return;
     }
 
-    const retail = Math.max(0, getStockCurrencyValue(retailInput));
-    const discount = Math.max(0, getStockCurrencyValue(discountInput));
-    const nextNett = Math.max(0, retail - discount);
-    setStockCurrencyValue(nettInput, String(nextNett));
+    if (!force && nettRaw && isVariantNettManual(row)) {
+        return;
+    }
+
+    setStockCurrencyValue(nettInput, nextNett);
+    setVariantNettSyncMode(nettInput, "auto");
     refreshStockCurrencyInputs(row);
 }
 
@@ -2294,10 +2343,18 @@ function applyVariantPrices(trigger, emptyOnly = false) {
             }
 
             setStockCurrencyValue(targetInput, sourceValue);
+            if (field === "price_nett") {
+                setVariantNettSyncMode(targetInput, sourceValue ? "manual" : "");
+            }
             rowChanged = true;
         });
 
         if (rowChanged) {
+            const targetNettInput = row.querySelector('[data-field="price_nett"]');
+            const targetNettRaw = String(getStockCurrencyRaw(targetNettInput) || "").trim();
+            if (!targetNettRaw) {
+                syncVariantDerivedPrices(row, { force: true });
+            }
             refreshStockCurrencyInputs(row);
             updateVariantPriceSummary(row);
             updatedCount += 1;
@@ -2321,8 +2378,16 @@ function applyVariantPrices(trigger, emptyOnly = false) {
 }
 
 function bindVariantRow(row) {
+    const nettInput = row.querySelector('[data-field="price_nett"]');
+    const hasInitialNett = String(getStockCurrencyRaw(nettInput) || "").trim() !== "";
+    setVariantNettSyncMode(nettInput, hasInitialNett ? "manual" : "");
+
     row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"], [data-field="price_cost"]').forEach((input) => {
         input.addEventListener("input", () => {
+            if (input.dataset.field === "price_nett") {
+                const hasManualNett = String(getStockCurrencyRaw(input) || "").trim() !== "";
+                setVariantNettSyncMode(input, hasManualNett ? "manual" : "");
+            }
             if (input.dataset.field === "price_retail" || input.dataset.field === "price_discount") {
                 syncVariantDerivedPrices(row);
             }
@@ -2330,7 +2395,9 @@ function bindVariantRow(row) {
         });
     });
     refreshStockCurrencyInputs(row);
-    syncVariantDerivedPrices(row);
+    if (!hasInitialNett) {
+        syncVariantDerivedPrices(row, { force: true });
+    }
     updateVariantPriceSummary(row);
     syncManualProductUnitLabels();
 }

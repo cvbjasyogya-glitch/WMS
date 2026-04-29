@@ -800,6 +800,12 @@ def create_app():
     )
     app.config.setdefault("POS_RECEIPT_PDF_URL_PREFIX", "/static/uploads/pos_receipts")
     app.config.setdefault(
+        "BARCODE_STUDIO_UPLOAD_FOLDER",
+        os.path.join(app.root_path, "static", "uploads", "barcode_assets"),
+    )
+    app.config.setdefault("BARCODE_STUDIO_UPLOAD_URL_PREFIX", "/static/uploads/barcode_assets")
+    app.config.setdefault("BARCODE_STUDIO_IMAGE_MAX_BYTES", 2 * 1024 * 1024)
+    app.config.setdefault(
         "DOCUMENT_RECORD_UPLOAD_FOLDER",
         os.path.join(app.root_path, "static", "uploads", "documents"),
     )
