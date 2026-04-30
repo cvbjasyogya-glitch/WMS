@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block content %}
+{% set can_view_product_cost = (session.get('role') or '')|lower in ['owner', 'super_admin'] %}
 <div class="wms-page-stack">
 <div class="meta-grid products-meta-grid" id="productsMetaGrid">
     <div class="meta-card">
@@ -93,10 +94,13 @@
     </div>
 
     <small class="helper-text">
-        Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett</span>.
+        Template didukung: <span class="mono">sku, name, category, variant, qty, warehouse_id, price_retail, price_discount, price_nett{% if can_view_product_cost %}, price_cost{% endif %}</span>.
         Kolom opsional: <span class="mono">color, variant_code, gtin</span>.
         File <span class="mono">.csv</span> dengan pemisah koma atau titik koma tetap bisa dibaca. Untuk file Excel, angka seperti <span class="mono">1.0</span> akan dibaca otomatis sebagai qty/gudang yang valid.
     </small>
+    {% if can_view_product_cost %}
+    <small class="helper-text">Kolom <span class="mono">price_cost</span> dipakai untuk menyimpan harga pokok per variasi.</small>
+    {% endif %}
     <small id="classicIpos4UndoHint" class="helper-text" hidden></small>
 
     <div id="previewBox"></div>
@@ -111,7 +115,7 @@
 {% endif %}
 
 {% if can('manage_product_master') %}
-<div id="formBox" class="form-box products-manual-box" style="display:none;">
+<div id="formBox" class="form-box products-manual-box" style="display:none;" data-can-view-product-cost="{% if can_view_product_cost %}1{% else %}0{% endif %}">
     <div class="section-title">
         <div>
             <h2>Import Manual Produk</h2>
@@ -271,6 +275,7 @@ const DEFAULT_VARIANT_ROWS = [
 const manualProductForm = document.getElementById("manualProductForm");
 const variantRowsBody = document.getElementById("variantRowsBody");
 const variantRowsJson = document.getElementById("variantRowsJson");
+const canViewProductCost = document.getElementById("formBox")?.dataset.canViewProductCost === "1";
 
 function notifyUser(message) {
     if (!message) return;
@@ -388,10 +393,22 @@ function createVariantRowMarkup(initial = {}) {
     const priceRetail = initial.price_retail || "";
     const priceDiscount = initial.price_discount || "";
     const priceNett = initial.price_nett || "";
+    const priceCost = initial.price_cost || "";
     const qty = initial.qty ?? "";
     const variantCode = initial.variant_code || "";
     const color = initial.color || "";
     const gtin = initial.gtin || "";
+    const costFieldMarkup = canViewProductCost
+        ? `
+                    <div>
+                        <span class="variant-mini-label">Pokok</span>
+                        <label class="variant-currency-input">
+                            <span>Rp</span>
+                            <input type="number" data-field="price_cost" min="0" step="0.01" placeholder="350000" value="${priceCost}" data-wms-currency="currency">
+                        </label>
+                    </div>
+        `
+        : "";
 
     return `
         <td class="variant-size-cell">
@@ -432,6 +449,7 @@ function createVariantRowMarkup(initial = {}) {
                             <input type="number" data-field="price_nett" min="0" step="0.01" placeholder="500000" value="${priceNett}" data-wms-currency="currency">
                         </label>
                     </div>
+                    ${costFieldMarkup}
                 </div>
                 <div class="variant-price-summary" data-role="price-summary">Isi harga retail, diskon, atau nett sesuai kebutuhan.</div>
             </div>
@@ -484,23 +502,35 @@ function updateVariantPriceSummary(row) {
     const retail = getProductCurrencyValue(row.querySelector('[data-field="price_retail"]'));
     const discount = getProductCurrencyValue(row.querySelector('[data-field="price_discount"]'));
     const nett = getProductCurrencyValue(row.querySelector('[data-field="price_nett"]'));
+    const cost = getProductCurrencyValue(row.querySelector('[data-field="price_cost"]'));
     const summary = row.querySelector('[data-role="price-summary"]');
 
     if (!summary) return;
 
     if (retail > 0 && discount > 0 && discount <= retail) {
         const percentage = Math.round(((retail - discount) / retail) * 100);
-        summary.textContent = `Harga diskon ${formatCompactCurrency(discount)} (${percentage}% diskon)`;
+        summary.textContent = cost > 0
+            ? `Harga diskon ${formatCompactCurrency(discount)} (${percentage}% diskon) | Pokok ${formatCompactCurrency(cost)}.`
+            : `Harga diskon ${formatCompactCurrency(discount)} (${percentage}% diskon)`;
         return;
     }
 
     if (nett > 0) {
-        summary.textContent = `Harga nett ${formatCompactCurrency(nett)} siap disimpan.`;
+        summary.textContent = cost > 0
+            ? `Harga nett ${formatCompactCurrency(nett)} | Pokok ${formatCompactCurrency(cost)} siap disimpan.`
+            : `Harga nett ${formatCompactCurrency(nett)} siap disimpan.`;
         return;
     }
 
     if (retail > 0) {
-        summary.textContent = `Retail ${formatCompactCurrency(retail)} siap dipakai.`;
+        summary.textContent = cost > 0
+            ? `Retail ${formatCompactCurrency(retail)} | Pokok ${formatCompactCurrency(cost)} siap dipakai.`
+            : `Retail ${formatCompactCurrency(retail)} siap dipakai.`;
+        return;
+    }
+
+    if (cost > 0) {
+        summary.textContent = `Harga pokok ${formatCompactCurrency(cost)} sudah terisi.`;
         return;
     }
 
@@ -508,7 +538,7 @@ function updateVariantPriceSummary(row) {
 }
 
 function bindVariantRow(row) {
-    row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"]').forEach((input) => {
+    row.querySelectorAll('[data-field="price_retail"], [data-field="price_discount"], [data-field="price_nett"], [data-field="price_cost"]').forEach((input) => {
         input.addEventListener("input", () => updateVariantPriceSummary(row));
     });
     refreshProductCurrencyInputs(row);
@@ -537,6 +567,7 @@ function getVariantPayload() {
             price_retail: getProductCurrencyRaw(getValue("price_retail")),
             price_discount: getProductCurrencyRaw(getValue("price_discount")),
             price_nett: getProductCurrencyRaw(getValue("price_nett")),
+            price_cost: getProductCurrencyRaw(getValue("price_cost")),
             qty: (getValue("qty")?.value || "").trim(),
             variant_code: (getValue("variant_code")?.value || "").trim(),
             gtin: (getValue("gtin")?.value || "").trim()
@@ -565,7 +596,7 @@ function prepareManualSubmit() {
     }
 
     const hasNegativePrice = payload.some((row) => {
-        return ["price_retail", "price_discount", "price_nett"].some((field) => {
+        return ["price_retail", "price_discount", "price_nett", "price_cost"].some((field) => {
             return row[field] !== "" && Number(row[field]) < 0;
         });
     });

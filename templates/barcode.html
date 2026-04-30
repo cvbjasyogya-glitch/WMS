@@ -705,6 +705,18 @@
         place-items: center;
     }
 
+    .barcode-canvas-wrap[data-pan-ready="1"] {
+        cursor: grab;
+    }
+
+    .barcode-canvas-wrap[data-pan-active="1"] {
+        cursor: grabbing;
+    }
+
+    .barcode-canvas-wrap[data-pan-active="1"] .barcode-artboard-label .barcode-element {
+        cursor: inherit;
+    }
+
     .barcode-canvas {
         width: 100%;
         min-height: 620px;
@@ -721,6 +733,47 @@
         background: #ffffff;
         box-shadow: 0 26px 70px rgba(15, 23, 42, 0.16);
         box-sizing: border-box;
+    }
+
+    .barcode-stage-controls {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        z-index: 22;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        border-radius: 18px;
+        border: 1px solid rgba(203, 213, 225, 0.95);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 18px 34px rgba(15, 23, 42, 0.12);
+        backdrop-filter: blur(12px);
+        max-width: min(92%, 720px);
+    }
+
+    .barcode-stage-zoom-readout,
+    .barcode-stage-mode-hint {
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(241, 245, 249, 0.96);
+        color: #334155;
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    .barcode-stage-zoom-readout {
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .barcode-stage-mode-hint {
+        color: #475569;
     }
 
     .barcode-artboard-label,
@@ -798,8 +851,8 @@
         justify-content: flex-start;
         padding: 1px 3px;
         color: #0f172a;
-        line-height: 1.05;
-        word-break: break-word;
+        line-height: 1;
+        overflow-wrap: anywhere;
         text-wrap: pretty;
     }
 
@@ -887,15 +940,61 @@
 
     .barcode-resize-handle {
         position: absolute;
-        right: -7px;
-        bottom: -7px;
         width: 14px;
         height: 14px;
-        border-radius: 4px;
+        border-radius: 999px;
         background: #0ea5e9;
         border: 2px solid #ffffff;
         box-shadow: 0 8px 18px rgba(14, 165, 233, 0.24);
+        z-index: 4;
+    }
+
+    .barcode-resize-handle[data-resize-handle="nw"] {
+        left: -7px;
+        top: -7px;
         cursor: nwse-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="n"] {
+        left: calc(50% - 7px);
+        top: -7px;
+        cursor: ns-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="ne"] {
+        right: -7px;
+        top: -7px;
+        cursor: nesw-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="e"] {
+        right: -7px;
+        top: calc(50% - 7px);
+        cursor: ew-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="se"] {
+        right: -7px;
+        bottom: -7px;
+        cursor: nwse-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="s"] {
+        left: calc(50% - 7px);
+        bottom: -7px;
+        cursor: ns-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="sw"] {
+        left: -7px;
+        bottom: -7px;
+        cursor: nesw-resize;
+    }
+
+    .barcode-resize-handle[data-resize-handle="w"] {
+        left: -7px;
+        top: calc(50% - 7px);
+        cursor: ew-resize;
     }
 
     .barcode-artboard-label .barcode-element.hidden-preview {
@@ -1063,6 +1162,12 @@
             right: 12px;
             max-width: none;
             width: auto;
+        }
+
+        .barcode-stage-controls {
+            left: 12px;
+            right: 12px;
+            max-width: none;
         }
 
         .barcode-stack-row,
@@ -2032,22 +2137,33 @@
         });
     };
 
-    const resolveTextFontSize = (layer, previewMode) => {
+    const resolveTextFontSize = (layer, previewMode, textValue = "") => {
         const templateFontScale = (getTemplate()?.font_scale || 100) / 100;
         const widthDrivenScale = templateFontScale;
         const usableHeight = Math.max(3.5, Number(layer?.h || 0) - (previewMode === "stage" ? 1.2 : 1.6));
+        const normalizedText = String(textValue || "").replace(/\s+/g, " ").trim();
+        const textChunks = normalizedText
+            ? normalizedText.split(/\s*\|\s*|\n/g).map((chunk) => chunk.trim()).filter(Boolean)
+            : [];
+        const longestChunkLength = textChunks.reduce((maxLength, chunk) => Math.max(maxLength, chunk.length), 0);
+        const estimatedChars = Math.max(4, Math.min(42, longestChunkLength || normalizedText.length || 4));
+        const estimatedLineCount = normalizedText && estimatedChars > 0
+            ? Math.max(1, Math.ceil((normalizedText.length || estimatedChars) / estimatedChars))
+            : 1;
         const widthDrivenSize = `calc(${Number(layer?.font || 0) * widthDrivenScale} * 1cqw)`;
-        const heightDrivenSize = `calc(${usableHeight * 0.72} * 1cqh)`;
-        return `min(${widthDrivenSize}, ${heightDrivenSize})`;
+        const widthSafeSize = `calc(${Math.max(2.8, ((Number(layer?.w || 0) * 0.88) / estimatedChars))} * 1cqw)`;
+        const heightSafeRatio = estimatedLineCount > 1 ? 0.4 : 0.56;
+        const heightDrivenSize = `calc(${usableHeight * heightSafeRatio} * 1cqh)`;
+        return `min(${widthDrivenSize}, ${widthSafeSize}, ${heightDrivenSize})`;
     };
 
-    const elementStyle = (layer, previewMode) => {
+    const elementStyle = (layer, previewMode, textValue = "") => {
         return [
             `left:${layer.x}%;`,
             `top:${layer.y}%;`,
             `width:${layer.w}%;`,
             `height:${layer.h}%;`,
-            `font-size:${layer.kind === "text" && layer.font > 0 ? resolveTextFontSize(layer, previewMode) : "0px"};`,
+            `font-size:${layer.kind === "text" && layer.font > 0 ? resolveTextFontSize(layer, previewMode, textValue) : "0px"};`,
             `font-weight:${layer.weight};`,
         ].join("");
     };
@@ -2068,7 +2184,7 @@
             `data-element-key="${escapeHtml(key)}"`,
             `data-kind="${escapeHtml(layer.kind)}"`,
             `data-align="${escapeHtml(layer.align)}"`,
-            `style="${escapeHtml(elementStyle(layer, previewMode))}"`,
+            `style="${escapeHtml(elementStyle(layer, previewMode, safeValue))}"`,
         ].join(" ");
 
         if (layer.kind === "barcode") {
@@ -2085,6 +2201,43 @@
         }
 
         return `<div ${sharedAttrs}>${escapeHtml(safeValue)}${resizeHandle}</div>`;
+    };
+
+    const shrinkTextToFit = (rootNode) => {
+        if (!rootNode) return;
+        rootNode.querySelectorAll('.barcode-element[data-kind="text"]').forEach((node) => {
+            if (!(node instanceof HTMLElement)) {
+                return;
+            }
+            const maxWidth = Number(node.clientWidth || 0);
+            const maxHeight = Number(node.clientHeight || 0);
+            if (maxWidth <= 0 || maxHeight <= 0) {
+                return;
+            }
+
+            let fontSize = Number.parseFloat(window.getComputedStyle(node).fontSize || "0");
+            if (!Number.isFinite(fontSize) || fontSize <= 0) {
+                return;
+            }
+
+            let guard = 0;
+            while (guard < 48 && fontSize > 8) {
+                const overflowWidth = node.scrollWidth - maxWidth;
+                const overflowHeight = node.scrollHeight - maxHeight;
+                if (overflowWidth <= 1 && overflowHeight <= 1) {
+                    break;
+                }
+                fontSize -= 0.8;
+                node.style.fontSize = `${fontSize}px`;
+                guard += 1;
+            }
+        });
+    };
+
+    const queueTextFit = (rootNode) => {
+        window.requestAnimationFrame(() => {
+            shrinkTextToFit(rootNode);
+        });
     };
 
     const activateBarcodes = (rootNode, previewMode) => {
@@ -2357,6 +2510,7 @@
             .map((key) => buildElementHtml(key, template.options.elements[key], content, "stage", key === state.selectedElementKey))
             .join("");
         activateBarcodes(artboardLabel, "stage");
+        queueTextFit(artboardLabel);
         canvasStage.style.transform = `scale(${state.zoom})`;
         window.requestAnimationFrame(positionSelectionToolbar);
         schedulePersistWorkspaceDraft();
@@ -2383,6 +2537,7 @@
         printGrid.innerHTML = labels.map(renderLabel).join("");
         activateBarcodes(previewGrid, "print");
         activateBarcodes(printGrid, "print");
+        queueTextFit(previewGrid);
         previewLimit.textContent = `Preview ${Math.min(labels.length, previewLimitCount)} / ${previewLimitCount}`;
         canvasSummary.textContent = `${state.selectedItems.length} item | ${labels.length} label`;
         warehouseName.textContent = currentWarehouseLabel();

@@ -29640,6 +29640,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("applyVariantPrices(this, true)", html)
         self.assertIn("syncVariantDerivedPrices(row)", html)
         self.assertIn("Harga nett", html)
+        self.assertIn("Harga Pokok", html)
+        self.assertIn('data-field="price_cost"', html)
+        self.assertIn("stockEditPriceCost", html)
         self.assertIn("getSuggestedVariantNettValue", html)
         self.assertIn('Harga nett manual ${formatCompactCurrency(nett)} siap disimpan.', html)
         self.assertNotIn("Math.max(0, retail - discount)", html)
@@ -29761,6 +29764,67 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["price_cost"], 175000)
+
+    def test_owner_can_update_product_price_cost_inline_and_detail(self):
+        self.create_user("owner_price_cost_editor", "pass1234", "owner")
+        self.login("owner_price_cost_editor", "pass1234")
+
+        response, product_id, variants_rows = self.create_product(
+            sku="OWN-COST-EDIT-001",
+            variants="COST-42",
+            qty=2,
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        inline_response = self.client.post(
+            "/stock/update-field",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "field": "price_cost",
+                "value": "165000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(inline_response.status_code, 200)
+        self.assertEqual(inline_response.get_json()["status"], "success")
+
+        detail_response = self.client.post(
+            "/stock/update-detail",
+            data={
+                "product_id": str(product_id),
+                "variant_id": str(variant_id),
+                "sku": "OWN-COST-EDIT-001",
+                "name": "Produk Harga Pokok Update",
+                "category_name": "Testing",
+                "unit_label": "pcs",
+                "variant": "COST-43",
+                "price_retail": "250000",
+                "price_discount": "230000",
+                "price_nett": "210000",
+                "price_cost": "185000",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.get_json()["status"], "success")
+
+        with self.app.app_context():
+            db = get_db()
+            row = db.execute(
+                """
+                SELECT v.variant, v.price_cost
+                FROM product_variants v
+                WHERE v.product_id=? AND v.id=?
+                """,
+                (product_id, variant_id),
+            ).fetchone()
+
+        self.assertEqual(row["variant"], "COST-43")
+        self.assertEqual(row["price_cost"], 185000)
 
     def test_admin_cannot_update_product_detail_from_stock_context(self):
         self.create_user("admin_cost_block", "pass1234", "admin", warehouse_id=1)
@@ -30319,6 +30383,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Mulai dari Add Item", owner_html)
         self.assertIn('data-stage-add-item', owner_html)
         self.assertIn('data-empty-add-item', owner_html)
+        self.assertIn("const widthSafeSize =", owner_html)
+        self.assertIn("const shrinkTextToFit = (rootNode) => {", owner_html)
         self.assertIn('data-layer-action="fit"', owner_html)
         self.assertIn('aria-label="Barcode"', owner_html)
 

@@ -1242,6 +1242,27 @@ function bindStockInlineEditors(scope = document) {
     });
 }
 
+function syncStockRowPriceDataset(input, field, value) {
+    const row = input?.closest("[data-stock-row]");
+    if (!row) {
+        return;
+    }
+
+    const datasetMap = {
+        price_retail: "priceRetail",
+        price_discount: "priceDiscount",
+        price_nett: "priceNett",
+        price_cost: "priceCost",
+    };
+    const datasetKey = datasetMap[field];
+    if (!datasetKey) {
+        return;
+    }
+
+    row.dataset[datasetKey] = String(value || "0").trim() || "0";
+    row.dataset.bestPrice = String(getBestPriceFromRow(row) || 0);
+}
+
 async function submitStockInlineField(input, options = {}) {
     if (!input) {
         return { ok: false, reason: "missing_input" };
@@ -1301,6 +1322,9 @@ async function submitStockInlineField(input, options = {}) {
         if (field === "variant") {
             input.closest("[data-stock-row]")?.setAttribute("data-product-variant", value);
             renderGroupSummary(groupSummaryRow);
+        }
+        if (["price_retail", "price_discount", "price_nett", "price_cost"].includes(field)) {
+            syncStockRowPriceDataset(input, field, value);
         }
 
         return {
