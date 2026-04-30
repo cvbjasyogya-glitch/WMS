@@ -29155,6 +29155,67 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["qty"], 7)
 
+    def test_stock_page_script_handles_pending_adjust_response_for_request_roles(self):
+        self.create_user("admin_adjust_ui", "pass1234", "admin", warehouse_id=1)
+        self.login("admin_adjust_ui", "pass1234")
+
+        response = self.client.get("/stock/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn('if (data.status === "pending") {', html)
+        self.assertIn('notifyStockMessage(data.message || "Permintaan adjust stok berhasil dikirim.");', html)
+
+    def test_add_product_rejects_invalid_initial_stock_warehouse(self):
+        self.create_user("owner_invalid_stock_wh", "pass1234", "owner")
+        self.login("owner_invalid_stock_wh", "pass1234")
+
+        response = self.client.post(
+            "/products/add",
+            data={
+                "sku": "OWN-WH-INVALID-001",
+                "name": "Produk Gudang Invalid",
+                "category_name": "Testing",
+                "warehouse_id": "999999",
+                "unit_label": "pcs",
+                "variant_mode": "variant",
+                "variant_rows_json": json.dumps(
+                    [
+                        {
+                            "variant": "42",
+                            "color": "",
+                            "price_retail": "250000",
+                            "price_discount": "230000",
+                            "price_nett": "210000",
+                            "price_cost": "175000",
+                            "qty": "1",
+                            "variant_code": "",
+                            "gtin": "",
+                        }
+                    ]
+                ),
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("Gudang stok awal tidak valid", payload["message"])
+
+        with self.app.app_context():
+            db = get_db()
+            product = db.execute(
+                "SELECT id FROM products WHERE sku=?",
+                ("OWN-WH-INVALID-001",),
+            ).fetchone()
+
+        self.assertIsNone(product)
+
     def test_scoped_role_pages_lock_warehouse_inputs(self):
         for username, role in [
             ("admin_scope", "admin"),

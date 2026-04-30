@@ -1999,6 +1999,13 @@ def add_product():
     if is_scoped_role(session.get("role")):
         warehouse_id = session.get("warehouse_id") or warehouse_id
 
+    warehouse_row = db.execute(
+        "SELECT id FROM warehouses WHERE id=?",
+        (warehouse_id,),
+    ).fetchone()
+    if not warehouse_row:
+        return _products_error_response("Gudang stok awal tidak valid.", 400)
+
     if not variant_rows:
         return _products_error_response("Minimal isi satu variasi produk.", 400)
 

@@ -1,5 +1,6 @@
 from database import get_db
 from flask import session, has_request_context
+from services.stock_service import _ensure_legacy_stock_batch_shadow
 
 
 def _get_user():
@@ -81,6 +82,7 @@ def create_request(product_id, variant_id, from_wh, to_wh, qty):
     if not _validate_entities(db, product_id, variant_id, from_wh, to_wh):
         return None
 
+    _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, from_wh)
     stock = db.execute(
         """
         SELECT COALESCE(SUM(remaining_qty),0)
@@ -193,6 +195,7 @@ def approve_request(request_id):
                 db.rollback()
             return False
 
+        _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, from_wh)
         total = db.execute(
             """
             SELECT COALESCE(SUM(remaining_qty),0)

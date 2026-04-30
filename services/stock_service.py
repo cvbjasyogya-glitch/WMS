@@ -338,6 +338,7 @@ def adjust_stock(product_id, variant_id, warehouse_id, qty, note="Stock Adjustme
         db.execute("BEGIN")
 
         if qty > 0:
+            _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, warehouse_id)
             db.execute("""
             INSERT INTO stock_batches(
                 product_id, variant_id, warehouse_id,

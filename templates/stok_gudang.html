@@ -1378,6 +1378,11 @@ function adjustStock(button) {
             notifyStockMessage(data.message || "Stock berhasil diupdate.");
             return;
         }
+        if (data.status === "pending") {
+            input.value = "";
+            notifyStockMessage(data.message || "Permintaan adjust stok berhasil dikirim.");
+            return;
+        }
         notifyStockMessage(data.message || "Adjust stok gagal.", "error");
     })
     .catch(() => notifyStockMessage("Terjadi error saat adjust stok.", "error"))
