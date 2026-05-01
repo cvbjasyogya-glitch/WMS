@@ -53,6 +53,9 @@
                         </div>
                     </div>
                     {% if can_view_pos_revenue %}
+                    {% if item.debit_breakdown_label %}
+                    <p class="helper-text">Bank debit: {{ item.debit_breakdown_label }}</p>
+                    {% endif %}
                     <pre class="attendance-cash-closing-sheet">{{ item.summary_message }}</pre>
                     {% else %}
                     <p class="helper-text">Ringkasan nominal tutup kasir hanya tampil untuk akun POS yang punya akses melihat nominal penjualan.</p>

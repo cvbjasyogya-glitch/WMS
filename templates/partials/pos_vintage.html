@@ -390,6 +390,7 @@
                                 <small class="helper-text" id="posSplitPaymentSummary">Aktifkan split transaksi untuk membagi pembayaran.</small>
                             </div>
                         </div>
+                        <small class="helper-text" id="posPaymentBankSummary" hidden>Bank debit belum dipilih.</small>
                     </div>
 
                     <div class="pos-ipos-shortcuts" id="posPaidQuickActions">
@@ -450,6 +451,40 @@
                 <div class="pos-catalog-pagination pos-ipos-pickerpagination">
                     <button type="button" class="pos-vintage-mini" id="posCatalogPrev">Sebelumnya</button>
                     <button type="button" class="pos-vintage-mini" id="posCatalogNext">Berikutnya</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="picker-modal" id="posDebitBankModal" hidden>
+            <div class="picker-modal-backdrop" data-pos-bank-close></div>
+            <div class="picker-modal-panel" role="dialog" aria-modal="true" aria-labelledby="posDebitBankTitle">
+                <div class="section-title">
+                    <div>
+                        <h2 id="posDebitBankTitle">Pilih Bank Debit</h2>
+                        <p>Pilih nama bank kartu atau EDC supaya log kasir dan receipt lebih jelas.</p>
+                    </div>
+                    <button type="button" class="ghost-button" data-pos-bank-close>Tutup</button>
+                </div>
+
+                <div class="picker-meta-row">
+                    <span class="status-pill" id="posDebitBankTargetLabel">Pembayaran debit</span>
+                    <span class="status-pill" id="posDebitBankCurrentLabel">Belum dipilih</span>
+                </div>
+
+                <div class="pos-ipos-bank-grid" id="posDebitBankOptionGrid">
+                    {% for bank_name in pos_debit_bank_options %}
+                    <button type="button" class="ghost-button" data-pos-bank-option="{{ bank_name }}">{{ bank_name }}</button>
+                    {% endfor %}
+                </div>
+
+                <label class="pos-ipos-summary-input" for="posDebitBankCustomInput">
+                    <span>Nama bank lain</span>
+                    <input type="text" id="posDebitBankCustomInput" placeholder="Contoh: BRI / Bank Jago" autocomplete="off">
+                </label>
+
+                <div class="picker-pagination">
+                    <button type="button" class="ghost-button" data-pos-bank-close>Batal</button>
+                    <button type="button" class="pos-vintage-button is-primary" id="posDebitBankApplyButton">Pakai Bank Ini</button>
                 </div>
             </div>
         </div>

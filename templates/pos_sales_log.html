@@ -138,6 +138,14 @@
                         <div>
                             <label>Debet</label>
                             <input type="text" name="debit_amount" inputmode="numeric" placeholder="5380000" data-cash-amount autocomplete="off" readonly value="{{ cash_closing_defaults.debit_amount_label }}">
+                            <small
+                                class="helper-text"
+                                data-cash-closing-debit-breakdown
+                                data-cash-closing-debit-breakdown-label="{{ cash_closing_defaults.debit_breakdown_label or '' }}"
+                                {% if not cash_closing_defaults.debit_breakdown_label %}hidden{% endif %}
+                            >
+                                {% if cash_closing_defaults.debit_breakdown_label %}Bank debit: {{ cash_closing_defaults.debit_breakdown_label }}{% endif %}
+                            </small>
                         </div>
                         <div>
                             <label>QRIS</label>
@@ -209,6 +217,7 @@
                                 data-closing-date="{{ item.closing_date }}"
                                 data-cash-amount="{{ item.cash_amount }}"
                                 data-debit-amount="{{ item.debit_amount }}"
+                                data-debit-breakdown-label="{{ item.debit_breakdown_label }}"
                                 data-qris-amount="{{ item.qris_amount }}"
                                 data-mb-amount="{{ item.mb_amount }}"
                                 data-cv-amount="{{ item.cv_amount }}"
@@ -867,6 +876,7 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
     const editState = cashClosingPanel.querySelector("[data-cash-closing-edit-state]");
     const submitButton = cashClosingPanel.querySelector("[data-cash-closing-submit-button]");
     const cancelEditButton = cashClosingPanel.querySelector("[data-cash-closing-cancel-edit]");
+    const debitBreakdownHint = cashClosingPanel.querySelector("[data-cash-closing-debit-breakdown]");
     const defaultsUrl = String(cashClosingPanel.dataset.cashClosingDefaultsUrl || "").trim();
     const warehouseId = String(cashClosingPanel.dataset.cashClosingWarehouseId || "").trim();
     const warehouseLabel = String(cashClosingPanel.dataset.cashClosingWarehouse || "Mataram")
@@ -882,6 +892,7 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
     const cashOnHandInput = cashClosingPanel.querySelector("[name='cash_on_hand_amount']");
     const defaultSubmitLabel = submitButton?.textContent || "Simpan & Kirim WA Leader";
     const editSubmitLabel = "Simpan Perubahan";
+    let debitBreakdownLabel = String(debitBreakdownHint?.dataset.cashClosingDebitBreakdownLabel || "").trim();
 
     const parseAmount = (value) => {
         const normalized = String(value || "")
@@ -919,6 +930,16 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
 
     const buildLine = (label, amount, zeroLabel = "-") => `${label.padEnd(11, " ")} = ${formatAmount(amount, zeroLabel)}`;
 
+    const syncDebitBreakdownHint = () => {
+        if (!(debitBreakdownHint instanceof HTMLElement)) {
+            return;
+        }
+        const safeLabel = String(debitBreakdownLabel || "").trim();
+        debitBreakdownHint.dataset.cashClosingDebitBreakdownLabel = safeLabel;
+        debitBreakdownHint.hidden = !safeLabel;
+        debitBreakdownHint.textContent = safeLabel ? `Bank debit: ${safeLabel}` : "";
+    };
+
     const roundCashOnHand = (value) => {
         const step = 50000;
         const threshold = 25000;
@@ -947,6 +968,8 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
         if (!defaults || typeof defaults !== "object") {
             return;
         }
+        debitBreakdownLabel = String(defaults.debit_breakdown_label || "").trim();
+        syncDebitBreakdownHint();
         if (combinedInput instanceof HTMLInputElement) {
             combinedInput.value = formatAmount(defaults.combined_total_amount, "0");
         }
@@ -982,6 +1005,8 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
         if (dateInput instanceof HTMLInputElement) {
             dateInput.value = String(button.dataset.closingDate || "").trim();
         }
+        debitBreakdownLabel = String(button.dataset.debitBreakdownLabel || "").trim();
+        syncDebitBreakdownHint();
         if (combinedInput instanceof HTMLInputElement) {
             combinedInput.value = formatAmount(button.dataset.combinedTotalAmount, "0");
         }
@@ -1075,6 +1100,9 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
             "",
             `Total Mataram dan Mega = ${formatAmount(amounts.combined)}`,
         ];
+        if (debitBreakdownLabel) {
+            lines.splice(4, 0, `Bank Debet  = ${debitBreakdownLabel}`);
+        }
         const safeNote = String(noteInput?.value || "").trim();
         if (safeNote) {
             lines.push("");
@@ -1143,6 +1171,7 @@ document.querySelectorAll("[data-pos-runtime-link]").forEach((node) => {
             setEditMode(button);
         });
     });
+    syncDebitBreakdownHint();
     syncCashOnHand();
     renderPreview();
 })();

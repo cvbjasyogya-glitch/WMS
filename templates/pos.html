@@ -16,6 +16,41 @@ window.wmsPageFlags = Object.assign({}, window.wmsPageFlags || {}, {
     pageKind: "pos"
 });
 </script>
+<style>
+.pos-ipos-bank-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.pos-ipos-bank-grid .ghost-button {
+    width: 100%;
+    min-height: 42px;
+}
+
+#posPaymentBankSummary[hidden] {
+    display: none !important;
+}
+
+body .pos-ipos-refactor #posPaymentBankSummary {
+    display: block;
+    margin-top: 8px;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) auto auto;
+}
+
+body .pos-ipos-refactor .pos-ipos-split-bank {
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    body .pos-ipos-refactor .pos-ipos-split-row {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -491,6 +526,13 @@ const posSplitPaymentRows = document.getElementById("posSplitPaymentRows");
 const posAddSplitPaymentRow = document.getElementById("posAddSplitPaymentRow");
 const posSplitPaymentSummary = document.getElementById("posSplitPaymentSummary");
 const POS_SPLIT_PAYMENT_METHODS = {{ payment_methods | tojson }};
+const POS_DEBIT_BANK_OPTIONS = {{ pos_debit_bank_options | tojson }};
+const posPaymentBankSummary = document.getElementById("posPaymentBankSummary");
+const posDebitBankModal = document.getElementById("posDebitBankModal");
+const posDebitBankTargetLabel = document.getElementById("posDebitBankTargetLabel");
+const posDebitBankCurrentLabel = document.getElementById("posDebitBankCurrentLabel");
+const posDebitBankCustomInput = document.getElementById("posDebitBankCustomInput");
+const posDebitBankApplyButton = document.getElementById("posDebitBankApplyButton");
 const posAllowNegativeStockTemp = {{ "true" if config.get("POS_ALLOW_NEGATIVE_STOCK_TEMP") else "false" }};
 const posEditStockAllowanceState = new Map(
     Object.entries(posEditingSale?.stock_allowances || {}).map(([key, qty]) => [
@@ -551,6 +593,7 @@ function buildPosDraftSnapshot() {
         cashier_user_id: Number(posCashierUserId?.value || 0),
         transaction_type: String(posTransactionType?.value || "purchase"),
         payment_method: String(posPaymentMethod?.value || "cash"),
+        payment_bank_name: getPosSingleDebitBankName(),
         paid_amount: getPosCurrencyValue(posPaidAmount),
         note: String(posNote?.value || ""),
         discount_type: String(posDiscountType?.value || "amount"),
@@ -560,6 +603,7 @@ function buildPosDraftSnapshot() {
         split_enabled: isPosSplitPaymentEnabled(),
         split_rows: (posSplitPaymentState.rows || []).map((row) => ({
             method: String(row?.method || ""),
+            bank_name: normalizePosDebitBankName(row?.bank_name || ""),
             amount: row?.amount === "" ? "" : roundPosMoney(row?.amount || 0),
         })),
         items: posCart.map((item) => ({
@@ -691,6 +735,7 @@ function restorePosCheckoutDraft() {
     if (posTransactionType) {
         posTransactionType.value = String(snapshot.transaction_type || "purchase");
     }
+    setPosSingleDebitBankName(snapshot.payment_bank_name || "");
     if (posNote) {
         posNote.value = String(snapshot.note || "");
     }
@@ -711,7 +756,7 @@ function restorePosCheckoutDraft() {
     }
 
     posSplitPaymentState.rows = Array.isArray(snapshot.split_rows)
-        ? snapshot.split_rows.map((row) => createPosSplitPaymentRow(row?.method || "", row?.amount ?? ""))
+        ? snapshot.split_rows.map((row) => createPosSplitPaymentRow(row?.method || "", row?.amount ?? "", row?.bank_name || ""))
         : [];
 
     if (posSplitPaymentToggle) {
@@ -864,6 +909,11 @@ const posSplitPaymentState = {
     previousSingleMethod: String(posPaymentMethod?.value || POS_SPLIT_PAYMENT_METHODS[0] || "cash"),
     rows: [],
 };
+const posDebitBankState = {
+    single: "",
+    modalMode: "single",
+    rowId: 0,
+};
 
 function escapeHtml(value) {
     return String(value ?? "")
@@ -872,6 +922,118 @@ function escapeHtml(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+}
+
+function normalizePosDebitBankName(value) {
+    const safeValue = String(value || "").trim().replace(/\s+/g, " ");
+    if (!safeValue) {
+        return "";
+    }
+    const matchedOption = POS_DEBIT_BANK_OPTIONS.find((option) => option.toLowerCase() === safeValue.toLowerCase());
+    return matchedOption || safeValue.slice(0, 64);
+}
+
+function getPosSplitRowById(rowId) {
+    return (posSplitPaymentState.rows || []).find((entry) => entry.id === Number(rowId || 0)) || null;
+}
+
+function getPosSingleDebitBankName() {
+    return normalizePosDebitBankName(posDebitBankState.single);
+}
+
+function setPosSingleDebitBankName(bankName) {
+    posDebitBankState.single = normalizePosDebitBankName(bankName);
+}
+
+function setPosSplitRowBankName(rowId, bankName) {
+    const row = getPosSplitRowById(rowId);
+    if (!row) {
+        return;
+    }
+    row.bank_name = normalizePosDebitBankName(bankName);
+}
+
+function updatePosPaymentBankSummary() {
+    if (!posPaymentBankSummary) {
+        return;
+    }
+
+    if (isPosSplitPaymentEnabled()) {
+        const debitRows = (posSplitPaymentState.rows || []).filter((row) => String(row?.method || "") === "debit");
+        if (!debitRows.length) {
+            posPaymentBankSummary.hidden = true;
+            posPaymentBankSummary.textContent = "";
+            return;
+        }
+        const labels = debitRows.map((row, index) => row.bank_name || `baris ${index + 1} belum dipilih`);
+        posPaymentBankSummary.hidden = false;
+        posPaymentBankSummary.textContent = `Bank debit split: ${labels.join(", ")}.`;
+        return;
+    }
+
+    if (String(posPaymentMethod?.value || "") !== "debit") {
+        posPaymentBankSummary.hidden = true;
+        posPaymentBankSummary.textContent = "";
+        return;
+    }
+
+    const bankName = getPosSingleDebitBankName();
+    posPaymentBankSummary.hidden = false;
+    posPaymentBankSummary.textContent = bankName
+        ? `Bank debit aktif: ${bankName}.`
+        : "Klik Debit lalu pilih nama bank kartu atau EDC.";
+}
+
+function openPosDebitBankModal({ mode = "single", rowId = 0 } = {}) {
+    if (!posDebitBankModal) {
+        return;
+    }
+    posDebitBankState.modalMode = mode === "split" ? "split" : "single";
+    posDebitBankState.rowId = Number(rowId || 0);
+    const activeBankName = posDebitBankState.modalMode === "split"
+        ? (getPosSplitRowById(posDebitBankState.rowId)?.bank_name || "")
+        : getPosSingleDebitBankName();
+    if (posDebitBankTargetLabel) {
+        posDebitBankTargetLabel.textContent = posDebitBankState.modalMode === "split"
+            ? "Debit split"
+            : "Pembayaran debit";
+    }
+    if (posDebitBankCurrentLabel) {
+        posDebitBankCurrentLabel.textContent = activeBankName || "Belum dipilih";
+    }
+    if (posDebitBankCustomInput) {
+        posDebitBankCustomInput.value = activeBankName;
+    }
+    posDebitBankModal.hidden = false;
+    window.requestAnimationFrame(() => {
+        posDebitBankCustomInput?.focus();
+        posDebitBankCustomInput?.select();
+    });
+}
+
+function closePosDebitBankModal() {
+    if (!posDebitBankModal) {
+        return;
+    }
+    posDebitBankModal.hidden = true;
+}
+
+function applyPosDebitBankSelection(bankName) {
+    const resolvedBankName = normalizePosDebitBankName(bankName || posDebitBankCustomInput?.value || "");
+    if (!resolvedBankName) {
+        alert("Pilih nama bank debit dulu.");
+        posDebitBankCustomInput?.focus();
+        return;
+    }
+    if (posDebitBankState.modalMode === "split") {
+        setPosSplitRowBankName(posDebitBankState.rowId, resolvedBankName);
+        renderPosSplitPaymentRows();
+    } else {
+        setPosSingleDebitBankName(resolvedBankName);
+        persistPosCheckoutDraft();
+    }
+    updatePosPaymentBankSummary();
+    closePosDebitBankModal();
 }
 
 function syncPosHeaderMenuBodyState() {
@@ -1875,7 +2037,7 @@ async function loadPosQuickSearchResults(query) {
     }
 }
 
-function setPosPaymentMethod(method) {
+function setPosPaymentMethod(method, options = {}) {
     const normalizedMethod = POS_SPLIT_PAYMENT_METHODS.includes(method)
         ? method
         : (POS_SPLIT_PAYMENT_METHODS[0] || "cash");
@@ -1886,7 +2048,11 @@ function setPosPaymentMethod(method) {
     if (normalizedMethod !== "split") {
         posSplitPaymentState.previousSingleMethod = normalizedMethod;
     }
+    updatePosPaymentBankSummary();
     persistPosCheckoutDraft();
+    if (normalizedMethod === "debit" && options.promptBank) {
+        openPosDebitBankModal({ mode: "single" });
+    }
 }
 
 function activatePosCvTransaction() {
@@ -1905,10 +2071,11 @@ function isPosSplitPaymentEnabled() {
     return Boolean(posSplitPaymentToggle?.checked);
 }
 
-function createPosSplitPaymentRow(method = "", amount = "") {
+function createPosSplitPaymentRow(method = "", amount = "", bankName = "") {
     return {
         id: posSplitPaymentState.nextId++,
         method: POS_SPLIT_PAYMENT_METHODS.includes(method) ? method : "",
+        bank_name: normalizePosDebitBankName(bankName),
         amount: amount === "" ? "" : roundPosMoney(amount),
     };
 }
@@ -1945,6 +2112,7 @@ function getPosSplitPaymentPayload() {
     return (posSplitPaymentState.rows || [])
         .map((row) => ({
             method: String(row?.method || "").trim().toLowerCase(),
+            bank_name: normalizePosDebitBankName(row?.bank_name || ""),
             amount: Math.max(roundPosMoney(row?.amount || 0), 0),
         }))
         .filter((row) => POS_SPLIT_PAYMENT_METHODS.includes(row.method) && row.amount > 0);
@@ -2020,6 +2188,7 @@ function renderPosSplitPaymentRows() {
     if (!isPosSplitPaymentEnabled()) {
         posSplitPaymentRows.innerHTML = "";
         updatePosSplitPaymentSummary();
+        updatePosPaymentBankSummary();
         persistPosCheckoutDraft();
         return;
     }
@@ -2032,6 +2201,9 @@ function renderPosSplitPaymentRows() {
         }).join("");
         const removeDisabled = posSplitPaymentState.rows.length <= 2 ? "disabled" : "";
         const safeAmount = row.amount === "" ? "" : String(row.amount);
+        const bankButton = row.method === "debit"
+            ? `<button type="button" class="ghost-button pos-ipos-split-bank" data-pos-split-bank="${row.id}">${escapeHtml(row.bank_name ? `Bank: ${row.bank_name}` : "Pilih Bank")}</button>`
+            : "";
         return `
             <div class="pos-ipos-split-row" data-pos-split-row-id="${row.id}">
                 <select data-pos-split-method="${row.id}" aria-label="Metode split ${index + 1}">
@@ -2047,11 +2219,13 @@ function renderPosSplitPaymentRows() {
                     data-pos-split-amount="${row.id}"
                     aria-label="Nominal split ${index + 1}"
                 >
+                ${bankButton}
                 <button type="button" class="ghost-button" data-pos-split-remove="${row.id}" ${removeDisabled}>Hapus</button>
             </div>
         `;
     }).join("");
     updatePosSplitPaymentSummary();
+    updatePosPaymentBankSummary();
     persistPosCheckoutDraft();
 }
 
@@ -2514,7 +2688,8 @@ function applyPosEditingSaleToCart() {
     );
     posSplitPaymentState.rows = splitPayments
         .filter((row) => POS_SPLIT_PAYMENT_METHODS.includes(String(row?.method || "").trim().toLowerCase()))
-        .map((row) => createPosSplitPaymentRow(row.method, row.amount));
+        .map((row) => createPosSplitPaymentRow(row.method, row.amount, row.bank_name || ""));
+    setPosSingleDebitBankName(posEditingSale.payment_bank_name || "");
     if (posSplitPaymentToggle) {
         posSplitPaymentToggle.checked = posSplitPaymentState.rows.length >= 2;
     }
@@ -2583,6 +2758,16 @@ function checkoutPosTransaction() {
             }
             return;
         }
+        const missingDebitSplit = splitPayments.find((row) => row.method === "debit" && !normalizePosDebitBankName(row.bank_name || ""));
+        if (missingDebitSplit) {
+            alert("Pilih nama bank untuk semua split debit dulu.");
+            const targetRow = (posSplitPaymentState.rows || []).find((row) => row.method === "debit" && !normalizePosDebitBankName(row.bank_name || ""));
+            openPosDebitBankModal({ mode: "split", rowId: targetRow?.id || 0 });
+            return;
+        }
+    } else if (String(posPaymentMethod?.value || "") === "debit" && !getPosSingleDebitBankName()) {
+        openPosDebitBankModal({ mode: "single" });
+        return;
     }
 
     const payload = {
@@ -2594,6 +2779,7 @@ function checkoutPosTransaction() {
         customer_phone: posCustomerPhone.value,
         transaction_type: posTransactionType?.value || "purchase",
         payment_method: isSplitPayment ? "split" : posPaymentMethod.value,
+        payment_bank_name: isSplitPayment ? "" : getPosSingleDebitBankName(),
         discount_type: totals.discountType,
         discount_value: totals.discountValue,
         tax_type: totals.taxType,
@@ -2911,7 +3097,7 @@ posPaymentMethodGrid?.addEventListener("click", (event) => {
         posSplitPaymentToggle.checked = false;
         syncPosSplitPaymentState();
     }
-    setPosPaymentMethod(button.dataset.posPaymentMethod || "cash");
+    setPosPaymentMethod(button.dataset.posPaymentMethod || "cash", { promptBank: true });
     updatePosChangePreview();
 });
 
@@ -2952,8 +3138,15 @@ posSplitPaymentRows?.addEventListener("change", (event) => {
         const row = (posSplitPaymentState.rows || []).find((entry) => entry.id === rowId);
         if (row) {
             row.method = String(methodSelect.value || "").trim().toLowerCase();
+            if (row.method !== "debit") {
+                row.bank_name = "";
+            }
             updatePosSplitPaymentSummary();
+            updatePosPaymentBankSummary();
             persistPosCheckoutDraft();
+            if (row.method === "debit") {
+                openPosDebitBankModal({ mode: "split", rowId });
+            }
         }
         return;
     }
@@ -2972,6 +3165,48 @@ posSplitPaymentRows?.addEventListener("change", (event) => {
     syncPosSplitPaidAmount();
     updatePosChangePreview();
     persistPosCheckoutDraft();
+});
+
+posSplitPaymentRows?.addEventListener("click", (event) => {
+    const bankButton = event.target.closest("[data-pos-split-bank]");
+    if (!bankButton) {
+        return;
+    }
+    openPosDebitBankModal({
+        mode: "split",
+        rowId: Number(bankButton.dataset.posSplitBank || 0),
+    });
+});
+
+posDebitBankModal?.addEventListener("click", (event) => {
+    const closeTrigger = event.target.closest("[data-pos-bank-close]");
+    if (closeTrigger) {
+        closePosDebitBankModal();
+        return;
+    }
+    const bankOption = event.target.closest("[data-pos-bank-option]");
+    if (bankOption) {
+        applyPosDebitBankSelection(bankOption.dataset.posBankOption || "");
+    }
+});
+
+posDebitBankApplyButton?.addEventListener("click", () => {
+    applyPosDebitBankSelection();
+});
+
+posDebitBankCustomInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    applyPosDebitBankSelection();
+});
+
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && posDebitBankModal && !posDebitBankModal.hidden) {
+        event.preventDefault();
+        closePosDebitBankModal();
+    }
 });
 
 posSplitPaymentRows?.addEventListener("click", (event) => {

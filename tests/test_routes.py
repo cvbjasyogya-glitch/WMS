@@ -1447,6 +1447,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Cari kasir/sales lebih cepat", owner_html)
         self.assertIn("Transaksi CV", owner_html)
         self.assertIn('data-pos-payment-method="cv"', owner_html)
+        self.assertIn('id="posPaymentBankSummary"', owner_html)
+        self.assertIn('id="posDebitBankModal"', owner_html)
+        self.assertIn('data-pos-bank-option="BCA"', owner_html)
         self.assertNotIn('id="posCategoryStrip"', owner_html)
         self.assertIn("pos-ipos-field-customer", owner_html)
         self.assertIn("pos-ipos-field-cashier", owner_html)
@@ -3471,7 +3474,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response_mega.status_code, 302)
         variant_id_mega = variants_rows_mega[0]["id"]
 
-        def checkout_sale(*, warehouse_id, cashier_id, product_id, variant_id, payment_method, paid_amount):
+        def checkout_sale(
+            *,
+            warehouse_id,
+            cashier_id,
+            product_id,
+            variant_id,
+            payment_method,
+            paid_amount,
+            payment_bank_name="",
+        ):
             checkout = self.client.post(
                 "/kasir/checkout",
                 json={
@@ -3481,6 +3493,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "customer_name": f"Customer {payment_method}",
                     "customer_phone": f"62812000{paid_amount}",
                     "payment_method": payment_method,
+                    "payment_bank_name": payment_bank_name,
                     "paid_amount": paid_amount,
                     "items": [
                         {
@@ -3511,6 +3524,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             variant_id=variant_id,
             payment_method="debit",
             paid_amount=200000,
+            payment_bank_name="BCA",
         )
         checkout_sale(
             warehouse_id=1,
@@ -3543,6 +3557,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             variant_id=variant_id,
             payment_method="debit",
             paid_amount=50000,
+            payment_bank_name="Mandiri",
         )
         checkout_sale(
             warehouse_id=1,
@@ -3575,7 +3590,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(defaults["cv_amount"], 175000)
         self.assertEqual(defaults["cash_on_hand_amount"], 400000)
         self.assertEqual(defaults["combined_total_amount"], 2025000)
+        self.assertEqual(defaults["debit_breakdown_label"], "BCA Rp 200.000 + Mandiri Rp 50.000")
         self.assertIn('Laporan "Mataram" 08/04/2026', defaults["preview_text"])
+        self.assertIn("Bank Debet  = BCA Rp 200.000 + Mandiri Rp 50.000", defaults["preview_text"])
         self.assertIn("QRIS", defaults["preview_text"])
         self.assertIn("CV", defaults["preview_text"])
         self.assertEqual(defaults["combined_total_amount_label"], "2.025.000")
@@ -5069,6 +5086,163 @@ class WmsRoutesTestCase(unittest.TestCase):
         print_html = print_response.get_data(as_text=True)
         self.assertIn("Split Bayar", print_html)
         self.assertIn("CASH Rp 100.000 + DEBIT Rp 150.000", print_html)
+
+    def test_pos_checkout_debit_bank_label_is_saved_and_rendered(self):
+        self.create_user("staff_sales_debit_bank", "pass1234", "staff", warehouse_id=1)
+        selected_cashier_user_id = self.get_user_id("staff_sales_debit_bank")
+        self.login_pos_user("pos_debit_bank_super", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-DEBIT-BANK-001",
+            qty=5,
+            variants="43",
+            warehouse_id="1",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-03",
+                "cashier_user_id": selected_cashier_user_id,
+                "customer_name": "Customer Debit Bank",
+                "customer_phone": "628120009999",
+                "payment_method": "debit",
+                "payment_bank_name": "BCA",
+                "paid_amount": 155000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 150000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        payload = checkout.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["payment_method"], "debit")
+        self.assertEqual(payload["payment_method_label"], "DEBIT BCA")
+        self.assertEqual(payload["payment_breakdown_label"], "")
+
+        with self.app.app_context():
+            db = get_db()
+            sale = db.execute(
+                """
+                SELECT payment_method, payment_breakdown_json
+                FROM pos_sales
+                WHERE receipt_no=?
+                LIMIT 1
+                """,
+                (payload["receipt_no"],),
+            ).fetchone()
+
+        self.assertIsNotNone(sale)
+        self.assertEqual(sale["payment_method"], "debit")
+        payment_breakdown = json.loads(sale["payment_breakdown_json"])
+        self.assertEqual(len(payment_breakdown), 1)
+        self.assertEqual(payment_breakdown[0]["method"], "debit")
+        self.assertEqual(payment_breakdown[0]["bank_name"], "BCA")
+
+        log_response = self.client.get("/kasir/log?warehouse=1&date_from=2026-04-03&date_to=2026-04-03&search=Customer+Debit+Bank")
+        self.assertEqual(log_response.status_code, 200)
+        log_html = log_response.get_data(as_text=True)
+        self.assertIn("DEBIT BCA", log_html)
+        self.assertIn("Bank debit: BCA Rp 150.000", log_html)
+
+        defaults_response = self.client.get("/kasir/cash-closing/defaults?warehouse_id=1&closing_date=2026-04-03")
+        self.assertEqual(defaults_response.status_code, 200)
+        defaults_payload = defaults_response.get_json()
+        self.assertEqual(defaults_payload["status"], "success")
+        self.assertEqual(defaults_payload["defaults"]["debit_breakdown_label"], "BCA Rp 150.000")
+        self.assertIn("Bank Debet  = BCA Rp 150.000", defaults_payload["defaults"]["preview_text"])
+
+        print_response = self.client.get(f"/kasir/receipt/{payload['receipt_no']}/print")
+        self.assertEqual(print_response.status_code, 200)
+        print_html = print_response.get_data(as_text=True)
+        self.assertIn("DEBIT BCA", print_html)
+
+    def test_pos_cash_closing_history_shows_debit_bank_breakdown(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-POS-CLOSE-BANK",
+            full_name="Kasir Debit Bank",
+            warehouse_id=1,
+            position="Kasir",
+        )
+        self.create_user("staff_cash_closing_bank", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        cashier_user_id = self.get_user_id("staff_cash_closing_bank")
+        self.login_pos_user("super_cash_closing_bank", "super_admin")
+        response, product_id, variants_rows = self.create_product(
+            sku="POS-CLOSE-BANK-001",
+            qty=5,
+            variants="44",
+            warehouse_id="1",
+            name="Produk Tutup Kasir Bank",
+        )
+        self.assertEqual(response.status_code, 302)
+        variant_id = variants_rows[0]["id"]
+
+        checkout = self.client.post(
+            "/kasir/checkout",
+            json={
+                "warehouse_id": 1,
+                "sale_date": "2026-04-12",
+                "cashier_user_id": cashier_user_id,
+                "customer_name": "Customer Closing Bank",
+                "customer_phone": "628120001212",
+                "payment_method": "debit",
+                "payment_bank_name": "BNI",
+                "paid_amount": 175000,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "qty": 1,
+                        "unit_price": 175000,
+                    }
+                ],
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        self.assertEqual(checkout.get_json()["status"], "success")
+
+        with patch("routes.pos.send_role_based_notification") as mocked_role_notify:
+            mocked_role_notify.return_value = {
+                "deliveries": [
+                    {"ok": True, "error": "", "phone": "628111111111"},
+                ]
+            }
+            submit_response = self.client.post(
+                "/kasir/cash-closing/submit",
+                data={
+                    "warehouse_id": "1",
+                    "cashier_user_id": str(cashier_user_id),
+                    "return_url": "/kasir/log?warehouse=1&date_from=2026-04-12&date_to=2026-04-12",
+                    "closing_date": "2026-04-12",
+                    "cash_amount": "0",
+                    "debit_amount": "175000",
+                    "qris_amount": "0",
+                    "mb_amount": "0",
+                    "cv_amount": "0",
+                    "expense_amount": "0",
+                    "cash_on_hand_amount": "0",
+                    "combined_total_amount": "175000",
+                    "note": "",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(submit_response.status_code, 302)
+        history_response = self.client.get("/kasir/cash-closing/history?warehouse=1&date_from=2026-04-12&date_to=2026-04-12")
+        self.assertEqual(history_response.status_code, 200)
+        history_html = history_response.get_data(as_text=True)
+        self.assertIn("Bank debit: BNI Rp 175.000", history_html)
+        self.assertIn("Bank Debet  = BNI Rp 175.000", history_html)
 
     def test_pos_checkout_rejects_split_payment_total_mismatch(self):
         self.create_user("staff_sales_split_invalid", "pass1234", "staff", warehouse_id=1)
@@ -30436,9 +30610,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="barcodeUploadButton"', owner_html)
         self.assertIn('id="barcodeUploadList"', owner_html)
         self.assertIn('id="barcodeCanvasStage"', owner_html)
+        self.assertIn('id="barcodeStagePageMeta"', owner_html)
+        self.assertIn('id="barcodeStagePageTitle"', owner_html)
         self.assertIn('id="barcodeLayerActionGrid"', owner_html)
         self.assertIn('id="barcodeExportEscpos"', owner_html)
         self.assertIn('id="barcodeSelectionToolbar"', owner_html)
+        self.assertIn('id="barcodeSelectionFontSize"', owner_html)
+        self.assertIn('id="barcodeSelectionWeight"', owner_html)
         self.assertIn('id="barcodeViewModes"', owner_html)
         self.assertIn('id="barcodeStageFooter"', owner_html)
         self.assertIn("Mulai dari Add Item", owner_html)
@@ -30446,7 +30624,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-empty-add-item', owner_html)
         self.assertIn("const widthSafeSize =", owner_html)
         self.assertIn("const shrinkTextToFit = (rootNode) => {", owner_html)
+        self.assertIn('body.barcode-printing .barcode-print-area', owner_html)
+        self.assertIn('body * {\n            visibility: hidden !important;', owner_html)
+        self.assertIn('window.addEventListener("beforeprint", preparePrintView);', owner_html)
+        self.assertIn('document.body.classList.add("barcode-printing");', owner_html)
         self.assertIn('data-layer-action="fit"', owner_html)
+        self.assertIn('data-selection-action="delete"', owner_html)
+        self.assertIn('["nw", "n", "ne", "e", "se", "s", "sw", "w"]', owner_html)
+        self.assertIn('if (key === "Delete" || key === "Backspace") {', owner_html)
         self.assertIn('aria-label="Barcode"', owner_html)
 
         self.logout()

@@ -693,7 +693,7 @@
     .barcode-canvas-wrap {
         position: relative;
         min-height: 680px;
-        padding: 18px;
+        padding: 74px 18px 18px;
         border-radius: 24px;
         background:
             linear-gradient(45deg, rgba(148, 163, 184, 0.1) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.1) 75%),
@@ -726,12 +726,62 @@
         transition: transform 0.16s ease;
     }
 
+    .barcode-stage-page {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        right: 18px;
+        z-index: 18;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        pointer-events: none;
+    }
+
+    .barcode-page-copy {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .barcode-page-copy strong {
+        color: #0f172a;
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+    }
+
+    .barcode-page-copy span {
+        color: #64748b;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .barcode-page-count {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        color: #334155;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
     .barcode-artboard {
         width: min(100%, var(--barcode-artboard-width, 860px));
-        padding: 24px;
+        padding: 18px;
         border-radius: 28px;
-        background: #ffffff;
-        box-shadow: 0 26px 70px rgba(15, 23, 42, 0.16);
+        background: linear-gradient(180deg, #ffffff, #fcfcff);
+        border: 1px solid rgba(226, 232, 240, 0.96);
+        box-shadow: 0 30px 72px rgba(15, 23, 42, 0.12);
         box-sizing: border-box;
     }
 
@@ -920,80 +970,72 @@
     }
 
     .barcode-artboard-label .barcode-element.selected {
-        outline: 2px solid rgba(14, 165, 233, 0.82);
+        outline: 2px solid rgba(139, 92, 246, 0.96);
         outline-offset: 1px;
-        box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.16);
-        z-index: 3;
+        box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.16);
+        z-index: 5;
     }
 
     .barcode-artboard-label .barcode-element.selected::after {
-        content: "";
-        position: absolute;
-        right: 4px;
-        top: 4px;
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: #0ea5e9;
-        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+        content: none;
     }
 
     .barcode-resize-handle {
         position: absolute;
-        width: 14px;
-        height: 14px;
+        width: 16px;
+        height: 16px;
         border-radius: 999px;
-        background: #0ea5e9;
-        border: 2px solid #ffffff;
-        box-shadow: 0 8px 18px rgba(14, 165, 233, 0.24);
-        z-index: 4;
+        background: #ffffff;
+        border: 2px solid rgba(139, 92, 246, 0.96);
+        box-shadow: 0 10px 18px rgba(139, 92, 246, 0.18);
+        z-index: 6;
     }
 
     .barcode-resize-handle[data-resize-handle="nw"] {
-        left: -7px;
-        top: -7px;
+        left: -8px;
+        top: -8px;
         cursor: nwse-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="n"] {
-        left: calc(50% - 7px);
-        top: -7px;
+        left: calc(50% - 8px);
+        top: -8px;
         cursor: ns-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="ne"] {
-        right: -7px;
-        top: -7px;
+        right: -8px;
+        top: -8px;
         cursor: nesw-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="e"] {
-        right: -7px;
-        top: calc(50% - 7px);
+        right: -8px;
+        top: calc(50% - 8px);
         cursor: ew-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="se"] {
-        right: -7px;
-        bottom: -7px;
+        right: -8px;
+        bottom: -8px;
         cursor: nwse-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="s"] {
-        left: calc(50% - 7px);
-        bottom: -7px;
+        left: calc(50% - 8px);
+        bottom: -8px;
         cursor: ns-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="sw"] {
-        left: -7px;
-        bottom: -7px;
+        left: -8px;
+        bottom: -8px;
         cursor: nesw-resize;
     }
 
     .barcode-resize-handle[data-resize-handle="w"] {
-        left: -7px;
-        top: calc(50% - 7px);
+        left: -8px;
+        top: calc(50% - 8px);
         cursor: ew-resize;
     }
 
@@ -1032,13 +1074,13 @@
         z-index: 25;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         flex-wrap: wrap;
-        padding: 10px 12px;
-        border-radius: 16px;
-        border: 1px solid rgba(203, 213, 225, 0.95);
+        padding: 9px 10px;
+        border-radius: 18px;
+        border: 1px solid rgba(226, 232, 240, 0.96);
         background: rgba(255, 255, 255, 0.98);
-        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+        box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14);
         backdrop-filter: blur(12px);
         max-width: min(92%, 760px);
     }
@@ -1051,33 +1093,56 @@
         font-size: 13px;
         font-weight: 700;
         color: #0f172a;
-        margin-right: 4px;
+        margin-right: 2px;
+        padding: 0 4px;
     }
 
     .barcode-selection-sep {
         width: 1px;
-        height: 20px;
-        background: rgba(203, 213, 225, 0.9);
+        height: 24px;
+        background: rgba(226, 232, 240, 0.96);
+    }
+
+    .barcode-selection-readout {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 54px;
+        min-height: 36px;
+        padding: 7px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(226, 232, 240, 0.96);
+        background: #ffffff;
+        color: #0f172a;
+        font-size: 13px;
+        font-weight: 700;
     }
 
     .barcode-selection-toolbar .barcode-chip,
-    .barcode-selection-toolbar .barcode-btn.secondary {
+    .barcode-selection-toolbar .barcode-btn.secondary,
+    .barcode-selection-toolbar .barcode-btn.danger {
         min-height: 36px;
-        padding: 8px 12px;
+        padding: 7px 11px;
         color: #0f172a;
         background: #ffffff;
-        border-color: rgba(203, 213, 225, 0.95);
+        border-color: rgba(226, 232, 240, 0.96);
     }
 
     .barcode-selection-toolbar .barcode-chip.active {
-        background: #0f172a;
+        background: #8b5cf6;
         color: #f8fbff;
-        border-color: #0f172a;
+        border-color: #8b5cf6;
     }
 
     .barcode-selection-toolbar .barcode-btn.secondary:disabled {
         opacity: 0.48;
         cursor: not-allowed;
+    }
+
+    .barcode-selection-toolbar .barcode-btn.danger {
+        color: #b91c1c;
+        background: #fff5f5;
+        border-color: rgba(248, 113, 113, 0.4);
     }
 
     .barcode-align-row .barcode-chip {
@@ -1197,17 +1262,48 @@
     }
 
     @media print {
+        @page {
+            margin: 6mm;
+        }
+
+        html,
         body {
+            background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+        }
+
+        body * {
+            visibility: hidden !important;
+        }
+
+        body.barcode-printing .barcode-print-area,
+        body.barcode-printing .barcode-print-area * {
+            visibility: visible !important;
+        }
+
+        body.barcode-printing .barcode-print-area {
+            display: block !important;
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 2147483647 !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: #ffffff !important;
         }
 
-        .layout,
-        .barcode-app {
-            display: none !important;
+        body.barcode-printing .barcode-print-sheet {
+            width: var(--barcode-paper-width, 210mm) !important;
+            min-height: auto !important;
+            margin: 0 auto !important;
+            padding: var(--barcode-margin, 6mm) !important;
+            box-sizing: border-box !important;
         }
 
-        .barcode-print-area {
-            display: block !important;
+        body.barcode-printing .barcode-print-grid {
+            display: grid !important;
         }
     }
 </style>
@@ -1508,18 +1604,29 @@
         <main class="barcode-stage">
             <section class="barcode-stage-shell">
                 <div class="barcode-canvas-wrap">
+                    <div class="barcode-stage-page" id="barcodeStagePageMeta">
+                        <div class="barcode-page-copy">
+                            <strong>Page 1</strong>
+                            <span id="barcodeStagePageTitle">Barcode layout</span>
+                        </div>
+                        <span class="barcode-page-count" id="barcodeStagePageCount">0 label</span>
+                    </div>
                     <div class="barcode-selection-toolbar" id="barcodeSelectionToolbar" hidden>
                         <span class="barcode-selection-title" id="barcodeSelectionToolbarTitle">Name</span>
-                        <button type="button" class="barcode-chip" id="barcodeSelectionVisible">Visible</button>
+                        <span class="barcode-selection-sep" aria-hidden="true"></span>
+                        <button type="button" class="barcode-btn secondary" id="barcodeSelectionFontDown">A-</button>
+                        <span class="barcode-selection-readout" id="barcodeSelectionFontSize">8.6</span>
+                        <button type="button" class="barcode-btn secondary" id="barcodeSelectionFontUp">A+</button>
+                        <button type="button" class="barcode-chip" id="barcodeSelectionWeight">B</button>
                         <span class="barcode-selection-sep" aria-hidden="true"></span>
                         <button type="button" class="barcode-chip" data-selection-align="left">Left</button>
                         <button type="button" class="barcode-chip" data-selection-align="center">Center</button>
                         <button type="button" class="barcode-chip" data-selection-align="right">Right</button>
                         <span class="barcode-selection-sep" aria-hidden="true"></span>
-                        <button type="button" class="barcode-btn secondary" id="barcodeSelectionFontDown">A-</button>
-                        <button type="button" class="barcode-btn secondary" id="barcodeSelectionFontUp">A+</button>
+                        <button type="button" class="barcode-chip" id="barcodeSelectionVisible">Visible</button>
                         <button type="button" class="barcode-btn secondary" data-selection-action="fit">Fit</button>
                         <button type="button" class="barcode-btn secondary" data-selection-action="reset">Reset</button>
+                        <button type="button" class="barcode-btn danger" data-selection-action="delete">Delete</button>
                     </div>
                     <div class="barcode-canvas" id="barcodeCanvasStage">
                         <div class="barcode-artboard">
@@ -1860,6 +1967,7 @@
     const artboardLabel = document.getElementById("barcodeArtboardLabel");
     const previewGrid = document.getElementById("barcodePreviewGrid");
     const printGrid = document.getElementById("barcodePrintGrid");
+    const printArea = document.getElementById("barcodePrintArea");
     const canvasStage = document.getElementById("barcodeCanvasStage");
     const warehouseSelect = document.getElementById("barcodeWarehouse");
     const searchField = document.getElementById("barcodeSearchField");
@@ -1890,6 +1998,8 @@
     const footerBounds = document.getElementById("barcodeFooterBounds");
     const footerCanvas = document.getElementById("barcodeFooterCanvas");
     const footerSnap = document.getElementById("barcodeFooterSnap");
+    const stagePageTitle = document.getElementById("barcodeStagePageTitle");
+    const stagePageCount = document.getElementById("barcodeStagePageCount");
     const noteInput = document.getElementById("barcodeNote");
     const singleQtyInput = document.getElementById("barcodeSingleQty");
     const codeFieldSelect = document.getElementById("barcodeCodeField");
@@ -1916,7 +2026,9 @@
     const selectionToolbarTitle = document.getElementById("barcodeSelectionToolbarTitle");
     const selectionVisibleButton = document.getElementById("barcodeSelectionVisible");
     const selectionFontDownButton = document.getElementById("barcodeSelectionFontDown");
+    const selectionFontSizeReadout = document.getElementById("barcodeSelectionFontSize");
     const selectionFontUpButton = document.getElementById("barcodeSelectionFontUp");
+    const selectionWeightButton = document.getElementById("barcodeSelectionWeight");
     const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
     const codeSourceButtons = Array.from(document.querySelectorAll("[data-code-source]"));
     const zoomButtons = Array.from(document.querySelectorAll("[data-zoom]"));
@@ -2176,7 +2288,9 @@
         if (!layer.visible && previewMode !== "stage") return "";
         if (!safeValue && key !== "barcode" && layer.kind !== "image" && previewMode !== "stage") return "";
         const resizeHandle = selected && previewMode === "stage"
-            ? '<span class="barcode-resize-handle" data-resize-handle="corner" aria-hidden="true"></span>'
+            ? ["nw", "n", "ne", "e", "se", "s", "sw", "w"]
+                .map((handle) => `<span class="barcode-resize-handle" data-resize-handle="${handle}" aria-hidden="true"></span>`)
+                .join("")
             : "";
 
         const sharedAttrs = [
@@ -2322,10 +2436,10 @@
         selectedElementTitle.textContent = layer.label || layerLabels[state.selectedElementKey];
         if (layer.kind === "image") {
             selectedElementHint.textContent = layer.asset_url
-                ? "Image | drag atau resize langsung di canvas."
+                ? "Image | drag, resize, atau tekan Delete untuk sembunyikan dari canvas."
                 : "Image | upload gambar dari menu Uploads lalu pakai ke canvas.";
         } else {
-            selectedElementHint.textContent = `${layer.kind === "barcode" ? "Barcode" : "Text"} | drag di canvas atau ubah nilai di inspector`;
+            selectedElementHint.textContent = `${layer.kind === "barcode" ? "Barcode" : "Text"} | drag, resize, atau Delete langsung dari canvas.`;
         }
         elementVisibleToggle.classList.toggle("active", layer.visible);
         elementVisibleToggle.textContent = layer.visible ? "Visible" : "Hidden";
@@ -2345,6 +2459,9 @@
         selectionToolbarTitle.textContent = layer.label || layerLabels[state.selectedElementKey];
         selectionVisibleButton.textContent = layer.visible ? "Visible" : "Hidden";
         selectionVisibleButton.classList.toggle("active", layer.visible);
+        selectionFontSizeReadout.textContent = isTextLayer ? Number(layer.font || 0).toFixed(1) : "--";
+        selectionWeightButton.classList.toggle("active", isTextLayer && Number(layer.weight || 0) >= 700);
+        selectionWeightButton.disabled = !isTextLayer;
         selectionAlignButtons.forEach((button) => {
             button.classList.toggle("active", isTextLayer && button.dataset.selectionAlign === layer.align);
             button.disabled = !isTextLayer;
@@ -2460,6 +2577,8 @@
         if (!template) {
             artboardLabel.innerHTML = "";
             if (selectionToolbar) selectionToolbar.hidden = true;
+            if (stagePageTitle) stagePageTitle.textContent = "Barcode layout";
+            if (stagePageCount) stagePageCount.textContent = "0 label";
             return;
         }
 
@@ -2483,6 +2602,7 @@
         artboardLabel.style.aspectRatio = `${template.width} / ${template.height}`;
         artboardLabel.style.height = `${Math.round(naturalHeight)}px`;
         artboardLabel.style.minHeight = "0";
+        if (stagePageTitle) stagePageTitle.textContent = template.label || "Barcode layout";
         syncCanvasViewState();
 
         if (!state.selectedItems.length) {
@@ -2501,6 +2621,7 @@
             `;
             if (selectionToolbar) selectionToolbar.hidden = true;
             canvasStage.style.transform = `scale(${state.zoom})`;
+            if (stagePageCount) stagePageCount.textContent = "0 label";
             schedulePersistWorkspaceDraft();
             return;
         }
@@ -2512,6 +2633,7 @@
         activateBarcodes(artboardLabel, "stage");
         queueTextFit(artboardLabel);
         canvasStage.style.transform = `scale(${state.zoom})`;
+        if (stagePageCount) stagePageCount.textContent = `${Math.max(1, Number(state.selectedItems.length || 0))} label`;
         window.requestAnimationFrame(positionSelectionToolbar);
         schedulePersistWorkspaceDraft();
     };
@@ -2541,7 +2663,22 @@
         previewLimit.textContent = `Preview ${Math.min(labels.length, previewLimitCount)} / ${previewLimitCount}`;
         canvasSummary.textContent = `${state.selectedItems.length} item | ${labels.length} label`;
         warehouseName.textContent = currentWarehouseLabel();
+        if (stagePageCount) stagePageCount.textContent = `${labels.length} label`;
         schedulePersistWorkspaceDraft();
+    };
+
+    const preparePrintView = () => {
+        renderPrintPreview();
+        document.body.classList.add("barcode-printing");
+        if (printArea) {
+            printArea.scrollTop = 0;
+        }
+        queueTextFit(printGrid);
+    };
+
+    const cleanupPrintView = () => {
+        document.body.classList.remove("barcode-printing");
+        printGrid.innerHTML = "";
     };
 
     const rerender = () => {
@@ -2624,7 +2761,45 @@
             if (action === "reset") {
                 Object.assign(layer, clone(defaultLayer));
             }
+            if (action === "delete") {
+                layer.visible = false;
+                if (layer.kind === "image") {
+                    layer.asset_url = "";
+                    layer.asset_name = "";
+                }
+            }
         });
+    };
+
+    const applyResizeDelta = (layer, dragState, dx, dy) => {
+        const handle = String(dragState.resizeHandle || "se").toLowerCase();
+        const minSize = 4;
+        const originLeft = Number(dragState.originX || 0);
+        const originTop = Number(dragState.originY || 0);
+        const originRight = originLeft + Number(dragState.originW || 0);
+        const originBottom = originTop + Number(dragState.originH || 0);
+        let left = originLeft;
+        let top = originTop;
+        let right = originRight;
+        let bottom = originBottom;
+
+        if (handle.includes("w")) {
+            left = Math.min(Math.max(0, originLeft + dx), originRight - minSize);
+        }
+        if (handle.includes("e")) {
+            right = Math.max(originLeft + minSize, Math.min(100, originRight + dx));
+        }
+        if (handle.includes("n")) {
+            top = Math.min(Math.max(0, originTop + dy), originBottom - minSize);
+        }
+        if (handle.includes("s")) {
+            bottom = Math.max(originTop + minSize, Math.min(100, originBottom + dy));
+        }
+
+        layer.x = left;
+        layer.y = top;
+        layer.w = Math.max(minSize, right - left);
+        layer.h = Math.max(minSize, bottom - top);
     };
 
     const buildInitialTemplates = () => {
@@ -2969,7 +3144,9 @@
         const layerNode = event.target.closest("[data-element-key]");
         if (!layerNode) return;
         closeToolbarMenus();
-        const isResizeHandle = Boolean(event.target.closest("[data-resize-handle]"));
+        const resizeHandleNode = event.target.closest("[data-resize-handle]");
+        const resizeHandle = String(resizeHandleNode?.dataset.resizeHandle || "");
+        const isResizeHandle = Boolean(resizeHandle);
         const layerKey = layerNode.dataset.elementKey;
         const template = getTemplate();
         if (!template || !template.options.elements[layerKey]) return;
@@ -2986,6 +3163,7 @@
             originY: layer.y,
             originW: layer.w,
             originH: layer.h,
+            resizeHandle,
             boundsWidth: bounds.width || 1,
             boundsHeight: bounds.height || 1,
         };
@@ -3004,8 +3182,7 @@
         const dx = ((event.clientX - state.drag.startX) / state.drag.boundsWidth) * 100;
         const dy = ((event.clientY - state.drag.startY) / state.drag.boundsHeight) * 100;
         if (state.drag.mode === "resize") {
-            layer.w = state.drag.originW + dx;
-            layer.h = state.drag.originH + dy;
+            applyResizeDelta(layer, state.drag, dx, dy);
         } else {
             layer.x = state.drag.originX + dx;
             layer.y = state.drag.originY + dy;
@@ -3148,6 +3325,13 @@
         updateSelectedLayer((layer) => {
             if (layer.kind === "barcode") return;
             layer.font = Math.min(24, Number(layer.font || 0) + 0.4);
+        });
+    });
+
+    selectionWeightButton.addEventListener("click", () => {
+        updateSelectedLayer((layer) => {
+            if (layer.kind !== "text") return;
+            layer.weight = Number(layer.weight || 400) >= 700 ? 500 : 700;
         });
     });
 
@@ -3358,8 +3542,12 @@
     });
 
     printButton.addEventListener("click", () => {
-        renderPrintPreview();
-        window.print();
+        preparePrintView();
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                window.print();
+            });
+        });
     });
 
     exportButton.addEventListener("click", () => {
@@ -3421,6 +3609,11 @@
             return;
         }
         const key = event.key;
+        if (key === "Delete" || key === "Backspace") {
+            event.preventDefault();
+            applyLayerAction("delete");
+            return;
+        }
         if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)) {
             return;
         }
@@ -3434,9 +3627,8 @@
         });
     });
 
-    window.addEventListener("afterprint", () => {
-        printGrid.innerHTML = "";
-    });
+    window.addEventListener("beforeprint", preparePrintView);
+    window.addEventListener("afterprint", cleanupPrintView);
     window.addEventListener("resize", () => {
         window.requestAnimationFrame(positionSelectionToolbar);
     });
