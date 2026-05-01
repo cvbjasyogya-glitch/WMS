@@ -2582,6 +2582,99 @@ def _summarize_break_activity(logs_sorted, current_time=None):
     }
 
 
+def _build_biometric_break_edit_state(logs_sorted):
+    safe_logs = list(logs_sorted or [])
+    break_start_logs = [
+        log for log in safe_logs
+        if (log.get("punch_type") or "").strip().lower() == "break_start"
+    ]
+    break_finish_logs = [
+        log for log in safe_logs
+        if (log.get("punch_type") or "").strip().lower() == "break_finish"
+    ]
+
+    if not break_start_logs:
+        return {
+            "can_edit_break_time": False,
+            "break_start_log_id": None,
+            "break_finish_log_id": None,
+            "break_start_time_value": "",
+            "break_finish_time_value": "",
+            "break_edit_helper_text": "",
+        }
+
+    if len(break_start_logs) > 1 or len(break_finish_logs) > 1:
+        return {
+            "can_edit_break_time": False,
+            "break_start_log_id": None,
+            "break_finish_log_id": None,
+            "break_start_time_value": "",
+            "break_finish_time_value": "",
+            "break_edit_helper_text": "Revisi jam istirahat inline hanya tersedia saat hari itu punya satu sesi istirahat.",
+        }
+
+    break_start_log = break_start_logs[0]
+    break_finish_log = break_finish_logs[0] if break_finish_logs else None
+    return {
+        "can_edit_break_time": True,
+        "break_start_log_id": break_start_log.get("id"),
+        "break_finish_log_id": break_finish_log.get("id") if break_finish_log else None,
+        "break_start_time_value": (break_start_log.get("punch_time") or "")[11:16],
+        "break_finish_time_value": (break_finish_log.get("punch_time") or "")[11:16] if break_finish_log else "",
+        "break_edit_helper_text": (
+            "Sesi istirahat masih terbuka. Di recap ini kamu baru bisa revisi jam mulai istirahatnya."
+            if not break_finish_log
+            else "Perubahan jam istirahat akan langsung sync ulang ke rekap geotag."
+        ),
+    }
+
+
+def _validate_biometric_day_log_sequence(logs_sorted):
+    has_check_in = False
+    has_check_out = False
+    break_open = False
+
+    for log in sorted(
+        list(logs_sorted or []),
+        key=lambda item: ((item.get("punch_time") or "").strip(), int(item.get("id") or 0)),
+    ):
+        punch_type = (log.get("punch_type") or "").strip().lower()
+        if punch_type == "check_in":
+            if has_check_in or has_check_out:
+                return "Urutan log geotag jadi tidak valid karena check in harus muncul lebih awal."
+            has_check_in = True
+            continue
+
+        if punch_type == "free_attendance":
+            if not has_check_in or has_check_out:
+                return "Absen bebas harus terjadi setelah check in dan sebelum check out."
+            continue
+
+        if punch_type == "break_start":
+            if not has_check_in or has_check_out:
+                return "Istirahat mulai harus terjadi setelah check in dan sebelum check out."
+            if break_open:
+                return "Sudah ada sesi istirahat terbuka sebelum jam itu."
+            break_open = True
+            continue
+
+        if punch_type == "break_finish":
+            if not has_check_in or has_check_out:
+                return "Istirahat selesai harus terjadi sebelum check out."
+            if not break_open:
+                return "Istirahat selesai harus punya log istirahat mulai sebelumnya."
+            break_open = False
+            continue
+
+        if punch_type == "check_out":
+            if not has_check_in or has_check_out:
+                return "Check out harus terjadi setelah check in dan tidak boleh duplikat."
+            has_check_out = True
+            break_open = False
+
+    return ""
+
+
 def _build_attendance_status_display(status, logs_sorted=None):
     safe_status = (status or "absent").strip().lower()
     if safe_status in {"present", "late"}:
@@ -7899,6 +7992,7 @@ def _build_biometric_recap_rows(db, biometric_logs):
         attendance_display = _build_attendance_status_display(attendance.get("status"), logs_sorted)
         break_display = _build_break_status_display(logs_sorted)
         break_summary = _summarize_break_activity(logs_sorted)
+        break_edit_state = _build_biometric_break_edit_state(logs_sorted)
         syncable_logs = [
             log for log in logs_sorted if (log.get("sync_status") or "").strip().lower() in {"synced", "manual"}
         ]
@@ -8000,6 +8094,13 @@ def _build_biometric_recap_rows(db, biometric_logs):
                 "break_timer_started_at": break_summary["open_started_at_iso"],
                 "break_timer_base_seconds": break_summary["completed_seconds"],
                 "break_timer_over_limit": break_summary["open_seconds"] > 3600,
+                "can_edit_break_time": can_adjust_biometric_attendance_status()
+                and break_edit_state["can_edit_break_time"],
+                "break_start_log_id": break_edit_state["break_start_log_id"],
+                "break_finish_log_id": break_edit_state["break_finish_log_id"],
+                "break_start_time_value": break_edit_state["break_start_time_value"],
+                "break_finish_time_value": break_edit_state["break_finish_time_value"],
+                "break_edit_helper_text": break_edit_state["break_edit_helper_text"],
                 "break_duration_note": (
                     "Lewat 1 jam"
                     if break_summary["open_seconds"] > 3600
@@ -12243,6 +12344,208 @@ def update_biometric_attendance_time():
     warehouse_id = (
         (check_in_log.get("warehouse_id") if check_in_log else None)
         or (check_out_log.get("warehouse_id") if check_out_log else None)
+        or employee.get("warehouse_id")
+    )
+    _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance_date)
+    db.commit()
+
+    flash(f"Perubahan {' dan '.join(updates)} berhasil disimpan.", "success")
+    return redirect(return_to)
+
+
+@hris_bp.route("/biometric/break-time", methods=["POST"])
+def update_biometric_break_time():
+    return_to = _safe_hris_return_to("/hris/biometric")
+    if not can_adjust_biometric_attendance_status():
+        flash("Hanya HR dan Super Admin yang bisa mengubah waktu istirahat geotag.", "error")
+        return redirect(return_to)
+
+    db = get_db()
+    employee_id = _to_int(request.form.get("employee_id"))
+    attendance_date = (request.form.get("attendance_date") or "").strip()
+    requested_break_start = (request.form.get("break_start_time") or "").strip()
+    requested_break_finish = (request.form.get("break_finish_time") or "").strip()
+
+    if not employee_id or not attendance_date:
+        flash("Data karyawan atau tanggal istirahat tidak valid.", "error")
+        return redirect(return_to)
+
+    try:
+        date_cls.fromisoformat(attendance_date)
+    except ValueError:
+        flash("Format tanggal istirahat tidak valid.", "error")
+        return redirect(return_to)
+
+    normalized_break_start = _normalize_time_of_day_input(requested_break_start)
+    normalized_break_finish = _normalize_time_of_day_input(requested_break_finish)
+    if requested_break_start and not normalized_break_start:
+        flash("Format jam mulai istirahat tidak valid.", "error")
+        return redirect(return_to)
+    if requested_break_finish and not normalized_break_finish:
+        flash("Format jam selesai istirahat tidak valid.", "error")
+        return redirect(return_to)
+    if not normalized_break_start and not normalized_break_finish:
+        flash("Isi minimal satu jam istirahat untuk diperbarui.", "error")
+        return redirect(return_to)
+
+    employee = _get_accessible_employee(db, employee_id)
+    if employee is None:
+        flash("Karyawan tidak valid untuk scope akun ini.", "error")
+        return redirect(return_to)
+    employee = dict(employee)
+
+    day_logs = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT id, warehouse_id, punch_time, punch_type, sync_status
+            FROM biometric_logs
+            WHERE employee_id=?
+              AND substr(punch_time, 1, 10)=?
+              AND sync_status IN (?,?)
+            ORDER BY punch_time ASC, id ASC
+            """,
+            (employee_id, attendance_date, "synced", "manual"),
+        ).fetchall()
+    ]
+    break_edit_state = _build_biometric_break_edit_state(day_logs)
+    if not break_edit_state["can_edit_break_time"]:
+        flash(
+            break_edit_state["break_edit_helper_text"] or "Sesi istirahat pada hari ini tidak bisa direvisi inline.",
+            "error",
+        )
+        return redirect(return_to)
+
+    break_start_log = next(
+        (log for log in day_logs if log.get("id") == break_edit_state["break_start_log_id"]),
+        None,
+    )
+    break_finish_log = next(
+        (log for log in day_logs if log.get("id") == break_edit_state["break_finish_log_id"]),
+        None,
+    )
+    if break_start_log is None:
+        flash("Log mulai istirahat tidak ditemukan untuk tanggal ini.", "error")
+        return redirect(return_to)
+
+    target_break_start = (
+        f"{attendance_date} {normalized_break_start}:00"
+        if normalized_break_start
+        else break_start_log["punch_time"]
+    )
+    target_break_finish = (
+        f"{attendance_date} {normalized_break_finish}:00"
+        if normalized_break_finish
+        else (break_finish_log["punch_time"] if break_finish_log else None)
+    )
+
+    if target_break_finish and target_break_finish <= target_break_start:
+        flash("Jam selesai istirahat harus lebih akhir dari jam mulai istirahat.", "error")
+        return redirect(return_to)
+
+    if normalized_break_start and target_break_start != break_start_log["punch_time"]:
+        duplicate_break_start = db.execute(
+            """
+            SELECT id
+            FROM biometric_logs
+            WHERE employee_id=? AND punch_time=? AND punch_type='break_start' AND id<>?
+            """,
+            (employee_id, target_break_start, break_start_log["id"]),
+        ).fetchone()
+        if duplicate_break_start:
+            flash("Jam mulai istirahat itu sudah dipakai log break lain.", "error")
+            return redirect(return_to)
+
+    if (
+        normalized_break_finish
+        and break_finish_log is not None
+        and target_break_finish != break_finish_log["punch_time"]
+    ):
+        duplicate_break_finish = db.execute(
+            """
+            SELECT id
+            FROM biometric_logs
+            WHERE employee_id=? AND punch_time=? AND punch_type='break_finish' AND id<>?
+            """,
+            (employee_id, target_break_finish, break_finish_log["id"]),
+        ).fetchone()
+        if duplicate_break_finish:
+            flash("Jam selesai istirahat itu sudah dipakai log break lain.", "error")
+            return redirect(return_to)
+
+    candidate_logs = []
+    for log in day_logs:
+        candidate = dict(log)
+        if candidate["id"] == break_start_log["id"]:
+            candidate["punch_time"] = target_break_start
+        elif break_finish_log is not None and candidate["id"] == break_finish_log["id"] and target_break_finish:
+            candidate["punch_time"] = target_break_finish
+        candidate_logs.append(candidate)
+
+    sequence_error = _validate_biometric_day_log_sequence(candidate_logs)
+    if sequence_error:
+        flash(sequence_error, "error")
+        return redirect(return_to)
+
+    handled_by, handled_at = _build_biometric_handling("manual")
+    update_timestamp = _current_timestamp()
+    updates = []
+
+    if normalized_break_start and target_break_start != break_start_log["punch_time"]:
+        db.execute(
+            """
+            UPDATE biometric_logs
+            SET punch_time=?,
+                sync_status=?,
+                handled_by=?,
+                handled_at=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                target_break_start,
+                "manual",
+                handled_by,
+                handled_at,
+                update_timestamp,
+                break_start_log["id"],
+            ),
+        )
+        updates.append("jam mulai istirahat")
+
+    if (
+        normalized_break_finish
+        and break_finish_log is not None
+        and target_break_finish != break_finish_log["punch_time"]
+    ):
+        db.execute(
+            """
+            UPDATE biometric_logs
+            SET punch_time=?,
+                sync_status=?,
+                handled_by=?,
+                handled_at=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                target_break_finish,
+                "manual",
+                handled_by,
+                handled_at,
+                update_timestamp,
+                break_finish_log["id"],
+            ),
+        )
+        updates.append("jam selesai istirahat")
+
+    if not updates:
+        flash("Tidak ada perubahan jam istirahat yang disimpan.", "info")
+        return redirect(return_to)
+
+    warehouse_id = (
+        break_start_log.get("warehouse_id")
+        or (break_finish_log.get("warehouse_id") if break_finish_log else None)
         or employee.get("warehouse_id")
     )
     _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance_date)

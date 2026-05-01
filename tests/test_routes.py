@@ -17857,7 +17857,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_hris_biometric_route_renders_operational_view(self):
         self.login_hr_user()
-        response = self.client.get("/hris/biometric")
+        response = self.client.get("/hris/biometric?view=attendance_detail")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("HRIS Integration Hub", html)
@@ -17865,7 +17865,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Rekap Absensi Geotag", html)
         self.assertIn("Tampilkan Hari", html)
         self.assertIn(
-            "HR dan Super Admin bisa mengubah status Present/Late dan jam masuk/pulang langsung dari rekap ini.",
+            "HR dan Super Admin bisa mengubah status Present/Late, jam masuk/pulang, dan jam istirahat langsung dari rekap ini.",
             html,
         )
         self.assertIn("alamat atau tempat absensi", html)
@@ -17925,7 +17925,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
             db.commit()
 
-        response = self.client.get("/hris/biometric?date_from=2026-09-03&date_to=2026-09-03")
+        response = self.client.get("/hris/biometric?view=attendance_detail&date_from=2026-09-03&date_to=2026-09-03")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("/hris/biometric/attendance-status", html)
@@ -24112,7 +24112,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.create_user("hr_break_view", "pass1234", "hr")
         self.login("hr_break_view", "pass1234")
-        recap_response = self.client.get(f"/hris/biometric?date_from={today}&date_to={today}")
+        recap_response = self.client.get(f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}")
         self.assertEqual(recap_response.status_code, 200)
         recap_html = recap_response.get_data(as_text=True)
         self.assertIn("Status Istirahat", recap_html)
@@ -24231,13 +24231,219 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.create_user("hr_finish_break_view", "pass1234", "hr")
         self.login("hr_finish_break_view", "pass1234")
-        recap_response = self.client.get(f"/hris/biometric?date_from={today}&date_to={today}")
+        recap_response = self.client.get(f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}")
         self.assertEqual(recap_response.status_code, 200)
         recap_html = recap_response.get_data(as_text=True)
         self.assertIn("Status Istirahat", recap_html)
         self.assertIn("Selesai", recap_html)
         self.assertIn("25 mnt", recap_html)
         self.assertIn("Total istirahat", recap_html)
+
+    def test_hr_can_revise_break_time_from_hris_geotag_recap(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-HRIS-BREAK-REV",
+            full_name="Portal Break Revision",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_break_revision", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_break_revision", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:55",
+                "note": "Mulai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T12:00",
+                "note": "Mulai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_finish",
+                "location_label": "Gudang Mataram - Kembali",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T12:25",
+                "note": "Selesai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        self.create_user("hr_break_revision", "pass1234", "hr")
+        self.login("hr_break_revision", "pass1234")
+
+        recap_response = self.client.get(f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}")
+        self.assertEqual(recap_response.status_code, 200)
+        recap_html = recap_response.get_data(as_text=True)
+        self.assertIn("/hris/biometric/break-time", recap_html)
+        self.assertIn('name="break_start_time"', recap_html)
+        self.assertIn('name="break_finish_time"', recap_html)
+
+        update_response = self.client.post(
+            "/hris/biometric/break-time",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": today,
+                "break_start_time": "12:05",
+                "break_finish_time": "12:40",
+                "return_to": f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+        self.assertIn(
+            f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}",
+            update_response.headers["Location"],
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            break_logs = db.execute(
+                """
+                SELECT punch_type, punch_time, sync_status
+                FROM biometric_logs
+                WHERE employee_id=?
+                  AND substr(punch_time, 1, 10)=?
+                  AND punch_type IN ('break_start', 'break_finish')
+                ORDER BY punch_type ASC
+                """,
+                (employee_id, today),
+            ).fetchall()
+
+        self.assertEqual(len(break_logs), 2)
+        break_log_map = {row["punch_type"]: row for row in break_logs}
+        self.assertEqual(break_log_map["break_start"]["punch_time"][11:16], "12:05")
+        self.assertEqual(break_log_map["break_finish"]["punch_time"][11:16], "12:40")
+        self.assertEqual(break_log_map["break_start"]["sync_status"], "manual")
+        self.assertEqual(break_log_map["break_finish"]["sync_status"], "manual")
+
+        recap_after_response = self.client.get(
+            f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}"
+        )
+        self.assertEqual(recap_after_response.status_code, 200)
+        recap_after_html = recap_after_response.get_data(as_text=True)
+        self.assertIn("35 mnt", recap_after_html)
+
+    def test_super_admin_can_revise_break_time_from_hris_geotag_recap(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-HRIS-BREAK-SUPER",
+            full_name="Portal Break Revision Super",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+        self.create_user("portal_break_revision_super", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_break_revision_super", "pass1234")
+        today = date_cls.today().isoformat()
+
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "check_in",
+                "shift_code": "pagi",
+                "location_label": "Gudang Mataram - Masuk",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "7.5",
+                "punch_time": f"{today}T07:50",
+                "note": "Mulai kerja",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_start",
+                "location_label": "Gudang Mataram - Istirahat",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.5",
+                "punch_time": f"{today}T11:55",
+                "note": "Mulai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.client.post(
+            "/absen/submit",
+            data={
+                "punch_type": "break_finish",
+                "location_label": "Gudang Mataram - Kembali",
+                "latitude": "-8.583140",
+                "longitude": "116.116798",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T12:20",
+                "note": "Selesai istirahat",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+
+        self.create_user("super_break_revision", "pass1234", "super_admin")
+        self.login("super_break_revision", "pass1234")
+        recap_response = self.client.get(f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}")
+        self.assertEqual(recap_response.status_code, 200)
+        recap_html = recap_response.get_data(as_text=True)
+        self.assertIn("/hris/biometric/break-time", recap_html)
+
+        update_response = self.client.post(
+            "/hris/biometric/break-time",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": today,
+                "break_start_time": "12:00",
+                "break_finish_time": "12:30",
+                "return_to": f"/hris/biometric?view=attendance_detail&date_from={today}&date_to={today}",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            break_logs = db.execute(
+                """
+                SELECT punch_type, punch_time, sync_status
+                FROM biometric_logs
+                WHERE employee_id=?
+                  AND substr(punch_time, 1, 10)=?
+                  AND punch_type IN ('break_start', 'break_finish')
+                ORDER BY punch_type ASC
+                """,
+                (employee_id, today),
+            ).fetchall()
+
+        self.assertEqual(len(break_logs), 2)
+        break_log_map = {row["punch_type"]: row for row in break_logs}
+        self.assertEqual(break_log_map["break_start"]["punch_time"][11:16], "12:00")
+        self.assertEqual(break_log_map["break_finish"]["punch_time"][11:16], "12:30")
+        self.assertEqual(break_log_map["break_start"]["sync_status"], "manual")
+        self.assertEqual(break_log_map["break_finish"]["sync_status"], "manual")
 
     def test_biometric_recap_only_shows_days_with_actual_attendance(self):
         employee_id = self.create_employee_record(

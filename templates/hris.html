@@ -4846,7 +4846,7 @@
         <button type="submit">Tampilkan Hari</button>
     </form>
 
-    <div class="biometric-workspace-note">HR dan Super Admin bisa mengubah status Present/Late dan jam masuk/pulang langsung dari rekap ini. Penambahan lembur manual juga tetap tersedia dari modul terpisah di halaman yang sama. Untuk reset status ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</div>
+    <div class="biometric-workspace-note">HR dan Super Admin bisa mengubah status Present/Late, jam masuk/pulang, dan jam istirahat langsung dari rekap ini. Penambahan lembur manual juga tetap tersedia dari modul terpisah di halaman yang sama. Untuk reset status ke hitungan otomatis, pilih status yang sama dengan hasil geotag asli.</div>
 
     <div class="summary biometric-workspace-summary">
         <div class="card-mini biometric-workspace-stat accent-blue">
@@ -5439,6 +5439,37 @@
                             data-break-timer-note
                             {% endif %}
                         >{{ row.break_duration_note }}</small>
+                        {% endif %}
+                        {% if row.can_edit_break_time %}
+                        <form method="POST" action="/hris/biometric/break-time" class="biometric-attendance-status-form biometric-attendance-time-form">
+                            <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                            <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
+                            <input type="hidden" name="return_to" value="{{ report_return_to }}">
+                            <div class="biometric-attendance-time-stack biometric-attendance-time-inline">
+                                <div class="biometric-attendance-time-pill{% if not row.break_finish_log_id %} is-disabled{% endif %}">
+                                    <input
+                                        type="time"
+                                        name="break_start_time"
+                                        value="{{ row.break_start_time_value }}"
+                                        aria-label="Jam mulai istirahat {{ row.full_name }}"
+                                        class="biometric-attendance-time-input biometric-attendance-time-inline-input"
+                                    >
+                                    <span class="biometric-attendance-time-divider" aria-hidden="true">|</span>
+                                    <input
+                                        type="time"
+                                        name="break_finish_time"
+                                        value="{{ row.break_finish_time_value }}"
+                                        aria-label="Jam selesai istirahat {{ row.full_name }}"
+                                        class="biometric-attendance-time-input biometric-attendance-time-inline-input"
+                                        {% if not row.break_finish_log_id %}disabled{% endif %}
+                                    >
+                                </div>
+                                <button type="submit" class="ghost-button biometric-attendance-time-submit">Update</button>
+                            </div>
+                        </form>
+                        {% endif %}
+                        {% if row.break_edit_helper_text %}
+                        <small class="helper-text">{{ row.break_edit_helper_text }}</small>
                         {% endif %}
                     </div>
                 </td>
