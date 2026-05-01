@@ -307,9 +307,9 @@
                         <div class="helper-text">{{ sale.warehouse_name }}</div>
                         <div class="helper-text">{{ sale.status_label }}</div>
                     </td>
-                    <td>
-                        <strong>{{ sale.sale_date }}</strong>
-                        <div class="helper-text">{{ sale.created_time_label }}</div>
+                    <td class="pos-sales-log-date-cell" title="{{ sale.created_datetime_label }}">
+                        <strong class="pos-sales-log-date-label">{{ sale.sale_date_label or sale.sale_date }}</strong>
+                        <div class="helper-text pos-sales-log-time-label">{{ sale.created_time_short_label or sale.created_time_label }}</div>
                     </td>
                     <td>
                         <strong>{{ sale.customer_name }}</strong>

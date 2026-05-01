@@ -1612,6 +1612,27 @@ def _format_pos_time_label(raw_value):
     return local_time.strftime("%H:%M:%S")
 
 
+def _format_pos_time_short_label(raw_value):
+    parsed = _parse_pos_timestamp(raw_value)
+    if not parsed:
+        return "-"
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    local_time = parsed.astimezone(POS_DISPLAY_TIMEZONE)
+    return local_time.strftime("%H:%M")
+
+
+def _format_pos_date_label(raw_value):
+    safe_value = str(raw_value or "").strip()
+    if not safe_value:
+        return "-"
+    try:
+        return date_cls.fromisoformat(safe_value).strftime("%d/%m/%Y")
+    except ValueError:
+        return safe_value
+
+
 def _normalize_pos_cash_closing_date(value):
     safe_value = str(value or "").strip()
     if not safe_value:
@@ -2416,6 +2437,8 @@ def _fetch_pos_sale_logs(
             row.get("payment_breakdown_json"),
         )
         created_time_label = _format_pos_time_label(row.get("created_at"))
+        created_time_short_label = _format_pos_time_short_label(row.get("created_at"))
+        sale_date_label = _format_pos_date_label(row.get("sale_date"))
         item_preview_lines = items[:3]
 
         normalized_rows.append(
@@ -2433,7 +2456,9 @@ def _fetch_pos_sale_logs(
                 "has_payment_breakdown": payment_meta["has_payment_breakdown"],
                 "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
                 "payment_breakdown_label": payment_meta["payment_breakdown_label"],
+                "sale_date_label": sale_date_label,
                 "created_time_label": created_time_label,
+                "created_time_short_label": created_time_short_label,
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
                 "cashier_identity_label": f"{row['cashier_name']} · {row['cashier_position']}",
@@ -4157,6 +4182,8 @@ def _fetch_pos_sale_logs(
             row.get("payment_breakdown_json"),
         )
         created_time_label = _format_pos_time_label(row.get("created_at"))
+        created_time_short_label = _format_pos_time_short_label(row.get("created_at"))
+        sale_date_label = _format_pos_date_label(row.get("sale_date"))
         item_preview_lines = items[:3]
         sale_status = _build_pos_sale_status_payload(row.get("status"))
         can_edit_transaction = (
@@ -4199,7 +4226,9 @@ def _fetch_pos_sale_logs(
                 "has_payment_breakdown": payment_meta["has_payment_breakdown"],
                 "payment_breakdown_entries": payment_meta["payment_breakdown_entries"],
                 "payment_breakdown_label": payment_meta["payment_breakdown_label"],
+                "sale_date_label": sale_date_label,
                 "created_time_label": created_time_label,
+                "created_time_short_label": created_time_short_label,
                 "created_datetime_label": f"{row['sale_date']} {created_time_label}" if created_time_label != "-" else row["sale_date"],
                 "customer_phone_label": row["customer_phone"] if row.get("customer_phone") and row["customer_phone"] != "-" else "Tanpa nomor",
                 "cashier_identity_label": f"{row['cashier_name']} - {row['cashier_position']}",

@@ -1050,6 +1050,25 @@ body [data-pos-sales-log="1"] table td strong {
     line-height: 1.2;
 }
 
+body .pos-sales-log-date-cell {
+    min-width: 116px;
+}
+
+body .pos-sales-log-date-label,
+body .pos-sales-log-time-label {
+    display: block;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+body .pos-sales-log-date-label {
+    letter-spacing: 0.01em;
+}
+
+body .pos-sales-log-time-label {
+    margin-top: 4px;
+}
+
 body .pos-ipos-refactor .pos-ipos-logtable td .helper-text,
 body [data-pos-sales-log="1"] table td .helper-text {
     font-size: 0.78rem;
