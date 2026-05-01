@@ -1601,25 +1601,44 @@ def _parse_pos_timestamp(raw_value):
         return None
 
 
-def _format_pos_time_label(raw_value):
+def _resolve_pos_display_datetime(raw_value, reference_date=None):
     parsed = _parse_pos_timestamp(raw_value)
     if not parsed:
-        return "-"
+        return None
 
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    local_time = parsed.astimezone(POS_DISPLAY_TIMEZONE)
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(POS_DISPLAY_TIMEZONE)
+
+    local_time = parsed.replace(tzinfo=POS_DISPLAY_TIMEZONE)
+    utc_time = parsed.replace(tzinfo=timezone.utc).astimezone(POS_DISPLAY_TIMEZONE)
+    safe_reference_date = str(reference_date or "").strip()
+    if safe_reference_date:
+        try:
+            target_date = date_cls.fromisoformat(safe_reference_date)
+        except ValueError:
+            target_date = None
+        if target_date is not None:
+            local_matches = local_time.date() == target_date
+            utc_matches = utc_time.date() == target_date
+            if local_matches and not utc_matches:
+                return local_time
+            if utc_matches and not local_matches:
+                return utc_time
+
+    return utc_time
+
+
+def _format_pos_time_label(raw_value, reference_date=None):
+    local_time = _resolve_pos_display_datetime(raw_value, reference_date=reference_date)
+    if not local_time:
+        return "-"
     return local_time.strftime("%H:%M:%S")
 
 
-def _format_pos_time_short_label(raw_value):
-    parsed = _parse_pos_timestamp(raw_value)
-    if not parsed:
+def _format_pos_time_short_label(raw_value, reference_date=None):
+    local_time = _resolve_pos_display_datetime(raw_value, reference_date=reference_date)
+    if not local_time:
         return "-"
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    local_time = parsed.astimezone(POS_DISPLAY_TIMEZONE)
     return local_time.strftime("%H:%M")
 
 
@@ -2270,7 +2289,7 @@ def _fetch_pos_cash_closing_reports(
                 "warehouse_name": row["warehouse_name"],
                 "warehouse_label": format_receipt_homebase_label(row.get("warehouse_name")),
                 "closing_date_label": _format_pos_cash_closing_date_label(row.get("closing_date")),
-                "created_at_label": _format_pos_time_label(row.get("created_at")),
+                "created_at_label": _format_pos_time_label(row.get("created_at"), reference_date=row.get("closing_date")),
                 "summary_message": (row.get("summary_message") or "").strip(),
                 "wa_status": str(row.get("wa_status") or "pending").strip().lower() or "pending",
                 "wa_status_label": wa_meta["label"],
@@ -2436,8 +2455,8 @@ def _fetch_pos_sale_logs(
             paid_amount,
             row.get("payment_breakdown_json"),
         )
-        created_time_label = _format_pos_time_label(row.get("created_at"))
-        created_time_short_label = _format_pos_time_short_label(row.get("created_at"))
+        created_time_label = _format_pos_time_label(row.get("created_at"), reference_date=row.get("sale_date"))
+        created_time_short_label = _format_pos_time_short_label(row.get("created_at"), reference_date=row.get("sale_date"))
         sale_date_label = _format_pos_date_label(row.get("sale_date"))
         item_preview_lines = items[:3]
 
@@ -2608,7 +2627,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no):
     total_amount = _currency(sale.get("total_amount") or 0)
     paid_amount = _currency(sale.get("paid_amount") or 0)
     change_amount = _currency(sale.get("change_amount") or 0)
-    created_time_label = _format_pos_time_label(sale.get("created_at"))
+    created_time_label = _format_pos_time_label(sale.get("created_at"), reference_date=sale.get("sale_date"))
 
     delivery_note_items = []
     delivery_note_total_qty = 0
@@ -4181,8 +4200,8 @@ def _fetch_pos_sale_logs(
             paid_amount,
             row.get("payment_breakdown_json"),
         )
-        created_time_label = _format_pos_time_label(row.get("created_at"))
-        created_time_short_label = _format_pos_time_short_label(row.get("created_at"))
+        created_time_label = _format_pos_time_label(row.get("created_at"), reference_date=row.get("sale_date"))
+        created_time_short_label = _format_pos_time_short_label(row.get("created_at"), reference_date=row.get("sale_date"))
         sale_date_label = _format_pos_date_label(row.get("sale_date"))
         item_preview_lines = items[:3]
         sale_status = _build_pos_sale_status_payload(row.get("status"))
@@ -4347,7 +4366,7 @@ def _fetch_pos_sale_detail_by_receipt(db, receipt_no, *, allow_hidden_archive=Fa
         paid_amount,
         sale.get("payment_breakdown_json"),
     )
-    created_time_label = _format_pos_time_label(sale.get("created_at"))
+    created_time_label = _format_pos_time_label(sale.get("created_at"), reference_date=sale.get("sale_date"))
     delivery_note_items = []
     delivery_note_total_qty = 0
     for item in items:
@@ -5749,7 +5768,7 @@ def _fetch_recent_pos_sales(db, limit=18):
             {
                 "receipt_no": row["receipt_no"],
                 "sale_date": row["sale_date"],
-                "created_time_label": _format_pos_time_label(row["created_at"]),
+                "created_time_label": _format_pos_time_label(row["created_at"], reference_date=row.get("sale_date")),
                 "customer_name": row["customer_name"],
                 "warehouse_name": row["warehouse_name"],
             }

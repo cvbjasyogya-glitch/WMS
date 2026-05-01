@@ -37,6 +37,7 @@ from routes.pos import (
     _fetch_pos_staff_sales_rows,
     _ensure_pos_checkout_postgresql_sequences,
     _format_pos_time_label,
+    _format_pos_time_short_label,
     _normalize_pos_cash_closing_date,
     _normalize_sale_date,
     POS_DISPLAY_TIMEZONE,
@@ -2698,8 +2699,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Rp 0", leader_html)
 
     def test_pos_time_label_uses_indonesia_offset(self):
-        self.assertEqual(_format_pos_time_label("2026-04-11 02:01:00"), "09:01")
-        self.assertEqual(_format_pos_time_label("2026-04-11T02:01:00Z"), "09:01")
+        self.assertEqual(_format_pos_time_label("2026-04-11 02:01:00"), "09:01:00")
+        self.assertEqual(_format_pos_time_label("2026-04-11T02:01:00Z"), "09:01:00")
+        self.assertEqual(_format_pos_time_short_label("2026-04-11 02:01:00"), "09:01")
+
+    def test_pos_time_label_prefers_sale_date_when_naive_timestamp_is_already_local(self):
+        self.assertEqual(
+            _format_pos_time_short_label("2026-05-01 20:38:00", reference_date="2026-05-01"),
+            "20:38",
+        )
+        self.assertEqual(
+            _format_pos_time_short_label("2026-04-30 20:38:00", reference_date="2026-05-01"),
+            "03:38",
+        )
 
     def test_pos_date_fallbacks_use_pos_display_timezone(self):
         class FixedDateTime(datetime):
