@@ -83,6 +83,17 @@ ATTENDANCE_SPECIAL_SHIFT_RULES = (
         "end": "21:00",
         "helper_text": "Jam khusus Bu Ika: 11.30 - 21.00.",
         "aliases": ("bu ika", "ibu ika", "ika"),
+        "mode": "replace",
+    },
+    {
+        "shift_code": "ts",
+        "label": "TS",
+        "start": "11:00",
+        "end": "19:00",
+        "helper_text": "Khusus Ziza di Mega juga tersedia TS: 11.00 - 19.00. Tetap bisa pilih Pagi atau Siang saat memang dijadwalkan begitu.",
+        "aliases": ("ziza", "aziza sil qotimah", "2410007"),
+        "warehouse_key": "mega",
+        "mode": "append",
     },
 )
 
@@ -243,12 +254,17 @@ def _resolve_special_shift_rule(linked_employee):
         if linked_employee is not None and not isinstance(linked_employee, dict)
         else (linked_employee or {})
     )
+    warehouse_name = str(source.get("warehouse_name") or "").strip().lower()
+    warehouse_key = "mega" if "mega" in warehouse_name else "mataram"
     candidate_values = (
         source.get("full_name"),
         source.get("employee_code"),
         session.get("username"),
     )
     for rule in ATTENDANCE_SPECIAL_SHIFT_RULES:
+        required_warehouse_key = str(rule.get("warehouse_key") or "").strip().lower()
+        if required_warehouse_key and required_warehouse_key != warehouse_key:
+            continue
         aliases = rule.get("aliases") or ()
         for candidate in candidate_values:
             if any(_matches_identity_alias(candidate, alias) for alias in aliases):
@@ -283,6 +299,38 @@ def _build_special_shift_option(rule):
         "start": rule["start"],
         "end": rule["end"],
     }
+
+
+def _is_special_shift_rule_exclusive(rule):
+    return str((rule or {}).get("mode") or "replace").strip().lower() == "replace"
+
+
+def _special_shift_rule_matches_profile(rule, profile_key):
+    required_profile_key = str((rule or {}).get("warehouse_key") or "").strip().lower()
+    if not required_profile_key:
+        return True
+    return required_profile_key == str(profile_key or "").strip().lower()
+
+
+def _merge_shift_option_sets(*option_groups):
+    merged = []
+    seen_values = set()
+    for option_group in option_groups:
+        for option in option_group or ():
+            safe_value = str((option or {}).get("value") or "").strip().lower()
+            if not safe_value or safe_value in seen_values:
+                continue
+            seen_values.add(safe_value)
+            merged.append(option)
+    return merged
+
+
+def _merge_shift_helper_text(base_helper_text, special_helper_text):
+    base_text = str(base_helper_text or "").strip()
+    special_text = str(special_helper_text or "").strip()
+    if base_text and special_text:
+        return f"{base_text} {special_text}"
+    return special_text or base_text
 
 
 def _resolve_shift_warehouse_key(linked_employee):
@@ -371,19 +419,32 @@ def _build_shift_profiles_payload(linked_employee=None):
     payload = {}
     for profile_key in ("mataram", "mega"):
         schedule_map = ATTENDANCE_SHIFT_SCHEDULES.get(profile_key, ATTENDANCE_SHIFT_SCHEDULES["mataram"])
+        base_options = [
+            {
+                "value": shift_code,
+                "label": _build_shift_label(schedule_item),
+                "time_label": f"{schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}",
+            }
+            for shift_code, schedule_item in schedule_map.items()
+        ]
+        special_options = (
+            [_build_special_shift_option(special_rule)]
+            if special_rule and _special_shift_rule_matches_profile(special_rule, profile_key)
+            else []
+        )
         if special_rule:
-            helper_text = special_rule["helper_text"]
-            options = [_build_special_shift_option(special_rule)]
+            if _is_special_shift_rule_exclusive(special_rule):
+                helper_text = special_rule["helper_text"]
+                options = special_options
+            else:
+                helper_text = _merge_shift_helper_text(
+                    ATTENDANCE_SHIFT_PROFILE_HELPERS.get(profile_key, ""),
+                    special_rule["helper_text"] if special_options else "",
+                )
+                options = _merge_shift_option_sets(base_options, special_options)
         else:
             helper_text = ATTENDANCE_SHIFT_PROFILE_HELPERS.get(profile_key, "")
-            options = [
-                {
-                    "value": shift_code,
-                    "label": _build_shift_label(schedule_item),
-                    "time_label": f"{schedule_item['start'].replace(':', '.')} - {schedule_item['end'].replace(':', '.')}",
-                }
-                for shift_code, schedule_item in schedule_map.items()
-            ]
+            options = base_options
         payload[profile_key] = {
             "label": ATTENDANCE_SHIFT_PROFILE_LABELS.get(profile_key, "Gudang Mataram"),
             "helper_text": helper_text,
@@ -394,12 +455,9 @@ def _build_shift_profiles_payload(linked_employee=None):
 
 def _build_shift_options(linked_employee, shift_profile_key=None):
     special_rule = _resolve_special_shift_rule(linked_employee)
-    if special_rule:
-        return [_build_special_shift_option(special_rule)]
-
     warehouse_key = _normalize_shift_profile_key(shift_profile_key) or _resolve_shift_warehouse_key(linked_employee)
     schedule_map = ATTENDANCE_SHIFT_SCHEDULES.get(warehouse_key, ATTENDANCE_SHIFT_SCHEDULES["mataram"])
-    return [
+    base_options = [
         {
             "value": shift_code,
             "label": _build_shift_label(schedule_item),
@@ -409,11 +467,18 @@ def _build_shift_options(linked_employee, shift_profile_key=None):
         }
         for shift_code, schedule_item in schedule_map.items()
     ]
+    if not special_rule or not _special_shift_rule_matches_profile(special_rule, warehouse_key):
+        return base_options
+
+    special_options = [_build_special_shift_option(special_rule)]
+    if _is_special_shift_rule_exclusive(special_rule):
+        return special_options
+    return _merge_shift_option_sets(base_options, special_options)
 
 
 def _resolve_default_shift_code(linked_employee, requested_time=None):
     special_rule = _resolve_special_shift_rule(linked_employee)
-    if special_rule:
+    if special_rule and _is_special_shift_rule_exclusive(special_rule):
         return special_rule["shift_code"]
 
     if requested_time and len(requested_time) >= 16:
@@ -1167,7 +1232,16 @@ def _fetch_attendance_portal_state(db):
             _build_attendance_shift_override_helper_text(shift_override_snapshot)
             if shift_override_snapshot
             else
-            special_shift_rule["helper_text"]
+            (
+                special_shift_rule["helper_text"]
+                if _is_special_shift_rule_exclusive(special_shift_rule)
+                else _merge_shift_helper_text(
+                    ATTENDANCE_SHIFT_PROFILE_HELPERS.get(selected_shift_profile_key, ""),
+                    special_shift_rule["helper_text"]
+                    if special_shift_rule and _special_shift_rule_matches_profile(special_shift_rule, selected_shift_profile_key)
+                    else "",
+                )
+            )
             if special_shift_rule
             else ATTENDANCE_SHIFT_PROFILE_HELPERS.get(selected_shift_profile_key, "")
         ),

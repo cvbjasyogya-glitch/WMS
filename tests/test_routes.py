@@ -48,6 +48,7 @@ from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
 from routes.hris import (
+    _build_biometric_shift_options,
     _build_overtime_recap,
     _ensure_attendance_shift_override_schema,
     _ensure_overtime_feature_schema,
@@ -18096,7 +18097,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             location_label="Gudang Mega - Area Test",
         )
 
-        response = self.client.get("/hris/biometric?warehouse=2&date_from=2026-09-03&date_to=2026-09-03")
+        response = self.client.get(
+            "/hris/biometric?view=attendance_detail&warehouse=2&date_from=2026-09-03&date_to=2026-09-03"
+        )
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Shift Pagi | 09.00 - 17.00", html)
@@ -18201,6 +18204,79 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["shift_code"], "pagi")
         self.assertEqual(attendance["shift_label"], "Shift Pagi | 08.00 - 16.00")
         self.assertEqual(attendance["status"], "late")
+
+    def test_hr_can_assign_ts_shift_for_ziza_without_losing_mega_shift_choices(self):
+        self.login_hr_user("hr_bio_shift_ziza", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="2410007",
+            full_name="Aziza Sil Qotimah",
+            warehouse_id=2,
+            position="Admin",
+        )
+        option_values = {
+            option["value"]
+            for option in _build_biometric_shift_options(
+                {
+                    "full_name": "Aziza Sil Qotimah",
+                    "employee_code": "2410007",
+                    "warehouse_name": "Gudang Mega",
+                }
+            )
+        }
+        self.assertEqual(option_values, {"pagi", "siang", "ts"})
+        self.create_biometric_attendance_day(
+            employee_id,
+            "2026-09-03",
+            "11:05",
+            warehouse_id=2,
+            shift_code="pagi",
+            shift_label="Shift Pagi | 09.00 - 17.00",
+            location_label="Gudang Mega - Area Test",
+        )
+
+        update_response = self.client.post(
+            "/hris/biometric/attendance-shift",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-03",
+                "shift_code": "ts",
+                "return_to": "/hris/biometric?view=attendance_detail&warehouse=2&date_from=2026-09-03&date_to=2026-09-03",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT shift_code, shift_label, sync_status
+                FROM biometric_logs
+                WHERE employee_id=? AND substr(punch_time, 1, 10)=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["shift_code"], "ts")
+        self.assertEqual(biometric["shift_label"], "TS | 11.00 - 19.00")
+        self.assertEqual(biometric["sync_status"], "manual")
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["shift_code"], "ts")
+        self.assertEqual(attendance["shift_label"], "TS | 11.00 - 19.00")
+        self.assertEqual(attendance["status"], "present")
 
     def test_hr_can_apply_biometric_shift_override_and_resync_attendance_without_false_late_or_overtime(self):
         self.login_hr_user("hr_bio_shift_override", "pass1234")
@@ -22184,6 +22260,77 @@ class WmsRoutesTestCase(unittest.TestCase):
         hris_page = self.client.get("/hris/biometric", follow_redirects=False)
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
+
+    def test_attendance_portal_ziza_gets_ts_as_additional_mega_shift_option(self):
+        employee_id = self.create_employee_record(
+            employee_code="2410007",
+            full_name="Aziza Sil Qotimah",
+            warehouse_id=2,
+            position="Admin",
+        )
+        self.create_user("Ziza", "pass1234", "admin", warehouse_id=2, employee_id=employee_id)
+        self.login("Ziza", "pass1234")
+        today = date_cls.today().isoformat()
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn('value="pagi"', portal_html)
+        self.assertIn("Shift Pagi | 09.00 - 17.00", portal_html)
+        self.assertIn('value="siang"', portal_html)
+        self.assertIn("Shift Siang | 13.00 - 21.00", portal_html)
+        self.assertIn('value="ts"', portal_html)
+        self.assertIn("TS | 11.00 - 19.00", portal_html)
+        self.assertIn("Khusus Ziza di Mega", portal_html)
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "ts",
+                "location_label": "Gudang Mega - Kasir Tengah",
+                "latitude": "-7.782893",
+                "longitude": "110.409127",
+                "accuracy_m": "5.5",
+                "punch_time": f"{today}T11:05",
+                "punch_type": "check_in",
+                "note": "Masuk shift TS",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/absen/", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["shift_code"], "ts")
+        self.assertEqual(biometric["shift_label"], "TS | 11.00 - 19.00")
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["shift_code"], "ts")
+        self.assertEqual(attendance["shift_label"], "TS | 11.00 - 19.00")
+        self.assertEqual(attendance["status"], "present")
 
     def test_attendance_portal_uses_daily_shift_override_for_selected_staff(self):
         employee_id = self.create_employee_record(

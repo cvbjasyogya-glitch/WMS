@@ -449,6 +449,16 @@ BIOMETRIC_SPECIAL_SHIFT_RULES = (
         "start": "11:30",
         "end": "21:00",
         "aliases": ("bu ika", "ibu ika", "ika"),
+        "mode": "replace",
+    },
+    {
+        "shift_code": "ts",
+        "label": "TS",
+        "start": "11:00",
+        "end": "19:00",
+        "aliases": ("ziza", "aziza sil qotimah", "2410007"),
+        "warehouse_key": "mega",
+        "mode": "append",
     },
 )
 
@@ -2115,6 +2125,30 @@ def _build_biometric_special_shift_option(rule):
     }
 
 
+def _is_biometric_special_shift_rule_exclusive(rule):
+    return str((rule or {}).get("mode") or "replace").strip().lower() == "replace"
+
+
+def _biometric_special_shift_rule_matches_profile(rule, profile_key):
+    required_profile_key = str((rule or {}).get("warehouse_key") or "").strip().lower()
+    if not required_profile_key:
+        return True
+    return required_profile_key == str(profile_key or "").strip().lower()
+
+
+def _merge_biometric_shift_option_sets(*option_groups):
+    merged = []
+    seen_values = set()
+    for option_group in option_groups:
+        for option in option_group or ():
+            safe_value = str((option or {}).get("value") or "").strip().lower()
+            if not safe_value or safe_value in seen_values:
+                continue
+            seen_values.add(safe_value)
+            merged.append(option)
+    return merged
+
+
 def _normalize_biometric_shift_code(value):
     shift_code = (value or "").strip().lower()
     allowed_shift_codes = {
@@ -2135,12 +2169,17 @@ def _resolve_biometric_special_shift_rule(source):
         if source is not None and not isinstance(source, dict)
         else (source or {})
     )
+    warehouse_name = str(safe_source.get("warehouse_name") or "").strip().lower()
+    warehouse_key = "mega" if "mega" in warehouse_name else "mataram"
     candidate_values = (
         safe_source.get("full_name"),
         safe_source.get("employee_code"),
         safe_source.get("username"),
     )
     for rule in BIOMETRIC_SPECIAL_SHIFT_RULES:
+        required_warehouse_key = str(rule.get("warehouse_key") or "").strip().lower()
+        if required_warehouse_key and required_warehouse_key != warehouse_key:
+            continue
         aliases = rule.get("aliases") or ()
         for candidate in candidate_values:
             if any(_matches_shift_identity_alias(candidate, alias) for alias in aliases):
@@ -2177,9 +2216,6 @@ def _resolve_biometric_shift_profile_key_from_label(shift_label, fallback_key="m
 
 def _build_biometric_shift_options(source, current_shift_label=None):
     special_rule = _resolve_biometric_special_shift_rule(source)
-    if special_rule:
-        return [_build_biometric_special_shift_option(special_rule)]
-
     fallback_key = _resolve_biometric_shift_warehouse_key(source)
     profile_key = _resolve_biometric_shift_profile_key_from_label(
         current_shift_label,
@@ -2189,7 +2225,7 @@ def _build_biometric_shift_options(source, current_shift_label=None):
         profile_key,
         BIOMETRIC_SHIFT_SCHEDULES["mataram"],
     )
-    return [
+    base_options = [
         {
             "value": shift_code,
             "label": _build_biometric_shift_label(schedule_item),
@@ -2199,6 +2235,13 @@ def _build_biometric_shift_options(source, current_shift_label=None):
         }
         for shift_code, schedule_item in schedule_map.items()
     ]
+    if not special_rule or not _biometric_special_shift_rule_matches_profile(special_rule, profile_key):
+        return base_options
+
+    special_options = [_build_biometric_special_shift_option(special_rule)]
+    if _is_biometric_special_shift_rule_exclusive(special_rule):
+        return special_options
+    return _merge_biometric_shift_option_sets(base_options, special_options)
 
 
 def _resolve_biometric_shift_code_from_label(shift_label, source=None):
