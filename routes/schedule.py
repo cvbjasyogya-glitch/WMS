@@ -14,7 +14,7 @@ from services.attendance_request_service import (
     queue_attendance_request,
 )
 from services.notification_service import notify_broadcast
-from services.rbac import has_permission, is_scoped_role
+from services.rbac import has_permission, is_scoped_role, normalize_role
 
 
 schedule_bp = Blueprint("schedule", __name__, url_prefix="/schedule")
@@ -104,6 +104,7 @@ SCHEDULE_MONTH_NAMES = (
     "November",
     "Desember",
 )
+SCHEDULE_ANY_HOMEBASE_ROLE_SET = {"intern", "staff_intern"}
 
 
 def _to_int(value, default=None):
@@ -315,6 +316,21 @@ def _default_shift_code_map():
             **_build_schedule_chip_color_tokens(bg_color, text_color),
         }
     return shift_code_map
+
+
+def _is_schedule_any_homebase_role(role_value):
+    return normalize_role(role_value) in SCHEDULE_ANY_HOMEBASE_ROLE_SET
+
+
+def _build_schedule_any_homebase_exists_sql(employee_alias="e"):
+    safe_alias = (employee_alias or "e").strip() or "e"
+    return (
+        "EXISTS("
+        "SELECT 1 FROM users su "
+        f"WHERE su.employee_id = {safe_alias}.id "
+        "AND LOWER(TRIM(COALESCE(su.role, ''))) IN ('intern', 'staff_intern')"
+        ")"
+    )
 
 
 def _build_schedule_day_parts(value):
@@ -585,6 +601,7 @@ def _fetch_shift_codes(db):
 
 def _fetch_employees_for_schedule(db, warehouse_id=None):
     params = []
+    any_homebase_role_exists_sql = _build_schedule_any_homebase_exists_sql("e")
     query = """
         SELECT
             e.id AS employee_id,
@@ -602,6 +619,13 @@ def _fetch_employees_for_schedule(db, warehouse_id=None):
             COALESCE(sp.display_order, 0) AS display_order,
             COALESCE(sp.include_in_schedule, 1) AS include_in_schedule,
             COALESCE(sp.note, '') AS profile_note,
+            CASE
+                WHEN """
+    query += any_homebase_role_exists_sql
+    query += """
+                THEN 1
+                ELSE 0
+            END AS schedule_any_homebase,
             CASE WHEN ob.employee_id IS NULL THEN 0 ELSE 1 END AS has_offboarding
         FROM employees e
         LEFT JOIN warehouses w ON w.id = e.warehouse_id
@@ -615,7 +639,7 @@ def _fetch_employees_for_schedule(db, warehouse_id=None):
     """
 
     if warehouse_id:
-        query += " AND e.warehouse_id=?"
+        query += f" AND (e.warehouse_id=? OR {any_homebase_role_exists_sql})"
         params.append(warehouse_id)
 
     rows = [dict(row) for row in db.execute(query, params).fetchall()]
@@ -638,7 +662,14 @@ def _fetch_employees_for_schedule(db, warehouse_id=None):
             row["work_location"],
         )
         row["include_in_schedule"] = bool(row["include_in_schedule"])
+        row["schedule_any_homebase"] = bool(row["schedule_any_homebase"])
         row["has_offboarding"] = bool(row["has_offboarding"])
+        if row["schedule_any_homebase"]:
+            row["schedule_scope_label"] = "Lintas Homebase (Intern)"
+            if not (row["location_label"] or "").strip():
+                row["location_label_display"] = "Lintas Homebase"
+        else:
+            row["schedule_scope_label"] = (row["warehouse_name"] or "").strip() or "-"
 
     rows.sort(
         key=lambda row: (
@@ -1088,6 +1119,7 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
 
     sections = []
     today_value = date_cls.today()
+    any_homebase_role_exists_sql = _build_schedule_any_homebase_exists_sql("e")
     for warehouse in target_warehouses:
         rows = db.execute(
             """
@@ -1105,7 +1137,14 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
                 w.name AS warehouse_name,
                 e.work_location,
                 COALESCE(sp.custom_name, '') AS custom_name,
-                COALESCE(sp.location_label, '') AS location_label
+                COALESCE(sp.location_label, '') AS location_label,
+                CASE
+                    WHEN """
+            + any_homebase_role_exists_sql
+            + """
+                    THEN 1
+                    ELSE 0
+                END AS schedule_any_homebase
             FROM schedule_live_entries l
             LEFT JOIN employees e ON e.id = l.employee_id
             LEFT JOIN warehouses w ON w.id = e.warehouse_id
@@ -1134,10 +1173,14 @@ def _build_live_schedule_sections(db, warehouses, selected_warehouse, start_date
                 "is_checked": bool(row["is_checked"]),
                 "channel_label": (row["channel_label"] or "").strip(),
                 "note": (row["note"] or "").strip(),
-                "location_label_display": _resolve_schedule_location_label(
-                    row["location_label"],
-                    row["warehouse_name"],
-                    row["work_location"],
+                "location_label_display": (
+                    "Lintas Homebase"
+                    if bool(row["schedule_any_homebase"]) and not (row["location_label"] or "").strip()
+                    else _resolve_schedule_location_label(
+                        row["location_label"],
+                        row["warehouse_name"],
+                        row["work_location"],
+                    )
                 ),
                 **color_tokens,
             }
@@ -1354,18 +1397,31 @@ def save_live_schedule_entry():
 
     employee = None
     if employee_id:
-        employee = db.execute(
+        employee_query = (
             """
-            SELECT id, full_name, warehouse_id
-            FROM employees
+            SELECT
+                e.id,
+                e.full_name,
+                e.warehouse_id,
+                CASE
+                    WHEN """
+            + _build_schedule_any_homebase_exists_sql("e")
+            + """
+                    THEN 1
+                    ELSE 0
+                END AS schedule_any_homebase
+            FROM employees e
             WHERE id=?
-            """,
+            """
+        )
+        employee = db.execute(
+            employee_query,
             (employee_id,),
         ).fetchone()
         if not employee:
             flash("Staf live tidak ditemukan.", "error")
             return _schedule_redirect()
-        if employee["warehouse_id"] != warehouse_id:
+        if employee["warehouse_id"] != warehouse_id and not bool(employee["schedule_any_homebase"]):
             flash("Staf live harus berasal dari gudang yang sama dengan board live yang dipilih.", "error")
             return _schedule_redirect()
 
@@ -1730,13 +1786,31 @@ def save_schedule_entry():
         flash(f"Rentang jadwal maksimal {MAX_SCHEDULE_DAY_RANGE} hari per simpan.", "error")
         return _schedule_redirect()
 
-    employee = db.execute(
-        "SELECT id, full_name, warehouse_id FROM employees WHERE id=?",
-        (employee_id,),
-    ).fetchone()
+    employee_query = (
+        """
+        SELECT
+            e.id,
+            e.full_name,
+            e.warehouse_id,
+            CASE
+                WHEN """
+        + _build_schedule_any_homebase_exists_sql("e")
+        + """
+                THEN 1
+                ELSE 0
+            END AS schedule_any_homebase
+        FROM employees e
+        WHERE id=?
+        """
+    )
+    employee = db.execute(employee_query, (employee_id,)).fetchone()
     if not employee:
         flash("Karyawan tidak ditemukan.", "error")
         return _schedule_redirect()
+    contextual_warehouse_id = employee["warehouse_id"]
+    selected_board_warehouse = _to_int(request.form.get("warehouse"))
+    if bool(employee["schedule_any_homebase"]) and selected_board_warehouse:
+        contextual_warehouse_id = selected_board_warehouse
 
     shift_meta = None
     if shift_code:
@@ -1765,7 +1839,7 @@ def save_schedule_entry():
     payload = {
         "employee_id": employee_id,
         "employee_name": employee_name,
-        "warehouse_id": employee["warehouse_id"],
+        "warehouse_id": contextual_warehouse_id,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "shift_code": shift_code,
@@ -1828,7 +1902,7 @@ def save_schedule_entry():
 
             event_id = create_schedule_change_event(
                 db,
-                warehouse_id=employee["warehouse_id"],
+                warehouse_id=contextual_warehouse_id,
                 event_kind=event_kind,
                 title=event_title,
                 message=schedule_message,
@@ -1855,7 +1929,7 @@ def save_schedule_entry():
             notify_broadcast(
                 notification_payload["subject"],
                 notification_payload["message"],
-                warehouse_id=employee["warehouse_id"],
+                warehouse_id=contextual_warehouse_id,
                 push_title=notification_payload["push_title"],
                 push_body=notification_payload["push_body"],
                 push_url="/announcements/",
@@ -1875,7 +1949,7 @@ def save_schedule_entry():
         queue_result = queue_attendance_request(
             db,
             request_type="schedule_entry",
-            warehouse_id=employee["warehouse_id"],
+            warehouse_id=contextual_warehouse_id,
             employee_id=employee_id,
             requested_by=session.get("user_id"),
             summary_title=summary_title,

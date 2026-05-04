@@ -124,7 +124,7 @@
                     <select name="employee_id" required>
                         <option value="">Pilih Staf</option>
                         {% for employee in employee_rows %}
-                        <option value="{{ employee.employee_id }}">{{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                        <option value="{{ employee.employee_id }}">{{ employee.full_name }}{% if employee.schedule_scope_label %} | {{ employee.schedule_scope_label }}{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -309,7 +309,7 @@
                         <p>{{ employee.position or employee.department or "Tim Operasional" }}</p>
                     </div>
                     <div class="schedule-profile-badges">
-                        <span class="badge">{{ employee.warehouse_name or "-" }}</span>
+                        <span class="badge">{{ employee.schedule_scope_label or employee.warehouse_name or "-" }}</span>
                         <span class="badge">{{ employee.employment_status }}</span>
                     </div>
                 </div>
@@ -401,7 +401,7 @@
                     <select name="employee_id">
                         <option value="">Kosongkan slot / open</option>
                         {% for employee in employee_rows %}
-                        <option value="{{ employee.employee_id }}">{{ employee.full_name }}{% if employee.warehouse_name %} | {{ employee.warehouse_name }}{% endif %}</option>
+                        <option value="{{ employee.employee_id }}">{{ employee.full_name }}{% if employee.schedule_scope_label %} | {{ employee.schedule_scope_label }}{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>

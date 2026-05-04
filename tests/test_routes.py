@@ -8883,6 +8883,93 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-schedule-live-check-toggle="1"', board_html)
         self.assertNotIn("schedule-live-check-button is-checked", board_html)
 
+    def test_schedule_page_shows_intern_as_cross_homebase_member(self):
+        self.create_user("hr_schedule_intern_scope", "pass1234", "hr")
+        intern_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-INT-X",
+            full_name="Zaki Intern Fleksibel",
+            warehouse_id=1,
+            position="Intern Marketplace",
+        )
+        self.create_user(
+            "intern_schedule_anywhere",
+            "pass1234",
+            "intern",
+            warehouse_id=1,
+            employee_id=intern_employee_id,
+        )
+        self.create_employee_record(
+            employee_code="EMP-SCD-STF-X",
+            full_name="Budi Staff Tetap",
+            warehouse_id=1,
+            position="Warehouse Staff",
+        )
+
+        self.login("hr_schedule_intern_scope", "pass1234")
+        response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=2")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Zaki Intern Fleksibel", html)
+        self.assertIn("Lintas Homebase (Intern)", html)
+        self.assertIn(">Lintas Homebase<", html)
+        self.assertNotIn("Budi Staff Tetap", html)
+
+    def test_hr_can_assign_live_schedule_for_intern_on_different_homebase_board(self):
+        self.create_user("hr_live_intern_scope", "pass1234", "hr")
+        intern_employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-LIVE-INT",
+            full_name="Nina Intern Mobile",
+            warehouse_id=1,
+            position="Intern Host",
+        )
+        self.create_user(
+            "intern_live_mobile",
+            "pass1234",
+            "intern",
+            warehouse_id=1,
+            employee_id=intern_employee_id,
+        )
+
+        self.login("hr_live_intern_scope", "pass1234")
+        response = self.client.post(
+            "/schedule/live/save",
+            data={
+                "live_warehouse_id": "2",
+                "live_schedule_date": "2026-03-31",
+                "slot_key": "15:00",
+                "employee_id": str(intern_employee_id),
+                "channel_label": "TikTok Mega",
+                "note": "Intern bantu lintas store",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "2",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            live_entry = db.execute(
+                """
+                SELECT warehouse_id, schedule_date, slot_key, employee_id, channel_label, note
+                FROM schedule_live_entries
+                WHERE warehouse_id=2 AND schedule_date='2026-03-31' AND slot_key='15:00'
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(live_entry)
+        self.assertEqual(live_entry["employee_id"], intern_employee_id)
+        self.assertEqual(live_entry["channel_label"], "TikTok Mega")
+        self.assertEqual(live_entry["note"], "Intern bantu lintas store")
+
+        board_response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=2")
+        self.assertEqual(board_response.status_code, 200)
+        board_html = board_response.get_data(as_text=True)
+        self.assertIn("Nina", board_html)
+        self.assertIn("TikTok Mega", board_html)
+        self.assertIn("Lintas Homebase", board_html)
+
     def test_hr_can_save_live_schedule_entry_for_date_range(self):
         self.create_user("hr_live_range", "pass1234", "hr")
         employee_id = self.create_employee_record(
