@@ -21,7 +21,7 @@ import scripts.backup_sqlite_db as backup_sqlite_db_module
 import scripts.postgresql_smoke_test as postgresql_smoke_test_module
 import scripts.run_configured_backup as run_configured_backup_module
 from openpyxl import Workbook
-from flask import session
+from flask import session, g
 from services.event_notification_policy import (
     get_event_notification_policy,
     save_event_notification_policy,
@@ -47,6 +47,7 @@ from routes.products import _ensure_product_variant_cost_schema
 from routes.chat import _format_timestamp_label
 from routes.announcement_center import _extract_iso_date_prefix
 from routes.attendance_portal import _format_portal_datetime_display, _parse_attendance_portal_datetime
+from services.stock_service import _ensure_stock_postgresql_sequences
 from routes.hris import (
     _build_biometric_shift_options,
     _build_overtime_recap,
@@ -30454,6 +30455,75 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["price_cost"], 175000)
+
+    def test_add_product_returns_stock_schema_hint_when_initial_stock_insert_fails(self):
+        self.create_user("owner_product_stock_fail", "pass1234", "owner")
+        self.login("owner_product_stock_fail", "pass1234")
+
+        with patch("routes.products.add_stock", return_value=False):
+            response = self.client.post(
+                "/products/add",
+                data={
+                    "sku": "OWN-STOCK-FAIL-001",
+                    "name": "Produk Stock Fail",
+                    "category_name": "Testing",
+                    "warehouse_id": "1",
+                    "unit_label": "pcs",
+                    "variant_mode": "variant",
+                    "variant_rows_json": json.dumps(
+                        [
+                            {
+                                "variant": "42",
+                                "color": "",
+                                "price_retail": "250000",
+                                "price_discount": "230000",
+                                "price_nett": "210000",
+                                "price_cost": "175000",
+                                "qty": "1",
+                                "variant_code": "",
+                                "gtin": "",
+                            }
+                        ]
+                    ),
+                },
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 500)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("schema stok/sequence PostgreSQL", payload["message"])
+
+    def test_stock_service_repairs_postgresql_sequences_for_stock_tables(self):
+        class FakeDb:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, query, parameters=()):
+                self.statements.append((str(query), tuple(parameters or ())))
+                if "information_schema.columns" in str(query):
+                    return Mock(fetchone=Mock(return_value={"column_default": None}))
+                return Mock(fetchone=Mock(return_value=None))
+
+            def commit(self):
+                self.statements.append(("COMMIT", ()))
+
+        fake_db = FakeDb()
+
+        with self.app.app_context(), patch("services.stock_service.is_postgresql_backend", return_value=True):
+            if hasattr(g, "_stock_postgresql_sequences_ready"):
+                delattr(g, "_stock_postgresql_sequences_ready")
+            _ensure_stock_postgresql_sequences(fake_db)
+
+        merged_sql = "\n".join(statement for statement, _ in fake_db.statements)
+        self.assertIn("ALTER TABLE stock ALTER COLUMN id SET DEFAULT nextval('stock_id_seq')", merged_sql)
+        self.assertIn("ALTER TABLE stock_batches ALTER COLUMN id SET DEFAULT nextval('stock_batches_id_seq')", merged_sql)
+        self.assertIn("ALTER TABLE stock_movements ALTER COLUMN id SET DEFAULT nextval('stock_movements_id_seq')", merged_sql)
+        self.assertIn("ALTER TABLE stock_history ALTER COLUMN id SET DEFAULT nextval('stock_history_id_seq')", merged_sql)
 
     def test_owner_can_update_product_price_cost_inline_and_detail(self):
         self.create_user("owner_price_cost_editor", "pass1234", "owner")

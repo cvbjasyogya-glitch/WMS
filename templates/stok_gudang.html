@@ -2549,9 +2549,31 @@ async function handleManualSubmit(event) {
             body: formData
         });
 
-        const data = await response.json().catch(() => ({}));
+        const rawResponseText = await response.text();
+        let data = {};
+        try {
+            data = rawResponseText ? JSON.parse(rawResponseText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        const responseFallbackMessage = (() => {
+            const safeText = String(rawResponseText || "").trim();
+            if (!safeText) {
+                return `Server mengembalikan error ${response.status}.`;
+            }
+            if (safeText.startsWith("<!DOCTYPE") || safeText.startsWith("<html")) {
+                return `Server mengembalikan error ${response.status}. Cek login, service, atau log aplikasi.`;
+            }
+            return safeText.slice(0, 240);
+        })();
+
         if (!response.ok || data.status !== "success") {
-            renderProductStudioStatus("manualProductStatus", data.message || "Produk gagal disimpan.", "error");
+            renderProductStudioStatus(
+                "manualProductStatus",
+                data.message || responseFallbackMessage || "Produk gagal disimpan.",
+                "error"
+            );
             return false;
         }
 

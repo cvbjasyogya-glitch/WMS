@@ -486,6 +486,36 @@ def _products_error_response(message, status_code=400, **payload):
     return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
 
 
+def _format_add_product_error(exc):
+    safe_message = str(exc or "").strip()
+    normalized = safe_message.casefold()
+
+    if (
+        "products.sku" in normalized
+        or "products_sku_key" in normalized
+        or "duplicate key value violates unique constraint" in normalized and "sku" in normalized
+    ):
+        return "SKU sudah dipakai produk lain. Ganti SKU lalu coba simpan lagi."
+
+    if (
+        "product_variants.product_id, product_variants.variant" in normalized
+        or "product_variants_product_id_variant_key" in normalized
+        or "unique constraint failed: product_variants.product_id, product_variants.variant" in normalized
+    ):
+        return "Varian dengan label yang sama sudah ada di master produk tersebut."
+
+    if safe_message in {"Gagal add stock", "ID batch stok baru gagal dibuat."}:
+        return (
+            "Stok awal produk gagal disimpan. "
+            "Cek schema stok/sequence PostgreSQL di server lalu coba lagi."
+        )
+
+    if safe_message in {"ID batch stok adjustment gagal dibuat."}:
+        return "Batch stok baru gagal dibuat di database."
+
+    return safe_message or "Produk gagal disimpan."
+
+
 def _to_float(value):
     try:
         return float(value or 0)
@@ -2099,7 +2129,7 @@ def add_product():
             ok = add_stock(product_id, variant_id, warehouse_id, row["qty"], note="Initial Stock")
 
             if not ok:
-                raise Exception("Gagal add stock")
+                raise RuntimeError("Gagal add stock")
 
         db.commit()
         return _products_success_response(
@@ -2118,10 +2148,14 @@ def add_product():
             multiple_name_matches=bool(has_multiple_name_matches),
         )
 
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        current_app.logger.exception("ADD PRODUCT INTEGRITY ERROR")
+        return _products_error_response(_format_add_product_error(e), 400)
     except Exception as e:
         db.rollback()
-        print("ERROR ADD PRODUCT:", e)
-        return _products_error_response(str(e), 500)
+        current_app.logger.exception("ADD PRODUCT ERROR")
+        return _products_error_response(_format_add_product_error(e), 500)
 
 
 @products_bp.route("/delete/<int:id>", methods=["POST"])

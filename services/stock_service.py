@@ -1,5 +1,5 @@
-from database import get_db
-from flask import session, request, has_request_context
+from database import get_db, is_postgresql_backend
+from flask import session, request, has_request_context, g
 
 
 # ==========================
@@ -67,6 +67,51 @@ def _get_default_warehouse(db):
     return wh["id"] if wh else 1
 
 
+def _ensure_postgresql_id_sequence(db, table_name):
+    default_row = db.execute(
+        """
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_schema='public'
+          AND table_name=?
+          AND column_name='id'
+        """,
+        (table_name,),
+    ).fetchone()
+    try:
+        column_default = str(default_row["column_default"] or "").lower()
+    except Exception:
+        column_default = ""
+    if "nextval(" in column_default:
+        return
+
+    sequence_name = f"{table_name}_id_seq"
+    db.execute(f"CREATE SEQUENCE IF NOT EXISTS {sequence_name}")
+    db.execute(f"ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id")
+    db.execute(
+        f"ALTER TABLE {table_name} ALTER COLUMN id SET DEFAULT nextval('{sequence_name}')"
+    )
+    db.execute(
+        f"SELECT setval('{sequence_name}', COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, false)"
+    )
+
+
+def _ensure_stock_postgresql_sequences(db):
+    if not is_postgresql_backend():
+        return
+    if getattr(g, "_stock_postgresql_sequences_ready", False):
+        return
+
+    for table_name in ("stock", "stock_batches", "stock_movements", "stock_history"):
+        _ensure_postgresql_id_sequence(db, table_name)
+
+    try:
+        db.commit()
+    except Exception:
+        pass
+    g._stock_postgresql_sequences_ready = True
+
+
 def _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, warehouse_id):
     open_batch = db.execute(
         """
@@ -123,6 +168,7 @@ def add_stock(product_id, variant_id, warehouse_id, qty,
               note="Barang masuk", cost=0, custom_date=None, expiry=None):
 
     db = get_db()
+    _ensure_stock_postgresql_sequences(db)
 
     try:
         product_id = int(product_id)
@@ -153,7 +199,7 @@ def add_stock(product_id, variant_id, warehouse_id, qty,
         except:
             started = False
 
-        db.execute("""
+        batch_cursor = db.execute("""
         INSERT INTO stock_batches(
             product_id, variant_id, warehouse_id,
             qty, remaining_qty, cost, expiry_date, created_at
@@ -170,7 +216,12 @@ def add_stock(product_id, variant_id, warehouse_id, qty,
             custom_date
         ))
 
-        batch_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        batch_id = getattr(batch_cursor, "lastrowid", None)
+        if not batch_id:
+            batch_id_row = db.execute("SELECT last_insert_rowid()").fetchone()
+            batch_id = batch_id_row[0] if batch_id_row else None
+        if not batch_id:
+            raise RuntimeError("ID batch stok baru gagal dibuat.")
 
         db.execute("""
         INSERT INTO stock_movements(
@@ -215,6 +266,7 @@ def add_stock(product_id, variant_id, warehouse_id, qty,
 def remove_stock(product_id, variant_id, warehouse_id, qty, note="Barang keluar"):
 
     db = get_db()
+    _ensure_stock_postgresql_sequences(db)
 
     try:
         product_id = int(product_id)
@@ -317,6 +369,7 @@ def remove_stock(product_id, variant_id, warehouse_id, qty, note="Barang keluar"
 def adjust_stock(product_id, variant_id, warehouse_id, qty, note="Stock Adjustment"):
 
     db = get_db()
+    _ensure_stock_postgresql_sequences(db)
 
     try:
         product_id = int(product_id)
@@ -339,7 +392,7 @@ def adjust_stock(product_id, variant_id, warehouse_id, qty, note="Stock Adjustme
 
         if qty > 0:
             _ensure_legacy_stock_batch_shadow(db, product_id, variant_id, warehouse_id)
-            db.execute("""
+            batch_cursor = db.execute("""
             INSERT INTO stock_batches(
                 product_id, variant_id, warehouse_id,
                 qty, remaining_qty, cost, created_at
@@ -347,7 +400,12 @@ def adjust_stock(product_id, variant_id, warehouse_id, qty, note="Stock Adjustme
             VALUES (?,?,?,?,?,?, datetime('now'))
             """,(product_id, variant_id, warehouse_id, qty, qty, 0))
 
-            batch_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+            batch_id = getattr(batch_cursor, "lastrowid", None)
+            if not batch_id:
+                batch_id_row = db.execute("SELECT last_insert_rowid()").fetchone()
+                batch_id = batch_id_row[0] if batch_id_row else None
+            if not batch_id:
+                raise RuntimeError("ID batch stok adjustment gagal dibuat.")
 
             db.execute("""
             INSERT INTO stock_movements(
