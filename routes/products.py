@@ -486,6 +486,33 @@ def _products_error_response(message, status_code=400, **payload):
     return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
 
 
+def _format_delete_product_error(exc, *, delete_scope="produk"):
+    safe_message = str(exc or "").strip()
+    normalized = safe_message.casefold()
+
+    if _is_sqlite_lock_error(exc):
+        return f"Database sedang sibuk. Coba ulang hapus {delete_scope} beberapa detik lagi."
+
+    if _is_foreign_key_constraint_error(exc):
+        if delete_scope == "semua produk":
+            return (
+                "Gagal menghapus semua produk karena masih ada relasi data lama yang menahan master produk. "
+                "Deploy patch terbaru ke VPS lalu coba lagi."
+            )
+        return (
+            f"Gagal menghapus {delete_scope} karena masih ada relasi data lama yang menahan master produk. "
+            "Cek histori stok/POS/CRM yang masih terkait lalu coba lagi."
+        )
+
+    if "produk tidak ditemukan" in normalized or "sudah tidak tersedia" in normalized:
+        return safe_message
+
+    if safe_message:
+        return safe_message
+
+    return f"Gagal menghapus {delete_scope}."
+
+
 def _format_add_product_error(exc):
     safe_message = str(exc or "").strip()
     normalized = safe_message.casefold()
@@ -1666,6 +1693,13 @@ def bulk_delete():
             "deleted_count": deleted_count,
         })
 
+    except sqlite3.IntegrityError as e:
+        _rollback_product_delete_transaction(db)
+        current_app.logger.exception("BULK DELETE INTEGRITY ERROR")
+        return _products_json_error(
+            _format_delete_product_error(e, delete_scope="produk"),
+            409,
+        )
     except sqlite3.OperationalError as e:
         _rollback_product_delete_transaction(db)
         if _is_sqlite_lock_error(e):
@@ -1673,12 +1707,12 @@ def bulk_delete():
                 "Database sedang sibuk. Coba ulang hapus produk beberapa detik lagi.",
                 503,
             )
-        print("BULK DELETE ERROR:", e)
-        return _products_json_error("Gagal menghapus produk.", 500)
+        current_app.logger.exception("BULK DELETE ERROR")
+        return _products_json_error(_format_delete_product_error(e, delete_scope="produk"), 500)
     except Exception as e:
         _rollback_product_delete_transaction(db)
-        print("BULK DELETE ERROR:", e)
-        return _products_json_error("Gagal menghapus produk.", 500)
+        current_app.logger.exception("BULK DELETE ERROR")
+        return _products_json_error(_format_delete_product_error(e, delete_scope="produk"), 500)
 
 
 @products_bp.route("/delete-all", methods=["POST"])
@@ -2181,22 +2215,43 @@ def delete_product(id):
                 f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin.",
                 "success",
             )
-            return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
+            return _products_success_response(
+                f"{len(approval_ids)} permintaan hapus produk dikirim dan menunggu approval leader / super admin.",
+                approval_status="pending",
+                approval_ids=approval_ids,
+            )
 
         db.execute("BEGIN")
         deleted_count = _delete_product_bundle(db, [id])
         db.commit()
         if deleted_count:
-            flash("Produk berhasil dihapus", "success")
-        else:
-            flash("Produk tidak ditemukan atau sudah terhapus", "error")
-
+            return _products_success_response(
+                "Produk berhasil dihapus",
+                deleted_count=deleted_count,
+            )
+        return _products_error_response("Produk tidak ditemukan atau sudah terhapus", 404)
+    except sqlite3.IntegrityError as e:
+        db.rollback()
+        current_app.logger.exception("DELETE PRODUCT INTEGRITY ERROR")
+        return _products_error_response(
+            _format_delete_product_error(e, delete_scope="produk ini"),
+            409,
+        )
+    except sqlite3.OperationalError as e:
+        db.rollback()
+        current_app.logger.exception("DELETE PRODUCT ERROR")
+        status_code = 503 if _is_sqlite_lock_error(e) else 500
+        return _products_error_response(
+            _format_delete_product_error(e, delete_scope="produk ini"),
+            status_code,
+        )
     except Exception as e:
         db.rollback()
-        print("DELETE ERROR:", e)
-        flash("Gagal menghapus produk", "error")
-
-    return redirect(f"{PRODUCT_STUDIO_REDIRECT_PATH}?workspace=products")
+        current_app.logger.exception("DELETE PRODUCT ERROR")
+        return _products_error_response(
+            _format_delete_product_error(e, delete_scope="produk ini"),
+            500,
+        )
 
 
 @products_bp.route("/import/progress/<job_id>")

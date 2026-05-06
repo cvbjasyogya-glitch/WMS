@@ -3018,19 +3018,73 @@ function bulkDelete() {
 
     fetch("/products/bulk-delete", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
         body: JSON.stringify({ ids })
     })
-    .then((res) => res.json())
-    .then(async (data) => {
-        if (data.status === "success") {
+    .then(async (res) => {
+        const rawText = await res.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        if (res.ok && data.status === "success") {
             notifyProductStudioMessage(data.message || "Produk terpilih berhasil dihapus.");
             await refreshProductsView();
             return;
         }
-        alert(data.message || "Gagal menghapus produk.");
+        const fallbackMessage = rawText
+            ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
+            : "";
+        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
     })
     .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function deleteSingleProduct(productId) {
+    const normalizedId = Number(productId || 0);
+    if (!normalizedId) {
+        alert("Produk yang ingin dihapus tidak valid.");
+        return;
+    }
+
+    if (!confirm("Hapus produk ini?")) {
+        return;
+    }
+
+    fetch(`/products/delete/${normalizedId}`, {
+        method: "POST",
+        headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+        }
+    })
+    .then(async (res) => {
+        const rawText = await res.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        if (res.ok && data.status === "success") {
+            notifyProductStudioMessage(data.message || "Produk berhasil dihapus.");
+            await refreshProductsView();
+            return;
+        }
+
+        const fallbackMessage = rawText
+            ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
+            : "";
+        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus produk."));
 }
 
 function deleteAllProducts() {

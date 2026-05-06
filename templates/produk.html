@@ -6,13 +6,14 @@
 {% block page_subtitle %}Kelola SKU, kategori, stok awal, dan import massal produk dengan workflow yang tetap cepat saat volume data membesar.{% endblock %}
 
 {% block page_actions %}
-{% if can('manage_product_master') %}
+{% if (session.get('role') or '')|lower in ['owner', 'super_admin'] %}
 <button type="button" onclick="toggleForm()">Tambah Produk</button>
 {% endif %}
 {% endblock %}
 
 {% block content %}
 {% set can_view_product_cost = (session.get('role') or '')|lower in ['owner', 'super_admin'] %}
+{% set can_full_manage_product_master = (session.get('role') or '')|lower in ['owner', 'super_admin'] %}
 <div class="wms-page-stack">
 <div class="meta-grid products-meta-grid" id="productsMetaGrid">
     <div class="meta-card">
@@ -62,7 +63,7 @@
     {% endif %}
     <input type="text" name="search" value="{{ search }}" placeholder="Cari SKU, nama, atau kategori">
     <button type="submit">Terapkan Filter</button>
-    {% if can('manage_product_master') %}
+    {% if can_full_manage_product_master %}
     <button type="button" class="ghost-button" onclick="bulkDelete()">Hapus Terpilih</button>
     <button type="button" class="ghost-button danger" onclick="deleteAllProducts()">Hapus Semua Produk</button>
     {% endif %}
@@ -71,11 +72,11 @@
 {% if is_scoped_user %}
 <small class="helper-text">Filter gudang mengikuti gudang akun Anda agar data tetap konsisten.</small>
 {% endif %}
-{% if not can('manage_product_master') %}
-<small class="helper-text">Akun ini hanya bisa melihat master produk. Perubahan data, import, dan hapus produk hanya tersedia untuk admin, leader, owner, atau super admin.</small>
+{% if not can_full_manage_product_master %}
+<small class="helper-text">Akun ini hanya bisa melihat master produk. Tambah, import, edit, dan hapus produk hanya tersedia untuk owner atau super admin.</small>
 {% endif %}
 
-{% if can('manage_product_master') %}
+{% if can_full_manage_product_master %}
 <div class="import-box">
     <div class="section-title">
         <div>
@@ -114,7 +115,7 @@
 </div>
 {% endif %}
 
-{% if can('manage_product_master') %}
+{% if can_full_manage_product_master %}
 <div id="formBox" class="form-box products-manual-box" style="display:none;" data-can-view-product-cost="{% if can_view_product_cost %}1{% else %}0{% endif %}">
     <div class="section-title">
         <div>
@@ -204,7 +205,7 @@
     <table>
         <thead>
             <tr>
-                {% if can('manage_product_master') %}
+                {% if can_full_manage_product_master %}
                 <th><input type="checkbox" id="checkAll"></th>
                 {% endif %}
                 <th>SKU</th>
@@ -212,7 +213,7 @@
                 <th>Kategori</th>
                 <th>Qty</th>
                 <th>Aging</th>
-                {% if can('manage_product_master') %}
+                {% if can_full_manage_product_master %}
                 <th>Aksi</th>
                 {% endif %}
             </tr>
@@ -220,7 +221,7 @@
         <tbody>
             {% for p in data %}
             <tr>
-                {% if can('manage_product_master') %}
+                {% if can_full_manage_product_master %}
                 <td><input type="checkbox" class="row-check" value="{{ p.id }}"></td>
                 {% endif %}
                 <td class="mono">{{ p.sku }}</td>
@@ -243,11 +244,9 @@
                     <span class="badge">{{ age }} hari</span>
                     {% endif %}
                 </td>
-                {% if can('manage_product_master') %}
+                {% if can_full_manage_product_master %}
                 <td>
-                    <form method="POST" action="/products/delete/{{ p.id }}" onsubmit="return confirm('Hapus produk ini?')">
-                        <button type="submit" class="ghost-button">Hapus</button>
-                    </form>
+                    <button type="button" class="ghost-button danger" onclick="deleteSingleProduct({{ p.id }})">Hapus</button>
                 </td>
                 {% endif %}
             </tr>
@@ -823,19 +822,73 @@ function bulkDelete() {
 
     fetch("/products/bulk-delete", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
         body: JSON.stringify({ ids })
     })
-    .then((res) => res.json())
-    .then(async (data) => {
-        if (data.status === "success") {
+    .then(async (res) => {
+        const rawText = await res.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        if (res.ok && data.status === "success") {
             notifyUser(data.message || "Produk terpilih berhasil dihapus.");
             await refreshProductsView();
             return;
         }
-        alert(data.message || "Gagal menghapus produk.");
+        const fallbackMessage = rawText
+            ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
+            : "";
+        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
     })
     .catch(() => alert("Terjadi error saat menghapus data."));
+}
+
+function deleteSingleProduct(productId) {
+    const normalizedId = Number(productId || 0);
+    if (!normalizedId) {
+        alert("Produk yang ingin dihapus tidak valid.");
+        return;
+    }
+
+    if (!confirm("Hapus produk ini?")) {
+        return;
+    }
+
+    fetch(`/products/delete/${normalizedId}`, {
+        method: "POST",
+        headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+        }
+    })
+    .then(async (res) => {
+        const rawText = await res.text();
+        let data = {};
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (error) {
+            data = {};
+        }
+
+        if (res.ok && data.status === "success") {
+            notifyUser(data.message || "Produk berhasil dihapus.");
+            await refreshProductsView();
+            return;
+        }
+
+        const fallbackMessage = rawText
+            ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
+            : "";
+        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
+    })
+    .catch(() => alert("Terjadi error saat menghapus produk."));
 }
 
 function deleteAllProducts() {

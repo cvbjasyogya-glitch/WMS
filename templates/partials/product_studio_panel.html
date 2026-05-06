@@ -274,9 +274,7 @@
                     </td>
                     {% if can_full_manage_product_master %}
                     <td>
-                        <form method="POST" action="/products/delete/{{ p.id }}" onsubmit="return confirm('Hapus produk ini?')">
-                            <button type="submit" class="ghost-button">Hapus</button>
-                        </form>
+                        <button type="button" class="ghost-button danger" onclick="deleteSingleProduct({{ p.id }})">Hapus</button>
                     </td>
                     {% endif %}
                 </tr>
