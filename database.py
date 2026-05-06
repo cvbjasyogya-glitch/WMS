@@ -46,12 +46,15 @@ class CompatRow(Mapping):
 
 
 class CompatCursor:
-    def __init__(self, connection, base_cursor=None, rows=None, columns=None, lastrowid=None):
+    def __init__(self, connection, base_cursor=None, rows=None, columns=None, lastrowid=None, rowcount=None):
         self._connection = connection
         self._base_cursor = base_cursor
         self._rows = rows
         self._columns = list(columns or [])
         self.lastrowid = lastrowid
+        if rowcount is None and base_cursor is not None:
+            rowcount = getattr(base_cursor, "rowcount", None)
+        self.rowcount = rowcount
 
     def _build_rows(self):
         if self._rows is not None:

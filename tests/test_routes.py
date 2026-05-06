@@ -28,7 +28,7 @@ from services.event_notification_policy import (
 )
 from app import create_app, repair_restored_data, _derive_shared_session_cookie_domain
 from config import Config
-from database import get_db, _replace_qmark_placeholders, _translate_sqlite_query_to_postgres, _replace_like_operators
+from database import CompatCursor, get_db, _replace_qmark_placeholders, _translate_sqlite_query_to_postgres, _replace_like_operators
 from routes.pos import (
     _build_pos_sale_log_summary,
     _fetch_pos_product_snapshot_map,
@@ -272,6 +272,17 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("ON CONFLICT(user_id, template_key)", translated)
         self.assertIn("template_name=excluded.template_name", translated)
         self.assertIn("options_json=excluded.options_json", translated)
+
+    def test_postgres_compat_cursor_exposes_base_cursor_rowcount(self):
+        class FakeCursor:
+            rowcount = 3
+            description = []
+
+            def fetchall(self):
+                return []
+
+        compat_cursor = CompatCursor(None, base_cursor=FakeCursor())
+        self.assertEqual(compat_cursor.rowcount, 3)
 
     def test_database_translation_converts_like_to_ilike(self):
         translated = _replace_like_operators(
@@ -30455,6 +30466,90 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["price_cost"], 175000)
+
+    def test_owner_can_delete_product_via_ajax_route_after_manual_add(self):
+        self.create_user("owner_delete_ajax", "pass1234", "owner")
+        self.login("owner_delete_ajax", "pass1234")
+
+        add_response = self.client.post(
+            "/products/add",
+            data={
+                "sku": "OWN-DEL-AJAX-001",
+                "name": "Produk Delete Ajax",
+                "category_name": "Testing",
+                "warehouse_id": "1",
+                "unit_label": "pcs",
+                "variant_mode": "non_variant",
+                "variant_rows_json": json.dumps(
+                    [
+                        {
+                            "variant": "default",
+                            "color": "",
+                            "price_retail": "150000",
+                            "price_discount": "0",
+                            "price_nett": "150000",
+                            "price_cost": "100000",
+                            "qty": "2",
+                            "variant_code": "",
+                            "gtin": "",
+                        }
+                    ]
+                ),
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(add_response.status_code, 200)
+        product_id = int(add_response.get_json()["product_id"])
+
+        delete_response = self.client.post(
+            f"/products/delete/{product_id}",
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(delete_response.status_code, 200)
+        payload = delete_response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["deleted_count"], 1)
+
+        with self.app.app_context():
+            db = get_db()
+            remaining = db.execute(
+                "SELECT COUNT(*) FROM products WHERE id=?",
+                (product_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(remaining, 0)
+
+    def test_delete_product_returns_fk_hint_when_delete_bundle_is_blocked(self):
+        self.create_user("owner_delete_fk_hint", "pass1234", "owner")
+        self.login("owner_delete_fk_hint", "pass1234")
+        _, product_id, _ = self.create_product(sku="OWN-DEL-FK-001", variants="default")
+
+        with patch(
+            "routes.products._delete_product_bundle",
+            side_effect=sqlite3.IntegrityError("FOREIGN KEY constraint failed"),
+        ):
+            response = self.client.post(
+                f"/products/delete/{product_id}",
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("relasi data lama", payload["message"])
 
     def test_add_product_returns_stock_schema_hint_when_initial_stock_insert_fails(self):
         self.create_user("owner_product_stock_fail", "pass1234", "owner")
