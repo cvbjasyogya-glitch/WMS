@@ -623,6 +623,16 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     opacity: 0.58;
 }
 
+.career-assessment-form.is-submitting .career-question-option {
+    pointer-events: none;
+    opacity: 0.72;
+}
+
+.career-assessment-actions button.is-submitting {
+    cursor: wait;
+    opacity: 0.86;
+}
+
 .career-assessment-footnotes {
     display: grid;
     gap: 6px;
@@ -1202,6 +1212,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     if (!form || !violationInput || !primaryButton || !questionCards.length) return;
 
     let submitted = false;
+    let submitInProgress = false;
     let currentStepIndex = 0;
     let violationCount = Number(violationInput.value || 0);
     let lastViolationAt = 0;
@@ -1230,6 +1241,24 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
 
     const getAnsweredCount = () => {
         return questionCards.filter((card) => card.querySelector('input[type="radio"]:checked')).length;
+    };
+
+    const setSubmittingState = (message = "") => {
+        submitted = true;
+        submitInProgress = true;
+        form.classList.add("is-submitting");
+        primaryButton.disabled = true;
+        primaryButton.classList.add("is-submitting");
+        primaryButton.textContent = message || (
+            isLastAssessmentSection
+                ? "Menyimpan hasil tes..."
+                : "Menyimpan sesi..."
+        );
+        if (timerNote) {
+            timerNote.textContent = isLastAssessmentSection
+                ? "Hasil tes sedang disimpan. Mohon tunggu sampai halaman selesai terbuka."
+                : "Jawaban sesi ini sedang disimpan. Mohon tunggu sebentar.";
+        }
     };
 
     const syncViolation = () => {
@@ -1277,6 +1306,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     };
 
     const syncPrimaryButton = () => {
+        if (submitInProgress) return;
         const activeCard = questionCards[currentStepIndex];
         const selectedInput = activeCard?.querySelector('input[type="radio"]:checked');
         primaryButton.disabled = !selectedInput;
@@ -1313,11 +1343,12 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     };
 
     const goNext = () => {
+        if (submitInProgress) return;
         const activeCard = questionCards[currentStepIndex];
         const selectedInput = activeCard?.querySelector('input[type="radio"]:checked');
         if (!selectedInput) return;
         if (currentStepIndex >= questionCards.length - 1) {
-            submitted = true;
+            setSubmittingState();
             form.requestSubmit();
             return;
         }
@@ -1331,10 +1362,7 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
                 const remaining = Math.max(0, Math.floor((deadlineDate.getTime() - Date.now()) / 1000));
                 if (timerValue) timerValue.textContent = formatRemaining(remaining);
                 if (remaining <= 0 && !submitted) {
-                    submitted = true;
-                    if (timerNote) {
-                        timerNote.textContent = "Waktu sesi habis. Jawaban yang sudah dipilih sedang kami simpan otomatis.";
-                    }
+                    setSubmittingState("Menyimpan otomatis...");
                     form.requestSubmit();
                     return;
                 }
@@ -1354,7 +1382,9 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     });
 
     form.addEventListener("submit", () => {
-        submitted = true;
+        if (!submitInProgress) {
+            setSubmittingState();
+        }
     });
 
     document.addEventListener("visibilitychange", () => {

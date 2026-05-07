@@ -5,7 +5,7 @@ import re
 import secrets
 import hashlib
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 from database import is_postgresql_backend
 
 
+CAREER_SERVICE_DISPLAY_TIMEZONE = timezone(timedelta(hours=7))
 CAREER_OPENING_STATUSES = {"draft", "published", "closed", "archived"}
 CAREER_EMPLOYMENT_TYPES = {
     "full_time",
@@ -1036,7 +1037,10 @@ def issue_career_public_account_verification(db, account_id, ttl_hours=24):
     safe_ttl = max(int(ttl_hours or 24), 1)
     token = secrets.token_urlsafe(32)
     token_hash = hash_career_public_verification_token(token)
-    expires_at = (datetime.now() + timedelta(hours=safe_ttl)).strftime("%Y-%m-%d %H:%M:%S")
+    expires_at = (
+        datetime.now(CAREER_SERVICE_DISPLAY_TIMEZONE).replace(tzinfo=None)
+        + timedelta(hours=safe_ttl)
+    ).strftime("%Y-%m-%d %H:%M:%S")
     db.execute(
         """
         UPDATE career_public_accounts

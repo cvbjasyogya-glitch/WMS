@@ -2659,11 +2659,15 @@
                         </div>
                         <div>
                             <label>Status Tes</label>
+                            {% set candidate_assessment_status = candidate.assessment_status or 'pending' %}
                             <select name="assessment_status">
                                 {% for assessment_status in ['pending','started','submitted','reviewed'] %}
-                                <option value="{{ assessment_status }}" {% if (candidate.assessment_status or 'pending') == assessment_status %}selected{% endif %}>{{ assessment_status|replace('_', ' ')|title }}</option>
+                                <option value="{{ assessment_status }}" {% if candidate_assessment_status == assessment_status %}selected{% endif %}>{{ assessment_status|replace('_', ' ')|title }}</option>
                                 {% endfor %}
                             </select>
+                            {% if candidate.assessment_submitted_at_label and candidate_assessment_status in ['submitted','reviewed'] %}
+                            <span class="helper-text">Hasil tes diterima HR: {{ candidate.assessment_submitted_at_label }} WIB.</span>
+                            {% endif %}
                         </div>
                         <div>
                             <label>Skor Otomatis</label>

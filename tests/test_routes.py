@@ -14425,7 +14425,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "source": "Halaman Karir",
                     "phone": candidate["phone"],
                     "email": candidate["email"],
-                    "assessment_expires_at": "2026-04-30T16:30",
+                    "assessment_expires_at": "2099-04-30T16:30",
                     "assessment_status": "pending",
                     **self.build_recruitment_assessment_duration_payload(15),
                 },
@@ -14444,7 +14444,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (candidate["id"],),
             ).fetchone()
         self.assertRegex(candidate_after_approval["assessment_code"], r"^\d{5}$")
-        self.assertEqual(candidate_after_approval["assessment_expires_at"], "2026-04-30 16:30:00")
+        self.assertEqual(candidate_after_approval["assessment_expires_at"], "2099-04-30 16:30:00")
         self.assertEqual(int(candidate_after_approval["assessment_duration_minutes"]), 45)
         mocked_send.assert_called_once()
         approval_email_body = mocked_send.call_args.args[2]
@@ -14452,6 +14452,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("/karir/tes", approval_email_body)
         self.assertNotIn(f"/karir/tes?code={candidate_after_approval['assessment_code']}", approval_email_body)
         self.assertIn("masukkan kode 5 digit", approval_email_body.lower())
+        self.assertIn("Tes Kemampuan Dasar 15 menit - Tes Potensi Akademik 15 menit - Studi Kasus 15 menit", approval_email_body)
+        self.assertNotIn("Â", approval_email_body)
 
         test_gate_page = self.client.get("/karir/tes")
         self.assertEqual(test_gate_page.status_code, 200)
@@ -14486,6 +14488,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("2 + 2 =", started_html)
         self.assertIn('id="careerAssessmentFirstQuestion"', started_html)
         self.assertIn('id="careerAssessmentSubmitSection"', started_html)
+        self.assertIn("Menyimpan hasil tes...", started_html)
+        self.assertIn("is-submitting", started_html)
 
     def test_public_career_assessment_renders_five_point_scale_questions(self):
         self.seed_recruitment_assessment_suite(warehouse_id=1)
@@ -14555,6 +14559,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
     def test_public_career_assessment_completes_three_sections_with_hidden_score_and_finish_popup(self):
         self.seed_recruitment_assessment_suite(warehouse_id=1)
+        self.create_user("assessment_notify_hr", "pass1234", "hr")
+        hr_user_id = self.get_user_id("assessment_notify_hr")
 
         with self.app.app_context():
             db = get_db()
@@ -14668,16 +14674,125 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             candidate_after = db.execute(
                 """
-                SELECT assessment_status, assessment_auto_score, assessment_final_score
+                SELECT id, assessment_status, assessment_auto_score, assessment_final_score
                 FROM recruitment_candidates
                 WHERE assessment_code=?
                 """,
                 ("22222",),
             ).fetchone()
+            web_notification = db.execute(
+                """
+                SELECT title, message, category, link_url
+                FROM web_notifications
+                WHERE user_id=? AND source_type=? AND source_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (hr_user_id, "recruitment_assessment", str(candidate_after["id"])),
+            ).fetchone()
 
         self.assertEqual(candidate_after["assessment_status"], "submitted")
         self.assertGreater(float(candidate_after["assessment_auto_score"]), 0)
         self.assertGreater(float(candidate_after["assessment_final_score"]), 0)
+        self.assertIsNotNone(web_notification)
+        self.assertEqual(web_notification["category"], "hris")
+        self.assertEqual(web_notification["title"], "Hasil tes kandidat masuk")
+        self.assertIn("Kandidat Tiga Sesi selesai mengirim assessment", web_notification["message"])
+        self.assertIn("/hris/recruitment?status=pipeline&q=Kandidat%20Tiga%20Sesi", web_notification["link_url"])
+
+    def test_career_assessment_submit_still_finishes_when_hr_notification_fails(self):
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
+        self.create_user("assessment_notify_fail_hr", "pass1234", "hr")
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            question_rows = db.execute(
+                """
+                SELECT id, test_type
+                FROM recruitment_assessment_questions
+                WHERE warehouse_id=?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (1,),
+            ).fetchall()
+            question_map = {row["test_type"]: row["id"] for row in question_rows}
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, assessment_duration_minutes,
+                    assessment_section_durations_json, application_channel, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Kandidat Notif Gagal",
+                    1,
+                    "Staff Notif Gagal",
+                    "Warehouse",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "22334",
+                    "pending",
+                    45,
+                    json.dumps({"basic": 15, "academic": 15, "case_study": 15}),
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        self.client.get("/karir/tes?code=22334&start=1")
+        first_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": "22334",
+                f"answer_{question_map['basic']}": "b",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(first_submit.status_code, 302)
+
+        second_submit = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": "22334",
+                f"answer_{question_map['academic']}": "b",
+                "violation_count": "0",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(second_submit.status_code, 302)
+
+        with patch("routes.career.create_web_notification", side_effect=RuntimeError("notification down")):
+            third_submit = self.client.post(
+                "/karir/tes/submit",
+                data={
+                    "assessment_code": "22334",
+                    f"answer_{question_map['case_study']}": "c",
+                    "violation_count": "0",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(third_submit.status_code, 302)
+        self.assertTrue(third_submit.headers["Location"].endswith("/karir/tes?code=22334&completed=1"))
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_status, assessment_submitted_at, assessment_auto_score
+                FROM recruitment_candidates
+                WHERE assessment_code=?
+                """,
+                ("22334",),
+            ).fetchone()
+
+        self.assertEqual(candidate_after["assessment_status"], "submitted")
+        self.assertTrue(candidate_after["assessment_submitted_at"])
+        self.assertGreater(float(candidate_after["assessment_auto_score"]), 0)
 
     def test_hr_recruitment_page_shows_explicit_approve_and_reject_buttons(self):
         self.login_hr_user()
@@ -14712,6 +14827,64 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("data-recruitment-update-form", html)
         self.assertIn("data-recruitment-quick-action", html)
         self.assertIn("recruitment-quick-actions", html)
+
+    def test_hr_recruitment_add_rejects_duplicate_manual_assessment_code(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status,
+                    source, assessment_code, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Kode Lama",
+                    1,
+                    "Staff Warehouse",
+                    "Warehouse",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "77777",
+                    "manual_hr",
+                ),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/hris/recruitment/add",
+            data={
+                "candidate_name": "Kode Duplikat Baru",
+                "position_title": "Staff Warehouse",
+                "warehouse_id": "1",
+                "department": "Warehouse",
+                "stage": "screening",
+                "status": "active",
+                "source": "Manual HR",
+                "assessment_code": "77777",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Kode tes sudah dipakai kandidat lain.", html)
+
+        with self.app.app_context():
+            db = get_db()
+            duplicate_count = db.execute(
+                "SELECT COUNT(*) AS total FROM recruitment_candidates WHERE assessment_code=?",
+                ("77777",),
+            ).fetchone()["total"]
+            new_count = db.execute(
+                "SELECT COUNT(*) AS total FROM recruitment_candidates WHERE candidate_name=?",
+                ("Kode Duplikat Baru",),
+            ).fetchone()["total"]
+        self.assertEqual(duplicate_count, 1)
+        self.assertEqual(new_count, 0)
 
     def test_hr_recruitment_page_warns_when_filters_hide_new_portal_applicants(self):
         self.login_hr_user()
@@ -14800,6 +14973,66 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(rejected_response.status_code, 200)
         rejected_html = rejected_response.get_data(as_text=True)
         self.assertIn("Pipeline Rejected Kandidat", rejected_html)
+
+    def test_hr_recruitment_prioritizes_recently_submitted_assessment_and_shows_received_time(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.executemany(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status,
+                    source, assessment_code, assessment_status, assessment_auto_score,
+                    assessment_final_score, assessment_submitted_at, application_channel,
+                    created_at, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    (
+                        "Fresh Applicant",
+                        1,
+                        "Staff Warehouse",
+                        "Warehouse",
+                        "applied",
+                        "active",
+                        "Halaman Karir",
+                        "70111",
+                        "pending",
+                        None,
+                        None,
+                        None,
+                        "public_portal",
+                        "2099-01-02 09:00:00",
+                        "2099-01-02 09:00:00",
+                    ),
+                    (
+                        "Submitted Old Applicant",
+                        1,
+                        "Staff Warehouse",
+                        "Warehouse",
+                        "screening",
+                        "active",
+                        "Halaman Karir",
+                        "70222",
+                        "submitted",
+                        88,
+                        88,
+                        "2099-01-03 12:34:00",
+                        "public_portal",
+                        "2099-01-01 09:00:00",
+                        "2099-01-03 12:34:00",
+                    ),
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertLess(html.find("Submitted Old Applicant"), html.find("Fresh Applicant"))
+        self.assertIn("Hasil tes diterima HR: 03/01/2099 12:34 WIB.", html)
 
     def test_hr_recruitment_search_matches_candidate_email_and_phone(self):
         self.login_hr_user()
@@ -15498,6 +15731,77 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Fokus browser berpindah dari halaman tes.", html)
         self.assertIn("Tes Kemampuan Dasar", html)
         self.assertIn("Tes Potensi Akademik", html)
+
+    def test_career_assessment_submit_preserves_violation_detail_when_async_log_is_missing(self):
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            question = db.execute(
+                """
+                SELECT id
+                FROM recruitment_assessment_questions
+                WHERE warehouse_id=? AND test_type=?
+                ORDER BY sort_order ASC, id ASC
+                LIMIT 1
+                """,
+                (1, "basic"),
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    assessment_code, assessment_status, assessment_duration_minutes,
+                    assessment_section_durations_json, application_channel, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Fallback Violation Log",
+                    1,
+                    "Staff Karir Violation",
+                    "HR",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "65432",
+                    "pending",
+                    45,
+                    json.dumps({"basic": 15, "academic": 15, "case_study": 15}),
+                    "public_portal",
+                ),
+            )
+            db.commit()
+        self.assertIsNotNone(question)
+
+        submit_response = self.client.post(
+            "/karir/tes/submit",
+            data={
+                "assessment_code": "65432",
+                f"answer_{question['id']}": "b",
+                "violation_count": "2",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertTrue(submit_response.headers["Location"].endswith("/karir/tes?code=65432"))
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_after = db.execute(
+                """
+                SELECT assessment_violation_count, assessment_violation_log_json
+                FROM recruitment_candidates
+                WHERE assessment_code=?
+                """,
+                ("65432",),
+            ).fetchone()
+
+        self.assertEqual(int(candidate_after["assessment_violation_count"]), 2)
+        violation_log = json.loads(candidate_after["assessment_violation_log_json"] or "[]")
+        self.assertEqual([item["violation_count"] for item in violation_log], [1, 2])
+        self.assertEqual({item["event_type"] for item in violation_log}, {"submit_sync"})
+        self.assertEqual({item["section_key"] for item in violation_log}, {"basic"})
 
     def test_hr_can_manage_recruitment_assessment_questions_and_manual_candidate_score(self):
         self.login_hr_user()

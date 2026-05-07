@@ -3243,7 +3243,7 @@ def _format_recruitment_assessment_duration_label(candidate):
                 f"{CAREER_ASSESSMENT_TEST_LABELS[section_key]} {minutes_value} menit"
             )
     if duration_items:
-        return " · ".join(duration_items)
+        return " - ".join(duration_items)
     return "Belum diatur lengkap"
 
 
@@ -7192,7 +7192,13 @@ def _fetch_recruitment_candidates(db):
         query += " AND r.status=?"
         params.append(status)
 
-    query += " ORDER BY r.created_at DESC, r.candidate_name COLLATE NOCASE ASC, r.id DESC"
+    query += """
+        ORDER BY
+            COALESCE(r.assessment_submitted_at, r.updated_at, r.created_at) DESC,
+            r.created_at DESC,
+            r.candidate_name COLLATE NOCASE ASC,
+            r.id DESC
+    """
 
     warehouse_name_map = _build_warehouse_name_map(db)
     recruitment_candidates = [
@@ -7211,6 +7217,11 @@ def _fetch_recruitment_candidates(db):
             _format_hris_datetime_display(candidate.get("assessment_expires_at"), include_date=True)
             if candidate.get("assessment_expires_at")
             else "Tanpa batas"
+        )
+        candidate["assessment_submitted_at_label"] = (
+            _format_hris_datetime_display(candidate.get("assessment_submitted_at"), include_date=True)
+            if candidate.get("assessment_submitted_at")
+            else ""
         )
         duration_map = _get_recruitment_assessment_duration_map(candidate)
         candidate["assessment_section_durations"] = duration_map
@@ -9963,6 +9974,15 @@ def add_recruitment():
     if vacancy_id and _get_career_opening_by_id(db, vacancy_id) is None:
         flash("Lowongan yang dipilih tidak ditemukan untuk scope akun ini.", "error")
         return redirect("/hris/recruitment")
+
+    if assessment_code:
+        conflicting_assessment_code = db.execute(
+            "SELECT id FROM recruitment_candidates WHERE assessment_code=? LIMIT 1",
+            (assessment_code,),
+        ).fetchone()
+        if conflicting_assessment_code:
+            flash("Kode tes sudah dipakai kandidat lain.", "error")
+            return redirect("/hris/recruitment")
 
     handled_by, handled_at = _build_recruitment_handling(status)
 

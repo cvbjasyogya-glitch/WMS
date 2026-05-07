@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -63,7 +63,7 @@ from services.career_service import (
     upsert_career_public_account,
     upsert_career_public_profile_section,
 )
-from services.notification_service import send_email
+from services.notification_service import create_web_notification, send_email
 
 
 career_bp = Blueprint("career", __name__)
@@ -82,6 +82,9 @@ CAREER_ASSESSMENT_VIOLATION_EVENT_META = {
     },
     "page_leave": {
         "label": "Halaman tes ditutup atau ditinggalkan saat sesi masih aktif.",
+    },
+    "submit_sync": {
+        "label": "Pelanggaran assessment tersimpan saat jawaban dikirim.",
     },
     "system_reset": {
         "label": "Sesi tes direset otomatis setelah batas pelanggaran tercapai.",
@@ -459,7 +462,7 @@ def _set_career_public_session(account):
     session["career_public_account_id"] = safe_account.get("id")
     session["career_public_account_email"] = safe_account.get("email")
     session["career_public_account_name"] = safe_account.get("full_name")
-    session["career_public_signed_in_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    session["career_public_signed_in_at"] = _current_career_timestamp()
 
 
 def _get_current_career_public_account(db=None):
@@ -1048,7 +1051,7 @@ def _build_candidate_profile_snapshot(account, profile_sections):
         "personal": dict((safe_sections.get("personal") or {}).get("payload") or {}),
         "additional": additional_payload,
         "sections": safe_sections,
-        "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "captured_at": _current_career_timestamp(),
     }
 
 
@@ -1380,6 +1383,64 @@ def _get_hr_sms_recipient_users(db):
             }
         )
     return recipients
+
+
+def _notify_hr_assessment_submitted(db, candidate):
+    safe_candidate = dict(candidate or {})
+    candidate_id = int(safe_candidate.get("id") or 0)
+    if candidate_id <= 0:
+        return
+
+    candidate_name = str(safe_candidate.get("candidate_name") or "Kandidat").strip() or "Kandidat"
+    position_title = (
+        str(safe_candidate.get("position_title") or safe_candidate.get("vacancy_title") or "posisi recruitment")
+        .strip()
+        or "posisi recruitment"
+    )
+    score = safe_candidate.get("assessment_final_score")
+    if score in (None, ""):
+        score = safe_candidate.get("assessment_auto_score")
+    try:
+        score_label = f"{float(score or 0):.2f}%"
+    except (TypeError, ValueError):
+        score_label = "-"
+
+    submitted_at = str(safe_candidate.get("assessment_submitted_at") or _current_career_timestamp()).strip()
+    link_url = f"/hris/recruitment?status=pipeline&q={quote(candidate_name)}"
+    title = "Hasil tes kandidat masuk"
+    message = (
+        f"{candidate_name} selesai mengirim assessment untuk {position_title}. "
+        f"Skor otomatis/final: {score_label}. Diterima {submitted_at} WIB."
+    )
+    dedupe_key = (
+        f"career-assessment-submitted:{candidate_id}:"
+        f"{safe_candidate.get('assessment_code') or ''}:{submitted_at}"
+    )
+    for user in _get_hr_sms_recipient_users(db):
+        try:
+            create_web_notification(
+                user.get("id"),
+                title,
+                message,
+                category="hris",
+                link_url=link_url,
+                source_type="recruitment_assessment",
+                source_id=candidate_id,
+                dedupe_key=dedupe_key,
+            )
+        except Exception:
+            continue
+
+
+def _commit_hr_assessment_submitted_notification(db, candidate):
+    try:
+        _notify_hr_assessment_submitted(db, candidate)
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _sync_candidate_intake_to_hr_sms_workspaces(db, hr_storage_folder):
@@ -1879,8 +1940,12 @@ def _coerce_non_negative_int(value, default=0):
         return max(int(default or 0), 0)
 
 
+def _current_career_datetime():
+    return datetime.now(CAREER_DISPLAY_TIMEZONE).replace(tzinfo=None)
+
+
 def _current_career_timestamp():
-    return datetime.now(CAREER_DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    return _current_career_datetime().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _decode_assessment_violation_log(raw_value):
@@ -1945,6 +2010,42 @@ def _append_assessment_violation_event(existing_events, event):
     if isinstance(event, dict) and str(event.get("label") or "").strip():
         safe_events.append(event)
     return safe_events[-30:]
+
+
+def _sync_assessment_violation_log_to_count(
+    candidate,
+    existing_events,
+    target_count,
+    *,
+    section_key="",
+    include_target=False,
+):
+    safe_candidate = dict(candidate or {})
+    current_count = _coerce_non_negative_int(
+        safe_candidate.get("assessment_violation_count"),
+        0,
+    )
+    safe_target = max(_coerce_non_negative_int(target_count, current_count), current_count)
+    if safe_target <= current_count:
+        return list(existing_events or []), safe_target
+
+    last_fallback_count = safe_target if include_target else safe_target - 1
+    violation_log = list(existing_events or [])
+    for fallback_count in range(current_count + 1, last_fallback_count + 1):
+        violation_log = _append_assessment_violation_event(
+            violation_log,
+            _build_assessment_violation_event(
+                safe_candidate,
+                fallback_count,
+                event_type="submit_sync",
+                section_key=section_key,
+                note=(
+                    "Detail ini disimpan dari submit jawaban karena request pelanggaran "
+                    "browser belum sempat selesai."
+                ),
+            ),
+        )
+    return violation_log, safe_target
 
 
 def _fetch_candidate_by_assessment_code(db, code):
@@ -2112,7 +2213,7 @@ def _get_candidate_assessment_section_remaining_seconds(candidate, section_key, 
     deadline = _get_candidate_assessment_section_deadline(candidate, section_key, section_state=section_state)
     if not deadline:
         return None
-    current_dt = now_dt or datetime.now()
+    current_dt = now_dt or _current_career_datetime()
     return max(int((deadline - current_dt).total_seconds()), 0)
 
 
@@ -2126,7 +2227,7 @@ def _is_candidate_assessment_section_duration_expired(
     deadline = _get_candidate_assessment_section_deadline(candidate, section_key, section_state=section_state)
     if not deadline:
         return False
-    current_dt = now_dt or datetime.now()
+    current_dt = now_dt or _current_career_datetime()
     return current_dt > (deadline + timedelta(seconds=max(int(grace_seconds or 0), 0)))
 
 
@@ -2142,7 +2243,7 @@ def _get_candidate_assessment_remaining_seconds(candidate, now_dt=None):
     deadline = _get_candidate_assessment_deadline(candidate)
     if not deadline:
         return None
-    current_dt = now_dt or datetime.now()
+    current_dt = now_dt or _current_career_datetime()
     return max(int((deadline - current_dt).total_seconds()), 0)
 
 
@@ -2153,7 +2254,7 @@ def _is_candidate_assessment_code_expired(candidate, now_dt=None):
     expires_at = _parse_career_datetime(safe_candidate.get("assessment_expires_at"))
     if not expires_at:
         return False
-    current_dt = now_dt or datetime.now()
+    current_dt = now_dt or _current_career_datetime()
     return current_dt > expires_at
 
 
@@ -2161,7 +2262,7 @@ def _is_candidate_assessment_duration_expired(candidate, now_dt=None, grace_seco
     deadline = _get_candidate_assessment_deadline(candidate)
     if not deadline:
         return False
-    current_dt = now_dt or datetime.now()
+    current_dt = now_dt or _current_career_datetime()
     return current_dt > (deadline + timedelta(seconds=max(int(grace_seconds or 0), 0)))
 
 
@@ -2395,7 +2496,7 @@ def _start_candidate_assessment_section(db, candidate, section_key, current_dt=N
     assessment_code = normalize_assessment_code(safe_candidate.get("assessment_code"))
     if candidate_id <= 0 or not safe_section_key or not assessment_code:
         return safe_candidate
-    current_dt = current_dt or datetime.now()
+    current_dt = current_dt or _current_career_datetime()
     current_timestamp = current_dt.strftime("%Y-%m-%d %H:%M:%S")
     section_state = _get_candidate_assessment_section_state(safe_candidate)
     section_entry = dict(section_state.get("sections", {}).get(safe_section_key) or {})
@@ -2439,7 +2540,7 @@ def _submit_candidate_assessment_section(
     if candidate_id <= 0 or not safe_section_key or not assessment_code:
         return {"completed": False, "next_section_key": "", "candidate": safe_candidate}
 
-    current_dt = current_dt or datetime.now()
+    current_dt = current_dt or _current_career_datetime()
     current_timestamp = current_dt.strftime("%Y-%m-%d %H:%M:%S")
     all_answers = decode_assessment_answers(safe_candidate.get("assessment_answers_json"))
     section_questions = list((question_groups or {}).get(safe_section_key) or [])
@@ -2509,11 +2610,22 @@ def _submit_candidate_assessment_section(
             candidate_id,
         ),
     )
-    updated_candidate = _fetch_candidate_by_assessment_code(db, assessment_code) or safe_candidate
     return {
         "completed": not bool(next_section_key),
         "next_section_key": next_section_key,
-        "candidate": updated_candidate,
+        "candidate": {
+            **safe_candidate,
+            "assessment_status": assessment_status,
+            "assessment_answers_json": encode_assessment_answers(all_answers),
+            "assessment_section_state_json": encode_assessment_section_state(section_state),
+            "assessment_auto_score": assessment_auto_score,
+            "assessment_final_score": assessment_final_score,
+            "assessment_submitted_at": submitted_at_value,
+            "assessment_violation_count": max(
+                int(violation_count if violation_count is not None else safe_candidate.get("assessment_violation_count") or 0),
+                0,
+            ),
+        },
     }
 
 
@@ -2819,7 +2931,7 @@ def verify_public_account():
         return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
 
     expires_at = _parse_career_datetime(account.get("verification_expires_at"))
-    if expires_at and datetime.now() > expires_at:
+    if expires_at and _current_career_datetime() > expires_at:
         flash("Link verifikasi sudah kedaluwarsa. Silakan daftar ulang untuk mengirim tautan baru.", "error")
         return _redirect_career_public_with_next("career.signin_page", flow="signup", next_target=next_target)
 
@@ -3078,7 +3190,7 @@ def profile_page():
                         "document_type": normalized_type,
                         "label": normalized_label,
                         "stored_name": stored_name,
-                        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "uploaded_at": _current_career_timestamp(),
                     }
                 )
             payload["files"] = files
@@ -3590,7 +3702,7 @@ def assessment():
             return redirect(build_career_public_url("career.assessment"))
         return redirect(build_career_public_url("career.assessment", code=assessment_code))
 
-    current_dt = datetime.now()
+    current_dt = _current_career_datetime()
     assessment_code = normalize_assessment_code(request.args.get("code"))
     if not assessment_code:
         return render_template(
@@ -3669,6 +3781,7 @@ def assessment():
         for section in section_blueprint:
             all_questions.extend(section["questions"])
         score_summary = score_assessment_questions(all_questions, candidate.get("assessment_answers_json"))
+        submitted_timestamp = _current_career_timestamp()
         db.execute(
             """
             UPDATE recruitment_candidates
@@ -3678,7 +3791,7 @@ def assessment():
                     WHEN assessment_manual_score IS NOT NULL THEN assessment_manual_score
                     ELSE ?
                 END,
-                assessment_submitted_at=COALESCE(assessment_submitted_at, CURRENT_TIMESTAMP),
+                assessment_submitted_at=COALESCE(assessment_submitted_at, ?),
                 updated_at=CURRENT_TIMESTAMP
             WHERE id=?
             """,
@@ -3686,10 +3799,19 @@ def assessment():
                 normalize_career_assessment_status("submitted"),
                 score_summary["percentage"],
                 score_summary["percentage"],
+                submitted_timestamp,
                 candidate["id"],
             ),
         )
         db.commit()
+        updated_candidate = _fetch_candidate_by_assessment_code(db, assessment_code) or {
+            **dict(candidate),
+            "assessment_status": normalize_career_assessment_status("submitted"),
+            "assessment_auto_score": score_summary["percentage"],
+            "assessment_final_score": score_summary["percentage"],
+            "assessment_submitted_at": candidate.get("assessment_submitted_at") or submitted_timestamp,
+        }
+        _commit_hr_assessment_submitted_notification(db, updated_candidate)
         return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
 
     current_entry = dict(section_state.get("sections", {}).get(current_section_key) or {})
@@ -3755,8 +3877,11 @@ def assessment():
             current_dt=current_dt,
             violation_count=int(candidate.get("assessment_violation_count") or 0),
         )
+        completed = transition["completed"]
+        notification_candidate = transition.get("candidate") or candidate
         db.commit()
-        if transition["completed"]:
+        if completed:
+            _commit_hr_assessment_submitted_notification(db, notification_candidate)
             return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
         return redirect(build_career_public_url("career.assessment", code=assessment_code, start=1))
 
@@ -3826,10 +3951,19 @@ def record_assessment_violation():
             }
         )
 
-    violation_count = max(int(request.form.get("violation_count") or 0), 0)
+    violation_count = max(
+        _coerce_non_negative_int(request.form.get("violation_count"), 0),
+        _coerce_non_negative_int(candidate.get("assessment_violation_count"), 0),
+    )
     violation_type = str(request.form.get("violation_type") or "").strip().lower()
     section_key = normalize_assessment_test_type(request.form.get("section_key"))
     violation_log = _decode_assessment_violation_log(candidate.get("assessment_violation_log_json"))
+    violation_log, violation_count = _sync_assessment_violation_log_to_count(
+        candidate,
+        violation_log,
+        violation_count,
+        section_key=section_key,
+    )
     violation_log = _append_assessment_violation_event(
         violation_log,
         _build_assessment_violation_event(
@@ -3890,7 +4024,7 @@ def record_assessment_violation():
 def submit_assessment():
     db = get_db()
     ensure_career_schema(db)
-    current_dt = datetime.now()
+    current_dt = _current_career_datetime()
     assessment_code = normalize_assessment_code(request.form.get("assessment_code"))
     candidate = _fetch_candidate_by_assessment_code(db, assessment_code)
     if not candidate:
@@ -3952,7 +4086,27 @@ def submit_assessment():
         if safe_answer:
             answers[int(question["id"])] = safe_answer
 
-    violation_count = max(int(request.form.get("violation_count") or 0), 0)
+    previous_violation_count = _coerce_non_negative_int(candidate.get("assessment_violation_count"), 0)
+    pending_violation_log_json = ""
+    violation_count = max(
+        _coerce_non_negative_int(request.form.get("violation_count"), 0),
+        previous_violation_count,
+    )
+    if violation_count > previous_violation_count:
+        violation_log = _decode_assessment_violation_log(candidate.get("assessment_violation_log_json"))
+        violation_log, violation_count = _sync_assessment_violation_log_to_count(
+            candidate,
+            violation_log,
+            violation_count,
+            section_key=current_section_key,
+            include_target=True,
+        )
+        pending_violation_log_json = _encode_assessment_violation_log(violation_log)
+        candidate = {
+            **dict(candidate),
+            "assessment_violation_count": violation_count,
+            "assessment_violation_log_json": pending_violation_log_json,
+        }
     if violation_count >= CAREER_ASSESSMENT_MAX_VIOLATIONS:
         new_code = _reset_candidate_assessment_session(db, candidate)
         db.commit()
@@ -3965,6 +4119,23 @@ def submit_assessment():
         )
         return redirect(build_career_public_url("career.index"))
 
+    if pending_violation_log_json:
+        db.execute(
+            """
+            UPDATE recruitment_candidates
+            SET assessment_violation_count=?,
+                assessment_violation_log_json=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+        """,
+            (
+                violation_count,
+                pending_violation_log_json,
+                candidate["id"],
+            ),
+        )
+        candidate = _fetch_candidate_by_assessment_code(db, assessment_code) or candidate
+
     transition = _submit_candidate_assessment_section(
         db,
         candidate,
@@ -3974,7 +4145,10 @@ def submit_assessment():
         current_dt=current_dt,
         violation_count=violation_count,
     )
+    completed = transition["completed"]
+    notification_candidate = transition.get("candidate") or candidate
     db.commit()
-    if transition["completed"]:
+    if completed:
+        _commit_hr_assessment_submitted_notification(db, notification_candidate)
         return redirect(build_career_public_url("career.assessment", code=assessment_code, completed=1))
     return redirect(build_career_public_url("career.assessment", code=assessment_code))
