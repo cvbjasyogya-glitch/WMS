@@ -21,6 +21,7 @@ from services.whatsapp_service import send_role_based_notification
 daily_report_portal_bp = Blueprint("daily_report_portal", __name__, url_prefix="/laporan-harian")
 DAILY_REPORT_DB_LOCK_RETRY_ATTEMPTS = 2
 DAILY_REPORT_DB_LOCK_RETRY_DELAY_SECONDS = 0.35
+DAILY_REPORT_DUPLICATE_WINDOW_MINUTES = 10
 
 
 def _is_sqlite_lock_error(exc):
@@ -41,6 +42,61 @@ def _remove_daily_report_attachment(attachment_path):
     file_path = os.path.join(_get_daily_live_report_upload_folder(), safe_name)
     if os.path.exists(file_path):
         os.remove(file_path)
+
+
+def _find_recent_duplicate_daily_report(
+    db,
+    *,
+    user_id,
+    employee_id,
+    warehouse_id,
+    report_type,
+    report_date,
+    title,
+    summary,
+    blocker_note,
+    follow_up_note,
+):
+    duplicate_window_minutes = max(
+        1,
+        int(
+            current_app.config.get(
+                "DAILY_REPORT_DUPLICATE_WINDOW_MINUTES",
+                DAILY_REPORT_DUPLICATE_WINDOW_MINUTES,
+            )
+            or DAILY_REPORT_DUPLICATE_WINDOW_MINUTES
+        ),
+    )
+    return db.execute(
+        """
+        SELECT id
+        FROM daily_live_reports
+        WHERE user_id=?
+          AND COALESCE(employee_id, 0)=?
+          AND warehouse_id=?
+          AND report_type=?
+          AND report_date=?
+          AND title=?
+          AND summary=?
+          AND COALESCE(blocker_note, '')=?
+          AND COALESCE(follow_up_note, '')=?
+          AND created_at >= datetime('now', ?)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (
+            user_id,
+            employee_id or 0,
+            warehouse_id,
+            report_type,
+            report_date,
+            title,
+            summary,
+            blocker_note or "",
+            follow_up_note or "",
+            f"-{duplicate_window_minutes} minutes",
+        ),
+    ).fetchone()
 
 
 def _build_daily_report_portal_context(db):
@@ -104,6 +160,9 @@ def submit():
     blocker_note = (request.form.get("blocker_note") or "").strip()
     follow_up_note = (request.form.get("follow_up_note") or "").strip()
     attachment = request.files.get("attachment")
+    user_id = session.get("user_id")
+    employee_id = linked_employee["id"] if linked_employee else session.get("employee_id")
+    warehouse_id = (linked_employee["warehouse_id"] if linked_employee else session.get("warehouse_id")) or 1
 
     if not title or not summary or not blocker_note or not follow_up_note:
         flash("Judul, ringkasan, kendala, dan tindak lanjut wajib diisi.", "error")
@@ -156,9 +215,27 @@ def submit():
         ),
     )
 
+    duplicate_report = None
+    report_saved = False
     for attempt in range(max_retries + 1):
         try:
             db.execute("BEGIN IMMEDIATE")
+            duplicate_report = _find_recent_duplicate_daily_report(
+                db,
+                user_id=user_id,
+                employee_id=employee_id,
+                warehouse_id=warehouse_id,
+                report_type=report_type,
+                report_date=report_date,
+                title=title,
+                summary=summary,
+                blocker_note=blocker_note,
+                follow_up_note=follow_up_note,
+            )
+            if duplicate_report:
+                db.rollback()
+                _remove_daily_report_attachment(attachment_meta.get("attachment_path"))
+                break
             db.execute(
                 """
                 INSERT INTO daily_live_reports(
@@ -184,9 +261,9 @@ def submit():
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    session.get("user_id"),
-                    linked_employee["id"] if linked_employee else session.get("employee_id"),
-                    (linked_employee["warehouse_id"] if linked_employee else session.get("warehouse_id")) or 1,
+                    user_id,
+                    employee_id,
+                    warehouse_id,
                     report_type,
                     report_date,
                     title,
@@ -205,6 +282,7 @@ def submit():
                 ),
             )
             db.commit()
+            report_saved = True
             break
         except sqlite3.OperationalError as exc:
             db.rollback()
@@ -232,6 +310,15 @@ def submit():
             flash("Report gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
             return redirect("/laporan-harian/")
 
+    if duplicate_report:
+        flash("Report yang sama sudah masuk. Sistem tidak membuat duplikat.", "info")
+        return redirect("/laporan-harian/")
+
+    if not report_saved:
+        _remove_daily_report_attachment(attachment_meta.get("attachment_path"))
+        flash("Report gagal disimpan. Coba ulangi beberapa detik lagi.", "error")
+        return redirect("/laporan-harian/")
+
     try:
         employee_label = (
             (linked_employee["full_name"] if linked_employee and linked_employee.get("full_name") else None)
@@ -245,7 +332,7 @@ def submit():
         send_role_based_notification(
             "report.live_submitted" if report_type == "live" else "report.daily_submitted",
             {
-                "warehouse_id": (linked_employee["warehouse_id"] if linked_employee else session.get("warehouse_id")) or 1,
+                "warehouse_id": warehouse_id,
                 "employee_name": employee_label,
                 "warehouse_name": warehouse_label,
                 "title": title,

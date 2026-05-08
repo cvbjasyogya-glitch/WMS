@@ -96,7 +96,7 @@
             </div>
         </div>
         <div class="split-actions attendance-submit-row">
-            <button type="submit">Kirim Laporan</button>
+            <button type="submit" data-daily-report-submit-button>Kirim Laporan</button>
         </div>
     </form>
 </div>
@@ -170,6 +170,8 @@
     const reportTypeSelect = form.querySelector("[data-report-type-select]");
     const attachmentWrap = form.querySelector("[data-live-attachment-wrap]");
     const attachmentInput = form.querySelector("[data-live-attachment-input]");
+    const submitButton = form.querySelector("[data-daily-report-submit-button]");
+    let isSubmitting = false;
 
     const syncAttachmentField = () => {
         const isLive = (reportTypeSelect?.value || "").trim().toLowerCase() === "live";
@@ -186,6 +188,18 @@
 
     syncAttachmentField();
     reportTypeSelect?.addEventListener("change", syncAttachmentField);
+
+    form.addEventListener("submit", (event) => {
+        if (isSubmitting) {
+            event.preventDefault();
+            return;
+        }
+        isSubmitting = true;
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = "Mengirim laporan...";
+        }
+    });
 })();
 </script>
 {% endblock %}

@@ -8888,6 +8888,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(board_response.status_code, 200)
         board_html = board_response.get_data(as_text=True)
         self.assertIn("Jadwal Live Gudang Mataram", board_html)
+        self.assertIn("13:00 - 14:00", board_html)
         self.assertIn("Shopee Mega + IG", board_html)
         self.assertIn("Caca", board_html)
         self.assertIn('data-live-bg-color="#FFE8A2"', board_html)
@@ -14490,6 +14491,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="careerAssessmentSubmitSection"', started_html)
         self.assertIn("Menyimpan hasil tes...", started_html)
         self.assertIn("is-submitting", started_html)
+        self.assertNotIn("Pilihan A", started_html)
+        self.assertNotIn("PILIHAN A", started_html)
 
     def test_public_career_assessment_renders_five_point_scale_questions(self):
         self.seed_recruitment_assessment_suite(warehouse_id=1)
@@ -15726,6 +15729,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Vina Violation Detail", html)
         self.assertIn("Riwayat Pelanggaran Tes", html)
+        self.assertIn("hris-recruitment-violation-box", html)
+        self.assertIn("hris-recruitment-violation-event", html)
+        self.assertNotIn("background:rgba(248,250,252,0.72)", html)
         self.assertIn("Counter aktif sesi sekarang: 2/3.", html)
         self.assertIn("Tab atau aplikasi berpindah sehingga halaman tes tersembunyi.", html)
         self.assertIn("Fokus browser berpindah dari halaman tes.", html)
@@ -25576,6 +25582,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         page_html = page_response.get_data(as_text=True)
         self.assertIn("Form Report Harian &amp; Live", page_html)
         self.assertIn('name="attachment"', page_html)
+        self.assertIn("Mengirim laporan...", page_html)
         self.assertNotIn("Input KPI Mingguan Staff", page_html)
 
         submit_response = self.client.post(
@@ -25637,6 +25644,40 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Belum ada report harian pada filter yang dipilih.", hris_html)
         self.assertIn("Live promo toko Mega", hris_html)
         self.assertIn("bukti-live.pdf", hris_html)
+
+    def test_daily_report_portal_blocks_recent_duplicate_submit(self):
+        today = date_cls.today().isoformat()
+        self.create_user("ops_daily_duplicate", "pass1234", "staff", warehouse_id=1)
+        self.login("ops_daily_duplicate", "pass1234")
+
+        payload = {
+            "report_type": "daily",
+            "report_date": today,
+            "title": "Report dobel klik",
+            "summary": "Isi laporan sama persis karena tombol kepencet dua kali.",
+            "blocker_note": "Tidak ada kendala tambahan.",
+            "follow_up_note": "Besok lanjut follow up normal.",
+        }
+        with patch("routes.daily_report_portal.send_role_based_notification") as mocked_notify:
+            first_response = self.client.post("/laporan-harian/submit", data=payload, follow_redirects=False)
+            second_response = self.client.post("/laporan-harian/submit", data=payload, follow_redirects=True)
+
+        self.assertEqual(first_response.status_code, 302)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertIn("Report yang sama sudah masuk. Sistem tidak membuat duplikat.", second_response.get_data(as_text=True))
+        mocked_notify.assert_called_once()
+
+        with self.app.app_context():
+            db = get_db()
+            total = db.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM daily_live_reports
+                WHERE title=?
+                """,
+                ("Report dobel klik",),
+            ).fetchone()["total"]
+        self.assertEqual(total, 1)
 
     def test_daily_report_portal_requires_summary_blocker_and_follow_up_notes(self):
         today = date_cls.today().isoformat()
@@ -25988,7 +26029,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Kecocokan Jadwal Live", html)
         self.assertIn("Sesuai Jadwal", html)
         self.assertIn("13:15", html)
-        self.assertIn("13:00 (Shopee Mega + IG)", html)
+        self.assertIn("13:00 - 14:00 (Shopee Mega + IG)", html)
 
     def test_only_hr_or_super_admin_can_update_daily_report_status(self):
         self.create_user("staff_report_owner", "pass1234", "staff", warehouse_id=1)

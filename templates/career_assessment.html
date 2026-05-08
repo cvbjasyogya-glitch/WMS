@@ -1013,7 +1013,6 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
                         <input type="radio" name="answer_{{ question.id }}" value="{{ option.key }}" {% if existing_answers and existing_answers.get(question.id) == option.key %}checked{% endif %}>
                         <span class="career-question-option-badge">{{ option.badge }}</span>
                         <span class="career-question-option-body">
-                            <strong>{{ option.label }}</strong>
                             <span>{{ option.value }}</span>
                         </span>
                     </label>
