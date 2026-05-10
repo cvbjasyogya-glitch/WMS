@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Mataram Sports - toko olahraga modern untuk perlengkapan olahraga, brand, promo, layanan, dan kontak toko.">
+  <title>Mataram Sports | Official Website</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-brand="mataram">
+  <header class="site-header" id="siteHeader">
+    <div class="topbar top-bar">
+      <div class="container topbar-inner top-bar__inner">
+        <div class="brand-switcher top-bar__brand-switches" aria-label="Pilih brand">
+          <button class="brand-switch active" type="button" data-switch-brand="mataram">Mataram Sports</button>
+          <button class="brand-switch" type="button" data-switch-brand="mega">Mega Sports</button>
+        </div>
+        <div class="topbar-right">
+          <a class="topbar-portal" href="https://portal.cvbjas.com" target="_blank" rel="noopener noreferrer">Portal</a>
+          <div class="language-switch" aria-label="Pilihan bahasa">
+            <a href="#" aria-current="true">ID</a>
+            <span>|</span>
+            <a href="#">EN</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="container navbar" aria-label="Navigasi utama">
+      <a href="#beranda" class="navbar__logo" aria-label="Mataram Sports Beranda" data-brand-home-link>
+        <img src="assets/logo-mataram.png" alt="Mataram Sports" data-brand-logo="main">
+      </a>
+
+      <button class="navbar__toggle" id="menuToggle" aria-label="Buka menu" aria-expanded="false" aria-controls="mainMenu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+
+      <div class="navbar__menu" id="mainMenu">
+        <a href="#beranda" class="nav-link active">Beranda</a>
+        <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="nav-link">Katalog</a>
+        <a href="#promo" class="nav-link">Promo</a>
+        <a href="#brand" class="nav-link">Brand</a>
+        <a href="#layanan" class="nav-link">Layanan</a>
+        <a href="#tentang" class="nav-link">Tentang Kami</a>
+        <a href="#kontak" class="nav-link">Lokasi & Kontak</a>
+        <a href="https://recruitment.cvbjas.com" target="_blank" rel="noopener" class="nav-link">Karier</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="beranda" aria-label="Highlight Mataram Sports" data-hero-section>
+      <div class="hero__carousel" id="heroCarousel">
+        <article class="hero__slide active" data-slide="0" aria-hidden="false">
+          <div class="container hero__inner">
+            <div class="hero__content">
+              <p class="eyebrow" data-hero-brand-name>Mataram Sports</p>
+              <h1 data-hero-title>Perlengkapan Olahraga <span>Terlengkap</span> di Yogyakarta</h1>
+              <p class="hero__subtitle" data-hero-subtitle>Mataram Sports hadir sebagai pusat kebutuhan olahraga dengan layanan profesional, produk pilihan, dan pengalaman belanja yang nyaman.</p>
+              <div class="hero__actions">
+                <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="btn btn--primary">Lihat Katalog</a>
+                <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" class="btn btn--outline" data-whatsapp-link>Hubungi WhatsApp</a>
+              </div>
+            </div>
+            <div class="hero__visual" aria-hidden="true">
+              <img src="assets/hero-1.jpg" alt="">
+            </div>
+          </div>
+        </article>
+
+        <article class="hero__slide" data-slide="1" aria-hidden="true">
+          <div class="container hero__inner">
+            <div class="hero__content">
+              <p class="eyebrow">Promo Store & Community</p>
+              <h1>Promo & <span>Bundling</span> Spesial</h1>
+              <p class="hero__subtitle">Dapatkan penawaran terbaik untuk kebutuhan olahraga pribadi, komunitas, sekolah, kantor, dan event.</p>
+              <div class="hero__actions">
+                <a href="#promo" class="btn btn--primary">Lihat Promo</a>
+                <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" class="btn btn--outline" data-whatsapp-link>Ajukan Penawaran</a>
+              </div>
+            </div>
+            <div class="hero__visual" aria-hidden="true">
+              <img src="assets/hero-2.jpg" alt="">
+            </div>
+          </div>
+        </article>
+
+        <article class="hero__slide" data-slide="2" aria-hidden="true">
+          <div class="container hero__inner">
+            <div class="hero__content">
+              <p class="eyebrow" data-hero-overview-eyebrow>Mataram Sports & Mega Sports</p>
+              <h1>Trusted Sport <span>Retail</span> Experience</h1>
+              <p class="hero__subtitle" data-hero-overview-subtitle>Mataram Sports dan Mega Sports hadir untuk melayani kebutuhan olahraga dengan pengalaman belanja yang nyaman, cepat, dan profesional.</p>
+              <div class="hero__actions">
+                <a href="#tentang" class="btn btn--primary">Tentang Kami</a>
+                <a href="#kontak" class="btn btn--outline">Lokasi Toko</a>
+              </div>
+            </div>
+            <div class="hero__visual" aria-hidden="true">
+              <img src="assets/hero-3.jpg" alt="">
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <button class="hero__nav hero__nav--prev" id="heroPrev" aria-label="Slide sebelumnya">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 19 8.5 12l7-7" /></svg>
+      </button>
+      <button class="hero__nav hero__nav--next" id="heroNext" aria-label="Slide berikutnya">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 5 7 7-7 7" /></svg>
+      </button>
+
+      <div class="hero__dots" id="heroDots" aria-label="Navigasi slide">
+        <button class="active" aria-label="Tampilkan slide 1"></button>
+        <button aria-label="Tampilkan slide 2"></button>
+        <button aria-label="Tampilkan slide 3"></button>
+      </div>
+    </section>
+
+    <section class="section quick-menu" aria-labelledby="quickTitle">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow"></p>
+          <h2 id="quickTitle" data-explore-title>Jelajahi Mataram Sports</h2>
+          <p data-explore-subtitle>Akses cepat ke layanan, katalog, promo, brand, dan informasi toko.</p>
+        </div>
+
+        <div class="quick-grid">
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="feature-card">
+            <span class="feature-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            </span>
+            <h3>Katalog Produk</h3>
+            <p>Raket, sepatu, jersey, bola, aksesoris olahraga.</p>
+          </a>
+
+          <a href="#promo" class="feature-card">
+            <span class="feature-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M20.59 13.41 12 22l-8.59-8.59A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.41.59l7.18 7.18a2 2 0 0 1 0 2.82Z"/><path d="M7.5 7.5h.01"/></svg>
+            </span>
+            <h3>Promo</h3>
+            <p>Bundling, diskon, paket hemat, dan campaign toko.</p>
+          </a>
+
+          <a href="#brand" class="feature-card">
+            <span class="feature-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 14 9 5 9-5"/><path d="m3 19 9 5 9-5"/></svg>
+            </span>
+            <h3>Brand</h3>
+            <p>Pilihan brand olahraga resmi dan favorit customer.</p>
+          </a>
+
+          <a href="#layanan" class="feature-card">
+            <span class="feature-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="m14.7 6.3 3 3"/><path d="M19 5a2.12 2.12 0 0 0-3 0L5 16v3h3L19 8a2.12 2.12 0 0 0 0-3Z"/><path d="M5 22h14"/></svg>
+            </span>
+            <h3>Layanan</h3>
+            <p>Stringing raket, konsultasi produk, dan kebutuhan tim/event.</p>
+          </a>
+
+          <a href="#kontak" class="feature-card">
+            <span class="feature-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            </span>
+            <h3>Lokasi & Kontak</h3>
+            <p>Informasi alamat toko, WhatsApp, dan sosial media.</p>
+          </a>
+
+          <a href="https://recruitment.cvbjas.com" target="_blank" rel="noopener" class="feature-card">
+            <span class="feature-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-8 0v2"/><circle cx="12" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
+            </span>
+            <h3>Karier</h3>
+            <p>Informasi lowongan dan peluang bergabung bersama tim.</p>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section category-section" id="katalog" aria-labelledby="catalogTitle">
+      <div class="container">
+        <div class="section-heading section-heading--split">
+          <div>
+            <p class="eyebrow">Katalog</p>
+            <h2 id="catalogTitle">Kategori Produk</h2>
+            <p>Pilih kebutuhan olahraga berdasarkan kategori produk.</p>
+          </div>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="btn btn--soft">Lihat Semua Produk</a>
+        </div>
+
+        <div class="category-grid">
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Badminton</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Tennis</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Running</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Football / Futsal</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Basketball</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Fitness</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Apparel</span>
+          </a>
+          <a href="https://shop.mataramsport.com" target="_blank" rel="noopener" class="category-card">
+            <img src="assets/product-placeholder.jpg" alt="">
+            <span>Accessories</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section promo-section" id="promo" aria-labelledby="promoTitle">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">Promo</p>
+          <h2 id="promoTitle">Promo Pilihan</h2>
+        </div>
+
+        <div class="promo-grid">
+          <article class="promo-card">
+            <span class="badge">Promo</span>
+            <h3>Paket Hemat Badminton</h3>
+            <p>Lengkapi kebutuhan bermain dengan pilihan raket, shuttlecock, grip, dan stringing.</p>
+            <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" data-whatsapp-link>Detail Promo</a>
+          </article>
+
+          <article class="promo-card">
+            <span class="badge">Bundling</span>
+            <h3>Bundling Sepatu & Kaos Kaki</h3>
+            <p>Penawaran praktis untuk latihan harian, running, futsal, dan olahraga indoor.</p>
+            <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" data-whatsapp-link>Detail Promo</a>
+          </article>
+
+          <article class="promo-card">
+            <span class="badge">Team Deal</span>
+            <h3>Paket Tim / Komunitas</h3>
+            <p>Solusi perlengkapan olahraga untuk komunitas, sekolah, kantor, dan event.</p>
+            <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" data-whatsapp-link>Detail Promo</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section brand-section" id="brand" aria-labelledby="brandTitle">
+      <div class="container">
+        <div class="section-heading">
+          <span class="eyebrow">BRAND</span>
+          <h2 id="brandTitle">Brand Pilihan</h2>
+          <p data-brand-section-text>Berbagai brand olahraga yang tersedia dan kami tangani di Mataram Sports.</p>
+        </div>
+
+        <div class="brand-grid">
+          <div class="brand-card"><img src="assets/brands/1.svg" alt="Brand 1"></div>
+          <div class="brand-card"><img src="assets/brands/2.svg" alt="Brand 2"></div>
+          <div class="brand-card"><img src="assets/brands/3.svg" alt="Brand 3"></div>
+          <div class="brand-card"><img src="assets/brands/4.svg" alt="Brand 4"></div>
+          <div class="brand-card"><img src="assets/brands/5.svg" alt="Brand 5"></div>
+          <div class="brand-card"><img src="assets/brands/6.svg" alt="Brand 6"></div>
+          <div class="brand-card"><img src="assets/brands/7.svg" alt="Brand 7"></div>
+          <div class="brand-card"><img src="assets/brands/8.svg" alt="Brand 8"></div>
+          <div class="brand-card"><img src="assets/brands/9.svg" alt="Brand 9"></div>
+          <div class="brand-card"><img src="assets/brands/10.svg" alt="Brand 10"></div>
+          <div class="brand-card"><img src="assets/brands/11.svg" alt="Brand 11"></div>
+          <div class="brand-card"><img src="assets/brands/12.svg" alt="Brand 12"></div>
+          <div class="brand-card"><img src="assets/brands/13.svg" alt="Brand 13"></div>
+          <div class="brand-card"><img src="assets/brands/14.svg" alt="Brand 14"></div>
+          <div class="brand-card"><img src="assets/brands/15.svg" alt="Brand 15"></div>
+          <div class="brand-card"><img src="assets/brands/16.svg" alt="Brand 16"></div>
+          <div class="brand-card"><img src="assets/brands/17.svg" alt="Brand 17"></div>
+          <div class="brand-card"><img src="assets/brands/18.svg" alt="Brand 18"></div>
+          <div class="brand-card"><img src="assets/brands/21.svg" alt="Brand 21"></div>
+          <div class="brand-card"><img src="assets/brands/22.svg" alt="Brand 22"></div>
+          <div class="brand-card"><img src="assets/brands/23.svg" alt="Brand 23"></div>
+          <div class="brand-card"><img src="assets/brands/24.svg" alt="Brand 24"></div>
+          <div class="brand-card"><img src="assets/brands/28.svg" alt="Brand 28"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section service-section" id="layanan" aria-labelledby="serviceTitle">
+      <div class="container service-layout">
+        <div class="service-copy">
+          <p class="eyebrow">Layanan</p>
+          <h2 id="serviceTitle" data-service-title>Layanan Mataram Sports</h2>
+          <p data-service-text>Mataram Sports membantu kebutuhan olahraga harian hingga kebutuhan tim dengan pelayanan responsif, pilihan produk yang relevan, dan dukungan pembelian online maupun offline.</p>
+          <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" class="btn btn--primary" data-whatsapp-link>Konsultasi Sekarang</a>
+        </div>
+
+        <div class="service-list">
+          <div class="service-item">
+            <span aria-hidden="true">01</span>
+            <p>Stringing raket badminton & tennis</p>
+          </div>
+          <div class="service-item">
+            <span aria-hidden="true">02</span>
+            <p>Konsultasi produk</p>
+          </div>
+          <div class="service-item">
+            <span aria-hidden="true">03</span>
+            <p>Pemesanan untuk komunitas/sekolah/kantor</p>
+          </div>
+          <div class="service-item">
+            <span aria-hidden="true">04</span>
+            <p>Penawaran B2B / invoice</p>
+          </div>
+          <div class="service-item">
+            <span aria-hidden="true">05</span>
+            <p>Marketplace & online order</p>
+          </div>
+          <div class="service-item">
+            <span aria-hidden="true">06</span>
+            <p>After-sales support</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section about-section" id="tentang" aria-labelledby="aboutTitle">
+      <div class="container about-layout">
+        <div>
+          <p class="eyebrow">Tentang Kami</p>
+          <h2 id="aboutTitle" data-about-title>Tentang Mataram Sports</h2>
+          <p data-about-text>Mataram Sports merupakan toko olahraga yang melayani kebutuhan perlengkapan olahraga untuk individu, komunitas, sekolah, kantor, dan event.</p>
+          <a href="https://cvbjas.com" target="_blank" rel="noopener" class="btn btn--soft">Profil CV BJAS</a>
+        </div>
+
+        <div class="stats-grid" aria-label="Statistik Mataram Sports" data-stats-grid>
+          <div class="stat-card">
+            <strong>2</strong>
+            <span>Store</span>
+          </div>
+          <div class="stat-card">
+            <strong>1000+</strong>
+            <span>Produk</span>
+          </div>
+          <div class="stat-card">
+            <strong>10+</strong>
+            <span>Kategori Olahraga</span>
+          </div>
+          <div class="stat-card">
+            <strong>Online & Offline</strong>
+            <span>Service</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section contact-section" id="kontak" aria-labelledby="contactTitle">
+      <div class="container contact-layout">
+        <div class="contact-card">
+          <p class="eyebrow">Kontak</p>
+          <h2 id="contactTitle">Lokasi & Kontak</h2>
+
+          <div class="contact-list">
+            <div>
+              <span data-address-label>Alamat Mataram Sports</span>
+              <p data-address>Jl. Mataram No 64, Danurejan Yogyakarta</p>
+            </div>
+            <div>
+              <span>WhatsApp</span>
+              <p data-whatsapp>0813 - 1946 - 6464</p>
+            </div>
+            <div>
+              <span>Instagram</span>
+              <p data-instagram>@mataramsports</p>
+            </div>
+            <div>
+              <span>Jam Operasional</span>
+              <p data-hours>Setiap hari, 08.00 - 21.00 WIB</p>
+            </div>
+          </div>
+
+          <div class="contact-actions">
+            <a href="https://wa.me/6281319466464" target="_blank" rel="noopener noreferrer" class="btn btn--primary" data-whatsapp-link>Chat WhatsApp</a>
+            <a href="https://instagram.com/mataramsports" target="_blank" rel="noopener noreferrer" class="btn btn--outline" data-instagram-link>Lihat Instagram</a>
+            <a href="https://www.google.com/maps/place/Mataram+Sport/@-7.7937283,110.3666571,18z/data=!4m6!3m5!1s0x2e7a5828629b23eb:0xdf0c5d31ac83c080!8m2!3d-7.7937272!4d110.3678964!16s%2Fg%2F1hm4mws0t" target="_blank" rel="noopener noreferrer" class="btn btn--soft" data-map-link>Buka di Google Maps</a>
+          </div>
+        </div>
+
+        <div class="map-placeholder">
+          <iframe
+            src="https://www.google.com/maps?q=-7.7937272,110.3678964&amp;z=18&amp;output=embed"
+            data-map-iframe
+            width="100%"
+            height="100%"
+            style="border:0;"
+            allowfullscreen=""
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade">
+          </iframe>
+        </div>
+      </div>
+    </section>
+
+    <section class="section career-section" id="karier" aria-labelledby="careerTitle">
+      <div class="container cta-band">
+        <div>
+          <p class="eyebrow">Karier</p>
+          <h2 id="careerTitle" data-career-title>Karier di Mataram Sports</h2>
+          <p data-career-text>Bergabung bersama tim Mataram Sports dan ikut berkembang dalam industri retail olahraga.</p>
+        </div>
+        <a href="https://recruitment.cvbjasyogya.cloud/signin" target="_blank" rel="noopener" class="btn btn--primary">Info Lowongan</a>
+      </div>
+    </section>
+
+    <section class="section portal-section" id="portal" aria-labelledby="portalTitle">
+      <div class="container cta-band cta-band--light">
+        <div>
+          <p class="eyebrow">Portal</p>
+          <h2 id="portalTitle">BJAS Internal Portal</h2>
+          <p>Area ini disiapkan untuk akses internal karyawan, sistem operasional, dan dashboard perusahaan.</p>
+        </div>
+        <a href="https://erp.cvbjasyogya.cloud" target="_blank" rel="noopener" class="btn btn--soft">Masuk Portal</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__grid">
+      <div class="footer__brand">
+        <img src="assets/logo-mataram.png" alt="Mataram Sports" data-brand-logo="footer">
+        <p data-footer-description>Mataram Sports hadir sebagai pintu utama kebutuhan olahraga, layanan toko, promo, brand, dan informasi resmi CV Berkah Jaya Abadi Sports.</p>
+      </div>
+
+      <div class="footer__links">
+        <h3>Link Cepat</h3>
+        <a href="#beranda">Beranda</a>
+        <a href="https://shop.mataramsport.com" target="_blank" rel="noopener">Katalog</a>
+        <a href="#promo">Promo</a>
+        <a href="#brand">Brand</a>
+        <a href="#layanan">Layanan</a>
+        <a href="#tentang">Tentang Kami</a>
+        <a href="#kontak">Lokasi & Kontak</a>
+      </div>
+
+      <div class="footer__links">
+        <h3>Kontak</h3>
+        <a href="#kontak">Lokasi & Kontak</a>
+        <a href="https://wa.me/6281319466464" target="_blank" rel="noopener" data-whatsapp-link>WhatsApp</a>
+        <a href="https://instagram.com/mataramsports" target="_blank" rel="noopener" data-instagram-link>Instagram</a>
+        <a href="https://cvbjas.com" target="_blank" rel="noopener">CV BJAS</a>
+      </div>
+
+      <div class="footer-payment">
+        <h4>Metode Pembayaran</h4>
+        <div class="payment-grid">
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--qris" src="assets/Payment/qris.svg" alt="QRIS">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--mandiri" src="assets/Payment/mandiri.svg" alt="Mandiri">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--bni" src="assets/Payment/bni.svg" alt="BNI">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--bsi" src="assets/Payment/bsi.svg" alt="BSI">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--bca" src="assets/Payment/bca.svg" alt="BCA">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--bpddiy" src="assets/Payment/bpddiy.svg" alt="Bank BPD DIY">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--visa" src="assets/Payment/visa.svg" alt="Visa">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--jcb" src="assets/Payment/jcb.svg" alt="JCB">
+          </div>
+          <div class="payment-logo-card">
+            <img class="payment-logo payment-logo--mastercard" src="assets/Payment/mastercard.svg" alt="Mastercard">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="container footer__bottom">
+      <p data-copyright>&copy; 2026 Mataram Sports - CV Berkah Jaya Abadi Sports. All  .</p>
+    </div>
+  </footer>
+
+  <div class="brand-transition-overlay" aria-hidden="true">
+    <div class="brand-transition-mark">
+      <img src="assets/logo-mataram.png" alt="">
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
