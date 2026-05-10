@@ -6060,7 +6060,11 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("window.close()", thermal_html)
         self.assertIn("--thermal-printable-width: 72mm", thermal_html)
         self.assertIn("https://instagram.com/mataramsports", thermal_html)
-        self.assertIn('const receiptPerformanceMode = "auto"', thermal_html)
+        self.assertIn('id="receipt-performance-mode-runtime-data">"auto"</script>', thermal_html)
+        self.assertIn(
+            'const receiptPerformanceMode = readReceiptJsonData("receipt-performance-mode-runtime-data", "")',
+            thermal_html,
+        )
         self.assertIn("data-thermal-qr-src=", thermal_html)
         self.assertNotIn('<img src="https://api.qrserver.com', thermal_html)
 
