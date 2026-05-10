@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 1440 420"
+     preserveAspectRatio="xMidYMid slice">
+
+  <!-- BACKGROUND -->
+  <rect width="100%" height="100%" fill="#f4f5f7"/>
+
+  <!-- GELombang -->
+  <path
+    d="M0,280
+       C240,220 480,360 720,300
+       C960,240 1200,300 1440,260
+       L1440,0 L0,0 Z"
+    fill="#e1e3e8"
+    opacity="0.9"
+  />
+
+  <!-- CIRCLE BESAR -->
+  <circle cx="1150" cy="120" r="180"
+          fill="#000000"
+          opacity="0.03" />
+
+  <!-- CIRCLE SEDANG -->
+  <circle cx="300" cy="80" r="120"
+          fill="#000000"
+          opacity="0.04" />
+
+  <!-- CIRCLE KECIL -->
+  <circle cx="900" cy="340" r="90"
+          fill="#000000"
+          opacity="0.05" />
+</svg>

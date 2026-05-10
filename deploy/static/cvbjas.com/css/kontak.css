@@ -1,0 +1,149 @@
+/* =====================================================
+   CONTACT HERO
+   ===================================================== */
+.contact-hero {
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  padding: 120px 0 96px;
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+}
+
+.contact-hero-content {
+  max-width: 900px;
+  padding: 0 32px;
+}
+
+.contact-hero-content span {
+  display: block;
+  font-size: 0.85rem;
+  letter-spacing: 0.28em;
+  font-weight: 600;
+  color: var(--khaki-beige);
+  margin-bottom: 16px;
+}
+
+.contact-hero-content h1 {
+  font-size: clamp(2.6rem, 4.5vw, 3.6rem);
+  font-weight: 800;
+  color: var(--almond-cream);
+  margin-bottom: 24px;
+}
+
+.contact-hero-content p {
+  max-width: 680px;
+  line-height: 1.7;
+  color: var(--almond-cream);
+  opacity: 0.9;
+}
+
+/* =====================================================
+   CONTACT CONTENT
+   ===================================================== */
+.contact-section {
+  padding: 96px 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(234,224,213,0.35),
+    rgba(198,172,143,0.6)
+  );
+}
+
+.contact-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 48px;
+}
+
+/* INFO */
+.contact-info h3 {
+  font-size: 28px;
+  margin-bottom: 24px;
+  color: var(--jet-black);
+}
+
+.contact-info p {
+  margin-bottom: 20px;
+  line-height: 1.8;
+  color: var(--stone-brown);
+}
+
+/* CTA CARD */
+.contact-cta {
+  background: var(--jet-black);
+  padding: 48px;
+  border-radius: 24px;
+  box-shadow: 0 25px 60px rgba(10,9,8,0.35);
+}
+
+.contact-cta h3 {
+  font-size: 26px;
+  margin-bottom: 16px;
+  color: var(--khaki-beige);
+}
+
+.contact-cta p {
+  line-height: 1.7;
+  color: var(--almond-cream);
+  margin-bottom: 32px;
+}
+
+/* BUTTON */
+.contact-btn {
+  display: inline-block;
+  padding: 14px 32px;
+  background: var(--khaki-beige);
+  color: var(--black);
+  border-radius: 999px;
+  font-weight: 600;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease;
+}
+
+.contact-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(198,172,143,0.35);
+  background: var(--almond-cream);
+}
+
+/* =====================================================
+   RESPONSIVE
+   ===================================================== */
+@media (max-width: 900px) {
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-cta {
+    padding: 40px 32px;
+  }
+}
+/* =====================================================
+   REMOVE UNDERLINE – CONTACT PAGE
+   ===================================================== */
+
+/* BUTTON & LINK */
+.contact-btn,
+.contact-btn:hover,
+.contact-btn:focus,
+.contact-btn:active {
+  text-decoration: none !important;
+}
+
+/* SAFETY: semua link di contact */
+.page-contact a,
+.page-contact a:hover,
+.page-contact a:focus,
+.page-contact a:active,
+.page-contact a:visited {
+  text-decoration: none !important;
+}

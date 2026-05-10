@@ -1,0 +1,105 @@
+/* =====================================================
+   PRIVACY POLICY – CLEAN & SAFE
+   ===================================================== */
+
+.privacy-page {
+  position: relative;
+  z-index: 1;
+}
+
+/* ================= HERO ================= */
+.privacy-hero {
+  position: relative;
+  z-index: 1;
+
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+
+  padding: 140px 24px 120px;
+}
+
+.privacy-hero-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.privacy-hero h1 {
+  font-size: clamp(2.6rem, 5vw, 3.6rem);
+  font-weight: 800;
+  color: var(--almond-cream);
+  margin-bottom: 20px;
+}
+
+.privacy-hero p {
+  max-width: 720px;
+  font-size: 1.05rem;
+  line-height: 1.8;
+  color: rgba(234,224,213,0.9);
+}
+
+/* ================= CONTENT ================= */
+.privacy-content {
+  background: linear-gradient(
+    180deg,
+    rgba(234,224,213,0.95),
+    rgba(198,172,143,0.85)
+  );
+  padding: 100px 24px;
+}
+
+.privacy-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* ================= BLOCK ================= */
+.privacy-block {
+  background: var(--almond-cream);
+  border-radius: 20px;
+  padding: 36px 40px;
+  margin-bottom: 36px;
+
+  border: 1px solid rgba(94,80,63,0.2);
+  box-shadow:
+    0 14px 36px rgba(10,9,8,0.12),
+    inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+.privacy-block h2 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--jet-black);
+  margin-bottom: 12px;
+}
+
+.privacy-block p {
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--stone-brown);
+}
+
+/* ================= RESPONSIVE ================= */
+@media (max-width: 768px) {
+  .privacy-hero {
+    padding: 110px 20px 90px;
+  }
+
+  .privacy-content {
+    padding: 64px 20px;
+  }
+
+  .privacy-block {
+    padding: 28px 24px;
+  }
+
+  .privacy-block h2 {
+    font-size: 1.15rem;
+  }
+
+  .privacy-block p {
+    font-size: 0.95rem;
+  }
+}

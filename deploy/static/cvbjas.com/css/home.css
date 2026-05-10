@@ -1,0 +1,776 @@
+/* =====================================================
+   HERO SECTION (VIDEO)
+   ===================================================== */
+.hero-video {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  background: var(--jet-black);
+}
+
+/* VIDEO */
+.hero-bg-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+/* OVERLAY */
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(
+    90deg,
+    rgba(34, 51, 59, 0.92) 0%,   /* jet-black */
+    rgba(10, 9, 8, 0.78) 45%,   /* black */
+    rgba(10, 9, 8, 0.55) 70%,
+    rgba(10, 9, 8, 0.35) 100%
+  );
+}
+
+/* =====================================================
+   CONTENT
+   ===================================================== */
+.hero-content {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  padding: 0 64px;
+
+  /* animasi container */
+  opacity: 0;
+  transform: translateY(24px);
+  animation: heroFadeUp 1s ease forwards;
+  animation-delay: 0.2s;
+}
+
+/* EYEBROW */
+.hero-eyebrow {
+  font-size: 0.85rem;
+  letter-spacing: 0.28em;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--khaki-beige);
+  margin-bottom: 18px;
+
+  opacity: 0;
+  transform: translateY(16px);
+  animation: heroFadeUp 0.8s ease forwards;
+  animation-delay: 0.4s;
+}
+
+/* TITLE */
+.hero h1 {
+  font-size: clamp(3rem, 7vw, 5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  max-width: 1200px;
+  margin-bottom: 28px;
+  color: var(--almond-cream);
+
+  opacity: 0;
+  transform: translateY(20px);
+  animation: heroFadeUp 1s ease forwards;
+  animation-delay: 0.6s;
+}
+
+/* DESKRIPSI */
+.hero p {
+  font-size: 1.15rem;
+  line-height: 1.8;
+  max-width: 800px;
+  color: rgba(234,224,213,0.9);
+
+  opacity: 0;
+  transform: translateY(20px);
+  animation: heroFadeUp 1s ease forwards;
+  animation-delay: 0.8s;
+}
+
+/* =====================================================
+   CTA HERO (PALET AMAN)
+   ===================================================== */
+.hero-cta {
+  margin-top: 36px;
+
+  opacity: 0;
+  transform: translateY(16px);
+  animation: heroFadeUp 0.9s ease forwards;
+  animation-delay: 1s;
+}
+
+.wa-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 32px;
+  border-radius: 999px;
+
+  background: var(--khaki-beige);
+  color: var(--black);
+
+  font-weight: 700;
+  font-size: 1rem;
+  text-decoration: none;
+
+  box-shadow: 0 14px 36px rgba(10,9,8,0.35);
+  transition:
+    transform .25s ease,
+    box-shadow .25s ease,
+    background .25s ease;
+}
+
+.wa-button img {
+  width: 22px;
+  height: 22px;
+}
+
+.wa-button:hover {
+  background: var(--almond-cream);
+  transform: translateY(-3px);
+  box-shadow: 0 22px 48px rgba(10,9,8,0.45);
+}
+
+.wa-button:active {
+  transform: scale(0.97);
+}
+
+/* =====================================================
+   ANIMATION
+   ===================================================== */
+@keyframes heroFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =====================================================
+   MOBILE
+   ===================================================== */
+@media (max-width: 768px) {
+  .hero-video {
+    min-height: 85vh;
+  }
+
+  .hero-content {
+    padding: 0 24px;
+  }
+
+  .hero h1 {
+    line-height: 1.2;
+  }
+}
+
+/* =====================================================
+   STATS SECTION – PREMIUM + ANIMATION
+   ===================================================== */
+
+.stats-section {
+  background: linear-gradient(
+    180deg,
+    var(--almond-cream) 0%,
+    var(--khaki-beige) 100%
+  );
+  padding: 120px 24px;
+}
+
+/* CONTAINER */
+.stats-container {
+  max-width: 1200px;
+  margin: 0 auto;
+
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+}
+
+/* CARD */
+.stat-card {
+  background: rgba(255,255,255,0.8);
+  border-radius: 20px;
+  padding: 36px 28px;
+  text-align: center;
+
+  border: 1px solid rgba(94,80,63,0.18);
+  box-shadow:
+    0 18px 40px rgba(10,9,8,0.16),
+    inset 0 1px 0 rgba(255,255,255,0.55);
+
+  /* ANIMATION BASE */
+  opacity: 0;
+  transform: translateY(48px) scale(0.96);
+
+  transition:
+    opacity .75s ease,
+    transform .75s cubic-bezier(.22,.61,.36,1),
+    box-shadow .35s ease,
+    background .35s ease;
+}
+
+/* SHOW ON SCROLL */
+.stat-card.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* STAGGER */
+.stat-card:nth-child(1) { transition-delay: 0.1s; }
+.stat-card:nth-child(2) { transition-delay: 0.25s; }
+.stat-card:nth-child(3) { transition-delay: 0.4s; }
+.stat-card:nth-child(4) { transition-delay: 0.55s; }
+
+/* HOVER */
+.stat-card:hover {
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  transform: translateY(-8px) scale(1.02);
+  box-shadow:
+    0 32px 70px rgba(10,9,8,0.35);
+}
+
+/* NUMBER */
+.stat-number {
+  font-size: clamp(2.2rem, 3vw, 2.8rem);
+  font-weight: 800;
+  color: var(--black);
+  margin-bottom: 10px;
+  letter-spacing: -0.02em;
+
+  transition: color .3s ease;
+}
+
+/* TITLE */
+.stat-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--stone-brown);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+
+  transition: color .3s ease;
+}
+
+/* DESC */
+.stat-desc {
+  font-size: 0.9rem;
+  color: rgba(94,80,63,0.85);
+  line-height: 1.6;
+
+  transition: color .3s ease;
+}
+
+/* HOVER TEXT */
+.stat-card:hover .stat-number {
+  color: var(--almond-cream);
+}
+
+.stat-card:hover .stat-title {
+  color: var(--khaki-beige);
+}
+
+.stat-card:hover .stat-desc {
+  color: var(--almond-cream);
+}
+
+/* ================= MOBILE ================= */
+@media (max-width: 900px) {
+  .stats-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .stats-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =====================================================
+   NEWS SECTION – COLOR REVAMP
+   ===================================================== */
+.news-section {
+  min-height: 60vh;
+  background:
+    linear-gradient(
+      180deg,
+      #22333b 0%,
+      #0a0908 100%
+    );
+  position: relative;
+}
+
+/* OVERLAY */
+.news-overlay {
+  padding-top: 80px;
+  padding-bottom: 40px;
+}
+
+/* TITLE */
+.news-title {
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-weight: 800;
+  margin-bottom: 40px;
+  color: #eae0d5; /* almond cream */
+  text-align: center;
+}
+
+/* WRAPPER */
+.news-wrapper {
+  background: #eae0d5; /* almond cream */
+  border-radius: 32px;
+  padding: 48px;
+  box-shadow: 0 40px 80px rgba(10, 9, 8, 0.25);
+}
+
+/* GRID */
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 32px;
+}
+
+/* =====================================================
+   CARD
+   ===================================================== */
+.news-card {
+  background: #ffffff;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(34, 51, 59, 0.18);
+  border: 1px solid rgba(94, 80, 63, 0.15);
+
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease,
+    background 0.3s ease;
+}
+
+.news-card a {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  height: 100%;
+}
+
+/* HOVER */
+.news-card:hover {
+  transform: translateY(-8px);
+  background: #22333b; /* jet black */
+  box-shadow: 0 35px 70px rgba(34, 51, 59, 0.45);
+}
+
+/* IMAGE */
+.news-image img {
+  width: 100%;
+  height: 600px;
+  object-fit: cover;
+}
+
+/* CONTENT */
+.news-content {
+  padding: 24px;
+}
+
+/* BADGE */
+.news-badge {
+  display: inline-block;
+  background: #c6ac8f; /* khaki beige */
+  color: #0a0908;      /* black */
+  font-size: 0.75rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+/* HEADLINE */
+.news-headline {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  line-height: 1.4;
+  color: #0a0908;
+  transition: color .3s ease;
+}
+
+/* DATE */
+.news-date {
+  font-size: 0.8rem;
+  color: #5e503f; /* stone brown */
+  margin-bottom: 10px;
+  transition: color .3s ease;
+}
+
+/* EXCERPT */
+.news-excerpt {
+  font-size: 0.9rem;
+  color: #22333b; /* jet black */
+  line-height: 1.6;
+  transition: color .3s ease;
+}
+
+/* TEXT COLOR ON HOVER */
+.news-card:hover .news-headline,
+.news-card:hover .news-date,
+.news-card:hover .news-excerpt {
+  color: #eae0d5;
+}
+
+/* =====================================================
+   MOBILE SAFETY
+   ===================================================== */
+@media (max-width: 768px) {
+  .news-wrapper {
+    padding: 24px;
+    border-radius: 20px;
+  }
+
+  .news-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .news-image img {
+    height: 240px;
+  }
+}
+
+/* =====================================================
+   BRAND HERO – COLOR REVAMP
+   ===================================================== */
+.brand-hero {
+  background:
+    linear-gradient(
+      135deg,
+      #22333b 0%,
+      #0a0908 100%
+    );
+  padding: 96px 0;
+  overflow: hidden;
+}
+
+/* INNER */
+.brand-hero-inner {
+  max-width: 18000px;
+  margin: 0 auto;
+  padding: 0 24px;
+
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  align-items: center;
+  gap: 0;
+}
+
+/* TITLE */
+.brand-text h2 {
+  font-size: 80px;
+  line-height: 1.2;
+  color: #eae0d5; /* almond cream */
+  margin-bottom: 10px;
+}
+
+/* ACCENT WORD */
+.brand-text h2 span {
+  color: #c6ac8f; /* khaki beige */
+}
+
+/* DESCRIPTION */
+.brand-text p {
+  color: #cfd8e3; /* tetap soft, aman */
+  max-width: 520px;
+  margin-bottom: 24px;
+}
+
+/* BUTTON */
+.brand-btn {
+  display: inline-block;
+  background: #c6ac8f; /* khaki beige */
+  color: #0a0908;      /* black */
+  padding: 14px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+
+  transition:
+    transform .25s ease,
+    box-shadow .25s ease,
+    background .25s ease;
+}
+
+.brand-btn:hover {
+  background: #eae0d5; /* almond cream */
+  transform: translateY(-3px);
+  box-shadow: 0 16px 32px rgba(198, 172, 143, 0.45);
+}
+
+/* IMAGE */
+.brand-image img {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+
+/* =====================================================
+   MAP SECTION – COLOR REVAMP
+   ===================================================== */
+.map-section {
+  background:
+    linear-gradient(
+      135deg,
+      #22333b 0%,
+      #0a0908 100%
+    );
+  padding: 80px 16px;
+}
+
+/* CONTAINER */
+.map-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* TITLE */
+.map-title {
+  margin-bottom: 24px;
+  text-align: center;
+  color: #eae0d5; /* almond cream */
+}
+
+/* MAP BOX */
+.map-box {
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #eae0d5; /* almond cream */
+  box-shadow: 0 25px 60px rgba(10, 9, 8, 0.45);
+  border: 1px solid rgba(198, 172, 143, 0.35);
+}
+
+/* IFRAME */
+.map-box iframe {
+  width: 100%;
+  height: 450px;
+  border: 0;
+  filter: grayscale(15%) contrast(1.05);
+}
+
+/* ADDRESS */
+.map-address {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 15px;
+  color: #c6ac8f; /* khaki beige */
+}
+
+/* =====================================================
+   RESPONSIVE
+   ===================================================== */
+@media (max-width: 992px) {
+  .stats-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-content {
+    padding: 0 16px;
+  }
+
+  .hero h1 {
+    font-size: clamp(2rem, 8vw, 3rem);
+  }
+
+  .stats-container {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-hero-inner {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .brand-visual {
+    margin-top: 32px;
+  }
+
+  .brand-visual img {
+    max-width: 280px;
+    margin: 0 auto;
+  }
+
+  .news-wrapper {
+    padding: 24px;
+  }
+
+  .news-image img {
+    height: 260px;
+  }
+}
+/* =====================================================
+   MOBILE & TABLET SAFETY PATCH – HOME
+   ===================================================== */
+
+/* GLOBAL IMAGE SAFETY */
+img,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ================= HERO ================= */
+@media (max-width: 768px) {
+  .hero-video {
+    min-height: 90vh;
+    align-items: flex-start;
+  }
+
+  .hero-overlay {
+    background: linear-gradient(
+      to bottom,
+      rgba(10, 9, 8, 0.92) 0%,
+      rgba(10, 9, 8, 0.78) 45%,
+      rgba(10, 9, 8, 0.55) 70%,
+      rgba(10, 9, 8, 0.35) 100%
+    );
+  }
+
+  .hero-content {
+    padding: 120px 16px 32px;
+  }
+
+  .hero-eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.18em;
+  }
+
+  .hero h1 {
+    font-size: clamp(2rem, 8vw, 2.8rem);
+    line-height: 1.2;
+  }
+
+  .hero p {
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+
+  .wa-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ================= STATS ================= */
+@media (max-width: 768px) {
+  .stats-section {
+    padding: 64px 16px;
+  }
+
+  .stats-container {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .stat-card {
+    padding: 24px 20px;
+  }
+}
+
+/* ================= NEWS ================= */
+@media (max-width: 768px) {
+  .news-section {
+    background-size: cover;
+  }
+
+  .news-title {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .news-wrapper {
+    border-radius: 20px;
+    padding: 20px;
+  }
+
+  .news-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .news-image img {
+    height: 220px;
+  }
+
+  .news-headline {
+    font-size: 1.2rem;
+  }
+}
+
+/* ================= BRAND HERO ================= */
+@media (max-width: 992px) {
+  .brand-text h2 {
+    font-size: 48px;
+    line-height: 1.2;
+  }
+}
+
+@media (max-width: 768px) {
+  .brand-hero {
+    padding: 64px 0;
+  }
+
+  .brand-hero-inner {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    text-align: center;
+  }
+
+  .brand-text h2 {
+    font-size: 32px;
+  }
+
+  .brand-text p {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .brand-visual img {
+    max-width: 350px;
+    margin: 0 auto;
+  }
+}
+
+/* ================= MAP ================= */
+@media (max-width: 768px) {
+  .map-section {
+    padding: 48px 16px;
+  }
+
+  .map-box iframe {
+    height: 320px;
+  }
+
+  .map-address {
+    font-size: 14px;
+  }
+}
+

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kontak | CV Berkah Jaya Abadi Sports</title>
+
+  <!-- GLOBAL -->
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/utilities.css">
+
+  <!-- CONTACT ONLY -->
+  <link rel="stylesheet" href="css/kontak.css">
+</head>
+
+<body class="page-contact">
+
+<header class="site-header">
+  <div class="header-inner">
+
+    <div class="brand">
+      <a href="index.html">
+        <img src="assets/logo/logo.png" class="brand-logo" alt="CV Berkah Jaya Abadi Sports">
+      </a>
+    </div>
+
+    <nav class="nav" id="mobileNav">
+      <a href="index.html">Beranda</a>
+      <a href="tentang.html">Tentang</a>
+      <a href="layanan.html">Layanan</a>
+      <a href="brand.html">Brand</a>
+      <a href="klien.html">Klien</a>
+      <a href="kontak.html" class="active">Kontak</a>
+    </nav>
+
+    <div class="hamburger" onclick="toggleNav()">☰</div>
+
+  </div>
+</header>
+
+<main>
+
+<!-- ================= CONTACT HERO ================= -->
+<section class="contact-hero">
+  <div class="contact-hero-content reveal">
+    <span>KONTAK KAMI</span>
+    <h1>Hubungi CV Berkah Jaya Abadi Sports</h1>
+    <p>
+      Tim kami siap membantu kebutuhan pengadaan sarana dan prasarana
+      olahraga untuk sekolah, instansi pemerintah, dan organisasi.
+    </p>
+  </div>
+</section>
+
+<!-- ================= CONTACT CONTENT ================= -->
+<section class="contact-section">
+  <div class="contact-grid">
+
+    <!-- INFO -->
+    <div class="contact-info reveal">
+      <h3>Informasi Kontak</h3>
+
+      <p>
+        📍 <strong>Alamat</strong><br>
+        Jl. Mataram No.64, Suryatmajan, Danurejan, Yogyakarta
+      </p>
+
+      <p>
+        📞 <strong>Telepon / WhatsApp</strong><br>
+        0895-2692-5340
+      </p>
+
+      <p>
+        ✉️ <strong>Email</strong><br>
+        admin@cvbjas.biz.id
+      </p>
+
+      <p>
+        🕒 <strong>Jam Operasional</strong><br>
+        Senin – Jumat : 08.00 – 17.00 WIB<br>
+        Sabtu : 08.00 – 15.00 WIB<br>
+        Minggu & Hari Libur : Tutup
+      </p>
+    </div>
+
+    <!-- CTA -->
+    <div class="contact-cta reveal-delay-1 reveal">
+      <h3>Konsultasi Pengadaan</h3>
+      <p>
+        Silakan hubungi kami untuk konsultasi kebutuhan pengadaan
+        sarana olahraga dengan proses resmi, transparan, dan profesional.
+      </p>
+
+      <a href="https://wa.me/6289526925340" class="contact-btn">
+        Hubungi via WhatsApp
+      </a>
+    </div>
+
+  </div>
+</section>
+
+</main>
+
+<footer class="footer-unilever">
+  <div class="footer-bottom-strip">
+    <div class="footer-container footer-bottom-inner">
+
+      <nav class="footer-links">
+        <a href="tentang.html">Tentang</a>
+        <a href="layanan.html">Layanan</a>
+        <a href="brand.html">Brand</a>
+        <a href="klien.html">Klien</a>
+        <a href="kontak.html">Kontak</a>
+      </nav>
+
+      <div class="footer-meta">
+        © 2025 CV Berkah Jaya Abadi Sports
+      </div>
+
+    </div>
+  </div>
+</footer>
+
+<!-- SCRIPT -->
+<script>
+function toggleNav() {
+  document.getElementById("mobileNav").classList.toggle("show");
+}
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const observer = new IntersectionObserver(
+    entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("show");
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    {
+      threshold: 0.2,
+      rootMargin: "0px 0px -40px 0px"
+    }
+  );
+
+  document
+    .querySelectorAll(".reveal, .reveal-left, .reveal-right, .reveal-zoom")
+    .forEach(el => observer.observe(el));
+});
+</script>
+
+</body>
+</html>

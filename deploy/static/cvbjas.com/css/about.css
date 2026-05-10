@@ -1,0 +1,794 @@
+/* =====================================================
+   ABOUT HERO – PREMIUM (PALET FINAL)
+   ===================================================== */
+.about-hero {
+  position: relative;
+  height: 85vh; /* ❗ TIDAK DIUBAH */
+  overflow: hidden;
+}
+
+/* IMAGE */
+.about-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* OVERLAY – LEBIH TENANG & KEBACA */
+.about-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+
+  background: linear-gradient(
+    180deg,
+    rgba(10,9,8,0.25) 0%,     /* black tipis atas */
+    rgba(10,9,8,0.55) 45%,
+    rgba(34,51,59,0.9) 100%  /* jet-black bawah */
+  );
+}
+
+/* CONTENT */
+.about-hero-content {
+  position: absolute;
+  left: 64px;
+  bottom: 64px;
+  z-index: 2;
+
+  max-width: 900px;
+  color: var(--almond-cream);
+
+  /* ANIMASI */
+  opacity: 0;
+  transform: translateY(24px);
+  animation: aboutHeroFade 1.1s ease forwards;
+  animation-delay: 0.2s;
+}
+
+/* TITLE */
+.about-hero-content h1 {
+  font-size: clamp(2.6rem, 5vw, 4rem); /* ❗ TIDAK DIUBAH */
+  font-weight: 800;
+  line-height: 1.15;
+
+  color: var(--almond-cream);
+
+  text-shadow: 0 12px 32px rgba(10,9,8,0.6);
+}
+
+/* OPTIONAL SUBTEXT (KALAU MAU DITAMBAH) */
+.about-hero-content p {
+  margin-top: 14px;
+  font-size: 1.05rem;
+  line-height: 1.8;
+  max-width: 620px;
+
+  color: rgba(234,224,213,0.9);
+}
+
+/* =====================================================
+   ANIMATION
+   ===================================================== */
+@keyframes aboutHeroFade {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =====================================================
+   MOBILE
+   ===================================================== */
+@media (max-width: 768px) {
+  .about-hero-content {
+    left: 24px;
+    bottom: 32px;
+    right: 24px;
+  }
+
+  .about-hero-content h1 {
+    line-height: 1.2;
+  }
+
+  .about-hero-content p {
+    font-size: 0.95rem;
+  }
+}
+
+
+/* =====================================================
+   ABOUT CONTENT – PREMIUM (READABILITY FIRST)
+   ===================================================== */
+.about-section {
+  padding: 100px 0; /* ❗ TIDAK DIUBAH */
+  background: linear-gradient(
+    180deg,
+    rgba(234,224,213,0.85), /* almond-cream */
+    rgba(198,172,143,0.65)  /* khaki-beige */
+  );
+}
+
+/* WRAPPER */
+.about-wide {
+  max-width: 1400px; /* ❗ TIDAK DIUBAH */
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* BLOCK */
+.about-block {
+  margin-bottom: 64px;
+}
+
+/* HEADING */
+.about-block h2 {
+  font-size: 42px; /* ❗ TIDAK DIUBAH */
+  margin-bottom: 24px;
+
+  font-weight: 800;
+  letter-spacing: -0.02em;
+
+  color: var(--black); /* lebih tegas & formal */
+
+  /* subtle underline illusion */
+  position: relative;
+}
+
+.about-block h2::after {
+  content: "";
+  display: block;
+  width: 64px;
+  height: 3px;
+  margin-top: 14px;
+
+  background: var(--khaki-beige);
+  border-radius: 2px;
+}
+
+/* PARAGRAPH */
+.about-block p {
+  font-size: 18px; /* ❗ TIDAK DIUBAH */
+  line-height: 1.9;
+  margin-bottom: 20px;
+
+  color: var(--stone-brown);
+  max-width: 900px;
+
+  /* READABILITY BOOST */
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* STRONG TEXT (HIGHLIGHT NATURAL) */
+.about-block p strong {
+  color: var(--black);
+  font-weight: 600;
+}
+
+/* =====================================================
+   RESPONSIVE – MOBILE
+   ===================================================== */
+@media (max-width: 768px) {
+  .about-block h2 {
+    line-height: 1.25;
+  }
+
+  .about-block p {
+    font-size: 16px;
+    line-height: 1.75;
+  }
+}
+
+
+
+/* =====================================================
+   ABOUT EXTRA – PREMIUM & INSTITUTIONAL
+   ===================================================== */
+.about-extra {
+  margin-top: 64px;      /* ❗ TIDAK DIUBAH */
+  padding-top: 48px;
+  border-top: 1px solid rgba(94,80,63,0.25); /* stone brown soft */
+}
+
+/* GRID */
+.about-extra-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+}
+
+/* TITLE */
+.about-extra h3 {
+  font-size: 24px;       /* ❗ TIDAK DIUBAH */
+  margin-bottom: 18px;
+
+  font-weight: 700;
+  letter-spacing: -0.01em;
+
+  color: var(--black); /* lebih formal dari jet-black */
+}
+
+/* LIST RESET */
+.about-extra ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+/* ITEM */
+.about-extra li {
+  position: relative;
+  padding-left: 32px;
+  margin-bottom: 14px;
+
+  font-size: 17px;       /* ❗ TIDAK DIUBAH */
+  line-height: 1.7;
+
+  color: var(--stone-brown);
+}
+
+/* CHECK ICON */
+.about-extra li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 2px;
+
+  font-weight: 800;
+  font-size: 16px;
+
+  color: var(--khaki-beige);
+}
+
+/* =====================================================
+   RESPONSIVE
+   ===================================================== */
+@media (max-width: 768px) {
+  .about-extra-grid {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+}
+
+
+/* =====================================================
+   OPERATIONAL CARD
+   ===================================================== */
+.about-operational {
+  margin: 80px auto 0;
+  padding: 40px 48px;
+  max-width: 520px;
+  text-align: center;
+
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+
+  border-radius: 24px;
+  box-shadow: 0 25px 50px rgba(10, 9, 8, 0.35);
+
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease,
+    background 0.35s ease;
+}
+
+/* HOVER CARD */
+.about-operational:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 35px 80px rgba(34, 51, 59, 0.6);
+
+  background: linear-gradient(
+    135deg,
+    var(--black),
+    var(--jet-black)
+  );
+}
+
+/* TITLE */
+.about-operational h3 {
+  font-size: 32px;
+  margin-bottom: 20px;
+  color: var(--khaki-beige);
+  transition: color 0.35s ease;
+}
+
+/* TEXT */
+.about-operational p {
+  font-size: 15px;
+  line-height: 1.8;
+  margin-bottom: 10px;
+  color: var(--almond-cream);
+  transition: color 0.35s ease;
+}
+
+/* STRONG */
+.about-operational strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* HOVER TEXT */
+.about-operational:hover h3 {
+  color: var(--almond-cream);
+}
+
+.about-operational:hover p {
+  color: var(--almond-cream);
+}
+
+/* ================= ABOUT CARD SECTION ================= */
+.about-extra {
+  margin-top: 72px;
+}
+
+.about-extra-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 40px;
+}
+
+/* CARD */
+.about-card {
+  background: var(--almond-cream);
+  border-radius: 28px;
+  padding: 48px 44px;
+  box-shadow: 0 30px 80px rgba(10, 9, 8, 0.12);
+  transition:
+    background 0.35s ease,
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+/* HOVER CARD */
+.about-card:hover {
+  background: var(--jet-black);
+  transform: translateY(-8px);
+  box-shadow: 0 40px 100px rgba(34, 51, 59, 0.45);
+}
+
+/* TITLE */
+.about-card h3 {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: var(--jet-black);
+  position: relative;
+  transition: color 0.35s ease;
+}
+
+.about-card h3::after {
+  content: "";
+  width: 48px;
+  height: 4px;
+  background: var(--stone-brown);
+  display: block;
+  margin-top: 10px;
+  border-radius: 999px;
+  transition: background 0.35s ease;
+}
+
+/* LIST */
+.about-card ul {
+  list-style: none;
+  padding: 0;
+}
+
+.about-card li {
+  position: relative;
+  padding-left: 28px;
+  margin-bottom: 14px;
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--stone-brown);
+  transition: color 0.35s ease;
+}
+
+.about-card li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: var(--jet-black);
+  font-weight: 800;
+  transition: color 0.35s ease;
+}
+
+/* ================= HOVER TEXT ================= */
+.about-card:hover h3 {
+  color: var(--almond-cream);
+}
+
+.about-card:hover h3::after {
+  background: var(--khaki-beige);
+}
+
+.about-card:hover li {
+  color: var(--almond-cream);
+}
+
+.about-card:hover li::before {
+  color: var(--khaki-beige);
+}
+
+
+/* ================= MOBILE ================= */
+@media (max-width: 768px) {
+  .about-extra-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .about-card {
+    padding: 36px 28px;
+  }
+}
+
+/* =====================================================
+   VISION SECTION
+   ===================================================== */
+.vision-section {
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  color: var(--almond-cream);
+  padding: 220px 0 120px;
+  margin-top: 0;
+}
+
+/* GRID */
+.vision-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+}
+
+/* CARD */
+.vision-card {
+  background: rgba(234,224,213,0.06); /* almond cream tipis */
+  border-radius: 24px;
+  padding: 48px;
+
+  border: 1px solid rgba(198,172,143,0.25); /* khaki-beige */
+
+  box-shadow: 0 25px 60px rgba(10,9,8,0.35);
+  backdrop-filter: blur(6px);
+
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease,
+    background 0.35s ease,
+    border-color 0.35s ease;
+}
+
+/* HOVER */
+.vision-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 40px 90px rgba(34,51,59,0.6);
+  background: rgba(234,224,213,0.1);
+  border-color: var(--khaki-beige);
+}
+
+/* TITLE */
+.vision-card h3 {
+  font-size: 28px;
+  margin-bottom: 16px;
+  color: var(--khaki-beige);
+  transition: color 0.3s ease;
+}
+
+/* TEXT */
+.vision-card p,
+.vision-card li {
+  color: var(--almond-cream);
+  line-height: 1.8;
+  transition: color 0.3s ease;
+}
+
+/* HOVER TEXT */
+.vision-card:hover h3 {
+  color: var(--almond-cream);
+}
+
+/* MOBILE */
+@media (max-width: 768px) {
+  .vision-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .vision-section {
+    padding: 160px 0 96px;
+  }
+
+  .vision-card {
+    padding: 36px 28px;
+  }
+}
+
+/* ================= ABOUT STRENGTH ================= */
+.about-strengths {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin-top: 64px;
+}
+
+/* CARD */
+.strength-item {
+  background: var(--almond-cream);
+  padding: 36px 32px;
+  border-radius: 20px;
+  box-shadow: 0 15px 40px rgba(10, 9, 8, 0.08);
+
+  transition:
+    background 0.35s ease,
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+/* HOVER CARD */
+.strength-item:hover {
+  background: var(--jet-black);
+  transform: translateY(-6px);
+  box-shadow: 0 30px 70px rgba(34, 51, 59, 0.45);
+}
+
+/* TITLE */
+.strength-item h4 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--jet-black);
+  margin-bottom: 12px;
+  position: relative;
+  transition: color 0.35s ease;
+}
+
+/* DOT */
+.strength-item h4::before {
+  content: "●";
+  color: var(--stone-brown);
+  margin-right: 8px;
+  transition: color 0.35s ease;
+}
+
+/* DESC */
+.strength-item p {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--stone-brown);
+  transition: color 0.35s ease;
+}
+
+/* ================= HOVER TEXT ================= */
+.strength-item:hover h4 {
+  color: var(--almond-cream);
+}
+
+.strength-item:hover h4::before {
+  color: var(--khaki-beige);
+}
+
+.strength-item:hover p {
+  color: var(--almond-cream);
+}
+
+
+/* MOBILE */
+@media (max-width: 900px) {
+  .about-strengths {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* =====================================================
+   RESPONSIVE
+   ===================================================== */
+@media (max-width: 768px) {
+  .about-hero-content {
+    left: 24px;
+    bottom: 32px;
+  }
+
+  .about-extra-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .vision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .about-operational {
+    padding: 32px 24px;
+  }
+}
+/* =====================================================
+   TABLET (≤1024px)
+   ===================================================== */
+@media (max-width: 1024px) {
+
+  /* HERO */
+  .about-hero {
+    height: 75vh;
+  }
+
+  .about-hero-content {
+    left: 40px;
+    bottom: 40px;
+  }
+
+  .about-hero-content h1 {
+    font-size: clamp(2.2rem, 4vw, 3rem);
+    max-width: 720px;
+  }
+
+  /* CONTENT */
+  .about-wide {
+    padding: 0 24px;
+  }
+
+  .about-block h2 {
+    font-size: 34px;
+  }
+
+  .about-block p {
+    font-size: 17px;
+    line-height: 1.8;
+  }
+
+  /* EXTRA GRID */
+  .about-extra-grid {
+    gap: 40px;
+  }
+
+  /* CARD */
+  .about-card {
+    padding: 40px 36px;
+  }
+
+  /* STRENGTH */
+  .about-strengths {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  @media (max-width: 1024px) {
+  .about-hero img {
+    object-position: center top;
+  }
+}
+
+}
+/* =====================================================
+   MOBILE (≤768px)
+   ===================================================== */
+@media (max-width: 768px) {
+  .about-hero {
+    height: auto;
+    min-height: 60vh;
+  }
+
+  .about-hero img {
+    position: relative;
+    height: auto;
+    object-fit: contain;   /* ⬅️ KUNCI UTAMA */
+    background: #000;      /* biar aman kalau ada space */
+  }
+}
+
+
+  .about-hero-content {
+    left: 20px;
+    right: 20px;
+    bottom: 24px;
+  }
+
+  .about-hero-content h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+  }
+
+  /* SECTION */
+  .about-section {
+    padding: 72px 0;
+  }
+
+  .about-wide {
+    padding: 0 20px;
+  }
+
+  /* ABOUT BLOCK */
+  .about-block {
+    margin-bottom: 48px;
+  }
+
+  .about-block h2 {
+    font-size: 28px;
+  }
+
+  .about-block p {
+    font-size: 16px;
+    line-height: 1.75;
+  }
+
+  /* EXTRA */
+  .about-extra {
+    margin-top: 48px;
+    padding-top: 32px;
+  }
+
+  .about-extra-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .about-extra h3 {
+    font-size: 22px;
+  }
+
+  .about-extra li {
+    font-size: 16px;
+  }
+
+  /* CARD SECTION */
+  .about-extra-cards {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .about-card {
+    padding: 32px 24px;
+    border-radius: 20px;
+  }
+
+  .about-card h3 {
+    font-size: 22px;
+  }
+
+  .about-card li {
+    font-size: 16px;
+  }
+
+  /* OPERATIONAL */
+  .about-operational {
+    padding: 28px 22px;
+    margin-top: 56px;
+  }
+
+  .about-operational h3 {
+    font-size: 26px;
+  }
+
+  /* STRENGTH */
+  .about-strengths {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .strength-item {
+    padding: 28px 24px;
+  }
+
+  /* VISION */
+  .vision-section {
+    padding: 96px 0 80px;
+  }
+
+  .vision-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .vision-card {
+    padding: 32px 24px;
+  }
+
+  .vision-card h3 {
+    font-size: 24px;
+  }
+

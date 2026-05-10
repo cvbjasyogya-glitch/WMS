@@ -1,0 +1,939 @@
+/* ================= HERO VIDEO ================= */
+.video-hero {
+  position: relative;
+  min-height: 90vh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: var(--jet-black);
+}
+
+/* VIDEO */
+.hero-video-wrapper {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.hero-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+/* ================= OVERLAY ================= */
+.service-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(
+    90deg,
+    rgba(34, 51, 59, 0.92) 0%,   /* jet-black */
+    rgba(10, 9, 8, 0.78) 45%,   /* black */
+    rgba(10, 9, 8, 0.55) 70%,
+    rgba(10, 9, 8, 0.35) 100%
+  );
+}
+
+/* ================= CONTENT ================= */
+.service-hero-content {
+  position: relative;
+  z-index: 3;
+  max-width: 980px;
+  margin-left: 96px;
+
+  /* 🔥 animasi awal */
+  opacity: 0;
+  transform: translateY(24px);
+  animation: heroFadeUp 1s ease forwards;
+  animation-delay: 0.3s;
+}
+
+/* EYEBROW */
+.service-hero-content span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  color: var(--khaki-beige);
+  display: block;
+  margin-bottom: 16px;
+
+  opacity: 0;
+  transform: translateY(16px);
+  animation: heroFadeUp 0.9s ease forwards;
+  animation-delay: 0.45s;
+}
+
+/* TITLE */
+.service-hero-content h1 {
+  font-size: clamp(2.8rem, 5vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 0 0 28px;
+  color: var(--almond-cream);
+
+  opacity: 0;
+  transform: translateY(20px);
+  animation: heroFadeUp 1s ease forwards;
+  animation-delay: 0.6s;
+}
+
+/* DESC */
+.service-hero-content p {
+  max-width: 720px;
+  font-size: 1.15rem;
+  line-height: 1.7;
+  color: var(--almond-cream);
+  opacity: 0.88;
+
+  opacity: 0;
+  transform: translateY(20px);
+  animation: heroFadeUp 1s ease forwards;
+  animation-delay: 0.8s;
+}
+
+/* ================= ANIMATION ================= */
+@keyframes heroFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ================= MOBILE ================= */
+@media (max-width: 768px) {
+  .video-hero {
+    min-height: 80vh;
+  }
+
+  .service-hero-content {
+    margin-left: 24px;
+    margin-right: 24px;
+    max-width: 100%;
+  }
+
+  .service-hero-content h1 {
+    line-height: 1.2;
+  }
+}
+
+
+
+/* =====================================================
+   SERVICES SECTION
+   ===================================================== */
+.service-section {
+  padding: 120px 0;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(234,224,213,0.96),   /* almond cream */
+      rgba(198,172,143,0.88)    /* khaki beige */
+    );
+}
+
+/* =====================================================
+   GRID
+   ===================================================== */
+.service-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 32px;
+
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 36px;
+  align-items: stretch;
+}
+
+/* =====================================================
+   LINK RESET (GLOBAL SAFE)
+   ===================================================== */
+.service-card,
+.service-card * {
+  text-decoration: none !important;
+}
+
+.service-card a,
+.service-card a:hover,
+.service-card a:focus,
+.service-card a:active,
+.service-card a:visited {
+  text-decoration: none !important;
+  color: inherit;
+}
+
+/* =====================================================
+   CARD
+   ===================================================== */
+.service-card {
+  position: relative;
+
+  background: var(--almond-cream);
+  border-radius: 24px;
+  padding: 40px 36px;
+
+  border: 1px solid rgba(94,80,63,0.18);
+  box-shadow:
+    0 14px 36px rgba(10,9,8,0.12);
+
+  cursor: pointer;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+
+  transition:
+    transform .45s ease,
+    box-shadow .45s ease,
+    background .45s ease,
+    border-color .45s ease;
+}
+
+/* =====================================================
+   HOVER – PREMIUM (NOT BRUTAL)
+   ===================================================== */
+.service-card:hover {
+  transform: translateY(-10px);
+
+  background: linear-gradient(
+    135deg,
+    rgba(34,51,59,0.96),  /* jet-black */
+    rgba(10,9,8,0.92)    /* black */
+  );
+
+  border-color: rgba(198,172,143,0.65);
+
+  box-shadow:
+    0 30px 70px rgba(10,9,8,0.45);
+}
+
+/* =====================================================
+   TEXT
+   ===================================================== */
+.service-card h3 {
+  font-size: 1.45rem;
+  margin-bottom: 14px;
+  font-weight: 700;
+  color: var(--black);
+
+  transition: color .35s ease;
+}
+
+.service-card p {
+  color: var(--stone-brown);
+  line-height: 1.75;
+
+  transition: color .35s ease;
+}
+
+/* CTA TEXT */
+.service-card span {
+  margin-top: 28px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: rgba(94,80,63,0.85);
+
+  transition: color .35s ease;
+}
+
+/* =====================================================
+   TEXT HOVER
+   ===================================================== */
+.service-card:hover h3 {
+  color: var(--almond-cream);
+}
+
+.service-card:hover p {
+  color: rgba(234,224,213,0.9);
+}
+
+.service-card:hover span {
+  color: var(--khaki-beige);
+}
+
+/* =====================================================
+   MOBILE
+   ===================================================== */
+@media (max-width: 768px) {
+  .service-section {
+    padding: 80px 0;
+  }
+
+  .service-container {
+    gap: 24px;
+  }
+
+  .service-card {
+    padding: 32px 28px;
+  }
+}
+
+/* =====================================================
+   PROCUREMENT FLOW – PREMIUM
+   ===================================================== */
+.procurement-flow {
+  padding: 120px 0;
+  background: linear-gradient(
+    135deg,
+    rgba(234,224,213,0.96),   /* almond cream */
+    rgba(198,172,143,0.88)    /* khaki beige */
+  );
+}
+
+/* =====================================================
+   CONTAINER
+   ===================================================== */
+.procurement-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 32px;
+
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 80px;
+  align-items: start;
+}
+
+/* =====================================================
+   LEFT – INTRO
+   ===================================================== */
+.procurement-intro h2 {
+  font-size: clamp(2.2rem, 3.5vw, 2.8rem);
+  font-weight: 800;
+  margin-bottom: 18px;
+  color: var(--black);
+}
+
+.procurement-intro p {
+  font-size: 1.05rem;
+  line-height: 1.85;
+  color: rgba(94,80,63,0.9);
+  max-width: 460px;
+}
+
+/* =====================================================
+   RIGHT – STEPS
+   ===================================================== */
+.procurement-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* =====================================================
+   STEP CARD
+   ===================================================== */
+.procurement-step {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+
+  padding: 26px 30px;
+  border-radius: 20px;
+
+  background: var(--almond-cream);
+  border: 1px solid rgba(94,80,63,0.18);
+
+  box-shadow:
+    0 14px 36px rgba(10,9,8,0.10);
+
+  transition:
+    transform .4s ease,
+    box-shadow .4s ease,
+    background .4s ease,
+    border-color .4s ease;
+}
+
+/* =====================================================
+   HOVER – SOFT & INSTITUTIONAL
+   ===================================================== */
+.procurement-step:hover {
+  transform: translateX(6px);
+
+  background: linear-gradient(
+    135deg,
+    rgba(34,51,59,0.96),  /* jet-black */
+    rgba(10,9,8,0.92)    /* black */
+  );
+
+  border-color: rgba(198,172,143,0.6);
+
+  box-shadow:
+    0 28px 64px rgba(10,9,8,0.38);
+}
+
+/* =====================================================
+   STEP NUMBER
+   ===================================================== */
+.step-number {
+  font-size: 1.15rem;
+  font-weight: 800;
+  min-width: 40px;
+  color: rgba(94,80,63,0.9);
+
+  transition: color .35s ease;
+}
+
+/* =====================================================
+   STEP TEXT
+   ===================================================== */
+.procurement-step h4 {
+  font-size: 1.15rem;
+  margin-bottom: 8px;
+  font-weight: 700;
+  color: var(--black);
+
+  transition: color .35s ease;
+}
+
+.procurement-step p {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: rgba(94,80,63,0.9);
+
+  transition: color .35s ease;
+}
+
+/* =====================================================
+   HOVER TEXT COLOR
+   ===================================================== */
+.procurement-step:hover .step-number {
+  color: var(--khaki-beige);
+}
+
+.procurement-step:hover h4 {
+  color: var(--almond-cream);
+}
+
+.procurement-step:hover p {
+  color: rgba(234,224,213,0.9);
+}
+
+/* =====================================================
+   MOBILE
+   ===================================================== */
+@media (max-width: 768px) {
+  .procurement-container {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+
+  .procurement-step {
+    padding: 24px 24px;
+  }
+
+  .procurement-step:hover {
+    transform: translateY(-6px);
+  }
+}
+
+
+/* ================= CTA SECTION ================= */
+.service-cta {
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  color: var(--almond-cream);
+  padding: 120px 24px;
+  text-align: center;
+}
+
+.service-cta h2 {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  margin-bottom: 16px;
+  color: var(--almond-cream);
+}
+
+.service-cta p {
+  color: rgba(234,224,213,0.85);
+  max-width: 640px;
+  margin: 0 auto 36px;
+  line-height: 1.7;
+}
+
+/* ================= CTA BUTTON ================= */
+.cta-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  background: var(--khaki-beige);
+  color: var(--black);
+
+  padding: 16px 36px;
+  border-radius: 999px;
+
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+
+  box-shadow: 0 18px 40px rgba(10,9,8,0.35);
+
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease,
+    color 0.25s ease;
+}
+
+/* HOVER */
+.cta-button:hover {
+  background: var(--almond-cream);
+  color: var(--jet-black);
+  transform: translateY(-4px);
+  box-shadow: 0 28px 60px rgba(10,9,8,0.45);
+}
+
+/* ACTIVE */
+.cta-button:active {
+  transform: scale(0.97);
+  box-shadow: 0 14px 28px rgba(10,9,8,0.35);
+}
+/* ================= SERVICE CARD – HOVER ================= */
+.service-card:hover {
+  transform: translateY(-10px);
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  box-shadow: 0 30px 70px rgba(10,9,8,0.35);
+  border-color: var(--khaki-beige);
+}
+
+.service-card:hover h3 {
+  color: var(--khaki-beige);
+}
+
+.service-card:hover p {
+  color: var(--almond-cream);
+}
+
+/* ================= SERVICE CARD – ACTIVE ================= */
+.service-card:active {
+  transform: scale(0.97);
+  box-shadow: 0 16px 40px rgba(10,9,8,0.45);
+}
+
+/* ================= CTA BUTTON – HOVER ================= */
+.cta-button:hover {
+  background: var(--stone-brown);
+  color: var(--almond-cream);
+  transform: translateY(-4px);
+  box-shadow: 0 28px 60px rgba(10,9,8,0.35);
+}
+
+/* ================= CTA BUTTON – ACTIVE ================= */
+.cta-button:active {
+  transform: scale(0.96);
+  box-shadow: 0 14px 28px rgba(10,9,8,0.3);
+}
+
+
+/* ================= CTA SECTION ================= */
+.cta-section {
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  text-align: center;
+  padding: 100px 24px;
+  color: var(--almond-cream);
+}
+
+.cta-section h2 {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  margin-bottom: 16px;
+  color: var(--almond-cream);
+}
+
+.cta-section p {
+  font-size: 1.1rem;
+  color: var(--khaki-beige);
+  max-width: 600px;
+  margin: 0 auto 36px;
+}
+
+/* ================= BUTTON ================= */
+.cta-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  background: var(--khaki-beige);
+  color: var(--black);
+
+  padding: 16px 36px;
+  border-radius: 999px;
+
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease,
+    color 0.25s ease;
+}
+
+.cta-button:hover {
+  background: var(--stone-brown);
+  color: var(--almond-cream);
+  transform: translateY(-4px);
+  box-shadow: 0 22px 44px rgba(10,9,8,0.45);
+}
+
+.cta-button:active {
+  transform: scale(0.96);
+  box-shadow: 0 12px 24px rgba(10,9,8,0.3);
+}
+
+/* ================= MOBILE ================= */
+@media (max-width: 768px) {
+  .service-hero {
+    padding: 0 24px;
+    min-height: 75vh;
+  }
+
+  .service-hero h1 {
+    font-size: 2.4rem;
+  }
+
+  .service-container {
+    gap: 24px;
+  }
+
+  .service-card {
+    padding: 36px 28px;
+  }
+}
+/* =====================================================
+   SERVICE – INAPROC / LKPP
+   ===================================================== */
+
+/* SECTION */
+.service-inaproc {
+  padding: 100px 24px;
+  background: linear-gradient(
+    180deg,
+    rgba(234,224,213,0.95),
+    rgba(198,172,143,0.85)
+  );
+}
+
+/* INNER */
+.service-inaproc-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+/* TITLE */
+.service-inaproc-title {
+  font-size: clamp(2rem, 3.5vw, 2.6rem);
+  font-weight: 800;
+  color: var(--jet-black);
+  margin-bottom: 20px;
+}
+
+/* DESC */
+.service-inaproc-desc {
+  max-width: 820px;
+  margin: 0 auto 56px;
+  color: var(--stone-brown);
+  line-height: 1.8;
+}
+
+/* GRID INFO */
+.service-inaproc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin-bottom: 72px;
+}
+
+/* ITEM */
+.service-inaproc-item {
+  background: var(--almond-cream);
+  border-radius: 18px;
+  padding: 32px 28px;
+
+  border: 1px solid rgba(94,80,63,0.2);
+  box-shadow: 0 14px 36px rgba(10,9,8,0.12);
+
+  transition:
+    transform .35s ease,
+    box-shadow .35s ease;
+}
+
+.service-inaproc-item:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 26px 60px rgba(10,9,8,0.35);
+}
+
+.service-inaproc-item h4 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--jet-black);
+  margin-bottom: 10px;
+}
+
+.service-inaproc-item p {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--stone-brown);
+}
+
+/* =====================================================
+   CLICKABLE CARD – INAPROC
+   ===================================================== */
+
+.service-inaproc-section {
+  padding-bottom: 100px;
+}
+
+.service-inaproc-wrapper {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* CARD */
+.service-inaproc-card {
+  position: relative;
+  display: block;
+
+  background: var(--almond-cream);
+  border-radius: 20px;
+  padding: 40px 36px;
+
+  text-decoration: none;
+  color: inherit;
+
+  border: 1px solid rgba(94,80,63,0.22);
+  box-shadow: 0 16px 40px rgba(10,9,8,0.14);
+
+  /* FADE UP */
+  opacity: 0;
+  transform: translateY(32px);
+  animation: inaprocFadeUp 0.9s ease forwards;
+
+  transition:
+    transform .35s ease,
+    box-shadow .35s ease,
+    background .35s ease,
+    border-color .35s ease;
+}
+
+/* BADGE */
+.inaproc-badge {
+  position: absolute;
+  top: -14px;
+  left: 32px;
+
+  background: var(--khaki-beige);
+  color: var(--black);
+
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  padding: 8px 14px;
+  border-radius: 999px;
+
+  box-shadow: 0 8px 20px rgba(10,9,8,0.25);
+}
+
+/* ICON */
+.service-inaproc-card .service-icon {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 14px;
+  background: rgba(198,172,143,0.25);
+}
+
+.service-inaproc-card .service-icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+/* TITLE */
+.service-inaproc-card h3 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin-bottom: 14px;
+  color: var(--jet-black);
+}
+
+/* TEXT */
+.service-inaproc-card p {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--stone-brown);
+}
+
+/* META */
+.service-inaproc-card .service-meta {
+  display: block;
+  margin-top: 18px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(94,80,63,0.75);
+}
+
+/* HOVER – PREMIUM */
+.service-inaproc-card:hover {
+  transform: translateY(-8px);
+  background: linear-gradient(
+    135deg,
+    var(--jet-black),
+    var(--black)
+  );
+  border-color: var(--khaki-beige);
+  box-shadow: 0 30px 70px rgba(10,9,8,0.45);
+}
+
+.service-inaproc-card:hover h3 {
+  color: var(--almond-cream);
+}
+
+.service-inaproc-card:hover p {
+  color: rgba(234,224,213,0.9);
+}
+
+.service-inaproc-card:hover .service-meta {
+  color: var(--khaki-beige);
+}
+
+/* =====================================================
+   ANIMATION
+   ===================================================== */
+@keyframes inaprocFadeUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =====================================================
+   RESPONSIVE
+   ===================================================== */
+@media (max-width: 900px) {
+  .service-inaproc-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .service-inaproc {
+    padding: 72px 20px;
+  }
+
+  .service-inaproc-card {
+    padding: 28px 24px;
+  }
+
+  .inaproc-badge {
+    left: 20px;
+  }
+
+  .service-inaproc-card h3 {
+    font-size: 1.1rem;
+  }
+
+  .service-inaproc-card p {
+    font-size: 0.9rem;
+  }
+}
+
+
+/* =====================================================
+   FINAL MOBILE & TABLET BUG FIX – HERO & BRAND
+   ===================================================== */
+
+/* ---------- GLOBAL HERO SAFETY ---------- */
+@media (max-width: 1024px) {
+  .service-hero-content {
+    margin-left: 0;        /* FIX: hilangkan offset kiri */
+  }
+}
+
+/* ---------- TABLET (≤1024px) ---------- */
+@media (max-width: 1024px) {
+
+  .video-hero,
+  .service-hero {
+    min-height: 75vh;      /* stabil, tidak lompat */
+  }
+
+  .service-hero-content {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
+/* ---------- MOBILE (≤768px) ---------- */
+@media (max-width: 768px) {
+
+  /* HERO HEIGHT FIX */
+  .video-hero,
+  .service-hero {
+    min-height: 80vh;
+    align-items: flex-start;
+  }
+
+  /* TEXT POSITION FIX */
+  .service-hero-content {
+    padding-top: 120px;    /* aman dari header */
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-bottom: 32px;
+    max-width: 100%;
+  }
+
+  /* TITLE & DESC */
+  .service-hero-content h1 {
+    font-size: 2.2rem;
+    line-height: 1.25;
+    margin-bottom: 16px;
+  }
+
+  .service-hero-content p {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  /* OVERLAY SAFETY (ANTI PUTIH / ANTI BUG) */
+  .service-hero-overlay {
+    background: linear-gradient(
+      to bottom,
+      rgba(10,9,8,0.88) 0%,
+      rgba(10,9,8,0.65) 60%,
+      rgba(10,9,8,0.35) 100%
+    );
+  }
+}

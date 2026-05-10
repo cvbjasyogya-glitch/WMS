@@ -1,0 +1,21 @@
+<svg width="1440" height="600" viewBox="0 0 1440 600" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1440" height="600" fill="#1f2933"/>
+
+  <!-- Circle kiri atas -->
+  <circle cx="0" cy="0" r="320" fill="rgba(255,255,255,0.05)"/>
+
+  <!-- Circle kanan atas -->
+  <circle cx="1440" cy="0" r="420" fill="rgba(255,255,255,0.04)"/>
+
+  <!-- Circle tengah atas -->
+  <circle cx="720" cy="-80" r="260" fill="rgba(255,255,255,0.03)"/>
+
+  <!-- Wave halus -->
+  <path
+    d="M0 220 C 240 180, 480 260, 720 230
+       C 960 200, 1200 260, 1440 230
+       L 1440 0 L 0 0 Z"
+    fill="rgba(255,255,255,0.02)"
+  />
+</svg>

@@ -1,0 +1,184 @@
+/* =====================================================
+   REVEAL ANIMATION (GLOBAL)
+   ===================================================== */
+.reveal,
+.reveal-left,
+.reveal-right,
+.reveal-zoom {
+  opacity: 0;
+  will-change: transform, opacity;
+  transition:
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.9s ease;
+}
+
+/* VARIANTS */
+.reveal {
+  transform: translateY(60px);
+}
+
+.reveal-left {
+  transform: translateX(-80px);
+}
+
+.reveal-right {
+  transform: translateX(80px);
+}
+
+.reveal-zoom {
+  transform: scale(0.92);
+}
+
+/* ACTIVE */
+.reveal.show,
+.reveal-left.show,
+.reveal-right.show,
+.reveal-zoom.show {
+  opacity: 1;
+  transform: none;
+}
+
+/* DELAY */
+.reveal-delay-1 { transition-delay: .15s; }
+.reveal-delay-2 { transition-delay: .3s; }
+.reveal-delay-3 { transition-delay: .45s; }
+
+/* =====================================================
+   SPACING UTILITIES
+   ===================================================== */
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
+.mt-40 { margin-top: 40px; }
+.mt-64 { margin-top: 64px; }
+
+.mb-16 { margin-bottom: 16px; }
+.mb-24 { margin-bottom: 24px; }
+.mb-40 { margin-bottom: 40px; }
+
+/* =====================================================
+   GLOBAL COLOR SYSTEM — CV BJAS
+   ===================================================== */
+:root {
+  --black: #0a0908;
+  --jet-black: #22333b;
+
+  --almond-cream: #eae0d5;
+  --khaki-beige: #c6ac8f;
+  --stone-brown: #5e503f;
+
+  --text-dark: var(--black);
+  --text-muted: var(--stone-brown);
+  --text-light: var(--almond-cream);
+
+  --accent: var(--khaki-beige);
+
+  --shadow-soft: 0 10px 30px rgba(10,9,8,.08);
+  --shadow-medium: 0 20px 50px rgba(10,9,8,.15);
+}
+
+/* =====================================================
+   GLOBAL RESET WARNA
+   ===================================================== */
+body {
+  background: var(--almond-cream);
+  color: var(--text-dark);
+}
+
+/* =====================================================
+   TEXT UTILITIES
+   ===================================================== */
+.text-dark { color: var(--text-dark); }
+.text-muted { color: var(--text-muted); }
+.text-light { color: var(--text-light); }
+.text-accent { color: var(--accent); }
+
+/* =====================================================
+   BACKGROUND UTILITIES
+   ===================================================== */
+.bg-light { background: var(--almond-cream); }
+.bg-dark { background: var(--jet-black); color: var(--almond-cream); }
+
+.bg-gradient-dark {
+  background: linear-gradient(135deg, var(--black), var(--jet-black));
+}
+
+.bg-gradient-soft {
+  background: linear-gradient(to bottom, var(--almond-cream), #f4ede4);
+}
+
+/* =====================================================
+   BUTTON SYSTEM
+   ===================================================== */
+.btn-primary {
+  background: var(--jet-black);
+  color: var(--almond-cream);
+  padding: 14px 32px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--shadow-soft);
+  transition: .25s;
+}
+.btn-primary:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-medium);
+}
+
+.btn-accent {
+  background: var(--khaki-beige);
+  color: var(--black);
+}
+
+/* =====================================================
+   CARD SYSTEM
+   ===================================================== */
+.card {
+  background: var(--almond-cream);
+  border-radius: 24px;
+  padding: 36px 32px;
+  box-shadow: var(--shadow-soft);
+}
+.card h3 { color: var(--jet-black); }
+.card p { color: var(--stone-brown); }
+
+/* =====================================================
+   LAYOUT HELPERS
+   ===================================================== */
+.flex {
+  display: flex;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 32px;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+}
+
+/* =====================================================
+   MOBILE SAFETY
+   ===================================================== */
+@media (max-width: 768px) {
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .reveal,
+  .reveal-left,
+  .reveal-right,
+  .reveal-zoom {
+    transform: translateY(40px);
+  }
+}

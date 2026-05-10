@@ -1,0 +1,44 @@
+<svg
+  viewBox="0 0 1920 500"
+  width="100%"
+  height="500"
+  preserveAspectRatio="xMidYMid slice"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <!-- Background -->
+  <rect width="1920" height="500" fill="#3f5c88"/>
+
+  <!-- Bubble besar (kanan atas) -->
+  <circle cx="1450" cy="140" r="110" fill="rgba(255,255,255,0.06)">
+    <animate
+      attributeName="cy"
+      from="130"
+      to="150"
+      dur="12s"
+      repeatCount="indefinite"
+      direction="alternate"/>
+  </circle>
+
+  <!-- Bubble sedang (kanan bawah) -->
+  <circle cx="1350" cy="360" r="70" fill="rgba(255,255,255,0.08)">
+    <animate
+      attributeName="cy"
+      from="350"
+      to="370"
+      dur="14s"
+      repeatCount="indefinite"
+      direction="alternate"/>
+  </circle>
+
+  <!-- Bubble kecil (tengah) -->
+  <circle cx="900" cy="260" r="35" fill="rgba(255,255,255,0.1)">
+    <animate
+      attributeName="cx"
+      from="890"
+      to="910"
+      dur="16s"
+      repeatCount="indefinite"
+      direction="alternate"/>
+  </circle>
+
+</svg>
