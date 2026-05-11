@@ -104,7 +104,7 @@
             <div class="career-candidate-preview-actions">
                 <a href="{{ url_for('career.opening_detail', opening_id=selected_opening.id) }}" class="career-candidate-primary-action">Lihat Detail</a>
                 {% if preview_application and preview_application.assessment_url %}
-                <a href="{{ preview_application.assessment_url }}" class="career-candidate-secondary-action">Lanjut Tes</a>
+                <a href="{{ preview_application.assessment_url }}" class="career-candidate-secondary-action">{{ preview_application.assessment_action_label or 'Lanjut Tes' }}</a>
                 {% elif preview_application %}
                 <a href="{{ url_for('career.applications_page') }}" class="career-candidate-secondary-action">Lihat Lamaran</a>
                 {% else %}

@@ -13636,7 +13636,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(candidate_row)
         self.assertIsNone(candidate_row["public_account_id"])
 
-    def test_public_career_applications_page_uses_assessment_entry_page_link(self):
+    def test_public_career_applications_page_uses_direct_assessment_code_link(self):
         with self.app.app_context():
             db = get_db()
             ensure_career_schema(db)
@@ -13678,8 +13678,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/karir/lamaran")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('href="/karir/tes"', html)
-        self.assertNotIn("/karir/tes?code=54321", html)
+        self.assertIn('href="/karir/tes?code=54321"', html)
         self.assertIn("54321", html)
 
     def test_public_career_applications_page_hides_premature_assessment_code_before_hr_screening(self):
@@ -18240,6 +18239,109 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(after_retry["assessment_answers_json"], before_retry["assessment_answers_json"])
         self.assertEqual(float(after_retry["assessment_auto_score"]), float(before_retry["assessment_auto_score"]))
         self.assertEqual(float(after_retry["assessment_final_score"]), float(before_retry["assessment_final_score"]))
+
+    def test_finished_public_career_assessment_opens_read_only_from_candidate_portal(self):
+        self.seed_recruitment_assessment_suite(warehouse_id=1)
+        account = self.login_public_career_account_session(
+            email="finished-assessment@example.com",
+            full_name="Finished Assessment",
+            ready_profile=True,
+        )
+        submitted_at = "2026-05-11 10:15:00"
+        section_state = {
+            "current": "",
+            "sections": {
+                "basic": {"started_at": "2026-05-11 09:00:00", "submitted_at": "2026-05-11 09:15:00"},
+                "academic": {"started_at": "2026-05-11 09:15:00", "submitted_at": "2026-05-11 09:30:00"},
+                "case_study": {"started_at": "2026-05-11 09:30:00", "submitted_at": submitted_at},
+            },
+        }
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO career_openings(
+                    warehouse_id, title, department, employment_type, location_label,
+                    description, requirements, status, is_public, sort_order
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    1,
+                    "Portal Finished Assessment",
+                    "Retail",
+                    "full_time",
+                    "Mataram",
+                    "Lowongan untuk memastikan tes selesai tidak bisa dimulai ulang.",
+                    "Teliti.",
+                    "published",
+                    1,
+                    1,
+                ),
+            )
+            db.commit()
+            opening = db.execute(
+                "SELECT id FROM career_openings WHERE title=? LIMIT 1",
+                ("Portal Finished Assessment",),
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name, warehouse_id, position_title, department, stage, status, source,
+                    phone, email, vacancy_id, application_channel, public_account_id,
+                    assessment_code, assessment_status, assessment_duration_minutes,
+                    assessment_section_durations_json, assessment_section_state_json,
+                    assessment_submitted_at, assessment_auto_score, assessment_final_score, updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "Finished Assessment",
+                    1,
+                    "Portal Finished Assessment",
+                    "Retail",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "6281233334444",
+                    "finished-assessment@example.com",
+                    opening["id"],
+                    "public_portal",
+                    account["id"],
+                    "67891",
+                    "submitted",
+                    45,
+                    json.dumps({"basic": 15, "academic": 15, "case_study": 15}),
+                    json.dumps(section_state),
+                    submitted_at,
+                    86,
+                    86,
+                ),
+            )
+            db.commit()
+
+        applications_response = self.client.get("/karir/lamaran")
+        self.assertEqual(applications_response.status_code, 200)
+        applications_html = applications_response.get_data(as_text=True)
+        self.assertIn("Lihat Tes Selesai", applications_html)
+        self.assertIn("/karir/tes?code=67891", applications_html)
+        self.assertIn("Tes selesai", applications_html)
+        self.assertNotIn(">Masuk Tes<", applications_html)
+
+        portal_response = self.client.get(f"/karir/portal?vacancy={opening['id']}")
+        self.assertEqual(portal_response.status_code, 200)
+        portal_html = portal_response.get_data(as_text=True)
+        self.assertIn("Lihat Tes Selesai", portal_html)
+        self.assertIn("/karir/tes?code=67891", portal_html)
+
+        retry_start_response = self.client.get("/karir/tes?code=67891&start=1")
+        self.assertEqual(retry_start_response.status_code, 200)
+        retry_html = retry_start_response.get_data(as_text=True)
+        self.assertIn("Terima kasih telah mengikuti tes dari kami.", retry_html)
+        self.assertIn("Nilai tidak ditampilkan di halaman ini", retry_html)
+        self.assertNotIn("Pertanyaan Berikutnya", retry_html)
 
     def test_career_schema_repairs_missing_postgresql_id_defaults(self):
         with self.app.app_context():

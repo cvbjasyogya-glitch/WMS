@@ -1704,21 +1704,37 @@ def _fetch_candidate_workspace_applications(db, account):
             else build_career_public_url("career.index")
         )
         application["assessment_ready"] = _is_public_candidate_assessment_ready(application)
+        assessment_code = normalize_assessment_code(application.get("assessment_code"))
+        assessment_status = normalize_career_assessment_status(application.get("assessment_status"))
+        application["assessment_finished"] = assessment_status in {"submitted", "reviewed"}
         application["assessment_url"] = (
-            build_career_public_url("career.assessment")
-            if application["assessment_ready"]
+            build_career_public_url("career.assessment", code=assessment_code)
+            if application["assessment_ready"] and assessment_code
             else ""
         )
-        application["assessment_code_display"] = (
-            application.get("assessment_code")
-            if application["assessment_ready"]
-            else _get_public_candidate_assessment_status_display(safe_status, safe_stage)
+        application["assessment_action_label"] = (
+            "Lihat Tes Selesai"
+            if application["assessment_finished"]
+            else "Lanjut Tes"
+            if assessment_status == "started"
+            else "Masuk Tes"
         )
-        application["progress_note"] = (
-            "Kode tes Anda sudah tersedia. Saat sudah siap, Anda bisa lanjut ke halaman tes dari tombol di bawah."
-            if application["assessment_ready"]
-            else _get_public_candidate_progress_note(safe_status, safe_stage)
-        )
+        if application["assessment_finished"]:
+            application["assessment_code_display"] = "Tes selesai"
+            application["progress_note"] = (
+                "Tes Anda sudah selesai dan tersimpan. Halaman tes hanya bisa dibuka untuk melihat ringkasan, bukan mengerjakan ulang."
+            )
+        elif application["assessment_ready"]:
+            application["assessment_code_display"] = assessment_code
+            application["progress_note"] = (
+                "Kode tes Anda sudah tersedia. Saat sudah siap, Anda bisa lanjut ke halaman tes dari tombol di bawah."
+            )
+        else:
+            application["assessment_code_display"] = _get_public_candidate_assessment_status_display(
+                safe_status,
+                safe_stage,
+            )
+            application["progress_note"] = _get_public_candidate_progress_note(safe_status, safe_stage)
         applications.append(application)
     return applications
 

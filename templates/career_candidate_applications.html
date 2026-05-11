@@ -34,7 +34,7 @@
             <div class="career-candidate-card-actions">
                 <a href="{{ application.detail_url }}" class="career-candidate-secondary-action">Lihat Posisi</a>
                 {% if application.assessment_url %}
-                <a href="{{ application.assessment_url }}" class="career-candidate-primary-action">Masuk Tes</a>
+                <a href="{{ application.assessment_url }}" class="career-candidate-primary-action">{{ application.assessment_action_label or 'Masuk Tes' }}</a>
                 {% endif %}
             </div>
         </article>
