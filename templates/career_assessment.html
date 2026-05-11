@@ -863,17 +863,45 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
         padding: 18px 16px;
     }
 
-    .career-assessment-rail,
     .career-assessment-finished-grid,
     .career-assessment-intro-grid,
     .career-assessment-intro-stats {
         grid-template-columns: 1fr;
     }
 
+    .career-assessment-rail {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        padding: 2px 2px 8px;
+        margin-inline: -2px;
+        scrollbar-width: none;
+    }
+
+    .career-assessment-rail::-webkit-scrollbar {
+        display: none;
+    }
+
+    .career-assessment-rail-card {
+        min-width: min(230px, 72vw);
+        padding: 14px;
+        border-radius: 18px;
+        scroll-snap-align: start;
+    }
+
     .career-assessment-stage-meta,
     .career-assessment-topbar {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .career-assessment-topbar-meta {
+        width: 100%;
+    }
+
+    .career-assessment-meta-pill {
+        max-width: 100%;
     }
 
     .career-assessment-stage-timer {
@@ -913,6 +941,249 @@ body.minimal-shell .main.career-public-shell > .page-content.career-assessment-p
     .career-assessment-popup button,
     .career-assessment-finished-actions a {
         min-height: 52px;
+    }
+}
+
+@media (max-width: 560px) {
+    body .main.career-public-shell {
+        padding-bottom: 20px;
+    }
+
+    body.minimal-shell .main.career-public-shell > .page-content.career-assessment-page {
+        width: min(100%, calc(100vw - 10px));
+    }
+
+    .career-assessment-shell {
+        gap: 12px;
+        padding-top: 8px;
+    }
+
+    .career-assessment-topbar,
+    .career-assessment-stage-frame,
+    .career-assessment-finished-frame {
+        border-radius: 18px;
+        box-shadow: none;
+    }
+
+    .career-assessment-topbar {
+        padding: 12px;
+        gap: 10px;
+    }
+
+    .career-assessment-brand-mark {
+        width: 32px;
+        height: 32px;
+    }
+
+    .career-assessment-brand-copy strong {
+        font-size: 0.9rem;
+    }
+
+    .career-assessment-brand-copy span {
+        display: none;
+    }
+
+    .career-assessment-topbar-meta {
+        gap: 6px;
+    }
+
+    .career-assessment-meta-pill {
+        min-height: 32px;
+        padding: 0 10px;
+        font-size: 0.76rem;
+    }
+
+    .career-assessment-stage-frame,
+    .career-assessment-finished-frame {
+        padding: 14px 12px;
+        gap: 14px;
+    }
+
+    .career-assessment-stage-meta {
+        gap: 10px;
+    }
+
+    .career-assessment-stage-kicker {
+        font-size: 0.68rem;
+        letter-spacing: 0.08em;
+    }
+
+    .career-assessment-stage-line strong {
+        font-size: 0.9rem;
+    }
+
+    .career-assessment-stage-line span,
+    .career-assessment-stage-timer span {
+        font-size: 0.76rem;
+    }
+
+    .career-assessment-stage-timer strong {
+        font-size: 1.38rem;
+    }
+
+    .career-assessment-stage-intro {
+        gap: 4px;
+    }
+
+    .career-assessment-stage-intro h1,
+    .career-assessment-intro-panel h2,
+    .career-assessment-intro-notes h2 {
+        font-size: 1.22rem;
+        letter-spacing: 0;
+    }
+
+    .career-assessment-stage-intro p,
+    .career-assessment-rail-card p,
+    .career-assessment-intro-panel > p {
+        display: none;
+    }
+
+    .career-assessment-rail-card {
+        min-width: min(190px, 74vw);
+        padding: 12px;
+        gap: 6px;
+    }
+
+    .career-assessment-rail-order {
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+        font-size: 0.78rem;
+    }
+
+    .career-assessment-rail-card strong {
+        font-size: 0.9rem;
+    }
+
+    .career-assessment-rail-meta,
+    .career-assessment-rail-status {
+        font-size: 0.72rem;
+    }
+
+    .career-assessment-intro-panel,
+    .career-assessment-intro-notes,
+    .career-question-card,
+    .career-assessment-finished-card,
+    .career-assessment-finished-notes {
+        padding: 14px;
+        border-radius: 16px;
+    }
+
+    .career-assessment-intro-stats {
+        gap: 8px;
+    }
+
+    .career-assessment-intro-stat {
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    .career-assessment-intro-notes ul {
+        gap: 6px;
+        padding-left: 16px;
+    }
+
+    .career-assessment-intro-panel p,
+    .career-assessment-intro-notes p,
+    .career-assessment-intro-notes li,
+    .career-question-card p,
+    .career-question-option-body span,
+    .career-assessment-footnotes p,
+    .career-assessment-finished-card span,
+    .career-assessment-finished-notes p,
+    .career-assessment-finished-notes li {
+        line-height: 1.55;
+    }
+
+    .career-question-card {
+        gap: 14px;
+    }
+
+    .career-question-marker {
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+    }
+
+    .career-question-card h2 {
+        font-size: 1.1rem;
+        line-height: 1.38;
+        letter-spacing: 0;
+    }
+
+    .career-question-options {
+        gap: 9px;
+    }
+
+    .career-question-option,
+    .career-question-card[data-question-variant="scale_five"] .career-question-option {
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 10px;
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    .career-question-option-badge,
+    .career-question-card[data-question-variant="scale_five"] .career-question-option-badge {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        font-size: 0.84rem;
+    }
+
+    .career-question-card[data-question-variant="scale_five"] .career-question-option-body span {
+        font-size: 0.94rem;
+    }
+
+    .career-assessment-actions button,
+    .career-assessment-popup button,
+    .career-assessment-finished-actions a,
+    .career-assessment-intro-action {
+        min-height: 48px;
+        border-radius: 14px;
+    }
+
+    .career-assessment-footnotes {
+        gap: 4px;
+        text-align: left;
+        justify-items: stretch;
+    }
+
+    #careerAssessmentShortcutNote,
+    .career-assessment-footnotes p:last-child {
+        display: none;
+    }
+
+    .career-assessment-finished-head {
+        gap: 10px;
+        text-align: left;
+        justify-items: start;
+    }
+
+    .career-assessment-finished-head h1 {
+        font-size: 1.38rem;
+        letter-spacing: 0;
+    }
+
+    .career-assessment-finished-identity {
+        justify-content: flex-start;
+    }
+
+    .career-assessment-finished-actions {
+        display: grid;
+        gap: 8px;
+    }
+
+    .career-assessment-finished-actions a {
+        width: 100%;
+    }
+
+    .career-assessment-popup {
+        padding: 12px;
+    }
+
+    .career-assessment-popup-card {
+        padding: 20px 16px;
+        border-radius: 18px;
     }
 }
 </style>
