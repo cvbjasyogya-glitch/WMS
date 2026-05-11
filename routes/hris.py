@@ -7308,19 +7308,35 @@ def _fetch_recruitment_assessment_next_sort_orders(db, warehouse_id=None):
     return next_sort_orders
 
 
-def _bootstrap_sports_retail_assessment_questions(db, warehouse_id=None, user_id=None):
+def _resolve_recruitment_assessment_generate_types(raw_value):
+    safe_value = str(raw_value or "").strip().lower().replace("-", "_")
+    if safe_value in {"", "all", "semua"}:
+        return list(CAREER_ASSESSMENT_TEST_ORDER)
+    safe_type = normalize_assessment_test_type(safe_value)
+    return [safe_type] if safe_value in CAREER_ASSESSMENT_TEST_LABELS else list(CAREER_ASSESSMENT_TEST_ORDER)
+
+
+def _bootstrap_sports_retail_assessment_questions(db, warehouse_id=None, user_id=None, test_types=None):
     ensure_career_schema(db)
     existing_prompt_keys = _fetch_recruitment_assessment_existing_prompt_keys(db, warehouse_id)
     next_sort_orders = _fetch_recruitment_assessment_next_sort_orders(db, warehouse_id)
+    selected_test_types = [
+        normalize_assessment_test_type(test_type)
+        for test_type in (test_types or CAREER_ASSESSMENT_TEST_ORDER)
+        if normalize_assessment_test_type(test_type) in CAREER_ASSESSMENT_TEST_LABELS
+    ] or list(CAREER_ASSESSMENT_TEST_ORDER)
     inserted = 0
     skipped = 0
+    inserted_by_type = {test_type: 0 for test_type in CAREER_ASSESSMENT_TEST_ORDER}
+    skipped_by_type = {test_type: 0 for test_type in CAREER_ASSESSMENT_TEST_ORDER}
 
-    for test_type in CAREER_ASSESSMENT_TEST_ORDER:
+    for test_type in selected_test_types:
         question_bank = SPORTS_RETAIL_ASSESSMENT_PRESET.get(test_type) or []
         for question in question_bank:
             prompt_key = _build_recruitment_assessment_prompt_key(test_type, question.get("prompt"))
             if prompt_key in existing_prompt_keys:
                 skipped += 1
+                skipped_by_type[test_type] = int(skipped_by_type.get(test_type) or 0) + 1
                 continue
             next_sort_orders[test_type] = int(next_sort_orders.get(test_type) or 0) + 10
             db.execute(
@@ -7363,8 +7379,15 @@ def _bootstrap_sports_retail_assessment_questions(db, warehouse_id=None, user_id
             )
             existing_prompt_keys.add(prompt_key)
             inserted += 1
+            inserted_by_type[test_type] = int(inserted_by_type.get(test_type) or 0) + 1
 
-    return {"inserted": inserted, "skipped": skipped}
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "inserted_by_type": inserted_by_type,
+        "skipped_by_type": skipped_by_type,
+        "selected_test_types": selected_test_types,
+    }
 
 
 def _fetch_career_openings(db, selected_warehouse=None):
@@ -10598,20 +10621,37 @@ def generate_recruitment_sports_retail_question_bank():
     db = get_db()
     ensure_career_schema(db)
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"), allow_empty=True)
+    selected_test_types = _resolve_recruitment_assessment_generate_types(request.form.get("test_type"))
     result = _bootstrap_sports_retail_assessment_questions(
         db,
         warehouse_id=warehouse_id,
         user_id=session.get("user_id"),
+        test_types=selected_test_types,
     )
     db.commit()
 
+    selected_labels = [
+        CAREER_ASSESSMENT_TEST_LABELS.get(test_type, test_type)
+        for test_type in result.get("selected_test_types") or selected_test_types
+    ]
+    inserted_parts = [
+        f"{CAREER_ASSESSMENT_TEST_LABELS[test_type]} {count}"
+        for test_type, count in (result.get("inserted_by_type") or {}).items()
+        if int(count or 0) > 0
+    ]
     if result["inserted"] > 0:
+        detail_label = ", ".join(inserted_parts) if inserted_parts else f"{result['inserted']} soal"
         flash(
-            f"Bank soal retail olahraga berhasil ditambahkan. {result['inserted']} soal baru masuk, {result['skipped']} soal mirip dilewati.",
+            f"Bank soal retail olahraga berhasil ditambahkan. {detail_label} baru masuk; {result['skipped']} soal mirip dilewati.",
             "success",
         )
     else:
-        flash("Bank soal retail olahraga untuk scope ini sudah terisi semua. Tidak ada soal baru yang ditambahkan.", "info")
+        flash(
+            "Bank soal retail olahraga untuk "
+            + ", ".join(selected_labels)
+            + " sudah terisi semua di scope ini. Aman diklik ulang, sistem tidak membuat duplikat.",
+            "info",
+        )
     return redirect("/hris/recruitment")
 
 

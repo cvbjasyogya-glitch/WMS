@@ -15962,6 +15962,69 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(int(total_after_second_generate), 26)
 
+    def test_hr_can_generate_selected_sports_retail_assessment_sections(self):
+        self.login_hr_user()
+
+        academic_generate = self.client.post(
+            "/hris/recruitment/question/generate-sports-retail",
+            data={"warehouse_id": "2", "test_type": "academic"},
+            follow_redirects=False,
+        )
+        self.assertEqual(academic_generate.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            academic_rows = db.execute(
+                """
+                SELECT test_type, prompt
+                FROM recruitment_assessment_questions
+                WHERE warehouse_id=?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (2,),
+            ).fetchall()
+
+        self.assertEqual(len(academic_rows), 8)
+        self.assertEqual({row["test_type"] for row in academic_rows}, {"academic"})
+        self.assertTrue(
+            any(
+                row["prompt"] == "Harga sepatu training Rp375.000 dengan diskon 20 persen. Berapa harga setelah diskon?"
+                for row in academic_rows
+            )
+        )
+
+        case_generate = self.client.post(
+            "/hris/recruitment/question/generate-sports-retail",
+            data={"warehouse_id": "2", "test_type": "case_study"},
+            follow_redirects=False,
+        )
+        self.assertEqual(case_generate.status_code, 302)
+
+        repeat_academic_generate = self.client.post(
+            "/hris/recruitment/question/generate-sports-retail",
+            data={"warehouse_id": "2", "test_type": "academic"},
+            follow_redirects=False,
+        )
+        self.assertEqual(repeat_academic_generate.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            totals = {
+                row["test_type"]: row["total"]
+                for row in db.execute(
+                    """
+                    SELECT test_type, COUNT(*) AS total
+                    FROM recruitment_assessment_questions
+                    WHERE warehouse_id=?
+                    GROUP BY test_type
+                    """,
+                    (2,),
+                ).fetchall()
+            }
+
+        self.assertEqual(totals, {"academic": 8, "case_study": 10})
+
     def test_hr_recruitment_rejection_sends_candidate_email(self):
         self.login_hr_user()
 

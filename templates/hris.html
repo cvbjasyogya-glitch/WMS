@@ -1988,10 +1988,21 @@
             {% endif %}
             <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
                 <div>
-                    <strong style="display:block; color:#6a4d1f; margin-bottom:4px;">Generate Bank Soal Retail Olahraga</strong>
-                    <p style="margin:0; color:#7d6b54; line-height:1.6;">Sekali klik untuk mengisi bank soal yang lebih relevan ke toko olahraga: sepatu, apparel, stok, promo, layanan pelanggan, dan operasional floor.</p>
+                    <strong style="display:block; color:#6a4d1f; margin-bottom:4px;">Generate / Lengkapi Bank Soal Retail Olahraga</strong>
+                    <p style="margin:0; color:#7d6b54; line-height:1.6;">Bisa diklik ulang. Sistem hanya menambah soal yang belum ada, termasuk TPA dan Studi Kasus, tanpa membuat duplikat.</p>
                 </div>
-                <button type="submit" style="min-width:240px;">Isi Bank Soal Retail Olahraga</button>
+                <div style="display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap;">
+                    <label style="display:grid; gap:6px; margin:0; min-width:230px; color:#6a4d1f;">
+                        Paket soal
+                        <select name="test_type">
+                            <option value="all">Semua jenis tes</option>
+                            <option value="basic">Tes Kemampuan Dasar</option>
+                            <option value="academic">Tes Potensi Akademik</option>
+                            <option value="case_study">Studi Kasus</option>
+                        </select>
+                    </label>
+                    <button type="submit" style="min-width:240px;">Generate Soal</button>
+                </div>
             </div>
         </form>
         <form method="POST" action="/hris/recruitment/question/add">
