@@ -52,6 +52,7 @@ body {
   justify-content: space-between;
   padding: 0 24px;
   background: transparent;
+  position: relative;
 }
 
 /* BRAND */
@@ -110,6 +111,16 @@ body {
   width: 100%;
 }
 
+.nav a.nav-portal {
+  border: 1px solid rgba(94, 80, 63, 0.35);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+
+.nav a.nav-portal::after {
+  display: none;
+}
+
 /* ACTIVE PAGE */
 .nav a.active {
   color: #5e503f;           /* stone brown */
@@ -124,10 +135,36 @@ body {
    HAMBURGER
    ===================================================== */
 .hamburger {
-  display: none;
+  display: flex;
   cursor: pointer;
-  font-size: 26px;
+  font-size: 0;
   color: #22333b;           /* jet black */
+  line-height: 1;
+  user-select: none;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  right: 16px;
+  top: 18px;
+  z-index: 120;
+}
+
+.hamburger::before {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: #0a0908;
+  border-radius: 999px;
+  box-shadow: 0 -7px 0 #0a0908, 0 7px 0 #0a0908;
+}
+
+@media (min-width: 901px) {
+  .hamburger {
+    display: none;
+  }
 }
 
 /* =====================================================
@@ -135,7 +172,13 @@ body {
    ===================================================== */
 @media (max-width: 768px) {
   .hamburger {
-    display: block;
+    display: flex;
+    position: fixed;
+    right: 16px;
+    top: 18px;
+    transform: none;
+    z-index: 120;
+    color: #0a0908;
   }
 
   .nav {
@@ -155,12 +198,15 @@ body {
    ===================================================== */
 @media (max-width: 900px) {
   .site-header {
-    min-height: 80px;
+    height: auto;
+    min-height: 104px;
   }
 
   .header-inner {
-    height: 80px;
-    padding: 0 16px;
+    height: auto;
+    min-height: 80px;
+    padding: 8px 16px 10px;
+    flex-wrap: wrap;
   }
 
   .brand-logo {
@@ -168,29 +214,38 @@ body {
   }
 
   .hamburger {
-    display: block;
+    display: none;
   }
 
   .nav {
-    position: absolute;
-    top: 80px;
-    left: 0;
+    position: static;
     width: 100%;
-     background: #eae0d5; /* almond cream */
-    border-bottom: 1px solid rgba(94, 80, 63, 0.3);
-    flex-direction: column;
-    padding: 16px;
+    margin: 0;
+    background: transparent;
+    border-bottom: 0;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 0 4px;
     gap: 16px;
-    display: none;
-    box-shadow: 0 6px 20px rgba(0,0,0,.15);
+    display: flex;
+    overflow-x: auto;
+    box-shadow: none;
     z-index: 99;
+    scrollbar-width: none;
   }
 
   .nav.show {
     display: flex;
   }
+
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+
   .nav a {
+    flex: 0 0 auto;
     color: #22333b;
+    font-size: 0.86rem;
   }
 
   .nav a:hover {

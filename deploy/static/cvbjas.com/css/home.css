@@ -3,14 +3,15 @@
    ===================================================== */
 .hero-video {
   position: relative;
-  min-height: 100vh;
+  min-height: min(720px, calc(100vh - 88px));
   overflow: hidden;
   display: flex;
   align-items: center;
   background: var(--jet-black);
 }
 
-/* VIDEO */
+/* HERO MEDIA */
+.hero-bg-image,
 .hero-bg-video {
   position: absolute;
   inset: 0;
@@ -42,12 +43,8 @@
   z-index: 3;
   width: 100%;
   padding: 0 64px;
-
-  /* animasi container */
-  opacity: 0;
-  transform: translateY(24px);
-  animation: heroFadeUp 1s ease forwards;
-  animation-delay: 0.2s;
+  opacity: 1;
+  transform: none;
 }
 
 /* EYEBROW */
@@ -59,10 +56,8 @@
   color: var(--khaki-beige);
   margin-bottom: 18px;
 
-  opacity: 0;
-  transform: translateY(16px);
-  animation: heroFadeUp 0.8s ease forwards;
-  animation-delay: 0.4s;
+  opacity: 1;
+  transform: none;
 }
 
 /* TITLE */
@@ -74,10 +69,8 @@
   margin-bottom: 28px;
   color: var(--almond-cream);
 
-  opacity: 0;
-  transform: translateY(20px);
-  animation: heroFadeUp 1s ease forwards;
-  animation-delay: 0.6s;
+  opacity: 1;
+  transform: none;
 }
 
 /* DESKRIPSI */
@@ -87,10 +80,8 @@
   max-width: 800px;
   color: rgba(234,224,213,0.9);
 
-  opacity: 0;
-  transform: translateY(20px);
-  animation: heroFadeUp 1s ease forwards;
-  animation-delay: 0.8s;
+  opacity: 1;
+  transform: none;
 }
 
 /* =====================================================
@@ -98,11 +89,8 @@
    ===================================================== */
 .hero-cta {
   margin-top: 36px;
-
-  opacity: 0;
-  transform: translateY(16px);
-  animation: heroFadeUp 0.9s ease forwards;
-  animation-delay: 1s;
+  opacity: 1;
+  transform: none;
 }
 
 .wa-button {
@@ -160,7 +148,7 @@
    ===================================================== */
 @media (max-width: 768px) {
   .hero-video {
-    min-height: 85vh;
+    min-height: 680px;
   }
 
   .hero-content {
@@ -640,7 +628,7 @@ video {
 /* ================= HERO ================= */
 @media (max-width: 768px) {
   .hero-video {
-    min-height: 90vh;
+    min-height: 680px;
     align-items: flex-start;
   }
 
@@ -756,6 +744,39 @@ video {
   .brand-visual img {
     max-width: 350px;
     margin: 0 auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-content {
+    max-width: 100%;
+    padding: 118px 18px 32px;
+  }
+
+  .hero h1 {
+    max-width: 100%;
+    font-size: clamp(1.75rem, 8vw, 2.2rem);
+    line-height: 1.14;
+    overflow-wrap: break-word;
+  }
+
+  .hero p {
+    width: min(100%, 330px);
+    max-width: 100%;
+    font-size: 0.98rem;
+  }
+
+  .wa-button {
+    width: 100%;
+    max-width: 340px;
+    padding: 14px 18px;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 420px) {
+  .hero-video {
+    min-height: 660px;
   }
 }
 
