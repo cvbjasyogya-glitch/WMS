@@ -123,90 +123,32 @@ PUBLIC_CAREER_SITE_DISPLAY = {
 CAREER_PROFILE_SECTION_DEFINITIONS = [
     {
         "key": "personal",
-        "label": "Pribadi",
-        "title": "Data Pribadi",
+        "label": "Data Lamaran",
+        "title": "Data Lamaran",
         "empty_label": "Harus dilengkapi",
-        "summary": "Isi data diri, alamat, dan kontak aktif supaya tim HR bisa mengenal Anda dengan lebih lengkap.",
-    },
-    {
-        "key": "family",
-        "label": "Keluarga",
-        "title": "Data Keluarga",
-        "empty_label": "Harus dilengkapi",
-        "summary": "Tambahkan kontak keluarga atau orang terdekat yang bisa dihubungi jika sewaktu-waktu dibutuhkan.",
-    },
-    {
-        "key": "education",
-        "label": "Pendidikan",
-        "title": "Riwayat Pendidikan",
-        "empty_label": "Harus dilengkapi",
-        "summary": "Tuliskan pendidikan terakhir dan jurusan yang paling relevan dengan posisi yang Anda incar.",
-    },
-    {
-        "key": "experience",
-        "label": "Pengalaman",
-        "title": "Pengalaman Kerja",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Ceritakan pengalaman kerja, magang, freelance, atau proyek yang pernah Anda jalani.",
-    },
-    {
-        "key": "skills",
-        "label": "Keterampilan",
-        "title": "Keterampilan",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Masukkan keterampilan utama, tools, dan sertifikasi yang ingin Anda tampilkan ke tim rekrutmen.",
-    },
-    {
-        "key": "organization",
-        "label": "Organisasi",
-        "title": "Pengalaman Organisasi",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Isi pengalaman organisasi, volunteer, atau kepanitiaan yang pernah Anda ikuti.",
-    },
-    {
-        "key": "training",
-        "label": "Training",
-        "title": "Training & Workshop",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Tuliskan pelatihan, workshop, atau kelas nonformal yang pernah Anda ikuti.",
-    },
-    {
-        "key": "achievement",
-        "label": "Prestasi",
-        "title": "Prestasi",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Cantumkan pencapaian atau penghargaan yang menurut Anda paling relevan untuk posisi ini.",
-    },
-    {
-        "key": "language",
-        "label": "Bahasa",
-        "title": "Kemampuan Bahasa",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Sebutkan bahasa yang Anda kuasai beserta tingkat kemampuan Anda.",
-    },
-    {
-        "key": "passion",
-        "label": "Passion",
-        "title": "Passion & Minat Karier",
-        "empty_label": "Lebih baik dilengkapi",
-        "summary": "Ceritakan bidang yang paling Anda minati dan jenis pekerjaan yang terasa paling cocok untuk Anda.",
-    },
-    {
-        "key": "additional",
-        "label": "Info Lain",
-        "title": "Informasi Tambahan",
-        "empty_label": "Harus dilengkapi",
-        "summary": "Tambahkan preferensi area kerja, ekspektasi gaji, atau catatan lain yang ingin Anda sampaikan ke HR.",
+        "summary": "Isi data inti yang biasanya diminta saat melamar: kontak aktif, domisili, pendidikan, pengalaman singkat, dan catatan untuk HR.",
     },
     {
         "key": "documents",
-        "label": "Upload Berkas",
-        "title": "Upload Berkas Pendukung",
+        "label": "Upload CV",
+        "title": "Upload CV",
         "empty_label": "Harus dilengkapi",
-        "summary": "Unggah KTP, CV, ijazah, dan berkas pendukung lain supaya profil Anda siap diproses tim HR.",
+        "summary": "Unggah CV / Resume agar HR bisa melakukan screening awal. Berkas lain boleh ditambahkan jika sudah siap.",
     },
 ]
 CAREER_PROFILE_SECTION_KEYS = {section["key"] for section in CAREER_PROFILE_SECTION_DEFINITIONS}
+CAREER_PROFILE_LEGACY_SECTION_TITLES = {
+    "family": "Data Keluarga",
+    "education": "Riwayat Pendidikan",
+    "experience": "Pengalaman Kerja",
+    "skills": "Keterampilan",
+    "organization": "Pengalaman Organisasi",
+    "training": "Training & Workshop",
+    "achievement": "Prestasi",
+    "language": "Kemampuan Bahasa",
+    "passion": "Passion & Minat Karier",
+    "additional": "Informasi Tambahan",
+}
 CAREER_PUBLIC_MEDIA_EXTENSIONS = {
     "photo": {".jpg", ".jpeg", ".png", ".webp"},
     "document": {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"},
@@ -235,9 +177,9 @@ CAREER_PROFILE_MARITAL_STATUS_OPTIONS = [
     ("other", "Lainnya"),
 ]
 CAREER_PROFILE_DOCUMENT_DEFINITIONS = [
-    {"key": "ktp_scan", "label": "Scan KTP", "required": True},
     {"key": "cv_resume", "label": "CV / Resume", "required": True},
-    {"key": "last_diploma", "label": "Ijazah Terakhir", "required": True},
+    {"key": "ktp_scan", "label": "Scan KTP", "required": False},
+    {"key": "last_diploma", "label": "Ijazah Terakhir", "required": False},
     {"key": "npwp_scan", "label": "Scan NPWP", "required": False},
     {"key": "transcript", "label": "Transkrip Nilai", "required": False},
     {"key": "certificate", "label": "Sertifikat Pendukung", "required": False},
@@ -684,20 +626,44 @@ def _normalize_career_profile_section_payload(section_key, form_data, *, existin
         return {}
 
     if safe_key == "personal":
+        def preserve_text(name):
+            source_value = form_data.get(name) if name in form_data else current_payload.get(name)
+            return _normalize_profile_text(source_value)
+
+        def preserve_textarea(name):
+            source_value = form_data.get(name) if name in form_data else current_payload.get(name)
+            return _normalize_profile_textarea(source_value)
+
+        def preserve_digits(name, max_length):
+            source_value = form_data.get(name) if name in form_data else current_payload.get(name)
+            return "".join(ch for ch in str(source_value or "") if ch.isdigit())[:max_length]
+
         photo_path = current_payload.get("photo_path") or ""
-        gender_value = str(form_data.get("gender") or "").strip().lower()
-        marital_status_value = str(form_data.get("marital_status") or "").strip().lower()
-        religion_value = str(form_data.get("religion") or "").strip().lower()
+        gender_value = str(form_data.get("gender") if "gender" in form_data else current_payload.get("gender") or "").strip().lower()
+        marital_status_value = str(
+            form_data.get("marital_status") if "marital_status" in form_data else current_payload.get("marital_status") or ""
+        ).strip().lower()
+        religion_value = str(
+            form_data.get("religion") if "religion" in form_data else current_payload.get("religion") or ""
+        ).strip().lower()
+        address_value = form_data.get("address") if "address" in form_data else None
+        city_value = form_data.get("city") if "city" in form_data else None
+        province_value = form_data.get("province") if "province" in form_data else None
+        full_name_value = form_data.get("full_name") if "full_name" in form_data else current_payload.get("full_name")
+        email_value = form_data.get("email") if "email" in form_data else current_payload.get("email")
+        phone_value = form_data.get("phone") if "phone" in form_data else current_payload.get("phone")
+        linkedin_value = form_data.get("linkedin_url") if "linkedin_url" in form_data else current_payload.get("linkedin_url")
+        salary_value = form_data.get("salary_expectation") if "salary_expectation" in form_data else current_payload.get("salary_expectation")
         return {
-            "full_name": normalize_candidate_identity_name(form_data.get("full_name")),
-            "email": normalize_candidate_email(form_data.get("email")),
-            "phone": normalize_candidate_phone(form_data.get("phone")),
-            "ktp_number": "".join(ch for ch in str(form_data.get("ktp_number") or "") if ch.isdigit())[:24],
-            "npwp_number": "".join(ch for ch in str(form_data.get("npwp_number") or "") if ch.isdigit())[:24],
-            "linkedin_url": normalize_candidate_portfolio_url(form_data.get("linkedin_url")),
-            "instagram_handle": _normalize_profile_text(form_data.get("instagram_handle")).lstrip("@"),
-            "birth_place": _normalize_profile_text(form_data.get("birth_place")),
-            "birth_date": _normalize_profile_date(form_data.get("birth_date")),
+            "full_name": normalize_candidate_identity_name(full_name_value),
+            "email": normalize_candidate_email(email_value),
+            "phone": normalize_candidate_phone(phone_value),
+            "ktp_number": preserve_digits("ktp_number", 24),
+            "npwp_number": preserve_digits("npwp_number", 24),
+            "linkedin_url": normalize_candidate_portfolio_url(linkedin_value),
+            "instagram_handle": preserve_text("instagram_handle").lstrip("@"),
+            "birth_place": preserve_text("birth_place"),
+            "birth_date": _normalize_profile_date(form_data.get("birth_date") if "birth_date" in form_data else current_payload.get("birth_date")),
             "gender": gender_value if gender_value in {value for value, _ in CAREER_PROFILE_GENDER_OPTIONS} else "",
             "marital_status": (
                 marital_status_value
@@ -709,16 +675,39 @@ def _normalize_career_profile_section_payload(section_key, form_data, *, existin
                 if religion_value in {value for value, _ in CAREER_PROFILE_RELIGION_OPTIONS}
                 else ""
             ),
-            "ktp_province": _normalize_profile_text(form_data.get("ktp_province")),
-            "ktp_city": _normalize_profile_text(form_data.get("ktp_city")),
-            "ktp_address": _normalize_profile_textarea(form_data.get("ktp_address")),
-            "ktp_postal_code": "".join(ch for ch in str(form_data.get("ktp_postal_code") or "") if ch.isdigit())[:10],
-            "domicile_city": _normalize_profile_text(form_data.get("domicile_city")),
-            "domicile_address": _normalize_profile_textarea(form_data.get("domicile_address")),
-            "address": _normalize_profile_textarea(form_data.get("address") or form_data.get("ktp_address")),
-            "city": _normalize_profile_text(form_data.get("city") or form_data.get("ktp_city")),
-            "province": _normalize_profile_text(form_data.get("province") or form_data.get("ktp_province")),
-            "summary": _normalize_profile_textarea(form_data.get("summary")),
+            "ktp_province": preserve_text("ktp_province"),
+            "ktp_city": preserve_text("ktp_city"),
+            "ktp_address": preserve_textarea("ktp_address"),
+            "ktp_postal_code": preserve_digits("ktp_postal_code", 10),
+            "domicile_city": preserve_text("domicile_city"),
+            "domicile_address": preserve_textarea("domicile_address"),
+            "address": _normalize_profile_textarea(
+                address_value
+                if address_value is not None
+                else form_data.get("ktp_address")
+                if "ktp_address" in form_data
+                else current_payload.get("address") or current_payload.get("ktp_address")
+            ),
+            "city": _normalize_profile_text(
+                city_value
+                if city_value is not None
+                else form_data.get("ktp_city")
+                if "ktp_city" in form_data
+                else current_payload.get("city") or current_payload.get("ktp_city")
+            ),
+            "province": _normalize_profile_text(
+                province_value
+                if province_value is not None
+                else form_data.get("ktp_province")
+                if "ktp_province" in form_data
+                else current_payload.get("province") or current_payload.get("ktp_province")
+            ),
+            "last_education": preserve_text("last_education"),
+            "recent_experience": preserve_textarea("recent_experience"),
+            "availability": preserve_text("availability"),
+            "preferred_area": preserve_text("preferred_area"),
+            "salary_expectation": _normalize_profile_salary_expectation(salary_value),
+            "summary": preserve_textarea("summary"),
             "photo_path": photo_path,
         }
 
@@ -761,36 +750,16 @@ def _is_profile_payload_complete(section_key, payload, account=None):
         full_name = normalize_candidate_identity_name(safe_payload.get("full_name") or (account or {}).get("full_name"))
         email = normalize_candidate_email(safe_payload.get("email") or (account or {}).get("email"))
         phone = normalize_candidate_phone(safe_payload.get("phone"))
-        ktp_number = "".join(ch for ch in str(safe_payload.get("ktp_number") or "") if ch.isdigit())
-        instagram_handle = _normalize_profile_text(safe_payload.get("instagram_handle")).lstrip("@")
-        birth_place = _normalize_profile_text(safe_payload.get("birth_place"))
-        birth_date = _normalize_profile_date(safe_payload.get("birth_date"))
-        gender = str(safe_payload.get("gender") or "").strip().lower()
-        marital_status = str(safe_payload.get("marital_status") or "").strip().lower()
-        religion = str(safe_payload.get("religion") or "").strip().lower()
-        ktp_province = _normalize_profile_text(safe_payload.get("ktp_province"))
-        ktp_city = _normalize_profile_text(safe_payload.get("ktp_city"))
-        ktp_address = _normalize_profile_textarea(safe_payload.get("ktp_address"))
-        ktp_postal_code = "".join(ch for ch in str(safe_payload.get("ktp_postal_code") or "") if ch.isdigit())
-        domicile_city = _normalize_profile_text(safe_payload.get("domicile_city"))
-        domicile_address = _normalize_profile_textarea(safe_payload.get("domicile_address"))
+        domicile_city = _normalize_profile_text(
+            safe_payload.get("domicile_city")
+            or safe_payload.get("domicile")
+            or safe_payload.get("city")
+        )
         return bool(
             full_name
             and email
             and phone
-            and ktp_number
-            and instagram_handle
-            and birth_place
-            and birth_date
-            and gender
-            and marital_status
-            and religion
-            and ktp_province
-            and ktp_city
-            and ktp_address
-            and ktp_postal_code
             and domicile_city
-            and domicile_address
         )
 
     if safe_key == "family":
@@ -898,7 +867,7 @@ def _guard_candidate_profile_completion(db, account, *, message=None, category="
     return profile_gate, _redirect_candidate_back_to_profile(
         profile_gate,
         message=message
-        or "Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum melanjutkan.",
+        or "Lengkapi Data Lamaran dan CV terlebih dahulu sebelum melanjutkan.",
         category=category,
     )
 
@@ -1096,11 +1065,19 @@ def _build_candidate_profile_summary_text(
     if resume_original_name:
         _append_candidate_profile_summary_field(lines, "CV / Resume", resume_original_name)
 
-    lines.extend(["", "Data Pribadi"])
+    lines.extend(["", "Data Lamaran"])
     personal_fields = [
         ("Nama Lengkap", personal_payload.get("full_name") or candidate_name),
         ("Email", personal_payload.get("email") or safe_snapshot.get("account_email")),
         ("Nomor WhatsApp", personal_payload.get("phone")),
+        ("Domisili Sekarang", personal_payload.get("domicile_city")),
+        ("Pendidikan Terakhir", personal_payload.get("last_education")),
+        ("Pengalaman Singkat", personal_payload.get("recent_experience")),
+        ("Kesiapan Mulai Kerja", personal_payload.get("availability")),
+        ("Preferensi Penempatan", personal_payload.get("preferred_area")),
+        ("Ekspektasi Gaji", personal_payload.get("salary_expectation")),
+        ("Portfolio / LinkedIn", personal_payload.get("linkedin_url")),
+        ("Catatan untuk HR", personal_payload.get("summary")),
         ("Nomor KTP", personal_payload.get("ktp_number")),
         ("Nomor NPWP", personal_payload.get("npwp_number")),
         ("Tempat Lahir", personal_payload.get("birth_place")),
@@ -1108,9 +1085,7 @@ def _build_candidate_profile_summary_text(
         ("Jenis Kelamin", personal_payload.get("gender")),
         ("Status Pernikahan", personal_payload.get("marital_status")),
         ("Agama", personal_payload.get("religion")),
-        ("Facebook / LinkedIn", personal_payload.get("linkedin_url")),
         ("Instagram", personal_payload.get("instagram_handle")),
-        ("Ringkasan Profil", personal_payload.get("summary")),
     ]
     for label, value in personal_fields:
         _append_candidate_profile_summary_field(lines, label, value)
@@ -1121,7 +1096,6 @@ def _build_candidate_profile_summary_text(
         ("Kota Sesuai KTP", personal_payload.get("ktp_city")),
         ("Alamat Sesuai KTP", personal_payload.get("ktp_address")),
         ("Kode POS KTP", personal_payload.get("ktp_postal_code")),
-        ("Kota Domisili", personal_payload.get("domicile_city")),
         ("Alamat Domisili", personal_payload.get("domicile_address")),
     ]
     for label, value in address_fields:
@@ -1149,6 +1123,15 @@ def _build_candidate_profile_summary_text(
         if not summary_text:
             continue
         section_lines.append(f"- {definition['title']}: {summary_text}")
+    for section_key, section_title in CAREER_PROFILE_LEGACY_SECTION_TITLES.items():
+        if section_key in {"additional", "documents"}:
+            continue
+        section_entry = dict(section_payloads.get(section_key) or {})
+        section_data = dict(section_entry.get("payload") or {})
+        summary_text = _normalize_candidate_profile_summary_value(section_data.get("summary"))
+        if not summary_text:
+            continue
+        section_lines.append(f"- {section_title}: {summary_text}")
     if section_lines:
         lines.extend(["", "Ringkasan Per Bagian"])
         lines.extend(section_lines)
@@ -2683,7 +2666,7 @@ def portal_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum masuk ke portal kandidat.",
+        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum masuk ke portal kandidat.",
     )
     if redirect_response:
         return redirect_response
@@ -2980,7 +2963,7 @@ def applications_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum membuka riwayat lamaran.",
+        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum membuka riwayat lamaran.",
     )
     if redirect_response:
         return redirect_response
@@ -3008,7 +2991,7 @@ def saved_openings_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum membuka lowongan tersimpan.",
+        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum membuka lowongan tersimpan.",
     )
     if redirect_response:
         return redirect_response
@@ -3217,11 +3200,19 @@ def profile_page():
         (item for item in section_states if item["key"] == selected_section_key),
         section_states[0],
     )
+    selected_section_key = selected_section["key"]
     selected_payload = dict(selected_section.get("payload") or {})
     personal_section_payload = dict((stored_sections.get("personal") or {}).get("payload") or {})
+    additional_section_payload = dict((stored_sections.get("additional") or {}).get("payload") or {})
     if selected_section_key == "personal":
         selected_payload.setdefault("full_name", account.get("full_name") or "")
         selected_payload.setdefault("email", account.get("email") or "")
+        selected_payload.setdefault("preferred_area", additional_section_payload.get("preferred_area") or "")
+        selected_payload.setdefault("salary_expectation", additional_section_payload.get("salary_expectation") or "")
+        selected_payload.setdefault("summary", additional_section_payload.get("notes") or "")
+        selected_payload["salary_expectation"] = _normalize_profile_salary_expectation(
+            selected_payload.get("salary_expectation")
+        )
     elif selected_section_key == "additional":
         selected_payload["salary_expectation"] = _normalize_profile_salary_expectation(
             selected_payload.get("salary_expectation")
@@ -3268,6 +3259,8 @@ def profile_page():
     }
     for definition in CAREER_PROFILE_DOCUMENT_DEFINITIONS:
         matched_file = document_file_map.get(definition["key"])
+        if not definition.get("required") and matched_file is None:
+            continue
         document_status_cards.append(
             {
                 **definition,
@@ -3308,7 +3301,7 @@ def password_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum keluar dari halaman profil.",
+        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum keluar dari halaman profil.",
     )
     if redirect_response:
         return redirect_response
@@ -3367,7 +3360,7 @@ def opening_detail(opening_id):
         profile_gate, redirect_response = _guard_candidate_profile_completion(
             db,
             active_account,
-            message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum membuka detail lowongan atau melamar.",
+            message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum membuka detail lowongan atau melamar.",
         )
         if redirect_response:
             return redirect_response
@@ -3411,7 +3404,9 @@ def opening_detail(opening_id):
         prefill_candidate_phone=normalize_candidate_phone(personal_payload.get("phone")),
         prefill_candidate_portfolio=normalize_candidate_portfolio_url(personal_payload.get("linkedin_url")),
         prefill_candidate_note=_normalize_profile_textarea(
-            additional_payload.get("notes") or personal_payload.get("summary")
+            additional_payload.get("notes")
+            or personal_payload.get("recent_experience")
+            or personal_payload.get("summary")
         ),
         profile_resume_document=profile_resume_document,
         opening_signin_url=build_career_public_url(
@@ -3486,7 +3481,7 @@ def apply():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         active_account,
-        message="Lengkapi Data Pribadi dan Upload Berkas wajib terlebih dahulu sebelum mengirim lamaran.",
+        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum mengirim lamaran.",
     )
     if redirect_response:
         return redirect_response
@@ -3506,7 +3501,12 @@ def apply():
     phone = raw_phone_normalized or normalize_candidate_phone(personal_payload.get("phone"))
     email = normalize_candidate_email(active_account.get("email"))
     portfolio_url = raw_portfolio_url_normalized or normalize_candidate_portfolio_url(personal_payload.get("linkedin_url"))
-    note = (request.form.get("note") or "").strip() or _normalize_profile_textarea(additional_payload.get("notes"))
+    note = (
+        (request.form.get("note") or "").strip()
+        or _normalize_profile_textarea(additional_payload.get("notes"))
+        or _normalize_profile_textarea(personal_payload.get("recent_experience"))
+        or _normalize_profile_textarea(personal_payload.get("summary"))
+    )
     resume_file = request.files.get("resume_file")
     profile_documents = _collect_candidate_profile_documents(profile_sections)
     profile_resume_document = _get_primary_profile_resume_document(profile_documents)

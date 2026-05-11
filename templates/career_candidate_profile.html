@@ -1,6 +1,6 @@
 {% extends "career_candidate_base.html" %}
 {% set candidate_active_page = 'profile' %}
-{% set candidate_page_title = selected_profile_section.title if selected_profile_section is defined else 'Data Pribadi' %}
+{% set candidate_page_title = selected_profile_section.title if selected_profile_section is defined else 'Data Lamaran' %}
 
 {% block candidate_workspace_content %}
 <section class="career-profile-layout">
@@ -47,21 +47,6 @@
             <input type="hidden" name="section" value="{{ selected_profile_section.key }}">
 
             {% if selected_profile_section.key == 'personal' %}
-            <div class="career-profile-photo-block">
-                <div class="career-profile-photo-frame" id="careerProfilePhotoFrame">
-                    {% if selected_profile_photo_url %}
-                    <img src="{{ selected_profile_photo_url }}" alt="{{ candidate_account.full_name }}" id="careerProfilePhotoPreview" decoding="async">
-                    {% else %}
-                    <span id="careerProfilePhotoFallback">{{ (candidate_account.full_name or candidate_account.email or 'K')[:1]|upper }}</span>
-                    {% endif %}
-                </div>
-                <label class="career-profile-upload-trigger" for="careerProfilePhotoInput">
-                    Klik untuk ubah foto
-                    <small id="careerProfilePhotoMeta">JPG, PNG, WEBP - maks. 2 MB</small>
-                    <input type="file" name="photo_file" id="careerProfilePhotoInput" accept=".jpg,.jpeg,.png,.webp">
-                </label>
-            </div>
-
             <div class="career-profile-grid">
                 <label>
                     Nama lengkap *
@@ -72,87 +57,48 @@
                     <input type="email" name="email" value="{{ selected_profile_payload.email or candidate_account.email }}" readonly>
                 </label>
                 <label>
-                    Nomor KTP *
-                    <input type="text" name="ktp_number" value="{{ selected_profile_payload.ktp_number or '' }}" placeholder="Masukkan No KTP" required>
-                </label>
-                <label>
-                    Nomor NPWP (Opsional)
-                    <input type="text" name="npwp_number" value="{{ selected_profile_payload.npwp_number or '' }}" placeholder="Boleh dikosongkan jika belum punya NPWP">
-                </label>
-                <label>
                     Nomor WhatsApp *
                     <input type="text" name="phone" value="{{ selected_profile_payload.phone or '' }}" placeholder="62812xxxx" required>
                 </label>
                 <label>
-                    Facebook / LinkedIn (Opsional)
-                    <input type="url" name="linkedin_url" value="{{ selected_profile_payload.linkedin_url or '' }}" placeholder="Boleh dikosongkan jika belum punya link profil">
+                    Domisili sekarang *
+                    <input type="text" name="domicile_city" value="{{ selected_profile_payload.domicile_city or selected_profile_payload.domicile or '' }}" placeholder="Contoh: Sleman" required>
                 </label>
                 <label>
-                    Instagram *
-                    <input type="text" name="instagram_handle" value="{{ selected_profile_payload.instagram_handle or '' }}" placeholder="Contoh: @dharmagroup_" required>
-                </label>
-                <label>
-                    Tempat Lahir *
-                    <input type="text" name="birth_place" value="{{ selected_profile_payload.birth_place or '' }}" placeholder="Masukkan tempat lahir" required>
-                </label>
-                <label>
-                    Tanggal Lahir *
-                    <input type="date" name="birth_date" value="{{ selected_profile_payload.birth_date or '' }}" required>
-                </label>
-                <label>
-                    Jenis Kelamin *
-                    <select name="gender" required>
-                        <option value="">Pilih</option>
-                        {% for option_value, option_label in profile_gender_options %}
-                        <option value="{{ option_value }}" {% if selected_profile_payload.gender == option_value %}selected{% endif %}>{{ option_label }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label>
-                    Status Pernikahan *
-                    <select name="marital_status" required>
-                        <option value="">Pilih</option>
-                        {% for option_value, option_label in profile_marital_status_options %}
-                        <option value="{{ option_value }}" {% if selected_profile_payload.marital_status == option_value %}selected{% endif %}>{{ option_label }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label>
-                    Agama *
-                    <select name="religion" required>
-                        <option value="">Pilih</option>
-                        {% for option_value, option_label in profile_religion_options %}
-                        <option value="{{ option_value }}" {% if selected_profile_payload.religion == option_value %}selected{% endif %}>{{ option_label }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label>
-                    Provinsi sesuai KTP *
-                    <input type="text" name="ktp_province" value="{{ selected_profile_payload.ktp_province or selected_profile_payload.province or '' }}" placeholder="Masukkan provinsi sesuai KTP" required>
-                </label>
-                <label>
-                    Kota sesuai KTP *
-                    <input type="text" name="ktp_city" value="{{ selected_profile_payload.ktp_city or selected_profile_payload.city or '' }}" placeholder="Masukkan kota sesuai KTP" required>
+                    Pendidikan terakhir
+                    <input type="text" name="last_education" value="{{ selected_profile_payload.last_education or '' }}" placeholder="Contoh: SMK Akuntansi / S1 Manajemen">
                 </label>
                 <label class="span-2">
-                    Alamat sesuai KTP *
-                    <textarea name="ktp_address" rows="4" placeholder="Masukkan alamat lengkap sesuai KTP" required>{{ selected_profile_payload.ktp_address or selected_profile_payload.address or '' }}</textarea>
+                    Pengalaman singkat
+                    <textarea name="recent_experience" rows="4" placeholder="Contoh: Pernah bekerja sebagai admin toko selama 1 tahun, terbiasa input data dan melayani pelanggan.">{{ selected_profile_payload.recent_experience or '' }}</textarea>
                 </label>
                 <label>
-                    Kode POS sesuai alamat KTP *
-                    <input type="text" name="ktp_postal_code" value="{{ selected_profile_payload.ktp_postal_code or '' }}" placeholder="Kode POS" required>
+                    Siap mulai kerja
+                    <input type="text" name="availability" value="{{ selected_profile_payload.availability or '' }}" placeholder="Contoh: Secepatnya / 2 minggu lagi">
                 </label>
                 <label>
-                    Kota tempat tinggal sekarang *
-                    <input type="text" name="domicile_city" value="{{ selected_profile_payload.domicile_city or selected_profile_payload.domicile or '' }}" placeholder="Masukkan kota domisili saat ini" required>
+                    Portfolio / LinkedIn
+                    <input type="url" name="linkedin_url" value="{{ selected_profile_payload.linkedin_url or '' }}" placeholder="Opsional">
+                </label>
+                <label>
+                    Preferensi penempatan
+                    <input type="text" name="preferred_area" value="{{ selected_profile_payload.preferred_area or '' }}" placeholder="Contoh: Mataram / Mega / fleksibel">
+                </label>
+                <label>
+                    Ekspektasi gaji
+                    <input
+                        type="text"
+                        name="salary_expectation"
+                        value="{{ selected_profile_payload.salary_expectation or '' }}"
+                        placeholder="Opsional"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        data-salary-expectation-input
+                    >
                 </label>
                 <label class="span-2">
-                    Alamat Domisili *
-                    <textarea name="domicile_address" rows="4" placeholder="Masukkan alamat tempat tinggal saat ini" required>{{ selected_profile_payload.domicile_address or '' }}</textarea>
-                </label>
-                <label class="span-2">
-                    Ringkasan Profil
-                    <textarea name="summary" rows="4" placeholder="Tulis ringkasan singkat tentang diri Anda, pengalaman, atau kesiapan penempatan">{{ selected_profile_payload.summary or '' }}</textarea>
+                    Catatan singkat untuk HR
+                    <textarea name="summary" rows="4" placeholder="Tulis hal penting yang perlu HR tahu, misalnya jadwal interview atau posisi yang paling diminati.">{{ selected_profile_payload.summary or '' }}</textarea>
                 </label>
             </div>
 
@@ -245,17 +191,8 @@
             </div>
 
             <div class="career-profile-upload-guide">
-                <strong>Supaya sistem lebih mudah membaca jenis berkas</strong>
-                <p>Kalau ingin deteksi otomatis lebih akurat, gunakan nama file yang jelas sebelum diunggah.</p>
-                <ul>
-                    <li><code>KTP-Febrio.jpg</code></li>
-                    <li><code>CV-Febrio-Putra.pdf</code></li>
-                    <li><code>Ijazah-S1-Febrio.pdf</code></li>
-                    <li><code>NPWP-Febrio.pdf</code></li>
-                    <li><code>Transkrip-Febrio.pdf</code></li>
-                    <li><code>Sertifikat-English-Febrio.pdf</code></li>
-                </ul>
-                <small>Kalau nama file masih acak seperti <code>IMG_1234</code> atau <code>Document(1)</code>, Anda tetap bisa memperbaiki jenis dokumennya di daftar preview sebelum menyimpan.</small>
+                <strong>Yang wajib hanya CV / Resume</strong>
+                <p>KTP, ijazah, sertifikat, atau dokumen lain boleh ditambahkan kalau sudah siap.</p>
             </div>
 
             <div class="career-profile-upload-warning" id="careerProfileUploadWarning" hidden>
@@ -271,27 +208,26 @@
 
             <div class="career-profile-grid">
                 <label>
-                    Jenis Berkas *
+                    Jenis berkas
                     <select name="document_type">
-                        <option value="">Pilih jenis berkas</option>
                         {% for item in profile_document_definitions %}
-                        <option value="{{ item.key }}">{{ item.label }}{% if item.required %} (Wajib){% endif %}</option>
+                        <option value="{{ item.key }}" {% if item.key == 'cv_resume' %}selected{% endif %}>{{ item.label }}{% if item.required %} (Wajib){% endif %}</option>
                         {% endfor %}
                     </select>
                 </label>
                 <label>
                     Judul / Keterangan Dokumen
-                    <input type="text" name="document_label" placeholder="Dipakai untuk dokumen lain atau catatan tambahan">
+                    <input type="text" name="document_label" placeholder="Opsional">
                 </label>
                 <label class="span-2">
-                    Berkas
+                    Upload CV / dokumen
                     <input type="file" name="document_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
                     <small>Format yang diterima: PDF, DOC, DOCX, JPG, JPEG, PNG. Maksimal 10 MB per file.</small>
                 </label>
                 <label class="span-2">
-                    Upload beberapa berkas sekaligus
+                    Tambahkan beberapa dokumen sekaligus
                     <input type="file" name="documents" id="careerProfileBulkDocumentsInput" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" multiple>
-                    <small>Anda bisa memilih beberapa file sekaligus. Sistem akan mencoba mengenali nama file seperti KTP, CV, ijazah, NPWP, transkrip, atau sertifikat secara otomatis.</small>
+                    <small>Opsional. Sistem akan mencoba mengenali CV, KTP, ijazah, NPWP, transkrip, atau sertifikat dari nama file.</small>
                 </label>
             </div>
 
@@ -322,7 +258,7 @@
             {% else %}
             <article class="career-candidate-empty-inline">
                 <strong>Belum ada dokumen yang diunggah</strong>
-                <span>Mulai dari scan KTP, CV / Resume, dan ijazah terakhir agar profil kandidat lebih siap dibaca HR.</span>
+                <span>Unggah CV / Resume dulu agar HR bisa mulai screening.</span>
             </article>
             {% endif %}
 
@@ -420,40 +356,6 @@ document.addEventListener("DOMContentLoaded", () => {
     salaryInput?.addEventListener("blur", syncSalaryInputValue);
     salaryInput?.addEventListener("change", syncSalaryInputValue);
     syncSalaryInputValue();
-
-    const photoInput = document.getElementById("careerProfilePhotoInput");
-    const photoMeta = document.getElementById("careerProfilePhotoMeta");
-    const photoFrame = document.getElementById("careerProfilePhotoFrame");
-    if (photoInput && photoMeta && photoFrame) {
-        photoInput.addEventListener("change", () => {
-            const file = photoInput.files && photoInput.files[0];
-            if (!file) {
-                photoMeta.textContent = "JPG, PNG, WEBP - Max 2MB";
-                return;
-            }
-
-            photoMeta.textContent = `Foto dipilih: ${file.name}`;
-
-            if (!file.type || !file.type.startsWith("image/")) {
-                return;
-            }
-
-            const existingPreview = document.getElementById("careerProfilePhotoPreview");
-            const fallback = document.getElementById("careerProfilePhotoFallback");
-            const preview = existingPreview || document.createElement("img");
-            preview.id = "careerProfilePhotoPreview";
-            preview.alt = "{{ candidate_account.full_name or 'Kandidat' }}";
-            preview.src = URL.createObjectURL(file);
-            preview.onload = () => URL.revokeObjectURL(preview.src);
-
-            if (fallback) {
-                fallback.remove();
-            }
-            if (!existingPreview) {
-                photoFrame.appendChild(preview);
-            }
-        });
-    }
 
     const bulkInput = document.getElementById("careerProfileBulkDocumentsInput");
     const bulkPreview = document.getElementById("careerProfileBulkPreview");

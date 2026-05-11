@@ -17102,17 +17102,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.get("/karir/profil")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("Data Pribadi", html)
-        self.assertIn("Upload Berkas", html)
-        self.assertIn("Nomor KTP *", html)
+        self.assertIn("Data Lamaran", html)
+        self.assertIn("Upload CV", html)
+        self.assertIn("Nomor WhatsApp *", html)
+        self.assertIn("Domisili sekarang *", html)
+        self.assertNotIn("Nomor KTP *", html)
         self.assertIn("Simpan Perubahan", html)
 
         documents_response = self.client.get("/karir/profil?section=documents")
         self.assertEqual(documents_response.status_code, 200)
         documents_html = documents_response.get_data(as_text=True)
-        self.assertIn("Jenis Berkas *", documents_html)
+        self.assertIn("Yang wajib hanya CV / Resume", documents_html)
+        self.assertIn("Jenis berkas", documents_html)
         self.assertIn('name="documents"', documents_html)
-        self.assertIn("Upload beberapa berkas sekaligus", documents_html)
+        self.assertIn("Tambahkan beberapa dokumen sekaligus", documents_html)
 
     def test_public_career_applications_page_links_legacy_public_application_to_account(self):
         account = self.login_public_career_account_session(
@@ -17220,23 +17223,14 @@ class WmsRoutesTestCase(unittest.TestCase):
                 "full_name": "Profil Baru Kandidat",
                 "email": "profil@example.com",
                 "phone": "0812 3333 4444",
-                "ktp_number": "3402120000000001",
-                "npwp_number": "12.345.678.9-000.111",
                 "linkedin_url": "linkedin.com/in/profil-baru",
-                "instagram_handle": "@profilbaru",
-                "birth_place": "Sleman",
-                "birth_date": "2001-05-10",
-                "gender": "male",
-                "marital_status": "single",
-                "religion": "islam",
-                "ktp_province": "DIY",
-                "ktp_city": "Sleman",
-                "ktp_address": "Jl. Magelang Km 10",
-                "ktp_postal_code": "55515",
                 "domicile_city": "Sleman",
-                "domicile_address": "Jl. Godean Km 8",
+                "last_education": "SMK Akuntansi",
+                "recent_experience": "Pernah menjadi admin toko dan terbiasa input data.",
+                "availability": "Secepatnya",
+                "preferred_area": "Mataram / Mega",
+                "salary_expectation": "4,5 juta",
                 "summary": "Siap ditempatkan di area retail.",
-                "photo_file": (BytesIO(b"photo-profile"), "profil.png"),
             },
             content_type="multipart/form-data",
             follow_redirects=False,
@@ -17262,12 +17256,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(section_row)
         payload = json.loads(section_row["payload_json"])
         self.assertEqual(payload["phone"], "6281233334444")
-        self.assertEqual(payload["birth_place"], "Sleman")
         self.assertEqual(payload["linkedin_url"], "https://linkedin.com/in/profil-baru")
-        self.assertEqual(payload["instagram_handle"], "profilbaru")
-        self.assertEqual(payload["ktp_province"], "DIY")
-        self.assertEqual(payload["domicile_address"], "Jl. Godean Km 8")
-        self.assertTrue(payload["photo_path"])
+        self.assertEqual(payload["domicile_city"], "Sleman")
+        self.assertEqual(payload["last_education"], "SMK Akuntansi")
+        self.assertEqual(payload["recent_experience"], "Pernah menjadi admin toko dan terbiasa input data.")
+        self.assertEqual(payload["salary_expectation"], "Rp 4.500.000")
+        self.assertEqual(payload["ktp_number"], "")
         self.assertEqual(section_row["completion_state"], "complete")
         self.assertEqual(account_row["full_name"], "Profil Baru Kandidat")
 
@@ -17275,7 +17269,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(portal_response.status_code, 302)
         self.assertEqual(portal_response.headers["Location"], "/karir/profil?section=documents")
 
-    def test_public_career_candidate_additional_section_normalizes_salary_expectation_to_rupiah(self):
+    def test_public_career_candidate_personal_section_normalizes_salary_expectation_to_rupiah(self):
         account = self.login_public_career_account_session(
             email="profil-gaji@example.com",
             full_name="Profil Gaji",
@@ -17284,16 +17278,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         response = self.client.post(
             "/karir/profil",
             data={
-                "section": "additional",
-                "domicile": "Sleman",
+                "section": "personal",
+                "full_name": "Profil Gaji",
+                "email": "profil-gaji@example.com",
+                "phone": "0812 7777 8888",
+                "domicile_city": "Sleman",
                 "preferred_area": "Sleman / Yogyakarta",
                 "salary_expectation": "5,5 juta",
-                "notes": "Siap interview pekan ini.",
+                "summary": "Siap interview pekan ini.",
             },
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/karir/profil?section=additional")
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=personal")
 
         with self.app.app_context():
             db = get_db()
@@ -17304,21 +17301,21 @@ class WmsRoutesTestCase(unittest.TestCase):
                 WHERE account_id=? AND section_key=?
                 LIMIT 1
                 """,
-                (account["id"], "additional"),
+                (account["id"], "personal"),
             ).fetchone()
         self.assertIsNotNone(section_row)
         payload = json.loads(section_row["payload_json"])
-        self.assertEqual(payload["domicile"], "Sleman")
+        self.assertEqual(payload["domicile_city"], "Sleman")
         self.assertEqual(payload["preferred_area"], "Sleman / Yogyakarta")
         self.assertEqual(payload["salary_expectation"], "Rp 5.500.000")
-        self.assertEqual(payload["notes"], "Siap interview pekan ini.")
+        self.assertEqual(payload["summary"], "Siap interview pekan ini.")
         self.assertEqual(section_row["completion_state"], "complete")
 
-        page_response = self.client.get("/karir/profil?section=additional")
+        page_response = self.client.get("/karir/profil?section=personal")
         self.assertEqual(page_response.status_code, 200)
         page_html = page_response.get_data(as_text=True)
         self.assertIn('value="Rp 5.500.000"', page_html)
-        self.assertIn("Sistem akan merapikan jadi nominal rupiah.", page_html)
+        self.assertIn("Ekspektasi gaji", page_html)
 
     def test_public_career_candidate_can_save_personal_profile_section_without_npwp(self):
         account = self.login_public_career_account_session(
@@ -17429,23 +17426,18 @@ class WmsRoutesTestCase(unittest.TestCase):
             full_name="Dokumen Kandidat",
         )
 
-        for document_type, filename in (
-            ("ktp_scan", "ktp.jpg"),
-            ("cv_resume", "cv.pdf"),
-            ("last_diploma", "ijazah.pdf"),
-        ):
-            response = self.client.post(
-                "/karir/profil",
-                data={
-                    "section": "documents",
-                    "document_type": document_type,
-                    "document_file": (BytesIO(b"dokumen"), filename),
-                },
-                content_type="multipart/form-data",
-                follow_redirects=False,
-            )
-            self.assertEqual(response.status_code, 302)
-            self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "document_type": "cv_resume",
+                "document_file": (BytesIO(b"dokumen"), "cv.pdf"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
 
         with self.app.app_context():
             db = get_db()
@@ -17461,7 +17453,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(section_row)
         payload = json.loads(section_row["payload_json"])
         stored_types = {item.get("document_type") for item in payload["files"]}
-        self.assertTrue({"ktp_scan", "cv_resume", "last_diploma"}.issubset(stored_types))
+        self.assertEqual(stored_types, {"cv_resume"})
         self.assertEqual(section_row["completion_state"], "complete")
 
     def test_public_career_candidate_can_bulk_upload_documents_in_one_submit(self):
@@ -17579,7 +17571,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(submit_response.status_code, 200)
         submit_html = submit_response.get_data(as_text=True)
         self.assertIn("Belum ada berkas yang bisa diproses", submit_html)
-        self.assertIn("Upload Berkas Pendukung", submit_html)
+        self.assertIn("Upload CV", submit_html)
 
     def test_public_career_profile_redirects_back_when_total_upload_payload_too_large(self):
         self.login_public_career_account_session(
@@ -17606,7 +17598,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Ukuran upload terlalu besar", html)
-        self.assertIn("Upload Berkas Pendukung", html)
+        self.assertIn("Upload CV", html)
 
     def test_public_career_candidate_can_override_bulk_document_type_before_upload(self):
         account = self.login_public_career_account_session(
