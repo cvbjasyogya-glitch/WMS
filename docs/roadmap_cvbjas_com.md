@@ -95,7 +95,7 @@ Prompt implementasi lanjutan disimpan di:
 - Jangan langsung pakai redirect permanen `301`. Pakai `302` dulu saat masa transisi agar rollback tidak ketahan cache browser.
 - Domain ERP lama boleh langsung diarahkan ke Portal baru setelah cutover.
 - SMS lama sebaiknya diarahkan ke SMS baru setelah cutover karena cookie SSO hanya bisa stabil di satu root domain.
-- Recruitment lama jangan langsung redirect kalau masih ada kandidat aktif.
+- Recruitment lama hanya dipakai sebagai fallback transisi kalau masih ada kandidat aktif.
 - Database tidak perlu disentuh untuk migrasi domain.
 - Titik perubahan utama: DNS, Nginx, SSL, `.env`, dan link/copy publik.
 
@@ -139,7 +139,7 @@ Update `.env` production:
 ```bash
 CANONICAL_HOST=portal.cvbjas.com
 SESSION_COOKIE_DOMAIN=.cvbjas.com
-RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com,recruitment.cvbjasyogya.cloud
+RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com
 SMS_PUBLIC_HOSTS=sms.cvbjas.com
 ```
 
@@ -235,7 +235,7 @@ Rollback utama cukup dari `.env` dan Nginx:
 ```bash
 CANONICAL_HOST=erp.cvbjasyogya.cloud
 SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud
-RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud
+RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com
 SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud
 ```
 
@@ -263,7 +263,8 @@ curl -I https://www.cvbjas.com
 curl -I https://portal.cvbjas.com/login
 curl -I https://erp.cvbjasyogya.cloud/login
 curl -I https://recruitment.cvbjas.com/beranda
-curl -I https://recruitment.cvbjasyogya.cloud/beranda
+# Opsional kalau domain lama masih dipertahankan selama transisi:
+# curl -I https://recruitment.cvbjasyogya.cloud/beranda
 curl -I https://sms.cvbjas.com/sms/
 curl -I https://sms.cvbjasyogya.cloud/sms/
 sudo journalctl -u wms.service -n 80 --no-pager

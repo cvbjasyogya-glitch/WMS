@@ -4,7 +4,7 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
    Important:
    For VPS PostgreSQL, set `DATABASE_BACKEND=postgresql` and fill `DATABASE_URL` with the production DSN before restarting `wms.service`.
    For ERP + SMS SSO across subdomains, set `SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud` so one login can be reused by `erp.cvbjasyogya.cloud` and `sms.cvbjasyogya.cloud`.
-   Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so portal kandidat di `recruitment.cvbjasyogya.cloud` memakai cookie terpisah dan tidak bentrok dengan cookie ERP/SMS.
+   Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so portal kandidat di `recruitment.cvbjas.com` memakai cookie terpisah dan tidak bentrok dengan cookie ERP/SMS.
 2. Copy [deploy/nginx/wms_upstream.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/wms_upstream.conf) to `/etc/nginx/conf.d/wms_upstream.conf`.
 3. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
 4. Point systemd to [deploy/systemd/wms.service.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/systemd/wms.service.example).
@@ -27,10 +27,10 @@ Brevo SMTP for career and auth emails:
 - If you want to fully disable app auto-update / PWA service worker to avoid automatic refresh after deploy, keep `SERVICE_WORKER_ENABLED=0`. This disables service worker registration on ERP pages and lets `app_shell.js` clean up any old worker still cached in the browser.
 
 Public recruitment domain:
-- Use [deploy/nginx/recruitment.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjasyogya.cloud.conf) if you want `recruitment.cvbjasyogya.cloud` to point to the same Gunicorn socket.
-- Add `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` to `.env`.
+- Use `deploy/nginx/recruitment.cvbjas.com.bootstrap.conf` for the first HTTP/Certbot step, then switch to [deploy/nginx/recruitment.cvbjas.com.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/recruitment.cvbjas.com.conf) so `recruitment.cvbjas.com` points to the same Gunicorn socket.
+- Set `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com` in `.env`.
 - Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so login kandidat tetap stabil saat menyimpan profil atau upload berkas.
-- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the recruitment host stays on the career experience and routes `/` directly to `/signin` instead of bouncing to ERP.
+- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` before Portal cutover, or `CANONICAL_HOST=portal.cvbjas.com` after Portal cutover, so the recruitment host stays on the career experience and routes `/` directly to `/signin` instead of bouncing to ERP/Portal.
 - Recruitment upload sekarang default aman untuk dokumen kandidat sampai `10 MB per file` dengan total request sekitar `32 MB`. Kalau VPS masih pakai limit lama, set `.env` `MAX_CONTENT_LENGTH=33554432` dan pastikan Nginx recruitment memakai `client_max_body_size 32m`.
 - After each recruitment deploy, run `python3 scripts/recruitment_vps_smoke_test.py`. This checks the recruitment host redirect flow, `/signin`, `/beranda`, `/karir/tes`, career/recruitment tables, SMTP readiness, and whether at least one HR user can access the recruitment module.
 
@@ -71,10 +71,18 @@ Enable the recruitment domain on the same VPS:
 
 ```bash
 cd ~/WMS
-sudo cp deploy/nginx/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf
-sudo ln -sf /etc/nginx/sites-available/recruitment.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/recruitment.cvbjasyogya.cloud.conf
 sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
-echo "RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
+sudo mkdir -p /var/www/recruitment.cvbjas.com/.well-known/acme-challenge
+sudo chown -R www-data:www-data /var/www/recruitment.cvbjas.com
+sudo cp deploy/nginx/recruitment.cvbjas.com.bootstrap.conf /etc/nginx/sites-available/recruitment.cvbjas.com.conf
+sudo ln -sf /etc/nginx/sites-available/recruitment.cvbjas.com.conf /etc/nginx/sites-enabled/recruitment.cvbjas.com.conf
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot certonly --webroot -w /var/www/recruitment.cvbjas.com -d recruitment.cvbjas.com
+sudo cp deploy/nginx/recruitment.cvbjas.com.conf /etc/nginx/sites-available/recruitment.cvbjas.com.conf
+grep -q '^RECRUITMENT_PUBLIC_HOSTS=' /root/WMS/.env \
+  && sudo sed -i 's/^RECRUITMENT_PUBLIC_HOSTS=.*/RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com/' /root/WMS/.env \
+  || echo "RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com" | sudo tee -a /root/WMS/.env
 sudo systemctl restart wms.service
 sudo nginx -t
 sudo systemctl reload nginx
@@ -102,7 +110,7 @@ sudo grep -R "server_name erp.cvbjasyogya.cloud" -n /etc/nginx/sites-available /
 ls -l /etc/nginx/sites-enabled
 ```
 
-Troubleshooting `recruitment.cvbjasyogya.cloud` if it still shows the old offline page:
+Troubleshooting `recruitment.cvbjas.com` if it still shows the old offline page:
 
 ```bash
 cd ~/WMS
@@ -113,17 +121,17 @@ ls -l /etc/nginx/sites-enabled
 sudo systemctl restart wms.service
 sudo nginx -t
 sudo systemctl reload nginx
-curl -I https://recruitment.cvbjasyogya.cloud/beranda
-curl -I https://recruitment.cvbjasyogya.cloud/service-worker.js
+curl -I https://recruitment.cvbjas.com/beranda
+curl -I https://recruitment.cvbjas.com/service-worker.js
 sudo journalctl -u wms.service -n 80 --no-pager
 ```
 
 Expected result:
 - only one active Nginx site should own `server_name erp.cvbjasyogya.cloud`,
-- `.env` should keep `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjasyogya.cloud` and `CANONICAL_HOST=erp.cvbjasyogya.cloud`,
+- `.env` should keep `RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com` and `CANONICAL_HOST=portal.cvbjas.com` after Portal cutover,
 - the latest recruitment host build no longer shows the old offline CTA text `Kembali ke ERP`; it should use the updated public-host cleanup flow instead.
 
-If the server checks are already healthy but the browser still shows the old offline card, clear site data or unregister the stale service worker for `recruitment.cvbjasyogya.cloud`, then reload the page.
+If the server checks are already healthy but the browser still shows the old offline card, clear site data or unregister the stale service worker for `recruitment.cvbjas.com`, then reload the page.
 
 Quick checks:
 

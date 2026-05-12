@@ -78,7 +78,7 @@ Kalau SMS juga sudah pindah ke `sms.cvbjas.com`, pakai cookie shared `.com`:
 CANONICAL_HOST=portal.cvbjas.com
 SESSION_COOKIE_DOMAIN=.cvbjas.com
 SMS_PUBLIC_HOSTS=sms.cvbjas.com
-RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com,recruitment.cvbjasyogya.cloud
+RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com
 ALLOWED_HOSTS=.cvbjas.com,.cvbjasyogya.cloud
 ```
 

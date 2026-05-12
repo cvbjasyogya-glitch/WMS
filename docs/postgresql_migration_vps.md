@@ -118,8 +118,8 @@ curl https://erp.cvbjasyogya.cloud/ready
 
 ```bash
 curl -I https://erp.cvbjasyogya.cloud/login
-curl -I https://recruitment.cvbjasyogya.cloud/beranda
-curl -I "https://recruitment.cvbjasyogya.cloud/karir/summary"
+curl -I https://recruitment.cvbjas.com/beranda
+curl -I "https://recruitment.cvbjas.com/karir/summary"
 ```
 
 9. Baru switch penuh ke production traffic setelah semua check lolos.
