@@ -88,7 +88,21 @@
     }
 
     try {
-        const shouldMinimizeSidebar = window.innerWidth > 1080 && localStorage.getItem("wms-sidebar-minimized") === "1";
+        const initialViewportCandidates = [
+            window.innerWidth,
+            document.documentElement ? document.documentElement.clientWidth : 0,
+            window.visualViewport ? window.visualViewport.width : 0,
+        ]
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0);
+        const initialViewportWidth = initialViewportCandidates.length
+            ? Math.min(...initialViewportCandidates)
+            : window.innerWidth;
+        const isCoarseTouch = Boolean(
+            window.matchMedia
+            && window.matchMedia("(hover: none) and (pointer: coarse)").matches
+        );
+        const shouldMinimizeSidebar = !isCoarseTouch && initialViewportWidth > 1080 && localStorage.getItem("wms-sidebar-minimized") === "1";
         root.classList.toggle("sidebar-minimized-pending", shouldMinimizeSidebar);
     } catch (error) {
         root.classList.remove("sidebar-minimized-pending");
@@ -1067,18 +1081,40 @@ function restoreSidebarMainPanelState() {
     });
 }
 
+function getResponsiveViewportWidth() {
+    const candidates = [
+        window.innerWidth,
+        document.documentElement ? document.documentElement.clientWidth : 0,
+        window.visualViewport ? window.visualViewport.width : 0,
+    ]
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+    return candidates.length ? Math.min(...candidates) : window.innerWidth;
+}
+
+function isCoarseTouchViewport() {
+    return Boolean(
+        window.matchMedia
+        && window.matchMedia("(hover: none) and (pointer: coarse)").matches
+    );
+}
+
 function getDeviceMode() {
-    if (window.innerWidth <= 767) {
+    const viewportWidth = getResponsiveViewportWidth();
+    if (isCoarseTouchViewport() && viewportWidth > 1080) {
+        return "tablet";
+    }
+    if (viewportWidth <= 767) {
         return "mobile";
     }
-    if (window.innerWidth <= 1080) {
+    if (viewportWidth <= 1080) {
         return "tablet";
     }
     return "desktop";
 }
 
 function isDesktopViewport() {
-    return window.innerWidth > 1080;
+    return getDeviceMode() === "desktop";
 }
 
 let responsiveShellResizeFrame = 0;
@@ -1184,7 +1220,7 @@ function syncResponsiveShell() {
 }
 
 function queueResponsiveShellResize(force = false) {
-    const nextWidth = window.innerWidth;
+    const nextWidth = getResponsiveViewportWidth();
     const nextMode = getDeviceMode();
     const widthChanged = Math.abs(nextWidth - responsiveShellViewportWidth) > 1;
     const modeChanged = nextMode !== responsiveShellDeviceMode;
@@ -1208,7 +1244,7 @@ function queueResponsiveShellResize(force = false) {
             return;
         }
 
-        if (window.innerWidth > 1080) {
+        if (isDesktopViewport()) {
             closeMenu();
             restoreDesktopSidebarState();
         } else {
@@ -1434,6 +1470,12 @@ window.requestAnimationFrame(normalizeSidebarShellLayout);
 window.addEventListener("resize", () => {
     queueResponsiveShellResize(false);
 });
+
+if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+        queueResponsiveShellResize(false);
+    }, { passive: true });
+}
 
 window.addEventListener("pageshow", () => {
     normalizeSidebarShellLayout();

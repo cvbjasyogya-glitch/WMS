@@ -17,11 +17,33 @@
     let hasAutoReloadedForServiceWorkerUpdate = false;
     let deferredServiceWorkerUpdateNoticeShown = false;
 
+    function getResponsiveViewportWidth() {
+        const candidates = [
+            window.innerWidth,
+            document.documentElement ? document.documentElement.clientWidth : 0,
+            window.visualViewport ? window.visualViewport.width : 0,
+        ]
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0);
+        return candidates.length ? Math.min(...candidates) : window.innerWidth;
+    }
+
+    function isCoarseTouchViewport() {
+        return Boolean(
+            window.matchMedia
+            && window.matchMedia("(hover: none) and (pointer: coarse)").matches
+        );
+    }
+
     function getSurfaceMode() {
-        if (window.innerWidth <= 767) {
+        const viewportWidth = getResponsiveViewportWidth();
+        if (isCoarseTouchViewport() && viewportWidth > 1080) {
+            return "tablet";
+        }
+        if (viewportWidth <= 767) {
             return "mobile";
         }
-        if (window.innerWidth <= 1080) {
+        if (viewportWidth <= 1080) {
             return "tablet";
         }
         return "desktop";
@@ -326,6 +348,12 @@
     window.addEventListener("resize", () => {
         queueInstallUiSync(false);
     }, { passive: true });
+
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", () => {
+            queueInstallUiSync(false);
+        }, { passive: true });
+    }
 
     window.addEventListener("focus", () => {
         void checkForServiceWorkerUpdate(false);
