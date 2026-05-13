@@ -2740,9 +2740,14 @@
                             <label>Link Tes Kandidat</label>
                             {% if candidate.assessment_code %}
                             <a class="ghost-button" href="{{ url_for('career.assessment', code=candidate.assessment_code) }}" target="_blank" rel="noopener" data-recruitment-assessment-link>Buka Halaman Tes</a>
+                            {% if candidate.assessment_whatsapp_url %}
+                            <a class="ghost-button" href="{{ candidate.assessment_whatsapp_url }}" target="_blank" rel="noopener" data-recruitment-assessment-wa-link>Kirim via WhatsApp</a>
+                            {% else %}
+                            <span class="helper-text" data-recruitment-assessment-wa-empty>Nomor WhatsApp kandidat belum tersedia.</span>
+                            {% endif %}
                             <span class="helper-text" data-recruitment-assessment-meta>Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_label }}.</span>
                             {% else %}
-                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes. Kandidat akan menjalani 3 sesi: kemampuan dasar, potensi akademik, dan studi kasus.</span>
+                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan bisa dikirim lewat email atau WhatsApp saat kandidat disetujui lanjut ke tahap tes. Kandidat akan menjalani 3 sesi: kemampuan dasar, potensi akademik, dan studi kasus.</span>
                             {% endif %}
                             <div class="split-actions recruitment-quick-actions">
                                 <button type="submit" name="decision_action" value="approve_assessment" data-recruitment-quick-action>
@@ -3034,6 +3039,8 @@
             return;
         }
         let assessmentLink = assessmentAccess.querySelector("[data-recruitment-assessment-link]");
+        let assessmentWaLink = assessmentAccess.querySelector("[data-recruitment-assessment-wa-link]");
+        let assessmentWaEmpty = assessmentAccess.querySelector("[data-recruitment-assessment-wa-empty]");
         let assessmentMeta = assessmentAccess.querySelector("[data-recruitment-assessment-meta]");
         if (!assessmentMeta) {
             assessmentMeta = document.createElement("span");
@@ -3054,6 +3061,29 @@
                 assessmentAccess.insertBefore(assessmentLink, assessmentMeta || actions || null);
             }
             assessmentLink.href = payload.assessment_url;
+            if (payload.assessment_whatsapp_url) {
+                if (!assessmentWaLink) {
+                    assessmentWaLink = document.createElement("a");
+                    assessmentWaLink.className = "ghost-button";
+                    assessmentWaLink.target = "_blank";
+                    assessmentWaLink.rel = "noopener";
+                    assessmentWaLink.setAttribute("data-recruitment-assessment-wa-link", "1");
+                    assessmentWaLink.textContent = "Kirim via WhatsApp";
+                    assessmentAccess.insertBefore(assessmentWaLink, assessmentMeta || null);
+                }
+                assessmentWaLink.href = payload.assessment_whatsapp_url;
+                if (assessmentWaEmpty) {
+                    assessmentWaEmpty.remove();
+                }
+            } else if (!assessmentWaLink && !assessmentWaEmpty) {
+                assessmentWaEmpty = document.createElement("span");
+                assessmentWaEmpty.className = "helper-text";
+                assessmentWaEmpty.setAttribute("data-recruitment-assessment-wa-empty", "1");
+                assessmentWaEmpty.textContent = "Nomor WhatsApp kandidat belum tersedia.";
+                assessmentAccess.insertBefore(assessmentWaEmpty, assessmentMeta || null);
+            } else if (assessmentWaLink && !payload.assessment_whatsapp_url) {
+                assessmentWaLink.remove();
+            }
             assessmentMeta.textContent = `Masa berlaku: ${payload.assessment_expires_at_label || '-'}. Durasi: ${payload.assessment_duration_label || 'Tanpa batas waktu'}.`;
         }
     };

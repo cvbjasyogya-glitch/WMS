@@ -1479,6 +1479,297 @@ def _resolve_created_public_candidate_id(db, candidate_id, *, opening_id, public
     return int(row["id"] or 0) if row else 0
 
 
+def _fetch_public_profile_intake_warehouses(db):
+    try:
+        rows = db.execute(
+            """
+            SELECT id, name
+            FROM warehouses
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    except Exception:
+        rows = []
+    warehouses = []
+    for row in rows or []:
+        try:
+            warehouse_id = int(row["id"] or 0)
+        except (TypeError, ValueError):
+            warehouse_id = 0
+        if warehouse_id <= 0:
+            continue
+        warehouses.append(
+            {
+                "id": warehouse_id,
+                "name": str(row["name"] or "").strip(),
+            }
+        )
+    return warehouses
+
+
+def _resolve_public_profile_intake_homebases(db, personal_payload, additional_payload):
+    warehouses = _fetch_public_profile_intake_warehouses(db)
+    if not warehouses:
+        return 1, [1]
+
+    preference_text = " ".join(
+        str(value or "")
+        for value in (
+            dict(personal_payload or {}).get("preferred_area"),
+            dict(personal_payload or {}).get("domicile_city"),
+            dict(personal_payload or {}).get("ktp_city"),
+            dict(additional_payload or {}).get("preferred_area"),
+            dict(additional_payload or {}).get("domicile"),
+        )
+    ).lower()
+    matched_ids = []
+    for warehouse in warehouses:
+        warehouse_name = warehouse["name"].lower()
+        if not warehouse_name:
+            continue
+        if warehouse_name in preference_text:
+            matched_ids.append(warehouse["id"])
+            continue
+        if "mataram" in preference_text and "mataram" in warehouse_name:
+            matched_ids.append(warehouse["id"])
+            continue
+        if "mega" in preference_text and "mega" in warehouse_name:
+            matched_ids.append(warehouse["id"])
+
+    placement_ids = []
+    for warehouse_id in matched_ids or [item["id"] for item in warehouses]:
+        if warehouse_id not in placement_ids:
+            placement_ids.append(warehouse_id)
+    primary_id = placement_ids[0] if placement_ids else warehouses[0]["id"]
+    return primary_id, placement_ids or [primary_id]
+
+
+def _find_public_profile_intake_candidate(db, account_id):
+    try:
+        safe_account_id = int(account_id or 0)
+    except (TypeError, ValueError):
+        safe_account_id = 0
+    if safe_account_id <= 0:
+        return None
+    return db.execute(
+        """
+        SELECT id, resume_original_name, resume_path, hr_storage_folder
+        FROM recruitment_candidates
+        WHERE public_account_id=?
+          AND vacancy_id IS NULL
+          AND application_channel=?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (
+            safe_account_id,
+            normalize_career_application_channel("public_portal"),
+        ),
+    ).fetchone()
+
+
+def _ensure_completed_public_profile_in_hr_pipeline(db, account, profile_sections):
+    safe_account = dict(account or {})
+    try:
+        account_id = int(safe_account.get("id") or 0)
+    except (TypeError, ValueError):
+        account_id = 0
+    if account_id <= 0:
+        return {"status": "skipped", "message": ""}
+
+    personal_payload = dict((dict(profile_sections or {}).get("personal") or {}).get("payload") or {})
+    additional_payload = dict((dict(profile_sections or {}).get("additional") or {}).get("payload") or {})
+    profile_documents = _collect_candidate_profile_documents(profile_sections)
+    profile_resume_document = _get_primary_profile_resume_document(profile_documents)
+    if not profile_resume_document:
+        return {
+            "status": "skipped",
+            "message": "CV belum tersedia sehingga profil belum bisa otomatis masuk ke HR.",
+        }
+
+    candidate_name = (
+        normalize_candidate_identity_name(personal_payload.get("full_name"))
+        or normalize_candidate_identity_name(safe_account.get("full_name"))
+        or "Kandidat"
+    )
+    phone = normalize_candidate_phone(personal_payload.get("phone"))
+    email = normalize_candidate_email(personal_payload.get("email") or safe_account.get("email"))
+    portfolio_url = normalize_candidate_portfolio_url(personal_payload.get("linkedin_url"))
+    note = (
+        _normalize_profile_textarea(additional_payload.get("notes"))
+        or _normalize_profile_textarea(personal_payload.get("recent_experience"))
+        or _normalize_profile_textarea(personal_payload.get("summary"))
+        or "Profil kandidat lengkap dari portal publik. Kandidat belum memilih lowongan spesifik."
+    )
+    primary_warehouse_id, placement_warehouse_ids = _resolve_public_profile_intake_homebases(
+        db,
+        personal_payload,
+        additional_payload,
+    )
+    placement_warehouse_ids_value = encode_recruitment_homebase_ids(placement_warehouse_ids)
+    profile_snapshot = _build_candidate_profile_snapshot(safe_account, profile_sections)
+    profile_documents_payload = [
+        {
+            "document_type": item.get("document_type") or "other",
+            "label": item.get("label") or "Dokumen Kandidat",
+            "stored_name": item.get("stored_name") or "",
+            "uploaded_at": item.get("uploaded_at"),
+            "available_in_hr_storage": False,
+            "hr_storage_relative_path": "",
+        }
+        for item in profile_documents
+    ]
+    profile_documents_json = json.dumps(profile_documents_payload, ensure_ascii=True, sort_keys=True)
+    profile_snapshot_json = json.dumps(profile_snapshot, ensure_ascii=True, sort_keys=True)
+
+    existing_candidate = _find_public_profile_intake_candidate(db, account_id)
+    profile_resume_original_name = secure_filename(profile_resume_document.get("stored_name") or "")
+    resume_original_name = ""
+    resume_path = ""
+    should_sync_storage = existing_candidate is None
+    try:
+        if (
+            existing_candidate
+            and existing_candidate["resume_path"]
+            and existing_candidate["resume_original_name"] == profile_resume_original_name
+        ):
+            resume_original_name = existing_candidate["resume_original_name"]
+            resume_path = existing_candidate["resume_path"]
+        else:
+            resume_original_name, resume_path = _save_career_resume_from_profile_document(
+                profile_resume_document
+            )
+            should_sync_storage = True
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+    if existing_candidate:
+        candidate_id = int(existing_candidate["id"] or 0)
+        db.execute(
+            """
+            UPDATE recruitment_candidates
+            SET candidate_name=?,
+                warehouse_id=?,
+                source=?,
+                phone=?,
+                email=?,
+                note=?,
+                portfolio_url=?,
+                placement_warehouse_ids=?,
+                resume_original_name=?,
+                resume_path=?,
+                profile_snapshot_json=?,
+                profile_documents_json=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                candidate_name,
+                primary_warehouse_id,
+                "Profil Kandidat",
+                phone or None,
+                email or None,
+                note or None,
+                portfolio_url or None,
+                placement_warehouse_ids_value,
+                resume_original_name,
+                resume_path,
+                profile_snapshot_json,
+                profile_documents_json,
+                candidate_id,
+            ),
+        )
+        status = "updated"
+    else:
+        insert_cursor = db.execute(
+            """
+            INSERT INTO recruitment_candidates(
+                candidate_name,
+                warehouse_id,
+                position_title,
+                department,
+                stage,
+                status,
+                source,
+                phone,
+                email,
+                note,
+                vacancy_id,
+                application_channel,
+                portfolio_url,
+                placement_warehouse_ids,
+                resume_original_name,
+                resume_path,
+                public_account_id,
+                profile_snapshot_json,
+                profile_documents_json,
+                updated_at
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+            """,
+            (
+                candidate_name,
+                primary_warehouse_id,
+                "Profil Kandidat Umum",
+                "Recruitment",
+                "applied",
+                "active",
+                "Profil Kandidat",
+                phone or None,
+                email or None,
+                note or None,
+                None,
+                normalize_career_application_channel("public_portal"),
+                portfolio_url or None,
+                placement_warehouse_ids_value,
+                resume_original_name,
+                resume_path,
+                account_id,
+                profile_snapshot_json,
+                profile_documents_json,
+            ),
+        )
+        candidate_id = extract_inserted_row_id(insert_cursor)
+        if candidate_id <= 0:
+            created_row = _find_public_profile_intake_candidate(db, account_id)
+            candidate_id = int(created_row["id"] or 0) if created_row else 0
+        status = "created"
+
+    existing_hr_storage_folder = ""
+    if existing_candidate:
+        existing_hr_storage_folder = str(existing_candidate["hr_storage_folder"] or "").strip()
+    if candidate_id > 0 and (should_sync_storage or not existing_hr_storage_folder):
+        hr_storage_folder, archived_files, archived_documents = _sync_candidate_hr_intake_storage(
+            candidate_id=candidate_id,
+            candidate_name=candidate_name,
+            profile_snapshot=profile_snapshot,
+            profile_documents=profile_documents,
+            resume_original_name=resume_original_name,
+            resume_stored_name=resume_path,
+        )
+        hr_sms_targets = _sync_candidate_intake_to_hr_sms_workspaces(db, hr_storage_folder)
+        db.execute(
+            """
+            UPDATE recruitment_candidates
+            SET profile_documents_json=?,
+                hr_storage_folder=?,
+                hr_storage_files_json=?,
+                hr_sms_targets_json=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                json.dumps(archived_documents, ensure_ascii=True, sort_keys=True),
+                hr_storage_folder or None,
+                json.dumps(archived_files, ensure_ascii=True, sort_keys=True),
+                json.dumps(hr_sms_targets, ensure_ascii=True, sort_keys=True),
+                candidate_id,
+            ),
+        )
+
+    return {"status": status, "candidate_id": candidate_id, "message": ""}
+
+
 def _render_candidate_jobs_portal(
     db,
     account,
@@ -3206,6 +3497,43 @@ def profile_page():
         if selected_section_key == "personal":
             account = get_career_public_account_by_id(db, account["id"]) or account
             _set_career_public_session(account)
+        latest_sections = get_career_public_profile_sections(db, account["id"])
+        latest_profile_gate = _get_candidate_profile_gate(
+            db,
+            account,
+            stored_sections=latest_sections,
+        )
+        if latest_profile_gate["is_ready"]:
+            try:
+                intake_result = _ensure_completed_public_profile_in_hr_pipeline(
+                    db,
+                    account,
+                    latest_sections,
+                )
+                db.commit()
+                if intake_result.get("status") == "created":
+                    flash(
+                        "Profil lengkap sudah otomatis masuk ke HR untuk screening.",
+                        "success",
+                    )
+                elif intake_result.get("status") == "error" and intake_result.get("message"):
+                    flash(
+                        f"Profil tersimpan, tetapi belum bisa otomatis masuk HR: {intake_result['message']}",
+                        "info",
+                    )
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                current_app.logger.exception(
+                    "CAREER PROFILE AUTO INTAKE ERROR public_account_id=%s",
+                    account.get("id"),
+                )
+                flash(
+                    "Profil tersimpan, tetapi sinkron otomatis ke HR belum berhasil. Tim bisa menarik ulang dari data profil.",
+                    "info",
+                )
         flash("Profil kandidat berhasil diperbarui.", "success")
         return redirect(build_career_public_url("career.profile_page", section=selected_section_key))
 

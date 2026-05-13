@@ -15496,8 +15496,60 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertFalse(payload["removed_from_pipeline"])
         self.assertRegex(payload["assessment_code"], r"^\d{5}$")
         self.assertIn("/karir/tes", payload["assessment_url"])
+        whatsapp_url = urlsplit(payload["assessment_whatsapp_url"])
+        self.assertEqual(whatsapp_url.netloc, "wa.me")
+        self.assertEqual(whatsapp_url.path, "/6281234567888")
+        whatsapp_text = parse_qs(whatsapp_url.query)["text"][0]
+        self.assertIn(payload["assessment_code"], whatsapp_text)
+        self.assertIn("/karir/tes?code=", whatsapp_text)
         self.assertIn("Kode tes", payload["message"])
         mocked_send.assert_called_once()
+
+    def test_hr_recruitment_pipeline_shows_whatsapp_assessment_share_link(self):
+        self.login_hr_user()
+        with self.app.app_context():
+            db = get_db()
+            ensure_career_schema(db)
+            db.execute(
+                """
+                INSERT INTO recruitment_candidates(
+                    candidate_name,
+                    warehouse_id,
+                    position_title,
+                    department,
+                    stage,
+                    status,
+                    source,
+                    phone,
+                    email,
+                    assessment_code,
+                    application_channel,
+                    updated_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """,
+                (
+                    "WA Tes Kandidat",
+                    1,
+                    "Admin Warehouse",
+                    "Warehouse",
+                    "screening",
+                    "active",
+                    "Halaman Karir",
+                    "0812 3456 7890",
+                    "wa-tes@example.com",
+                    "24680",
+                    "public_portal",
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/hris/recruitment")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Kirim via WhatsApp", html)
+        self.assertIn("https://wa.me/6281234567890", html)
+        self.assertIn("24680", html)
 
     def test_public_career_test_code_entry_moves_to_header_and_apply_shows_screening_notice(self):
         with self.app.app_context():
@@ -17547,6 +17599,111 @@ class WmsRoutesTestCase(unittest.TestCase):
         stored_types = {item.get("document_type") for item in payload["files"]}
         self.assertEqual(stored_types, {"cv_resume", "ktp_scan"})
         self.assertEqual(section_row["completion_state"], "complete")
+
+    def test_public_career_complete_profile_auto_creates_hr_pipeline_candidate(self):
+        account = self.login_public_career_account_session(
+            email="auto-hr@example.com",
+            full_name="Auto HR Kandidat",
+        )
+
+        personal_response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "personal",
+                "full_name": "Auto HR Kandidat",
+                "email": "auto-hr@example.com",
+                "phone": "0812 9000 1111",
+                "domicile_city": "Sleman",
+                "preferred_area": "Mataram / Mega",
+                "recent_experience": "Pernah membantu operasional toko olahraga.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(personal_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_count = db.execute(
+                "SELECT COUNT(*) FROM recruitment_candidates WHERE public_account_id=?",
+                (account["id"],),
+            ).fetchone()[0]
+        self.assertEqual(candidate_count, 0)
+
+        documents_response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "documents": [
+                    (BytesIO(b"cv-auto"), "cv-auto.pdf"),
+                    (BytesIO(b"ktp-auto"), "ktp-auto.jpg"),
+                ],
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(documents_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate = db.execute(
+                """
+                SELECT candidate_name, position_title, stage, status, source, phone, email,
+                       vacancy_id, application_channel, public_account_id, resume_path,
+                       profile_snapshot_json, profile_documents_json, hr_storage_folder
+                FROM recruitment_candidates
+                WHERE public_account_id=?
+                LIMIT 1
+                """,
+                (account["id"],),
+            ).fetchone()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["candidate_name"], "Auto HR Kandidat")
+        self.assertEqual(candidate["position_title"], "Profil Kandidat Umum")
+        self.assertEqual(candidate["stage"], "applied")
+        self.assertEqual(candidate["status"], "active")
+        self.assertEqual(candidate["source"], "Profil Kandidat")
+        self.assertEqual(candidate["phone"], "6281290001111")
+        self.assertEqual(candidate["email"], "auto-hr@example.com")
+        self.assertIsNone(candidate["vacancy_id"])
+        self.assertEqual(candidate["application_channel"], "public_portal")
+        self.assertEqual(int(candidate["public_account_id"]), int(account["id"]))
+        self.assertTrue(candidate["resume_path"])
+        self.assertTrue(candidate["hr_storage_folder"])
+        profile_snapshot = json.loads(candidate["profile_snapshot_json"])
+        profile_documents = json.loads(candidate["profile_documents_json"])
+        self.assertEqual(profile_snapshot["personal"]["domicile_city"], "Sleman")
+        self.assertTrue(any(item["document_type"] == "cv_resume" for item in profile_documents))
+        self.assertTrue(any(item["document_type"] == "ktp_scan" for item in profile_documents))
+
+        update_response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "personal",
+                "full_name": "Auto HR Kandidat Update",
+                "email": "auto-hr@example.com",
+                "phone": "0812 9000 2222",
+                "domicile_city": "Sleman",
+                "preferred_area": "Mataram / Mega",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            candidate_rows = db.execute(
+                """
+                SELECT candidate_name, phone
+                FROM recruitment_candidates
+                WHERE public_account_id=? AND vacancy_id IS NULL
+                ORDER BY id ASC
+                """,
+                (account["id"],),
+            ).fetchall()
+        self.assertEqual(len(candidate_rows), 1)
+        self.assertEqual(candidate_rows[0]["candidate_name"], "Auto HR Kandidat Update")
+        self.assertEqual(candidate_rows[0]["phone"], "6281290002222")
 
     def test_public_career_candidate_can_bulk_upload_documents_in_one_submit(self):
         account = self.login_public_career_account_session(

@@ -6,6 +6,7 @@ import re
 import sqlite3
 from collections import defaultdict
 from datetime import date as date_cls, datetime, timedelta, timezone
+from urllib.parse import quote
 from uuid import uuid4
 
 from flask import Blueprint, current_app, has_app_context, jsonify, render_template, request, redirect, flash, session, url_for, send_file
@@ -66,6 +67,7 @@ from services.career_service import (
     normalize_assessment_duration_minutes,
     normalize_assessment_option,
     normalize_assessment_test_type,
+    normalize_candidate_phone,
     normalize_career_assessment_status,
     normalize_career_application_channel,
     normalize_career_employment_type,
@@ -3001,6 +3003,7 @@ def _decorate_recruitment_candidate(candidate, warehouse_name_map=None):
     safe_candidate["profile_section_summaries"] = section_summaries
     safe_candidate["hr_storage_files"] = normalized_storage_files
     safe_candidate["hr_sms_targets"] = [dict(item) for item in hr_sms_targets if isinstance(item, dict)]
+    safe_candidate["assessment_whatsapp_url"] = _build_recruitment_assessment_whatsapp_url(safe_candidate)
     safe_candidate["assessment_violation_events"] = list(reversed(normalized_violation_events[-8:]))
     safe_candidate["assessment_violation_history_count"] = len(normalized_violation_events)
     safe_candidate["assessment_has_violation_history"] = any(
@@ -3321,6 +3324,45 @@ def _send_recruitment_assessment_code_email(candidate):
     ]
     subject = f"Kode Tes Karir {company_name} - {position_title}"
     return send_email(recipient, subject, "\n".join(body_lines))
+
+
+def _build_recruitment_assessment_whatsapp_url(candidate):
+    safe_candidate = dict(candidate or {})
+    phone = normalize_candidate_phone(safe_candidate.get("phone"))
+    assessment_code = normalize_assessment_code(safe_candidate.get("assessment_code"))
+    if not phone or not assessment_code:
+        return ""
+
+    company_name = _get_career_public_company_name_local()
+    candidate_name = (safe_candidate.get("candidate_name") or "Kandidat").strip()
+    position_title = (
+        safe_candidate.get("vacancy_title")
+        or safe_candidate.get("position_title")
+        or "posisi yang Anda lamar"
+    )
+    assessment_url = build_career_public_url(
+        "career.assessment",
+        code=assessment_code,
+        force_external=True,
+    )
+    expiry_label = _format_hris_datetime_display(
+        safe_candidate.get("assessment_expires_at"),
+        include_date=True,
+    )
+    duration_label = _format_recruitment_assessment_duration_label(safe_candidate)
+    message_lines = [
+        f"Halo {candidate_name},",
+        "",
+        f"Lamaran Anda untuk {position_title} di {company_name} sudah lanjut ke tahap tes.",
+        f"Kode tes: {assessment_code}",
+        f"Link tes: {assessment_url}",
+        f"Masa berlaku: {expiry_label if expiry_label != '-' else 'Belum diatur khusus oleh HR.'}",
+        f"Durasi: {duration_label}",
+        "",
+        "Silakan buka link tersebut dan kerjakan tes menggunakan satu perangkat dengan koneksi stabil.",
+        f"- {company_name} Career",
+    ]
+    return f"https://wa.me/{phone}?text={quote(chr(10).join(message_lines))}"
 
 
 def _send_recruitment_rejection_email(candidate):
@@ -10379,6 +10421,7 @@ def update_recruitment(candidate_id):
                 "message": " ".join(item for item in response_messages if item).strip(),
                 "assessment_code": safe_assessment_code,
                 "assessment_url": safe_assessment_url,
+                "assessment_whatsapp_url": _build_recruitment_assessment_whatsapp_url(safe_updated_candidate),
                 "assessment_expires_at_label": safe_updated_candidate.get("assessment_expires_at_label") or "-",
                 "assessment_duration_label": safe_duration_label,
             }
