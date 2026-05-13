@@ -17165,7 +17165,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Data Lamaran", html)
-        self.assertIn("Upload CV", html)
+        self.assertIn("Upload CV &amp; KTP", html)
         self.assertIn("Nomor WhatsApp *", html)
         self.assertIn("Domisili sekarang *", html)
         self.assertNotIn("Nomor KTP *", html)
@@ -17174,7 +17174,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         documents_response = self.client.get("/karir/profil?section=documents")
         self.assertEqual(documents_response.status_code, 200)
         documents_html = documents_response.get_data(as_text=True)
-        self.assertIn("Yang wajib hanya CV / Resume", documents_html)
+        self.assertIn("Yang wajib: CV / Resume dan Scan KTP", documents_html)
         self.assertIn("Jenis berkas", documents_html)
         self.assertIn('name="documents"', documents_html)
         self.assertIn("Tambahkan beberapa dokumen sekaligus", documents_html)
@@ -17516,6 +17516,36 @@ class WmsRoutesTestCase(unittest.TestCase):
         payload = json.loads(section_row["payload_json"])
         stored_types = {item.get("document_type") for item in payload["files"]}
         self.assertEqual(stored_types, {"cv_resume"})
+        self.assertEqual(section_row["completion_state"], "incomplete")
+
+        response = self.client.post(
+            "/karir/profil",
+            data={
+                "section": "documents",
+                "document_type": "ktp_scan",
+                "document_file": (BytesIO(b"ktp"), "ktp.jpg"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/karir/profil?section=documents")
+
+        with self.app.app_context():
+            db = get_db()
+            section_row = db.execute(
+                """
+                SELECT payload_json, completion_state
+                FROM career_public_profile_sections
+                WHERE account_id=? AND section_key=?
+                LIMIT 1
+                """,
+                (account["id"], "documents"),
+            ).fetchone()
+        self.assertIsNotNone(section_row)
+        payload = json.loads(section_row["payload_json"])
+        stored_types = {item.get("document_type") for item in payload["files"]}
+        self.assertEqual(stored_types, {"cv_resume", "ktp_scan"})
         self.assertEqual(section_row["completion_state"], "complete")
 
     def test_public_career_candidate_can_bulk_upload_documents_in_one_submit(self):
@@ -17633,7 +17663,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(submit_response.status_code, 200)
         submit_html = submit_response.get_data(as_text=True)
         self.assertIn("Belum ada berkas yang bisa diproses", submit_html)
-        self.assertIn("Upload CV", submit_html)
+        self.assertIn("Upload CV &amp; KTP", submit_html)
 
     def test_public_career_profile_redirects_back_when_total_upload_payload_too_large(self):
         self.login_public_career_account_session(
@@ -17660,7 +17690,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("Ukuran upload terlalu besar", html)
-        self.assertIn("Upload CV", html)
+        self.assertIn("Upload CV &amp; KTP", html)
 
     def test_public_career_candidate_can_override_bulk_document_type_before_upload(self):
         account = self.login_public_career_account_session(

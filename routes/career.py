@@ -130,10 +130,10 @@ CAREER_PROFILE_SECTION_DEFINITIONS = [
     },
     {
         "key": "documents",
-        "label": "Upload CV",
-        "title": "Upload CV",
+        "label": "Upload CV & KTP",
+        "title": "Upload CV & KTP",
         "empty_label": "Harus dilengkapi",
-        "summary": "Unggah CV / Resume agar HR bisa melakukan screening awal. Berkas lain boleh ditambahkan jika sudah siap.",
+        "summary": "Unggah CV / Resume dan Scan KTP agar HR bisa melakukan screening awal. Berkas lain boleh ditambahkan jika sudah siap.",
     },
 ]
 CAREER_PROFILE_SECTION_KEYS = {section["key"] for section in CAREER_PROFILE_SECTION_DEFINITIONS}
@@ -178,7 +178,7 @@ CAREER_PROFILE_MARITAL_STATUS_OPTIONS = [
 ]
 CAREER_PROFILE_DOCUMENT_DEFINITIONS = [
     {"key": "cv_resume", "label": "CV / Resume", "required": True},
-    {"key": "ktp_scan", "label": "Scan KTP", "required": False},
+    {"key": "ktp_scan", "label": "Scan KTP", "required": True},
     {"key": "last_diploma", "label": "Ijazah Terakhir", "required": False},
     {"key": "npwp_scan", "label": "Scan NPWP", "required": False},
     {"key": "transcript", "label": "Transkrip Nilai", "required": False},
@@ -867,7 +867,7 @@ def _guard_candidate_profile_completion(db, account, *, message=None, category="
     return profile_gate, _redirect_candidate_back_to_profile(
         profile_gate,
         message=message
-        or "Lengkapi Data Lamaran dan CV terlebih dahulu sebelum melanjutkan.",
+        or "Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum melanjutkan.",
         category=category,
     )
 
@@ -2682,7 +2682,7 @@ def portal_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum masuk ke portal kandidat.",
+        message="Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum masuk ke portal kandidat.",
     )
     if redirect_response:
         return redirect_response
@@ -2979,7 +2979,7 @@ def applications_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum membuka riwayat lamaran.",
+        message="Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum membuka riwayat lamaran.",
     )
     if redirect_response:
         return redirect_response
@@ -3007,7 +3007,7 @@ def saved_openings_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum membuka lowongan tersimpan.",
+        message="Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum membuka lowongan tersimpan.",
     )
     if redirect_response:
         return redirect_response
@@ -3317,7 +3317,7 @@ def password_page():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         account,
-        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum keluar dari halaman profil.",
+        message="Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum keluar dari halaman profil.",
     )
     if redirect_response:
         return redirect_response
@@ -3376,7 +3376,7 @@ def opening_detail(opening_id):
         profile_gate, redirect_response = _guard_candidate_profile_completion(
             db,
             active_account,
-            message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum membuka detail lowongan atau melamar.",
+            message="Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum membuka detail lowongan atau melamar.",
         )
         if redirect_response:
             return redirect_response
@@ -3497,7 +3497,7 @@ def apply():
     profile_gate, redirect_response = _guard_candidate_profile_completion(
         db,
         active_account,
-        message="Lengkapi Data Lamaran dan CV terlebih dahulu sebelum mengirim lamaran.",
+        message="Lengkapi Data Lamaran, CV, dan KTP terlebih dahulu sebelum mengirim lamaran.",
     )
     if redirect_response:
         return redirect_response
