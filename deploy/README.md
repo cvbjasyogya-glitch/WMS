@@ -3,7 +3,7 @@ Production deploy checklist for `erp.cvbjasyogya.cloud`.
 1. Copy [.env.production.example](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/.env.production.example) to your VPS `.env` or `EnvironmentFile`.
    Important:
    For VPS PostgreSQL, set `DATABASE_BACKEND=postgresql` and fill `DATABASE_URL` with the production DSN before restarting `wms.service`.
-   For ERP + SMS SSO across subdomains, set `SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud` so one login can be reused by `erp.cvbjasyogya.cloud` and `sms.cvbjasyogya.cloud`.
+   SMS storage sekarang memakai `mataramsport.space`. Karena beda root domain dari Portal/ERP, browser tidak bisa berbagi cookie SSO lintas domain; kosongkan `SESSION_COOKIE_DOMAIN` saat SMS berjalan di domain ini.
    Keep `RECRUITMENT_SESSION_COOKIE_NAME=career_public_session` so portal kandidat di `recruitment.cvbjas.com` memakai cookie terpisah dan tidak bentrok dengan cookie ERP/SMS.
 2. Copy [deploy/nginx/wms_upstream.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/wms_upstream.conf) to `/etc/nginx/conf.d/wms_upstream.conf`.
 3. Point Nginx to [deploy/nginx/erp.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/erp.cvbjasyogya.cloud.conf).
@@ -35,11 +35,11 @@ Public recruitment domain:
 - After each recruitment deploy, run `python3 scripts/recruitment_vps_smoke_test.py`. This checks the recruitment host redirect flow, `/signin`, `/beranda`, `/karir/tes`, career/recruitment tables, SMTP readiness, and whether at least one HR user can access the recruitment module.
 
 Public SMS cloud storage domain:
-- Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) if you want `sms.cvbjasyogya.cloud` to point to the same Gunicorn socket.
-- Add `SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud` to `.env`.
-- To enable seamless SSO between ERP and SMS, keep `SESSION_COOKIE_DOMAIN=.cvbjasyogya.cloud` in `.env`.
-- Keep `CANONICAL_HOST=erp.cvbjasyogya.cloud` so the ERP stays on the main domain while the SMS host routes `/` directly to `/sms/`.
-- Point DNS `sms.cvbjasyogya.cloud` to the same VPS as the main ERP before requesting the TLS certificate.
+- Use `deploy/nginx/mataramsport.space.bootstrap.conf` for the first HTTP/Certbot step, then switch to [deploy/nginx/mataramsport.space.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/mataramsport.space.conf) so `mataramsport.space` points to the same Gunicorn socket.
+- Use [deploy/nginx/sms.cvbjasyogya.cloud.conf](/c:/Users/Editing%20PC%20Mega/Downloads/projek%20rio%20FIX/projek%20rio%20FIX/deploy/nginx/sms.cvbjasyogya.cloud.conf) only as redirect from `sms.cvbjasyogya.cloud` to `mataramsport.space`.
+- Add `SMS_PUBLIC_HOSTS=mataramsport.space` to `.env`.
+- Set `SESSION_COOKIE_DOMAIN=` empty, because `mataramsport.space` cannot share cookies with `portal.cvbjas.com` or `erp.cvbjasyogya.cloud`.
+- Point DNS `mataramsport.space` to the same VPS before requesting the TLS certificate.
 
 Notes:
 - The example `EnvironmentFile` is optional, so `wms.service` can still boot even before `.env` exists.
@@ -88,16 +88,28 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Enable the SMS cloud storage domain on the same VPS:
+Enable the SMS cloud storage domain on the same VPS. Current public SMS domain is `mataramsport.space`; the old `sms.cvbjasyogya.cloud` config only redirects to the new domain.
 
 ```bash
 cd ~/WMS
+sudo mkdir -p /var/www/mataramsport.space/.well-known/acme-challenge
+sudo chown -R www-data:www-data /var/www/mataramsport.space
+sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
+sudo cp deploy/nginx/mataramsport.space.bootstrap.conf /etc/nginx/sites-available/mataramsport.space.conf
+sudo ln -sf /etc/nginx/sites-available/mataramsport.space.conf /etc/nginx/sites-enabled/mataramsport.space.conf
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot certonly --webroot -w /var/www/mataramsport.space -d mataramsport.space
+sudo cp deploy/nginx/mataramsport.space.conf /etc/nginx/sites-available/mataramsport.space.conf
 sudo cp deploy/nginx/sms.cvbjasyogya.cloud.conf /etc/nginx/sites-available/sms.cvbjasyogya.cloud.conf
 sudo ln -sf /etc/nginx/sites-available/sms.cvbjasyogya.cloud.conf /etc/nginx/sites-enabled/sms.cvbjasyogya.cloud.conf
-sudo cp deploy/nginx/wms_upstream.conf /etc/nginx/conf.d/wms_upstream.conf
 grep -q '^SMS_PUBLIC_HOSTS=' /root/WMS/.env \
-  && sudo sed -i 's/^SMS_PUBLIC_HOSTS=.*/SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud/' /root/WMS/.env \
-  || echo "SMS_PUBLIC_HOSTS=sms.cvbjasyogya.cloud" | sudo tee -a /root/WMS/.env
+  && sudo sed -i 's/^SMS_PUBLIC_HOSTS=.*/SMS_PUBLIC_HOSTS=mataramsport.space/' /root/WMS/.env \
+  || echo "SMS_PUBLIC_HOSTS=mataramsport.space" | sudo tee -a /root/WMS/.env
+# Jika SESSION_COOKIE_DOMAIN masih .cvbjas.com, kosongkan agar login di domain beda tidak ditolak browser.
+grep -q '^SESSION_COOKIE_DOMAIN=' /root/WMS/.env \
+  && sudo sed -i 's/^SESSION_COOKIE_DOMAIN=.*/SESSION_COOKIE_DOMAIN=/' /root/WMS/.env \
+  || echo "SESSION_COOKIE_DOMAIN=" | sudo tee -a /root/WMS/.env
 sudo systemctl restart wms.service
 sudo nginx -t
 sudo systemctl reload nginx

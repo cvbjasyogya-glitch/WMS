@@ -207,6 +207,10 @@ class WmsRoutesTestCase(unittest.TestCase):
             _derive_shared_session_cookie_domain(["erp.test", "sms.test"]),
             "",
         )
+        self.assertEqual(
+            _derive_shared_session_cookie_domain(["portal.cvbjas.com", "mataramsport.space"]),
+            "",
+        )
 
     def test_database_translation_supports_parameterized_datetime_modifier(self):
         translated = _translate_sqlite_query_to_postgres(
@@ -16379,6 +16383,29 @@ class WmsRoutesTestCase(unittest.TestCase):
         internal_response = self.client.get("/workspace", headers={"Host": "sms.test"}, follow_redirects=False)
         self.assertEqual(internal_response.status_code, 302)
         self.assertTrue(internal_response.headers["Location"].endswith("/sms/"))
+
+    def test_sms_public_host_on_external_domain_uses_host_only_session_cookie(self):
+        self.app.config["CANONICAL_HOST"] = "portal.cvbjas.com"
+        self.app.config["SMS_PUBLIC_HOSTS"] = ["mataramsport.space"]
+        self.app.config["SESSION_COOKIE_NAME"] = "wms_session"
+        self.app.config["SESSION_COOKIE_DOMAIN"] = ".cvbjas.com"
+        self.create_user("sms_external_cookie", "pass1234", "super_admin")
+
+        response = self.client.post(
+            "/login",
+            data={"username": "sms_external_cookie", "password": "pass1234"},
+            base_url="https://mataramsport.space",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cookie_headers = response.headers.getlist("Set-Cookie")
+        session_cookie = next(
+            (item for item in cookie_headers if item.startswith("wms_session=")),
+            "",
+        )
+        self.assertTrue(session_cookie)
+        self.assertNotIn("Domain=", session_cookie)
 
     def test_sms_routes_redirect_to_sms_domain_when_configured(self):
         self.app.config["CANONICAL_HOST"] = "erp.test"

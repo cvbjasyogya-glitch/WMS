@@ -29,9 +29,9 @@ Konteks domain:
   - Website utama publik: cvbjas.com
   - ERP diganti istilah publik menjadi Portal: portal.cvbjas.com
   - Recruitment: recruitment.cvbjas.com
-  - SMS storage: sms.cvbjas.com
-- Domain Mataram Sport ditunda dulu.
-- ERP dan SMS berbagi SSO cookie.
+  - SMS storage: mataramsport.space
+- Website publik Mataram Sport tetap ditunda; `mataramsport.space` dipakai sebagai host SMS storage.
+- SMS storage di `mataramsport.space` beda root domain dari Portal, jadi browser tidak bisa berbagi SSO cookie lintas domain.
 - Recruitment memakai cookie sendiri.
 - VPS memakai PostgreSQL, nginx, gunicorn, systemd.
 - Gunicorn memakai socket /run/wms/gunicorn.sock.
@@ -41,7 +41,7 @@ Konteks penting aplikasi:
 - CANONICAL_HOST mengatur host utama Portal.
 - RECRUITMENT_PUBLIC_HOSTS mengatur domain kandidat dan recruitment tidak ikut SESSION_COOKIE_DOMAIN.
 - SMS_PUBLIC_HOSTS mengatur domain SMS storage.
-- SESSION_COOKIE_DOMAIN untuk Portal/SMS harus pindah ke .cvbjas.com saat cutover.
+- SESSION_COOKIE_DOMAIN harus dikosongkan jika SMS memakai `mataramsport.space`, supaya login SMS tidak ditolak browser.
 - cvbjas.com sebagai website utama harus diserve static oleh Nginx, bukan lewat Flask, supaya tidak redirect ke CANONICAL_HOST.
 
 Target pekerjaan berikutnya:
@@ -119,7 +119,7 @@ Lokasi file yang disarankan:
 Link wajib:
 - Portal: https://portal.cvbjas.com/login
 - Recruitment: https://recruitment.cvbjas.com/beranda
-- SMS storage: https://sms.cvbjas.com/sms/
+- SMS storage: https://mataramsport.space/sms/
 - WhatsApp: https://wa.me/6289526925340
 
 Jangan dilakukan:
@@ -152,8 +152,7 @@ curl -I https://cvbjas.com
 curl -I https://www.cvbjas.com
 curl -I https://portal.cvbjas.com/login
 curl -I https://recruitment.cvbjas.com/beranda
-curl -I https://sms.cvbjas.com/sms/
+curl -I https://mataramsport.space/sms/
 sudo journalctl -u wms.service -n 80 --no-pager
 sudo tail -n 80 /var/log/nginx/error.log
 ```
-

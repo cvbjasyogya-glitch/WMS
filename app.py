@@ -329,7 +329,18 @@ class RequestAwareSessionInterface(SecureCookieSessionInterface):
         public_host_mode = _get_public_host_mode(app, request.host)
         if public_host_mode == "recruitment":
             return None
-        return super().get_cookie_domain(app)
+        configured_domain = super().get_cookie_domain(app)
+        if public_host_mode == "sms" and configured_domain:
+            request_host = _normalized_host_name(request.host)
+            cookie_domain = str(configured_domain or "").strip().lower().lstrip(".")
+            if (
+                request_host
+                and cookie_domain
+                and request_host != cookie_domain
+                and not request_host.endswith(f".{cookie_domain}")
+            ):
+                return None
+        return configured_domain
 
     def get_cookie_secure(self, app):
         return bool(app.config.get("SESSION_COOKIE_SECURE")) or request.is_secure

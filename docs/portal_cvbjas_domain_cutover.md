@@ -72,12 +72,12 @@ ALLOWED_HOSTS=.cvbjas.com,.cvbjasyogya.cloud
 SESSION_COOKIE_DOMAIN=
 ```
 
-Kalau SMS juga sudah pindah ke `sms.cvbjas.com`, pakai cookie shared `.com`:
+Kalau SMS sudah pindah ke `mataramsport.space`, tetap kosongkan `SESSION_COOKIE_DOMAIN` karena domain ini beda root dari Portal:
 
 ```env
 CANONICAL_HOST=portal.cvbjas.com
-SESSION_COOKIE_DOMAIN=.cvbjas.com
-SMS_PUBLIC_HOSTS=sms.cvbjas.com
+SESSION_COOKIE_DOMAIN=
+SMS_PUBLIC_HOSTS=mataramsport.space
 RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com
 ALLOWED_HOSTS=.cvbjas.com,.cvbjasyogya.cloud
 ```

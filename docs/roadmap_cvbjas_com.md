@@ -1,6 +1,6 @@
 # Roadmap Migrasi Domain Ke `cvbjas.com`
 
-Fokus utama: pindah dari keluarga domain `.cloud` ke `.com` dengan risiko kecil. Domain Mataram Sport ditunda dulu supaya cutover CV BJAS tidak melebar.
+Fokus utama: pindah dari keluarga domain `.cloud` ke domain baru dengan risiko kecil. Website publik Mataram Sport tetap ditunda, tetapi SMS storage memakai `mataramsport.space`.
 
 ## Mapping Domain
 
@@ -10,14 +10,14 @@ Fokus utama: pindah dari keluarga domain `.cloud` ke `.com` dengan risiko kecil.
 | Website utama www | - | `www.cvbjas.com` redirect ke `cvbjas.com` |
 | Portal internal | `erp.cvbjasyogya.cloud` | `portal.cvbjas.com` |
 | Recruitment publik | `recruitment.cvbjasyogya.cloud` | `recruitment.cvbjas.com` |
-| SMS storage | `sms.cvbjasyogya.cloud` | `sms.cvbjas.com` |
+| SMS storage | `sms.cvbjasyogya.cloud` | `mataramsport.space` |
 
 ## Flow Aplikasi Yang Perlu Dijaga
 
 - `CANONICAL_HOST` mengatur host utama Portal. Semua host yang bukan recruitment/SMS akan diarahkan ke canonical host.
 - `RECRUITMENT_PUBLIC_HOSTS` mengatur domain khusus kandidat. Recruitment memakai cookie sendiri dan tidak ikut `SESSION_COOKIE_DOMAIN`.
-- `SMS_PUBLIC_HOSTS` mengatur domain SMS storage. SMS berbagi login dengan Portal, jadi ikut `SESSION_COOKIE_DOMAIN`.
-- `SESSION_COOKIE_DOMAIN` untuk Portal/SMS harus pindah dari `.cvbjasyogya.cloud` ke `.cvbjas.com`.
+- `SMS_PUBLIC_HOSTS` mengatur domain SMS storage. Karena SMS sekarang memakai `mataramsport.space`, cookie tidak bisa dibagi lintas root domain dengan Portal.
+- `SESSION_COOKIE_DOMAIN` dikosongkan saat SMS memakai `mataramsport.space`, supaya login SMS tidak ditolak browser.
 - `cvbjas.com` sebagai website utama sebaiknya dibuat static di Nginx dulu. Kalau langsung diproxy ke Flask saat ini, aplikasi akan menganggapnya host non-public dan redirect ke `portal.cvbjas.com`.
 - Nama publiknya menjadi Portal, tetapi service aplikasi di VPS tetap `wms.service` dan codebase yang sama.
 
@@ -80,12 +80,12 @@ Prompt implementasi lanjutan disimpan di:
 3. Menu publik mengarah ke:
    - Portal: `https://portal.cvbjas.com/login`
    - Recruitment: `https://recruitment.cvbjas.com/beranda`
-   - SMS storage: `https://sms.cvbjas.com/sms/`
+   - SMS storage: `https://mataramsport.space/sms/`
 
 ### Internal
 
 1. Staff login melalui `https://portal.cvbjas.com`.
-2. Portal dan SMS berbagi SSO cookie di `.cvbjas.com`.
+2. Portal dan SMS memakai login masing-masing jika SMS berjalan di `mataramsport.space`, karena browser tidak bisa berbagi cookie lintas root domain.
 3. HR tetap review kandidat lewat Portal/HRIS.
 4. Kandidat baru diarahkan ke `recruitment.cvbjas.com`.
 5. Kandidat lama yang masih punya sesi di `recruitment.cvbjasyogya.cloud` dibiarkan selesai dulu sebelum domain lama recruitment di-redirect.
@@ -109,7 +109,7 @@ Prompt implementasi lanjutan disimpan di:
   - `www.cvbjas.com`
   - `portal.cvbjas.com`
   - `recruitment.cvbjas.com`
-  - `sms.cvbjas.com`
+  - `mataramsport.space`
 - Backup database manual.
 - Snapshot konfigurasi:
   - `/root/WMS/.env`
@@ -121,7 +121,7 @@ Prompt implementasi lanjutan disimpan di:
 
 ### Tahap 1 - Siapkan Nginx Dan SSL Domain Baru
 
-- Buat Nginx site baru untuk `portal.cvbjas.com`, `recruitment.cvbjas.com`, dan `sms.cvbjas.com`.
+- Buat Nginx site baru untuk `portal.cvbjas.com`, `recruitment.cvbjas.com`, dan `mataramsport.space`.
 - Semua subdomain aplikasi tetap proxy ke upstream yang sama: `/run/wms/gunicorn.sock`.
 - Buat Nginx static ringan untuk `cvbjas.com` dengan referensi desain dari `cvbjas-v15-HOTFIX.zip`.
 - `www.cvbjas.com` redirect ke `cvbjas.com`.
@@ -138,9 +138,9 @@ Update `.env` production:
 
 ```bash
 CANONICAL_HOST=portal.cvbjas.com
-SESSION_COOKIE_DOMAIN=.cvbjas.com
+SESSION_COOKIE_DOMAIN=
 RECRUITMENT_PUBLIC_HOSTS=recruitment.cvbjas.com
-SMS_PUBLIC_HOSTS=sms.cvbjas.com
+SMS_PUBLIC_HOSTS=mataramsport.space
 ```
 
 Opsional selama transisi, kalau `ALLOWED_HOSTS` aktif ketat:
@@ -151,7 +151,7 @@ ALLOWED_HOSTS=.cvbjas.com,.cvbjasyogya.cloud
 
 Catatan:
 
-- Staff Portal/SMS kemungkinan perlu login ulang.
+- Staff Portal/SMS kemungkinan perlu login ulang. Jika SMS memakai `mataramsport.space`, gunakan `SESSION_COOKIE_DOMAIN=` kosong.
 - Jangan cutover saat kasir/HR sedang aktif berat.
 - Jangan redirect recruitment lama saat ada kandidat sedang mengerjakan assessment.
 
@@ -160,7 +160,7 @@ Catatan:
 Setelah `.env` cutover:
 
 - `erp.cvbjasyogya.cloud` redirect `302` ke `portal.cvbjas.com`.
-- `sms.cvbjasyogya.cloud` redirect `302` ke `sms.cvbjas.com`.
+- `sms.cvbjasyogya.cloud` redirect `302` ke `mataramsport.space`.
 - `recruitment.cvbjasyogya.cloud` tetap proxy dulu selama kandidat aktif masih mungkin ada.
 - Setelah beberapa hari aman, `recruitment.cvbjasyogya.cloud` baru redirect `302` ke `recruitment.cvbjas.com`.
 - Setelah semua stabil, redirect bisa dinaikkan dari `302` ke `301`.
@@ -170,7 +170,7 @@ Setelah `.env` cutover:
 - Landing `cvbjas.com` mengarah ke domain baru `.com`.
 - Menu Portal/internal mengarah ke `portal.cvbjas.com`.
 - Link recruitment mengarah ke `recruitment.cvbjas.com`.
-- Link SMS storage mengarah ke `sms.cvbjas.com`.
+- Link SMS storage mengarah ke `mataramsport.space`.
 - Template email, WhatsApp, dokumen, bio, dan SOP internal diganti bertahap ke domain `.com`.
 
 ### Tahap 4A - Penyempurnaan Website Statis
@@ -196,7 +196,7 @@ Checklist wajib:
 - `https://www.cvbjas.com` redirect ke `https://cvbjas.com`.
 - `https://portal.cvbjas.com/login` bisa dibuka dan login berhasil.
 - `https://recruitment.cvbjas.com/beranda` bisa dibuka.
-- `https://sms.cvbjas.com/sms/` bisa dibuka.
+- `https://mataramsport.space/sms/` bisa dibuka.
 - Domain ERP lama dan SMS lama redirect ke domain baru.
 - Domain recruitment lama masih bisa dipakai sampai kandidat aktif selesai.
 - Tidak ada error baru di journal WMS dan Nginx.
@@ -211,7 +211,7 @@ Checklist wajib:
 
 ## Domain Mataram Sport
 
-Ditunda dulu. Setelah domain CV BJAS stabil:
+Website Mataram Sport tetap dipisahkan dari flow ini. `mataramsport.space` di roadmap ini dipakai sebagai host SMS storage, bukan website publik Mataram Sport.
 
 - Tentukan domain final Mataram Sport.
 - Tentukan apakah butuh website publik, POS/customer page, atau hanya redirect.
@@ -256,7 +256,7 @@ git status --short
 sudo systemctl status wms.service --no-pager
 sudo systemctl status wms-db-backup.timer --no-pager
 sudo nginx -t
-sudo grep -R "server_name .*cvbjas.com\\|server_name .*cvbjasyogya.cloud" -n /etc/nginx/sites-available /etc/nginx/sites-enabled
+sudo grep -R "server_name .*cvbjas.com\\|server_name .*cvbjasyogya.cloud\\|server_name .*mataramsport.space" -n /etc/nginx/sites-available /etc/nginx/sites-enabled
 curl --unix-socket /run/wms/gunicorn.sock http://localhost/ready
 curl -I https://cvbjas.com
 curl -I https://www.cvbjas.com
@@ -265,7 +265,7 @@ curl -I https://erp.cvbjasyogya.cloud/login
 curl -I https://recruitment.cvbjas.com/beranda
 # Opsional kalau domain lama masih dipertahankan selama transisi:
 # curl -I https://recruitment.cvbjasyogya.cloud/beranda
-curl -I https://sms.cvbjas.com/sms/
+curl -I https://mataramsport.space/sms/
 curl -I https://sms.cvbjasyogya.cloud/sms/
 sudo journalctl -u wms.service -n 80 --no-pager
 sudo tail -n 80 /var/log/nginx/error.log
