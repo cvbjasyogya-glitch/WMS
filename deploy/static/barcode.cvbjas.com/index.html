@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mega Sport Barcode / Price Tag Maker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Saira+Condensed:wght@400;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="assets/logo.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="edit-mode">
+    <div class="app-shell">
+      <aside class="control-panel" aria-label="Panel editor">
+        <header class="panel-header">
+          <h1>Mega Sport Barcode / Price Tag Maker</h1>
+          <p>69.06mm x 19.05mm, 2 label connected</p>
+        </header>
+
+        <form id="editorForm" class="editor-form">
+          <section class="control-section">
+            <h2>Konten Label</h2>
+            <label>
+              Nama produk
+              <textarea id="productName" rows="2"></textarea>
+            </label>
+            <label>
+              Harga
+              <input id="priceText" type="text" />
+            </label>
+            <label>
+              Info Box
+              <textarea id="infoText" rows="2"></textarea>
+            </label>
+          </section>
+
+          <section class="control-section">
+            <h2>Mode & Preview</h2>
+            <label class="switch-row">
+              <input id="editMode" type="checkbox" checked />
+              <span>Edit Mode</span>
+            </label>
+            <label class="switch-row">
+              <input id="autoStack" type="checkbox" checked />
+              <span>Auto stack vertical layout</span>
+            </label>
+            <label>
+              Preview Zoom
+              <select id="previewZoom">
+                <option value="1">100%</option>
+                <option value="1.5">150%</option>
+                <option value="2">200%</option>
+                <option value="2.5">250%</option>
+                <option value="3" selected>300%</option>
+                <option value="4">400%</option>
+              </select>
+            </label>
+            <label>
+              Jumlah page print
+              <input id="printPages" type="number" min="1" max="100" step="1" value="1" />
+            </label>
+            <p class="field-note">
+              Preview boleh diperbesar untuk editing. Ukuran print tetap 69.06mm x 19.05mm.
+            </p>
+            <p id="fontWarning" class="font-warning" hidden>
+              Font Google belum terbaca. Cek koneksi internet atau cache browser.
+            </p>
+          </section>
+
+          <section class="control-section inspector-panel">
+            <h2>Box Terpilih</h2>
+            <input id="selectedBoxName" class="selected-name" type="text" readonly />
+            <div class="five-col">
+              <label>
+                X
+                <input id="boxX" type="number" step="0.05" />
+              </label>
+              <label>
+                Y
+                <input id="boxY" type="number" step="0.05" />
+              </label>
+              <label>
+                W
+                <input id="boxW" type="number" step="0.05" />
+              </label>
+              <label>
+                H
+                <input id="boxH" type="number" step="0.05" />
+              </label>
+              <label>
+                Font
+                <input id="boxFontSize" type="number" step="0.1" />
+              </label>
+            </div>
+          </section>
+
+          <section class="control-section action-grid">
+            <button id="printBtn" type="button">Print / Save as PDF</button>
+            <button id="resetBtn" type="button">Reset Layout</button>
+          </section>
+        </form>
+      </aside>
+
+      <main class="preview-panel" aria-label="Preview label">
+        <div class="preview-header">
+          <strong id="previewTitle">Preview editor 300%</strong>
+          <span>Page 69.06mm x 19.05mm</span>
+        </div>
+        <div class="preview-stage">
+          <div class="sheet-zoom-wrapper">
+            <div id="labelSheet" class="label-sheet" aria-label="Mega Sport barcode labels"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div id="printArea" class="print-area" aria-hidden="true"></div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
