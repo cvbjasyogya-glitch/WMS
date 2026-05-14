@@ -89,15 +89,18 @@ NOTIFICATION_ROLE_LABELS = {
 }
 
 USER_DELETE_NULLIFY_REFERENCES = [
-    ("owner_requests", "requested_by"),
     ("owner_requests", "handled_by"),
     ("user_permission_overrides", "updated_by"),
-    ("cash_closing_reports", "user_id"),
     ("leave_requests", "handled_by"),
     ("payroll_runs", "handled_by"),
     ("overtime_usage_records", "handled_by"),
     ("overtime_balance_adjustments", "handled_by"),
     ("recruitment_candidates", "handled_by"),
+    ("recruitment_candidates", "assessment_reviewed_by"),
+    ("career_openings", "created_by"),
+    ("career_openings", "updated_by"),
+    ("recruitment_assessment_questions", "created_by"),
+    ("recruitment_assessment_questions", "updated_by"),
     ("onboarding_records", "handled_by"),
     ("offboarding_records", "handled_by"),
     ("performance_reviews", "handled_by"),
@@ -112,38 +115,57 @@ USER_DELETE_NULLIFY_REFERENCES = [
     ("kpi_staff_reports", "reviewed_by"),
     ("kpi_target_plans", "created_by"),
     ("kpi_target_plans", "updated_by"),
-    ("attendance_action_requests", "requested_by"),
     ("attendance_action_requests", "handled_by"),
     ("dashboard_reminders", "created_by"),
     ("dashboard_reminders", "updated_by"),
     ("crm_memberships", "requested_by_staff_id"),
     ("crm_purchase_records", "handled_by"),
     ("crm_member_records", "handled_by"),
+    ("crm_purchase_items", "voided_by"),
     ("pos_sales", "cashier_user_id"),
     ("pos_sales", "voided_by"),
     ("pos_sales", "hidden_archive_by"),
     ("chat_threads", "created_by"),
+    ("chat_call_sessions", "ended_by"),
     ("schedule_entries", "updated_by"),
     ("schedule_day_notes", "updated_by"),
     ("schedule_live_entries", "checked_by"),
     ("schedule_live_entries", "updated_by"),
     ("schedule_change_events", "created_by"),
-    ("stock_opname_results", "user_id"),
+    ("stock_area_balances", "updated_by"),
+    ("requests", "approved_by"),
+    ("approvals", "approved_by"),
     ("notification_event_policies", "updated_by"),
+    ("web_notifications", "actor_user_id"),
 ]
 
 USER_DELETE_DELETE_REFERENCES = [
+    ("user_permission_overrides", "user_id"),
+    ("owner_requests", "requested_by"),
+    ("cash_closing_reports", "user_id"),
+    ("daily_live_reports", "user_id"),
+    ("kpi_staff_reports", "user_id"),
+    ("attendance_action_requests", "requested_by"),
+    ("requests", "requested_by"),
+    ("approvals", "requested_by"),
+    ("stock_history", "user_id"),
+    ("stock_opname_results", "user_id"),
+    ("barcode_label_templates", "user_id"),
+    ("notification_event_policy_users", "user_id"),
     ("password_resets", "user_id"),
+    ("notifications", "user_id"),
     ("web_notifications", "user_id"),
+    ("push_subscriptions", "user_id"),
+    ("user_presence", "user_id"),
+    ("chat_thread_members", "user_id"),
+    ("chat_messages", "sender_id"),
+    ("chat_call_signals", "sender_id"),
+    ("chat_call_signals", "recipient_id"),
+    ("chat_call_sessions", "initiator_id"),
+    ("chat_call_sessions", "receiver_id"),
 ]
 
-USER_DELETE_BLOCKING_REFERENCES = [
-    (
-        "daily_live_reports",
-        "user_id",
-        "User masih memiliki report harian/live. Hapus atau pindahkan report-nya dulu.",
-    ),
-]
+USER_DELETE_BLOCKING_REFERENCES = []
 
 
 def _admin_role_bucket(role):

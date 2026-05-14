@@ -4209,9 +4209,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNotNone(handled_by_value)
         self.assertIsNone(handled_by_value["handled_by"])
 
-    def test_super_admin_delete_user_blocks_when_daily_live_reports_exist(self):
+    def test_super_admin_delete_user_removes_owned_user_data(self):
         self.create_user("super_admin_delete_report", "pass1234", "super_admin")
         self.create_user("delete_target_report", "pass1234", "staff", warehouse_id=1)
+        employee_id = self.create_employee_record(full_name="Delete Report Target", warehouse_id=1)
         self.login("super_admin_delete_report", "pass1234")
         target_user_id = self.get_user_id("delete_target_report")
 
@@ -4232,17 +4233,75 @@ class WmsRoutesTestCase(unittest.TestCase):
                     "submitted",
                 ),
             )
+            db.execute(
+                """
+                INSERT INTO cash_closing_reports(
+                    user_id, employee_id, warehouse_id, closing_date, cash_amount, reported_total_amount
+                ) VALUES (?,?,?,?,?,?)
+                """,
+                (target_user_id, employee_id, 1, "2026-04-19", 100000, 100000),
+            )
+            db.execute(
+                """
+                INSERT INTO user_permission_overrides(user_id, permission_key, access_state)
+                VALUES (?,?,?)
+                """,
+                (target_user_id, "view_chat", "allow"),
+            )
+            db.execute(
+                """
+                INSERT INTO stock_history(product_id, variant_id, warehouse_id, action, type, qty, user_id)
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (None, None, 1, "adjust", "manual", 1, target_user_id),
+            )
+            db.execute(
+                """
+                INSERT INTO stock_opname_results(product_id, variant_id, warehouse_id, area_kind, user_id)
+                VALUES (?,?,?,?,?)
+                """,
+                (None, None, 1, "floor", target_user_id),
+            )
+            db.execute(
+                """
+                INSERT INTO password_resets(user_id, code, expires_at)
+                VALUES (?,?,datetime('now', '+10 minutes'))
+                """,
+                (target_user_id, "123456"),
+            )
+            db.execute(
+                """
+                INSERT INTO web_notifications(user_id, category, title, message)
+                VALUES (?,?,?,?)
+                """,
+                (target_user_id, "system", "Target notif", "Harus ikut terhapus"),
+            )
             db.commit()
 
-        response = self.client.post(f"/admin/delete_user/{target_user_id}", follow_redirects=True)
-        html = response.get_data(as_text=True)
+        response = self.client.post(f"/admin/delete_user/{target_user_id}", follow_redirects=False)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("User masih memiliki report harian/live", html)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/", response.headers.get("Location", ""))
         with self.app.app_context():
             db = get_db()
             remaining_user = db.execute("SELECT id FROM users WHERE id=?", (target_user_id,)).fetchone()
-        self.assertIsNotNone(remaining_user)
+            owned_counts = {
+                table_name: db.execute(
+                    f"SELECT COUNT(*) AS total FROM {table_name} WHERE {column_name}=?",
+                    (target_user_id,),
+                ).fetchone()["total"]
+                for table_name, column_name in (
+                    ("daily_live_reports", "user_id"),
+                    ("cash_closing_reports", "user_id"),
+                    ("user_permission_overrides", "user_id"),
+                    ("stock_history", "user_id"),
+                    ("stock_opname_results", "user_id"),
+                    ("password_resets", "user_id"),
+                    ("web_notifications", "user_id"),
+                )
+            }
+        self.assertIsNone(remaining_user)
+        self.assertTrue(all(total == 0 for total in owned_counts.values()), owned_counts)
 
     def test_intern_role_only_gets_coordination_without_meeting_live_or_wms(self):
         self.create_user("intern_coord_only", "pass1234", "intern", warehouse_id=1)
