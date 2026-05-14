@@ -453,8 +453,6 @@ body:not(.edit-mode) .resize-handle {
     box-shadow: none !important;
   }
 
-  body.edit-mode .label,
-  body.edit-mode .label-box,
   body.edit-mode .label + .label::before,
   body.edit-mode .label::before,
   body.edit-mode .label::after,
