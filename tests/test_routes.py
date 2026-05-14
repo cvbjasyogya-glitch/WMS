@@ -212,6 +212,12 @@ class WmsRoutesTestCase(unittest.TestCase):
             "",
         )
 
+    def test_shared_session_cookie_domain_supports_portal_and_barcode_hosts(self):
+        derived = _derive_shared_session_cookie_domain(
+            ["portal.cvbjas.com", "barcode.cvbjas.com"]
+        )
+        self.assertEqual(derived, ".cvbjas.com")
+
     def test_database_translation_supports_parameterized_datetime_modifier(self):
         translated = _translate_sqlite_query_to_postgres(
             "SELECT * FROM chat_call_sessions WHERE COALESCE(last_signal_at, started_at) <= datetime('now', ?)"
@@ -31995,6 +32001,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         admin_response = self.client.get("/stock/barcode", follow_redirects=False)
         self.assertEqual(admin_response.status_code, 302)
         self.assertIn("/stock/", admin_response.headers.get("Location", ""))
+
+    def test_barcode_static_auth_check_requires_portal_login_and_barcode_role(self):
+        guest_response = self.client.get("/stock/barcode/auth-check", follow_redirects=False)
+        self.assertEqual(guest_response.status_code, 401)
+
+        self.login()
+        admin_response = self.client.get("/stock/barcode/auth-check", follow_redirects=False)
+        self.assertEqual(admin_response.status_code, 403)
+
+        self.logout()
+        self.create_user("owner_barcode_static_auth", "pass1234", "owner")
+        self.login("owner_barcode_static_auth", "pass1234")
+
+        owner_response = self.client.get("/stock/barcode/auth-check", follow_redirects=False)
+        self.assertEqual(owner_response.status_code, 204)
 
     def test_barcode_items_endpoint_rejects_admin_and_returns_owner_payload(self):
         self.create_user("owner_barcode_items", "pass1234", "owner")

@@ -1755,6 +1755,17 @@ def stock_barcode_page():
     )
 
 
+@stock_bp.route("/barcode/auth-check")
+def stock_barcode_static_auth_check():
+    if not session.get("user_id"):
+        return Response("Login diperlukan", status=401)
+
+    if not _can_access_barcode_studio():
+        return Response("Akses barcode ditolak", status=403)
+
+    return Response(status=204)
+
+
 @stock_bp.route("/barcode/templates", methods=["POST"])
 def stock_barcode_save_template():
     access_denied = _require_barcode_studio_access(json_mode=True)

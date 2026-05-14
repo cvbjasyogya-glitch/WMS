@@ -177,6 +177,7 @@ class Config:
     ALLOWED_HOSTS = _csv_env("ALLOWED_HOSTS", "")
     RECRUITMENT_PUBLIC_HOSTS = _csv_env("RECRUITMENT_PUBLIC_HOSTS", "")
     SMS_PUBLIC_HOSTS = _csv_env("SMS_PUBLIC_HOSTS", "")
+    BARCODE_PUBLIC_HOSTS = _csv_env("BARCODE_PUBLIC_HOSTS", "barcode.cvbjas.com")
     CANONICAL_HOST = (os.getenv("CANONICAL_HOST") or "").strip()
     CANONICAL_SCHEME = (
         (os.getenv("CANONICAL_SCHEME") or PREFERRED_URL_SCHEME or "https")

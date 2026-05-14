@@ -859,6 +859,7 @@ def create_app():
             [
                 app.config.get("CANONICAL_HOST"),
                 *(app.config.get("SMS_PUBLIC_HOSTS") or []),
+                *(app.config.get("BARCODE_PUBLIC_HOSTS") or []),
             ]
         )
         if shared_cookie_domain:
@@ -1404,9 +1405,12 @@ self.addEventListener("fetch", () => {{}});
         }:
             return
 
+        is_barcode_auth_check = request.endpoint == "stock.stock_barcode_static_auth_check"
         user_id = session.get("user_id")
 
         if not user_id:
+            if is_barcode_auth_check:
+                return "Login diperlukan", 401
             next_target = request.full_path if request.query_string else request.path
             if next_target.endswith("?"):
                 next_target = next_target[:-1]
@@ -1445,6 +1449,8 @@ self.addEventListener("fetch", () => {{}});
             session["warehouse_id"] = warehouse["id"] if warehouse else 1
 
         if not _role_can_open_endpoint(normalized_role, request.endpoint):
+            if is_barcode_auth_check:
+                return "Akses barcode ditolak", 403
             redirect_target = _role_default_redirect_target(normalized_role)
             if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
                 return jsonify(
@@ -1509,6 +1515,8 @@ self.addEventListener("fetch", () => {{}});
                 print("AUTOLOGOUT NOTIFY ERROR:", e)
 
             session.clear()
+            if is_barcode_auth_check:
+                return "Login diperlukan", 401
             flash("Session expired, silakan login kembali", "error")
             return redirect(url_for("auth.login"))
 
