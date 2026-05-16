@@ -125,7 +125,7 @@ Catatan:
 
 - File database dari ZIP tidak disertakan di repo ini.
 - Untuk VPS, gunakan environment `SENARAN_DATABASE=/var/lib/senaran/antrian.db`.
-- Jalankan `python3 init_db.py` untuk membuat SQLite baru/kosong.
+- Jalankan `python3 init_db.py` untuk membuat atau migrate SQLite.
 - Aplikasi ini berdiri sendiri dan tidak memakai database PostgreSQL ERP/WMS.
 
 ## Catatan lokal
@@ -137,4 +137,3 @@ Catatan:
 - Nomor antrian reset per hari dengan format `MGA-001`, `MGA-002`.
 - Slot jadwal tersedia dari 14:00 sampai 20:00, kapasitas dasar 2 raket per jam.
 - Jika satu slot berisi 4 raket atau lebih, slot jam berikutnya otomatis terblokir.
-- Aplikasi ini belum disiapkan untuk deploy VPS dan tidak membutuhkan NGINX.

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS queue_tickets (
     tension_lbs TEXT,
     racket_count INTEGER DEFAULT 1,
     is_express INTEGER DEFAULT 0,
+    staff_name TEXT,
     stringer_name TEXT,
     note TEXT,
     status TEXT DEFAULT 'MENUNGGU',
@@ -72,6 +73,12 @@ CREATE TABLE IF NOT EXISTS services (
     is_active INTEGER DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS staff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_name TEXT UNIQUE NOT NULL,
+    is_active INTEGER DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     setting_key TEXT UNIQUE NOT NULL,
@@ -102,6 +109,17 @@ DEFAULT_SETTINGS = [
     ("database", "SQLite"),
 ]
 
+DEFAULT_STAFF = [
+    "Bu ika",
+    "Lifia",
+    "Caca",
+    "Afif",
+    "Ziza",
+    "Edi",
+    "Ahmad",
+    "Lainnya",
+]
+
 DEFAULT_ADMIN = {
     "name": "Administrator",
     "username": "megasports",
@@ -123,6 +141,8 @@ def migrate_existing_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE queue_tickets ADD COLUMN racket_count INTEGER DEFAULT 1")
     if not column_exists(conn, "queue_tickets", "is_express"):
         conn.execute("ALTER TABLE queue_tickets ADD COLUMN is_express INTEGER DEFAULT 0")
+    if not column_exists(conn, "queue_tickets", "staff_name"):
+        conn.execute("ALTER TABLE queue_tickets ADD COLUMN staff_name TEXT")
 
     conn.execute(
         """
@@ -161,6 +181,15 @@ def migrate_existing_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS staff (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_name TEXT UNIQUE NOT NULL,
+            is_active INTEGER DEFAULT 1
+        )
+        """
+    )
+    conn.execute(
+        """
         INSERT INTO queue_ticket_items (
             ticket_id, item_number, racket_type, racket_brand, string_type, tension_lbs
         )
@@ -175,7 +204,8 @@ def migrate_existing_schema(conn: sqlite3.Connection) -> None:
         """
         UPDATE queue_tickets
         SET racket_count = COALESCE(NULLIF(racket_count, 0), 1),
-            is_express = COALESCE(is_express, 0)
+            is_express = COALESCE(is_express, 0),
+            staff_name = COALESCE(staff_name, '')
         """
     )
     conn.execute(
@@ -229,6 +259,23 @@ def init_db() -> None:
                 conn.execute(
                     "INSERT INTO services (service_name, price, is_active) VALUES (?, ?, 1)",
                     (service_name, price),
+                )
+
+        conn.execute("UPDATE staff SET is_active = 0")
+        for staff_name in DEFAULT_STAFF:
+            existing_staff = conn.execute(
+                "SELECT id FROM staff WHERE staff_name = ?",
+                (staff_name,),
+            ).fetchone()
+            if existing_staff:
+                conn.execute(
+                    "UPDATE staff SET is_active = 1 WHERE id = ?",
+                    (existing_staff[0],),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO staff (staff_name, is_active) VALUES (?, 1)",
+                    (staff_name,),
                 )
 
         conn.executemany(

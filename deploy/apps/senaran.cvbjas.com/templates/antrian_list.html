@@ -72,6 +72,12 @@
                         </button>
                     </th>
                     <th>
+                        <button class="table-sort-button" type="button" data-sort-key="staff" data-sort-type="text">
+                            <span>Staff</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
                         <button class="table-sort-button" type="button" data-sort-key="stringer" data-sort-type="text">
                             <span>Stringer</span>
                             <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
@@ -106,6 +112,7 @@
                         <td data-sort-value="{{ ticket.service_type|lower }}">{{ ticket.service_type }}</td>
                         <td data-sort-value="{{ ticket.racket_count or 1 }}">{{ ticket.racket_count or 1 }}</td>
                         <td data-sort-value="{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '' }}">{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '-' }}</td>
+                        <td data-sort-value="{{ (ticket.staff_name or '-')|lower }}">{{ ticket.staff_name or '-' }}</td>
                         <td data-sort-value="{{ (ticket.stringer_name or '-')|lower }}">{{ ticket.stringer_name or '-' }}</td>
                         <td data-sort-value="{{ ticket.status|lower }}"><span class="status-badge status-{{ ticket.status|lower }}">{{ ticket.status }}</span></td>
                         <td data-sort-value="{{ 'ya' if ticket.is_express else 'tidak' }}"><span class="express-badge">{{ 'Ya' if ticket.is_express else 'Tidak' }}</span></td>
@@ -137,7 +144,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="11" class="empty-state">Belum ada antrian pada tanggal ini.</td>
+                        <td colspan="12" class="empty-state">Belum ada antrian pada tanggal ini.</td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -167,6 +174,7 @@
                         <div><span>Jumlah Raket</span><strong>{{ ticket.racket_count or 1 }}</strong></div>
                         <div><span>Tanggal Estimasi</span><strong>{{ ticket.estimated_finish[:10] if ticket.estimated_finish else '-' }}</strong></div>
                         <div><span>Jam Estimasi</span><strong>{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '-' }}</strong></div>
+                        <div><span>Staff</span><strong>{{ ticket.staff_name or '-' }}</strong></div>
                         <div><span>Stringer</span><strong>{{ ticket.stringer_name or '-' }}</strong></div>
                         <div><span>Express</span><strong>{{ 'Ya' if ticket.is_express else 'Tidak' }}</strong></div>
                         <div><span>Pembayaran</span><strong>{{ ticket.payment_status or '-' }}</strong></div>

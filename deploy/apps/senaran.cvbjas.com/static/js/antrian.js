@@ -319,9 +319,10 @@
             service: 3,
             racket: 4,
             "estimated-time": 5,
-            stringer: 6,
-            status: 7,
-            express: 8,
+            staff: 6,
+            stringer: 7,
+            status: 8,
+            express: 9,
         };
 
         sortButtons.forEach((button) => {

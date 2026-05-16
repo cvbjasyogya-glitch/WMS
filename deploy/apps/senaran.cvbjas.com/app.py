@@ -45,6 +45,7 @@ SLOT_CAPACITY = 2
 MAX_RACKET_COUNT = 6
 MAX_SLOT_LOAD = 6
 STRINGERS = ["Ika", "Abi", "Ahmad"]
+DEFAULT_STAFF = ["Bu ika", "Lifia", "Caca", "Afif", "Ziza", "Edi", "Ahmad", "Lainnya"]
 KNOT_TYPES = ["S-2", "S-4"]
 VARIATIONS = ["Full", "L-1", "L-2", "Custom"]
 GROMMET_OPTIONS = ["Tidak", "Ya"]
@@ -286,6 +287,15 @@ def add_security_headers(response):
 
 def get_active_services() -> list[str]:
     return SERVICE_TYPES
+
+
+def get_active_staff() -> list[str]:
+    rows = get_db().execute(
+        "SELECT staff_name FROM staff WHERE is_active = 1 ORDER BY id ASC"
+    ).fetchall()
+    if rows:
+        return [row["staff_name"] for row in rows]
+    return DEFAULT_STAFF
 
 
 def branch_aliases(branch: str) -> list[str]:
@@ -731,6 +741,7 @@ def render_antrian_form(form=None, item_values=None, selected_date: str | None =
         payment_statuses=PAYMENT_STATUSES,
         schedule_slots=get_schedule_slots(schedule_date, express_mode=is_express),
         schedule_date=schedule_date,
+        staff_options=get_active_staff(),
         stringers=STRINGERS,
         knot_types=KNOT_TYPES,
         variations=VARIATIONS,
@@ -753,6 +764,7 @@ def antrian_add():
         phone = request.form.get("phone", "").strip()
         branch = request.form.get("branch", "Mega Sports").strip()
         service_type = request.form.get("service_type", "").strip()
+        staff_name = request.form.get("staff_name", "").strip()
         payment_status = request.form.get("payment_status", "BELUM BAYAR").strip()
         schedule_date = parse_iso_date(request.form.get("schedule_date"), today_iso())
         schedule_time = request.form.get("schedule_time", "").strip()
@@ -780,6 +792,8 @@ def antrian_add():
             return fail_with_draft("Cabang tidak valid.")
         if service_type not in SERVICE_TYPES:
             return fail_with_draft("Jenis layanan tidak valid.")
+        if staff_name not in get_active_staff():
+            return fail_with_draft("Nama staff yang menjuali wajib dipilih.")
         if not 1 <= racket_count <= MAX_RACKET_COUNT:
             return fail_with_draft(f"Jumlah raket harus antara 1 sampai {MAX_RACKET_COUNT}.")
         if stringer_name not in STRINGERS:
@@ -824,8 +838,9 @@ def antrian_add():
                 INSERT INTO queue_tickets (
                     queue_number, queue_date, customer_name, phone, branch, service_type,
                     racket_type, racket_brand, string_type, tension_lbs, racket_count,
+                    staff_name,
                     is_express, stringer_name, note, status, payment_status, estimated_finish
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MENUNGGU', ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MENUNGGU', ?, ?)
                 """,
                 (
                     queue_number,
@@ -839,6 +854,7 @@ def antrian_add():
                     first_item["string_type"],
                     first_item["tension_lbs"],
                     racket_count,
+                    staff_name,
                     is_express,
                     stringer_name,
                     note,

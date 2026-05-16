@@ -65,6 +65,15 @@
                         </select>
                     </div>
                     <div>
+                        <label class="form-label" for="staff_name">Nama Staff</label>
+                        <select class="form-select" id="staff_name" name="staff_name" required>
+                            <option value="">nama staff yang menjuali</option>
+                            {% for staff_name in staff_options %}
+                                <option value="{{ staff_name }}" {{ 'selected' if form.get('staff_name') == staff_name else '' }}>{{ staff_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
                         <label class="form-label" for="stringer_name">Nama Stringer</label>
                         <select class="form-select" id="stringer_name" name="stringer_name" required>
                             <option value="">Pilih stringer</option>
