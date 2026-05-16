@@ -24,6 +24,7 @@ from services.crm_loyalty import (
     find_matching_customer_identity,
     find_matching_member_identity,
     get_member_snapshot,
+    get_purchase_points_period,
     merge_member_identity_records,
     normalize_member_record_type,
     normalize_member_type,
@@ -482,7 +483,7 @@ def _auto_create_crm_purchase_member(db, customer, join_date, *, requested_by_us
             DEFAULT_STRINGING_REWARD_AMOUNT,
             0,
             0,
-            "Poin belanja aktif: 1 poin setiap total Rp 10.000.",
+            "Poin belanja aktif bulan berjalan: 1 poin setiap total Rp 10.000, reset tiap awal bulan.",
             "Auto-created by CRM purchase member enrollment.",
         ),
     )
@@ -586,10 +587,10 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
         member = _get_member_by_id(db, latest_active_member["id"]) or latest_active_member
         member_type = _normalize_member_type(member["member_type"] if "member_type" in member.keys() else None)
         if safe_transaction_type == "purchase":
-            return member, get_member_snapshot(db, member["id"])
+            return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
         if member_type != "stringing":
             raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
-        return member, get_member_snapshot(db, member["id"])
+        return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
 
     matching_member = find_matching_member_identity(
         db,
@@ -601,9 +602,9 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
     if matching_member:
         member = _get_member_by_id(db, matching_member["id"]) or matching_member
         if safe_transaction_type == "purchase":
-            return member, get_member_snapshot(db, member["id"])
+            return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
         member = _ensure_active_stringing_member_for_crm(db, member["id"]) or member
-        return member, get_member_snapshot(db, member["id"])
+        return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
 
     if safe_transaction_type == "purchase":
         member = _auto_create_crm_purchase_member(
@@ -614,7 +615,7 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
         )
         if not member:
             return None, None
-        return member, get_member_snapshot(db, member["id"])
+        return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
 
     if safe_transaction_type == "stringing_reward_redemption":
         return None, None
@@ -626,7 +627,7 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
         if member_type != "stringing":
             raise ValueError("Customer ini sudah punya member tipe lain. Pilih member yang sesuai dulu.")
         member = _ensure_active_stringing_member_for_crm(db, member["id"]) or member
-        return member, get_member_snapshot(db, member["id"])
+        return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
 
     member = _auto_create_crm_stringing_member(
         db,
@@ -634,7 +635,7 @@ def _resolve_crm_purchase_member(db, customer, transaction_type, purchase_date):
         purchase_date,
         requested_by_user_id=session.get("user_id"),
     )
-    return member, get_member_snapshot(db, member["id"])
+    return member, get_member_snapshot(db, member["id"], as_of_date=purchase_date)
 
 
 def _get_purchase_by_id(db, purchase_id):
@@ -1197,10 +1198,13 @@ def _fetch_crm_summary_snapshot(db, search="", selected_warehouse=None, member_s
 
 
 def _fetch_memberships(db, search="", selected_warehouse=None, member_status=""):
-    params = []
+    points_period_start, points_period_end = get_purchase_points_period()
+    params = [points_period_start, points_period_end, points_period_start, points_period_end]
     query = """
         SELECT
             m.*,
+            ? AS points_period_start,
+            ? AS points_period_end,
             c.customer_name,
             c.contact_person,
             c.phone,
@@ -1210,7 +1214,8 @@ def _fetch_memberships(db, search="", selected_warehouse=None, member_status="")
             COALESCE(stats.record_count, 0) AS record_count,
             stats.last_record_date,
             COALESCE(purchase_stats.total_member_spend, 0) AS total_member_spend,
-            COALESCE(stats.points_delta_total, 0) AS points_delta_total,
+            COALESCE(stats.points_delta_period_total, 0) AS points_delta_total,
+            COALESCE(stats.points_delta_lifetime_total, 0) AS points_delta_lifetime_total,
             COALESCE(stats.service_count_total, 0) AS service_count_total,
             COALESCE(stats.reward_redeemed_total, 0) AS reward_redeemed_total,
             COALESCE(stats.benefit_value_total, 0) AS benefit_value_total
@@ -1224,7 +1229,14 @@ def _fetch_memberships(db, search="", selected_warehouse=None, member_status="")
                 mr.member_id,
                 COUNT(*) AS record_count,
                 MAX(mr.record_date) AS last_record_date,
-                SUM(COALESCE(mr.points_delta, 0)) AS points_delta_total,
+                SUM(
+                    CASE
+                        WHEN mr.record_date>=? AND mr.record_date<?
+                        THEN COALESCE(mr.points_delta, 0)
+                        ELSE 0
+                    END
+                ) AS points_delta_period_total,
+                SUM(COALESCE(mr.points_delta, 0)) AS points_delta_lifetime_total,
                 SUM(COALESCE(mr.service_count_delta, 0)) AS service_count_total,
                 SUM(COALESCE(mr.reward_redeemed_delta, 0)) AS reward_redeemed_total,
                 SUM(COALESCE(mr.benefit_value, 0)) AS benefit_value_total
@@ -1768,7 +1780,7 @@ def add_purchase():
         if not selected_member or selected_member["customer_id"] != customer_id:
             flash("Member tidak valid untuk customer yang dipilih.", "error")
             return _crm_redirect("purchases")
-        selected_member_snapshot = get_member_snapshot(db, member_id)
+        selected_member_snapshot = get_member_snapshot(db, member_id, as_of_date=purchase_date)
         member_type = _normalize_member_type(
             selected_member["member_type"] if "member_type" in selected_member.keys() else None
         )
@@ -2130,9 +2142,9 @@ def add_member_record():
     if not member:
         flash("Member tidak valid.", "error")
         return _crm_redirect("members")
-    member_snapshot = get_member_snapshot(db, member_id) or build_member_snapshot_from_row(member)
 
     record_date = _normalize_date(request.form.get("record_date"))
+    member_snapshot = get_member_snapshot(db, member_id, as_of_date=record_date) or build_member_snapshot_from_row(member)
     record_type = _normalize_member_record_type(request.form.get("record_type"))
     reference_no = (request.form.get("reference_no") or "").strip()
     amount = round(_to_float(request.form.get("amount"), 0), 2)

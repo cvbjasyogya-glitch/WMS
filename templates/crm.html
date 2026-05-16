@@ -775,7 +775,7 @@
                         </div>
                         {% else %}
                         <strong>{{ member.current_points }} poin</strong>
-                        <div class="helper-text">Awal {{ member.opening_points }} / Delta {{ member.points_delta_total }}</div>
+                        <div class="helper-text">Bulan ini: awal {{ member.opening_points }} / tambah {{ member.points_delta_total }}</div>
                         {% endif %}
                     </td>
                     <td>{{ member.join_date }}<div class="helper-text">{{ member.expiry_date or "-" }}</div></td>

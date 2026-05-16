@@ -6834,9 +6834,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         mocked_send.assert_called_once()
         message = mocked_send.call_args.args[1]
         self.assertIn("Update CRM Customer:", message)
-        self.assertIn("Member: WA-POINT-001", message)
+        self.assertIn("Member Pembelian: WA-POINT-001", message)
         self.assertIn("Poin transaksi ini: +12 poin", message)
-        self.assertIn("Total poin aktif: 32 poin", message)
+        self.assertIn("Total poin aktif bulan ini: 32 poin", message)
 
     def test_pos_checkout_receipt_whatsapp_includes_stringing_progress_summary(self):
         self.create_user("staff_sales_stringing_wa", "pass1234", "staff", warehouse_id=1)
@@ -6907,7 +6907,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         mocked_send.assert_called_once()
         message = mocked_send.call_args.args[1]
         self.assertIn("Update CRM Customer:", message)
-        self.assertIn("Member: WA-SENAR-001", message)
+        self.assertIn("Member Senaran: WA-SENAR-001", message)
         self.assertIn("Progress senar: 5/6", message)
         self.assertIn("Sisa 1 lagi menuju free 1x", message)
 
@@ -6984,7 +6984,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Update CRM Customer", print_html)
         self.assertIn("PRINT-POINT-001", print_html)
         self.assertIn("Poin transaksi ini: +12 poin", print_html)
-        self.assertIn("Total poin aktif: 27 poin", print_html)
+        self.assertIn("Total poin aktif bulan ini: 27 poin", print_html)
         self.assertIn('class="receipt-loyalty-box"', print_html)
 
     def test_pos_receipt_pdf_includes_stringing_loyalty_summary(self):
@@ -7074,7 +7074,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             pdf_text = file_handle.read().decode("latin-1", errors="ignore")
 
         self.assertIn("Update CRM Customer", pdf_text)
-        self.assertIn("Member: PDF-SENAR-001", pdf_text)
+        self.assertIn("Member Senaran: PDF-SENAR-001", pdf_text)
         self.assertIn("Progress senar: 6/6", pdf_text)
         self.assertIn("Free senar siap dipakai: 1x", pdf_text)
         self.assertIn("Rp 75.000", pdf_text)
@@ -10029,8 +10029,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
-            purchase_snapshot = get_member_snapshot(db, purchase_member["id"])
-            stringing_snapshot = get_member_snapshot(db, stringing_member["id"])
+            purchase_snapshot = get_member_snapshot(db, purchase_member["id"], as_of_date="2026-04-04")
+            stringing_snapshot = get_member_snapshot(db, stringing_member["id"], as_of_date="2026-04-04")
             purchase_record = db.execute(
                 """
                 SELECT record_type, points_delta
@@ -10062,6 +10062,69 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(stringing_records[1]["record_type"], "reward_redemption")
         self.assertEqual(stringing_records[1]["reward_redeemed_delta"], 1)
         self.assertAlmostEqual(float(stringing_records[1]["benefit_value"]), 75000.0)
+
+    def test_purchase_member_points_reset_monthly_without_deleting_history(self):
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Poin Bulanan', '628100000777', 'member')
+                """
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Poin Bulanan'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (customer["id"], 1, "MBR-POINT-MONTHLY-001", "purchase", "active", "2026-04-01", 5),
+            )
+            member = db.execute(
+                "SELECT id FROM crm_memberships WHERE member_code='MBR-POINT-MONTHLY-001'"
+            ).fetchone()
+            db.execute(
+                """
+                INSERT INTO crm_member_records(
+                    member_id, warehouse_id, record_date, record_type, points_delta, amount, note
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (member["id"], 1, "2026-04-10", "purchase", 12, 120000, "Poin April"),
+            )
+            db.execute(
+                """
+                INSERT INTO crm_member_records(
+                    member_id, warehouse_id, record_date, record_type, points_delta, amount, note
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (member["id"], 1, "2026-05-02", "purchase", 7, 70000, "Poin Mei"),
+            )
+            db.commit()
+
+            april_snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-04-30")
+            may_snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-05-31")
+            june_snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-06-01")
+            record_count = db.execute(
+                "SELECT COUNT(*) FROM crm_member_records WHERE member_id=?",
+                (member["id"],),
+            ).fetchone()[0]
+
+        self.assertEqual(april_snapshot["current_points"], 17)
+        self.assertEqual(april_snapshot["opening_points"], 5)
+        self.assertEqual(april_snapshot["points_delta_total"], 12)
+        self.assertEqual(may_snapshot["current_points"], 7)
+        self.assertEqual(may_snapshot["opening_points"], 0)
+        self.assertEqual(may_snapshot["points_delta_total"], 7)
+        self.assertEqual(june_snapshot["current_points"], 0)
+        self.assertEqual(june_snapshot["points_delta_total"], 0)
+        self.assertEqual(may_snapshot["lifetime_points"], 24)
+        self.assertEqual(record_count, 2)
 
     def test_crm_purchase_auto_creates_stringing_member_for_non_member_customer(self):
         self.login()
@@ -10157,7 +10220,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (member["id"],),
             ).fetchone()
-            snapshot = get_member_snapshot(db, member["id"])
+            snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-04-02")
 
         self.assertEqual(customer_after["customer_type"], "member")
         self.assertEqual(member["member_type"], "stringing")
@@ -10261,7 +10324,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (member["id"],),
             ).fetchone()
-            snapshot = get_member_snapshot(db, member["id"])
+            snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-04-02")
 
         self.assertEqual(customer_after["customer_type"], "member")
         self.assertEqual(member["member_type"], "purchase")
@@ -10848,8 +10911,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
-            purchase_snapshot = get_member_snapshot(db, purchase_member["id"])
-            stringing_snapshot = get_member_snapshot(db, stringing_member["id"])
+            purchase_snapshot = get_member_snapshot(db, purchase_member["id"], as_of_date="2026-04-05")
+            stringing_snapshot = get_member_snapshot(db, stringing_member["id"], as_of_date="2026-04-05")
             purchase_record = db.execute(
                 """
                 SELECT points_delta
@@ -10970,7 +11033,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (member["id"],),
             ).fetchone()
-            snapshot = get_member_snapshot(db, member["id"])
+            snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-04-14")
 
         self.assertEqual(customer["customer_type"], "member")
         self.assertEqual(customer["phone"], "6281230007771")
@@ -11072,7 +11135,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (receipt_no,),
             ).fetchone()
-            snapshot = get_member_snapshot(db, existing_member["id"])
+            snapshot = get_member_snapshot(db, existing_member["id"], as_of_date="2026-04-15")
 
         self.assertEqual(customer_after["customer_name"], "Kak Fery")
         self.assertEqual(customer_after["phone"], "6281234560002")
@@ -11332,8 +11395,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (customer_below["id"],),
             ).fetchone()
-            snapshot_above = get_member_snapshot(db, member_above["id"])
-            snapshot_below = get_member_snapshot(db, member_below["id"])
+            snapshot_above = get_member_snapshot(db, member_above["id"], as_of_date="2026-04-14")
+            snapshot_below = get_member_snapshot(db, member_below["id"], as_of_date="2026-04-14")
             record_above = db.execute(
                 """
                 SELECT record_type, service_count_delta, note
@@ -11533,8 +11596,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                     stringing_member["id"],
                 ),
             ).fetchone()
-            purchase_snapshot = get_member_snapshot(db, purchase_member["id"])
-            stringing_snapshot = get_member_snapshot(db, stringing_member["id"])
+            purchase_snapshot = get_member_snapshot(db, purchase_member["id"], as_of_date="2026-04-15")
+            stringing_snapshot = get_member_snapshot(db, stringing_member["id"], as_of_date="2026-04-15")
             purchase_row = db.execute(
                 """
                 SELECT member_id, transaction_type
@@ -11633,7 +11696,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                 """,
                 (member["id"],),
             ).fetchone()
-            snapshot = get_member_snapshot(db, member["id"])
+            snapshot = get_member_snapshot(db, member["id"], as_of_date="2026-04-15")
 
         self.assertEqual(record["record_type"], "stringing_service")
         self.assertEqual(record["service_count_delta"], 2)

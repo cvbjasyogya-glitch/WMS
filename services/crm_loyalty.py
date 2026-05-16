@@ -1,5 +1,7 @@
 import re
+from datetime import date, datetime
 from decimal import Decimal, ROUND_FLOOR
+from zoneinfo import ZoneInfo
 
 from flask import current_app
 from database import is_postgresql_backend
@@ -39,6 +41,7 @@ DEFAULT_STRINGING_REWARD_AMOUNT = 75000.0
 STRINGING_PROGRESS_MIN_AMOUNT = 75000.0
 PURCHASE_POINTS_DIVISOR = Decimal("10000")
 STRINGING_REWARD_THRESHOLD = 6
+CRM_POINTS_TIMEZONE = ZoneInfo("Asia/Jakarta")
 
 
 def _sqlite_membership_customer_unique_legacy_enabled(db):
@@ -532,6 +535,45 @@ def calculate_purchase_points(amount):
     return int((safe_amount / PURCHASE_POINTS_DIVISOR).to_integral_value(rounding=ROUND_FLOOR))
 
 
+def _coerce_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = text.split("T", 1)[0].split(" ", 1)[0]
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def get_purchase_points_period(as_of_date=None):
+    safe_date = _coerce_date(as_of_date) or datetime.now(CRM_POINTS_TIMEZONE).date()
+    period_start = safe_date.replace(day=1)
+    if period_start.month == 12:
+        period_end = date(period_start.year + 1, 1, 1)
+    else:
+        period_end = date(period_start.year, period_start.month + 1, 1)
+    return period_start.isoformat(), period_end.isoformat()
+
+
+def _opening_points_for_period(member, raw_opening_points):
+    if normalize_member_type(member.get("member_type")) != "purchase":
+        return raw_opening_points
+
+    period_start = _coerce_date(member.get("points_period_start"))
+    period_end = _coerce_date(member.get("points_period_end"))
+    join_date = _coerce_date(member.get("join_date"))
+    if not period_start or not period_end or not join_date:
+        return raw_opening_points
+    if period_start <= join_date < period_end:
+        return raw_opening_points
+    return 0
+
+
 def build_member_snapshot_from_row(row):
     member = dict(row or {})
     member["member_type"] = normalize_member_type(member.get("member_type"))
@@ -541,11 +583,16 @@ def build_member_snapshot_from_row(row):
         DEFAULT_STRINGING_REWARD_AMOUNT,
     )
 
-    opening_points = _to_int(member.get("points"), 0)
+    raw_opening_points = _to_int(member.get("points"), 0)
+    opening_points = _opening_points_for_period(member, raw_opening_points)
     points_delta_total = _to_int(member.get("points_delta_total"), 0)
+    points_delta_lifetime_total = _to_int(member.get("points_delta_lifetime_total"), points_delta_total)
     member["current_points"] = opening_points + points_delta_total
     member["opening_points"] = opening_points
+    member["stored_opening_points"] = raw_opening_points
     member["points_delta_total"] = points_delta_total
+    member["points_delta_lifetime_total"] = points_delta_lifetime_total
+    member["lifetime_points"] = raw_opening_points + points_delta_lifetime_total
 
     opening_visits = max(_to_int(member.get("opening_stringing_visits"), 0), 0)
     service_count_total = _to_int(member.get("service_count_total"), 0)
@@ -583,12 +630,22 @@ def build_member_snapshot_from_row(row):
     return member
 
 
-def get_member_snapshot(db, member_id):
+def get_member_snapshot(db, member_id, *, as_of_date=None):
+    period_start, period_end = get_purchase_points_period(as_of_date)
     row = db.execute(
         """
         SELECT
             m.*,
-            COALESCE(SUM(mr.points_delta), 0) AS points_delta_total,
+            ? AS points_period_start,
+            ? AS points_period_end,
+            COALESCE(SUM(
+                CASE
+                    WHEN mr.record_date>=? AND mr.record_date<?
+                    THEN COALESCE(mr.points_delta, 0)
+                    ELSE 0
+                END
+            ), 0) AS points_delta_total,
+            COALESCE(SUM(mr.points_delta), 0) AS points_delta_lifetime_total,
             COALESCE(SUM(mr.service_count_delta), 0) AS service_count_total,
             COALESCE(SUM(mr.reward_redeemed_delta), 0) AS reward_redeemed_total,
             COALESCE(SUM(mr.benefit_value), 0) AS benefit_value_total
@@ -597,7 +654,7 @@ def get_member_snapshot(db, member_id):
         WHERE m.id=?
         GROUP BY m.id
         """,
-        (member_id,),
+        (period_start, period_end, period_start, period_end, member_id),
     ).fetchone()
     if not row:
         return None

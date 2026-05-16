@@ -760,7 +760,7 @@ def _build_pos_receipt_loyalty_lines(db, sale):
         member_id = _to_int(loyalty_record.get("member_id"), 0)
         if member_id <= 0:
             continue
-        snapshot = get_member_snapshot(db, member_id)
+        snapshot = get_member_snapshot(db, member_id, as_of_date=safe_sale.get("sale_date") or safe_sale.get("purchase_date"))
         if not snapshot:
             continue
 
@@ -788,7 +788,7 @@ def _build_pos_receipt_loyalty_lines(db, sale):
             earned_points = max(_to_int(loyalty_record.get("points_delta"), 0), 0)
             current_points = max(_to_int(snapshot.get("current_points"), 0), 0)
             lines.append(f"- Poin transaksi ini: +{earned_points} poin")
-            lines.append(f"- Total poin aktif: {current_points} poin")
+            lines.append(f"- Total poin aktif bulan ini: {current_points} poin")
             continue
 
         if member_code:
@@ -3074,7 +3074,7 @@ def _resolve_pos_member_for_type(
 
     active_member = _fetch_active_customer_member_by_type(db, safe_customer.get("id"), normalized_member_type)
     if active_member:
-        return active_member, get_member_snapshot(db, active_member["id"])
+        return active_member, get_member_snapshot(db, active_member["id"], as_of_date=sale_date)
 
     matching_member = find_matching_member_identity(
         db,
@@ -3084,7 +3084,7 @@ def _resolve_pos_member_for_type(
         customer_name=safe_customer.get("customer_name"),
     )
     if matching_member:
-        return matching_member, get_member_snapshot(db, matching_member["id"])
+        return matching_member, get_member_snapshot(db, matching_member["id"], as_of_date=sale_date)
 
     if not allow_auto_create:
         return None, None
@@ -3107,7 +3107,7 @@ def _resolve_pos_member_for_type(
         )
     if not created_member:
         return None, None
-    return created_member, get_member_snapshot(db, created_member["id"])
+    return created_member, get_member_snapshot(db, created_member["id"], as_of_date=sale_date)
 
 
 def _derive_pos_loyalty_sale_transaction_type(transaction_type, items):
@@ -3360,7 +3360,7 @@ def _auto_create_pos_purchase_member(db, customer, warehouse_id, join_date, *, r
             DEFAULT_STRINGING_REWARD_AMOUNT,
             0,
             0,
-            "Poin belanja aktif: 1 poin setiap total Rp 10.000.",
+            "Poin belanja aktif bulan berjalan: 1 poin setiap total Rp 10.000, reset tiap awal bulan.",
             "Auto-created by POS purchase member enrollment.",
         ),
     )
@@ -3452,7 +3452,7 @@ def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transacti
         member_type = str(active_member["member_type"] or "").strip().lower()
         if safe_transaction_type in {"stringing_service", "stringing_reward_redemption"} and member_type != "stringing":
             raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
-        return active_member, get_member_snapshot(db, active_member["id"])
+        return active_member, get_member_snapshot(db, active_member["id"], as_of_date=sale_date)
 
     if safe_transaction_type == "stringing_reward_redemption":
         raise ValueError("Free reward senaran hanya bisa dipakai oleh customer dengan member aktif.")
@@ -3470,7 +3470,7 @@ def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transacti
             member_type = str(member["member_type"] or "").strip().lower()
             if member_type != "stringing":
                 raise ValueError("Jenis transaksi senaran hanya bisa dipakai untuk member senaran.")
-        return member, get_member_snapshot(db, member["id"])
+        return member, get_member_snapshot(db, member["id"], as_of_date=sale_date)
 
     if safe_transaction_type == "purchase":
         created_member = _auto_create_pos_purchase_member(
@@ -3482,7 +3482,7 @@ def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transacti
         )
         if not created_member:
             return None, None
-        return created_member, get_member_snapshot(db, created_member["id"])
+        return created_member, get_member_snapshot(db, created_member["id"], as_of_date=sale_date)
 
     if safe_transaction_type == "stringing_service":
         created_member = _auto_create_pos_stringing_member(
@@ -3492,7 +3492,7 @@ def _resolve_pos_loyalty_member(db, customer, warehouse_id, sale_date, transacti
             sale_date,
             requested_by_user_id=requested_by_user_id,
         )
-        return created_member, get_member_snapshot(db, created_member["id"])
+        return created_member, get_member_snapshot(db, created_member["id"], as_of_date=sale_date)
 
     return None, None
 
@@ -5154,7 +5154,7 @@ def _apply_pos_sale_rollup_updates(db, sale_row, acting_user_id):
     )
 
     if _to_int(sale_row.get("member_id"), 0) > 0:
-        member_snapshot = get_member_snapshot(db, sale_row["member_id"])
+        member_snapshot = get_member_snapshot(db, sale_row["member_id"], as_of_date=sale_row.get("sale_date"))
         if member_snapshot:
             loyalty_fields = calculate_loyalty_fields(
                 member_snapshot,
