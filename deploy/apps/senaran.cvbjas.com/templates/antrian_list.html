@@ -172,8 +172,8 @@
                         <div><span>Cabang</span><strong>{{ ticket.branch }}</strong></div>
                         <div><span>Layanan</span><strong>{{ ticket.service_type }}</strong></div>
                         <div><span>Jumlah Raket</span><strong>{{ ticket.racket_count or 1 }}</strong></div>
-                        <div><span>Tanggal Estimasi</span><strong>{{ ticket.estimated_finish[:10] if ticket.estimated_finish else '-' }}</strong></div>
-                        <div><span>Jam Estimasi</span><strong>{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '-' }}</strong></div>
+                        <div><span>Jadwal Senaran</span><strong>{{ format_datetime_wib(ticket.estimated_finish, false) }}</strong></div>
+                        <div><span>Dibuat</span><strong>{{ format_datetime_wib(ticket.created_at) }}</strong></div>
                         <div><span>Staff</span><strong>{{ ticket.staff_name or '-' }}</strong></div>
                         <div><span>Stringer</span><strong>{{ ticket.stringer_name or '-' }}</strong></div>
                         <div><span>Express</span><strong>{{ 'Ya' if ticket.is_express else 'Tidak' }}</strong></div>

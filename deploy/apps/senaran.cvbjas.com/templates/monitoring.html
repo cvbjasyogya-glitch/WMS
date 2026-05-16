@@ -49,6 +49,7 @@
                     <th>Status</th>
                     <th>Express</th>
                     <th>Pembayaran</th>
+                    <th>Jadwal Senaran</th>
                     <th>Dibuat</th>
                 </tr>
             </thead>
@@ -69,11 +70,12 @@
                                 <span class="payment-badge unpaid">BELUM BAYAR</span>
                             {% endif %}
                         </td>
-                        <td>{{ ticket.created_at }}</td>
+                        <td>{{ format_datetime_wib(ticket.estimated_finish, false) }}</td>
+                        <td>{{ format_datetime_wib(ticket.created_at) }}</td>
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="9" class="empty-state">Tidak ada data sesuai filter.</td>
+                        <td colspan="10" class="empty-state">Tidak ada data sesuai filter.</td>
                     </tr>
                 {% endfor %}
             </tbody>

@@ -2,13 +2,30 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from werkzeug.security import generate_password_hash
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = Path(os.environ.get("SENARAN_DATABASE", BASE_DIR / "antrian.db")).expanduser()
+
+
+def load_app_timezone():
+    timezone_name = os.environ.get("APP_TIMEZONE", "Asia/Jakarta")
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=7), name="Asia/Jakarta")
+
+
+APP_TZ = load_app_timezone()
+
+
+def now_local() -> str:
+    return datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 SCHEMA = """
@@ -19,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL,
     must_change_password INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS queue_tickets (
@@ -47,7 +64,7 @@ CREATE TABLE IF NOT EXISTS queue_tickets (
     finished_at DATETIME,
     picked_up_at DATETIME,
     canceled_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS queue_ticket_items (
@@ -62,7 +79,7 @@ CREATE TABLE IF NOT EXISTS queue_ticket_items (
     variation TEXT,
     grommet TEXT DEFAULT 'Tidak',
     racket_note TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME,
     FOREIGN KEY(ticket_id) REFERENCES queue_tickets(id)
 );
 
@@ -90,7 +107,20 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     username TEXT,
     ip_address TEXT,
     success INTEGER DEFAULT 0,
-    attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    attempted_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS whatsapp_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER,
+    queue_number TEXT,
+    customer_name TEXT,
+    receiver TEXT,
+    message TEXT,
+    status TEXT,
+    response_text TEXT,
+    error_text TEXT,
+    created_at DATETIME
 );
 """
 
@@ -158,7 +188,7 @@ def migrate_existing_schema(conn: sqlite3.Connection) -> None:
             variation TEXT,
             grommet TEXT DEFAULT 'Tidak',
             racket_note TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at DATETIME,
             FOREIGN KEY(ticket_id) REFERENCES queue_tickets(id)
         )
         """
@@ -175,7 +205,23 @@ def migrate_existing_schema(conn: sqlite3.Connection) -> None:
             username TEXT,
             ip_address TEXT,
             success INTEGER DEFAULT 0,
-            attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            attempted_at DATETIME
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS whatsapp_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER,
+            queue_number TEXT,
+            customer_name TEXT,
+            receiver TEXT,
+            message TEXT,
+            status TEXT,
+            response_text TEXT,
+            error_text TEXT,
+            created_at DATETIME
         )
         """
     )
@@ -233,14 +279,15 @@ def init_db() -> None:
         if admin is None:
             conn.execute(
                 """
-                INSERT INTO users (name, username, password_hash, role, must_change_password)
-                VALUES (?, ?, ?, ?, 1)
+                INSERT INTO users (name, username, password_hash, role, must_change_password, created_at)
+                VALUES (?, ?, ?, ?, 1, ?)
                 """,
                 (
                     DEFAULT_ADMIN["name"],
                     DEFAULT_ADMIN["username"],
                     generate_password_hash(DEFAULT_ADMIN["password"]),
                     DEFAULT_ADMIN["role"],
+                    now_local(),
                 ),
             )
 

@@ -7,11 +7,11 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from io import StringIO
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import (
     abort,
@@ -30,7 +30,17 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 
 BASE_DIR = Path(__file__).resolve().parent
-APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Jakarta"))
+
+
+def load_app_timezone():
+    timezone_name = os.environ.get("APP_TIMEZONE", "Asia/Jakarta")
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=7), name="Asia/Jakarta")
+
+
+APP_TZ = load_app_timezone()
 DATABASE = Path(os.environ.get("SENARAN_DATABASE", BASE_DIR / "antrian.db")).expanduser()
 
 BRANCHES = ["Mega Sports"]
@@ -55,6 +65,7 @@ LOGIN_WINDOW_MINUTES = 10
 LOGIN_LOCK_MINUTES = 10
 ANTRIAN_FORM_DRAFT_KEY = "antrian_add_draft"
 PHONE_PATTERN = re.compile(r"^[0-9+\-\s]+$")
+KIRIMI_API_URL = os.environ.get("KIRIMI_API_URL", "https://api.kirimi.id/v1/send-message")
 MONTH_LABELS = {
     1: "Jan",
     2: "Feb",
@@ -96,16 +107,28 @@ def close_db(error: Exception | None = None) -> None:
         db.close()
 
 
+def now_local_datetime() -> datetime:
+    return datetime.now(APP_TZ)
+
+
+def now_local() -> str:
+    return now_local_datetime().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def today_local() -> str:
+    return now_local_datetime().strftime("%Y-%m-%d")
+
+
 def today_iso() -> str:
-    return current_datetime().date().isoformat()
+    return today_local()
 
 
 def now_sql() -> str:
-    return current_datetime().strftime("%Y-%m-%d %H:%M:%S")
+    return now_local()
 
 
 def current_datetime() -> datetime:
-    return datetime.now(APP_TIMEZONE).replace(tzinfo=None)
+    return now_local_datetime()
 
 
 def parse_iso_date(value: str | None, fallback: str | None = None) -> str:
@@ -117,7 +140,7 @@ def parse_iso_date(value: str | None, fallback: str | None = None) -> str:
 
 
 def clamp_iso_date(value: str | None, min_offset: int = -1, max_offset: int = 3) -> str:
-    today = current_datetime().date()
+    today = now_local_datetime().date()
     min_date = today + timedelta(days=min_offset)
     max_date = today + timedelta(days=max_offset)
     selected = datetime.strptime(parse_iso_date(value, today_iso()), "%Y-%m-%d").date()
@@ -129,7 +152,7 @@ def clamp_iso_date(value: str | None, min_offset: int = -1, max_offset: int = 3)
 
 
 def build_date_options(selected_date: str) -> list[dict]:
-    today = current_datetime().date()
+    today = now_local_datetime().date()
     selected = datetime.strptime(parse_iso_date(selected_date), "%Y-%m-%d").date()
     options = []
     for offset in range(-7, 8):
@@ -213,7 +236,7 @@ def is_login_locked(username: str, ip_address: str) -> bool:
     ).fetchall()
     if len(rows) < LOGIN_LIMIT:
         return False
-    latest_failure = datetime.strptime(rows[0]["attempted_at"], "%Y-%m-%d %H:%M:%S")
+    latest_failure = datetime.strptime(rows[0]["attempted_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=APP_TZ)
     return current_datetime() < latest_failure + timedelta(minutes=LOGIN_LOCK_MINUTES)
 
 
@@ -338,6 +361,203 @@ def build_estimated_finish(schedule_date: str, schedule_time: str) -> str | None
         return None
 
 
+def parse_local_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=APP_TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def format_datetime_wib(value: str | None, include_wib: bool = True) -> str:
+    parsed = parse_local_datetime(value)
+    if parsed is None:
+        return value or "-"
+    month_name = parsed.strftime("%B")
+    # Browser-facing pages are Indonesian; keep month labels predictable without relying on OS locale.
+    month_names = {
+        "January": "Januari",
+        "February": "Februari",
+        "March": "Maret",
+        "April": "April",
+        "May": "Mei",
+        "June": "Juni",
+        "July": "Juli",
+        "August": "Agustus",
+        "September": "September",
+        "October": "Oktober",
+        "November": "November",
+        "December": "Desember",
+    }
+    suffix = " WIB" if include_wib else ""
+    return f"{parsed.day:02d} {month_names.get(month_name, month_name)} {parsed.year}, {parsed:%H:%M}{suffix}"
+
+
+def normalize_wa_number(phone: str | None) -> str | None:
+    cleaned = re.sub(r"[\s\-\(\)]", "", phone or "")
+    cleaned = cleaned.replace(".", "")
+    if cleaned.startswith("+62"):
+        cleaned = "62" + cleaned[3:]
+    elif cleaned.startswith("0"):
+        cleaned = "62" + cleaned[1:]
+
+    if not re.fullmatch(r"62\d{8,15}", cleaned):
+        return None
+    return cleaned
+
+
+def build_pickup_message(customer_name: str | None) -> str:
+    name = (customer_name or "").strip() or "kak"
+    return f"""Hallo kak {name}, kami dari MEGA SPORTS SETURAN 🤗
+
+Raket kakak sudah JADI dan bisa diambil di Toko MEGA SPORTS SETURAN.
+
+🕖 Pengambilan dilayani maksimal sampai jam 21.00 WIB.
+Mohon sertakan nota saat pengambilan.
+
+📌 Pengambilan di atas 2 minggu tanpa konfirmasi:
+kehilangan atau kerusakan di luar tanggung jawab MEGA SPORTS SETURAN.
+
+——————————————————
+
+📍 MEGA SPORTS SETURAN 📍
+Setiap Hari / 09.00–21.00 WIB
+
+Maps 👇
+https://maps.app.goo.gl/pZUKw1vJFqpwLbt38
+
+Jika ada kendala, kritik, atau saran, silakan hubungi kami kembali ya kak ☺️
+
+📝 Jangan lupa review Google Maps kami di link berikut 👇
+https://g.page/r/CTSwFcwNjQHAEBM/review
+
+Terima kasih atas orderannya kak 😊"""
+
+
+def send_kirimi_message(receiver: str, message: str) -> dict:
+    user_code = os.environ.get("KIRIMI_USER_CODE", "").strip()
+    secret = os.environ.get("KIRIMI_SECRET", "").strip()
+    device_id = os.environ.get("KIRIMI_DEVICE_ID", "").strip()
+    api_url = os.environ.get("KIRIMI_API_URL", KIRIMI_API_URL).strip() or KIRIMI_API_URL
+
+    if not user_code or not secret or not device_id:
+        return {
+            "success": False,
+            "response": "",
+            "error": "Konfigurasi Kirimi.id belum lengkap.",
+        }
+
+    payload = {
+        "user_code": user_code,
+        "secret": secret,
+        "device_id": device_id,
+        "receiver": receiver,
+        "message": message,
+    }
+
+    try:
+        import requests
+    except ImportError:
+        return {
+            "success": False,
+            "response": "",
+            "error": "Library requests belum terpasang.",
+        }
+
+    try:
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        return {"success": False, "response": "", "error": str(exc)}
+
+    response_text = response.text[:1000]
+    success = 200 <= response.status_code < 300
+    try:
+        response_json = response.json()
+        if isinstance(response_json, dict):
+            explicit_success = response_json.get("success")
+            if explicit_success is None:
+                explicit_success = response_json.get("status")
+            if isinstance(explicit_success, bool):
+                success = success and explicit_success
+    except ValueError:
+        pass
+
+    error = "" if success else f"Kirimi.id HTTP {response.status_code}"
+    return {"success": success, "response": response_text, "error": error}
+
+
+def ensure_whatsapp_logs_table(db: sqlite3.Connection) -> None:
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS whatsapp_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER,
+            queue_number TEXT,
+            customer_name TEXT,
+            receiver TEXT,
+            message TEXT,
+            status TEXT,
+            response_text TEXT,
+            error_text TEXT,
+            created_at DATETIME
+        )
+        """
+    )
+
+
+def log_whatsapp_delivery(ticket: sqlite3.Row | dict, receiver: str | None, message: str, result: dict) -> None:
+    try:
+        db = get_db()
+        ensure_whatsapp_logs_table(db)
+        db.execute(
+            """
+            INSERT INTO whatsapp_logs (
+                ticket_id, queue_number, customer_name, receiver, message,
+                status, response_text, error_text, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ticket["id"],
+                ticket["queue_number"],
+                ticket["customer_name"],
+                receiver or "",
+                message,
+                "SUCCESS" if result.get("success") else "FAILED",
+                (result.get("response") or "")[:1000],
+                (result.get("error") or "")[:1000],
+                now_local(),
+            ),
+        )
+        db.commit()
+    except sqlite3.Error:
+        logger.exception("Failed to save WhatsApp delivery log")
+
+
+def send_ticket_pickup_whatsapp(ticket: sqlite3.Row) -> dict:
+    receiver = normalize_wa_number(ticket["phone"])
+    message = build_pickup_message(ticket["customer_name"])
+    if not receiver:
+        result = {
+            "success": False,
+            "response": "",
+            "error": "Nomor WhatsApp customer tidak valid.",
+        }
+        log_whatsapp_delivery(ticket, receiver, message, result)
+        return result
+
+    result = send_kirimi_message(receiver, message)
+    log_whatsapp_delivery(ticket, receiver, message, result)
+    return result
+
+
 def collect_ticket_items(form, racket_count: int, service_type: str) -> tuple[list[dict], list[str]]:
     items = []
     errors = []
@@ -439,7 +659,9 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
             slot_finish = build_estimated_finish(selected_date, slot_time)
             if not slot_finish:
                 continue
-            slot_datetime = datetime.strptime(slot_finish, "%Y-%m-%d %H:%M:%S")
+            slot_datetime = parse_local_datetime(slot_finish)
+            if slot_datetime is None:
+                continue
             if slot_datetime <= cutoff:
                 time_locked_slots.add(slot_time)
 
@@ -540,12 +762,13 @@ def ticket_to_dict(row: sqlite3.Row | None) -> dict | None:
 @app.context_processor
 def inject_globals():
     return {
-        "current_year": current_datetime().year,
+        "current_year": now_local_datetime().year,
         "statuses": STATUSES,
         "branches": BRANCHES,
         "schedule_times": SCHEDULE_TIMES,
         "stringers": STRINGERS,
         "csrf_token": generate_csrf_token,
+        "format_datetime_wib": format_datetime_wib,
     }
 
 
@@ -831,6 +1054,7 @@ def antrian_add():
             return fail_with_draft("Nomor antrian/nota sudah digunakan pada tanggal hari ini.")
 
         first_item = item_values[0]
+        created_at = now_local()
         try:
             db.execute("BEGIN")
             cursor = db.execute(
@@ -839,8 +1063,9 @@ def antrian_add():
                     queue_number, queue_date, customer_name, phone, branch, service_type,
                     racket_type, racket_brand, string_type, tension_lbs, racket_count,
                     staff_name,
-                    is_express, stringer_name, note, status, payment_status, estimated_finish
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MENUNGGU', ?, ?)
+                    is_express, stringer_name, note, status, payment_status, estimated_finish,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MENUNGGU', ?, ?, ?)
                 """,
                 (
                     queue_number,
@@ -860,6 +1085,7 @@ def antrian_add():
                     note,
                     payment_status,
                     estimated_finish,
+                    created_at,
                 ),
             )
             ticket_id = cursor.lastrowid
@@ -867,8 +1093,8 @@ def antrian_add():
                 """
                 INSERT INTO queue_ticket_items (
                     ticket_id, item_number, racket_type, racket_brand, string_type,
-                    tension_lbs, knot_type, variation, grommet, racket_note
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tension_lbs, knot_type, variation, grommet, racket_note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -882,6 +1108,7 @@ def antrian_add():
                         item["variation"],
                         item["grommet"],
                         item["racket_note"],
+                        created_at,
                     )
                     for item in item_values
                 ],
@@ -920,13 +1147,32 @@ def update_status(ticket_id: int, action: str):
 
     status, timestamp_column = action_map[action]
     db = get_db()
+    ticket = db.execute(
+        "SELECT id, queue_number, customer_name, phone FROM queue_tickets WHERE id = ?",
+        (ticket_id,),
+    ).fetchone()
+    if ticket is None:
+        flash("Data antrian tidak ditemukan.", "danger")
+        return redirect_back()
+
     db.execute(
         f"UPDATE queue_tickets SET status = ?, {timestamp_column} = ? WHERE id = ?",
         (status, now_sql(), ticket_id),
     )
     db.commit()
     logger.info("Ticket status updated ticket_id=%s status=%s", ticket_id, status)
-    flash(f"Status antrian diperbarui menjadi {status}.", "success")
+
+    if action == "panggil":
+        wa_result = send_ticket_pickup_whatsapp(ticket)
+        if wa_result.get("success"):
+            logger.info("WhatsApp sent ticket_id=%s", ticket_id)
+            flash("Status diperbarui dan WhatsApp berhasil dikirim.", "success")
+        else:
+            error_text = wa_result.get("error") or "Silakan cek konfigurasi Kirimi.id."
+            logger.warning("WhatsApp failed ticket_id=%s error=%s", ticket_id, error_text)
+            flash(f"Status berhasil diperbarui, tetapi WhatsApp gagal dikirim: {error_text}", "warning")
+    else:
+        flash(f"Status antrian diperbarui menjadi {status}.", "success")
     return redirect_back()
 
 
@@ -1069,7 +1315,7 @@ def laporan():
         end_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
     except ValueError:
         flash("Format tanggal tidak valid.", "danger")
-        start_obj = end_obj = current_datetime().date()
+        start_obj = end_obj = now_local_datetime().date()
         start_date = end_date = today
 
     if end_obj < start_obj:
@@ -1122,6 +1368,7 @@ def laporan():
                 "Express",
                 "Pembayaran",
                 "Estimasi Selesai",
+                "Dibuat WIB",
             ]
         )
         for ticket in tickets:
@@ -1141,6 +1388,7 @@ def laporan():
                     "Ya" if ticket["is_express"] else "Tidak",
                     ticket["payment_status"],
                     ticket["estimated_finish"] or "",
+                    ticket["created_at"] or "",
                 ]
             )
         filename = f"laporan-antrian-{start_date}-sd-{end_date}.csv"

@@ -45,6 +45,7 @@ Untuk instalasi baru, set password awal lewat environment variable `DEFAULT_ADMI
 queue-stringing-system/
 |-- app.py
 |-- init_db.py
+|-- antrian.db
 |-- requirements.txt
 |-- README.md
 |-- templates/
@@ -93,7 +94,13 @@ Untuk production atau akses online, siapkan environment variable berikut:
 SECRET_KEY=<random panjang dan unik>
 SESSION_COOKIE_SECURE=true
 FLASK_DEBUG=false
+APP_TIMEZONE=Asia/Jakarta
+SENARAN_DATABASE=/var/lib/senaran/antrian.db
 DEFAULT_ADMIN_PASSWORD=<password awal kuat untuk init pertama>
+KIRIMI_USER_CODE=<user code Kirimi.id>
+KIRIMI_SECRET=<secret key Kirimi.id>
+KIRIMI_DEVICE_ID=<device id Kirimi.id>
+KIRIMI_API_URL=https://api.kirimi.id/v1/send-message
 ```
 
 Catatan:
@@ -102,11 +109,40 @@ Catatan:
 - `SECRET_KEY` wajib random, panjang, dan tidak dibagikan.
 - Set `SESSION_COOKIE_SECURE=true` jika aplikasi diakses lewat HTTPS.
 - Jalankan production dengan `FLASK_DEBUG=false`.
+- Untuk VPS, gunakan `SENARAN_DATABASE=/var/lib/senaran/antrian.db` supaya database SQLite tidak ikut tertimpa saat `git pull`.
+- Timezone tampilan default `Asia/Jakarta` dan bisa dioverride lewat `APP_TIMEZONE`.
 - Gunakan HTTPS saat aplikasi mulai online.
 - Jangan taruh `antrian.db` di dalam folder `static`.
 - Route public hanya `/layar-monitor` dan `/api/antrian/monitor`; keduanya read-only.
+- Credential Kirimi.id wajib disimpan di environment variable, jangan ditulis ke kode, template, atau JavaScript.
 - Backup file `antrian.db` secara berkala.
 - Ganti password akun secara berkala.
+
+## Integrasi WhatsApp Kirimi.id
+
+Tombol `Panggil` pada halaman `Daftar Antrian` akan memperbarui status menjadi `DIPANGGIL`, lalu aplikasi mencoba mengirim WhatsApp pickup ke nomor customer lewat backend Flask.
+
+Contoh setup environment:
+
+Windows PowerShell:
+
+```powershell
+$env:KIRIMI_USER_CODE="ISI_USER_CODE"
+$env:KIRIMI_SECRET="ISI_SECRET_KEY"
+$env:KIRIMI_DEVICE_ID="ISI_DEVICE_ID"
+$env:KIRIMI_API_URL="https://api.kirimi.id/v1/send-message"
+```
+
+Linux/Mac:
+
+```bash
+export KIRIMI_USER_CODE="ISI_USER_CODE"
+export KIRIMI_SECRET="ISI_SECRET_KEY"
+export KIRIMI_DEVICE_ID="ISI_DEVICE_ID"
+export KIRIMI_API_URL="https://api.kirimi.id/v1/send-message"
+```
+
+Jika konfigurasi belum lengkap, status antrian tetap diperbarui tetapi WhatsApp gagal dengan pesan yang jelas. Semua percobaan pengiriman dicatat di tabel `whatsapp_logs` tanpa menyimpan credential API.
 
 ## Flow coba cepat
 
@@ -121,13 +157,6 @@ Catatan:
 9. Klik `Panggil` dari `Daftar Antrian Hari Ini`.
 10. Buka `http://127.0.0.1:5000/layar-monitor` untuk Customer Display.
 
-## Catatan deploy di repo WMS
-
-- File database dari ZIP tidak disertakan di repo ini.
-- Untuk VPS, gunakan environment `SENARAN_DATABASE=/var/lib/senaran/antrian.db`.
-- Jalankan `python3 init_db.py` untuk membuat atau migrate SQLite.
-- Aplikasi ini berdiri sendiri dan tidak memakai database PostgreSQL ERP/WMS.
-
 ## Catatan lokal
 
 - Database menggunakan SQLite di file `antrian.db`.
@@ -137,3 +166,10 @@ Catatan:
 - Nomor antrian reset per hari dengan format `MGA-001`, `MGA-002`.
 - Slot jadwal tersedia dari 14:00 sampai 20:00, kapasitas dasar 2 raket per jam.
 - Jika satu slot berisi 4 raket atau lebih, slot jam berikutnya otomatis terblokir.
+
+## Catatan deploy di repo WMS
+
+- File database dari ZIP tidak disertakan di repo ini.
+- Untuk VPS, gunakan environment `SENARAN_DATABASE=/var/lib/senaran/antrian.db`.
+- Jalankan `SENARAN_DATABASE=/var/lib/senaran/antrian.db python3 init_db.py` untuk membuat atau migrate SQLite.
+- Aplikasi ini berdiri sendiri dan tidak memakai database PostgreSQL ERP/WMS.

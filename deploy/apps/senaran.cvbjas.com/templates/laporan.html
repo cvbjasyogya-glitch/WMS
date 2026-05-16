@@ -69,6 +69,8 @@
                     <th>Tarikan</th>
                     <th>Express</th>
                     <th>Status</th>
+                    <th>Jadwal Senaran</th>
+                    <th>Dibuat</th>
                 </tr>
             </thead>
             <tbody>
@@ -84,10 +86,12 @@
                         <td>{{ ticket.tension_lbs or '-' }}</td>
                         <td>{{ 'Ya' if ticket.is_express else 'Tidak' }}</td>
                         <td><span class="status-badge status-{{ ticket.status|lower }}">{{ ticket.status }}</span></td>
+                        <td>{{ format_datetime_wib(ticket.estimated_finish, false) }}</td>
+                        <td>{{ format_datetime_wib(ticket.created_at) }}</td>
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="10" class="empty-state">Belum ada riwayat pada periode ini.</td>
+                        <td colspan="12" class="empty-state">Belum ada riwayat pada periode ini.</td>
                     </tr>
                 {% endfor %}
             </tbody>
