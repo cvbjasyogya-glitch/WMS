@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <article class="stat-card">
+        <span class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-calendar-check"></i></span>
+        <p>Total Antrian Hari Ini</p>
+        <strong>{{ total_today }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-info-subtle text-info"><i class="bi bi-hourglass-split"></i></span>
+        <p>Menunggu</p>
+        <strong>{{ status_counts['MENUNGGU'] }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-warning-subtle text-warning"><i class="bi bi-megaphone"></i></span>
+        <p>Dipanggil</p>
+        <strong>{{ status_counts['DIPANGGIL'] }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-purple-subtle text-purple"><i class="bi bi-tools"></i></span>
+        <p>Diproses</p>
+        <strong>{{ status_counts['DIPROSES'] }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-success-subtle text-success"><i class="bi bi-check-circle"></i></span>
+        <p>Selesai</p>
+        <strong>{{ status_counts['SELESAI'] }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-teal-subtle text-teal"><i class="bi bi-bag-check"></i></span>
+        <p>Diambil</p>
+        <strong>{{ status_counts['DIAMBIL'] }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-danger-subtle text-danger"><i class="bi bi-x-circle"></i></span>
+        <p>Batal</p>
+        <strong>{{ status_counts['BATAL'] }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon stat-icon-racket bg-secondary-subtle text-secondary" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true">
+                <ellipse cx="9.2" cy="8.6" rx="4.8" ry="6.6" transform="rotate(-28 9.2 8.6)" fill="none" stroke="currentColor" stroke-width="1.9"></ellipse>
+                <path d="M6.2 7.8h6.2M5.9 10.4h6.9M6.8 13h5.7M7.7 5.5v6.7M9.8 4.9v7.8" stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none"></path>
+                <path d="M12.2 12.3 18.3 18.4" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+                <path d="M16.2 16.3l2.2 2.2" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+                <path d="M13.9 13.9l-1.1 1.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+            </svg>
+        </span>
+        <p>Total Raket</p>
+        <strong>{{ total_rackets }}</strong>
+    </article>
+</div>
+
+<section class="panel schedule-panel mt-4">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Jadwal</p>
+            <h2>Jadwal Senaran Hari Ini</h2>
+        </div>
+    </div>
+    <div class="schedule-slot-grid">
+        {% for slot in schedule_slots %}
+            <div class="schedule-slot {{ 'is-unavailable' if slot.unavailable else 'is-full' if not slot.available else 'is-available' }}">
+                <div class="slot-time">{{ slot.time }}</div>
+                <div class="slot-usage">{{ slot.used }}/{{ slot.capacity }} raket</div>
+                <span class="slot-label">{{ slot.label }}</span>
+                {% if slot.reason %}
+                    <small>{{ slot.reason }}</small>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="panel mt-4">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Operasional</p>
+            <h2>Daftar Antrian Hari Ini</h2>
+        </div>
+        <a href="{{ url_for('antrian_add') }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg"></i>
+            Input Baru
+        </a>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle data-table">
+            <thead>
+                <tr>
+                    <th>Nomor Antrian</th>
+                    <th>Customer</th>
+                    <th>Jumlah Raket</th>
+                    <th>Layanan</th>
+                    <th>Stringer</th>
+                    <th>Status</th>
+                    <th>Express</th>
+                    <th>Estimasi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in latest_tickets %}
+                    <tr>
+                        <td>{{ ticket.queue_number }}</td>
+                        <td>{{ ticket.customer_name }}</td>
+                        <td>{{ ticket.racket_count or 1 }} raket</td>
+                        <td>{{ ticket.service_type }}</td>
+                        <td>{{ ticket.stringer_name or '-' }}</td>
+                        <td><span class="status-badge status-{{ ticket.status|lower }}">{{ ticket.status }}</span></td>
+                        <td>
+                            {% if ticket.is_express %}
+                                <span class="express-badge yes">Ya</span>
+                            {% else %}
+                                <span class="express-badge no">Tidak</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <strong>
+                                {% if ticket.estimated_finish %}
+                                    {{ ticket.estimated_finish[8:10] }}/{{ ticket.estimated_finish[5:7] }}/{{ ticket.estimated_finish[0:4] }} {{ ticket.estimated_finish[11:16] }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </strong>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="8" class="empty-state">Belum ada antrian hari ini.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Setting - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Setting{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Konfigurasi</p>
+            <h2>Pengaturan Aplikasi</h2>
+        </div>
+    </div>
+
+    <div class="settings-grid">
+        <div class="setting-item">
+            <span>Nama Aplikasi</span>
+            <strong>{{ settings.get('app_name', 'Sistem Antrian Stringing') }}</strong>
+        </div>
+        <div class="setting-item">
+            <span>Nama Toko</span>
+            <strong>{{ settings.get('store_name', 'Mega Sports') }}</strong>
+        </div>
+        <div class="setting-item">
+            <span>Cabang Aktif</span>
+            <strong>{{ settings.get('active_branches', 'Mega Sports') }}</strong>
+        </div>
+        <div class="setting-item">
+            <span>Format Nomor Antrian</span>
+            <strong>{{ settings.get('queue_number_format', 'MGA-001') }}</strong>
+        </div>
+        <div class="setting-item">
+            <span>Database</span>
+            <strong>{{ settings.get('database', 'SQLite') }}</strong>
+        </div>
+    </div>
+</section>
+{% endblock %}

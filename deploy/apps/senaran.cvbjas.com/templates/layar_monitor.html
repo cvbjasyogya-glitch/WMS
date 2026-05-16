@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="id" class="monitor-page">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Layar Monitor - Sistem Antrian Stringing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='assets/logo-mega.png') }}">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body class="monitor-screen">
+    <main class="display-page">
+        <header class="display-header display-animate fade-down">
+            <div class="display-brand">
+                <div class="display-brand-logo">
+                    <img src="{{ url_for('static', filename='assets/logo-mega.png') }}" alt="Mega Sports">
+                </div>
+                <div>
+                    <h1>Mega Sports Seturan</h1>
+                    <p>Antrian Senar</p>
+                </div>
+            </div>
+            <div class="display-clock">
+                <span id="monitor-date">-</span>
+                <strong id="monitor-time">--.--.--</strong>
+            </div>
+        </header>
+
+        <section class="display-main">
+            <article class="schedule-panel display-animate fade-up">
+                <div class="schedule-panel-head">
+                    <div class="schedule-title">
+                        <i class="bi bi-calendar2-week"></i>
+                        <span>Jadwal Senaran</span>
+                    </div>
+                    <div class="schedule-toolbar">
+                        <button class="schedule-nav-btn" type="button" id="schedule-prev" aria-label="Tanggal sebelumnya">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <label class="schedule-date-control">
+                            <i class="bi bi-calendar3"></i>
+                            <span id="schedule-date-label">-</span>
+                            <input id="schedule-date-input" type="date">
+                        </label>
+                        <label class="schedule-auto-toggle" for="schedule-auto-day" title="Auto pindah Hari H dan H+1">
+                            <input id="schedule-auto-day" type="checkbox">
+                            <span class="schedule-auto-track">
+                                <span class="schedule-auto-thumb"></span>
+                            </span>
+                            <span class="schedule-auto-text">Auto</span>
+                        </label>
+                        <button class="schedule-nav-btn" type="button" id="schedule-next" aria-label="Tanggal berikutnya">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button class="schedule-today-btn" type="button" id="schedule-today">Hari Ini</button>
+                    </div>
+                </div>
+                <div id="monitor-slot-list" class="schedule-grid">
+                    <div class="display-empty">-</div>
+                </div>
+            </article>
+
+            <aside class="status-column display-animate fade-left">
+                <section class="status-section status-waiting">
+                    <div class="status-section-header">
+                        <div>
+                            <i class="bi bi-hourglass-split"></i>
+                            <span>Menunggu Diproses</span>
+                        </div>
+                        <strong id="waiting-process-count" class="status-count-badge">0</strong>
+                    </div>
+                    <div id="waiting-process-list" class="status-card-grid"></div>
+                </section>
+
+                <section class="status-section status-processing">
+                    <div class="status-section-header">
+                        <div>
+                            <i class="bi bi-tools"></i>
+                            <span>Sedang Diproses</span>
+                        </div>
+                        <strong id="in-process-count" class="status-count-badge">0</strong>
+                    </div>
+                    <div id="in-process-list" class="status-card-grid"></div>
+                </section>
+
+                <section class="status-section status-completed">
+                    <div class="status-section-header">
+                        <div>
+                            <i class="bi bi-check-circle"></i>
+                            <span>Sudah Selesai</span>
+                        </div>
+                        <strong id="completed-count" class="status-count-badge">0</strong>
+                    </div>
+                    <div id="completed-list" class="status-card-grid"></div>
+                </section>
+            </aside>
+        </section>
+
+        <footer class="display-footer display-animate fade-up">
+            <div class="display-footer-info">
+                <i class="bi bi-info-circle"></i>
+                <strong>Info</strong>
+                <span>Status dapat berubah kapan saja tergantung kondisi lapangan.</span>
+            </div>
+            <div class="display-footer-update">
+                <i class="bi bi-arrow-repeat"></i>
+                <span id="monitor-updated">Update terakhir: -</span>
+            </div>
+        </footer>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/monitor.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Laporan - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Laporan{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Riwayat</p>
+            <h2>Laporan Antrian</h2>
+        </div>
+        <a class="btn btn-success btn-sm" href="{{ url_for('laporan', start_date=start_date, end_date=end_date, export='csv') }}">
+            <i class="bi bi-download"></i>
+            Export CSV
+        </a>
+    </div>
+
+    <form class="filter-bar" method="get">
+        <div>
+            <label class="form-label" for="start_date">Tanggal Awal</label>
+            <input class="form-control" id="start_date" name="start_date" type="date" value="{{ start_date }}">
+        </div>
+        <div>
+            <label class="form-label" for="end_date">Tanggal Akhir</label>
+            <input class="form-control" id="end_date" name="end_date" type="date" value="{{ end_date }}">
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Tampilkan</button>
+        </div>
+    </form>
+</section>
+
+<div class="stats-grid compact mt-4">
+    <article class="stat-card">
+        <span class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-list-ol"></i></span>
+        <p>Total Antrian</p>
+        <strong>{{ summary.total }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-success-subtle text-success"><i class="bi bi-check-circle"></i></span>
+        <p>Total Selesai</p>
+        <strong>{{ summary.selesai }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-danger-subtle text-danger"><i class="bi bi-x-circle"></i></span>
+        <p>Total Batal</p>
+        <strong>{{ summary.batal }}</strong>
+    </article>
+    <article class="stat-card">
+        <span class="stat-icon bg-secondary-subtle text-secondary"><i class="bi bi-stopwatch"></i></span>
+        <p>Rata-rata Pengerjaan</p>
+        <strong>{{ summary.avg_minutes }}m</strong>
+    </article>
+</div>
+
+<section class="panel mt-4">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle data-table">
+            <thead>
+                <tr>
+                    <th>Tanggal</th>
+                    <th>Nomor</th>
+                    <th>Customer</th>
+                    <th>Cabang</th>
+                    <th>Layanan</th>
+                    <th>Jumlah Raket</th>
+                    <th>Senar</th>
+                    <th>Tarikan</th>
+                    <th>Express</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                    <tr>
+                        <td>{{ ticket.queue_date }}</td>
+                        <td><strong>{{ ticket.queue_number }}</strong></td>
+                        <td>{{ ticket.customer_name }}</td>
+                        <td>{{ ticket.branch }}</td>
+                        <td>{{ ticket.service_type }}</td>
+                        <td>{{ ticket.racket_count or 1 }}</td>
+                        <td>{{ ticket.string_type or '-' }}</td>
+                        <td>{{ ticket.tension_lbs or '-' }}</td>
+                        <td>{{ 'Ya' if ticket.is_express else 'Tidak' }}</td>
+                        <td><span class="status-badge status-{{ ticket.status|lower }}">{{ ticket.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="10" class="empty-state">Belum ada riwayat pada periode ini.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

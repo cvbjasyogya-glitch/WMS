@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Akun Saya - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Akun Saya{% endblock %}
+
+{% block content %}
+<section class="panel account-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Profil</p>
+            <h2>Pengaturan Akun</h2>
+        </div>
+    </div>
+
+    <form method="post" class="queue-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label" for="name">Nama Akun</label>
+                <input class="form-control" id="name" name="name" value="{{ user.name }}" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="username">Username</label>
+                <input class="form-control" id="username" name="username" value="{{ user.username }}" required>
+            </div>
+        </div>
+
+        <hr class="section-divider">
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label" for="old_password">Password Lama</label>
+                <input class="form-control" id="old_password" name="old_password" type="password" autocomplete="current-password">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="new_password">Password Baru</label>
+                <input class="form-control" id="new_password" name="new_password" type="password" autocomplete="new-password">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="confirm_password">Konfirmasi Password Baru</label>
+                <input class="form-control" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password">
+            </div>
+        </div>
+        <div class="form-text mt-2">Kosongkan bagian password jika hanya ingin mengganti nama atau username.</div>
+
+        <div class="form-actions">
+            <button class="btn btn-primary" type="submit">
+                <i class="bi bi-save"></i>
+                Simpan Akun
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

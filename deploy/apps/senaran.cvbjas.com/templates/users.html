@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}User - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}User{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Akses</p>
+            <h2>Daftar User</h2>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Nama</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Created At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                    <tr>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.username }}</td>
+                        <td><span class="role-badge">{{ user.role }}</span></td>
+                        <td>{{ user.created_at }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="empty-state">Belum ada user.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

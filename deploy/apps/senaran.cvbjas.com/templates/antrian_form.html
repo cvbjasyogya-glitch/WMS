@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Input Antrian Baru - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Input Antrian Baru{% endblock %}
+
+{% block content %}
+<form method="post" class="queue-form queue-form-compact compact-form queue-form-flat antrian-form-page" id="queue-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="queue-form-stack">
+        <section class="panel form-section compact-panel compact-stack-panel">
+            <div class="section-heading compact-heading">
+                <div class="section-heading-copy">
+                    <p class="eyebrow">Input</p>
+                    <h2><i class="bi bi-person-vcard"></i> Customer & Jadwal</h2>
+                </div>
+                <a href="{{ url_for('antrian_list') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-list-ul"></i>
+                    Daftar Antrian
+                </a>
+            </div>
+
+            <div class="compact-subgroup">
+                <div class="compact-form-grid compact-form-grid-4 customer-grid">
+                    <div>
+                        <label class="form-label" for="queue_number">Nomor Antrian / Nota</label>
+                        <input class="form-control" id="queue_number" name="queue_number" value="{{ form.get('queue_number', '') }}" placeholder="Contoh: A-001 / 001">
+                    </div>
+                    <div>
+                        <label class="form-label" for="customer_name">Nama Customer</label>
+                        <input class="form-control" id="customer_name" name="customer_name" value="{{ form.get('customer_name', '') }}" required>
+                    </div>
+                    <div>
+                        <label class="form-label" for="phone">Nomor WhatsApp</label>
+                        <input class="form-control" id="phone" name="phone" value="{{ form.get('phone', '') }}" placeholder="08xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="form-label" for="branch_display">Cabang</label>
+                        <div class="static-field">Mega Sports</div>
+                        <input type="hidden" id="branch" name="branch" value="Mega Sports">
+                    </div>
+                </div>
+                <div class="compact-note-row">
+                    <label class="form-label" for="note">Catatan Singkat</label>
+                    <input class="form-control" id="note" name="note" value="{{ form.get('note', '') }}" placeholder="Catatan opsional">
+                </div>
+            </div>
+
+            <div class="compact-subgroup">
+                <div class="compact-form-grid compact-form-grid-6 service-grid service-grid-slim">
+                    <div>
+                        <label class="form-label" for="service_type">Jenis Layanan</label>
+                        <select class="form-select" id="service_type" name="service_type" required>
+                            <option value="">Pilih layanan</option>
+                            {% for service in services %}
+                                <option value="{{ service }}" {{ 'selected' if form.get('service_type') == service else '' }}>{{ service }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" for="racket_count">Jumlah Raket</label>
+                        <select class="form-select" id="racket_count" name="racket_count" required>
+                            {% for count in range(1, max_racket_count + 1) %}
+                                <option value="{{ count }}" {{ 'selected' if form.get('racket_count', '1') == count|string else '' }}>{{ count }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" for="stringer_name">Nama Stringer</label>
+                        <select class="form-select" id="stringer_name" name="stringer_name" required>
+                            <option value="">Pilih stringer</option>
+                            {% for stringer in stringers %}
+                                <option value="{{ stringer }}" {{ 'selected' if form.get('stringer_name') == stringer else '' }}>{{ stringer }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" for="schedule_date">Tanggal Estimasi</label>
+                        <input class="form-control" id="schedule_date" name="schedule_date" type="date" value="{{ schedule_date }}" required>
+                    </div>
+                    <div>
+                        <label class="form-label" for="payment_status">Status Pembayaran</label>
+                        <select class="form-select" id="payment_status" name="payment_status">
+                            {% for status in payment_statuses %}
+                                <option value="{{ status }}" {{ 'selected' if form.get('payment_status', 'BELUM BAYAR') == status else '' }}>{{ status.title() }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" for="is_express">Express</label>
+                        <select class="form-select" id="is_express" name="is_express">
+                            <option value="0" {{ 'selected' if form.get('is_express', '0') != '1' else '' }}>Tidak</option>
+                            <option value="1" {{ 'selected' if form.get('is_express') == '1' else '' }}>Ya</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="compact-subgroup compact-subgroup-soft schedule-subgroup">
+                <div class="slot-inline-state">
+                    <strong id="slot-status-label">{{ form.get('schedule_time', '-') or '-' }}</strong>
+                    <span id="slot-status-caption">Pilih jam dari slot di bawah</span>
+                </div>
+                <div id="form-slot-preview" class="schedule-slot-grid compact form-slot-grid">
+                    {% for slot in schedule_slots %}
+                        <button
+                            class="schedule-slot slot-picker {{ 'is-unavailable' if slot.unavailable else 'is-full' if not slot.available else 'is-available' }} {{ 'is-selected' if form.get('schedule_time') == slot.time else '' }}"
+                            type="button"
+                            data-slot-time="{{ slot.time }}"
+                            data-slot-label="{{ slot.label }}"
+                            data-slot-caption="{{ slot.used }}/{{ slot.capacity }} raket"
+                            {{ 'disabled' if not slot.available else '' }}>
+                            <div class="slot-time">{{ slot.time }}</div>
+                            <div class="slot-usage">{{ slot.used }}/{{ slot.capacity }} raket</div>
+                            <span class="slot-label">{{ slot.label }}</span>
+                        </button>
+                    {% endfor %}
+                </div>
+                <div class="form-text mt-2">Slot penuh atau tidak tersedia tidak bisa dipilih. Jika Express dipilih, semua jam tetap bisa dipakai tanpa batas kapasitas.</div>
+            </div>
+
+            <input type="hidden" id="schedule_time" name="schedule_time" value="{{ form.get('schedule_time', '') }}">
+        </section>
+
+        <section class="panel form-section compact-panel compact-stack-panel form-detail-panel">
+            <div class="section-heading compact-heading">
+                <div class="section-heading-copy">
+                    <p class="eyebrow">Raket</p>
+                    <h2><i class="bi bi-bullseye"></i> Detail Raket</h2>
+                </div>
+            </div>
+            <div id="racket-details" class="racket-details racket-details-grid"></div>
+        </section>
+    </div>
+
+    <div class="form-actions compact-actions">
+        <button class="btn btn-primary" type="submit">
+            <i class="bi bi-save"></i>
+            Simpan Antrian
+        </button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('antrian_list') }}">
+            <i class="bi bi-x-lg"></i>
+            Batal
+        </a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    window.ticketItemValues = {{ item_values|tojson }};
+    window.racketFormOptions = {
+        knotTypes: {{ knot_types|tojson }},
+        variations: {{ variations|tojson }},
+        grommetOptions: {{ grommet_options|tojson }},
+        maxRacketCount: {{ max_racket_count|tojson }}
+    };
+</script>
+{% endblock %}

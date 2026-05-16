@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Daftar Antrian - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Daftar Antrian{% endblock %}
+
+{% block content %}
+<section class="panel antrian-page-panel">
+    <div class="section-heading antrian-heading">
+        <div>
+            <p class="eyebrow">Operasional</p>
+            <h2>Daftar Antrian</h2>
+        </div>
+        <a href="{{ url_for('antrian_add') }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg"></i>
+            Input Antrian Baru
+        </a>
+    </div>
+
+    <div class="date-filter-bar">
+        <div class="date-chip-row">
+            {% for option in date_options %}
+                <a class="date-chip {{ 'active' if option.active else '' }} {{ 'today' if option.today else '' }}"
+                   href="{{ url_for('antrian_list', date=option.date) }}">
+                    {{ option.label }}
+                </a>
+            {% endfor %}
+        </div>
+        <form class="date-jump-form" method="get" action="{{ url_for('antrian_list') }}">
+            <input class="form-control form-control-sm" type="date" name="date" value="{{ selected_date }}">
+            <button class="btn btn-sm btn-outline-primary" type="submit">Tampilkan</button>
+        </form>
+    </div>
+
+    <div class="table-responsive antrian-table-wrap">
+        <table class="table table-hover align-middle data-table antrian-table">
+            <thead>
+                <tr>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="queue-number" data-sort-type="mixed">
+                            <span>Nomor / Nota</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="customer" data-sort-type="text">
+                            <span>Customer</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="phone" data-sort-type="mixed">
+                            <span>No WA</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="service" data-sort-type="text">
+                            <span>Layanan</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="racket" data-sort-type="number">
+                            <span>Raket</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="estimated-time" data-sort-type="time">
+                            <span>Jam Estimasi</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="stringer" data-sort-type="text">
+                            <span>Stringer</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="status" data-sort-type="text">
+                            <span>Status</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>
+                        <button class="table-sort-button" type="button" data-sort-key="express" data-sort-type="text">
+                            <span>Express</span>
+                            <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+                        </button>
+                    </th>
+                    <th>Pembayaran</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                    {% set ticket_items = items_by_ticket.get(ticket.id, []) %}
+                    <tr>
+                        <td data-sort-value="{{ ticket.queue_number }}"><strong>{{ ticket.queue_number }}</strong></td>
+                        <td data-sort-value="{{ ticket.customer_name|lower }}">
+                            <div class="table-title">{{ ticket.customer_name }}</div>
+                            <small>{{ ticket.branch }}</small>
+                        </td>
+                        <td data-sort-value="{{ ticket.phone or '' }}">{{ ticket.phone or '-' }}</td>
+                        <td data-sort-value="{{ ticket.service_type|lower }}">{{ ticket.service_type }}</td>
+                        <td data-sort-value="{{ ticket.racket_count or 1 }}">{{ ticket.racket_count or 1 }}</td>
+                        <td data-sort-value="{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '' }}">{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '-' }}</td>
+                        <td data-sort-value="{{ (ticket.stringer_name or '-')|lower }}">{{ ticket.stringer_name or '-' }}</td>
+                        <td data-sort-value="{{ ticket.status|lower }}"><span class="status-badge status-{{ ticket.status|lower }}">{{ ticket.status }}</span></td>
+                        <td data-sort-value="{{ 'ya' if ticket.is_express else 'tidak' }}"><span class="express-badge">{{ 'Ya' if ticket.is_express else 'Tidak' }}</span></td>
+                        <td><span class="payment-badge">{{ ticket.payment_status or '-' }}</span></td>
+                        <td>
+                            <div class="action-buttons antrian-actions">
+                                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#ticketDetail{{ ticket.id }}">
+                                    <i class="bi bi-eye"></i>
+                                    Detail
+                                </button>
+                                {% for action, label, icon, style in [
+                                    ('proses', 'Proses', 'bi-tools', 'primary'),
+                                    ('selesai', 'Selesai', 'bi-check2-circle', 'success'),
+                                    ('panggil', 'Panggil', 'bi-megaphone', 'warning'),
+                                    ('diambil', 'Diambil', 'bi-bag-check', 'teal'),
+                                    ('batal', 'Batal', 'bi-x-circle', 'danger')
+                                ] %}
+                                    <form method="post" action="{{ url_for('update_status', ticket_id=ticket.id, action=action) }}" data-confirm-status="{{ label }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="next" value="{{ request.full_path }}">
+                                        <button class="btn btn-sm btn-outline-{{ style }}" type="submit" title="{{ label }}">
+                                            <i class="bi {{ icon }}"></i>
+                                            {{ label }}
+                                        </button>
+                                    </form>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="11" class="empty-state">Belum ada antrian pada tanggal ini.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% for ticket in tickets %}
+    {% set ticket_items = items_by_ticket.get(ticket.id, []) %}
+    <div class="modal fade" id="ticketDetail{{ ticket.id }}" tabindex="-1" aria-labelledby="ticketDetailLabel{{ ticket.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content detail-modal">
+                <div class="modal-header">
+                    <div>
+                        <p class="eyebrow mb-1">Detail Antrian</p>
+                        <h5 class="modal-title" id="ticketDetailLabel{{ ticket.id }}">{{ ticket.queue_number }} - {{ ticket.customer_name }}</h5>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="detail-grid">
+                        <div><span>Nomor / Nota</span><strong>{{ ticket.queue_number }}</strong></div>
+                        <div><span>Nama Customer</span><strong>{{ ticket.customer_name }}</strong></div>
+                        <div><span>No WA</span><strong>{{ ticket.phone or '-' }}</strong></div>
+                        <div><span>Cabang</span><strong>{{ ticket.branch }}</strong></div>
+                        <div><span>Layanan</span><strong>{{ ticket.service_type }}</strong></div>
+                        <div><span>Jumlah Raket</span><strong>{{ ticket.racket_count or 1 }}</strong></div>
+                        <div><span>Tanggal Estimasi</span><strong>{{ ticket.estimated_finish[:10] if ticket.estimated_finish else '-' }}</strong></div>
+                        <div><span>Jam Estimasi</span><strong>{{ ticket.estimated_finish[11:16] if ticket.estimated_finish else '-' }}</strong></div>
+                        <div><span>Stringer</span><strong>{{ ticket.stringer_name or '-' }}</strong></div>
+                        <div><span>Express</span><strong>{{ 'Ya' if ticket.is_express else 'Tidak' }}</strong></div>
+                        <div><span>Pembayaran</span><strong>{{ ticket.payment_status or '-' }}</strong></div>
+                        <div><span>Status</span><strong>{{ ticket.status }}</strong></div>
+                    </div>
+
+                    <div class="detail-note">
+                        <span>Catatan</span>
+                        <p>{{ ticket.note or '-' }}</p>
+                    </div>
+
+                    <div class="detail-items">
+                        <h6>Detail Raket</h6>
+                        {% if ticket_items %}
+                            <div class="detail-item-grid">
+                                {% for item in ticket_items %}
+                                    <article class="detail-item-card">
+                                        <div class="detail-item-title">Raket {{ item.item_number }}</div>
+                                        <dl>
+                                            <dt>Merk/Seri</dt>
+                                            <dd>{{ item.racket_brand or '-' }}</dd>
+                                            <dt>Jenis Raket</dt>
+                                            <dd>{{ item.racket_type or '-' }}</dd>
+                                            <dt>Jenis Senar</dt>
+                                            <dd>{{ item.string_type or '-' }}</dd>
+                                            <dt>Tarikan</dt>
+                                            <dd>{{ item.tension_lbs or '-' }}</dd>
+                                            <dt>Simpul</dt>
+                                            <dd>{{ item.knot_type or '-' }}</dd>
+                                            <dt>Variasi</dt>
+                                            <dd>{{ item.variation or '-' }}</dd>
+                                            <dt>Mata Ayam</dt>
+                                            <dd>{{ item.grommet or 'Tidak' }}</dd>
+                                            <dt>Catatan Raket</dt>
+                                            <dd>{{ item.racket_note or '-' }}</dd>
+                                        </dl>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="empty-state detail-empty">Detail raket belum tersedia.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endfor %}
+{% endblock %}

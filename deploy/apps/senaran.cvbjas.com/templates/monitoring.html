@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Monitoring - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}Monitoring{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Operasional</p>
+            <h2>Semua Antrian Hari Ini</h2>
+        </div>
+    </div>
+
+    <form class="filter-bar" method="get">
+        <div>
+            <label class="form-label" for="status">Status</label>
+            <select class="form-select" id="status" name="status">
+                <option value="">Semua status</option>
+                {% for status in statuses %}
+                    <option value="{{ status }}" {{ 'selected' if selected_status == status else '' }}>{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label" for="branch">Cabang</label>
+            <select class="form-select" id="branch" name="branch">
+                <option value="">Semua cabang</option>
+                {% for branch in branches %}
+                    <option value="{{ branch }}" {{ 'selected' if selected_branch == branch else '' }}>{{ branch }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-primary" type="submit"><i class="bi bi-funnel"></i> Filter</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('monitoring') }}"><i class="bi bi-arrow-counterclockwise"></i> Reset</a>
+        </div>
+    </form>
+
+    <div class="table-responsive mt-3">
+        <table class="table table-hover align-middle data-table">
+            <thead>
+                <tr>
+                    <th>Nomor</th>
+                    <th>Customer</th>
+                    <th>Cabang</th>
+                    <th>Layanan</th>
+                    <th>Jumlah Raket</th>
+                    <th>Status</th>
+                    <th>Express</th>
+                    <th>Pembayaran</th>
+                    <th>Dibuat</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                    <tr>
+                        <td><strong>{{ ticket.queue_number }}</strong></td>
+                        <td>{{ ticket.customer_name }}</td>
+                        <td>{{ ticket.branch }}</td>
+                        <td>{{ ticket.service_type }}</td>
+                        <td>{{ ticket.racket_count or 1 }}</td>
+                        <td><span class="status-badge status-{{ ticket.status|lower }}">{{ ticket.status }}</span></td>
+                        <td>{{ 'Ya' if ticket.is_express else 'Tidak' }}</td>
+                        <td>
+                            {% if ticket.payment_status == 'SUDAH BAYAR' %}
+                                <span class="payment-badge paid">SUDAH BAYAR</span>
+                            {% else %}
+                                <span class="payment-badge unpaid">BELUM BAYAR</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ ticket.created_at }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="9" class="empty-state">Tidak ada data sesuai filter.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

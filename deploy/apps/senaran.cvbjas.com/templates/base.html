@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Sistem Antrian Stringing{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='assets/logo-mega.png') }}">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body class="app-body page-{{ request.endpoint|replace('_', '-') }}">
+    <div class="app-shell">
+        <aside class="sidebar" id="appSidebar">
+            <div class="sidebar-mobile-head">
+                <button class="sidebar-close btn btn-sm" type="button" data-sidebar-close aria-label="Tutup menu">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <a class="brand" href="{{ url_for('dashboard') }}">
+                <span class="brand-mark">
+                    <img src="{{ url_for('static', filename='assets/logo-mega.png') }}" alt="Mega Sports">
+                </span>
+                <span class="brand-copy">
+                    <strong>Stringing Queue System</strong>
+                    <small>Mega Sports</small>
+                </span>
+            </a>
+
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}">
+                    <i class="bi bi-speedometer2"></i>
+                    <span>Dashboard</span>
+                </a>
+
+                <div class="nav-label">Antrian</div>
+                <a href="{{ url_for('antrian_list') }}" class="nav-link {{ 'active' if request.endpoint in ['antrian_list', 'antrian_add', 'update_status'] else '' }}">
+                    <i class="bi bi-list-check"></i>
+                    <span>Daftar Antrian</span>
+                </a>
+
+                <div class="nav-label">Display</div>
+                <a href="{{ url_for('layar_monitor') }}" class="nav-link {{ 'active' if request.endpoint == 'layar_monitor' else '' }}" target="_blank" rel="noopener">
+                    <i class="bi bi-tv"></i>
+                    <span>Layar Monitor</span>
+                </a>
+
+                <div class="nav-label">Operasional</div>
+                <a href="{{ url_for('monitoring') }}" class="nav-link {{ 'active' if request.endpoint == 'monitoring' else '' }}">
+                    <i class="bi bi-activity"></i>
+                    <span>Monitoring</span>
+                </a>
+                <a href="{{ url_for('laporan') }}" class="nav-link {{ 'active' if request.endpoint == 'laporan' else '' }}">
+                    <i class="bi bi-file-earmark-bar-graph"></i>
+                    <span>Laporan</span>
+                </a>
+                <a href="{{ url_for('users') }}" class="nav-link {{ 'active' if request.endpoint == 'users' else '' }}">
+                    <i class="bi bi-people"></i>
+                    <span>User</span>
+                </a>
+                <a href="{{ url_for('account') }}" class="nav-link {{ 'active' if request.endpoint == 'account' else '' }}">
+                    <i class="bi bi-person-gear"></i>
+                    <span>Akun Saya</span>
+                </a>
+                <a href="{{ url_for('settings') }}" class="nav-link {{ 'active' if request.endpoint == 'settings' else '' }}">
+                    <i class="bi bi-gear"></i>
+                    <span>Setting</span>
+                </a>
+            </nav>
+        </aside>
+
+        <div class="main-shell">
+            <header class="topbar">
+                <div class="topbar-primary">
+                    <button class="sidebar-toggle btn btn-sm" type="button" data-sidebar-open aria-label="Buka menu">
+                        <i class="bi bi-list"></i>
+                    </button>
+                    <div class="topbar-brandmark">
+                        <img src="{{ url_for('static', filename='assets/logo-mega.png') }}" alt="Mega Sports">
+                    </div>
+                    <div>
+                        <p class="eyebrow mb-1">Sistem Antrian Stringing</p>
+                        <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                    </div>
+                </div>
+                <div class="topbar-actions">
+                    <a class="portal-pill" href="https://portal.cvbjas.com" target="_blank" rel="noopener">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                        <span>Portal CVBJAS</span>
+                    </a>
+                    <a class="user-pill" href="{{ url_for('account') }}"><i class="bi bi-person-circle"></i>{{ session.get('name', 'User') }}</a>
+                    <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-box-arrow-right"></i>
+                        Logout
+                    </a>
+                </div>
+            </header>
+
+            <main class="content">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <div class="flash-stack">
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endwith %}
+                {% block content %}{% endblock %}
+            </main>
+
+            <footer class="app-footer">
+                &copy; {{ current_year }} Mega Sports.
+            </footer>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/layout.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/antrian.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
