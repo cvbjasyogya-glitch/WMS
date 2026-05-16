@@ -175,6 +175,10 @@ def _normalize_attendance_location_text(value):
     return " ".join(str(value or "").replace("|", " | ").split()).strip(" |-")
 
 
+def _can_submit_attendance_without_gps():
+    return normalize_role(session.get("role")) in {"intern", "staff_intern"}
+
+
 def _merge_attendance_location_label(scope_label, resolved_label):
     safe_scope_label = _normalize_attendance_location_text(scope_label)
     safe_resolved_label = _normalize_attendance_location_text(resolved_label)
@@ -1268,6 +1272,7 @@ def _fetch_attendance_portal_state(db):
             if checkout_report_bypass_rule
             else ""
         ),
+        "allow_missing_gps": _can_submit_attendance_without_gps(),
     }
 
 
@@ -1312,6 +1317,7 @@ def index():
         portal_today_daily_report_submitted=portal_state["today_daily_report_submitted"],
         portal_check_out_daily_report_required=portal_state["check_out_daily_report_required"],
         portal_check_out_daily_report_bypass_label=portal_state["check_out_daily_report_bypass_label"],
+        portal_allow_missing_gps=portal_state["allow_missing_gps"],
     )
 
 
@@ -1387,6 +1393,7 @@ def submit():
         shift_label = shift_option["label"] if shift_option else None
     note = (request.form.get("note") or "").strip()
     photo_data_url = request.form.get("photo_data_url")
+    allow_missing_gps = _can_submit_attendance_without_gps()
 
     location_label = _build_attendance_location_label(
         location_scope,
@@ -1425,9 +1432,15 @@ def submit():
         flash("Alamat atau tempat absen wajib diisi sebelum absen.", "error")
         return redirect("/absen/")
 
-    if latitude is None or longitude is None:
+    missing_gps = latitude is None or longitude is None
+    if missing_gps and not allow_missing_gps:
         flash("Lokasi GPS belum valid. Ambil lokasi dulu sebelum absen.", "error")
         return redirect("/absen/")
+    if missing_gps:
+        latitude = None
+        longitude = None
+        accuracy_m = None
+        location_label = _merge_attendance_location_label(location_label, "GPS tidak terdeteksi")
 
     latest_day_punch_time = _extract_latest_day_punch_time(day_logs)
     if latest_day_punch_time and punch_time < latest_day_punch_time:
@@ -1457,6 +1470,8 @@ def submit():
         note_parts.append(f"Shift {shift_label}")
     if attendance_today and attendance_today["attendance_date"]:
         note_parts.append(f"Daily attendance {attendance_today['attendance_date']}")
+    if missing_gps:
+        note_parts.append("GPS tidak terdeteksi saat absen intern")
     max_retries = max(
         0,
         int(

@@ -85,6 +85,7 @@
         data-today-date="{{ today_date }}"
         data-daily-report-submitted="{{ '1' if portal_today_daily_report_submitted else '0' }}"
         data-daily-report-required="{{ '1' if portal_check_out_daily_report_required else '0' }}"
+        data-allow-missing-gps="{{ '1' if portal_allow_missing_gps else '0' }}"
         data-daily-report-url="/laporan-harian/"
         data-shift-profiles='{{ portal_shift_profiles_payload|tojson }}'
     >
@@ -197,7 +198,10 @@
                                 <option value="{{ option.value }}" {% if option.value == portal_default_location_scope %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
                             </select>
-                            <small class="helper-text">Pilih area kerja yang paling sesuai. Setelah GPS terbaca, portal akan mengisi alamat atau tempat absennya.</small>
+                            <small class="helper-text">
+                                Pilih area kerja yang paling sesuai. Setelah GPS terbaca, portal akan mengisi alamat atau tempat absennya.
+                                {% if portal_allow_missing_gps %}Jika GPS perangkat gagal, absen intern tetap bisa disimpan dengan catatan GPS tidak terdeteksi.{% endif %}
+                            </small>
                         </div>
                         <div class="span-full" data-location-other-wrap hidden>
                             <label>Jelaskan Lokasi Lainnya</label>
@@ -421,6 +425,7 @@
     const todayDate = portal.dataset.todayDate || "";
     const dailyReportSubmitted = portal.dataset.dailyReportSubmitted === "1";
     const dailyReportRequired = portal.dataset.dailyReportRequired !== "0";
+    const allowMissingGps = portal.dataset.allowMissingGps === "1";
     const dailyReportUrl = portal.dataset.dailyReportUrl || "/laporan-harian/";
     const shiftProfiles = (() => {
         try {
@@ -618,7 +623,7 @@
     const getAccuracyLabel = () => {
         const rawValue = (accuracyInput?.value || "").trim();
         if (!rawValue) {
-            return "Akurasi GPS belum dibaca";
+            return allowMissingGps ? "GPS tidak terdeteksi" : "Akurasi GPS belum dibaca";
         }
         return `Akurasi ${rawValue} m`;
     };
@@ -1647,7 +1652,9 @@
 
         if (!navigator.geolocation) {
             locationStatus.value = "Browser tidak mendukung GPS";
-            locationHelper.textContent = "Perangkat ini tidak bisa mengirim geotag dari browser.";
+            locationHelper.textContent = allowMissingGps
+                ? "Perangkat ini tidak bisa mengirim geotag. Akun intern tetap bisa simpan absen dengan catatan GPS tidak terdeteksi."
+                : "Perangkat ini tidak bisa mengirim geotag dari browser.";
             return Promise.resolve(false);
         }
 
@@ -1700,9 +1707,13 @@
                 (error) => {
                     syncLocationMapsLink();
                     locationStatus.value = "Lokasi gagal";
-                    locationHelper.textContent = error && error.message
-                        ? `GPS gagal dibaca: ${error.message}`
-                        : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi.";
+                    locationHelper.textContent = allowMissingGps
+                        ? "GPS gagal dibaca. Akun intern tetap bisa simpan absen; sistem akan mencatat GPS tidak terdeteksi."
+                        : (
+                            error && error.message
+                                ? `GPS gagal dibaca: ${error.message}`
+                                : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi."
+                        );
                     resolve(false);
                 },
                 {
@@ -1878,8 +1889,12 @@
         setCameraState(
             autoLocationOk
                 ? "Foto dan lokasi berhasil direkam otomatis. Kalau sudah pas, langsung simpan absen."
-                : "Foto berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen.",
-            autoLocationOk ? "success" : "error"
+                : (
+                    allowMissingGps
+                        ? "Foto berhasil diambil, tapi GPS belum terbaca. Akun intern tetap bisa simpan absen."
+                        : "Foto berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen."
+                ),
+            autoLocationOk || allowMissingGps ? "success" : "error"
         );
     });
 
@@ -1951,8 +1966,12 @@
             setCameraState(
                 autoLocationOk
                     ? "Foto perangkat dan lokasi berhasil direkam otomatis. Kalau sudah pas, langsung simpan absen."
-                    : "Foto perangkat berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen.",
-                autoLocationOk ? "success" : "error"
+                    : (
+                        allowMissingGps
+                            ? "Foto perangkat berhasil diambil, tapi GPS belum terbaca. Akun intern tetap bisa simpan absen."
+                            : "Foto perangkat berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen."
+                    ),
+                autoLocationOk || allowMissingGps ? "success" : "error"
             );
         } catch (error) {
             setCameraState("Foto dari kamera perangkat belum bisa dibaca. Coba ulangi lagi.", "error");
@@ -2000,10 +2019,16 @@
         }
 
         if (!latitudeInput.value || !longitudeInput.value) {
-            event.preventDefault();
-            locationStatus.value = "Lokasi wajib";
-            locationHelper.textContent = "Lokasi otomatis belum masuk. Tekan Refresh Lokasi lalu coba simpan lagi.";
-            return;
+            if (allowMissingGps) {
+                locationStatus.value = "GPS tidak terdeteksi";
+                locationHelper.textContent = "Absen intern akan disimpan tanpa titik GPS dan ditandai GPS tidak terdeteksi.";
+                syncLocationScopeUi();
+            } else {
+                event.preventDefault();
+                locationStatus.value = "Lokasi wajib";
+                locationHelper.textContent = "Lokasi otomatis belum masuk. Tekan Refresh Lokasi lalu coba simpan lagi.";
+                return;
+            }
         }
 
         event.preventDefault();

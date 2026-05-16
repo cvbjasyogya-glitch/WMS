@@ -23110,6 +23110,101 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(hris_page.status_code, 302)
         self.assertIn("/absen/", hris_page.headers["Location"])
 
+    def test_attendance_portal_allows_intern_submit_when_gps_fails(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-INTERN-GPS",
+            full_name="Intern GPS Fallback",
+            warehouse_id=1,
+            position="Intern",
+        )
+        self.create_user("intern_gps_fallback", "pass1234", "intern", warehouse_id=1, employee_id=employee_id)
+        self.login("intern_gps_fallback", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "mataram",
+                "location_label": "",
+                "punch_time": f"{today}T08:02",
+                "punch_type": "check_in",
+                "note": "GPS perangkat gagal",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        self.assertIn("/absen/", submit_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT location_label, latitude, longitude, accuracy_m, note
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT attendance_date, check_in, status
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertIn("Gudang Mataram", biometric["location_label"])
+        self.assertIn("GPS tidak terdeteksi", biometric["location_label"])
+        self.assertIsNone(biometric["latitude"])
+        self.assertIsNone(biometric["longitude"])
+        self.assertIsNone(biometric["accuracy_m"])
+        self.assertIn("GPS tidak terdeteksi saat absen intern", biometric["note"])
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["check_in"], "08:02")
+        self.assertEqual(attendance["status"], "present")
+
+    def test_attendance_portal_still_requires_gps_for_non_intern(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-STAFF-GPS",
+            full_name="Staff GPS Required",
+            warehouse_id=1,
+            position="Staff",
+        )
+        self.create_user("staff_gps_required", "pass1234", "staff", warehouse_id=1, employee_id=employee_id)
+        self.login("staff_gps_required", "pass1234")
+        today = date_cls.today().isoformat()
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "mataram",
+                "location_label": "",
+                "punch_time": f"{today}T08:02",
+                "punch_type": "check_in",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(submit_response.status_code, 200)
+        self.assertIn("Lokasi GPS belum valid", submit_response.get_data(as_text=True))
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                "SELECT id FROM biometric_logs WHERE employee_id=?",
+                (employee_id,),
+            ).fetchone()
+        self.assertIsNone(biometric)
+
     def test_attendance_portal_ziza_gets_ts_as_additional_mega_shift_option(self):
         employee_id = self.create_employee_record(
             employee_code="2410007",
