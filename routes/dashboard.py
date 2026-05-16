@@ -340,6 +340,19 @@ def _build_workspace_sections(role):
         )
     ]
 
+    if normalized_role not in {"intern", "staff_intern", "free_lance"} and has_permission(normalized_role, "view_workspace"):
+        utility_items.insert(
+            0,
+            _workspace_tile(
+                "BJAS AI",
+                "/ai/",
+                "Pantau status ringan, ingat konteks domain, dan bantu command operasional harian.",
+                "AI",
+                "cyan",
+                "utility-generic",
+            ),
+        )
+
     if has_permission(normalized_role, "view_admin"):
         utility_items.append(
             _workspace_tile(

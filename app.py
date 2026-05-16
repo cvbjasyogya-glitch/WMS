@@ -50,6 +50,7 @@ from routes.schedule import schedule_bp
 from routes.crm import crm_bp
 from routes.pos import pos_bp
 from routes.product_lookup import product_lookup_bp
+from routes.ai_assistant import ai_assistant_bp
 from routes.chat import chat_bp
 from routes.attendance_portal import attendance_portal_bp
 from routes.daily_report_portal import daily_report_portal_bp
@@ -1591,6 +1592,7 @@ self.addEventListener("fetch", () => {{}});
     app.register_blueprint(crm_bp)
     app.register_blueprint(pos_bp)
     app.register_blueprint(product_lookup_bp)
+    app.register_blueprint(ai_assistant_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(attendance_portal_bp)
     app.register_blueprint(daily_report_portal_bp)

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}BJAS AI | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}BJAS AI{% endblock %}
+{% block page_title %}AI Monitor & Personal Assistant{% endblock %}
+{% block page_subtitle %}Pantau kondisi ringan, ingat konteks sistem, dan bantu langkah kerja harian tanpa membebani VPS.{% endblock %}
+
+{% block page_actions %}
+<div class="split-actions">
+    <a href="/workspace/" class="ghost-button">Workspace</a>
+    <button type="button" class="btn-link" data-ai-refresh-status>Refresh Status</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="ai-shell">
+    <section class="ai-status-band" aria-label="Status sistem">
+        <div class="section-title">
+            <div>
+                <h2>Monitor Ringan</h2>
+                <p>Snapshot internal terakhir: {{ status_snapshot.generated_label }}</p>
+            </div>
+            <span class="status-pill">Asia/Jakarta</span>
+        </div>
+
+        <div class="ai-status-grid" data-ai-status-grid>
+            {% for card in status_snapshot.cards %}
+            <article class="ai-status-card tone-{{ card.tone }}">
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+                <small>{{ card.note }}</small>
+            </article>
+            {% endfor %}
+        </div>
+
+        <div class="ai-queue-strip" data-ai-queue-strip>
+            {% for check in status_snapshot.queue_checks %}
+            <span class="ai-queue-pill tone-{{ check.tone }}">
+                <b>{{ check.value }}</b>
+                {{ check.label }}
+            </span>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="ai-workbench" aria-label="Chat assistant">
+        <div class="ai-chat-panel">
+            <div class="ai-chat-head">
+                <div>
+                    <span>BJAS AI</span>
+                    <strong>Personal assistant operasional</strong>
+                </div>
+                <small>Mode knowledge lokal</small>
+            </div>
+
+            <div class="ai-chat-log" data-ai-chat-log aria-live="polite">
+                <div class="ai-message ai-message-assistant">
+                    <div class="ai-message-avatar">AI</div>
+                    <div class="ai-message-bubble">
+                        <p>Halo, saya siap bantu cek status sistem, domain, deploy VPS, recruitment, SMS storage, dan senaran.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ai-quick-actions" aria-label="Prompt cepat">
+                {% for prompt in quick_prompts %}
+                <button type="button" data-ai-prompt="{{ prompt }}">{{ prompt }}</button>
+                {% endfor %}
+            </div>
+
+            <form class="ai-chat-form" data-ai-chat-form>
+                <label for="aiAssistantMessage" class="sr-only">Pesan untuk BJAS AI</label>
+                <textarea
+                    id="aiAssistantMessage"
+                    name="message"
+                    rows="2"
+                    placeholder="Tulis yang mau dicek..."
+                    data-ai-message-input
+                    required
+                ></textarea>
+                <button type="submit">Kirim</button>
+            </form>
+        </div>
+
+        <aside class="ai-knowledge-panel" aria-label="Knowledge assistant">
+            <div class="ai-knowledge-head">
+                <span>Knowledge</span>
+                <strong>{{ knowledge_topics|length }} Topik Aktif</strong>
+            </div>
+            <div class="ai-knowledge-list">
+                {% for topic in knowledge_topics %}
+                <article class="ai-knowledge-item">
+                    <span>{{ topic.title }}</span>
+                    <p>{{ topic.summary }}</p>
+                </article>
+                {% endfor %}
+            </div>
+        </aside>
+    </section>
+</div>
+
+<script id="aiAssistantConfig" type="application/json">{{ {
+    "chatUrl": url_for("ai_assistant.chat_api"),
+    "statusUrl": url_for("ai_assistant.status_api")
+}|tojson }}</script>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(() => {
+    const configNode = document.getElementById("aiAssistantConfig");
+    const form = document.querySelector("[data-ai-chat-form]");
+    const input = document.querySelector("[data-ai-message-input]");
+    const chatLog = document.querySelector("[data-ai-chat-log]");
+    const refreshButton = document.querySelector("[data-ai-refresh-status]");
+    const statusGrid = document.querySelector("[data-ai-status-grid]");
+    const queueStrip = document.querySelector("[data-ai-queue-strip]");
+    const config = configNode ? JSON.parse(configNode.textContent || "{}") : {};
+
+    const appendMessage = (role, text) => {
+        if (!chatLog) {
+            return;
+        }
+        const row = document.createElement("div");
+        row.className = `ai-message ai-message-${role}`;
+
+        const avatar = document.createElement("div");
+        avatar.className = "ai-message-avatar";
+        avatar.textContent = role === "user" ? "ME" : "AI";
+
+        const bubble = document.createElement("div");
+        bubble.className = "ai-message-bubble";
+        const paragraph = document.createElement("p");
+        paragraph.textContent = text || "";
+        bubble.appendChild(paragraph);
+
+        row.appendChild(avatar);
+        row.appendChild(bubble);
+        chatLog.appendChild(row);
+        chatLog.scrollTop = chatLog.scrollHeight;
+    };
+
+    const setLoading = (isLoading) => {
+        if (!form) {
+            return;
+        }
+        form.classList.toggle("is-loading", Boolean(isLoading));
+        const button = form.querySelector("button[type='submit']");
+        if (button) {
+            button.disabled = Boolean(isLoading);
+            button.textContent = isLoading ? "Mengirim..." : "Kirim";
+        }
+    };
+
+    const submitMessage = async (message) => {
+        const safeMessage = String(message || "").trim();
+        if (!safeMessage || !config.chatUrl) {
+            return;
+        }
+
+        appendMessage("user", safeMessage);
+        setLoading(true);
+        try {
+            const response = await fetch(config.chatUrl, {
+                method: "POST",
+                headers: {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ message: safeMessage }),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== "success") {
+                throw new Error(payload.message || "AI assistant gagal menjawab.");
+            }
+            appendMessage("assistant", payload.answer || "Tidak ada jawaban.");
+        } catch (error) {
+            appendMessage("assistant", error.message || "Terjadi error saat menghubungi AI assistant.");
+        } finally {
+            setLoading(false);
+            if (input) {
+                input.value = "";
+                input.focus();
+            }
+        }
+    };
+
+    document.querySelectorAll("[data-ai-prompt]").forEach((button) => {
+        button.addEventListener("click", () => {
+            submitMessage(button.dataset.aiPrompt || "");
+        });
+    });
+
+    if (form) {
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            submitMessage(input ? input.value : "");
+        });
+    }
+
+    const renderStatus = (snapshot) => {
+        if (!snapshot || !statusGrid || !queueStrip) {
+            return;
+        }
+        statusGrid.innerHTML = "";
+        (snapshot.cards || []).forEach((card) => {
+            const item = document.createElement("article");
+            item.className = `ai-status-card tone-${card.tone || "muted"}`;
+            item.innerHTML = `<span></span><strong></strong><small></small>`;
+            item.querySelector("span").textContent = card.label || "";
+            item.querySelector("strong").textContent = card.value || "";
+            item.querySelector("small").textContent = card.note || "";
+            statusGrid.appendChild(item);
+        });
+
+        queueStrip.innerHTML = "";
+        (snapshot.queue_checks || []).forEach((check) => {
+            const item = document.createElement("span");
+            item.className = `ai-queue-pill tone-${check.tone || "muted"}`;
+            const value = document.createElement("b");
+            value.textContent = check.value || "-";
+            item.appendChild(value);
+            item.appendChild(document.createTextNode(` ${check.label || ""}`));
+            queueStrip.appendChild(item);
+        });
+    };
+
+    if (refreshButton) {
+        refreshButton.addEventListener("click", async () => {
+            if (!config.statusUrl) {
+                return;
+            }
+            refreshButton.disabled = true;
+            try {
+                const response = await fetch(config.statusUrl, { headers: { "Accept": "application/json" } });
+                const payload = await response.json();
+                if (!response.ok || payload.status !== "success") {
+                    throw new Error(payload.message || "Refresh status gagal.");
+                }
+                renderStatus(payload.snapshot);
+                appendMessage("assistant", "Status monitor sudah diperbarui.");
+            } catch (error) {
+                appendMessage("assistant", error.message || "Refresh status gagal.");
+            } finally {
+                refreshButton.disabled = false;
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

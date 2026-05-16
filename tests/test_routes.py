@@ -1299,6 +1299,7 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         for path in [
             "/workspace/",
+            "/ai/",
             "/",
             "/announcements/",
             "/absen/",
@@ -1395,6 +1396,33 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('href="/workspace/" class="sidebar-subtile active"', html)
         self.assertIn('aria-label="Pusat Modul"', html)
         self.assertIn('<a href="/workspace/" class="active">Home</a>', html)
+
+    def test_ai_assistant_page_and_chat_use_local_knowledge(self):
+        self.login()
+
+        page_response = self.client.get("/ai/")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn("AI Monitor &amp; Personal Assistant", page_html)
+        self.assertIn("BJAS AI", page_html)
+        self.assertIn("portal.cvbjas.com", page_html)
+        self.assertIn("Mode knowledge lokal", page_html)
+
+        workspace_response = self.client.get("/workspace/")
+        self.assertEqual(workspace_response.status_code, 200)
+        workspace_html = workspace_response.get_data(as_text=True)
+        self.assertIn('href="/ai/"', workspace_html)
+        self.assertIn(">BJAS AI<", workspace_html)
+
+        chat_response = self.client.post(
+            "/ai/api/chat",
+            json={"message": "ingatkan command deploy portal dan domain"},
+        )
+        self.assertEqual(chat_response.status_code, 200)
+        payload = chat_response.get_json()
+        self.assertEqual(payload["status"], "success")
+        self.assertIn("portal.cvbjas.com", payload["answer"])
+        self.assertIn("git pull", payload["answer"])
 
     def test_workspace_gateway_uses_svg_launcher_icons_instead_of_text_initials(self):
         self.create_user("launcher_super", "pass1234", "super_admin", warehouse_id=1)
