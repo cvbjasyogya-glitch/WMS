@@ -78,6 +78,9 @@
     {% if scoped_crm_warehouse %}
     <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
     {% endif %}
+    {% if selected_tab == "contacts" and show_contact_list %}
+    <input type="hidden" name="show_contacts" value="1">
+    {% endif %}
     {% if selected_tab == "members" %}
     {% if show_member_lists %}
     <input type="hidden" name="show_members" value="1">
@@ -211,6 +214,40 @@
     </div>
     {% endif %}
 
+    {% if not show_contact_list %}
+    <div class="table-box">
+        <div class="section-title">
+            <div>
+                <h2>Matriks Kontak Pelanggan</h2>
+                <p>Daftar kontak belum dimuat supaya halaman tetap ringan. Klik tombol ini saat perlu melihat matriks pelanggan.</p>
+            </div>
+        </div>
+        <form method="GET" class="split-actions stack-gap-md">
+            <input type="hidden" name="tab" value="contacts">
+            <input type="hidden" name="show_contacts" value="1">
+            {% if search %}<input type="hidden" name="search" value="{{ search }}">{% endif %}
+            {% if scoped_crm_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
+            {% elif selected_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+            {% endif %}
+            <button type="submit">Tampilkan Daftar Kontak</button>
+        </form>
+    </div>
+    {% else %}
+    <div class="split-actions stack-gap-md">
+        <form method="GET">
+            <input type="hidden" name="tab" value="contacts">
+            {% if search %}<input type="hidden" name="search" value="{{ search }}">{% endif %}
+            {% if scoped_crm_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
+            {% elif selected_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+            {% endif %}
+            <button type="submit" class="ghost-button">Sembunyikan Daftar Kontak</button>
+        </form>
+    </div>
+
     <div class="table-box">
         <div class="section-title">
             <div>
@@ -282,6 +319,7 @@
         <div class="empty-state">Belum ada kontak pelanggan pada scope CRM ini.</div>
         {% endif %}
     </div>
+    {% endif %}
 {% elif selected_tab == "purchases" %}
     {% if can_manage_crm %}
     <div class="form-box ops-batch-box">

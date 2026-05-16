@@ -1941,6 +1941,34 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="crmMemberRecordMemberSearch"', member_html)
         self.assertIn('remoteUrl: "/crm/options/staff"', member_html)
 
+    def test_crm_contacts_tab_defers_contact_matrix_until_requested(self):
+        self.login()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(
+                    warehouse_id, customer_name, contact_person, phone, customer_type
+                )
+                VALUES (1, 'Customer Deferred Contact Matrix', 'Kontak Deferred', '628199990002', 'retail')
+                """
+            )
+            db.commit()
+
+        hidden_response = self.client.get("/crm/?tab=contacts")
+        self.assertEqual(hidden_response.status_code, 200)
+        hidden_html = hidden_response.get_data(as_text=True)
+        self.assertIn("Daftar kontak belum dimuat", hidden_html)
+        self.assertIn("Tampilkan Daftar Kontak", hidden_html)
+        self.assertNotIn("Customer Deferred Contact Matrix", hidden_html)
+
+        shown_response = self.client.get("/crm/?tab=contacts&show_contacts=1")
+        self.assertEqual(shown_response.status_code, 200)
+        shown_html = shown_response.get_data(as_text=True)
+        self.assertIn("Sembunyikan Daftar Kontak", shown_html)
+        self.assertIn("Customer Deferred Contact Matrix", shown_html)
+
     def test_crm_member_tab_defers_member_lists_until_requested(self):
         self.login()
 
@@ -2356,7 +2384,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(add_member_record.status_code, 302)
 
-        contacts_response = self.client.get("/crm/?tab=contacts")
+        contacts_response = self.client.get("/crm/?tab=contacts&show_contacts=1")
         self.assertEqual(contacts_response.status_code, 200)
         contacts_html = contacts_response.get_data(as_text=True)
         self.assertIn("Hanya owner &amp; super admin", contacts_html)
@@ -2369,7 +2397,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Disembunyikan", purchases_html)
         self.assertNotIn("Rp 75.000", purchases_html)
 
-        members_response = self.client.get("/crm/?tab=members")
+        members_response = self.client.get("/crm/?tab=members&show_members=1")
         self.assertEqual(members_response.status_code, 200)
         members_html = members_response.get_data(as_text=True)
         self.assertIn("Nominal benefit disembunyikan", members_html)
@@ -2430,7 +2458,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(add_purchase.status_code, 302)
 
-        contacts_response = self.client.get("/crm/?tab=contacts")
+        contacts_response = self.client.get("/crm/?tab=contacts&show_contacts=1")
         self.assertEqual(contacts_response.status_code, 200)
         contacts_html = contacts_response.get_data(as_text=True)
         self.assertIn("Rp 210.000", contacts_html)
@@ -9893,7 +9921,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(member_records[1]["record_type"], "point_adjustment")
         self.assertEqual(member_records[1]["points_delta"], 25)
 
-        crm_response = self.client.get("/crm/?tab=contacts")
+        crm_response = self.client.get("/crm/?tab=contacts&show_contacts=1")
         self.assertEqual(crm_response.status_code, 200)
         crm_html = crm_response.get_data(as_text=True)
         self.assertIn("Toko CRM", crm_html)
@@ -10821,7 +10849,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("CRM Customer Hub", html)
-        self.assertIn(customer_name, html)
+        self.assertIn("Daftar kontak belum dimuat", html)
+        self.assertNotIn(customer_name, html)
+
+        shown_response = self.client.get("/crm/?tab=contacts&show_contacts=1")
+        self.assertEqual(shown_response.status_code, 200)
+        shown_html = shown_response.get_data(as_text=True)
+        self.assertIn(customer_name, shown_html)
 
     def test_pos_checkout_updates_purchase_points_and_stringing_rewards(self):
         self.create_user("staff_sales_loyalty", "pass1234", "staff", warehouse_id=1)

@@ -1352,6 +1352,12 @@ def crm_page():
     db.commit()
     can_view_crm_revenue = _can_view_crm_revenue()
     selected_tab = _normalize_tab(request.args.get("tab"))
+    show_contact_list = selected_tab == "contacts" and str(request.args.get("show_contacts") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     show_member_lists = selected_tab == "members" and str(request.args.get("show_members") or "").strip().lower() in {
         "1",
         "true",
@@ -1382,7 +1388,8 @@ def crm_page():
     member_records = []
 
     if selected_tab == "contacts":
-        customers = _fetch_customers(db, search, selected_warehouse)
+        if show_contact_list:
+            customers = _fetch_customers(db, search, selected_warehouse)
         summary = _fetch_crm_summary_snapshot(db, search, selected_warehouse, member_status)
     elif selected_tab == "purchases":
         purchase_total = _count_purchase_records(db, search, selected_warehouse)
@@ -1439,6 +1446,7 @@ def crm_page():
         member_status=member_status,
         warehouses=warehouses,
         customers=customers,
+        show_contact_list=show_contact_list,
         purchases=purchases,
         memberships=memberships,
         member_records=member_records,
