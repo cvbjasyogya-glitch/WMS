@@ -6859,7 +6859,7 @@ def pos_edit_sale(sale_id):
             sale_date,
             transaction_type,
             items,
-            requested_by_user_id=session.get("user_id"),
+            requested_by_user_id=selected_cashier["id"],
         )
         resolved_transaction_type = _derive_pos_loyalty_sale_transaction_type(transaction_type, items)
         primary_member = _choose_primary_pos_loyalty_member(loyalty_members, resolved_transaction_type)
@@ -7287,7 +7287,7 @@ def pos_checkout():
                 sale_date,
                 transaction_type,
                 items,
-                requested_by_user_id=session.get("user_id"),
+                requested_by_user_id=selected_cashier["id"],
             )
             resolved_transaction_type = _derive_pos_loyalty_sale_transaction_type(transaction_type, items)
             primary_member = _choose_primary_pos_loyalty_member(loyalty_members, resolved_transaction_type)

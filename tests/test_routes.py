@@ -11040,7 +11040,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(member["member_type"], "purchase")
         self.assertEqual(member["status"], "active")
         self.assertTrue(str(member["member_code"]).startswith("POS-POINT-01-"))
-        self.assertIsNotNone(member["requested_by_staff_id"])
+        self.assertEqual(member["requested_by_staff_id"], selected_cashier_user_id)
         self.assertEqual(purchase["transaction_type"], "purchase")
         self.assertEqual(purchase["member_id"], member["id"])
         self.assertEqual(record["record_type"], "purchase")
@@ -11375,7 +11375,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             member_above = db.execute(
                 """
-                SELECT m.id, m.member_code, m.member_type, c.customer_type
+                SELECT m.id, m.member_code, m.member_type, m.requested_by_staff_id, c.customer_type
                 FROM crm_memberships m
                 JOIN crm_customers c ON c.id = m.customer_id
                 WHERE m.customer_id=?
@@ -11386,7 +11386,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             member_below = db.execute(
                 """
-                SELECT m.id, m.member_code, m.member_type, c.customer_type
+                SELECT m.id, m.member_code, m.member_type, m.requested_by_staff_id, c.customer_type
                 FROM crm_memberships m
                 JOIN crm_customers c ON c.id = m.customer_id
                 WHERE m.customer_id=?
@@ -11436,6 +11436,8 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(member_above["member_type"], "stringing")
         self.assertEqual(member_below["member_type"], "stringing")
+        self.assertEqual(member_above["requested_by_staff_id"], selected_cashier_user_id)
+        self.assertEqual(member_below["requested_by_staff_id"], selected_cashier_user_id)
         self.assertEqual(member_above["customer_type"], "member")
         self.assertEqual(member_below["customer_type"], "member")
         self.assertTrue(str(member_above["member_code"]).startswith("POS-SENAR-01-"))
@@ -11546,7 +11548,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             purchase_member = db.execute(
                 """
-                SELECT id, member_code
+                SELECT id, member_code, requested_by_staff_id
                 FROM crm_memberships
                 WHERE customer_id=? AND member_type='purchase'
                 ORDER BY id DESC
@@ -11556,7 +11558,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
             stringing_member = db.execute(
                 """
-                SELECT id, member_code
+                SELECT id, member_code, requested_by_staff_id
                 FROM crm_memberships
                 WHERE customer_id=? AND member_type='stringing'
                 ORDER BY id DESC
@@ -11610,6 +11612,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(customer_after["customer_type"], "member")
         self.assertTrue(str(purchase_member["member_code"]).startswith("POS-POINT-01-"))
         self.assertTrue(str(stringing_member["member_code"]).startswith("POS-SENAR-01-"))
+        self.assertEqual(purchase_member["requested_by_staff_id"], selected_cashier_user_id)
+        self.assertEqual(stringing_member["requested_by_staff_id"], selected_cashier_user_id)
         self.assertEqual(purchase_row["transaction_type"], "purchase")
         self.assertEqual(purchase_row["member_id"], purchase_member["id"])
         self.assertEqual(purchase_record["record_type"], "purchase")
