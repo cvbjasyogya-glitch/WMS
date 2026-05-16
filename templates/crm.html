@@ -79,6 +79,9 @@
     <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
     {% endif %}
     {% if selected_tab == "members" %}
+    {% if show_member_lists %}
+    <input type="hidden" name="show_members" value="1">
+    {% endif %}
     <select name="member_status">
         <option value="">Semua Status Member</option>
         {% for status in membership_statuses %}
@@ -709,6 +712,42 @@
     </div>
     {% endif %}
 
+    {% if not show_member_lists %}
+    <div class="table-box">
+        <div class="section-title">
+            <div>
+                <h2>Daftar Member</h2>
+                <p>Daftar member belum dimuat supaya halaman tetap ringan. Klik tombol ini saat memang perlu melihat list member dan riwayatnya.</p>
+            </div>
+        </div>
+        <form method="GET" class="split-actions stack-gap-md">
+            <input type="hidden" name="tab" value="members">
+            <input type="hidden" name="show_members" value="1">
+            {% if search %}<input type="hidden" name="search" value="{{ search }}">{% endif %}
+            {% if scoped_crm_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
+            {% elif selected_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+            {% endif %}
+            {% if member_status %}<input type="hidden" name="member_status" value="{{ member_status }}">{% endif %}
+            <button type="submit">Tampilkan Daftar Member</button>
+        </form>
+    </div>
+    {% else %}
+    <div class="split-actions stack-gap-md">
+        <form method="GET">
+            <input type="hidden" name="tab" value="members">
+            {% if search %}<input type="hidden" name="search" value="{{ search }}">{% endif %}
+            {% if scoped_crm_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ scoped_crm_warehouse }}">
+            {% elif selected_warehouse %}
+            <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+            {% endif %}
+            {% if member_status %}<input type="hidden" name="member_status" value="{{ member_status }}">{% endif %}
+            <button type="submit" class="ghost-button">Sembunyikan Daftar Member</button>
+        </form>
+    </div>
+
     <div class="table-box">
         <div class="section-title">
             <div>
@@ -882,6 +921,7 @@
         <div class="empty-state">Belum ada record member pada scope CRM ini.</div>
         {% endif %}
     </div>
+    {% endif %}
 {% endif %}
 
 {% include "partials/item_picker_modal.html" %}

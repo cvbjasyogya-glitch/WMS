@@ -1941,6 +1941,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="crmMemberRecordMemberSearch"', member_html)
         self.assertIn('remoteUrl: "/crm/options/staff"', member_html)
 
+    def test_crm_member_tab_defers_member_lists_until_requested(self):
+        self.login()
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO crm_customers(warehouse_id, customer_name, phone, customer_type)
+                VALUES (1, 'Customer Deferred Member List', '628199990001', 'member')
+                """
+            )
+            customer = db.execute(
+                "SELECT id FROM crm_customers WHERE customer_name='Customer Deferred Member List'"
+            ).fetchone()
+            member_id = db.execute(
+                """
+                INSERT INTO crm_memberships(
+                    customer_id, warehouse_id, member_code, member_type, status, join_date, points
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (customer["id"], 1, "MBR-DEFER-001", "purchase", "active", "2026-05-16", 10),
+            ).lastrowid
+            db.execute(
+                """
+                INSERT INTO crm_member_records(
+                    member_id, warehouse_id, record_date, record_type, points_delta, amount, note
+                )
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (member_id, 1, "2026-05-16", "purchase", 10, 100000, "Deferred Load Record Note"),
+            )
+            db.commit()
+
+        hidden_response = self.client.get("/crm/?tab=members")
+        self.assertEqual(hidden_response.status_code, 200)
+        hidden_html = hidden_response.get_data(as_text=True)
+        self.assertIn("Daftar member belum dimuat", hidden_html)
+        self.assertIn("Tampilkan Daftar Member", hidden_html)
+        self.assertNotIn("<th>Total Spend</th>", hidden_html)
+        self.assertNotIn("Deferred Load Record Note", hidden_html)
+
+        shown_response = self.client.get("/crm/?tab=members&show_members=1")
+        self.assertEqual(shown_response.status_code, 200)
+        shown_html = shown_response.get_data(as_text=True)
+        self.assertIn("Sembunyikan Daftar Member", shown_html)
+        self.assertIn("<th>Total Spend</th>", shown_html)
+        self.assertIn("Deferred Load Record Note", shown_html)
+
     def test_crm_customer_options_endpoint_returns_limited_search_results(self):
         self.login()
 

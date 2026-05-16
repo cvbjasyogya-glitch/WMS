@@ -1352,6 +1352,12 @@ def crm_page():
     db.commit()
     can_view_crm_revenue = _can_view_crm_revenue()
     selected_tab = _normalize_tab(request.args.get("tab"))
+    show_member_lists = selected_tab == "members" and str(request.args.get("show_members") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     search = (request.args.get("search") or "").strip()
     member_status = (request.args.get("member_status") or "").strip().lower()
     if member_status not in MEMBERSHIP_STATUSES:
@@ -1407,8 +1413,9 @@ def crm_page():
         )
         summary = _fetch_crm_summary_snapshot(db, search, selected_warehouse, member_status)
     else:
-        memberships = _fetch_memberships(db, search, selected_warehouse, member_status)
-        member_records = _fetch_member_records(db, search, selected_warehouse)
+        if show_member_lists:
+            memberships = _fetch_memberships(db, search, selected_warehouse, member_status)
+            member_records = _fetch_member_records(db, search, selected_warehouse)
         summary = _fetch_crm_summary_snapshot(db, search, selected_warehouse, member_status)
 
     customer_options = _fetch_customer_options(db, selected_warehouse, limit=CRM_SMART_SELECT_LIMIT)
@@ -1435,6 +1442,7 @@ def crm_page():
         purchases=purchases,
         memberships=memberships,
         member_records=member_records,
+        show_member_lists=show_member_lists,
         customer_options=customer_options,
         member_options=member_options,
         staff_options=staff_options,
