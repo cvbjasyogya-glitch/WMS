@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Input Antrian Baru - Sistem Antrian Stringing{% endblock %}
-{% block page_title %}Input Antrian Baru{% endblock %}
+{% block title %}{{ form_title }} - Sistem Antrian Stringing{% endblock %}
+{% block page_title %}{{ form_title }}{% endblock %}
 
 {% block content %}
 <form method="post" class="queue-form queue-form-compact compact-form queue-form-flat antrian-form-page" id="queue-form">
@@ -10,7 +10,7 @@
         <section class="panel form-section compact-panel compact-stack-panel">
             <div class="section-heading compact-heading">
                 <div class="section-heading-copy">
-                    <p class="eyebrow">Input</p>
+                    <p class="eyebrow">{{ form_eyebrow }}</p>
                     <h2><i class="bi bi-person-vcard"></i> Customer & Jadwal</h2>
                 </div>
                 <a href="{{ url_for('antrian_list') }}" class="btn btn-outline-secondary btn-sm">
@@ -144,9 +144,9 @@
     <div class="form-actions compact-actions">
         <button class="btn btn-primary" type="submit">
             <i class="bi bi-save"></i>
-            Simpan Antrian
+            {{ submit_label }}
         </button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('antrian_list') }}">
+        <a class="btn btn-outline-secondary" href="{{ cancel_url }}">
             <i class="bi bi-x-lg"></i>
             Batal
         </a>
@@ -161,7 +161,8 @@
         knotTypes: {{ knot_types|tojson }},
         variations: {{ variations|tojson }},
         grommetOptions: {{ grommet_options|tojson }},
-        maxRacketCount: {{ max_racket_count|tojson }}
+        maxRacketCount: {{ max_racket_count|tojson }},
+        editTicketId: {{ edit_ticket_id|tojson }}
     };
 </script>
 {% endblock %}

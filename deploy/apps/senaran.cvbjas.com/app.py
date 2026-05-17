@@ -7,7 +7,7 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from io import StringIO
 from pathlib import Path
@@ -40,7 +40,6 @@ def load_app_timezone():
         return timezone(timedelta(hours=7), name="Asia/Jakarta")
 
 
-APP_TZ = load_app_timezone()
 DATABASE = Path(os.environ.get("SENARAN_DATABASE", BASE_DIR / "antrian.db")).expanduser()
 
 BRANCHES = ["Mega Sports"]
@@ -65,7 +64,7 @@ LOGIN_WINDOW_MINUTES = 10
 LOGIN_LOCK_MINUTES = 10
 ANTRIAN_FORM_DRAFT_KEY = "antrian_add_draft"
 PHONE_PATTERN = re.compile(r"^[0-9+\-\s]+$")
-KIRIMI_API_URL = os.environ.get("KIRIMI_API_URL", "https://api.kirimi.id/v1/send-message")
+APP_TIMEZONE = load_app_timezone()
 MONTH_LABELS = {
     1: "Jan",
     2: "Feb",
@@ -88,16 +87,29 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
+logging.Formatter.converter = staticmethod(lambda timestamp: datetime.fromtimestamp(timestamp, APP_TIMEZONE).timetuple())
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        DATABASE.parent.mkdir(parents=True, exist_ok=True)
         g.db = sqlite3.connect(DATABASE)
         g.db.row_factory = sqlite3.Row
+        ensure_runtime_schema(g.db)
     return g.db
+
+
+def ensure_runtime_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schedule_day_status (
+            day_date DATE PRIMARY KEY,
+            is_off INTEGER DEFAULT 1,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
 
 
 @app.teardown_appcontext
@@ -107,28 +119,24 @@ def close_db(error: Exception | None = None) -> None:
         db.close()
 
 
-def now_local_datetime() -> datetime:
-    return datetime.now(APP_TZ)
+def local_now() -> datetime:
+    return datetime.now(APP_TIMEZONE).replace(tzinfo=None)
 
 
-def now_local() -> str:
-    return now_local_datetime().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def today_local() -> str:
-    return now_local_datetime().strftime("%Y-%m-%d")
+def local_today() -> date:
+    return local_now().date()
 
 
 def today_iso() -> str:
-    return today_local()
+    return local_today().isoformat()
 
 
 def now_sql() -> str:
-    return now_local()
+    return local_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def current_datetime() -> datetime:
-    return now_local_datetime()
+    return local_now()
 
 
 def parse_iso_date(value: str | None, fallback: str | None = None) -> str:
@@ -140,7 +148,7 @@ def parse_iso_date(value: str | None, fallback: str | None = None) -> str:
 
 
 def clamp_iso_date(value: str | None, min_offset: int = -1, max_offset: int = 3) -> str:
-    today = now_local_datetime().date()
+    today = local_today()
     min_date = today + timedelta(days=min_offset)
     max_date = today + timedelta(days=max_offset)
     selected = datetime.strptime(parse_iso_date(value, today_iso()), "%Y-%m-%d").date()
@@ -152,7 +160,7 @@ def clamp_iso_date(value: str | None, min_offset: int = -1, max_offset: int = 3)
 
 
 def build_date_options(selected_date: str) -> list[dict]:
-    today = now_local_datetime().date()
+    today = local_today()
     selected = datetime.strptime(parse_iso_date(selected_date), "%Y-%m-%d").date()
     options = []
     for offset in range(-7, 8):
@@ -236,7 +244,7 @@ def is_login_locked(username: str, ip_address: str) -> bool:
     ).fetchall()
     if len(rows) < LOGIN_LIMIT:
         return False
-    latest_failure = datetime.strptime(rows[0]["attempted_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=APP_TZ)
+    latest_failure = datetime.strptime(rows[0]["attempted_at"], "%Y-%m-%d %H:%M:%S")
     return current_datetime() < latest_failure + timedelta(minutes=LOGIN_LOCK_MINUTES)
 
 
@@ -327,22 +335,71 @@ def branch_aliases(branch: str) -> list[str]:
     return [branch]
 
 
-def generate_queue_number(branch: str) -> str:
+def operational_date_sql(column_alias: str | None = None) -> str:
+    expression = "COALESCE(date(estimated_finish), queue_date)"
+    if column_alias:
+        return f"{expression} AS {column_alias}"
+    return expression
+
+
+def generate_queue_number(branch: str, queue_date: str | None = None) -> str:
     prefix_map = {"Mega Sports": "MGA", "Mega": "MGA"}
     prefix = prefix_map.get(branch, "MGA")
     db = get_db()
+    selected_date = parse_iso_date(queue_date, today_iso())
     aliases = branch_aliases(branch)
     placeholders = ",".join("?" for _ in aliases)
     row = db.execute(
         f"""
         SELECT COUNT(*) AS total
         FROM queue_tickets
-        WHERE queue_date = ? AND branch IN ({placeholders})
+        WHERE {operational_date_sql()} = ? AND branch IN ({placeholders})
         """,
-        (today_iso(), *aliases),
+        (selected_date, *aliases),
     ).fetchone()
     next_number = (row["total"] if row else 0) + 1
     return f"{prefix}-{next_number:03d}"
+
+
+def get_schedule_day_status(schedule_date: str | None = None) -> dict:
+    selected_date = parse_iso_date(schedule_date, today_iso())
+    row = get_db().execute(
+        """
+        SELECT is_off
+        FROM schedule_day_status
+        WHERE day_date = ?
+        """,
+        (selected_date,),
+    ).fetchone()
+    is_off = bool(row["is_off"]) if row else False
+    return {
+        "date": selected_date,
+        "is_off": is_off,
+        "condition": "OFF" if is_off else "BUKA",
+    }
+
+
+def is_schedule_day_off(schedule_date: str | None = None) -> bool:
+    return bool(get_schedule_day_status(schedule_date)["is_off"])
+
+
+def set_schedule_day_off(schedule_date: str, is_off: bool) -> None:
+    selected_date = parse_iso_date(schedule_date, today_iso())
+    db = get_db()
+    if is_off:
+        db.execute(
+            """
+            INSERT INTO schedule_day_status (day_date, is_off, updated_at)
+            VALUES (?, 1, ?)
+            ON CONFLICT(day_date) DO UPDATE SET
+                is_off = 1,
+                updated_at = excluded.updated_at
+            """,
+            (selected_date, now_sql()),
+        )
+    else:
+        db.execute("DELETE FROM schedule_day_status WHERE day_date = ?", (selected_date,))
+    db.commit()
 
 
 def get_racket_type_for_service(service_type: str) -> str:
@@ -359,203 +416,6 @@ def build_estimated_finish(schedule_date: str, schedule_time: str) -> str | None
         return parsed.strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
-
-
-def parse_local_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(value, fmt).replace(tzinfo=APP_TZ)
-        except ValueError:
-            continue
-    return None
-
-
-def format_datetime_wib(value: str | None, include_wib: bool = True) -> str:
-    parsed = parse_local_datetime(value)
-    if parsed is None:
-        return value or "-"
-    month_name = parsed.strftime("%B")
-    # Browser-facing pages are Indonesian; keep month labels predictable without relying on OS locale.
-    month_names = {
-        "January": "Januari",
-        "February": "Februari",
-        "March": "Maret",
-        "April": "April",
-        "May": "Mei",
-        "June": "Juni",
-        "July": "Juli",
-        "August": "Agustus",
-        "September": "September",
-        "October": "Oktober",
-        "November": "November",
-        "December": "Desember",
-    }
-    suffix = " WIB" if include_wib else ""
-    return f"{parsed.day:02d} {month_names.get(month_name, month_name)} {parsed.year}, {parsed:%H:%M}{suffix}"
-
-
-def normalize_wa_number(phone: str | None) -> str | None:
-    cleaned = re.sub(r"[\s\-\(\)]", "", phone or "")
-    cleaned = cleaned.replace(".", "")
-    if cleaned.startswith("+62"):
-        cleaned = "62" + cleaned[3:]
-    elif cleaned.startswith("0"):
-        cleaned = "62" + cleaned[1:]
-
-    if not re.fullmatch(r"62\d{8,15}", cleaned):
-        return None
-    return cleaned
-
-
-def build_pickup_message(customer_name: str | None) -> str:
-    name = (customer_name or "").strip() or "kak"
-    return f"""Hallo kak {name}, kami dari MEGA SPORTS SETURAN 🤗
-
-Raket kakak sudah JADI dan bisa diambil di Toko MEGA SPORTS SETURAN.
-
-🕖 Pengambilan dilayani maksimal sampai jam 21.00 WIB.
-Mohon sertakan nota saat pengambilan.
-
-📌 Pengambilan di atas 2 minggu tanpa konfirmasi:
-kehilangan atau kerusakan di luar tanggung jawab MEGA SPORTS SETURAN.
-
-——————————————————
-
-📍 MEGA SPORTS SETURAN 📍
-Setiap Hari / 09.00–21.00 WIB
-
-Maps 👇
-https://maps.app.goo.gl/pZUKw1vJFqpwLbt38
-
-Jika ada kendala, kritik, atau saran, silakan hubungi kami kembali ya kak ☺️
-
-📝 Jangan lupa review Google Maps kami di link berikut 👇
-https://g.page/r/CTSwFcwNjQHAEBM/review
-
-Terima kasih atas orderannya kak 😊"""
-
-
-def send_kirimi_message(receiver: str, message: str) -> dict:
-    user_code = os.environ.get("KIRIMI_USER_CODE", "").strip()
-    secret = os.environ.get("KIRIMI_SECRET", "").strip()
-    device_id = os.environ.get("KIRIMI_DEVICE_ID", "").strip()
-    api_url = os.environ.get("KIRIMI_API_URL", KIRIMI_API_URL).strip() or KIRIMI_API_URL
-
-    if not user_code or not secret or not device_id:
-        return {
-            "success": False,
-            "response": "",
-            "error": "Konfigurasi Kirimi.id belum lengkap.",
-        }
-
-    payload = {
-        "user_code": user_code,
-        "secret": secret,
-        "device_id": device_id,
-        "receiver": receiver,
-        "message": message,
-    }
-
-    try:
-        import requests
-    except ImportError:
-        return {
-            "success": False,
-            "response": "",
-            "error": "Library requests belum terpasang.",
-        }
-
-    try:
-        response = requests.post(
-            api_url,
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=10,
-        )
-    except requests.RequestException as exc:
-        return {"success": False, "response": "", "error": str(exc)}
-
-    response_text = response.text[:1000]
-    success = 200 <= response.status_code < 300
-    try:
-        response_json = response.json()
-        if isinstance(response_json, dict):
-            explicit_success = response_json.get("success")
-            if explicit_success is None:
-                explicit_success = response_json.get("status")
-            if isinstance(explicit_success, bool):
-                success = success and explicit_success
-    except ValueError:
-        pass
-
-    error = "" if success else f"Kirimi.id HTTP {response.status_code}"
-    return {"success": success, "response": response_text, "error": error}
-
-
-def ensure_whatsapp_logs_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS whatsapp_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticket_id INTEGER,
-            queue_number TEXT,
-            customer_name TEXT,
-            receiver TEXT,
-            message TEXT,
-            status TEXT,
-            response_text TEXT,
-            error_text TEXT,
-            created_at DATETIME
-        )
-        """
-    )
-
-
-def log_whatsapp_delivery(ticket: sqlite3.Row | dict, receiver: str | None, message: str, result: dict) -> None:
-    try:
-        db = get_db()
-        ensure_whatsapp_logs_table(db)
-        db.execute(
-            """
-            INSERT INTO whatsapp_logs (
-                ticket_id, queue_number, customer_name, receiver, message,
-                status, response_text, error_text, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ticket["id"],
-                ticket["queue_number"],
-                ticket["customer_name"],
-                receiver or "",
-                message,
-                "SUCCESS" if result.get("success") else "FAILED",
-                (result.get("response") or "")[:1000],
-                (result.get("error") or "")[:1000],
-                now_local(),
-            ),
-        )
-        db.commit()
-    except sqlite3.Error:
-        logger.exception("Failed to save WhatsApp delivery log")
-
-
-def send_ticket_pickup_whatsapp(ticket: sqlite3.Row) -> dict:
-    receiver = normalize_wa_number(ticket["phone"])
-    message = build_pickup_message(ticket["customer_name"])
-    if not receiver:
-        result = {
-            "success": False,
-            "response": "",
-            "error": "Nomor WhatsApp customer tidak valid.",
-        }
-        log_whatsapp_delivery(ticket, receiver, message, result)
-        return result
-
-    result = send_kirimi_message(receiver, message)
-    log_whatsapp_delivery(ticket, receiver, message, result)
-    return result
 
 
 def collect_ticket_items(form, racket_count: int, service_type: str) -> tuple[list[dict], list[str]]:
@@ -602,24 +462,28 @@ def get_slot_max_load(slot_time: str) -> int:
     return MAX_SLOT_LOAD
 
 
-def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = False) -> list[dict]:
+def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = False, exclude_ticket_id: int | None = None) -> list[dict]:
     selected_date = parse_iso_date(schedule_date)
     db = get_db()
+    day_off = is_schedule_day_off(selected_date)
+    exclude_clause = " AND id != ?" if exclude_ticket_id else ""
+    exclude_params = [exclude_ticket_id] if exclude_ticket_id else []
     rows = db.execute(
-        """
+        f"""
         SELECT substr(estimated_finish, 12, 5) AS slot_time,
                COALESCE(SUM(COALESCE(NULLIF(racket_count, 0), 1)), 0) AS used
         FROM queue_tickets
         WHERE date(estimated_finish) = ?
           AND status != 'BATAL'
           AND estimated_finish IS NOT NULL
+          {exclude_clause}
         GROUP BY slot_time
         """,
-        (selected_date,),
+        (selected_date, *exclude_params),
     ).fetchall()
     used_by_time = {row["slot_time"]: int(row["used"] or 0) for row in rows}
     slot_item_rows = db.execute(
-        """
+        f"""
         SELECT
             substr(estimated_finish, 12, 5) AS slot_time,
             queue_number,
@@ -631,9 +495,10 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
         WHERE date(estimated_finish) = ?
           AND status != 'BATAL'
           AND estimated_finish IS NOT NULL
+          {exclude_clause}
         ORDER BY estimated_finish ASC, created_at ASC, id ASC
         """,
-        (selected_date,),
+        (selected_date, *exclude_params),
     ).fetchall()
     items_by_time: dict[str, list[dict]] = {slot_time: [] for slot_time in SCHEDULE_TIMES}
     for row in slot_item_rows:
@@ -659,9 +524,7 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
             slot_finish = build_estimated_finish(selected_date, slot_time)
             if not slot_finish:
                 continue
-            slot_datetime = parse_local_datetime(slot_finish)
-            if slot_datetime is None:
-                continue
+            slot_datetime = datetime.strptime(slot_finish, "%Y-%m-%d %H:%M:%S")
             if slot_datetime <= cutoff:
                 time_locked_slots.add(slot_time)
 
@@ -686,9 +549,15 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
     for slot_time in SCHEDULE_TIMES:
         used = used_by_time.get(slot_time, 0)
         capacity = get_slot_capacity(slot_time)
-        unavailable = (slot_time in unavailable_sources or slot_time in time_locked_slots) and not express_mode
+        unavailable = False if express_mode else (day_off or slot_time in unavailable_sources or slot_time in time_locked_slots)
         reason = ""
-        if slot_time in time_locked_slots and not express_mode:
+        if express_mode and day_off:
+            reason = "Express dapat dipakai walaupun jadwal off"
+        elif express_mode:
+            reason = ""
+        elif day_off:
+            reason = "Jadwal senaran off pada tanggal ini"
+        elif slot_time in time_locked_slots:
             reason = "Melewati batas 3 jam dari waktu sekarang"
         elif unavailable:
             source_time = unavailable_sources[slot_time]
@@ -696,6 +565,8 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
 
         if express_mode:
             label = "Tersedia"
+        elif day_off:
+            label = "Off"
         elif unavailable:
             label = "Tidak tersedia"
         elif used >= capacity:
@@ -710,6 +581,7 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
                 "capacity": capacity,
                 "available": True if express_mode else (not unavailable and used < capacity),
                 "unavailable": unavailable,
+                "day_off": day_off,
                 "label": label,
                 "reason": reason,
                 "items": items_by_time.get(slot_time, []),
@@ -718,15 +590,28 @@ def get_schedule_slots(schedule_date: str | None = None, express_mode: bool = Fa
     return slots
 
 
-def validate_selected_slot(schedule_date: str, schedule_time: str, racket_count: int, is_express: bool = False) -> tuple[bool, str]:
+def validate_selected_slot(
+    schedule_date: str,
+    schedule_time: str,
+    racket_count: int,
+    is_express: bool = False,
+    exclude_ticket_id: int | None = None,
+    allow_off_date: bool = False,
+) -> tuple[bool, str]:
     slot = next(
-        (item for item in get_schedule_slots(schedule_date, express_mode=is_express) if item["time"] == schedule_time),
+        (
+            item
+            for item in get_schedule_slots(schedule_date, express_mode=is_express, exclude_ticket_id=exclude_ticket_id)
+            if item["time"] == schedule_time
+        ),
         None,
     )
     if slot is None:
         return False, "Jam estimasi selesai tidak valid."
     if is_express:
         return True, ""
+    if is_schedule_day_off(schedule_date) and not allow_off_date:
+        return False, "Jadwal senaran pada tanggal ini sedang Off. Silakan pilih tanggal lain."
     if slot["unavailable"] or slot["used"] >= slot["capacity"]:
         return False, "Slot jam ini sudah penuh atau tidak tersedia. Silakan pilih jam lain."
     if slot["used"] + racket_count > get_slot_max_load(schedule_time):
@@ -759,16 +644,74 @@ def ticket_to_dict(row: sqlite3.Row | None) -> dict | None:
     }
 
 
+def get_ticket_or_404(ticket_id: int) -> sqlite3.Row:
+    ticket = get_db().execute(
+        "SELECT * FROM queue_tickets WHERE id = ?",
+        (ticket_id,),
+    ).fetchone()
+    if ticket is None:
+        abort(404)
+    return ticket
+
+
+def get_ticket_items(ticket_id: int) -> list[sqlite3.Row]:
+    return get_db().execute(
+        """
+        SELECT *
+        FROM queue_ticket_items
+        WHERE ticket_id = ?
+        ORDER BY item_number ASC
+        """,
+        (ticket_id,),
+    ).fetchall()
+
+
+def ticket_form_from_row(ticket: sqlite3.Row) -> dict:
+    estimated_finish = ticket["estimated_finish"] or ""
+    schedule_date = estimated_finish[:10] if estimated_finish else ticket["queue_date"]
+    schedule_time = estimated_finish[11:16] if estimated_finish else ""
+    return {
+        "queue_number": ticket["queue_number"] or "",
+        "customer_name": ticket["customer_name"] or "",
+        "phone": ticket["phone"] or "",
+        "branch": ticket["branch"] or "Mega Sports",
+        "service_type": ticket["service_type"] or "",
+        "racket_count": str(ticket["racket_count"] or 1),
+        "staff_name": ticket["staff_name"] or "",
+        "stringer_name": ticket["stringer_name"] or "",
+        "schedule_date": schedule_date,
+        "schedule_time": schedule_time,
+        "payment_status": ticket["payment_status"] or "BELUM BAYAR",
+        "is_express": "1" if ticket["is_express"] else "0",
+        "note": ticket["note"] or "",
+    }
+
+
+def ticket_item_values_from_rows(items: list[sqlite3.Row]) -> list[dict]:
+    return [
+        {
+            "item_number": item["item_number"],
+            "racket_brand": item["racket_brand"] or "",
+            "string_type": item["string_type"] or "",
+            "tension_lbs": item["tension_lbs"] or "",
+            "knot_type": item["knot_type"] or "",
+            "variation": item["variation"] or "",
+            "grommet": item["grommet"] or "Tidak",
+            "racket_note": item["racket_note"] or "",
+        }
+        for item in items
+    ]
+
+
 @app.context_processor
 def inject_globals():
     return {
-        "current_year": now_local_datetime().year,
+        "current_year": local_now().year,
         "statuses": STATUSES,
         "branches": BRANCHES,
         "schedule_times": SCHEDULE_TIMES,
         "stringers": STRINGERS,
         "csrf_token": generate_csrf_token,
-        "format_datetime_wib": format_datetime_wib,
     }
 
 
@@ -833,12 +776,14 @@ def logout():
 def dashboard():
     db = get_db()
     today = today_iso()
+    schedule_status_date = parse_iso_date(request.args.get("schedule_status_date"), today)
+    schedule_day_status = get_schedule_day_status(schedule_status_date)
 
     status_rows = db.execute(
         """
         SELECT status, COUNT(*) AS total
         FROM queue_tickets
-        WHERE queue_date = ?
+        WHERE COALESCE(date(estimated_finish), queue_date) = ?
         GROUP BY status
         """,
         (today,),
@@ -852,7 +797,7 @@ def dashboard():
         """
         SELECT COALESCE(SUM(COALESCE(NULLIF(racket_count, 0), 1)), 0) AS total_rackets
         FROM queue_tickets
-        WHERE queue_date = ?
+        WHERE COALESCE(date(estimated_finish), queue_date) = ?
           AND status != 'BATAL'
         """,
         (today,),
@@ -863,14 +808,14 @@ def dashboard():
         """
         SELECT *
         FROM queue_tickets
-        WHERE queue_date = ?
+        WHERE COALESCE(date(estimated_finish), queue_date) = ?
         ORDER BY created_at DESC, id DESC
         LIMIT 8
         """,
         (today,),
     ).fetchall()
 
-    schedule_slots = get_schedule_slots(today)
+    schedule_slots = get_schedule_slots(schedule_status_date)
     schedule_tickets = db.execute(
         """
         SELECT *
@@ -879,7 +824,7 @@ def dashboard():
           AND status != 'BATAL'
         ORDER BY estimated_finish ASC, created_at ASC, id ASC
         """,
-        (today,),
+        (schedule_status_date,),
     ).fetchall()
 
     branch_summary = []
@@ -893,7 +838,7 @@ def dashboard():
                 COALESCE(SUM(CASE WHEN status = 'MENUNGGU' THEN 1 ELSE 0 END), 0) AS waiting,
                 COALESCE(SUM(CASE WHEN status IN ('SELESAI', 'DIAMBIL') THEN 1 ELSE 0 END), 0) AS done
             FROM queue_tickets
-            WHERE queue_date = ? AND branch IN ({placeholders})
+            WHERE COALESCE(date(estimated_finish), queue_date) = ? AND branch IN ({placeholders})
             """,
             (today, *aliases),
         ).fetchone()
@@ -908,7 +853,26 @@ def dashboard():
         branch_summary=branch_summary,
         schedule_slots=schedule_slots,
         schedule_tickets=schedule_tickets,
+        schedule_day_status=schedule_day_status,
+        today_date=today,
     )
+
+
+@app.route("/dashboard/jadwal-status", methods=["POST"])
+@login_required
+def update_schedule_day_status():
+    schedule_date = parse_iso_date(request.form.get("schedule_date"), today_iso())
+    condition = request.form.get("schedule_condition", "BUKA").strip().upper()
+    if condition not in {"BUKA", "OFF"}:
+        flash("Kondisi jadwal tidak valid.", "danger")
+        return redirect(url_for("dashboard", schedule_status_date=schedule_date))
+
+    set_schedule_day_off(schedule_date, condition == "OFF")
+    if condition == "OFF":
+        flash(f"Jadwal senaran tanggal {schedule_date} diset Off.", "success")
+    else:
+        flash(f"Jadwal senaran tanggal {schedule_date} dibuka kembali.", "success")
+    return redirect(url_for("dashboard", schedule_status_date=schedule_date))
 
 
 @app.route("/antrian")
@@ -920,7 +884,7 @@ def antrian_list():
         """
         SELECT *
         FROM queue_tickets
-        WHERE queue_date = ?
+        WHERE COALESCE(date(estimated_finish), queue_date) = ?
         ORDER BY created_at DESC, id DESC
         """,
         (selected_date,),
@@ -950,7 +914,17 @@ def antrian_list():
     )
 
 
-def render_antrian_form(form=None, item_values=None, selected_date: str | None = None):
+def render_antrian_form(
+    form=None,
+    item_values=None,
+    selected_date: str | None = None,
+    *,
+    form_title: str = "Input Antrian Baru",
+    form_eyebrow: str = "Input",
+    submit_label: str = "Simpan Antrian",
+    cancel_url: str | None = None,
+    edit_ticket_id: int | None = None,
+):
     schedule_date = parse_iso_date(
         selected_date or (form.get("schedule_date") if form else None),
         today_iso(),
@@ -962,7 +936,7 @@ def render_antrian_form(form=None, item_values=None, selected_date: str | None =
         item_values=item_values or [],
         services=get_active_services(),
         payment_statuses=PAYMENT_STATUSES,
-        schedule_slots=get_schedule_slots(schedule_date, express_mode=is_express),
+        schedule_slots=get_schedule_slots(schedule_date, express_mode=is_express, exclude_ticket_id=edit_ticket_id),
         schedule_date=schedule_date,
         staff_options=get_active_staff(),
         stringers=STRINGERS,
@@ -970,6 +944,11 @@ def render_antrian_form(form=None, item_values=None, selected_date: str | None =
         variations=VARIATIONS,
         grommet_options=GROMMET_OPTIONS,
         max_racket_count=MAX_RACKET_COUNT,
+        form_title=form_title,
+        form_eyebrow=form_eyebrow,
+        submit_label=submit_label,
+        cancel_url=cancel_url or url_for("antrian_list"),
+        edit_ticket_id=edit_ticket_id,
     )
 
 
@@ -1038,23 +1017,22 @@ def antrian_add():
             return render_antrian_form(request.form, item_values, schedule_date)
 
         db = get_db()
-        queue_number = manual_queue_number or generate_queue_number(branch)
+        queue_number = manual_queue_number or generate_queue_number(branch, schedule_date)
         if not queue_number:
             return fail_with_draft("Nomor antrian wajib diisi.")
         duplicate = db.execute(
             """
             SELECT id
             FROM queue_tickets
-            WHERE queue_date = ? AND queue_number = ?
+            WHERE COALESCE(date(estimated_finish), queue_date) = ? AND queue_number = ?
             LIMIT 1
             """,
-            (today_iso(), queue_number),
+            (schedule_date, queue_number),
         ).fetchone()
         if duplicate:
-            return fail_with_draft("Nomor antrian/nota sudah digunakan pada tanggal hari ini.")
+            return fail_with_draft("Nomor antrian/nota sudah digunakan pada tanggal estimasi tersebut.")
 
         first_item = item_values[0]
-        created_at = now_local()
         try:
             db.execute("BEGIN")
             cursor = db.execute(
@@ -1069,7 +1047,7 @@ def antrian_add():
                 """,
                 (
                     queue_number,
-                    today_iso(),
+                    schedule_date,
                     customer_name,
                     phone,
                     branch,
@@ -1085,7 +1063,7 @@ def antrian_add():
                     note,
                     payment_status,
                     estimated_finish,
-                    created_at,
+                    now_sql(),
                 ),
             )
             ticket_id = cursor.lastrowid
@@ -1108,7 +1086,7 @@ def antrian_add():
                         item["variation"],
                         item["grommet"],
                         item["racket_note"],
-                        created_at,
+                        now_sql(),
                     )
                     for item in item_values
                 ],
@@ -1121,7 +1099,7 @@ def antrian_add():
 
         pop_antrian_form_draft()
         flash(f"Antrian {queue_number} berhasil dibuat.", "success")
-        return redirect(url_for("antrian_list"))
+        return redirect(url_for("antrian_list", date=schedule_date))
 
     draft = get_antrian_form_draft()
     if draft:
@@ -1129,6 +1107,196 @@ def antrian_add():
         draft_items = draft.get("item_values") or []
         return render_antrian_form(draft_form, draft_items, draft_form.get("schedule_date"))
     return render_antrian_form(selected_date=today_iso())
+
+
+@app.route("/antrian/edit/<int:ticket_id>", methods=["GET", "POST"])
+@login_required
+def antrian_edit(ticket_id: int):
+    ticket = get_ticket_or_404(ticket_id)
+    original_form = ticket_form_from_row(ticket)
+
+    def render_edit_form(form=None, item_values=None, selected_date: str | None = None):
+        return render_antrian_form(
+            form or original_form,
+            item_values if item_values is not None else ticket_item_values_from_rows(get_ticket_items(ticket_id)),
+            selected_date or (form.get("schedule_date") if form else original_form.get("schedule_date")),
+            form_title=f"Edit Antrian {ticket['queue_number']}",
+            form_eyebrow="Edit",
+            submit_label="Simpan Perubahan",
+            cancel_url=url_for("antrian_list", date=selected_date or original_form.get("schedule_date")),
+            edit_ticket_id=ticket_id,
+        )
+
+    if request.method == "POST":
+        manual_queue_number = request.form.get("queue_number", "").strip()
+        customer_name = request.form.get("customer_name", "").strip()
+        phone = request.form.get("phone", "").strip()
+        branch = request.form.get("branch", "Mega Sports").strip()
+        service_type = request.form.get("service_type", "").strip()
+        staff_name = request.form.get("staff_name", "").strip()
+        payment_status = request.form.get("payment_status", "BELUM BAYAR").strip()
+        schedule_date = parse_iso_date(request.form.get("schedule_date"), today_iso())
+        schedule_time = request.form.get("schedule_time", "").strip()
+        stringer_name = request.form.get("stringer_name", "").strip()
+        express_value = request.form.get("is_express", "0")
+        is_express = 1 if express_value == "1" else 0
+        note = request.form.get("note", "").strip()
+
+        try:
+            racket_count = int(request.form.get("racket_count", "1"))
+        except ValueError:
+            racket_count = 0
+
+        item_values, item_errors = collect_ticket_items(
+            request.form,
+            racket_count if 1 <= racket_count <= MAX_RACKET_COUNT else 1,
+            service_type,
+        )
+
+        def fail_edit(message: str, category: str = "danger"):
+            flash(message, category)
+            return render_edit_form(request.form, item_values, schedule_date)
+
+        if not customer_name:
+            return fail_edit("Nama customer wajib diisi.")
+        if phone and not PHONE_PATTERN.fullmatch(phone):
+            return fail_edit("Nomor WhatsApp hanya boleh berisi angka, +, spasi, atau strip.")
+        if branch not in BRANCHES:
+            return fail_edit("Cabang tidak valid.")
+        if service_type not in SERVICE_TYPES:
+            return fail_edit("Jenis layanan tidak valid.")
+        if staff_name not in get_active_staff():
+            return fail_edit("Nama staff yang menjuali wajib dipilih.")
+        if not 1 <= racket_count <= MAX_RACKET_COUNT:
+            return fail_edit(f"Jumlah raket harus antara 1 sampai {MAX_RACKET_COUNT}.")
+        if stringer_name not in STRINGERS:
+            return fail_edit("Nama stringer wajib dipilih.")
+        if payment_status not in PAYMENT_STATUSES:
+            return fail_edit("Status pembayaran tidak valid.")
+        if express_value not in {"0", "1"}:
+            return fail_edit("Pilihan express tidak valid.")
+
+        estimated_finish = build_estimated_finish(schedule_date, schedule_time)
+        if estimated_finish is None:
+            return fail_edit("Tanggal atau jam estimasi selesai tidak valid.")
+        allow_off_date = (
+            original_form.get("schedule_date") == schedule_date
+            and original_form.get("schedule_time") == schedule_time
+        )
+        slot_ok, slot_error = validate_selected_slot(
+            schedule_date,
+            schedule_time,
+            racket_count,
+            is_express=bool(is_express),
+            exclude_ticket_id=ticket_id,
+            allow_off_date=allow_off_date,
+        )
+        if not slot_ok:
+            return fail_edit(slot_error)
+        if item_errors:
+            for error in item_errors:
+                flash(error, "danger")
+            return render_edit_form(request.form, item_values, schedule_date)
+
+        queue_number = manual_queue_number
+        if not queue_number:
+            return fail_edit("Nomor antrian wajib diisi.")
+        duplicate = get_db().execute(
+            """
+            SELECT id
+            FROM queue_tickets
+            WHERE COALESCE(date(estimated_finish), queue_date) = ?
+              AND queue_number = ?
+              AND id != ?
+            LIMIT 1
+            """,
+            (schedule_date, queue_number, ticket_id),
+        ).fetchone()
+        if duplicate:
+            return fail_edit("Nomor antrian/nota sudah digunakan pada tanggal estimasi tersebut.")
+
+        first_item = item_values[0]
+        db = get_db()
+        try:
+            db.execute("BEGIN")
+            db.execute(
+                """
+                UPDATE queue_tickets
+                SET queue_number = ?,
+                    queue_date = ?,
+                    customer_name = ?,
+                    phone = ?,
+                    branch = ?,
+                    service_type = ?,
+                    racket_type = ?,
+                    racket_brand = ?,
+                    string_type = ?,
+                    tension_lbs = ?,
+                    racket_count = ?,
+                    staff_name = ?,
+                    is_express = ?,
+                    stringer_name = ?,
+                    note = ?,
+                    payment_status = ?,
+                    estimated_finish = ?
+                WHERE id = ?
+                """,
+                (
+                    queue_number,
+                    schedule_date,
+                    customer_name,
+                    phone,
+                    branch,
+                    service_type,
+                    first_item["racket_type"],
+                    first_item["racket_brand"],
+                    first_item["string_type"],
+                    first_item["tension_lbs"],
+                    racket_count,
+                    staff_name,
+                    is_express,
+                    stringer_name,
+                    note,
+                    payment_status,
+                    estimated_finish,
+                    ticket_id,
+                ),
+            )
+            db.execute("DELETE FROM queue_ticket_items WHERE ticket_id = ?", (ticket_id,))
+            db.executemany(
+                """
+                INSERT INTO queue_ticket_items (
+                    ticket_id, item_number, racket_type, racket_brand, string_type,
+                    tension_lbs, knot_type, variation, grommet, racket_note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        ticket_id,
+                        item["item_number"],
+                        item["racket_type"],
+                        item["racket_brand"],
+                        item["string_type"],
+                        item["tension_lbs"],
+                        item["knot_type"],
+                        item["variation"],
+                        item["grommet"],
+                        item["racket_note"],
+                        now_sql(),
+                    )
+                    for item in item_values
+                ],
+            )
+            db.commit()
+        except sqlite3.Error:
+            db.rollback()
+            logger.exception("Failed to update queue ticket")
+            return fail_edit("Gagal menyimpan perubahan antrian. Silakan coba lagi.")
+
+        flash(f"Antrian {queue_number} berhasil diperbarui.", "success")
+        return redirect(url_for("antrian_list", date=schedule_date))
+
+    return render_edit_form()
 
 
 @app.route("/antrian/status/<int:ticket_id>/<action>", methods=["POST"])
@@ -1147,32 +1315,13 @@ def update_status(ticket_id: int, action: str):
 
     status, timestamp_column = action_map[action]
     db = get_db()
-    ticket = db.execute(
-        "SELECT id, queue_number, customer_name, phone FROM queue_tickets WHERE id = ?",
-        (ticket_id,),
-    ).fetchone()
-    if ticket is None:
-        flash("Data antrian tidak ditemukan.", "danger")
-        return redirect_back()
-
     db.execute(
         f"UPDATE queue_tickets SET status = ?, {timestamp_column} = ? WHERE id = ?",
         (status, now_sql(), ticket_id),
     )
     db.commit()
     logger.info("Ticket status updated ticket_id=%s status=%s", ticket_id, status)
-
-    if action == "panggil":
-        wa_result = send_ticket_pickup_whatsapp(ticket)
-        if wa_result.get("success"):
-            logger.info("WhatsApp sent ticket_id=%s", ticket_id)
-            flash("Status diperbarui dan WhatsApp berhasil dikirim.", "success")
-        else:
-            error_text = wa_result.get("error") or "Silakan cek konfigurasi Kirimi.id."
-            logger.warning("WhatsApp failed ticket_id=%s error=%s", ticket_id, error_text)
-            flash(f"Status berhasil diperbarui, tetapi WhatsApp gagal dikirim: {error_text}", "warning")
-    else:
-        flash(f"Status antrian diperbarui menjadi {status}.", "success")
+    flash(f"Status antrian diperbarui menjadi {status}.", "success")
     return redirect_back()
 
 
@@ -1260,7 +1409,20 @@ def api_antrian_monitor():
 def api_schedule_slots():
     schedule_date = clamp_iso_date(request.args.get("date"))
     express_mode = request.args.get("express") == "1"
-    return jsonify({"schedule_slots": get_schedule_slots(schedule_date, express_mode=express_mode), "date": schedule_date})
+    try:
+        exclude_ticket_id = int(request.args.get("exclude_ticket_id", "0") or "0")
+    except ValueError:
+        exclude_ticket_id = 0
+    return jsonify(
+        {
+            "schedule_slots": get_schedule_slots(
+                schedule_date,
+                express_mode=express_mode,
+                exclude_ticket_id=exclude_ticket_id or None,
+            ),
+            "date": schedule_date,
+        }
+    )
 
 
 @app.route("/monitoring")
@@ -1268,7 +1430,7 @@ def api_schedule_slots():
 def monitoring():
     selected_status = request.args.get("status", "").strip()
     selected_branch = request.args.get("branch", "").strip()
-    conditions = ["queue_date = ?"]
+    conditions = ["COALESCE(date(estimated_finish), queue_date) = ?"]
     params: list[str] = [today_iso()]
 
     if selected_status in STATUSES:
@@ -1315,7 +1477,7 @@ def laporan():
         end_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
     except ValueError:
         flash("Format tanggal tidak valid.", "danger")
-        start_obj = end_obj = now_local_datetime().date()
+        start_obj = end_obj = local_today()
         start_date = end_date = today
 
     if end_obj < start_obj:
@@ -1325,10 +1487,10 @@ def laporan():
     db = get_db()
     tickets = db.execute(
         """
-        SELECT *
+        SELECT *, COALESCE(date(estimated_finish), queue_date) AS operational_date
         FROM queue_tickets
-        WHERE queue_date BETWEEN ? AND ?
-        ORDER BY queue_date DESC, created_at DESC, id DESC
+        WHERE COALESCE(date(estimated_finish), queue_date) BETWEEN ? AND ?
+        ORDER BY operational_date DESC, created_at DESC, id DESC
         """,
         (start_date, end_date),
     ).fetchall()
@@ -1341,7 +1503,7 @@ def laporan():
         """
         SELECT AVG((julianday(finished_at) - julianday(started_at)) * 24 * 60) AS avg_minutes
         FROM queue_tickets
-        WHERE queue_date BETWEEN ? AND ?
+        WHERE COALESCE(date(estimated_finish), queue_date) BETWEEN ? AND ?
           AND started_at IS NOT NULL
           AND finished_at IS NOT NULL
         """,
@@ -1368,13 +1530,12 @@ def laporan():
                 "Express",
                 "Pembayaran",
                 "Estimasi Selesai",
-                "Dibuat WIB",
             ]
         )
         for ticket in tickets:
             writer.writerow(
                 [
-                    ticket["queue_date"],
+                    ticket["operational_date"],
                     ticket["queue_number"],
                     ticket["customer_name"],
                     ticket["branch"],
@@ -1388,7 +1549,6 @@ def laporan():
                     "Ya" if ticket["is_express"] else "Tidak",
                     ticket["payment_status"],
                     ticket["estimated_finish"] or "",
-                    ticket["created_at"] or "",
                 ]
             )
         filename = f"laporan-antrian-{start_date}-sd-{end_date}.csv"

@@ -56,11 +56,25 @@
 </div>
 
 <section class="panel schedule-panel mt-4">
-    <div class="section-heading">
+    <div class="section-heading schedule-heading">
         <div>
             <p class="eyebrow">Jadwal</p>
-            <h2>Jadwal Senaran Hari Ini</h2>
+            <h2>Jadwal Senaran Tanggal {{ schedule_day_status.date[8:10] }}/{{ schedule_day_status.date[5:7] }}/{{ schedule_day_status.date[0:4] }}</h2>
         </div>
+        <form class="schedule-off-control" method="post" action="{{ url_for('update_schedule_day_status') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="visually-hidden" for="schedule-off-date">Tanggal jadwal</label>
+            <input class="form-control form-control-sm" id="schedule-off-date" name="schedule_date" type="date" value="{{ schedule_day_status.date }}" data-dashboard-url="{{ url_for('dashboard') }}">
+            <label class="visually-hidden" for="schedule-off-condition">Kondisi jadwal</label>
+            <select class="form-select form-select-sm" id="schedule-off-condition" name="schedule_condition">
+                <option value="BUKA" {{ 'selected' if not schedule_day_status.is_off else '' }}>Buka</option>
+                <option value="OFF" {{ 'selected' if schedule_day_status.is_off else '' }}>Off</option>
+            </select>
+            <button class="btn btn-sm btn-primary" type="submit">
+                <i class="bi bi-save"></i>
+                Simpan
+            </button>
+        </form>
     </div>
     <div class="schedule-slot-grid">
         {% for slot in schedule_slots %}

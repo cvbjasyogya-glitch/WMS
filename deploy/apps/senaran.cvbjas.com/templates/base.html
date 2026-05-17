@@ -37,7 +37,7 @@
                 </a>
 
                 <div class="nav-label">Antrian</div>
-                <a href="{{ url_for('antrian_list') }}" class="nav-link {{ 'active' if request.endpoint in ['antrian_list', 'antrian_add', 'update_status'] else '' }}">
+                <a href="{{ url_for('antrian_list') }}" class="nav-link {{ 'active' if request.endpoint in ['antrian_list', 'antrian_add', 'antrian_edit', 'update_status'] else '' }}">
                     <i class="bi bi-list-check"></i>
                     <span>Daftar Antrian</span>
                 </a>

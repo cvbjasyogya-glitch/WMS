@@ -234,7 +234,9 @@
         }
         try {
             const expressParam = expressSelect?.value === "1" ? "&express=1" : "";
-            const response = await fetch(`/api/schedule-slots?date=${encodeURIComponent(scheduleDate.value)}${expressParam}`, {
+            const editTicketId = Number(window.racketFormOptions?.editTicketId || 0);
+            const editParam = editTicketId > 0 ? `&exclude_ticket_id=${encodeURIComponent(editTicketId)}` : "";
+            const response = await fetch(`/api/schedule-slots?date=${encodeURIComponent(scheduleDate.value)}${expressParam}${editParam}`, {
                 headers: { "Accept": "application/json" },
                 cache: "no-store",
             });
@@ -359,6 +361,18 @@
                 button.setAttribute("data-sort-direction", nextDirection);
                 button.classList.add("is-active");
             });
+        });
+    }
+
+    const scheduleOffDate = document.getElementById("schedule-off-date");
+    if (scheduleOffDate) {
+        scheduleOffDate.addEventListener("change", () => {
+            if (!scheduleOffDate.value) {
+                return;
+            }
+            const targetUrl = new URL(scheduleOffDate.dataset.dashboardUrl || window.location.pathname, window.location.origin);
+            targetUrl.searchParams.set("schedule_status_date", scheduleOffDate.value);
+            window.location.href = targetUrl.toString();
         });
     }
 
