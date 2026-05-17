@@ -210,12 +210,12 @@ def _parse_owner_request_items(form):
             raise ValueError("Format item request owner tidak valid")
 
         items = []
-        for item in payload:
+        for index, item in enumerate(payload, start=1):
             if not isinstance(item, dict):
                 continue
 
-            product_id = _to_int(item.get("product_id"), 0)
-            variant_id = _to_int(item.get("variant_id"), 0)
+            product_id = _to_int(item.get("product_id") or item.get("productId"), 0)
+            variant_id = _to_int(item.get("variant_id") or item.get("variantId"), 0)
             qty = _to_int(item.get("qty"), 0)
             note = (item.get("note") or "").strip()
             display_name = (item.get("display_name") or "").strip()
@@ -224,7 +224,9 @@ def _parse_owner_request_items(form):
                 continue
 
             if product_id <= 0 or variant_id <= 0 or qty <= 0:
-                raise ValueError("Ada item request owner yang belum lengkap atau qty tidak valid")
+                raise ValueError(
+                    f"Item request owner baris {index} belum lengkap atau qty tidak valid"
+                )
 
             items.append({
                 "product_id": product_id,

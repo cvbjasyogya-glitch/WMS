@@ -270,6 +270,24 @@ const ownerRequestDraft = {
 
 const ownerRequestItems = [];
 
+function escapeOwnerRequestHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function hasOwnerRequestDraftSelection() {
+    return Boolean(ownerRequestDraft.product_id && ownerRequestDraft.variant_id);
+}
+
+function getOwnerRequestDraftQty() {
+    const qty = Number(ownerRequestDraftQty.value || 0);
+    return Number.isFinite(qty) ? Math.trunc(qty) : 0;
+}
+
 function renderOwnerRequestWorkspaceSummary() {
     const count = ownerRequestItems.length;
     const totalQty = ownerRequestItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
@@ -343,8 +361,8 @@ function populateOwnerRequestDraft(item) {
     ownerRequestDraft.variant_label = item.variant_label || "Default";
     ownerRequestDraft.category = item.category || "-";
     ownerRequestDraft.gtin = item.gtin || "";
-    ownerRequestDraftDisplay.value = `${item.sku} - ${item.name}`;
-    ownerRequestDraftMeta.textContent = `${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}`;
+    ownerRequestDraftDisplay.value = `${ownerRequestDraft.sku} - ${ownerRequestDraft.name}`;
+    ownerRequestDraftMeta.textContent = `${ownerRequestDraft.variant_label} | ${ownerRequestDraft.category || "-"} | GTIN ${ownerRequestDraft.gtin || "-"}`;
     renderOwnerRequestDraftStock(Number(item.qty || 0));
 }
 
@@ -388,13 +406,13 @@ async function refreshOwnerRequestQueueStocks() {
     renderOwnerRequestQueue();
 }
 
-function validateOwnerRequestDraft() {
-    const qty = Number(ownerRequestDraftQty.value || 0);
+function validateOwnerRequestDraft(strict = false) {
+    const qty = getOwnerRequestDraftQty();
 
     if (!ownerRequestDraftQty.value) {
         ownerRequestDraftFeedback.textContent = "Isi qty request untuk item aktif.";
         ownerRequestDraftFeedback.className = "helper-text ops-row-feedback";
-        return true;
+        return !strict;
     }
 
     if (!Number.isFinite(qty) || qty <= 0) {
@@ -425,12 +443,12 @@ function renderOwnerRequestQueue() {
         <tr>
             <td class="mono">${index + 1}</td>
             <td>
-                <strong>${item.sku} - ${item.name}</strong>
-                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+                <strong>${escapeOwnerRequestHtml(item.sku)} - ${escapeOwnerRequestHtml(item.name)}</strong>
+                <small class="helper-text">${escapeOwnerRequestHtml(item.variant_label)} | ${escapeOwnerRequestHtml(item.category || "-")} | GTIN ${escapeOwnerRequestHtml(item.gtin || "-")}</small>
             </td>
             <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
             <td class="mono">${item.qty}</td>
-            <td>${item.note || "-"}</td>
+            <td>${escapeOwnerRequestHtml(item.note || "-")}</td>
             <td>
                 <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
             </td>
@@ -439,15 +457,17 @@ function renderOwnerRequestQueue() {
     renderOwnerRequestWorkspaceSummary();
 }
 
-function addOwnerRequestItem() {
-    if (!ownerRequestDraft.product_id || !ownerRequestDraft.variant_id) {
-        alert("Pilih barang terlebih dahulu.");
-        return;
+function addOwnerRequestItem(options = {}) {
+    const silent = Boolean(options.silent);
+
+    if (!hasOwnerRequestDraftSelection()) {
+        if (!silent) alert("Pilih barang terlebih dahulu.");
+        return false;
     }
 
-    if (!validateOwnerRequestDraft()) {
-        alert("Qty request owner masih belum valid.");
-        return;
+    if (!validateOwnerRequestDraft(true)) {
+        if (!silent) alert("Isi qty request owner lebih dari 0.");
+        return false;
     }
 
     ownerRequestItems.push({
@@ -459,15 +479,29 @@ function addOwnerRequestItem() {
         category: ownerRequestDraft.category,
         gtin: ownerRequestDraft.gtin,
         stock: ownerRequestDraft.stock,
-        qty: Number(ownerRequestDraftQty.value || 0),
+        qty: getOwnerRequestDraftQty(),
         note: ownerRequestDraftNote.value.trim(),
     });
 
     renderOwnerRequestQueue();
     resetOwnerRequestDraft();
+    return true;
 }
 
 function handleOwnerRequestSubmit() {
+    if (hasOwnerRequestDraftSelection() && ownerRequestDraftQty.value) {
+        if (!addOwnerRequestItem({ silent: true })) {
+            alert("Qty request owner masih belum valid.");
+            return false;
+        }
+    }
+
+    if (!ownerRequestItems.length && hasOwnerRequestDraftSelection()) {
+        alert("Isi qty request owner lebih dari 0 sebelum dikirim.");
+        validateOwnerRequestDraft(true);
+        return false;
+    }
+
     if (!ownerRequestItems.length) {
         alert("Tambahkan minimal satu item request ke owner.");
         return false;

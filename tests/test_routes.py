@@ -29215,6 +29215,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('href="/request/"', owner_html)
         self.assertIn('href="/request/owner"', owner_html)
         self.assertIn("Kirim ke Owner", owner_html)
+        self.assertIn("validateOwnerRequestDraft(true)", owner_html)
+        self.assertIn("addOwnerRequestItem({ silent: true })", owner_html)
+        self.assertIn("getOwnerRequestDraftQty()", owner_html)
 
         request_response = self.client.post(
             "/request/owner",
@@ -29228,8 +29231,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                         "note": "Restock cepat",
                     },
                     {
-                        "product_id": product_id,
-                        "variant_id": variants_rows[1]["id"],
+                        "productId": product_id,
+                        "variantId": variants_rows[1]["id"],
                         "qty": 3,
                         "note": "Display menipis",
                     },
