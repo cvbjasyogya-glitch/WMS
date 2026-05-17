@@ -19118,7 +19118,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("/hris/biometric/attendance-status", html)
         self.assertIn("biometric-attendance-status-select", html)
-        self.assertIn("requestSubmit", html)
+        self.assertIn('data-biometric-inline-form="status"', html)
+        self.assertIn("initBiometricInlineForms", html)
         self.assertIn("Present", html)
         self.assertIn("Late", html)
 
@@ -19376,6 +19377,56 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(biometric["shift_code"], "pagi")
         self.assertEqual(biometric["shift_label"], "Shift Pagi | 08.00 - 16.00")
         self.assertEqual(biometric["sync_status"], "manual")
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertEqual(attendance["shift_label"], "Shift Pagi | 08.00 - 16.00")
+        self.assertEqual(attendance["status"], "late")
+
+    def test_biometric_inline_shift_update_supports_ajax_without_redirect(self):
+        self.login_hr_user("hr_bio_shift_ajax", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-SHIFT-AJAX",
+            full_name="Biometric Shift Ajax",
+            warehouse_id=1,
+        )
+        self.create_biometric_attendance_day(
+            employee_id,
+            "2026-09-03",
+            "08:45",
+            warehouse_id=1,
+            shift_code="siang",
+            shift_label="Shift Siang | 13.00 - 21.00",
+        )
+
+        update_response = self.client.post(
+            "/hris/biometric/attendance-shift",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-03",
+                "shift_code": "pagi",
+                "return_to": "/hris/biometric?view=attendance_detail&date_from=2026-09-03&date_to=2026-09-03",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["shift_code"], "pagi")
+        self.assertEqual(payload["shift_label"], "Shift Pagi | 08.00 - 16.00")
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-03"),
+            ).fetchone()
+
         self.assertEqual(attendance["shift_code"], "pagi")
         self.assertEqual(attendance["shift_label"], "Shift Pagi | 08.00 - 16.00")
         self.assertEqual(attendance["status"], "late")
@@ -21729,6 +21780,55 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance_after["check_out"], "17:05")
         self.assertEqual(attendance_after["status"], "present")
         self.assertEqual(attendance_after["status_override"], "present")
+
+    def test_biometric_inline_status_update_supports_ajax_without_redirect(self):
+        self.login_hr_user("hr_bio_status_ajax", "pass1234")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-BIO-STATUS-AJAX",
+            full_name="Biometric Status Ajax",
+            warehouse_id=1,
+        )
+        self.create_biometric_attendance_day(
+            employee_id,
+            "2026-09-01",
+            "08:45",
+            warehouse_id=1,
+            shift_code="pagi",
+            shift_label="Shift Pagi | 08.00 - 16.00",
+        )
+
+        override_response = self.client.post(
+            "/hris/biometric/attendance-status",
+            data={
+                "employee_id": str(employee_id),
+                "attendance_date": "2026-09-01",
+                "status": "present",
+                "return_to": "/hris/biometric?view=attendance_detail&date_from=2026-09-01&date_to=2026-09-01",
+            },
+            headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+            follow_redirects=False,
+        )
+        self.assertEqual(override_response.status_code, 200)
+        payload = override_response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status_value"], "present")
+        self.assertTrue(payload["status_override_active"])
+
+        with self.app.app_context():
+            db = get_db()
+            attendance = db.execute(
+                """
+                SELECT status, status_override
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, "2026-09-01"),
+            ).fetchone()
+
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["status_override"], "present")
 
     def test_super_admin_can_override_biometric_late_status(self):
         employee_id = self.create_employee_record(

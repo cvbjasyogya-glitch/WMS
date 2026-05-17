@@ -508,6 +508,30 @@ def _safe_hris_return_to(default="/hris/"):
     return default
 
 
+def _is_hris_async_request():
+    return (
+        (request.form.get("async") or "").strip() == "1"
+        or str(request.headers.get("X-Requested-With") or "").strip().lower() == "xmlhttprequest"
+        or "application/json" in str(request.headers.get("Accept") or "").lower()
+    )
+
+
+def _hris_form_response(message, category, return_to, status_code=200, payload=None):
+    if _is_hris_async_request():
+        response_payload = {
+            "ok": status_code < 400,
+            "message": message,
+            "category": category,
+            "return_to": return_to,
+        }
+        if payload:
+            response_payload.update(payload)
+        return jsonify(response_payload), status_code
+
+    flash(message, category)
+    return redirect(return_to)
+
+
 def _get_table_columns(db, table_name):
     safe_name = (table_name or "").strip()
     if not safe_name:
@@ -12309,8 +12333,12 @@ def add_biometric():
 def update_biometric_attendance_status():
     return_to = _safe_hris_return_to("/hris/biometric")
     if not can_adjust_biometric_attendance_status():
-        flash("Hanya HR dan Super Admin yang bisa mengubah status absen geotag.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Hanya HR dan Super Admin yang bisa mengubah status absen geotag.",
+            "error",
+            return_to,
+            403,
+        )
 
     db = get_db()
     employee_id = _to_int(request.form.get("employee_id"))
@@ -12318,19 +12346,21 @@ def update_biometric_attendance_status():
     requested_status = _normalize_attendance_status(request.form.get("status"))
 
     if requested_status not in BIOMETRIC_ADJUSTABLE_ATTENDANCE_STATUSES:
-        flash("Status geotag hanya bisa diubah ke Present atau Late.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Status geotag hanya bisa diubah ke Present atau Late.",
+            "error",
+            return_to,
+            400,
+        )
 
     employee = _get_accessible_employee(db, employee_id)
     if employee is None or not attendance_date:
-        flash("Data attendance geotag tidak valid.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Data attendance geotag tidak valid.", "error", return_to, 400)
 
     attendance = _get_attendance_by_employee_date(db, employee_id, attendance_date)
     attendance = dict(attendance) if attendance is not None else None
     if attendance is None:
-        flash("Data attendance geotag tidak ditemukan.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Data attendance geotag tidak ditemukan.", "error", return_to, 404)
 
     attendance_shift = _canonicalize_biometric_shift_snapshot(
         employee,
@@ -12366,10 +12396,19 @@ def update_biometric_attendance_status():
     db.commit()
 
     if status_override:
-        flash("Status absen geotag berhasil diubah manual.", "success")
+        message = "Status absen geotag berhasil diubah manual."
     else:
-        flash("Status absen geotag dikembalikan ke hitungan otomatis.", "success")
-    return redirect(return_to)
+        message = "Status absen geotag dikembalikan ke hitungan otomatis."
+    return _hris_form_response(
+        message,
+        "success",
+        return_to,
+        payload={
+            "status_value": requested_status,
+            "status_label": ATTENDANCE_STATUS_LABELS.get(requested_status, requested_status.title()),
+            "status_override_active": bool(status_override),
+        },
+    )
 
 
 @hris_bp.route("/biometric/attendance-time", methods=["POST"])
@@ -12734,8 +12773,12 @@ def update_biometric_break_time():
 def update_biometric_attendance_shift():
     return_to = _safe_hris_return_to("/hris/biometric")
     if not can_adjust_biometric_attendance_status():
-        flash("Hanya HR dan Super Admin yang bisa memperbaiki shift geotag.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Hanya HR dan Super Admin yang bisa memperbaiki shift geotag.",
+            "error",
+            return_to,
+            403,
+        )
 
     db = get_db()
     attendance_columns = _get_table_columns(db, "attendance_records")
@@ -12744,31 +12787,31 @@ def update_biometric_attendance_shift():
         "shift_code",
         "shift_label",
     }.issubset(biometric_columns):
-        flash("Penyimpanan shift geotag belum tersedia pada database ini.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Penyimpanan shift geotag belum tersedia pada database ini.",
+            "error",
+            return_to,
+            400,
+        )
 
     employee_id = _to_int(request.form.get("employee_id"))
     attendance_date = (request.form.get("attendance_date") or "").strip()
     requested_shift_code = _normalize_biometric_shift_code(request.form.get("shift_code"))
 
     if not employee_id or not attendance_date:
-        flash("Data karyawan atau tanggal absensi tidak valid.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Data karyawan atau tanggal absensi tidak valid.", "error", return_to, 400)
 
     try:
         date_cls.fromisoformat(attendance_date)
     except ValueError:
-        flash("Format tanggal absensi tidak valid.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Format tanggal absensi tidak valid.", "error", return_to, 400)
 
     if not requested_shift_code:
-        flash("Pilih shift yang valid untuk disimpan.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Pilih shift yang valid untuk disimpan.", "error", return_to, 400)
 
     employee = _get_accessible_employee(db, employee_id)
     if employee is None:
-        flash("Karyawan tidak valid untuk scope akun ini.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Karyawan tidak valid untuk scope akun ini.", "error", return_to, 404)
     employee = dict(employee)
 
     warehouse = db.execute(
@@ -12793,8 +12836,12 @@ def update_biometric_attendance_shift():
         ).fetchall()
     ]
     if not day_logs:
-        flash("Belum ada log geotag tersinkron pada tanggal ini untuk dikoreksi shift-nya.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Belum ada log geotag tersinkron pada tanggal ini untuk dikoreksi shift-nya.",
+            "error",
+            return_to,
+            404,
+        )
 
     attendance = _get_attendance_by_employee_date(db, employee_id, attendance_date)
     attendance = dict(attendance) if attendance is not None else None
@@ -12815,8 +12862,7 @@ def update_biometric_attendance_shift():
         None,
     )
     if selected_shift is None:
-        flash("Shift yang dipilih tidak tersedia untuk staff ini.", "error")
-        return redirect(return_to)
+        return _hris_form_response("Shift yang dipilih tidak tersedia untuk staff ini.", "error", return_to, 400)
 
     requested_shift_label = selected_shift["label"]
     current_shift_code = _normalize_biometric_shift_code(
@@ -12843,8 +12889,15 @@ def update_biometric_attendance_shift():
         )
     )
     if not shift_changed:
-        flash("Shift geotag sudah sesuai, tidak ada perubahan yang disimpan.", "info")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Shift geotag sudah sesuai, tidak ada perubahan yang disimpan.",
+            "info",
+            return_to,
+            payload={
+                "shift_code": requested_shift_code,
+                "shift_label": requested_shift_label,
+            },
+        )
 
     handled_by, handled_at = _build_biometric_handling("manual")
     update_timestamp = _current_timestamp()
@@ -12882,8 +12935,15 @@ def update_biometric_attendance_shift():
     _resync_attendance_from_biometrics(db, employee_id, warehouse_id, attendance_date)
     db.commit()
 
-    flash(f"Shift geotag {employee['full_name']} berhasil diperbarui ke {requested_shift_label}.", "success")
-    return redirect(return_to)
+    return _hris_form_response(
+        f"Shift geotag {employee['full_name']} berhasil diperbarui ke {requested_shift_label}.",
+        "success",
+        return_to,
+        payload={
+            "shift_code": requested_shift_code,
+            "shift_label": requested_shift_label,
+        },
+    )
 
 
 @hris_bp.route("/biometric/attendance-shift-override", methods=["POST"])

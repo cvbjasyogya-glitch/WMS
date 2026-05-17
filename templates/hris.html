@@ -5411,7 +5411,7 @@
                 <td class="biometric-recap-warehouse-cell">{{ row.warehouse_name or '-' }}</td>
                 <td class="biometric-recap-shift-cell">
                     {% if row.can_edit_shift %}
-                    <form method="POST" action="/hris/biometric/attendance-shift" class="biometric-attendance-status-form">
+                    <form method="POST" action="/hris/biometric/attendance-shift" class="biometric-attendance-status-form" data-biometric-inline-form="shift">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                         <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
                         <input type="hidden" name="return_to" value="{{ report_return_to }}">
@@ -5419,7 +5419,8 @@
                             name="shift_code"
                             class="biometric-attendance-status-select"
                             aria-label="Ubah shift {{ row.full_name }}"
-                            onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }"
+                            data-biometric-inline-select
+                            data-current-value="{{ row.shift_code or '' }}"
                         >
                             {% if not row.shift_code %}
                             <option value="" selected disabled>Pilih shift</option>
@@ -5428,6 +5429,7 @@
                             <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
                             {% endfor %}
                         </select>
+                        <small class="helper-text biometric-inline-feedback" data-biometric-inline-feedback aria-live="polite"></small>
                     </form>
                     {% else %}
                     {{ row.shift_display_label }}
@@ -5441,7 +5443,7 @@
                 </td>
                 <td class="biometric-recap-status-cell">
                     {% if can_adjust_biometric_status %}
-                    <form method="POST" action="/hris/biometric/attendance-status" class="biometric-attendance-status-form">
+                    <form method="POST" action="/hris/biometric/attendance-status" class="biometric-attendance-status-form" data-biometric-inline-form="status">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                         <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
                         <input type="hidden" name="return_to" value="{{ report_return_to }}">
@@ -5449,18 +5451,18 @@
                             name="status"
                             class="biometric-attendance-status-select"
                             aria-label="Ubah status absen {{ row.full_name }}"
-                            onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }"
+                            data-biometric-inline-select
+                            data-current-value="{{ row.attendance_status_value }}"
                         >
                             <option value="present" {% if row.attendance_status_value == 'present' %}selected{% endif %}>Present</option>
                             <option value="late" {% if row.attendance_status_value == 'late' %}selected{% endif %}>Late</option>
                         </select>
+                        <small class="helper-text biometric-inline-feedback" data-biometric-inline-feedback aria-live="polite"></small>
                     </form>
                     {% else %}
                     <span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span>
                     {% endif %}
-                    {% if row.status_override_active %}
-                    <div><small class="helper-text">Manual HR</small></div>
-                    {% endif %}
+                    <div data-biometric-status-override-note {% if not row.status_override_active %}hidden{% endif %}><small class="helper-text">Manual HR</small></div>
                     {% if can_adjust_biometric_status and row.attendance_status_label not in ['Present', 'Late'] %}
                     <div><small class="helper-text">{{ row.attendance_status_label }}</small></div>
                     {% endif %}
@@ -6539,8 +6541,99 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     };
 
+    const initBiometricInlineForms = function () {
+        const forms = document.querySelectorAll("[data-biometric-inline-form]");
+        if (!forms.length) {
+            return;
+        }
+
+        const setFeedback = function (form, message, isError) {
+            const feedback = form.querySelector("[data-biometric-inline-feedback]");
+            if (!feedback) {
+                return;
+            }
+            feedback.textContent = message || "";
+            feedback.classList.toggle("biometric-inline-feedback-error", Boolean(isError));
+        };
+
+        const clearFeedbackLater = function (form) {
+            window.setTimeout(function () {
+                const feedback = form.querySelector("[data-biometric-inline-feedback]");
+                if (feedback && !feedback.classList.contains("biometric-inline-feedback-error")) {
+                    feedback.textContent = "";
+                }
+            }, 2200);
+        };
+
+        const syncStatusNote = function (form, payload) {
+            if (form.getAttribute("data-biometric-inline-form") !== "status") {
+                return;
+            }
+            const cell = form.closest(".biometric-recap-status-cell");
+            const note = cell ? cell.querySelector("[data-biometric-status-override-note]") : null;
+            if (!note || payload.status_override_active === undefined) {
+                return;
+            }
+            note.hidden = !payload.status_override_active;
+        };
+
+        const submitInlineForm = async function (form, select) {
+            const previousValue = select.dataset.currentValue || select.value || "";
+            const formData = new FormData(form);
+            formData.set("async", "1");
+            select.disabled = true;
+            form.dataset.state = "saving";
+            setFeedback(form, "Menyimpan...", false);
+
+            try {
+                const response = await fetch(form.action, {
+                    method: "POST",
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "application/json"
+                    },
+                    body: formData,
+                    credentials: "same-origin"
+                });
+                const payload = await response.json().catch(function () {
+                    return {};
+                });
+                if (!response.ok || payload.ok !== true) {
+                    throw new Error(payload.message || "Perubahan belum tersimpan.");
+                }
+                select.dataset.currentValue = payload.shift_code || payload.status_value || select.value || "";
+                syncStatusNote(form, payload);
+                form.dataset.state = "saved";
+                setFeedback(form, payload.message || "Tersimpan.", false);
+                clearFeedbackLater(form);
+            } catch (error) {
+                select.value = previousValue;
+                form.dataset.state = "error";
+                setFeedback(form, error.message || "Gagal menyimpan.", true);
+            } finally {
+                select.disabled = false;
+            }
+        };
+
+        forms.forEach(function (form) {
+            const select = form.querySelector("select[data-biometric-inline-select]");
+            if (!select) {
+                return;
+            }
+            select.dataset.currentValue = select.dataset.currentValue || select.value || "";
+            form.addEventListener("submit", function (event) {
+                event.preventDefault();
+                submitInlineForm(form, select);
+            });
+            select.addEventListener("change", function () {
+                submitInlineForm(form, select);
+            });
+        });
+    };
+
     initBreakTimers();
     initDocumentSignaturePads();
+    initBiometricInlineForms();
 
     const initApprovalQueues = function () {
         const queues = document.querySelectorAll("[data-approval-queue]");

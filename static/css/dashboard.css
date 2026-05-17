@@ -16838,8 +16838,27 @@ body .biometric-photo-inline-link:hover {
 }
 
 body .biometric-attendance-status-form {
-    display: inline-flex;
+    display: inline-grid;
+    gap: 4px;
     margin: 0;
+}
+
+body .biometric-inline-feedback {
+    min-height: 14px;
+    font-size: 0.68rem;
+    line-height: 1.2;
+}
+
+body .biometric-inline-feedback-error {
+    color: #fca5a5;
+}
+
+body .biometric-attendance-status-form[data-state="saving"] .biometric-inline-feedback {
+    color: #93c5fd;
+}
+
+body .biometric-attendance-status-form[data-state="saved"] .biometric-inline-feedback {
+    color: #86efac;
 }
 
 body .biometric-attendance-time-form {
