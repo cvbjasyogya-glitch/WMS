@@ -24708,6 +24708,75 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["shift_code"], "pagi")
         self.assertIn("09.00 - 17.00", attendance["shift_label"])
 
+    def test_attendance_portal_hr_mega_location_uses_mega_warehouse_and_shift(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-HR-MEGA-LOC",
+            full_name="Portal HR Mega Location",
+            warehouse_id=1,
+            position="HR Staff",
+        )
+        self.create_user("portal_hr_mega_loc", "pass1234", "hr", employee_id=employee_id)
+        self.login("portal_hr_mega_loc", "pass1234")
+        today = date_cls.today().isoformat()
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn("syncShiftProfileFromLocationScope", portal_html)
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "mega",
+                "location_label": "Gudang Mega - Area HR",
+                "latitude": "-7.782893",
+                "longitude": "110.409127",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T08:55",
+                "punch_type": "check_in",
+                "note": "HR absen dari Mega",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT warehouse_id, location_label, shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT warehouse_id, check_in, status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["warehouse_id"], 2)
+        self.assertEqual(biometric["location_label"], "Gudang Mega - Area HR")
+        self.assertEqual(biometric["shift_code"], "pagi")
+        self.assertIn("09.00 - 17.00", biometric["shift_label"])
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["warehouse_id"], 2)
+        self.assertEqual(attendance["check_in"], "08:55")
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertIn("09.00 - 17.00", attendance["shift_label"])
+
     def test_attendance_portal_supports_break_flow_before_check_out(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-BREAK",

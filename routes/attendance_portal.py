@@ -350,6 +350,49 @@ def _resolve_default_location_scope(linked_employee):
     return "mega" if warehouse_key == "mega" else "mataram"
 
 
+def _normalize_work_location_scope_key(value):
+    return _normalize_shift_profile_key(value)
+
+
+def _can_route_attendance_by_location_scope():
+    return normalize_role(session.get("role")) in {"hr", "super_admin"}
+
+
+def _fetch_warehouse_for_location_scope(db, location_scope):
+    scope_key = _normalize_work_location_scope_key(location_scope)
+    if not scope_key:
+        return None
+
+    rows = db.execute("SELECT id, name FROM warehouses ORDER BY id").fetchall()
+    for row in rows:
+        warehouse_name = str(row["name"] or "").strip().lower()
+        if scope_key in warehouse_name:
+            return {
+                "id": row["id"],
+                "name": row["name"],
+                "scope_key": scope_key,
+            }
+    return None
+
+
+def _resolve_attendance_submission_warehouse(db, linked_employee, location_scope):
+    if _can_route_attendance_by_location_scope():
+        scoped_warehouse = _fetch_warehouse_for_location_scope(db, location_scope)
+        if scoped_warehouse:
+            return scoped_warehouse
+
+    employee_source = (
+        dict(linked_employee)
+        if linked_employee is not None and not isinstance(linked_employee, dict)
+        else (linked_employee or {})
+    )
+    return {
+        "id": employee_source.get("warehouse_id"),
+        "name": employee_source.get("warehouse_name") or "Gudang",
+        "scope_key": _resolve_shift_warehouse_key(employee_source),
+    }
+
+
 def _build_location_scope_options(linked_employee):
     default_scope = _resolve_default_location_scope(linked_employee)
     return [
@@ -1354,15 +1397,18 @@ def submit():
         punch_time = f"{date_cls.today().isoformat()} {normalized_punch_time[11:19]}"
     else:
         punch_time = _current_timestamp()
-    requested_shift_profile_key = (
-        portal_state["shift_profile_key"]
-        if portal_state["shift_locked"]
-        else (
-            _normalize_shift_profile_key(request.form.get("shift_profile_key")) or portal_state["shift_profile_key"]
-            if portal_state["allow_shift_profile_choice"]
-            else portal_state["shift_profile_key"]
-        )
+    location_shift_profile_key = (
+        _normalize_work_location_scope_key(location_scope)
+        if _can_route_attendance_by_location_scope()
+        else None
     )
+    requested_shift_profile_key = portal_state["shift_profile_key"]
+    if not portal_state["shift_locked"] and portal_state["allow_shift_profile_choice"]:
+        requested_shift_profile_key = (
+            location_shift_profile_key
+            or _normalize_shift_profile_key(request.form.get("shift_profile_key"))
+            or portal_state["shift_profile_key"]
+        )
     requested_shift_code = _normalize_shift_code(request.form.get("shift_code"))
     active_shift_options = _build_shift_options(linked_employee, requested_shift_profile_key)
     if portal_state["shift_override_snapshot"]:
@@ -1404,6 +1450,10 @@ def submit():
     if location_scope == "other" and not location_label:
         flash("Kalau pilih lokasi Lainnya, isi alamat atau jelaskan dulu tempat absennya.", "error")
         return redirect("/absen/")
+
+    attendance_warehouse = _resolve_attendance_submission_warehouse(db, linked_employee, location_scope)
+    attendance_warehouse_id = attendance_warehouse["id"]
+    attendance_warehouse_label = (attendance_warehouse["name"] or "Gudang").strip()
 
     if punch_mode == "complete":
         flash("Absensi hari ini sudah lengkap. Jika perlu koreksi, lanjutkan dari HR atau Super Admin.", "error")
@@ -1500,7 +1550,7 @@ def submit():
             biometric_log_id = _insert_biometric_log_record(
                 db,
                 employee_id=linked_employee["id"],
-                warehouse_id=linked_employee["warehouse_id"],
+                warehouse_id=attendance_warehouse_id,
                 device_name="Attendance Photo Portal",
                 device_user_id=session.get("username"),
                 punch_time=punch_time,
@@ -1544,7 +1594,7 @@ def submit():
             return redirect("/absen/")
 
     employee_label = (linked_employee.get("full_name") or session.get("username") or "Karyawan").strip()
-    warehouse_label = (linked_employee.get("warehouse_name") or "Gudang").strip()
+    warehouse_label = attendance_warehouse_label
     punch_label = _get_attendance_punch_label(punch_type)
     duration_meta = _build_attendance_duration_meta(day_logs, punch_time, punch_type)
 
@@ -1566,7 +1616,7 @@ def submit():
         notify_operational_event(
             f"Absensi {punch_label}: {employee_label}",
             attendance_message,
-            warehouse_id=linked_employee["warehouse_id"],
+            warehouse_id=attendance_warehouse_id,
             include_actor=False,
             exclude_user_ids=[session.get("user_id")],
             category="attendance",
@@ -1586,7 +1636,7 @@ def submit():
         send_role_based_notification(
             "attendance.activity",
             {
-                "warehouse_id": linked_employee["warehouse_id"],
+                "warehouse_id": attendance_warehouse_id,
                 "employee_name": employee_label,
                 "warehouse_name": warehouse_label,
                 "punch_type": punch_type,

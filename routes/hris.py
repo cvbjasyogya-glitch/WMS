@@ -2268,7 +2268,7 @@ def _canonicalize_biometric_shift_snapshot(source, shift_code=None, shift_label=
             "shift_code": raw_code,
             "shift_label": safe_label,
         }
-    base_options = _build_biometric_shift_options(source)
+    base_options = _build_biometric_shift_options(source, safe_label)
 
     if safe_code:
         selected_option = next(

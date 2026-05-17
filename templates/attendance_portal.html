@@ -639,6 +639,21 @@
 
     const getLocationScopeValue = () => (locationScopeSelect?.value || "").trim().toLowerCase();
 
+    const getLocationShiftProfileKey = () => {
+        const scopeValue = getLocationScopeValue();
+        return scopeValue && shiftProfiles[scopeValue] ? scopeValue : "";
+    };
+
+    const syncShiftProfileFromLocationScope = () => {
+        const profileKey = getLocationShiftProfileKey();
+        if (!profileKey || !shiftProfileSelect || portalLocked) {
+            return;
+        }
+        if (shiftProfileSelect.value !== profileKey) {
+            shiftProfileSelect.value = profileKey;
+        }
+    };
+
     const getLocationScopeLabel = () => {
         const scopeValue = getLocationScopeValue();
         return LOCATION_SCOPE_LABELS[scopeValue] || warehouseName || "Lokasi kerja";
@@ -1814,6 +1829,8 @@
     });
 
     locationScopeSelect?.addEventListener("change", () => {
+        syncShiftProfileFromLocationScope();
+        syncShiftProfileUi();
         syncLocationScopeUi();
         if (rawPhotoDataUrl) {
             scheduleStampedPreviewRefresh();
