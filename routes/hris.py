@@ -4828,6 +4828,33 @@ def _get_attendance_request_by_id(db, request_id):
     return record
 
 
+def _build_attendance_request_decision_context(request_row):
+    if not request_row:
+        return ""
+
+    request_type = str(request_row.get("request_type") or "").strip().lower()
+    payload = request_row.get("payload_map")
+    if not isinstance(payload, dict):
+        payload = parse_attendance_request_payload(request_row.get("payload"))
+
+    if request_type == "overtime_add":
+        overtime_date = str(payload.get("attendance_date") or payload.get("adjustment_date") or "").strip()
+        if overtime_date:
+            return f"Tanggal lembur: {format_date_range(overtime_date)}"
+
+    if request_type == "overtime_use":
+        usage_date = str(payload.get("usage_date") or "").strip()
+        if usage_date:
+            return f"Tanggal pemakaian lembur: {format_date_range(usage_date)}"
+
+    if request_type == "overtime_usage_delete":
+        usage_date = str(payload.get("usage_date") or "").strip()
+        if usage_date:
+            return f"Tanggal pembatalan lembur: {format_date_range(usage_date)}"
+
+    return ""
+
+
 def _notify_attendance_request_decision(db, request_row, *, approved):
     if not request_row or not request_row.get("requested_by"):
         return
@@ -4844,9 +4871,11 @@ def _notify_attendance_request_decision(db, request_row, *, approved):
         or "HR / Super Admin"
     )
     summary_title = str(request_row.get("summary_title") or request_row.get("request_type_label") or "Request Attendance").strip()
+    decision_context = _build_attendance_request_decision_context(request_row)
     decision_note = str(request_row.get("decision_note") or "").strip()
     message = (
         f"Request {summary_title} telah {outcome_label} oleh {approver_name}."
+        f"{f' {decision_context}.' if decision_context else ''}"
         f"{f' Catatan: {decision_note}.' if decision_note else ''}"
     )
     notify_user(

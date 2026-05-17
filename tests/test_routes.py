@@ -55,6 +55,8 @@ from routes.hris import (
     _ensure_overtime_feature_schema,
     _build_employee_overtime_balance,
     _canonicalize_biometric_shift_snapshot,
+    _build_attendance_request_decision_context,
+    _notify_attendance_request_decision,
     _format_live_report_time_label,
     _format_hris_datetime_display,
     _normalize_datetime_input,
@@ -20023,6 +20025,48 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Ajeng Fatimah A", html)
         self.assertIn("Approved", html)
         self.assertIn("Sudah masuk ke saldo lembur.", html)
+
+    def test_attendance_request_decision_context_includes_overtime_date(self):
+        context = _build_attendance_request_decision_context(
+            {
+                "request_type": "overtime_add",
+                "payload_map": {
+                    "source_type": "biometric_auto",
+                    "attendance_date": "2026-09-05",
+                    "duration_label": "1j 00m",
+                },
+            }
+        )
+        self.assertEqual(context, "Tanggal lembur: 05 September 2026")
+
+    def test_attendance_request_decision_notification_message_includes_overtime_date(self):
+        with self.app.test_request_context("/hris/approval"):
+            session["user_id"] = 1
+            session["username"] = "Rio"
+            with patch("routes.hris.notify_user") as notify_user_mock:
+                _notify_attendance_request_decision(
+                    get_db(),
+                    {
+                        "id": 99,
+                        "request_type": "overtime_add",
+                        "request_type_label": "Penambahan Saldo Lembur",
+                        "requested_by": 7,
+                        "requested_by_name": "Febrio",
+                        "summary_title": "Febrio Dwi Putra - Lembur Otomatis",
+                        "decision_note": "Lembur otomatis disetujui dari rekap biometric.",
+                        "payload_map": {
+                            "source_type": "biometric_auto",
+                            "attendance_date": "2026-09-05",
+                        },
+                    },
+                    approved=True,
+                )
+
+        notify_user_mock.assert_called_once()
+        message = notify_user_mock.call_args.args[2]
+        self.assertIn("Request Febrio Dwi Putra - Lembur Otomatis telah disetujui oleh Rio.", message)
+        self.assertIn("Tanggal lembur: 05 September 2026.", message)
+        self.assertIn("Catatan: Lembur otomatis disetujui dari rekap biometric.", message)
 
     def test_hr_can_approve_biometric_overtime_when_balance_near_cap(self):
         self.app.config["OVERTIME_BALANCE_CAP_MINUTES"] = 240
