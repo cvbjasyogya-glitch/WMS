@@ -18103,6 +18103,18 @@ body .schedule-matrix-cell-label {
     overflow-wrap: anywhere;
 }
 
+body .schedule-matrix-cell-note {
+    display: block;
+    margin: 4px auto 0;
+    max-width: 128px;
+    color: #c5d5e8;
+    font-size: 0.66rem;
+    font-weight: 700;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
 body .schedule-matrix-empty {
     display: inline-block;
     color: rgba(236, 244, 255, 0.92);
@@ -18149,6 +18161,10 @@ html[data-theme="light"] body .schedule-matrix-date-day {
 html[data-theme="light"] body .schedule-matrix-date-value,
 html[data-theme="light"] body .schedule-matrix-cell-label {
     color: #5e7894;
+}
+
+html[data-theme="light"] body .schedule-matrix-cell-note {
+    color: #375a7d;
 }
 
 html[data-theme="light"] body .schedule-matrix tbody tr.is-weekend .schedule-matrix-date-cell,

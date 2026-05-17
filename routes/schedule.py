@@ -752,6 +752,32 @@ def _build_entry_map(db, employee_ids, start_date, end_date, shift_code_map):
     return entry_map
 
 
+def _resolve_override_style(style, shift_code_map=None):
+    code, label, bg_color, text_color = style
+    shift_meta = (shift_code_map or {}).get(code) or {}
+    return (
+        code,
+        (shift_meta.get("label") or label or code).strip(),
+        shift_meta.get("bg_color") or bg_color,
+        shift_meta.get("text_color") or text_color,
+    )
+
+
+def _join_schedule_notes(*parts):
+    notes = []
+    seen = set()
+    for part in parts:
+        safe_part = (part or "").strip()
+        if not safe_part:
+            continue
+        normalized = safe_part.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        notes.append(safe_part)
+    return " | ".join(notes)
+
+
 def _set_override(override_map, employee_id, schedule_date, payload, priority):
     key = (employee_id, schedule_date)
     current = override_map.get(key)
@@ -769,7 +795,7 @@ def _set_override(override_map, employee_id, schedule_date, payload, priority):
     }
 
 
-def _build_override_map(db, employees, start_date, end_date):
+def _build_override_map(db, employees, start_date, end_date, shift_code_map=None):
     if not employees:
         return {}
 
@@ -795,9 +821,10 @@ def _build_override_map(db, employees, start_date, end_date):
         if not effective_date:
             continue
         effective_start = max(effective_date, start_date)
+        code, label, bg_color, text_color = _resolve_override_style(OFFBOARDING_STYLE, shift_code_map)
         for current_day in _daterange(effective_start, end_date):
             note = (row["note"] or "").strip()
-            title = OFFBOARDING_STYLE[1]
+            title = label
             if note:
                 title = f"{title} - {note}"
             _set_override(
@@ -805,10 +832,10 @@ def _build_override_map(db, employees, start_date, end_date):
                 row["employee_id"],
                 current_day.isoformat(),
                 {
-                    "code": OFFBOARDING_STYLE[0],
-                    "label": OFFBOARDING_STYLE[1],
-                    "bg_color": OFFBOARDING_STYLE[2],
-                    "text_color": OFFBOARDING_STYLE[3],
+                    "code": code,
+                    "label": label,
+                    "bg_color": bg_color,
+                    "text_color": text_color,
                     "source": "offboarding",
                     "note": note,
                     "title": title,
@@ -838,11 +865,17 @@ def _build_override_map(db, employees, start_date, end_date):
         if effective_end < effective_start:
             continue
 
-        code, label, bg_color, text_color = LEAVE_OVERRIDE_STYLES.get(
-            (row["leave_type"] or "").strip().lower(),
-            LEAVE_OVERRIDE_STYLES["annual"],
+        code, label, bg_color, text_color = _resolve_override_style(
+            LEAVE_OVERRIDE_STYLES.get(
+                (row["leave_type"] or "").strip().lower(),
+                LEAVE_OVERRIDE_STYLES["annual"],
+            ),
+            shift_code_map,
         )
+        note = _join_schedule_notes(row["reason"], row["note"])
         title = label
+        if note:
+            title = f"{title} - {note}"
 
         for current_day in _daterange(effective_start, effective_end):
             _set_override(
@@ -855,7 +888,7 @@ def _build_override_map(db, employees, start_date, end_date):
                     "bg_color": bg_color,
                     "text_color": text_color,
                     "source": "leave",
-                    "note": "",
+                    "note": note,
                     "title": title,
                 },
                 300,
@@ -877,8 +910,9 @@ def _build_override_map(db, employees, start_date, end_date):
         style = ATTENDANCE_OVERRIDE_STYLES.get(status_key)
         if not style:
             continue
+        code, label, bg_color, text_color = _resolve_override_style(style, shift_code_map)
         note = "" if status_key == "leave" else (row["note"] or "").strip()
-        title = style[1]
+        title = label
         if note:
             title = f"{title} - {note}"
         _set_override(
@@ -886,10 +920,10 @@ def _build_override_map(db, employees, start_date, end_date):
             row["employee_id"],
             row["attendance_date"],
             {
-                "code": style[0],
-                "label": style[1],
-                "bg_color": style[2],
-                "text_color": style[3],
+                "code": code,
+                "label": label,
+                "bg_color": bg_color,
+                "text_color": text_color,
                 "source": "attendance",
                 "note": note,
                 "title": title,
@@ -901,6 +935,7 @@ def _build_override_map(db, employees, start_date, end_date):
         style = EMPLOYMENT_OVERRIDE_STYLES.get((employee["employment_status"] or "").strip().lower())
         if not style:
             continue
+        code, label, bg_color, text_color = _resolve_override_style(style, shift_code_map)
 
         for current_day in _daterange(start_date, end_date):
             _set_override(
@@ -908,12 +943,12 @@ def _build_override_map(db, employees, start_date, end_date):
                 employee["employee_id"],
                 current_day.isoformat(),
                 {
-                    "code": style[0],
-                    "label": style[1],
-                    "bg_color": style[2],
-                    "text_color": style[3],
+                    "code": code,
+                    "label": label,
+                    "bg_color": bg_color,
+                    "text_color": text_color,
                     "source": "employment",
-                    "title": style[1],
+                    "title": label,
                 },
                 100,
             )
@@ -1010,7 +1045,7 @@ def resolve_employee_schedule_for_date(db, employee_id, target_date):
         target_day,
         shift_code_map,
     )
-    override_map = _build_override_map(db, [employee], target_day, target_day)
+    override_map = _build_override_map(db, [employee], target_day, target_day, shift_code_map)
     cell = override_map.get((safe_employee_id, iso_date)) or entry_map.get((safe_employee_id, iso_date))
     day_parts = _build_schedule_day_parts(target_day)
     return {
@@ -1247,7 +1282,7 @@ def schedule_page():
         end_date,
         shift_code_map,
     )
-    override_map = _build_override_map(db, schedule_members, start_date, end_date)
+    override_map = _build_override_map(db, schedule_members, start_date, end_date, shift_code_map)
     day_notes = _build_day_notes(db, start_date, end_date)
     board_rows = _build_board_rows(
         schedule_members,

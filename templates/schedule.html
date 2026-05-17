@@ -557,6 +557,9 @@
                             style="--schedule-chip-bg-light: {{ cell.light_bg_color }}; --schedule-chip-bg-dark: {{ cell.dark_bg_color }}; --schedule-chip-color-light: {{ cell.light_text_color }}; --schedule-chip-color-dark: {{ cell.dark_text_color }}; --schedule-chip-border-light: {{ cell.light_border_color }}; --schedule-chip-border-dark: {{ cell.dark_border_color }};"
                         >{{ cell.code }}</span>
                         <small class="schedule-matrix-cell-label">{{ cell.label }}</small>
+                        {% if cell.note %}
+                        <small class="schedule-matrix-cell-note">{{ cell.note }}</small>
+                        {% endif %}
                         {% else %}
                         <span class="schedule-matrix-empty">-</span>
                         {% endif %}

@@ -12803,6 +12803,74 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNone(removed_shift)
         self.assertEqual(schedule_entry["shift_code"], "P1")
 
+    def test_schedule_off_override_uses_master_shift_label_and_leave_note(self):
+        self.create_user("hr_schedule_off_label", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-OFF-NOTE",
+            full_name="Maya Off Note",
+            warehouse_id=1,
+            position="Admin Operasional",
+        )
+
+        self.login("hr_schedule_off_label", "pass1234")
+        label_response = self.client.post(
+            "/schedule/shift-code/save",
+            data={
+                "original_code": "OFF",
+                "code": "OFF",
+                "label": "Libur Operasional",
+                "bg_color": "#f9b0a2",
+                "text_color": "#5c1111",
+                "sort_order": "50",
+                "is_active": "on",
+                "start": "2026-03-30",
+                "days": "7",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(label_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    note,
+                    handled_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "annual",
+                    "2026-03-30",
+                    "2026-03-30",
+                    1,
+                    "approved",
+                    "Cuti keluarga",
+                    "Sudah konfirmasi leader",
+                    1,
+                ),
+            )
+            db.commit()
+
+        response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Libur Operasional", html)
+        self.assertIn("Cuti keluarga", html)
+        self.assertIn("Sudah konfirmasi leader", html)
+        self.assertIn("schedule-matrix-cell-note", html)
+
     def test_schedule_board_applies_leave_and_offboarding_overrides(self):
         self.login()
         leave_employee_id = self.create_employee_record(
