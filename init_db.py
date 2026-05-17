@@ -1987,6 +1987,7 @@ def init_db(db_path=None, sqlite_options=None):
             ("PM", "Pagi Menengah", "#B7DFC7", "#0F3A2B", 30),
             ("PS10", "Pagi 10", "#B9E8F2", "#0E4354", 40),
             ("OFF", "Off", "#F59C8B", "#7C1F1F", 50),
+            ("TS", "TS", "#D8E4FF", "#234A87", 55),
             ("SM", "Shift Malam", "#D7C2F5", "#35205D", 60),
             ("SO1", "Stock Opname 1", "#E5ECF6", "#23384E", 70),
             ("SO2", "Stock Opname 2", "#D8E4FF", "#234A87", 80),

@@ -25,6 +25,7 @@ DEFAULT_SHIFT_CODES = (
     ("PM", "Pagi Menengah", "#b7dfc7", "#0f3a2b", 30),
     ("PS10", "Pagi 10", "#b9e8f2", "#0e4354", 40),
     ("OFF", "Off", "#f59c8b", "#7c1f1f", 50),
+    ("TS", "TS", "#d8e4ff", "#234a87", 55),
     ("SM", "Shift Malam", "#d7c2f5", "#35205d", 60),
     ("SO1", "Stock Opname 1", "#e5ecf6", "#23384e", 70),
     ("SO2", "Stock Opname 2", "#d8e4ff", "#234a87", 80),
@@ -81,6 +82,8 @@ EMPLOYMENT_OVERRIDE_STYLES = {
 OFFBOARDING_STYLE = ("OFFBD", "Offboarding", "#f49797", "#6d1616")
 SCHEDULE_DAY_OPTIONS = (7, 14, 30, 60, 90)
 MAX_SCHEDULE_DAY_RANGE = max(SCHEDULE_DAY_OPTIONS)
+SCHEDULE_QUICK_OVERRIDE_CODES = ("P", "S", "TS")
+SCHEDULE_MANUAL_OVERRIDE_NOTE_PREFIX = "Override HR"
 SCHEDULE_DAY_NAMES = (
     "Senin",
     "Selasa",
@@ -599,6 +602,18 @@ def _fetch_shift_codes(db):
     return shift_codes, active_shift_codes, shift_code_map
 
 
+def _build_quick_override_shifts(active_shift_codes):
+    shift_lookup = {
+        str(shift_code.get("code") or "").strip().upper(): shift_code
+        for shift_code in active_shift_codes
+    }
+    return [
+        shift_lookup[code]
+        for code in SCHEDULE_QUICK_OVERRIDE_CODES
+        if code in shift_lookup
+    ]
+
+
 def _fetch_employees_for_schedule(db, warehouse_id=None):
     params = []
     any_homebase_role_exists_sql = _build_schedule_any_homebase_exists_sql("e")
@@ -745,11 +760,16 @@ def _build_entry_map(db, employee_ids, start_date, end_date, shift_code_map):
             "shift_code": row["shift_code"] or code,
             "label": label,
             "note": note,
+            "force_override": _is_schedule_manual_override_note(note),
             "source": "manual",
             "title": title,
             **color_tokens,
         }
     return entry_map
+
+
+def _is_schedule_manual_override_note(note):
+    return str(note or "").strip().lower().startswith(SCHEDULE_MANUAL_OVERRIDE_NOTE_PREFIX.lower())
 
 
 def _resolve_override_style(style, shift_code_map=None):
@@ -988,9 +1008,15 @@ def _build_board_rows(schedule_members, start_date, end_date, entry_map, overrid
         day_parts = _build_schedule_day_parts(current_day)
         cells = []
         for member in schedule_members:
-            cell = override_map.get((member["employee_id"], iso_date)) or entry_map.get(
-                (member["employee_id"], iso_date)
-            )
+            key = (member["employee_id"], iso_date)
+            entry_cell = entry_map.get(key)
+            override_cell = override_map.get(key)
+            if override_cell and override_cell.get("source") == "offboarding":
+                cell = override_cell
+            elif entry_cell and entry_cell.get("force_override"):
+                cell = entry_cell
+            else:
+                cell = override_cell or entry_cell
             cells.append(cell)
 
         board_rows.append(
@@ -1046,7 +1072,14 @@ def resolve_employee_schedule_for_date(db, employee_id, target_date):
         shift_code_map,
     )
     override_map = _build_override_map(db, [employee], target_day, target_day, shift_code_map)
-    cell = override_map.get((safe_employee_id, iso_date)) or entry_map.get((safe_employee_id, iso_date))
+    entry_cell = entry_map.get((safe_employee_id, iso_date))
+    override_cell = override_map.get((safe_employee_id, iso_date))
+    if override_cell and override_cell.get("source") == "offboarding":
+        cell = override_cell
+    elif entry_cell and entry_cell.get("force_override"):
+        cell = entry_cell
+    else:
+        cell = override_cell or entry_cell
     day_parts = _build_schedule_day_parts(target_day)
     return {
         "employee_id": safe_employee_id,
@@ -1272,6 +1305,7 @@ def schedule_page():
     end_date = start_date + timedelta(days=days - 1)
 
     shift_codes, active_shift_codes, shift_code_map = _fetch_shift_codes(db)
+    quick_override_shifts = _build_quick_override_shifts(active_shift_codes)
     employee_rows = _fetch_employees_for_schedule(db, selected_warehouse)
     schedule_members = _build_schedule_members(employee_rows)
     schedule_groups = _build_schedule_groups(schedule_members)
@@ -1338,6 +1372,7 @@ def schedule_page():
         live_slots=[{"key": slot_key, "label": slot_label} for slot_key, slot_label in LIVE_SCHEDULE_SLOTS],
         shift_codes=shift_codes,
         active_shift_codes=active_shift_codes,
+        quick_override_shifts=quick_override_shifts,
         employee_rows=employee_rows,
         summary=summary,
         filters=filters,

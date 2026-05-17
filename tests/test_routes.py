@@ -68,6 +68,7 @@ from routes.schedule import (
     LEGACY_LIVE_SCHEDULE_DEFAULT_TEXT,
     LIVE_SCHEDULE_DEFAULT_BG,
     LIVE_SCHEDULE_DEFAULT_TEXT,
+    resolve_employee_schedule_for_date,
 )
 from services.crm_loyalty import ensure_crm_membership_multi_program_schema, get_member_snapshot
 from services.career_service import (
@@ -12872,6 +12873,83 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Cuti keluarga", html)
         self.assertIn("Sudah konfirmasi leader", html)
         self.assertIn("schedule-matrix-cell-note", html)
+
+    def test_schedule_context_menu_can_quick_override_auto_off_shift(self):
+        self.create_user("hr_schedule_quick_override", "pass1234", "hr")
+        employee_id = self.create_employee_record(
+            employee_code="EMP-SCD-QOV-OFF",
+            full_name="Nina Quick Override",
+            warehouse_id=1,
+            position="Admin Operasional",
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO leave_requests(
+                    employee_id,
+                    warehouse_id,
+                    leave_type,
+                    start_date,
+                    end_date,
+                    total_days,
+                    status,
+                    reason,
+                    handled_by
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    employee_id,
+                    1,
+                    "annual",
+                    "2026-03-30",
+                    "2026-03-30",
+                    1,
+                    "approved",
+                    "Mau pergi",
+                    1,
+                ),
+            )
+            db.commit()
+
+        self.login("hr_schedule_quick_override", "pass1234")
+        page_response = self.client.get("/schedule/?start=2026-03-30&days=7&warehouse=1")
+        self.assertEqual(page_response.status_code, 200)
+        html = page_response.get_data(as_text=True)
+        self.assertIn('id="scheduleEntryQuickOverrideForm"', html)
+        self.assertIn('data-schedule-context-action="quick-override"', html)
+        self.assertIn('data-schedule-override-shift-code="P"', html)
+        self.assertIn('data-schedule-override-shift-code="S"', html)
+        self.assertIn('data-schedule-override-shift-code="TS"', html)
+        self.assertIn('data-schedule-source="leave"', html)
+        self.assertIn('data-schedule-shift-code="OFF"', html)
+
+        override_response = self.client.post(
+            "/schedule/entry/save",
+            data={
+                "employee_id": str(employee_id),
+                "shift_code": "P",
+                "entry_start_date": "2026-03-30",
+                "entry_end_date": "2026-03-30",
+                "note": "Override HR dari Off ke Pagi: Mau pergi",
+                "start": "2026-03-30",
+                "days": "7",
+                "warehouse": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(override_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            schedule_snapshot = resolve_employee_schedule_for_date(db, employee_id, "2026-03-30")
+
+        self.assertTrue(schedule_snapshot["has_schedule"])
+        self.assertEqual(schedule_snapshot["shift_code"], "P")
+        self.assertEqual(schedule_snapshot["source"], "manual")
+        self.assertIn("Override HR dari Off ke Pagi", schedule_snapshot["note"])
 
     def test_schedule_board_applies_leave_and_offboarding_overrides(self):
         self.login()

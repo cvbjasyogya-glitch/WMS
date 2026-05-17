@@ -18628,6 +18628,14 @@ html[data-theme="light"] body .schedule-context-menu button:hover {
     color: #0d2742;
 }
 
+html[data-theme="light"] body .schedule-context-menu-section {
+    border-color: rgba(44, 93, 159, 0.12);
+}
+
+html[data-theme="light"] body .schedule-context-menu-section > span {
+    color: #6a819b;
+}
+
 html[data-theme="light"] body .schedule-board-action-hint {
     color: #496480;
 }
@@ -18672,6 +18680,27 @@ body .schedule-context-menu button {
     font-weight: 600;
     text-align: left;
     cursor: pointer;
+}
+
+body .schedule-context-menu-section {
+    margin: 8px 0;
+    padding: 8px 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+body .schedule-context-menu-section > span {
+    display: block;
+    padding: 0 14px 6px;
+    color: #8ea4bf;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+body .schedule-context-menu button[data-schedule-context-action="quick-override"]:hover {
+    background: rgba(104, 211, 145, 0.14);
 }
 
 body .schedule-context-menu button:hover {
