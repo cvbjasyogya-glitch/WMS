@@ -354,8 +354,11 @@ def _normalize_work_location_scope_key(value):
     return _normalize_shift_profile_key(value)
 
 
+ATTENDANCE_LOCATION_FLEX_ROLES = {"hr", "super_admin", "intern", "staff_intern"}
+
+
 def _can_route_attendance_by_location_scope():
-    return normalize_role(session.get("role")) in {"hr", "super_admin"}
+    return normalize_role(session.get("role")) in ATTENDANCE_LOCATION_FLEX_ROLES
 
 
 def _fetch_warehouse_for_location_scope(db, location_scope):
@@ -421,7 +424,7 @@ def _normalize_shift_profile_key(value):
 
 
 def _can_choose_shift_profile():
-    return normalize_role(session.get("role")) in {"hr", "super_admin"}
+    return normalize_role(session.get("role")) in ATTENDANCE_LOCATION_FLEX_ROLES
 
 
 def _can_correct_attendance_portal_logs():

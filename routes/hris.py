@@ -9206,14 +9206,22 @@ def update_daily_live_report(report_id):
         return_to = "/hris/report"
 
     if not can_manage_hris_records("report"):
-        flash("Tidak punya akses untuk memproses report harian/live.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Tidak punya akses untuk memproses report harian/live.",
+            "error",
+            return_to,
+            status_code=403,
+        )
 
     db = get_db()
     report = _get_daily_live_report_by_id(db, report_id)
     if report is None:
-        flash("Report tidak ditemukan.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Report tidak ditemukan.",
+            "error",
+            return_to,
+            status_code=404,
+        )
     previous_status = report["status"]
 
     status = _normalize_daily_live_report_status(request.form.get("status"))
@@ -9242,14 +9250,31 @@ def update_daily_live_report(report_id):
     )
     db.commit()
 
+    updated_report = None
     try:
         updated_report = _get_daily_live_report_by_id(db, report_id)
         _notify_daily_live_report_status_change(db, updated_report, previous_status=previous_status)
     except Exception as exc:
         print("DAILY LIVE REPORT STATUS NOTIFICATION ERROR:", exc)
 
-    flash("Status report harian/live berhasil diperbarui.", "success")
-    return redirect(return_to)
+    updated_report = updated_report or _get_daily_live_report_by_id(db, report_id)
+    status_label = DAILY_LIVE_REPORT_STATUS_LABELS.get(status, status)
+    return _hris_form_response(
+        "Status report harian/live berhasil diperbarui.",
+        "success",
+        return_to,
+        payload={
+            "report_id": report_id,
+            "status": status,
+            "status_label": status_label,
+            "hr_note": hr_note,
+            "handled_at_label": _format_hris_datetime_display(
+                updated_report.get("handled_at") if updated_report else handled_at,
+                include_date=True,
+            ),
+            "handled_by_name": (updated_report or {}).get("handled_by_name") if updated_report else None,
+        },
+    )
 
 
 @hris_bp.route("/approval/attendance-request/<int:request_id>/process", methods=["POST"])

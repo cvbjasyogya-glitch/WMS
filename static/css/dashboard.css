@@ -9185,6 +9185,71 @@ body.login-page .login-form-grid button[type="submit"] {
     min-height: 52px;
 }
 
+body.login-page .login-secondary-form {
+    margin-top: 12px;
+}
+
+body.login-page .login-email-guide {
+    margin: 18px 0;
+}
+
+body.login-page .login-email-guide-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: rgba(93, 183, 255, 0.08);
+}
+
+body.login-page .login-email-guide-panel[hidden] {
+    display: none;
+}
+
+body.login-page .login-email-guide-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+body.login-page .login-email-guide-head span {
+    color: var(--text-soft);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+body.login-page .login-email-guide-head strong {
+    color: var(--text-strong);
+}
+
+body.login-page .login-email-guide-panel p {
+    margin: 0;
+    color: var(--text-soft);
+    line-height: 1.65;
+}
+
+body.login-page .login-email-guide-highlight {
+    outline: 3px solid rgba(93, 183, 255, 0.34);
+    outline-offset: 4px;
+    border-radius: 14px;
+    box-shadow: 0 0 0 0 rgba(93, 183, 255, 0.28);
+    animation: login-email-guide-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes login-email-guide-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(93, 183, 255, 0.28);
+    }
+    70% {
+        box-shadow: 0 0 0 9px rgba(93, 183, 255, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(93, 183, 255, 0);
+    }
+}
+
 body.login-page .password-box {
     position: relative;
 }

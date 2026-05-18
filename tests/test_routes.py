@@ -133,6 +133,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             LOGIN_THROTTLE_WINDOW_SECONDS=300,
             PASSWORD_MIN_LENGTH=8,
             PASSWORD_RESET_TTL_MINUTES=15,
+            PORTAL_EMAIL_LOGIN_REQUIRED=False,
         )
         self.client = self.app.test_client()
 
@@ -8116,6 +8117,151 @@ class WmsRoutesTestCase(unittest.TestCase):
         with self.client.session_transaction() as sess:
             self.assertEqual(sess.get("username"), "CaseUser")
             self.assertEqual(sess.get("role"), "admin")
+
+    def test_portal_login_forces_legacy_user_to_register_and_verify_email(self):
+        self.app.config.update(
+            PORTAL_EMAIL_LOGIN_REQUIRED=True,
+            PORTAL_PUBLIC_BASE_URL="https://portal.test",
+            PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS=0,
+        )
+        self.create_user("legacy_email_user", "pass1234", "staff", warehouse_id=1)
+
+        first_login = self.client.post(
+            "/login",
+            data={"username": "legacy_email_user", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_login.status_code, 302)
+        self.assertIn("/login/email-required", first_login.headers["Location"])
+        with self.client.session_transaction() as sess:
+            self.assertNotIn("user_id", sess)
+            self.assertTrue(sess.get("pending_email_user_id"))
+
+        email_page = self.client.get("/login/email-required")
+        self.assertEqual(email_page.status_code, 200)
+        email_page_html = email_page.get_data(as_text=True)
+        self.assertIn("Daftarkan Email", email_page_html)
+        self.assertNotIn("Mulai Panduan", email_page_html)
+        self.assertNotIn("data-email-guide-next", email_page_html)
+        self.assertIn('data-email-guide-target="email"', email_page_html)
+        self.assertIn('data-email-guide-form="save"', email_page_html)
+        self.assertIn("advanceAfterCurrentStep", email_page_html)
+        self.assertIn("login-email-guide-highlight", email_page_html)
+
+        with patch("routes.auth.send_email", return_value=True) as mocked_send:
+            save_response = self.client.post(
+                "/login/email-required",
+                data={"email": "legacy.user@example.com"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(save_response.status_code, 302)
+        mocked_send.assert_called_once()
+        email_sent_page = self.client.get("/login/email-required")
+        email_sent_html = email_sent_page.get_data(as_text=True)
+        self.assertIn('data-email-guide-auto-open="1"', email_sent_html)
+        self.assertIn('data-email-guide-start-step="2"', email_sent_html)
+        self.assertIn('data-email-guide-form="resend"', email_sent_html)
+        email_body = mocked_send.call_args.args[2]
+        verification_url = next(
+            line.strip()
+            for line in email_body.splitlines()
+            if "/login/verify-email" in line
+        )
+        self.assertTrue(verification_url.startswith("https://portal.test/login/verify-email"))
+        token = parse_qs(urlsplit(verification_url).query)["token"][0]
+
+        verify_response = self.client.get(
+            f"/login/verify-email?token={token}",
+            follow_redirects=False,
+        )
+        self.assertEqual(verify_response.status_code, 302)
+        self.assertIn("/login", verify_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute(
+                "SELECT email, email_verified_at FROM users WHERE username=?",
+                ("legacy_email_user",),
+            ).fetchone()
+        self.assertEqual(user["email"], "legacy.user@example.com")
+        self.assertIsNotNone(user["email_verified_at"])
+
+        login_with_email = self.client.post(
+            "/login",
+            data={"username": "legacy.user@example.com", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(login_with_email.status_code, 302)
+        self.assertIn("/workspace/", login_with_email.headers["Location"])
+
+    def test_portal_email_login_rejects_old_username_after_email_verified(self):
+        self.app.config["PORTAL_EMAIL_LOGIN_REQUIRED"] = True
+        self.create_user("verified_old_username", "pass1234", "staff", warehouse_id=1)
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE users
+                SET email=?, email_verified_at=CURRENT_TIMESTAMP
+                WHERE username=?
+                """,
+                ("verified.staff@example.com", "verified_old_username"),
+            )
+            db.commit()
+
+        email_response = self.client.post(
+            "/login",
+            data={"username": "verified.staff@example.com", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(email_response.status_code, 302)
+        self.assertIn("/workspace/", email_response.headers["Location"])
+
+        self.logout()
+        username_response = self.client.post(
+            "/login",
+            data={"username": "verified_old_username", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(username_response.status_code, 302)
+        self.assertIn("/login", username_response.headers["Location"])
+        with self.client.session_transaction() as sess:
+            self.assertNotIn("user_id", sess)
+
+    def test_portal_email_required_rejects_duplicate_email(self):
+        self.app.config["PORTAL_EMAIL_LOGIN_REQUIRED"] = True
+        self.create_user("email_owner", "pass1234", "staff", warehouse_id=1)
+        self.create_user("email_pending", "pass1234", "staff", warehouse_id=1)
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE users
+                SET email=?, email_verified_at=CURRENT_TIMESTAMP
+                WHERE username=?
+                """,
+                ("taken@example.com", "email_owner"),
+            )
+            db.commit()
+
+        start_response = self.client.post(
+            "/login",
+            data={"username": "email_pending", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_response.status_code, 302)
+
+        with patch("routes.auth.send_email", return_value=True) as mocked_send:
+            duplicate_response = self.client.post(
+                "/login/email-required",
+                data={"email": "taken@example.com"},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(duplicate_response.status_code, 200)
+        self.assertIn("Email ini sudah dipakai akun lain.", duplicate_response.get_data(as_text=True))
+        mocked_send.assert_not_called()
 
     def test_service_worker_route_is_public(self):
         response = self.client.get("/service-worker.js")
@@ -25067,6 +25213,76 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance["shift_code"], "pagi")
         self.assertIn("09.00 - 17.00", attendance["shift_label"])
 
+    def test_attendance_portal_intern_mega_location_uses_mega_warehouse_and_shift(self):
+        employee_id = self.create_employee_record(
+            employee_code="EMP-ABS-INTERN-MEGA-LOC",
+            full_name="Portal Intern Mega Location",
+            warehouse_id=1,
+            position="Intern",
+        )
+        self.create_user("portal_intern_mega_loc", "pass1234", "intern", warehouse_id=1, employee_id=employee_id)
+        self.login("portal_intern_mega_loc", "pass1234")
+        today = date_cls.today().isoformat()
+
+        portal_page = self.client.get("/absen/")
+        self.assertEqual(portal_page.status_code, 200)
+        portal_html = portal_page.get_data(as_text=True)
+        self.assertIn('name="shift_profile_key"', portal_html)
+        self.assertIn("Gudang Mega", portal_html)
+
+        submit_response = self.client.post(
+            "/absen/submit",
+            data={
+                "shift_code": "pagi",
+                "location_scope": "mega",
+                "location_label": "Gudang Mega - Area Intern",
+                "latitude": "-7.782893",
+                "longitude": "110.409127",
+                "accuracy_m": "6.0",
+                "punch_time": f"{today}T08:55",
+                "punch_type": "check_in",
+                "note": "Intern absen dari Mega",
+                "photo_data_url": self.build_camera_photo_data_url(),
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(submit_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            biometric = db.execute(
+                """
+                SELECT warehouse_id, location_label, shift_code, shift_label
+                FROM biometric_logs
+                WHERE employee_id=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+            attendance = db.execute(
+                """
+                SELECT warehouse_id, check_in, status, shift_code, shift_label
+                FROM attendance_records
+                WHERE employee_id=? AND attendance_date=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, today),
+            ).fetchone()
+
+        self.assertIsNotNone(biometric)
+        self.assertEqual(biometric["warehouse_id"], 2)
+        self.assertEqual(biometric["location_label"], "Gudang Mega - Area Intern")
+        self.assertEqual(biometric["shift_code"], "pagi")
+        self.assertIn("09.00 - 17.00", biometric["shift_label"])
+        self.assertIsNotNone(attendance)
+        self.assertEqual(attendance["warehouse_id"], 2)
+        self.assertEqual(attendance["check_in"], "08:55")
+        self.assertEqual(attendance["status"], "present")
+        self.assertEqual(attendance["shift_code"], "pagi")
+        self.assertIn("09.00 - 17.00", attendance["shift_label"])
+
     def test_attendance_portal_supports_break_flow_before_check_out(self):
         employee_id = self.create_employee_record(
             employee_code="EMP-ABS-BREAK",
@@ -27162,6 +27378,69 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(updated["status"], "follow_up")
         self.assertEqual(updated["hr_note"], "Lengkapi detail manpower shift berikutnya.")
+        self.assertIsNotNone(updated["handled_by"])
+
+    def test_daily_report_review_ajax_updates_status_without_redirect(self):
+        self.create_user("staff_report_ajax", "pass1234", "staff", warehouse_id=1)
+        self.login("staff_report_ajax", "pass1234")
+        self.client.post(
+            "/laporan-harian/submit",
+            data={
+                "report_type": "daily",
+                "report_date": "2026-09-06",
+                "title": "Report review AJAX",
+                "summary": "Semua task operasional selesai.",
+                "blocker_note": "Tidak ada kendala besar.",
+                "follow_up_note": "Lanjut cek display besok.",
+            },
+            follow_redirects=False,
+        )
+
+        with self.app.app_context():
+            db = get_db()
+            report = db.execute(
+                "SELECT id FROM daily_live_reports WHERE title=?",
+                ("Report review AJAX",),
+            ).fetchone()
+
+        self.logout()
+        self.login_hr_user("hr_report_ajax", "pass1234")
+        page_response = self.client.get("/hris/report?daily_status=active&daily_date_from=2026-09-06&daily_date_to=2026-09-06")
+        self.assertEqual(page_response.status_code, 200)
+        page_html = page_response.get_data(as_text=True)
+        self.assertIn('data-report-review-form="daily-live"', page_html)
+        self.assertIn("initReportReviewForms", page_html)
+
+        update_response = self.client.post(
+            f"/hris/report/daily-live/update/{report['id']}",
+            data={
+                "status": "reviewed",
+                "hr_note": "Sudah direview tanpa reload halaman.",
+                "return_to": "/hris/report?daily_status=active&daily_date_from=2026-09-06&daily_date_to=2026-09-06",
+                "async": "1",
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "reviewed")
+        self.assertEqual(payload["status_label"], "Reviewed")
+        self.assertEqual(payload["hr_note"], "Sudah direview tanpa reload halaman.")
+
+        with self.app.app_context():
+            db = get_db()
+            updated = db.execute(
+                "SELECT status, hr_note, handled_by FROM daily_live_reports WHERE id=?",
+                (report["id"],),
+            ).fetchone()
+
+        self.assertEqual(updated["status"], "reviewed")
+        self.assertEqual(updated["hr_note"], "Sudah direview tanpa reload halaman.")
         self.assertIsNotNone(updated["handled_by"])
 
     def test_daily_report_status_update_triggers_classified_role_notification(self):

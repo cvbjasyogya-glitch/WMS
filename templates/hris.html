@@ -4715,7 +4715,7 @@
 </div>
 
 {% macro render_report_feed_panel(panel_title, panel_description, reports, empty_message, can_manage_report, report_return_to) -%}
-<details class="table-box report-feed-panel panel-disclosure">
+<details class="table-box report-feed-panel panel-disclosure" data-report-review-panel>
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -4724,7 +4724,7 @@
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="badge">{{ reports|length }} item</span>
+            <span class="badge" data-report-review-panel-count>{{ reports|length }} item</span>
             <span class="panel-summary-state">Buka Log</span>
         </div>
     </summary>
@@ -4732,14 +4732,14 @@
         {% if reports %}
         <div class="stack-scroll-list">
             {% for report in reports %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="box stack-scroll-card" style="margin-bottom:0;" data-report-review-card data-report-status="{{ report.status }}">
                 <div class="section-title">
                     <div>
                         <h3>{{ report.title }}</h3>
                         <p>{{ report.report_date }} • {{ report.report_type_label }} • {{ report.display_name }} • {{ report.warehouse_name or "-" }}</p>
                     </div>
                     <div class="report-review-badges">
-                        <span class="badge">{{ report.status_label }}</span>
+                        <span class="badge {{ 'green' if report.status in ['reviewed', 'closed'] else 'orange' if report.status in ['submitted', 'follow_up'] else 'red' }}" data-report-review-status-badge>{{ report.status_label }}</span>
                         <span class="badge">{{ report.username or "-" }}</span>
                     </div>
                 </div>
@@ -4788,7 +4788,7 @@
                     </div>
                     {% if can_manage_report %}
                     <div style="grid-column: 1 / -1;">
-                        <form method="POST" action="/hris/report/daily-live/update/{{ report.id }}">
+                        <form method="POST" action="/hris/report/daily-live/update/{{ report.id }}" data-report-review-form="daily-live">
                             <div class="form-grid">
                                 <div>
                                     <label>Status HR</label>
@@ -4808,12 +4808,13 @@
                             <div class="split-actions" style="margin-top:16px;">
                                 <button type="submit">Simpan Review</button>
                             </div>
+                            <small class="helper-text" data-report-review-feedback aria-live="polite"></small>
                         </form>
                     </div>
                     {% else %}
                     <div style="grid-column: 1 / -1;">
                         <label>Catatan HR</label>
-                        <div class="empty-state report-review-text">{{ report.hr_note or "Belum ada catatan review." }}</div>
+                        <div class="empty-state report-review-text" data-report-review-note>{{ report.hr_note or "Belum ada catatan review." }}</div>
                     </div>
                     {% endif %}
                 </div>
@@ -6631,9 +6632,163 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     };
 
+    const initReportReviewForms = function () {
+        const forms = document.querySelectorAll("[data-report-review-form]");
+        if (!forms.length) {
+            return;
+        }
+
+        const activeStatuses = new Set(["submitted", "follow_up"]);
+        const archivedStatuses = new Set(["reviewed", "closed"]);
+
+        const getSelectedStatusLabel = function (form, status) {
+            const select = form.querySelector('select[name="status"]');
+            if (!select) {
+                return status || "Updated";
+            }
+            const option = Array.from(select.options).find(function (item) {
+                return item.value === status;
+            }) || select.options[select.selectedIndex];
+            return option ? option.textContent.trim() : (status || "Updated");
+        };
+
+        const getStatusBadgeClass = function (status) {
+            if (archivedStatuses.has(status)) {
+                return "green";
+            }
+            if (activeStatuses.has(status)) {
+                return "orange";
+            }
+            return "red";
+        };
+
+        const setFeedback = function (form, message, isError) {
+            const feedback = form.querySelector("[data-report-review-feedback]");
+            if (!feedback) {
+                return;
+            }
+            feedback.textContent = message || "";
+            feedback.classList.toggle("biometric-inline-feedback-error", Boolean(isError));
+        };
+
+        const updatePanelCount = function (panel) {
+            if (!panel) {
+                return;
+            }
+            const cards = panel.querySelectorAll("[data-report-review-card]");
+            const countBadge = panel.querySelector("[data-report-review-panel-count]");
+            if (countBadge) {
+                countBadge.textContent = `${cards.length} item`;
+            }
+            if (cards.length > 0 || panel.querySelector("[data-report-review-empty]")) {
+                return;
+            }
+            const content = panel.querySelector(".panel-content");
+            if (!content) {
+                return;
+            }
+            const emptyState = document.createElement("div");
+            emptyState.className = "empty-state";
+            emptyState.setAttribute("data-report-review-empty", "1");
+            emptyState.textContent = "Semua report pada panel ini sudah diproses.";
+            content.appendChild(emptyState);
+        };
+
+        const shouldRemoveDailyCard = function (status) {
+            const filter = new URLSearchParams(window.location.search || "").get("daily_status") || "";
+            const normalizedFilter = filter.trim().toLowerCase();
+            const activeFilter = !normalizedFilter || normalizedFilter === "active";
+            if (activeFilter) {
+                return !activeStatuses.has(status);
+            }
+            if (normalizedFilter === "archived") {
+                return !archivedStatuses.has(status);
+            }
+            if (["submitted", "reviewed", "follow_up", "closed"].includes(normalizedFilter)) {
+                return normalizedFilter !== status;
+            }
+            return false;
+        };
+
+        forms.forEach(function (form) {
+            form.addEventListener("submit", async function (event) {
+                event.preventDefault();
+
+                const submitButton = event.submitter || form.querySelector('button[type="submit"]');
+                const originalText = submitButton ? submitButton.textContent : "";
+                const formData = new FormData(form);
+                formData.set("async", "1");
+                if (submitButton && submitButton.name) {
+                    formData.set(submitButton.name, submitButton.value || "");
+                }
+
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.textContent = "Menyimpan...";
+                }
+                form.dataset.state = "saving";
+                setFeedback(form, "Menyimpan review...", false);
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: "POST",
+                        body: formData,
+                        headers: {
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Accept": "application/json"
+                        },
+                        credentials: "same-origin"
+                    });
+                    const payload = await response.json().catch(function () {
+                        return {};
+                    });
+                    if (!response.ok || payload.ok !== true) {
+                        throw new Error(payload.message || "Review belum tersimpan.");
+                    }
+
+                    const status = String(payload.status || formData.get("status") || "").trim().toLowerCase();
+                    const card = form.closest("[data-report-review-card]");
+                    const statusBadge = card ? card.querySelector("[data-report-review-status-badge]") : null;
+                    if (card) {
+                        card.dataset.reportStatus = status;
+                    }
+                    if (statusBadge) {
+                        statusBadge.textContent = payload.status_label || getSelectedStatusLabel(form, status);
+                        statusBadge.classList.remove("green", "orange", "red");
+                        statusBadge.classList.add(getStatusBadgeClass(status));
+                    }
+                    const noteNode = card ? card.querySelector("[data-report-review-note]") : null;
+                    if (noteNode) {
+                        noteNode.textContent = payload.hr_note || "Belum ada catatan review.";
+                    }
+
+                    form.dataset.state = "saved";
+                    setFeedback(form, payload.message || "Review tersimpan.", false);
+
+                    if (form.getAttribute("data-report-review-form") === "daily-live" && shouldRemoveDailyCard(status) && card) {
+                        window.setTimeout(function () {
+                            const panel = card.closest("[data-report-review-panel]");
+                            card.remove();
+                            updatePanelCount(panel);
+                        }, 450);
+                    }
+                } catch (error) {
+                    form.dataset.state = "error";
+                    setFeedback(form, error.message || "Review gagal disimpan.", true);
+                } finally {
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = originalText || "Simpan Review";
+                    }
+                }
+            });
+        });
+    };
+
     initBreakTimers();
     initDocumentSignaturePads();
     initBiometricInlineForms();
+    initReportReviewForms();
 
     const initApprovalQueues = function () {
         const queues = document.querySelectorAll("[data-approval-queue]");

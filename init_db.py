@@ -210,6 +210,10 @@ def migrate_schema(cursor):
     # add contact fields for user notifications
     _ensure_column(cursor, "users", "email", "TEXT")
     _ensure_column(cursor, "users", "phone", "TEXT")
+    _ensure_column(cursor, "users", "email_verified_at", "TIMESTAMP")
+    _ensure_column(cursor, "users", "email_verification_token_hash", "TEXT")
+    _ensure_column(cursor, "users", "email_verification_sent_at", "TIMESTAMP")
+    _ensure_column(cursor, "users", "email_verification_expires_at", "TIMESTAMP")
     # per-account notification preferences
     _ensure_column(cursor, "users", "notify_email", "INTEGER DEFAULT 1")
     _ensure_column(cursor, "users", "notify_whatsapp", "INTEGER DEFAULT 0")
@@ -1825,6 +1829,8 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_schedule_change_events_main ON schedule_change_events(warehouse_id, created_at, event_kind)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id, is_active, updated_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_scope_role ON users(role, warehouse_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email_verification ON users(email_verification_token_hash)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_requests_flow ON requests(status, from_warehouse, to_warehouse, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requested_by, status, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_action_requests_main ON attendance_action_requests(status, warehouse_id, request_type, created_at)")

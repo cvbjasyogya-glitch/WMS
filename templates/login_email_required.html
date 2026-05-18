@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#07111f" id="themeColorMeta">
+<title>Konfirmasi Email | ERP-CV.BJAS</title>
+{% set brand_logo_url = asset_url('brand/mataram-logo.png') %}
+{% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
+{% set login_hero_url = asset_url('brand/login-hero-crowd.jpeg') %}
+{% set dashboard_css_url = asset_url('css/dashboard.css') %}
+<link rel="icon" type="image/png" href="{{ brand_logo_192_url }}">
+<link rel="apple-touch-icon" href="{{ brand_logo_192_url }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script>
+(() => {
+    try {
+        const storedTheme = localStorage.getItem("wms-theme");
+        const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
+        document.documentElement.dataset.theme = theme;
+    } catch (error) {
+        document.documentElement.dataset.theme = "dark";
+    }
+})();
+</script>
+<link rel="stylesheet" href="{{ dashboard_css_url }}">
+</head>
+<body class="login-page minimal-shell browser-mode" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser">
+<main class="login-shell" data-login-shell="split-clean">
+    <section class="login-hero-panel" data-login-hero>
+        <div class="login-hero-media" aria-hidden="true">
+            <img src="{{ login_hero_url }}" alt="">
+        </div>
+        <div class="login-hero-scrim" aria-hidden="true"></div>
+    </section>
+
+    <section class="login-form-panel login-auth-panel">
+        <div class="login-panel-brand">
+            <div class="login-panel-brand-mark">
+                <img src="{{ brand_logo_url }}" alt="ERP-CV.BJAS logo">
+            </div>
+            <div class="login-panel-brand-copy">
+                <span>ERP-CV.BJAS</span>
+                <strong>Konfirmasi Email</strong>
+            </div>
+        </div>
+
+        <div class="login-panel-copy">
+            <h1>Daftarkan Email</h1>
+            <p class="subcopy">Mulai sekarang login portal memakai email aktif untuk keamanan akun.</p>
+        </div>
+
+        <div
+            class="login-email-guide"
+            data-email-guide
+            data-email-guide-start-step="{{ 2 if has_email else 0 }}"
+            data-email-guide-auto-open="{{ '1' if has_email else '0' }}"
+        >
+            <div class="login-email-guide-panel" data-email-guide-panel>
+                <div class="login-email-guide-head">
+                    <span data-email-guide-count>1/4</span>
+                    <strong data-email-guide-title>Email aktif</strong>
+                </div>
+                <p data-email-guide-copy>Masukkan email yang benar-benar bisa kamu buka sekarang.</p>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-stack">
+            {% for category, message in messages %}
+            <div class="msg {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('auth.portal_email_required') }}" class="login-form-grid" data-email-guide-form="save">
+            <input type="hidden" name="action" value="save_email">
+            <div data-email-guide-target="email">
+                <label>Email aktif</label>
+                <input type="email" name="email" value="{{ email }}" placeholder="nama@email.com" required autofocus autocomplete="email" spellcheck="false" data-email-guide-email-input>
+            </div>
+            <button type="submit" data-email-guide-target="submit">Kirim Konfirmasi</button>
+        </form>
+
+        {% if has_email %}
+        <form method="POST" action="{{ url_for('auth.portal_email_required') }}" class="login-form-grid login-secondary-form" data-email-guide-form="resend">
+            <input type="hidden" name="action" value="resend">
+            <input type="hidden" name="email" value="{{ email }}">
+            <button type="submit" class="ghost-button" data-email-guide-target="resend">Kirim Ulang ke {{ masked_email }}</button>
+        </form>
+        {% endif %}
+
+        <p class="login-footnote">Akun: {{ username }}. Setelah email dikonfirmasi, login ulang memakai email tersebut.</p>
+    </section>
+</main>
+<script>
+(() => {
+    const root = document.querySelector("[data-email-guide]");
+    if (!root) {
+        return;
+    }
+
+    const steps = [
+        {
+            title: "Email aktif",
+            copy: "Masukkan email yang benar-benar bisa kamu buka sekarang.",
+            target: "email"
+        },
+        {
+            title: "Kirim konfirmasi",
+            copy: "Klik tombol kirim. Portal akan mengirim tautan konfirmasi ke email itu.",
+            target: "submit"
+        },
+        {
+            title: "Cek inbox",
+            copy: "Buka inbox atau spam. Kalau belum masuk, tombol kirim ulang di bawah bisa dipakai.",
+            target: "resend"
+        },
+        {
+            title: "Login ulang",
+            copy: "Setelah email dikonfirmasi, masuk lagi memakai email dan password akun portal.",
+            target: ""
+        }
+    ];
+
+    const count = root.querySelector("[data-email-guide-count]");
+    const title = root.querySelector("[data-email-guide-title]");
+    const copy = root.querySelector("[data-email-guide-copy]");
+    const emailInput = document.querySelector("[data-email-guide-email-input]");
+    const startStep = Math.min(
+        steps.length - 1,
+        Math.max(0, Number(root.getAttribute("data-email-guide-start-step") || 0) || 0)
+    );
+    const shouldAutoOpen = root.getAttribute("data-email-guide-auto-open") === "1";
+    let index = startStep;
+    let emailAdvanceTimer = null;
+
+    const clearHighlights = () => {
+        document.querySelectorAll(".login-email-guide-highlight").forEach((node) => {
+            node.classList.remove("login-email-guide-highlight");
+            node.removeAttribute("aria-current");
+        });
+    };
+
+    const render = (options = {}) => {
+        const step = steps[index];
+        count.textContent = `${index + 1}/${steps.length}`;
+        title.textContent = step.title;
+        copy.textContent = step.copy;
+        clearHighlights();
+        if (step.target) {
+            const target = document.querySelector(`[data-email-guide-target="${step.target}"]`);
+            if (target) {
+                target.classList.add("login-email-guide-highlight");
+                target.setAttribute("aria-current", "step");
+                if (options.scrollTarget) {
+                    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+            }
+        }
+    };
+
+    const openGuide = (stepIndex = index, options = {}) => {
+        index = Math.min(steps.length - 1, Math.max(0, Number(stepIndex) || 0));
+        render(options);
+    };
+
+    const goToStep = (stepIndex, options = {}) => {
+        const nextIndex = Math.min(steps.length - 1, Math.max(0, Number(stepIndex) || 0));
+        index = nextIndex;
+        render(options);
+    };
+
+    const advanceAfterCurrentStep = (currentStep, nextStep, options = {}) => {
+        if (index <= currentStep) {
+            goToStep(nextStep, options);
+        }
+    };
+
+    if (emailInput) {
+        emailInput.addEventListener("focus", () => {
+            goToStep(0);
+        });
+        emailInput.addEventListener("input", () => {
+            window.clearTimeout(emailAdvanceTimer);
+            const value = (emailInput.value || "").trim();
+            if (!value || !emailInput.checkValidity()) {
+                goToStep(0);
+                return;
+            }
+            emailAdvanceTimer = window.setTimeout(() => {
+                advanceAfterCurrentStep(0, 1, { scrollTarget: true });
+            }, 360);
+        });
+    }
+
+    document.querySelectorAll("[data-email-guide-form]").forEach((form) => {
+        form.addEventListener("submit", () => {
+            const formType = form.getAttribute("data-email-guide-form");
+            if (formType === "save") {
+                goToStep(2);
+                return;
+            }
+            if (formType === "resend") {
+                goToStep(2, { scrollTarget: true });
+            }
+        });
+    });
+
+    if (shouldAutoOpen) {
+        openGuide(startStep, { scrollTarget: true });
+    } else {
+        openGuide(startStep);
+    }
+})();
+</script>
+</body>
+</html>

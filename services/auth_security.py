@@ -1,4 +1,5 @@
 import math
+import hashlib
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -51,6 +52,65 @@ def issue_password_reset_code(db, user_id, ttl_minutes):
 def mark_password_resets_used(db, user_id):
     db.execute(
         "UPDATE password_resets SET used=1 WHERE user_id=? AND used=0",
+        (user_id,),
+    )
+
+
+def hash_user_email_verification_token(token):
+    safe_token = (token or "").strip()
+    if not safe_token:
+        return ""
+    return hashlib.sha256(safe_token.encode("utf-8")).hexdigest()
+
+
+def issue_user_email_verification(db, user_id, ttl_hours=24):
+    ttl_hours = max(1, int(ttl_hours or 24))
+    token = secrets.token_urlsafe(32)
+    token_hash = hash_user_email_verification_token(token)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+    db.execute(
+        """
+        UPDATE users
+        SET email_verification_token_hash=?,
+            email_verification_sent_at=CURRENT_TIMESTAMP,
+            email_verification_expires_at=?
+        WHERE id=?
+        """,
+        (
+            token_hash,
+            expires_at.strftime("%Y-%m-%d %H:%M:%S"),
+            user_id,
+        ),
+    )
+    return token
+
+
+def get_user_by_email_verification_token(db, token):
+    token_hash = hash_user_email_verification_token(token)
+    if not token_hash:
+        return None
+    return db.execute(
+        """
+        SELECT *
+        FROM users
+        WHERE email_verification_token_hash=?
+        LIMIT 1
+        """,
+        (token_hash,),
+    ).fetchone()
+
+
+def mark_user_email_verified(db, user_id):
+    db.execute(
+        """
+        UPDATE users
+        SET email_verified_at=CURRENT_TIMESTAMP,
+            email_verification_token_hash=NULL,
+            email_verification_sent_at=NULL,
+            email_verification_expires_at=NULL,
+            notify_email=1
+        WHERE id=?
+        """,
         (user_id,),
     )
 
