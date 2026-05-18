@@ -212,6 +212,7 @@ def migrate_schema(cursor):
     _ensure_column(cursor, "users", "phone", "TEXT")
     _ensure_column(cursor, "users", "email_verified_at", "TIMESTAMP")
     _ensure_column(cursor, "users", "email_verification_token_hash", "TEXT")
+    _ensure_column(cursor, "users", "email_verification_code_hash", "TEXT")
     _ensure_column(cursor, "users", "email_verification_sent_at", "TIMESTAMP")
     _ensure_column(cursor, "users", "email_verification_expires_at", "TIMESTAMP")
     # per-account notification preferences
@@ -1831,6 +1832,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_scope_role ON users(role, warehouse_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_email_verification ON users(email_verification_token_hash)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email_verification_code ON users(email_verification_code_hash)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_requests_flow ON requests(status, from_warehouse, to_warehouse, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_requests_requester ON requests(requested_by, status, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_action_requests_main ON attendance_action_requests(status, warehouse_id, request_type, created_at)")

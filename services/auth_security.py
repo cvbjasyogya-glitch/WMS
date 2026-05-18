@@ -63,25 +63,34 @@ def hash_user_email_verification_token(token):
     return hashlib.sha256(safe_token.encode("utf-8")).hexdigest()
 
 
-def issue_user_email_verification(db, user_id, ttl_hours=24):
+def issue_user_email_verification_challenge(db, user_id, ttl_hours=24):
     ttl_hours = max(1, int(ttl_hours or 24))
     token = secrets.token_urlsafe(32)
+    code = generate_numeric_code(5)
     token_hash = hash_user_email_verification_token(token)
+    code_hash = hash_user_email_verification_token(code)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
     db.execute(
         """
         UPDATE users
         SET email_verification_token_hash=?,
+            email_verification_code_hash=?,
             email_verification_sent_at=CURRENT_TIMESTAMP,
             email_verification_expires_at=?
         WHERE id=?
         """,
         (
             token_hash,
+            code_hash,
             expires_at.strftime("%Y-%m-%d %H:%M:%S"),
             user_id,
         ),
     )
+    return token, code
+
+
+def issue_user_email_verification(db, user_id, ttl_hours=24):
+    token, _code = issue_user_email_verification_challenge(db, user_id, ttl_hours=ttl_hours)
     return token
 
 
@@ -100,12 +109,29 @@ def get_user_by_email_verification_token(db, token):
     ).fetchone()
 
 
+def get_user_by_email_verification_code(db, user_id, code):
+    code_hash = hash_user_email_verification_token(code)
+    if not code_hash:
+        return None
+    return db.execute(
+        """
+        SELECT *
+        FROM users
+        WHERE id=?
+          AND email_verification_code_hash=?
+        LIMIT 1
+        """,
+        (user_id, code_hash),
+    ).fetchone()
+
+
 def mark_user_email_verified(db, user_id):
     db.execute(
         """
         UPDATE users
         SET email_verified_at=CURRENT_TIMESTAMP,
             email_verification_token_hash=NULL,
+            email_verification_code_hash=NULL,
             email_verification_sent_at=NULL,
             email_verification_expires_at=NULL,
             notify_email=1

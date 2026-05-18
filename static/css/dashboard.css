@@ -9189,6 +9189,39 @@ body.login-page .login-secondary-form {
     margin-top: 12px;
 }
 
+body.login-page .login-secondary-stack {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+body.login-page .login-secondary-stack .login-secondary-form {
+    margin-top: 0;
+}
+
+body.login-page .login-code-form {
+    gap: 8px;
+}
+
+body.login-page .login-code-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+
+body.login-page .login-code-row input {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 1.05rem;
+    letter-spacing: 0;
+}
+
+body.login-page .login-code-row .ghost-button {
+    min-height: 52px;
+    white-space: nowrap;
+}
+
 body.login-page .login-email-guide {
     margin: 18px 0;
 }

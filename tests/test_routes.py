@@ -8161,8 +8161,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         email_sent_html = email_sent_page.get_data(as_text=True)
         self.assertIn('data-email-guide-auto-open="1"', email_sent_html)
         self.assertIn('data-email-guide-start-step="2"', email_sent_html)
+        self.assertIn('name="verification_code"', email_sent_html)
+        self.assertIn('data-email-guide-form="code"', email_sent_html)
         self.assertIn('data-email-guide-form="resend"', email_sent_html)
+        self.assertIn('data-email-guide-target="channel"', email_sent_html)
+        self.assertNotIn('data-email-guide-form="whatsapp"', email_sent_html)
         email_body = mocked_send.call_args.args[2]
+        code_line = next(
+            line.strip()
+            for line in email_body.splitlines()
+            if "kode verifikasi" in line.lower()
+        )
+        self.assertEqual(len(code_line.rsplit(":", 1)[1].strip()), 5)
         verification_url = next(
             line.strip()
             for line in email_body.splitlines()
@@ -8262,6 +8272,137 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(duplicate_response.status_code, 200)
         self.assertIn("Email ini sudah dipakai akun lain.", duplicate_response.get_data(as_text=True))
         mocked_send.assert_not_called()
+
+    def test_portal_email_required_accepts_five_digit_verification_code(self):
+        self.app.config.update(
+            PORTAL_EMAIL_LOGIN_REQUIRED=True,
+            PORTAL_PUBLIC_BASE_URL="https://portal.test",
+            PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS=0,
+        )
+        self.create_user("code_verify_user", "pass1234", "staff", warehouse_id=1)
+
+        start_response = self.client.post(
+            "/login",
+            data={"username": "code_verify_user", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_response.status_code, 302)
+
+        with patch("routes.auth.send_email", return_value=True) as mocked_send:
+            save_response = self.client.post(
+                "/login/email-required",
+                data={"email": "code.verify@example.com"},
+                follow_redirects=False,
+            )
+        self.assertEqual(save_response.status_code, 302)
+        email_body = mocked_send.call_args.args[2]
+        code_line = next(
+            line.strip()
+            for line in email_body.splitlines()
+            if "kode verifikasi" in line.lower()
+        )
+        verification_code = code_line.rsplit(":", 1)[1].strip()
+        self.assertTrue(verification_code.isdigit())
+        self.assertEqual(len(verification_code), 5)
+
+        verify_response = self.client.post(
+            "/login/email-required",
+            data={"action": "verify_code", "verification_code": verification_code},
+            follow_redirects=False,
+        )
+        self.assertEqual(verify_response.status_code, 302)
+        self.assertIn("/login", verify_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute(
+                """
+                SELECT email, email_verified_at, email_verification_code_hash
+                FROM users
+                WHERE username=?
+                """,
+                ("code_verify_user",),
+            ).fetchone()
+
+        self.assertEqual(user["email"], "code.verify@example.com")
+        self.assertIsNotNone(user["email_verified_at"])
+        self.assertIsNone(user["email_verification_code_hash"])
+
+    def test_portal_email_required_can_send_verification_link_to_registered_whatsapp(self):
+        self.app.config.update(
+            PORTAL_EMAIL_LOGIN_REQUIRED=True,
+            PORTAL_PUBLIC_BASE_URL="https://portal.test",
+            PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS=0,
+        )
+        self.create_user(
+            "wa_verify_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            phone="6281234567890",
+        )
+
+        start_response = self.client.post(
+            "/login",
+            data={"username": "wa_verify_user", "password": "pass1234"},
+            follow_redirects=False,
+        )
+        self.assertEqual(start_response.status_code, 302)
+
+        with patch("routes.auth.send_email", return_value=True):
+            save_response = self.client.post(
+                "/login/email-required",
+                data={"email": "wa.verify@example.com"},
+                follow_redirects=False,
+            )
+        self.assertEqual(save_response.status_code, 302)
+
+        email_sent_page = self.client.get("/login/email-required")
+        email_sent_html = email_sent_page.get_data(as_text=True)
+        self.assertIn('data-email-guide-form="whatsapp"', email_sent_html)
+        self.assertIn("Kirim link via WhatsApp 6281***890", email_sent_html)
+
+        with patch("routes.auth.send_whatsapp", return_value=True) as mocked_whatsapp:
+            whatsapp_response = self.client.post(
+                "/login/email-required",
+                data={"action": "send_whatsapp", "email": "wa.verify@example.com"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(whatsapp_response.status_code, 302)
+        mocked_whatsapp.assert_called_once()
+        self.assertEqual(mocked_whatsapp.call_args.args[0], "6281234567890")
+        whatsapp_message = mocked_whatsapp.call_args.args[1]
+        verification_line = next(
+            line.strip()
+            for line in whatsapp_message.splitlines()
+            if "/login/verify-email" in line
+        )
+        verification_url = "http" + verification_line.split("http", 1)[1]
+        self.assertTrue(verification_url.startswith("https://portal.test/login/verify-email"))
+        code_line = next(
+            line.strip()
+            for line in whatsapp_message.splitlines()
+            if "masukkan kode" in line.lower()
+        )
+        self.assertEqual(len(code_line.rsplit(":", 1)[1].strip()), 5)
+        token = parse_qs(urlsplit(verification_url).query)["token"][0]
+
+        verify_response = self.client.get(
+            f"/login/verify-email?token={token}",
+            follow_redirects=False,
+        )
+        self.assertEqual(verify_response.status_code, 302)
+        self.assertIn("/login", verify_response.headers["Location"])
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute(
+                "SELECT email, email_verified_at FROM users WHERE username=?",
+                ("wa_verify_user",),
+            ).fetchone()
+        self.assertEqual(user["email"], "wa.verify@example.com")
+        self.assertIsNotNone(user["email_verified_at"])
 
     def test_service_worker_route_is_public(self):
         response = self.client.get("/service-worker.js")

@@ -87,11 +87,30 @@
         </form>
 
         {% if has_email %}
-        <form method="POST" action="{{ url_for('auth.portal_email_required') }}" class="login-form-grid login-secondary-form" data-email-guide-form="resend">
-            <input type="hidden" name="action" value="resend">
-            <input type="hidden" name="email" value="{{ email }}">
-            <button type="submit" class="ghost-button" data-email-guide-target="resend">Kirim Ulang ke {{ masked_email }}</button>
-        </form>
+        <div class="login-secondary-stack" data-email-guide-target="channel">
+            <form method="POST" action="{{ url_for('auth.portal_email_required') }}" class="login-form-grid login-code-form" data-email-guide-form="code">
+                <input type="hidden" name="action" value="verify_code">
+                <label>Kode verifikasi</label>
+                <div class="login-code-row" data-email-guide-target="code">
+                    <input type="text" name="verification_code" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="5 digit" autocomplete="one-time-code" spellcheck="false" required>
+                    <button type="submit" class="ghost-button">Verifikasi</button>
+                </div>
+            </form>
+            <form method="POST" action="{{ url_for('auth.portal_email_required') }}" class="login-form-grid login-secondary-form" data-email-guide-form="resend">
+                <input type="hidden" name="action" value="resend">
+                <input type="hidden" name="email" value="{{ email }}">
+                <button type="submit" class="ghost-button">Kirim ulang email ke {{ masked_email }}</button>
+            </form>
+            {% if has_phone %}
+            <form method="POST" action="{{ url_for('auth.portal_email_required') }}" class="login-form-grid login-secondary-form" data-email-guide-form="whatsapp">
+                <input type="hidden" name="action" value="send_whatsapp">
+                <input type="hidden" name="email" value="{{ email }}">
+                <button type="submit" class="ghost-button">Kirim link via WhatsApp {{ masked_phone }}</button>
+            </form>
+            {% else %}
+            <small class="helper-text">Nomor WhatsApp akun belum terdaftar di ERP. Kalau mau verifikasi lewat WhatsApp, minta HR atau admin melengkapi nomor dulu.</small>
+            {% endif %}
+        </div>
         {% endif %}
 
         <p class="login-footnote">Akun: {{ username }}. Setelah email dikonfirmasi, login ulang memakai email tersebut.</p>
@@ -116,9 +135,9 @@
             target: "submit"
         },
         {
-            title: "Cek inbox",
-            copy: "Buka inbox atau spam. Kalau belum masuk, tombol kirim ulang di bawah bisa dipakai.",
-            target: "resend"
+            title: "Cek inbox / WhatsApp",
+            copy: "Masukkan kode 5 digit dari inbox, spam, atau WhatsApp. Kamu juga bisa klik link verifikasi yang dikirim.",
+            target: "code"
         },
         {
             title: "Login ulang",
@@ -205,7 +224,7 @@
                 goToStep(2);
                 return;
             }
-            if (formType === "resend") {
+            if (formType === "code" || formType === "resend" || formType === "whatsapp") {
                 goToStep(2, { scrollTarget: true });
             }
         });

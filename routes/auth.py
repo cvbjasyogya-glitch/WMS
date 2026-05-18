@@ -9,8 +9,9 @@ from services.auth_security import (
     clear_login_failures,
     get_client_ip,
     get_login_throttle_state,
+    get_user_by_email_verification_code,
     get_user_by_email_verification_token,
-    issue_user_email_verification,
+    issue_user_email_verification_challenge,
     mark_user_email_verified,
     issue_password_reset_code,
     mark_password_resets_used,
@@ -69,6 +70,20 @@ def _masked_email(value):
     else:
         safe_local = local[:2] + "***" + local[-1:]
     return f"{safe_local}@{domain}"
+
+
+def _masked_phone(value):
+    digits = re.sub(r"\D+", "", str(value or ""))
+    if not digits:
+        return ""
+    if len(digits) <= 6:
+        return digits[:2] + "***"
+    return f"{digits[:4]}***{digits[-3:]}"
+
+
+def _normalize_portal_verification_code(value):
+    code = re.sub(r"\D+", "", str(value or ""))
+    return code if len(code) == 5 else ""
 
 
 def _portal_email_login_required():
@@ -154,6 +169,16 @@ def _build_portal_verification_url(token):
     return url_for("auth.verify_portal_email", token=token, _external=True)
 
 
+def _issue_portal_verification_challenge(db, user):
+    token, code = issue_user_email_verification_challenge(
+        db,
+        user["id"],
+        ttl_hours=current_app.config.get("PORTAL_EMAIL_VERIFICATION_TTL_HOURS", 24),
+    )
+    db.commit()
+    return _build_portal_verification_url(token), code
+
+
 def _verification_recently_sent(user):
     sent_at = _parse_db_timestamp(user.get("email_verification_sent_at"))
     if sent_at is None:
@@ -167,23 +192,22 @@ def _send_portal_email_verification(db, user, force=False):
     if not _is_valid_email(user.get("email")):
         return False, "Email akun belum valid."
 
-    token = None
-    if not force and user.get("email_verification_token_hash") and _verification_recently_sent(user):
+    if (
+        not force
+        and user.get("email_verification_token_hash")
+        and user.get("email_verification_code_hash")
+        and _verification_recently_sent(user)
+    ):
         return True, "Email konfirmasi sudah dikirim. Cek inbox atau folder spam."
 
-    token = issue_user_email_verification(
-        db,
-        user["id"],
-        ttl_hours=current_app.config.get("PORTAL_EMAIL_VERIFICATION_TTL_HOURS", 24),
-    )
-    db.commit()
-
-    verification_url = _build_portal_verification_url(token)
+    verification_url, verification_code = _issue_portal_verification_challenge(db, user)
     subject = "Konfirmasi Email Portal CV BJAS"
     body = (
         f"Halo {user.get('username') or 'User'},\n\n"
         "Email ini dipakai untuk login Portal CV BJAS.\n"
-        f"Klik tautan berikut untuk konfirmasi email:\n{verification_url}\n\n"
+        "Pilih salah satu cara konfirmasi:\n"
+        f"1. Klik tautan berikut:\n{verification_url}\n"
+        f"2. Atau masukkan kode verifikasi: {verification_code}\n\n"
         f"Tautan berlaku selama {current_app.config.get('PORTAL_EMAIL_VERIFICATION_TTL_HOURS', 24)} jam.\n"
         "Jika kamu tidak meminta perubahan ini, abaikan email ini.\n\n"
         "CV Berkah Jaya Abadi Sports"
@@ -192,6 +216,29 @@ def _send_portal_email_verification(db, user, force=False):
     if sent:
         return True, "Email konfirmasi sudah dikirim. Cek inbox atau folder spam."
     return False, "Email tersimpan, tapi konfirmasi belum terkirim. Cek konfigurasi SMTP/Brevo."
+
+
+def _send_portal_whatsapp_verification(db, user):
+    user = dict(user)
+    if not _is_valid_email(user.get("email")):
+        return False, "Email akun belum valid."
+    if not str(user.get("phone") or "").strip():
+        return False, "Nomor WhatsApp belum terdaftar di akun ERP. Minta HR atau admin melengkapi nomor dulu."
+
+    verification_url, verification_code = _issue_portal_verification_challenge(db, user)
+    ttl_hours = current_app.config.get("PORTAL_EMAIL_VERIFICATION_TTL_HOURS", 24)
+    message = (
+        f"Halo {user.get('username') or 'User'},\n\n"
+        "Verifikasi email untuk login Portal CV BJAS. Pilih salah satu:\n"
+        f"1. Klik link: {verification_url}\n"
+        f"2. Atau masukkan kode: {verification_code}\n\n"
+        f"Link/kode berlaku {ttl_hours} jam. Gunakan yang terbaru jika sebelumnya sudah pernah dikirim.\n\n"
+        "CV Berkah Jaya Abadi Sports"
+    )
+    sent = send_whatsapp(user["phone"], message)
+    if sent:
+        return True, "Link verifikasi sudah dikirim ke WhatsApp terdaftar."
+    return False, "Link WhatsApp belum terkirim. Cek konfigurasi WhatsApp atau kirim ulang lewat email."
 
 
 def _email_used_by_other_user(db, email, user_id):
@@ -355,7 +402,29 @@ def portal_email_required():
         if action == "change_email":
             submitted_email = ""
 
-        if action in {"save_email", "resend"}:
+        if action == "verify_code":
+            verification_code = _normalize_portal_verification_code(request.form.get("verification_code"))
+            if not verification_code:
+                flash("Kode verifikasi harus 5 digit.", "error")
+                return redirect(url_for("auth.portal_email_required"))
+            if not _is_valid_email(user.get("email")):
+                flash("Email akun belum valid. Simpan email aktif dulu.", "error")
+                return redirect(url_for("auth.portal_email_required"))
+
+            verified_user = get_user_by_email_verification_code(db, user["id"], verification_code)
+            verified_user = dict(verified_user) if verified_user else None
+            expires_at = _parse_db_timestamp(verified_user.get("email_verification_expires_at")) if verified_user else None
+            if not verified_user or expires_at is None or expires_at < datetime.now(timezone.utc):
+                flash("Kode verifikasi tidak valid atau sudah kedaluwarsa. Kirim ulang kode jika perlu.", "error")
+                return redirect(url_for("auth.portal_email_required"))
+
+            mark_user_email_verified(db, user["id"])
+            db.commit()
+            session.clear()
+            flash("Email berhasil dikonfirmasi. Silakan login memakai email.", "success")
+            return redirect(url_for("auth.login"))
+
+        if action in {"save_email", "resend", "send_whatsapp"}:
             if not _is_valid_email(submitted_email):
                 flash("Masukkan email aktif dengan format yang benar.", "error")
                 return redirect(url_for("auth.portal_email_required"))
@@ -370,6 +439,7 @@ def portal_email_required():
                     SET email=?,
                         email_verified_at=NULL,
                         email_verification_token_hash=NULL,
+                        email_verification_code_hash=NULL,
                         email_verification_sent_at=NULL,
                         email_verification_expires_at=NULL,
                         notify_email=1
@@ -380,7 +450,10 @@ def portal_email_required():
                 db.commit()
                 user = dict(db.execute("SELECT * FROM users WHERE id=? LIMIT 1", (user["id"],)).fetchone())
 
-            ok, message = _send_portal_email_verification(db, user, force=(action == "resend"))
+            if action == "send_whatsapp":
+                ok, message = _send_portal_whatsapp_verification(db, user)
+            else:
+                ok, message = _send_portal_email_verification(db, user, force=(action == "resend"))
             flash(message, "success" if ok else "error")
             return redirect(url_for("auth.portal_email_required"))
 
@@ -393,6 +466,8 @@ def portal_email_required():
         email=user.get("email") or "",
         masked_email=_masked_email(user.get("email")),
         has_email=_is_valid_email(user.get("email")),
+        masked_phone=_masked_phone(user.get("phone")),
+        has_phone=bool(str(user.get("phone") or "").strip()),
         next_url=session.get("pending_email_next") or "",
     )
 
