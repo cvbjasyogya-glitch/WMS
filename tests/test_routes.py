@@ -42,6 +42,7 @@ from routes.pos import (
     _normalize_sale_date,
     POS_DISPLAY_TIMEZONE,
 )
+from routes.auth import _ensure_portal_auth_schema
 from routes.stock import _extract_stock_date_prefix, _build_stock_search_clause, _ensure_barcode_template_schema
 from routes.products import _ensure_product_variant_cost_schema
 from routes.chat import _format_timestamp_label
@@ -8403,6 +8404,35 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()
         self.assertEqual(user["email"], "wa.verify@example.com")
         self.assertIsNotNone(user["email_verified_at"])
+
+    def test_portal_auth_schema_repairs_missing_postgresql_email_verification_columns(self):
+        class FakeDb:
+            def __init__(self):
+                self.statements = []
+                self.committed = False
+
+            def execute(self, statement, params=()):
+                self.statements.append(statement)
+                return Mock()
+
+            def commit(self):
+                self.committed = True
+
+        fake_db = FakeDb()
+        with self.app.app_context(), patch("routes.auth.is_postgresql_backend", return_value=True):
+            if hasattr(g, "_portal_auth_schema_ready"):
+                delattr(g, "_portal_auth_schema_ready")
+            _ensure_portal_auth_schema(fake_db)
+
+        self.assertTrue(fake_db.committed)
+        self.assertIn(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_code_hash TEXT",
+            fake_db.statements,
+        )
+        self.assertIn(
+            "CREATE INDEX IF NOT EXISTS idx_users_email_verification_code ON users(email_verification_code_hash)",
+            fake_db.statements,
+        )
 
     def test_service_worker_route_is_public(self):
         response = self.client.get("/service-worker.js")

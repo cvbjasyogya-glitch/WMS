@@ -1,8 +1,8 @@
 import re
 from urllib.parse import urlsplit
 
-from flask import Blueprint, current_app, render_template, request, redirect, session, url_for, flash
-from database import get_db
+from flask import Blueprint, current_app, g, render_template, request, redirect, session, url_for, flash
+from database import get_db, is_postgresql_backend
 from services.notification_service import send_email, send_whatsapp
 from services.rbac import is_scoped_role, load_user_permission_override_snapshot, normalize_role
 from services.auth_security import (
@@ -24,6 +24,30 @@ from werkzeug.security import check_password_hash
 from datetime import datetime, timedelta, timezone
 
 auth_bp = Blueprint("auth", __name__)
+
+
+def _ensure_portal_auth_schema(db):
+    if getattr(g, "_portal_auth_schema_ready", False):
+        return
+
+    if is_postgresql_backend(current_app.config):
+        statements = (
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_hash TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_code_hash TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMP",
+            "CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email)",
+            "CREATE INDEX IF NOT EXISTS idx_users_email_verification ON users(email_verification_token_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_users_email_verification_code ON users(email_verification_code_hash)",
+        )
+        for statement in statements:
+            db.execute(statement)
+        db.commit()
+
+    g._portal_auth_schema_ready = True
 
 
 def _safe_login_redirect_target(raw_target):
@@ -329,6 +353,7 @@ def login():
             return _redirect_to_login(next_target)
 
         db = get_db()
+        _ensure_portal_auth_schema(db)
         identifier = normalize_identifier(username)
         client_ip = get_client_ip()
         throttle_state = get_login_throttle_state(db, identifier, client_ip)
@@ -385,6 +410,7 @@ def login():
 @auth_bp.route("/login/email-required", methods=["GET", "POST"])
 def portal_email_required():
     db = get_db()
+    _ensure_portal_auth_schema(db)
     user = _get_pending_email_user(db)
     if not user:
         flash("Sesi verifikasi email habis. Login ulang untuk melanjutkan.", "error")
@@ -476,6 +502,7 @@ def portal_email_required():
 def verify_portal_email():
     token = (request.args.get("token") or "").strip()
     db = get_db()
+    _ensure_portal_auth_schema(db)
     user = get_user_by_email_verification_token(db, token)
     user = dict(user) if user else None
     if not user:
