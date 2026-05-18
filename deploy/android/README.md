@@ -22,7 +22,7 @@ Folder ini berisi kebutuhan deploy sisi Android wrapper dan verifikasi domain.
    - `ANDROID_SHA256_CERT_FINGERPRINTS`
    - `ANDROID_TWA_START_URL`
 5. Verifikasi endpoint publik:
-   - `https://erp.cvbjasyogya.cloud/.well-known/assetlinks.json`
+   - `https://portal.cvbjas.com/.well-known/assetlinks.json`
 6. Upload AAB/APK hasil build ke jalur distribusi yang dipakai.
 7. Lengkapi metadata store memakai:
    - `play-store-release-checklist.md`

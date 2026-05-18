@@ -378,13 +378,14 @@ class Config:
     ANDROID_SHA256_CERT_FINGERPRINTS = _csv_env("ANDROID_SHA256_CERT_FINGERPRINTS", "")
     ANDROID_TWA_START_URL = _first_env_value(
         "ANDROID_TWA_START_URL",
-        default="https://erp.cvbjasyogya.cloud/workspace/?source=android-app",
+        default="https://portal.cvbjas.com/workspace/?source=android-app",
     )
     IOS_APP_IDS = _csv_env("IOS_APP_IDS", "")
     PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
     PASSWORD_RESET_TTL_MINUTES = int(os.getenv("PASSWORD_RESET_TTL_MINUTES", "15"))
     LOGIN_THROTTLE_LIMIT = int(os.getenv("LOGIN_THROTTLE_LIMIT", "5"))
     LOGIN_THROTTLE_WINDOW_SECONDS = int(os.getenv("LOGIN_THROTTLE_WINDOW_SECONDS", "300"))
+    LOGIN_THROTTLE_BACKOFF_SECONDS = os.getenv("LOGIN_THROTTLE_BACKOFF_SECONDS", "5,10,60")
     PORTAL_EMAIL_LOGIN_REQUIRED = _env_flag("PORTAL_EMAIL_LOGIN_REQUIRED", True)
     PORTAL_EMAIL_VERIFICATION_TTL_HOURS = _int_env("PORTAL_EMAIL_VERIFICATION_TTL_HOURS", 24)
     PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS = _int_env("PORTAL_EMAIL_VERIFICATION_RESEND_SECONDS", 300)

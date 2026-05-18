@@ -34,6 +34,6 @@ Cocok dipakai untuk operasional harian yang butuh sistem cepat, jelas, dan mudah
 
 ## Support
 
-- Website: https://erp.cvbjasyogya.cloud
+- Website: https://portal.cvbjas.com
 - Email support: isi sesuai domain support resmi
 - Privacy policy: isi URL final

@@ -196,7 +196,9 @@ def _parse_db_timestamp(value):
 def _count_recent_failures(db, clause, param, window_seconds):
     return db.execute(
         f"""
-        SELECT COUNT(*) AS total, MIN(created_at) AS first_created_at
+        SELECT COUNT(*) AS total,
+               MIN(created_at) AS first_created_at,
+               MAX(created_at) AS last_created_at
         FROM login_attempts
         WHERE success=0
           AND {clause}=?
@@ -206,13 +208,61 @@ def _count_recent_failures(db, clause, param, window_seconds):
     ).fetchone()
 
 
+def _login_throttle_backoff_seconds():
+    configured = current_app.config.get("LOGIN_THROTTLE_BACKOFF_SECONDS", "5,10,60")
+    if isinstance(configured, str):
+        raw_values = configured.replace(";", ",").split(",")
+    else:
+        raw_values = configured or ()
+
+    backoffs = []
+    for raw_value in raw_values:
+        try:
+            seconds = int(str(raw_value).strip())
+        except (TypeError, ValueError):
+            continue
+        if seconds > 0:
+            backoffs.append(seconds)
+
+    return backoffs or [5, 10, 60]
+
+
+def _seconds_since_timestamp(timestamp, now):
+    if timestamp is None:
+        return None
+    elapsed = (now - timestamp).total_seconds()
+    # PostgreSQL/SQLite deployments may store naive CURRENT_TIMESTAMP with a
+    # different server timezone. Future-looking timestamps should never create
+    # multi-hour lockouts; treat them as just happened.
+    return max(0, elapsed)
+
+
+def _failure_retry_after(failure_row, limit, backoffs, now):
+    if not failure_row:
+        return 0
+
+    total = int(failure_row["total"] or 0)
+    if total < limit:
+        return 0
+
+    backoff_index = min(max(0, total - limit), len(backoffs) - 1)
+    backoff_seconds = backoffs[backoff_index]
+    last_attempt = _parse_db_timestamp(failure_row["last_created_at"])
+    elapsed = _seconds_since_timestamp(last_attempt, now)
+    if elapsed is None:
+        return backoff_seconds
+
+    return max(0, math.ceil(backoff_seconds - elapsed))
+
+
 def get_login_throttle_state(db, identifier, ip_address):
     cleanup_login_attempts(db)
 
     identifier = normalize_identifier(identifier)
     ip_address = (ip_address or "unknown").strip()
     limit = max(1, int(current_app.config.get("LOGIN_THROTTLE_LIMIT", 5)))
-    window_seconds = max(60, int(current_app.config.get("LOGIN_THROTTLE_WINDOW_SECONDS", 300)))
+    backoffs = _login_throttle_backoff_seconds()
+    window_seconds = max(max(backoffs), int(current_app.config.get("LOGIN_THROTTLE_WINDOW_SECONDS", 300)))
 
     identifier_failures = _count_recent_failures(
         db,
@@ -227,34 +277,13 @@ def get_login_throttle_state(db, identifier, ip_address):
         window_seconds,
     )
 
-    blocked = (
-        (identifier_failures["total"] if identifier else 0) >= limit
-        or ip_failures["total"] >= limit
+    now = datetime.now(timezone.utc)
+    retry_after = max(
+        _failure_retry_after(identifier_failures, limit, backoffs, now) if identifier else 0,
+        _failure_retry_after(ip_failures, limit, backoffs, now),
     )
 
-    if not blocked:
+    if retry_after <= 0:
         return {"blocked": False, "retry_after": 0}
 
-    oldest_candidates = []
-    if identifier and identifier_failures["total"] >= limit:
-        oldest_candidates.append(_parse_db_timestamp(identifier_failures["first_created_at"]))
-    if ip_failures["total"] >= limit:
-        oldest_candidates.append(_parse_db_timestamp(ip_failures["first_created_at"]))
-
-    oldest_attempt = min(
-        (timestamp for timestamp in oldest_candidates if timestamp is not None),
-        default=None,
-    )
-    if oldest_attempt is None:
-        return {"blocked": True, "retry_after": window_seconds}
-
-    retry_after = max(
-        1,
-        math.ceil(
-            (
-                oldest_attempt + timedelta(seconds=window_seconds)
-                - datetime.now(timezone.utc)
-            ).total_seconds()
-        ),
-    )
     return {"blocked": True, "retry_after": retry_after}

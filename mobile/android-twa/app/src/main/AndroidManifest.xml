@@ -38,14 +38,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:host="erp.cvbjasyogya.cloud"
+                    android:host="portal.cvbjas.com"
                     android:pathPrefix="/"
                     android:scheme="https" />
             </intent-filter>
 
             <meta-data
                 android:name="android.support.customtabs.trusted.DEFAULT_URL"
-                android:value="https://erp.cvbjasyogya.cloud/workspace/?source=android-app" />
+                android:value="@string/launch_url" />
             <meta-data
                 android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
                 android:resource="@drawable/twa_splash" />

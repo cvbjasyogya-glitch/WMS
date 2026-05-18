@@ -1,9 +1,11 @@
+import hashlib
 import re
+import secrets
 from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, g, render_template, request, redirect, session, url_for, flash
 from database import get_db, is_postgresql_backend
-from services.notification_service import send_email, send_whatsapp
+from services.notification_service import create_web_notification, send_email, send_whatsapp
 from services.rbac import is_scoped_role, load_user_permission_override_snapshot, normalize_role
 from services.auth_security import (
     clear_login_failures,
@@ -42,10 +44,44 @@ def _ensure_portal_auth_schema(db):
             "CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email)",
             "CREATE INDEX IF NOT EXISTS idx_users_email_verification ON users(email_verification_token_hash)",
             "CREATE INDEX IF NOT EXISTS idx_users_email_verification_code ON users(email_verification_code_hash)",
+            """
+            CREATE TABLE IF NOT EXISTS user_login_devices(
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                device_hash TEXT NOT NULL,
+                user_agent TEXT,
+                label TEXT,
+                first_ip TEXT,
+                last_ip TEXT,
+                first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, device_hash)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_user_login_devices_user ON user_login_devices(user_id, last_seen_at DESC)",
         )
         for statement in statements:
             db.execute(statement)
         db.commit()
+    else:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_login_devices(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                device_hash TEXT NOT NULL,
+                user_agent TEXT,
+                label TEXT,
+                first_ip TEXT,
+                last_ip TEXT,
+                first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, device_hash),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        db.execute("CREATE INDEX IF NOT EXISTS idx_user_login_devices_user ON user_login_devices(user_id, last_seen_at DESC)")
 
     g._portal_auth_schema_ready = True
 
@@ -108,6 +144,12 @@ def _masked_phone(value):
 def _normalize_portal_verification_code(value):
     code = re.sub(r"\D+", "", str(value or ""))
     return code if len(code) == 5 else ""
+
+
+def _truthy(value):
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "off", "no", "none"}
+    return bool(value)
 
 
 def _portal_email_login_required():
@@ -279,6 +321,182 @@ def _email_used_by_other_user(db, email, user_id):
     return row is not None
 
 
+def _portal_login_device_cookie_name():
+    configured = str(current_app.config.get("PORTAL_LOGIN_DEVICE_COOKIE_NAME") or "").strip()
+    return configured or "portal_device_id"
+
+
+def _sanitize_portal_device_id(value):
+    safe_value = str(value or "").strip()
+    if not safe_value or len(safe_value) > 160:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", safe_value):
+        return ""
+    return safe_value
+
+
+def _hash_portal_device_id(value):
+    safe_value = _sanitize_portal_device_id(value)
+    if not safe_value:
+        return ""
+    return hashlib.sha256(safe_value.encode("utf-8")).hexdigest()
+
+
+def _resolve_portal_device_id():
+    cookie_name = _portal_login_device_cookie_name()
+    device_id = _sanitize_portal_device_id(request.cookies.get(cookie_name))
+    if device_id:
+        return device_id
+    return secrets.token_urlsafe(32)
+
+
+def _format_login_device_label(user_agent):
+    agent = str(user_agent or "").strip()
+    lowered = agent.lower()
+    if not lowered:
+        return "Perangkat tidak dikenal"
+
+    if "edg/" in lowered or "edge/" in lowered:
+        browser = "Microsoft Edge"
+    elif "opr/" in lowered or "opera" in lowered:
+        browser = "Opera"
+    elif "firefox/" in lowered:
+        browser = "Firefox"
+    elif "samsungbrowser/" in lowered:
+        browser = "Samsung Internet"
+    elif "chrome/" in lowered or "crios/" in lowered:
+        browser = "Chrome"
+    elif "safari/" in lowered:
+        browser = "Safari"
+    else:
+        browser = "Browser"
+
+    if "android" in lowered:
+        platform = "Android"
+    elif "iphone" in lowered:
+        platform = "iPhone"
+    elif "ipad" in lowered:
+        platform = "iPad"
+    elif "windows" in lowered:
+        platform = "Windows"
+    elif "mac os" in lowered or "macintosh" in lowered:
+        platform = "Mac"
+    elif "linux" in lowered:
+        platform = "Linux"
+    else:
+        platform = "perangkat baru"
+
+    return f"{browser} di {platform}"
+
+
+def _format_jakarta_login_time():
+    jakarta_tz = timezone(timedelta(hours=7))
+    return datetime.now(jakarta_tz).strftime("%d/%m/%Y %H:%M WIB")
+
+
+def _notify_new_portal_login_device(user, device_label, ip_address):
+    username = user.get("username") or "User"
+    login_time = _format_jakarta_login_time()
+    subject = "Login Baru Portal CV BJAS"
+    message = (
+        "Ada login baru ke Portal CV BJAS.\n\n"
+        f"Akun: {username}\n"
+        f"Perangkat: {device_label}\n"
+        f"IP: {ip_address or 'tidak terbaca'}\n"
+        f"Waktu: {login_time}\n\n"
+        "Kalau ini kamu, abaikan pesan ini. Kalau bukan kamu, segera ganti password dan hubungi admin."
+    )
+
+    try:
+        create_web_notification(
+            user["id"],
+            subject,
+            f"{device_label} login pada {login_time}. IP: {ip_address or 'tidak terbaca'}.",
+            category="security",
+            link_url="/account/",
+            source_type="login_device",
+            source_id=str(user["id"]),
+            dedupe_key=f"login-device:{user['id']}:{device_label}:{ip_address or ''}",
+        )
+    except Exception as exc:
+        print("NEW DEVICE WEB NOTIFICATION ERROR:", exc)
+
+    try:
+        if user.get("email") and _truthy(user.get("notify_email")):
+            send_email(user["email"], subject, message)
+    except Exception as exc:
+        print("NEW DEVICE EMAIL NOTIFICATION ERROR:", exc)
+
+    try:
+        if user.get("phone") and _truthy(user.get("notify_whatsapp")):
+            send_whatsapp(user["phone"], f"*{subject}*\n\n{message}")
+    except Exception as exc:
+        print("NEW DEVICE WHATSAPP NOTIFICATION ERROR:", exc)
+
+
+def _remember_portal_login_device(db, user):
+    if not current_app.config.get("PORTAL_NEW_DEVICE_NOTIFICATION_ENABLED", True):
+        return None
+
+    device_id = _resolve_portal_device_id()
+    device_hash = _hash_portal_device_id(device_id)
+    if not device_hash:
+        return None
+
+    user_agent = str(request.headers.get("User-Agent") or "").strip()[:500]
+    device_label = _format_login_device_label(user_agent)
+    ip_address = (get_client_ip() or "unknown").strip()[:80]
+    user_id = user["id"]
+
+    existing = db.execute(
+        """
+        SELECT id
+        FROM user_login_devices
+        WHERE user_id=? AND device_hash=?
+        LIMIT 1
+        """,
+        (user_id, device_hash),
+    ).fetchone()
+
+    known_count_row = db.execute(
+        "SELECT COUNT(*) AS total FROM user_login_devices WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    known_count = int(known_count_row["total"] or 0) if known_count_row else 0
+
+    if existing:
+        db.execute(
+            """
+            UPDATE user_login_devices
+            SET user_agent=?,
+                label=?,
+                last_ip=?,
+                last_seen_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (user_agent, device_label, ip_address, existing["id"]),
+        )
+    else:
+        db.execute(
+            """
+            INSERT INTO user_login_devices(
+                user_id,
+                device_hash,
+                user_agent,
+                label,
+                first_ip,
+                last_ip
+            )
+            VALUES (?,?,?,?,?,?)
+            """,
+            (user_id, device_hash, user_agent, device_label, ip_address, ip_address),
+        )
+        if known_count > 0:
+            _notify_new_portal_login_device(user, device_label, ip_address)
+
+    return device_id
+
+
 def _complete_user_login(db, user, next_target=None):
     session.clear()
 
@@ -330,7 +548,23 @@ def _complete_user_login(db, user, next_target=None):
     session.permanent = True
 
     default_target = url_for("dashboard.workspace_gateway")
-    return redirect(next_target or default_target)
+    device_id = None
+    try:
+        device_id = _remember_portal_login_device(db, user)
+    except Exception as exc:
+        print("PORTAL LOGIN DEVICE TRACKING ERROR:", exc)
+
+    response = redirect(next_target or default_target)
+    if device_id:
+        response.set_cookie(
+            _portal_login_device_cookie_name(),
+            device_id,
+            max_age=max(86400, int(current_app.config.get("PORTAL_LOGIN_DEVICE_COOKIE_MAX_AGE", 60 * 60 * 24 * 180))),
+            httponly=True,
+            secure=bool(current_app.config.get("SESSION_COOKIE_SECURE") or request.is_secure),
+            samesite="Lax",
+        )
+    return response
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])

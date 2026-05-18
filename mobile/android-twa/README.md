@@ -20,7 +20,7 @@ Wrapper aplikasi Android untuk ERP-CV.BJAS memakai **Trusted Web Activity (TWA)*
 
 Secara default app membuka:
 
-- `https://erp.cvbjasyogya.cloud/workspace/?source=android-app`
+- `https://portal.cvbjas.com/workspace/?source=android-app`
 
 Shortcut launcher bawaan:
 
@@ -42,7 +42,7 @@ Jika domain atau jalur start app berubah, update:
    - `ANDROID_SHA256_CERT_FINGERPRINTS`
    - `ANDROID_TWA_START_URL`
 3. Pastikan route berikut bisa diakses publik:
-   - `https://erp.cvbjasyogya.cloud/.well-known/assetlinks.json`
+   - `https://portal.cvbjas.com/.well-known/assetlinks.json`
 4. Sign app release dengan keystore final, lalu ambil SHA-256 certificate fingerprint.
 
 ## Build di Android Studio

@@ -20,7 +20,7 @@ Checklist ini dipakai saat ERP-CV.BJAS akan dirilis ke Play Store.
   - `ANDROID_SHA256_CERT_FINGERPRINTS`
   - `ANDROID_TWA_START_URL`
 - Verifikasi endpoint:
-  - `https://erp.cvbjasyogya.cloud/.well-known/assetlinks.json`
+  - `https://portal.cvbjas.com/.well-known/assetlinks.json`
 - Pastikan fingerprint release sama dengan keystore final Play Store.
 
 ## 3. Build
@@ -43,7 +43,7 @@ Checklist ini dipakai saat ERP-CV.BJAS akan dirilis ke Play Store.
   - Stok
   - Kasir
   - Notifikasi
-- Universal link / app link domain ERP membuka app
+- Universal link / app link domain Portal membuka app
 - Kamera, geotag, upload, dan notifikasi tetap berfungsi
 - Logout/login ulang
 - Theme terang/gelap tetap sinkron

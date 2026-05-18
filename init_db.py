@@ -1902,6 +1902,22 @@ def init_db(db_path=None, sqlite_options=None):
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS user_login_devices(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        device_hash TEXT NOT NULL,
+        user_agent TEXT,
+        label TEXT,
+        first_ip TEXT,
+        last_ip TEXT,
+        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, device_hash),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS web_notifications(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -1961,6 +1977,7 @@ def init_db(db_path=None, sqlite_options=None):
     c.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_lookup ON password_resets(user_id, code, used, expires_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, success, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, success, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_user_login_devices_user ON user_login_devices(user_id, last_seen_at DESC)")
 
     # ==========================
     # SEED

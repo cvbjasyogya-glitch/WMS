@@ -26,6 +26,7 @@ from services.event_notification_policy import (
     get_event_notification_policy,
     save_event_notification_policy,
 )
+from services.auth_security import get_login_throttle_state
 from app import create_app, repair_restored_data, _derive_shared_session_cookie_domain
 from config import Config
 from database import CompatCursor, get_db, _replace_qmark_placeholders, _translate_sqlite_query_to_postgres, _replace_like_operators
@@ -8119,6 +8120,106 @@ class WmsRoutesTestCase(unittest.TestCase):
             self.assertEqual(sess.get("username"), "CaseUser")
             self.assertEqual(sess.get("role"), "admin")
 
+    def test_login_new_device_creates_web_email_and_whatsapp_alert(self):
+        self.create_user(
+            "device_alert_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="device.alert@example.com",
+            phone="6281234567890",
+            notify_email=1,
+            notify_whatsapp=1,
+        )
+        desktop_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+        )
+        mobile_agent = (
+            "Mozilla/5.0 (Linux; Android 13) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+        )
+
+        with patch("routes.auth.create_web_notification") as mocked_web, \
+            patch("routes.auth.send_email") as mocked_email, \
+            patch("routes.auth.send_whatsapp") as mocked_whatsapp:
+            first_login = self.client.post(
+                "/login",
+                data={"username": "device_alert_user", "password": "pass1234"},
+                headers={"User-Agent": desktop_agent},
+                environ_overrides={"REMOTE_ADDR": "10.0.0.10"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(first_login.status_code, 302)
+        self.assertIn("portal_device_id=", first_login.headers.get("Set-Cookie", ""))
+        mocked_web.assert_not_called()
+        mocked_email.assert_not_called()
+        mocked_whatsapp.assert_not_called()
+
+        with self.app.app_context():
+            db = get_db()
+            first_device_count = db.execute(
+                "SELECT COUNT(*) AS total FROM user_login_devices WHERE user_id=(SELECT id FROM users WHERE username=?)",
+                ("device_alert_user",),
+            ).fetchone()["total"]
+        self.assertEqual(first_device_count, 1)
+
+        second_client = self.app.test_client()
+        with patch("routes.auth.create_web_notification") as mocked_web, \
+            patch("routes.auth.send_email", return_value=True) as mocked_email, \
+            patch("routes.auth.send_whatsapp", return_value=True) as mocked_whatsapp:
+            second_login = second_client.post(
+                "/login",
+                data={"username": "device_alert_user", "password": "pass1234"},
+                headers={"User-Agent": mobile_agent},
+                environ_overrides={"REMOTE_ADDR": "203.0.113.7"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(second_login.status_code, 302)
+        mocked_web.assert_called_once()
+        mocked_email.assert_called_once()
+        mocked_whatsapp.assert_called_once()
+        self.assertEqual(mocked_email.call_args.args[0], "device.alert@example.com")
+        self.assertEqual(mocked_whatsapp.call_args.args[0], "6281234567890")
+        alert_message = mocked_email.call_args.args[2]
+        self.assertIn("Ada login baru ke Portal CV BJAS.", alert_message)
+        self.assertIn("Chrome di Android", alert_message)
+        self.assertIn("203.0.113.7", alert_message)
+
+        second_client.get("/logout", follow_redirects=False)
+        with patch("routes.auth.create_web_notification") as mocked_web, \
+            patch("routes.auth.send_email") as mocked_email, \
+            patch("routes.auth.send_whatsapp") as mocked_whatsapp:
+            repeat_login = second_client.post(
+                "/login",
+                data={"username": "device_alert_user", "password": "pass1234"},
+                headers={"User-Agent": mobile_agent},
+                environ_overrides={"REMOTE_ADDR": "203.0.113.7"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(repeat_login.status_code, 302)
+        mocked_web.assert_not_called()
+        mocked_email.assert_not_called()
+        mocked_whatsapp.assert_not_called()
+
+        with self.app.app_context():
+            db = get_db()
+            device_rows = db.execute(
+                """
+                SELECT label, last_ip
+                FROM user_login_devices
+                WHERE user_id=(SELECT id FROM users WHERE username=?)
+                ORDER BY id
+                """,
+                ("device_alert_user",),
+            ).fetchall()
+        self.assertEqual(len(device_rows), 2)
+        self.assertEqual(device_rows[-1]["label"], "Chrome di Android")
+        self.assertEqual(device_rows[-1]["last_ip"], "203.0.113.7")
+
     def test_portal_login_forces_legacy_user_to_register_and_verify_email(self):
         self.app.config.update(
             PORTAL_EMAIL_LOGIN_REQUIRED=True,
@@ -8433,6 +8534,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             "CREATE INDEX IF NOT EXISTS idx_users_email_verification_code ON users(email_verification_code_hash)",
             fake_db.statements,
         )
+        self.assertTrue(
+            any("CREATE TABLE IF NOT EXISTS user_login_devices" in statement for statement in fake_db.statements)
+        )
+        self.assertIn(
+            "CREATE INDEX IF NOT EXISTS idx_user_login_devices_user ON user_login_devices(user_id, last_seen_at DESC)",
+            fake_db.statements,
+        )
 
     def test_service_worker_route_is_public(self):
         response = self.client.get("/service-worker.js")
@@ -8501,6 +8609,19 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(payload[0]["target"]["package_name"], "cloud.cvbjasyogya.erp")
         self.assertEqual(payload[0]["target"]["sha256_cert_fingerprints"], ["AA:BB:CC:DD:EE:FF"])
         self.assertEqual(response.headers.get("Cache-Control"), "no-cache")
+
+    def test_android_twa_config_points_to_portal_domain(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        android_files = [
+            repo_root / "mobile" / "android-twa" / "app" / "src" / "main" / "res" / "values" / "strings.xml",
+            repo_root / "mobile" / "android-twa" / "app" / "src" / "main" / "AndroidManifest.xml",
+            repo_root / "mobile" / "android-twa" / "app" / "build.gradle",
+        ]
+
+        for path in android_files:
+            body = path.read_text(encoding="utf-8")
+            self.assertIn("portal.cvbjas.com", body)
+            self.assertNotIn("erp.cvbjasyogya.cloud", body)
 
     def test_apple_app_site_association_route_returns_ios_bindings_when_configured(self):
         self.app.config["IOS_APP_IDS"] = [
@@ -31124,7 +31245,9 @@ class WmsRoutesTestCase(unittest.TestCase):
             follow_redirects=True,
         )
         self.assertEqual(blocked.status_code, 200)
-        self.assertIn("Terlalu banyak percobaan login", blocked.get_data(as_text=True))
+        blocked_html = blocked.get_data(as_text=True)
+        self.assertIn("Terlalu banyak percobaan login", blocked_html)
+        self.assertIn("Coba lagi dalam 5 detik", blocked_html)
 
         with self.client.session_transaction() as sess:
             self.assertIsNone(sess.get("user_id"))
@@ -31141,6 +31264,51 @@ class WmsRoutesTestCase(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(attempts, 3)
+
+    def test_login_rate_limit_uses_short_backoff_for_future_timestamps(self):
+        self.create_user("future_throttle_user", "pass1234", "admin", warehouse_id=1)
+        future_created_at = (datetime.now(timezone.utc) + timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
+
+        with self.app.app_context():
+            db = get_db()
+            for _ in range(3):
+                db.execute(
+                    """
+                    INSERT INTO login_attempts(identifier, ip_address, success, created_at)
+                    VALUES (?,?,0,?)
+                    """,
+                    ("future_throttle_user", "203.0.113.5", future_created_at),
+                )
+            state = get_login_throttle_state(db, "future_throttle_user", "203.0.113.5")
+
+        self.assertTrue(state["blocked"])
+        self.assertEqual(state["retry_after"], 5)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO login_attempts(identifier, ip_address, success, created_at)
+                VALUES (?,?,0,?)
+                """,
+                ("future_throttle_user", "203.0.113.5", future_created_at),
+            )
+            state = get_login_throttle_state(db, "future_throttle_user", "203.0.113.5")
+
+        self.assertEqual(state["retry_after"], 10)
+
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                INSERT INTO login_attempts(identifier, ip_address, success, created_at)
+                VALUES (?,?,0,?)
+                """,
+                ("future_throttle_user", "203.0.113.5", future_created_at),
+            )
+            state = get_login_throttle_state(db, "future_throttle_user", "203.0.113.5")
+
+        self.assertEqual(state["retry_after"], 60)
 
     def test_send_whatsapp_marks_http_failure(self):
         if notification_service.http_requests is None:
