@@ -84,8 +84,11 @@
         {% endif %}
         {% endwith %}
 
-        <form method="POST" action="/login" class="login-form-grid">
+        <form method="POST" action="/login" class="login-form-grid" data-login-location-form>
             <input type="hidden" name="next" value="{{ next_url }}">
+            <input type="hidden" name="login_latitude" data-login-latitude>
+            <input type="hidden" name="login_longitude" data-login-longitude>
+            <input type="hidden" name="login_accuracy" data-login-accuracy>
             <div>
                 <label>Email</label>
                 <input type="text" name="username" placeholder="nama@email.com" required autofocus autocomplete="username" inputmode="email" spellcheck="false">
@@ -161,6 +164,71 @@ document.querySelectorAll("[data-login-theme-toggle]").forEach((button) => {
         applyLoginTheme(getLoginTheme() === "dark" ? "light" : "dark");
     });
 });
+
+(() => {
+    const form = document.querySelector("[data-login-location-form]");
+    const latitudeInput = form?.querySelector("[data-login-latitude]");
+    const longitudeInput = form?.querySelector("[data-login-longitude]");
+    const accuracyInput = form?.querySelector("[data-login-accuracy]");
+    if (!form || !latitudeInput || !longitudeInput || !accuracyInput || !navigator.geolocation) {
+        return;
+    }
+
+    let locationRequest = null;
+    let allowSubmit = false;
+
+    const savePosition = (position) => {
+        const coords = position?.coords || {};
+        const latitude = Number(coords.latitude);
+        const longitude = Number(coords.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return false;
+        }
+        latitudeInput.value = latitude.toFixed(6);
+        longitudeInput.value = longitude.toFixed(6);
+        const accuracy = Number(coords.accuracy);
+        accuracyInput.value = Number.isFinite(accuracy) ? String(Math.max(0, Math.round(accuracy))) : "";
+        return true;
+    };
+
+    const requestLocation = () => {
+        if (locationRequest) {
+            return locationRequest;
+        }
+        locationRequest = new Promise((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+                (position) => resolve(savePosition(position)),
+                () => resolve(false),
+                {
+                    enableHighAccuracy: false,
+                    timeout: 1800,
+                    maximumAge: 300000,
+                }
+            );
+        });
+        return locationRequest;
+    };
+
+    requestLocation();
+
+    form.addEventListener("submit", (event) => {
+        if (allowSubmit || (latitudeInput.value && longitudeInput.value) || !locationRequest) {
+            return;
+        }
+        event.preventDefault();
+        Promise.race([
+            locationRequest,
+            new Promise((resolve) => window.setTimeout(resolve, 900)),
+        ]).finally(() => {
+            allowSubmit = true;
+            if (typeof form.requestSubmit === "function") {
+                form.requestSubmit();
+            } else {
+                form.submit();
+            }
+        });
+    });
+})();
 
 applyLoginTheme(getLoginTheme(), false);
 </script>

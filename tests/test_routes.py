@@ -7968,6 +7968,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('Masuk ke Sistem', html)
         self.assertIn('name="username"', html)
         self.assertIn('name="password"', html)
+        self.assertIn('name="login_latitude"', html)
+        self.assertIn('name="login_longitude"', html)
+        self.assertIn('data-login-location-form', html)
+        self.assertIn('navigator.geolocation', html)
         self.assertIn('data-login-theme-toggle', html)
         self.assertNotIn('login-hero-badge', html)
         self.assertNotIn('Operasional Harian yang Lebih Rapi', html)
@@ -8180,7 +8184,13 @@ class WmsRoutesTestCase(unittest.TestCase):
             patch("routes.auth.send_whatsapp", return_value=True) as mocked_whatsapp:
             second_login = second_client.post(
                 "/login",
-                data={"username": "device_alert_user", "password": "pass1234"},
+                data={
+                    "username": "device_alert_user",
+                    "password": "pass1234",
+                    "login_latitude": "-8.583140",
+                    "login_longitude": "116.116798",
+                    "login_accuracy": "42",
+                },
                 headers={"User-Agent": mobile_agent},
                 environ_overrides={"REMOTE_ADDR": "203.0.113.7"},
                 follow_redirects=False,
@@ -8196,6 +8206,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Ada login baru ke Portal CV BJAS.", alert_message)
         self.assertIn("Chrome di Android", alert_message)
         self.assertIn("203.0.113.7", alert_message)
+        self.assertIn("Lokasi: https://www.google.com/maps?q=-8.583140,116.116798", alert_message)
+        self.assertIn("akurasi +/- 42 m", alert_message)
+        self.assertIn("https://www.google.com/maps?q=-8.583140,116.116798", mocked_whatsapp.call_args.args[1])
+        self.assertIn("https://www.google.com/maps?q=-8.583140,116.116798", mocked_web.call_args.args[2])
 
         second_client.get("/logout", follow_redirects=False)
         with patch("routes.auth.create_web_notification") as mocked_web, \

@@ -394,15 +394,59 @@ def _format_jakarta_login_time():
     return datetime.now(jakarta_tz).strftime("%d/%m/%Y %H:%M WIB")
 
 
-def _notify_new_portal_login_device(user, device_label, ip_address):
+def _normalize_login_coordinate(value, minimum, maximum):
+    try:
+        coordinate = float(value)
+    except (TypeError, ValueError):
+        return None
+    if coordinate < minimum or coordinate > maximum:
+        return None
+    return round(coordinate, 6)
+
+
+def _normalize_login_accuracy(value):
+    try:
+        accuracy = float(value)
+    except (TypeError, ValueError):
+        return None
+    if accuracy < 0:
+        return None
+    return round(accuracy, 1)
+
+
+def _get_portal_login_location_from_form():
+    latitude = _normalize_login_coordinate(request.form.get("login_latitude"), -90, 90)
+    longitude = _normalize_login_coordinate(request.form.get("login_longitude"), -180, 180)
+    if latitude is None or longitude is None:
+        return None
+    accuracy = _normalize_login_accuracy(request.form.get("login_accuracy"))
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "accuracy": accuracy,
+        "maps_url": f"https://www.google.com/maps?q={latitude:.6f},{longitude:.6f}",
+    }
+
+
+def _format_login_location_line(login_location):
+    if not login_location:
+        return "Lokasi: tidak dibagikan browser"
+    accuracy = login_location.get("accuracy")
+    accuracy_label = f" (akurasi +/- {accuracy:g} m)" if accuracy is not None else ""
+    return f"Lokasi: {login_location['maps_url']}{accuracy_label}"
+
+
+def _notify_new_portal_login_device(user, device_label, ip_address, login_location=None):
     username = user.get("username") or "User"
     login_time = _format_jakarta_login_time()
+    location_line = _format_login_location_line(login_location)
     subject = "Login Baru Portal CV BJAS"
     message = (
         "Ada login baru ke Portal CV BJAS.\n\n"
         f"Akun: {username}\n"
         f"Perangkat: {device_label}\n"
         f"IP: {ip_address or 'tidak terbaca'}\n"
+        f"{location_line}\n"
         f"Waktu: {login_time}\n\n"
         "Kalau ini kamu, abaikan pesan ini. Kalau bukan kamu, segera ganti password dan hubungi admin."
     )
@@ -411,7 +455,7 @@ def _notify_new_portal_login_device(user, device_label, ip_address):
         create_web_notification(
             user["id"],
             subject,
-            f"{device_label} login pada {login_time}. IP: {ip_address or 'tidak terbaca'}.",
+            f"{device_label} login pada {login_time}. IP: {ip_address or 'tidak terbaca'}. {location_line}.",
             category="security",
             link_url="/account/",
             source_type="login_device",
@@ -446,6 +490,7 @@ def _remember_portal_login_device(db, user):
     user_agent = str(request.headers.get("User-Agent") or "").strip()[:500]
     device_label = _format_login_device_label(user_agent)
     ip_address = (get_client_ip() or "unknown").strip()[:80]
+    login_location = _get_portal_login_location_from_form()
     user_id = user["id"]
 
     existing = db.execute(
@@ -492,7 +537,7 @@ def _remember_portal_login_device(db, user):
             (user_id, device_hash, user_agent, device_label, ip_address, ip_address),
         )
         if known_count > 0:
-            _notify_new_portal_login_device(user, device_label, ip_address)
+            _notify_new_portal_login_device(user, device_label, ip_address, login_location)
 
     return device_id
 
