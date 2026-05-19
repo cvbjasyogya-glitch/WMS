@@ -8317,6 +8317,45 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIsNone(user["login_otp_code_hash"])
         self.assertEqual(user["login_otp_attempts"], 0)
 
+    def test_portal_login_otp_whatsapp_resend_generates_new_message_each_click(self):
+        self.app.config.update(PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False)
+        self.create_user(
+            "otp_resend_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="otp.resend@example.com",
+            phone="6281234567890",
+            login_otp_required=1,
+        )
+
+        with patch("routes.auth.send_whatsapp", return_value=True) as mocked_whatsapp:
+            start_response = self.client.post(
+                "/login",
+                data={"username": "otp_resend_user", "password": "pass1234"},
+                follow_redirects=False,
+            )
+            self.assertEqual(start_response.status_code, 302)
+
+            first_resend = self.client.post(
+                "/login/otp",
+                data={"action": "resend_whatsapp"},
+                follow_redirects=False,
+            )
+            second_resend = self.client.post(
+                "/login/otp",
+                data={"action": "resend_whatsapp"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(first_resend.status_code, 302)
+        self.assertEqual(second_resend.status_code, 302)
+        self.assertEqual(mocked_whatsapp.call_count, 3)
+        messages = [call.args[1] for call in mocked_whatsapp.call_args_list]
+        self.assertEqual(len(set(messages)), 3)
+        self.assertTrue(all("Ref:" in message for message in messages))
+        self.assertTrue(all("Dikirim:" in message for message in messages))
+
     def test_portal_login_otp_email_uses_branded_code_layout(self):
         self.app.config.update(
             PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False,

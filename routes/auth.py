@@ -398,8 +398,8 @@ def _preferred_login_otp_channels(user, requested_channel=None):
 
     preferred = []
     requested = (requested_channel or "").strip().lower()
-    if requested in available:
-        preferred.append(requested)
+    if requested:
+        return [requested] if requested in available else []
 
     default_channel = str(current_app.config.get("PORTAL_LOGIN_OTP_DEFAULT_CHANNEL") or "whatsapp").strip().lower()
     if default_channel in available and default_channel not in preferred:
@@ -593,10 +593,14 @@ def _send_portal_login_otp(db, user, requested_channel=None):
     last_message = "Kode OTP belum terkirim. Cek konfigurasi email/WhatsApp."
     for channel in channels:
         code, expires_at = _issue_portal_login_otp_challenge(db, user, channel)
+        resend_reference = secrets.token_hex(3).upper()
+        sent_at_label = datetime.now(timezone(timedelta(hours=7))).strftime("%d/%m/%Y %H:%M:%S WIB")
         body = (
             f"Halo {username},\n\n"
             "Ada percobaan login ke Portal CV BJAS.\n"
             f"Kode OTP kamu: {code}\n\n"
+            f"Dikirim: {sent_at_label}\n"
+            f"Ref: {resend_reference}\n\n"
             f"Kode berlaku {ttl_minutes} menit dan hanya untuk satu kali login.\n"
             "Kalau ini bukan kamu, segera ganti password dan hubungi admin.\n\n"
             "CV Berkah Jaya Abadi Sports"
