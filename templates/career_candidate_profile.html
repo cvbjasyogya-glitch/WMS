@@ -64,6 +64,13 @@
                     Domisili sekarang *
                     <input type="text" name="domicile_city" value="{{ selected_profile_payload.domicile_city or selected_profile_payload.domicile or '' }}" placeholder="Contoh: Sleman" required>
                 </label>
+            </div>
+            <details class="career-profile-optional-details">
+                <summary>
+                    Detail tambahan opsional
+                    <span>Bisa dilengkapi nanti setelah HR melakukan screening.</span>
+                </summary>
+                <div class="career-profile-grid">
                 <label>
                     Pendidikan terakhir
                     <input type="text" name="last_education" value="{{ selected_profile_payload.last_education or '' }}" placeholder="Contoh: SMK Akuntansi / S1 Manajemen">
@@ -100,7 +107,8 @@
                     Catatan singkat untuk HR
                     <textarea name="summary" rows="4" placeholder="Tulis hal penting yang perlu HR tahu, misalnya jadwal interview atau posisi yang paling diminati.">{{ selected_profile_payload.summary or '' }}</textarea>
                 </label>
-            </div>
+                </div>
+            </details>
 
             {% elif selected_profile_section.key == 'family' %}
             <div class="career-profile-grid">
@@ -377,9 +385,15 @@ document.addEventListener("DOMContentLoaded", () => {
         if (safeName.includes("resume") || /(^|[-_ ])cv($|[-_ .])/.test(safeName) || safeName.includes("curriculum")) return "cv_resume";
         return "other";
     };
+    const escapeProfilePreviewHtml = (value) => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
     const buildOptionMarkup = (selectedType) => documentOptions.map((item) => {
         const selectedAttr = item.key === selectedType ? " selected" : "";
-        return `<option value="${item.key}"${selectedAttr}>${item.label}${item.required ? " (Wajib)" : ""}</option>`;
+        return `<option value="${escapeProfilePreviewHtml(item.key)}"${selectedAttr}>${escapeProfilePreviewHtml(item.label)}${item.required ? " (Wajib)" : ""}</option>`;
     }).join("");
 
     bulkInput.addEventListener("change", () => {
@@ -399,7 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
             item.className = "career-profile-bulk-item";
             item.innerHTML = `
                 <div class="career-profile-bulk-item-head">
-                    <strong>${file.name}</strong>
+                    <strong>${escapeProfilePreviewHtml(file.name)}</strong>
                     <span>${(file.size / 1024 / 1024).toFixed(2)} MB</span>
                 </div>
                 <div class="career-profile-bulk-item-grid">

@@ -311,7 +311,24 @@
                 </div>
                 </form>
                 <form method="POST" action="/admin/delete_user/{{ u.id }}" class="stack-gap-sm">
-                    <button type="submit" class="danger-button" onclick="return confirm('Hapus user ini?')">Hapus</button>
+                    {% set impact = u.delete_impact if u.delete_impact is defined else None %}
+                    {% set impact_summary = impact["summary"] if impact else "Belum ada data terkait yang terdeteksi." %}
+                    <div class="helper-text" data-delete-impact-summary>
+                        <strong>Ringkasan dampak hapus user:</strong>
+                        {{ impact_summary }}
+                        {% if impact and impact["items"] %}
+                        <br>
+                        {% for item in impact["items"][:3] %}
+                        {{ item.label }}: {{ item.count }} {{ item.action }}{% if not loop.last %}; {% endif %}
+                        {% endfor %}
+                        {% if impact["items"]|length > 3 %}; dan {{ impact["items"]|length - 3 }} area lain{% endif %}
+                        {% endif %}
+                    </div>
+                    <button
+                        type="submit"
+                        class="danger-button"
+                        onclick="return confirm('Hapus user ini?\n\n{{ impact_summary|e }}\nData milik user seperti notifikasi, reset password, report, request, membership chat, dan histori operasional terkait akan ikut dibersihkan atau dilepas dari akun. Aksi ini tidak bisa dibatalkan.')"
+                    >Hapus</button>
                 </form>
             </div>
             {% endfor %}

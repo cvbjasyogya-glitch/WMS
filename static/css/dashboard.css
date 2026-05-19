@@ -16959,6 +16959,47 @@ body .biometric-attendance-status-form[data-state="saved"] .biometric-inline-fee
     color: #86efac;
 }
 
+body .biometric-quick-action-menu {
+    position: fixed;
+    z-index: 2200;
+    min-width: 170px;
+    padding: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 18px 44px rgba(2, 8, 23, 0.36);
+    display: grid;
+    gap: 4px;
+}
+
+body .biometric-quick-action-menu[hidden] {
+    display: none !important;
+}
+
+body .biometric-quick-action-button {
+    width: 100%;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #e5eefb;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+body .biometric-quick-action-button:hover,
+body .biometric-quick-action-button:focus,
+body .biometric-quick-action-button[aria-current="true"] {
+    outline: none;
+    background: rgba(93, 183, 255, 0.16);
+    color: #f8fbff;
+}
+
 body .biometric-attendance-time-form {
     display: block;
     width: 100%;

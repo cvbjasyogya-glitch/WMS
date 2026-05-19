@@ -4225,6 +4225,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('option value="free_lance"', html)
         self.assertIn("Fokus pada menu koordinasi tanpa akses WMS", html)
         self.assertIn("Hanya bisa mengakses portal absen operasional", html)
+        self.assertIn("Ringkasan dampak hapus user", html)
+        self.assertIn("Data milik user seperti notifikasi", html)
 
     def test_super_admin_can_access_admin_page_even_if_view_admin_override_denied(self):
         self.create_user("super_admin_view_admin_denied", "pass1234", "super_admin")
@@ -4266,6 +4268,13 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (super_admin_id, "view_admin", "deny"),
             )
             db.commit()
+
+        preview_response = self.client.get("/admin/")
+        self.assertEqual(preview_response.status_code, 200)
+        preview_html = preview_response.get_data(as_text=True)
+        self.assertIn("Ringkasan dampak hapus user", preview_html)
+        self.assertIn("data dihapus", preview_html)
+        self.assertIn("Report harian/live", preview_html)
 
         response = self.client.post(f"/admin/delete_user/{target_user_id}", follow_redirects=False)
 
@@ -18076,7 +18085,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Upload CV &amp; KTP", html)
         self.assertIn("Nomor WhatsApp *", html)
         self.assertIn("Domisili sekarang *", html)
+        self.assertIn("Detail tambahan opsional", html)
+        self.assertIn("Bisa dilengkapi nanti setelah HR melakukan screening.", html)
         self.assertNotIn("Nomor KTP *", html)
+        self.assertIn("escapeProfilePreviewHtml", html)
         self.assertIn("Simpan Perubahan", html)
 
         documents_response = self.client.get("/karir/profil?section=documents")
@@ -19558,6 +19570,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("biometric-attendance-status-select", html)
         self.assertIn('data-biometric-inline-form="status"', html)
         self.assertIn("initBiometricInlineForms", html)
+        self.assertIn("data-biometric-quick-menu", html)
+        self.assertIn("data-biometric-quick-value", html)
         self.assertIn("Present", html)
         self.assertIn("Late", html)
 
@@ -21367,7 +21381,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(balance["available_minutes"], 420)
         self.assertEqual(balance["available_label"], "7j 00m")
 
-    def test_hris_regular_overtime_use_respects_two_hour_weekly_limit(self):
+    def test_hris_regular_overtime_use_allows_usage_above_old_weekly_limit(self):
         self.login_hr_user("hr_overtime_weekly_limit", "pass1234")
         employee_id = self.create_employee_record(
             employee_code="EMP-OT-WEEK-1",
@@ -21427,8 +21441,26 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("maksimal 2j 00m per minggu", html)
-        self.assertIn("Sisa minggu ini hanya 30 mnt", html)
+        self.assertNotIn("maksimal 2j 00m per minggu", html)
+        self.assertNotIn("Sisa minggu ini hanya 30 mnt", html)
+
+        with self.app.app_context():
+            db = get_db()
+            queued_request = db.execute(
+                """
+                SELECT request_type, status, payload
+                FROM attendance_action_requests
+                WHERE employee_id=? AND request_type='overtime_use'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(queued_request)
+        self.assertEqual(queued_request["status"], "pending")
+        payload = json.loads(queued_request["payload"])
+        self.assertEqual(payload["minutes_used"], 40)
 
     def test_staff_can_cashout_all_available_overtime_balance(self):
         date_value = "2026-09-10"
@@ -21465,7 +21497,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(page_response.status_code, 200)
         page_html = page_response.get_data(as_text=True)
         self.assertIn('<option value="cashout_all">Uangkan Semua Saldo</option>', page_html)
-        self.assertIn("Sisa Pakai Minggu Ini", page_html)
+        self.assertIn("Pakai Minggu Ini", page_html)
+        self.assertIn("pemakaian reguler bebas selama saldo tersedia", page_html)
 
         submit_response = self.client.post(
             "/lembur/submit",
@@ -27392,12 +27425,13 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.logout()
         self.login_hr_user()
 
-        hris_response = self.client.get("/hris/pms")
+        hris_response = self.client.get("/hris/pms?period=2026-04&week=W2")
         self.assertEqual(hris_response.status_code, 200)
         hris_html = hris_response.get_data(as_text=True)
         self.assertIn("Input KPI Staff", hris_html)
         self.assertIn("Muhammad Naufal Ash-Shiddiq", hris_html)
         self.assertIn("Traffic live turun di tengah minggu.", hris_html)
+        self.assertIn('data-report-review-form="pms"', hris_html)
 
         review_response = self.client.post(
             f"/hris/pms/report/{report['id']}/review",
@@ -27409,6 +27443,27 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(review_response.status_code, 302)
 
+        ajax_review_response = self.client.post(
+            f"/hris/pms/report/{report['id']}/review",
+            data={
+                "status": "follow_up",
+                "review_note": "Perlu follow up KPI tanpa reload halaman.",
+                "return_to": "/hris/pms",
+                "async": "1",
+            },
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(ajax_review_response.status_code, 200)
+        ajax_payload = ajax_review_response.get_json()
+        self.assertTrue(ajax_payload["ok"])
+        self.assertEqual(ajax_payload["status"], "follow_up")
+        self.assertEqual(ajax_payload["status_label"], "Perlu Follow Up")
+        self.assertEqual(ajax_payload["hr_note"], "Perlu follow up KPI tanpa reload halaman.")
+
         with self.app.app_context():
             db = get_db()
             reviewed_report = db.execute(
@@ -27416,8 +27471,8 @@ class WmsRoutesTestCase(unittest.TestCase):
                 (report["id"],),
             ).fetchone()
 
-        self.assertEqual(reviewed_report["status"], "reviewed")
-        self.assertEqual(reviewed_report["review_note"], "Progress KPI minggu ini sudah masuk dan valid.")
+        self.assertEqual(reviewed_report["status"], "follow_up")
+        self.assertEqual(reviewed_report["review_note"], "Perlu follow up KPI tanpa reload halaman.")
         self.assertIsNotNone(reviewed_report["reviewed_by"])
 
     def test_hris_can_manage_monthly_kpi_targets_and_staff_portal_uses_them(self):

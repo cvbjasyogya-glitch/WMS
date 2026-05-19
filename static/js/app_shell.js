@@ -14,7 +14,6 @@
     let installUiStandaloneMode = isStandaloneMode();
     let registeredServiceWorker = null;
     let lastServiceWorkerUpdateCheckAt = 0;
-    let hasAutoReloadedForServiceWorkerUpdate = false;
     let deferredServiceWorkerUpdateNoticeShown = false;
 
     function getResponsiveViewportWidth() {
@@ -231,18 +230,19 @@
     }
 
     function reloadForActivatedServiceWorker() {
-        if (!hadActiveServiceWorkerController || hasAutoReloadedForServiceWorkerUpdate) {
+        if (!hadActiveServiceWorkerController) {
             return;
         }
-        if (shouldDeferReloadForServiceWorker()) {
-            if (!deferredServiceWorkerUpdateNoticeShown) {
-                deferredServiceWorkerUpdateNoticeShown = true;
-                showMessage("Update aplikasi sudah siap, tapi halaman ini tidak direfresh otomatis agar transaksi tidak terganggu.");
-            }
+        if (deferredServiceWorkerUpdateNoticeShown) {
             return;
         }
-        hasAutoReloadedForServiceWorkerUpdate = true;
-        window.location.reload();
+        deferredServiceWorkerUpdateNoticeShown = true;
+        const reloadIsUnsafe = shouldDeferReloadForServiceWorker();
+        showMessage(
+            reloadIsUnsafe
+                ? "Update aplikasi sudah siap, tapi halaman ini tidak direfresh otomatis agar transaksi tidak terganggu."
+                : "Update aplikasi sudah siap. Muat ulang manual saat pekerjaan sudah selesai."
+        );
     }
 
     function attachServiceWorkerRegistrationHooks(registration) {

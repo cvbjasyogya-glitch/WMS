@@ -4202,14 +4202,14 @@
     {% if kpi_reports %}
         <div class="stack-scroll-list">
             {% for report in kpi_reports %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;">
+            <div class="box stack-scroll-card" style="margin-bottom:0;" data-report-review-card="pms" data-report-status="{{ report.status }}">
                 <div class="section-title">
                     <div>
                         <h3>{{ report.full_name }}</h3>
                         <p>{{ report.employee_code }} | {{ report.warehouse_name or '-' }} | {{ report.period_label_human }} {{ report.week_key }} | {{ report.template_name }}</p>
                     </div>
                     <div class="report-status-stack">
-                        <span class="badge {{ 'green' if report.status == 'reviewed' else 'orange' if report.status == 'submitted' else 'red' }}">{{ report.status_label }}</span>
+                        <span class="badge {{ 'green' if report.status == 'reviewed' else 'orange' if report.status == 'submitted' else 'red' }}" data-report-review-status-badge>{{ report.status_label }}</span>
                         <span class="badge">{{ report.score_label }} / {{ "%.2f"|format(report.minimum_pass_score or 0) }}</span>
                         <span class="badge">{{ report.completion_percent }}%</span>
                     </div>
@@ -4248,12 +4248,10 @@
                         <label>Catatan Koordinasi</label>
                         <div class="empty-state report-portal-text">{{ report.coordination_note or "-" }}</div>
                     </div>
-                    {% if report.review_note %}
                     <div style="grid-column: 1 / -1;">
                         <label>Catatan Review HR</label>
-                        <div class="empty-state report-portal-text">{{ report.review_note }}</div>
+                        <div class="empty-state report-portal-text" data-report-review-note>{{ report.review_note or "Belum ada catatan review." }}</div>
                     </div>
-                    {% endif %}
                 </div>
                 <div class="table-box" style="margin-top:16px;">
                     <table>
@@ -4282,7 +4280,7 @@
                     </table>
                 </div>
                 {% if can_manage_performance %}
-                <form method="POST" action="/hris/pms/report/{{ report.id }}/review" style="margin-top:16px;">
+                <form method="POST" action="/hris/pms/report/{{ report.id }}/review" style="margin-top:16px;" data-report-review-form="pms">
                     <input type="hidden" name="return_to" value="{{ report_return_to }}">
                     <div class="form-grid">
                         <div>
@@ -4301,6 +4299,7 @@
                     <div class="split-actions" style="margin-top:16px;">
                         <button type="submit">Simpan Review KPI</button>
                     </div>
+                    <small class="biometric-inline-feedback" data-report-review-feedback></small>
                 </form>
                 {% endif %}
             </div>
@@ -5240,7 +5239,7 @@
             <div>
                 <label>Durasi Dipakai (menit)</label>
                 <input type="number" name="minutes_used" min="1" step="1" placeholder="Contoh: 60" required>
-                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler maksimal 2 jam per minggu. Kalau pilih uangkan semua, nilai ini otomatis diabaikan saat backend memproses request. Kalau pilih pulang cepat / utang lembur, request tetap boleh masuk meski saldo belum cukup.</small>
+                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler bebas selama saldo staff masih cukup. Kalau pilih uangkan semua, nilai ini otomatis diabaikan saat backend memproses request. Kalau pilih pulang cepat / utang lembur, request tetap boleh masuk meski saldo belum cukup.</small>
             </div>
             <div>
                 <label>Mode Pemakaian</label>
@@ -6547,6 +6546,13 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!forms.length) {
             return;
         }
+        const quickMenu = document.createElement("div");
+        quickMenu.className = "biometric-quick-action-menu";
+        quickMenu.setAttribute("data-biometric-quick-menu", "1");
+        quickMenu.hidden = true;
+        document.body.appendChild(quickMenu);
+        let activeQuickForm = null;
+        let activeQuickSelect = null;
 
         const setFeedback = function (form, message, isError) {
             const feedback = form.querySelector("[data-biometric-inline-feedback]");
@@ -6576,6 +6582,65 @@ document.addEventListener("DOMContentLoaded", function () {
                 return;
             }
             note.hidden = !payload.status_override_active;
+        };
+
+        const closeQuickMenu = function () {
+            quickMenu.hidden = true;
+            quickMenu.innerHTML = "";
+            activeQuickForm = null;
+            activeQuickSelect = null;
+        };
+
+        const positionQuickMenu = function (event) {
+            quickMenu.hidden = false;
+            const menuRect = quickMenu.getBoundingClientRect();
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            const x = Math.min(event.clientX, Math.max(12, viewportWidth - menuRect.width - 12));
+            const y = Math.min(event.clientY, Math.max(12, viewportHeight - menuRect.height - 12));
+            quickMenu.style.left = Math.max(12, x) + "px";
+            quickMenu.style.top = Math.max(12, y) + "px";
+        };
+
+        const getQuickOptions = function (select) {
+            return Array.from(select.options || [])
+                .filter(function (option) {
+                    return option.value && !option.disabled;
+                })
+                .map(function (option) {
+                    return {
+                        value: option.value,
+                        label: (option.textContent || option.value).trim(),
+                        selected: option.selected,
+                    };
+                });
+        };
+
+        const renderQuickMenu = function (form, select, event) {
+            const options = getQuickOptions(select);
+            if (!options.length) {
+                return;
+            }
+            event.preventDefault();
+            activeQuickForm = form;
+            activeQuickSelect = select;
+            quickMenu.innerHTML = "";
+            options.forEach(function (option) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "biometric-quick-action-button";
+                button.dataset.biometricQuickValue = option.value;
+                button.textContent = option.label;
+                if (option.selected) {
+                    button.setAttribute("aria-current", "true");
+                }
+                quickMenu.appendChild(button);
+            });
+            positionQuickMenu(event);
+            const firstButton = quickMenu.querySelector("button");
+            if (firstButton) {
+                firstButton.focus({ preventScroll: true });
+            }
         };
 
         const submitInlineForm = async function (form, select) {
@@ -6616,6 +6681,27 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         };
 
+        quickMenu.addEventListener("click", function (event) {
+            const button = event.target.closest("[data-biometric-quick-value]");
+            if (!button || !activeQuickForm || !activeQuickSelect) {
+                return;
+            }
+            const nextValue = button.dataset.biometricQuickValue || "";
+            if (!nextValue || activeQuickSelect.value === nextValue) {
+                closeQuickMenu();
+                return;
+            }
+            activeQuickSelect.value = nextValue;
+            submitInlineForm(activeQuickForm, activeQuickSelect);
+            closeQuickMenu();
+        });
+
+        quickMenu.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") {
+                closeQuickMenu();
+            }
+        });
+
         forms.forEach(function (form) {
             const select = form.querySelector("select[data-biometric-inline-select]");
             if (!select) {
@@ -6629,7 +6715,31 @@ document.addEventListener("DOMContentLoaded", function () {
             select.addEventListener("change", function () {
                 submitInlineForm(form, select);
             });
+            form.addEventListener("contextmenu", function (event) {
+                renderQuickMenu(form, select, event);
+            });
+            select.addEventListener("keydown", function (event) {
+                const isKeyboardMenu = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+                if (!isKeyboardMenu) {
+                    return;
+                }
+                const rect = select.getBoundingClientRect();
+                renderQuickMenu(form, select, {
+                    preventDefault: function () {
+                        event.preventDefault();
+                    },
+                    clientX: rect.left,
+                    clientY: rect.bottom + 6,
+                });
+            });
         });
+        document.addEventListener("click", function (event) {
+            if (!quickMenu.hidden && !quickMenu.contains(event.target)) {
+                closeQuickMenu();
+            }
+        });
+        window.addEventListener("scroll", closeQuickMenu, true);
+        window.addEventListener("resize", closeQuickMenu);
     };
 
     const initReportReviewForms = function () {

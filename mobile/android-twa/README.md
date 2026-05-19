@@ -57,6 +57,7 @@ Jika domain atau jalur start app berubah, update:
 
 - TWA paling cocok jika domain ERP memakai HTTPS stabil.
 - Push, service worker, dan install prompt tetap dikelola oleh web ERP.
+- Setelah migrasi domain, QA app lama perlu `Force stop` dan `Clear storage` satu kali agar WebView tidak mempertahankan sesi/cache domain lama.
 - Jika nanti perlu fitur native tambahan seperti printer bluetooth, scanner barcode hardware, atau background sync native, baru kita pecah ke hybrid/native module khusus.
 - Release checklist store ada di:
   - `deploy/android/play-store-release-checklist.md`

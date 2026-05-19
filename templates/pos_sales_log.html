@@ -423,6 +423,15 @@ const posSalesContextBody = document.getElementById("posSalesLogContextBody");
 let activePosSalesRow = null;
 let ignoreNextPosSalesLogClick = false;
 
+function notifyPosSalesLog(message) {
+    if (!message) return;
+    if (typeof window.showToast === "function") {
+        window.showToast(message);
+        return;
+    }
+    window.alert(message);
+}
+
 function closePosSalesContextMenu() {
     if (!posSalesContextMenu || posSalesContextMenu.hidden) {
         return;
@@ -623,9 +632,12 @@ async function submitPosSaleDateUpdate(row, saleId, nextSaleDate) {
     }
     if (row) {
         row.dataset.saleDate = String(data.sale_date || nextSaleDate || "");
+        const dateLabel = row.querySelector(".pos-sales-log-date-label");
+        if (dateLabel) {
+            dateLabel.textContent = String(data.sale_date || nextSaleDate || "-");
+        }
     }
-    window.alert(data.message || "Tanggal transaksi berhasil diperbarui.");
-    window.location.reload();
+    notifyPosSalesLog(data.message || "Tanggal transaksi berhasil diperbarui.");
 }
 
 function promptPosSaleDateUpdate(row, saleId, receiptNo, currentSaleDate) {
@@ -739,8 +751,21 @@ async function submitPosVoidFromLog(button) {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Void item gagal diproses.");
         }
-        window.alert(data.message || "Void item berhasil diproses.");
-        window.location.reload();
+        const itemLine = button.closest(".pos-sales-log-itemline");
+        const nextActiveQty = Number(data.active_qty || 0);
+        if (nextActiveQty <= 0) {
+            button.remove();
+            if (itemLine) {
+                itemLine.dataset.itemStatus = "voided";
+                const note = document.createElement("div");
+                note.className = "helper-text";
+                note.textContent = `Void bertambah ${voidQty}. Item ini sudah tidak punya qty aktif.`;
+                itemLine.appendChild(note);
+            }
+        } else {
+            button.dataset.posVoidableQty = String(nextActiveQty);
+        }
+        notifyPosSalesLog(data.message || "Void item berhasil diproses.");
     } catch (error) {
         window.alert(error.message || "Void item gagal diproses.");
     } finally {
@@ -785,8 +810,12 @@ async function submitPosReceiptResendFromLog(button) {
 
         const statusLabel = `Status: ${String(data.receipt_whatsapp_status || "-").toUpperCase()}`;
         const errorInfo = data.receipt_whatsapp_error ? `\nDetail: ${data.receipt_whatsapp_error}` : "";
-        window.alert(`${data.message}\n${statusLabel}${errorInfo}`);
-        window.location.reload();
+        const row = document.querySelector(`[data-pos-sales-log-row='1'][data-sale-id="${saleId}"]`);
+        if (row) {
+            row.dataset.waStatus = String(data.receipt_whatsapp_status || "");
+            row.dataset.waError = String(data.receipt_whatsapp_error || "");
+        }
+        notifyPosSalesLog(`${data.message}\n${statusLabel}${errorInfo}`);
     } catch (error) {
         window.alert(error.message || "Kirim ulang nota WA gagal diproses.");
     } finally {
@@ -831,7 +860,8 @@ async function submitPosArchiveFromLog(row) {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Transaksi gagal dihapus ke Hidden Archive.");
         }
-        window.location.reload();
+        row.remove();
+        notifyPosSalesLog(data.message || "Transaksi dipindahkan ke Hidden Archive.");
     } catch (error) {
         window.alert(error.message || "Transaksi gagal dihapus ke Hidden Archive.");
     }

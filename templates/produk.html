@@ -285,6 +285,15 @@ function notifyUser(message) {
     alert(message);
 }
 
+function escapeProductPreviewHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function renderStatus(targetId, message, category = "success") {
     const target = document.getElementById(targetId);
     if (!target) return;
@@ -801,9 +810,11 @@ async function undoLatestIpos4ImportFromProducts() {
 
         renderStatus("importStatus", data.message || "Undo import iPOS4 selesai.", "success");
         notifyUser(data.message || "Undo import iPOS4 selesai.");
-        window.setTimeout(() => {
-            window.location.reload();
-        }, 450);
+        try {
+            await refreshProductsView();
+        } catch (refreshError) {
+            renderStatus("importStatus", "Undo selesai, tapi daftar produk perlu dimuat ulang manual.", "success");
+        }
     } catch (error) {
         renderStatus("importStatus", "Terjadi error saat menjalankan undo import iPOS4.", "error");
     } finally {
@@ -946,9 +957,9 @@ function buildPreviewTable(rows) {
     }
 
     const headers = Object.keys(rows[0]);
-    const head = headers.map((header) => "<th>" + header + "</th>").join("");
+    const head = headers.map((header) => "<th>" + escapeProductPreviewHtml(header) + "</th>").join("");
     const body = rows.map((row) => {
-        return "<tr>" + headers.map((header) => "<td>" + (row[header] ?? "") + "</td>").join("") + "</tr>";
+        return "<tr>" + headers.map((header) => "<td>" + escapeProductPreviewHtml(row[header]) + "</td>").join("") + "</tr>";
     }).join("");
 
     return "<div class='table-box' style='margin-top:16px; margin-bottom:0;'><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
@@ -977,7 +988,7 @@ async function previewImport() {
         const data = await res.json();
 
         if (!res.ok || data.status === "error" || data.error) {
-            previewBox.innerHTML = "<div class='flash error'>" + (data.message || data.error || "Gagal membuat preview.") + "</div>";
+            previewBox.innerHTML = "<div class='flash error'>" + escapeProductPreviewHtml(data.message || data.error || "Gagal membuat preview.") + "</div>";
             return;
         }
 

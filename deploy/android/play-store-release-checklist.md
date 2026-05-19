@@ -37,6 +37,7 @@ Checklist ini dipakai saat ERP-CV.BJAS akan dirilis ke Play Store.
 
 - Login normal
 - Install app dari build release
+- Jika sebelumnya pernah install build `.cloud`, buka pengaturan aplikasi Android lalu jalankan `Force stop` dan `Clear storage` sebelum QA domain `portal.cvbjas.com`.
 - Launcher membuka workspace
 - Shortcut launcher membuka:
   - Absen
@@ -76,4 +77,5 @@ Checklist ini dipakai saat ERP-CV.BJAS akan dirilis ke Play Store.
 - Cek install dari Play Store
 - Cek `assetlinks.json` masih valid
 - Cek login, absen, stok, kasir, notifikasi
+- Minta 1 user lama update app lalu login ulang; jika masih terbuka domain lama, instruksikan clear storage app sekali.
 - Monitor error log hari pertama

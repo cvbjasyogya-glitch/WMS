@@ -167,6 +167,33 @@ USER_DELETE_DELETE_REFERENCES = [
 
 USER_DELETE_BLOCKING_REFERENCES = []
 
+USER_DELETE_REFERENCE_LABELS = {
+    "owner_requests": "Request owner",
+    "leave_requests": "Request cuti",
+    "daily_live_reports": "Report harian/live",
+    "kpi_staff_reports": "KPI staff",
+    "cash_closing_reports": "Closing kas",
+    "attendance_action_requests": "Request absensi",
+    "requests": "Request operasional",
+    "approvals": "Approval",
+    "stock_history": "Histori stok",
+    "stock_opname_results": "Hasil opname",
+    "notifications": "Notifikasi",
+    "web_notifications": "Notifikasi web",
+    "push_subscriptions": "Device push",
+    "password_resets": "Reset password",
+    "user_permission_overrides": "Override permission",
+    "chat_thread_members": "Membership chat",
+    "chat_messages": "Pesan chat",
+    "pos_sales": "Transaksi POS",
+    "crm_member_records": "Record member CRM",
+    "crm_purchase_records": "Record belanja CRM",
+    "recruitment_candidates": "Kandidat recruitment",
+    "performance_reviews": "Performance review",
+    "helpdesk_tickets": "Ticket helpdesk",
+    "biometric_logs": "Log biometric",
+}
+
 
 def _admin_role_bucket(role):
     normalized = normalize_role(role)
@@ -274,6 +301,98 @@ def _prepare_user_delete_dependencies(db, user_id):
         )
 
     return None
+
+
+def _empty_user_delete_impact():
+    return {
+        "delete_total": 0,
+        "nullify_total": 0,
+        "total": 0,
+        "items": [],
+        "summary": "Belum ada data terkait yang terdeteksi.",
+    }
+
+
+def _build_user_delete_impact_map(db, user_ids):
+    normalized_ids = []
+    for user_id in user_ids or ():
+        try:
+            parsed_id = int(user_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed_id > 0 and parsed_id not in normalized_ids:
+            normalized_ids.append(parsed_id)
+
+    impacts = {user_id: _empty_user_delete_impact() for user_id in normalized_ids}
+    if not normalized_ids:
+        return impacts
+
+    column_cache = {}
+
+    def has_reference_column(table_name, column_name):
+        if not _table_exists(db, table_name):
+            return False
+        if table_name not in column_cache:
+            column_cache[table_name] = _table_columns(db, table_name)
+        return column_name in column_cache[table_name]
+
+    def add_reference_counts(references, action_key):
+        placeholders = ",".join("?" for _ in normalized_ids)
+        for table_name, column_name in references:
+            if not has_reference_column(table_name, column_name):
+                continue
+            rows = db.execute(
+                f"""
+                SELECT {column_name} AS user_id, COUNT(*) AS total
+                FROM {table_name}
+                WHERE {column_name} IN ({placeholders})
+                GROUP BY {column_name}
+                """,
+                tuple(normalized_ids),
+            ).fetchall()
+            for row in rows:
+                ref_user_id = row["user_id"] if "user_id" in row.keys() else row[0]
+                try:
+                    ref_user_id = int(ref_user_id)
+                except (TypeError, ValueError):
+                    continue
+                total = int(row["total"] if "total" in row.keys() else row[1] or 0)
+                if total <= 0 or ref_user_id not in impacts:
+                    continue
+                impact = impacts[ref_user_id]
+                if action_key == "delete":
+                    impact["delete_total"] += total
+                    action_label = "dihapus"
+                else:
+                    impact["nullify_total"] += total
+                    action_label = "dilepas dari user"
+                impact["items"].append(
+                    {
+                        "label": USER_DELETE_REFERENCE_LABELS.get(table_name, table_name.replace("_", " ").title()),
+                        "column": column_name,
+                        "count": total,
+                        "action": action_label,
+                    }
+                )
+
+    add_reference_counts(USER_DELETE_DELETE_REFERENCES, "delete")
+    add_reference_counts(USER_DELETE_NULLIFY_REFERENCES, "nullify")
+
+    for impact in impacts.values():
+        impact["total"] = impact["delete_total"] + impact["nullify_total"]
+        if impact["total"]:
+            summary_parts = []
+            if impact["delete_total"]:
+                summary_parts.append(f"{impact['delete_total']} data dihapus")
+            if impact["nullify_total"]:
+                summary_parts.append(f"{impact['nullify_total']} referensi dilepas")
+            impact["summary"] = ", ".join(summary_parts) + "."
+        impact["items"] = sorted(
+            impact["items"],
+            key=lambda item: (item["action"], item["label"], item["column"]),
+        )
+
+    return impacts
 
 
 def _format_notification_user_label(user):
@@ -425,6 +544,12 @@ def _load_admin_context():
         """
     ).fetchall()
     users = [dict(user) for user in users_raw]
+    delete_impact_map = _build_user_delete_impact_map(
+        db,
+        [user.get("id") for user in users],
+    )
+    for user in users:
+        user["delete_impact"] = delete_impact_map.get(user.get("id"), _empty_user_delete_impact())
 
     employees_raw = db.execute(
         """

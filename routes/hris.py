@@ -470,7 +470,7 @@ DASHBOARD_SCHEDULE_PREVIEW_LIMIT = 8
 DASHBOARD_ANNOUNCEMENT_LIMIT = 6
 OVERTIME_USAGE_HISTORY_LIMIT = 12
 OVERTIME_BALANCE_CAP_MINUTES = 0
-OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES = 2 * 60
+OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES = 0
 
 
 def _to_int(value, default=None):
@@ -2403,6 +2403,16 @@ def _get_overtime_balance_cap_label():
     return _format_duration_minutes_label(cap_minutes) if cap_minutes > 0 else "Tanpa Batas"
 
 
+def _is_overtime_weekly_usage_limited():
+    return OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES > 0
+
+
+def _get_overtime_weekly_usage_limit_label():
+    if not _is_overtime_weekly_usage_limited():
+        return "Tidak dibatasi"
+    return _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES)
+
+
 def _get_overtime_balance_usage_hint_label(available_seconds=0, debt_seconds=0):
     if debt_seconds > 0:
         return (
@@ -2411,13 +2421,12 @@ def _get_overtime_balance_usage_hint_label(available_seconds=0, debt_seconds=0):
         )
     if available_seconds <= 0:
         return "Belum ada saldo"
-    weekly_limit_label = _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES)
     if _is_overtime_balance_cap_enabled():
         return (
             f"Saldo maks {_get_overtime_balance_cap_label()} | "
-            f"Pakai reguler maks {weekly_limit_label} / minggu"
+            "pakai reguler bebas sesuai saldo"
         )
-    return f"Saldo tanpa batas | Pakai reguler maks {weekly_limit_label} / minggu"
+    return "Saldo tanpa batas | pakai reguler bebas sesuai saldo"
 
 
 def _employee_allows_automatic_overtime(employee_name):
@@ -2537,7 +2546,12 @@ def _build_weekly_overtime_usage_meta(
         else 0
     )
     total_committed_minutes = used_minutes + pending_minutes
-    remaining_minutes = max(0, OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES - total_committed_minutes)
+    if _is_overtime_weekly_usage_limited():
+        remaining_minutes = max(0, OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES - total_committed_minutes)
+        remaining_label = _format_duration_minutes_label(remaining_minutes, zero_label="0 mnt")
+    else:
+        remaining_minutes = None
+        remaining_label = "Tidak dibatasi"
     return {
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
@@ -2549,9 +2563,10 @@ def _build_weekly_overtime_usage_meta(
         "committed_minutes": total_committed_minutes,
         "committed_label": _format_duration_minutes_label(total_committed_minutes, zero_label="0 mnt"),
         "remaining_minutes": remaining_minutes,
-        "remaining_label": _format_duration_minutes_label(remaining_minutes, zero_label="0 mnt"),
-        "limit_minutes": OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES,
-        "limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
+        "remaining_label": remaining_label,
+        "limit_minutes": OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES if _is_overtime_weekly_usage_limited() else None,
+        "limit_label": _get_overtime_weekly_usage_limit_label(),
+        "is_limited": _is_overtime_weekly_usage_limited(),
     }
 
 
@@ -5333,17 +5348,6 @@ def _apply_attendance_request(db, request_row):
             raise ValueError("Durasi pengurangan lembur tidak valid.")
         if not is_debt_mode and minutes_used > overtime_balance["available_minutes"]:
             raise ValueError("Saldo lembur saat ini tidak cukup untuk request tersebut.")
-        if usage_mode != "cashout_all" and not is_debt_mode:
-            weekly_usage_meta = _build_weekly_overtime_usage_meta(
-                db,
-                employee["id"],
-                reference_date=usage_date,
-            )
-            if minutes_used > weekly_usage_meta["remaining_minutes"]:
-                raise ValueError(
-                    f"Pemakaian lembur reguler maksimal {weekly_usage_meta['limit_label']} per minggu. "
-                    f"Sisa minggu ini hanya {weekly_usage_meta['remaining_label']} untuk periode {weekly_usage_meta['week_label']}."
-                )
         db.execute(
             """
             INSERT INTO overtime_usage_records(
@@ -11487,14 +11491,22 @@ def delete_performance(review_id):
 def review_kpi_staff_report(report_id):
     return_to = _safe_hris_return_to("/hris/pms")
     if not can_manage_performance_records():
-        flash("Tidak punya akses untuk mereview KPI staff.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Tidak punya akses untuk mereview KPI staff.",
+            "error",
+            return_to,
+            status_code=403,
+        )
 
     db = get_db()
     report = _get_kpi_staff_report_by_id(db, report_id)
     if not report:
-        flash("Data KPI staff tidak ditemukan.", "error")
-        return redirect(return_to)
+        return _hris_form_response(
+            "Data KPI staff tidak ditemukan.",
+            "error",
+            return_to,
+            status_code=404,
+        )
 
     status = normalize_kpi_report_status(request.form.get("status"))
     review_note = (request.form.get("review_note") or "").strip()
@@ -11522,8 +11534,20 @@ def review_kpi_staff_report(report_id):
     )
     db.commit()
 
-    flash("Status KPI staff berhasil diperbarui.", "success")
-    return redirect(return_to)
+    status_label = KPI_REPORT_STATUS_LABELS.get(status, status.replace("_", " ").title())
+    return _hris_form_response(
+        "Status KPI staff berhasil diperbarui.",
+        "success",
+        return_to,
+        payload={
+            "report_id": report_id,
+            "status": status,
+            "status_label": status_label,
+            "hr_note": review_note or "Belum ada catatan review.",
+            "review_note": review_note,
+            "reviewed_at_label": _format_hris_datetime_display(reviewed_at, include_date=True) if reviewed_at else None,
+        },
+    )
 
 
 @hris_bp.route("/pms/target/add", methods=["POST"])
@@ -13187,14 +13211,6 @@ def use_biometric_overtime():
             "error",
         )
         return redirect(return_to)
-    if usage_mode != "cashout_all" and not is_debt_mode and minutes_used > overtime_balance["weekly_remaining_minutes"]:
-        flash(
-            f"Pemakaian lembur reguler maksimal {overtime_balance['weekly_limit_label']} per minggu. "
-            f"Sisa minggu ini hanya {overtime_balance['weekly_remaining_label']} untuk periode {overtime_balance['weekly_period_label']}.",
-            "error",
-        )
-        return redirect(return_to)
-
     payload = {
         "employee_id": employee["id"],
         "employee_name": employee["full_name"],

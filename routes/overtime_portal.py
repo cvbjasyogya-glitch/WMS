@@ -4,11 +4,11 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from database import get_db
 from routes.hris import (
-    OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES,
     _build_employee_overtime_balance,
     _ensure_overtime_feature_schema,
     _format_duration_minutes_label,
     _get_overtime_balance_cap_label,
+    _get_overtime_weekly_usage_limit_label,
     _is_overtime_balance_cap_enabled,
     _is_overtime_debt_usage_mode,
     _get_overtime_usage_mode_label,
@@ -43,7 +43,7 @@ def _empty_overtime_portal_context():
         "can_request_overtime_add": _can_request_overtime_add(),
         "overtime_balance_cap_enabled": _is_overtime_balance_cap_enabled(),
         "overtime_balance_cap_label": _get_overtime_balance_cap_label(),
-        "overtime_weekly_limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
+        "overtime_weekly_limit_label": _get_overtime_weekly_usage_limit_label(),
     }
 
 
@@ -140,7 +140,7 @@ def _build_overtime_portal_context(db):
         "can_request_overtime_add": _can_request_overtime_add(),
         "overtime_balance_cap_enabled": _is_overtime_balance_cap_enabled(),
         "overtime_balance_cap_label": _get_overtime_balance_cap_label(),
-        "overtime_weekly_limit_label": _format_duration_minutes_label(OVERTIME_WEEKLY_USAGE_LIMIT_MINUTES),
+        "overtime_weekly_limit_label": _get_overtime_weekly_usage_limit_label(),
     }
 
 
@@ -259,13 +259,6 @@ def submit():
         if not is_debt_mode and minutes_value > int(balance.get("available_minutes") or 0):
             flash(
                 f"Saldo lembur saat ini tidak cukup. Sisa tersedia hanya {balance.get('available_label') or _format_duration_minutes_label(balance.get('available_minutes'), zero_label='0 mnt')}.",
-                "error",
-            )
-            return redirect("/lembur/")
-        if usage_mode != "cashout_all" and not is_debt_mode and minutes_value > int(balance.get("weekly_remaining_minutes") or 0):
-            flash(
-                f"Pemakaian lembur reguler maksimal {balance.get('weekly_limit_label')} per minggu. "
-                f"Sisa minggu ini hanya {balance.get('weekly_remaining_label')} untuk periode {balance.get('weekly_period_label')}.",
                 "error",
             )
             return redirect("/lembur/")

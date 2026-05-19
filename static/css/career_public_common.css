@@ -1966,6 +1966,37 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     grid-column: span 2;
 }
 
+.career-profile-optional-details {
+    border: 1px solid #dbe6f0;
+    border-radius: 20px;
+    background: rgba(248, 252, 255, 0.88);
+    overflow: hidden;
+}
+
+.career-profile-optional-details summary {
+    cursor: pointer;
+    display: grid;
+    gap: 4px;
+    padding: 16px 18px;
+    color: #163858;
+    font-weight: 800;
+    list-style: none;
+}
+
+.career-profile-optional-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.career-profile-optional-details summary span {
+    color: #6f8194;
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.career-profile-optional-details .career-profile-grid {
+    padding: 0 18px 18px;
+}
+
 .career-profile-photo-block {
     display: grid;
     justify-items: center;

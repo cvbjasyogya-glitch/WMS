@@ -2935,13 +2935,26 @@ async function submitPosVoidRequest(button) {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Void item gagal diproses.");
         }
-        window.alert(data.message || "Void item berhasil diproses.");
-        window.location.reload();
+        if (typeof window.showToast === "function") {
+            window.showToast(data.message || "Void item berhasil diproses.");
+        } else {
+            window.alert(data.message || "Void item berhasil diproses.");
+        }
+        const nextActiveQty = Number(data.active_qty || 0);
+        if (nextActiveQty <= 0) {
+            button.dataset.posVoidableQty = "0";
+            button.disabled = true;
+            button.textContent = "Sudah Void";
+        } else {
+            button.dataset.posVoidableQty = String(nextActiveQty);
+        }
     } catch (error) {
         window.alert(error.message || "Void item gagal diproses.");
     } finally {
-        button.disabled = false;
-        button.textContent = originalText;
+        if (Number(button.dataset.posVoidableQty || 0) > 0) {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
     }
 }
 
