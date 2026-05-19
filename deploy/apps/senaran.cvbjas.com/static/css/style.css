@@ -1596,7 +1596,7 @@ body:has(.compact-form) .content,
     position: relative;
 }
 
-.input-icon i {
+.input-icon > i {
     position: absolute;
     left: 14px;
     top: 50%;
@@ -1608,6 +1608,42 @@ body:has(.compact-form) .content,
     padding-left: 42px;
     min-height: 48px;
     border-radius: 14px;
+}
+
+.password-field {
+    position: relative;
+}
+
+.password-field .form-control {
+    padding-right: 46px;
+}
+
+.input-icon.password-field .form-control {
+    padding-right: 46px;
+}
+
+.password-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #58718f;
+    background: transparent;
+    transform: translateY(-50%);
+    transition: background-color 160ms ease, color 160ms ease;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+    color: var(--brand-blue);
+    background: rgba(77, 141, 255, 0.12);
+    outline: none;
 }
 
 html.monitor-page,
@@ -2741,6 +2777,37 @@ body.monitor-screen *::after {
     font-weight: 600;
 }
 
+.display-page .display-login-btn {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid rgba(0, 170, 255, 0.5);
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    color: #ffffff;
+    background: rgba(0, 170, 255, 0.14);
+    font-size: clamp(0.78rem, 0.92vw, 1rem);
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.display-page .display-login-btn:hover,
+.display-page .display-login-btn:focus-visible {
+    border-color: rgba(0, 170, 255, 0.85);
+    background: rgba(0, 170, 255, 0.26);
+    color: #ffffff;
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.display-page .display-login-btn i {
+    color: #00aaff;
+}
+
 @keyframes rise-in {
     from {
         opacity: 0;
@@ -3081,12 +3148,22 @@ body.monitor-screen *::after {
         width: 100%;
     }
 
+    .display-page .display-footer-update {
+        flex-wrap: wrap;
+    }
+
     .display-page .display-footer-info span,
     .display-page .display-footer-update span,
     .display-page .display-footer-update #monitor-updated {
         white-space: normal;
         font-size: 0.84rem;
         line-height: 1.35;
+    }
+
+    .display-page .display-login-btn {
+        min-height: 34px;
+        padding: 0 11px;
+        font-size: 0.78rem;
     }
 }
 

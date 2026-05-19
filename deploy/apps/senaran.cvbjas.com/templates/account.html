@@ -30,15 +30,30 @@
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label" for="old_password">Password Lama</label>
-                <input class="form-control" id="old_password" name="old_password" type="password" autocomplete="current-password">
+                <div class="password-field">
+                    <input class="form-control" id="old_password" name="old_password" type="password" autocomplete="current-password">
+                    <button class="password-toggle" type="button" data-password-toggle aria-label="Lihat password lama" aria-pressed="false">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </div>
             </div>
             <div class="col-md-4">
                 <label class="form-label" for="new_password">Password Baru</label>
-                <input class="form-control" id="new_password" name="new_password" type="password" autocomplete="new-password">
+                <div class="password-field">
+                    <input class="form-control" id="new_password" name="new_password" type="password" autocomplete="new-password">
+                    <button class="password-toggle" type="button" data-password-toggle aria-label="Lihat password baru" aria-pressed="false">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </div>
             </div>
             <div class="col-md-4">
                 <label class="form-label" for="confirm_password">Konfirmasi Password Baru</label>
-                <input class="form-control" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password">
+                <div class="password-field">
+                    <input class="form-control" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password">
+                    <button class="password-toggle" type="button" data-password-toggle aria-label="Lihat konfirmasi password" aria-pressed="false">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </div>
             </div>
         </div>
         <div class="form-text mt-2">Kosongkan bagian password jika hanya ingin mengganti nama atau username.</div>

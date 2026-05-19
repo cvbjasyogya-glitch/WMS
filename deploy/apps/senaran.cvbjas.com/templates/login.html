@@ -41,9 +41,12 @@
                 </div>
 
                 <label class="form-label" for="password">Password</label>
-                <div class="input-icon mb-4">
+                <div class="input-icon password-field mb-4">
                     <i class="bi bi-lock"></i>
                     <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required>
+                    <button class="password-toggle" type="button" data-password-toggle aria-label="Lihat password" aria-pressed="false">
+                        <i class="bi bi-eye"></i>
+                    </button>
                 </div>
 
                 <button class="btn btn-primary w-100" type="submit">
@@ -63,5 +66,6 @@
             </div>
         </section>
     </main>
+    <script src="{{ url_for('static', filename='js/password-toggle.js') }}"></script>
 </body>
 </html>

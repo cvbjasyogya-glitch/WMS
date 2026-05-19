@@ -30,6 +30,8 @@ Aplikasi berjalan di:
 http://127.0.0.1:5000
 ```
 
+Halaman utama `/` langsung menampilkan Customer Display. Halaman admin tetap tersedia lewat `/login`.
+
 ## Akun default
 
 ```text
@@ -77,7 +79,7 @@ queue-stringing-system/
 - `/dashboard` - statistik harian dan jadwal slot senaran 14:00-20:00
 - `/antrian/tambah` - input antrian baru dengan detail per raket
 - `/antrian` - daftar antrian hari ini dan update status
-- `/layar-monitor` - layar TV/customer display tanpa login
+- `/` dan `/layar-monitor` - layar TV/customer display tanpa login
 - `/api/antrian/monitor` - API JSON monitor dan slot jadwal tanpa login
 - `/api/schedule-slots` - API slot untuk form input, wajib login
 - `/monitoring` - monitoring antrian dengan filter status/cabang
@@ -91,16 +93,21 @@ queue-stringing-system/
 Untuk production atau akses online, siapkan environment variable berikut:
 
 ```text
+APP_ENV=production
 SECRET_KEY=<random panjang dan unik>
 SESSION_COOKIE_SECURE=true
 FLASK_DEBUG=false
 APP_TIMEZONE=Asia/Jakarta
+SENARAN_DATABASE=/var/www/queue-stringing-system/antrian.db
 DEFAULT_ADMIN_PASSWORD=<password awal kuat untuk init pertama>
+BEHIND_PROXY=true
+TRUSTED_HOSTS=senaran.cvbjas.com,127.0.0.1,localhost
 ```
 
 Catatan:
 
 - Jangan gunakan password default atau password mudah ditebak untuk production.
+- Saat `APP_ENV=production`, aplikasi tidak akan start kalau `SECRET_KEY` belum diset.
 - `SECRET_KEY` wajib random, panjang, dan tidak dibagikan.
 - Set `SESSION_COOKIE_SECURE=true` jika aplikasi diakses lewat HTTPS.
 - Jalankan production dengan `FLASK_DEBUG=false`.
@@ -110,6 +117,28 @@ Catatan:
 - Route public hanya `/layar-monitor` dan `/api/antrian/monitor`; keduanya read-only.
 - Backup file `antrian.db` secara berkala.
 - Ganti password akun secara berkala.
+
+## Deploy VPS
+
+Contoh flow deploy Linux dengan Gunicorn di belakang Nginx/Caddy:
+
+```bash
+cd /var/www/queue-stringing-system
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-production.txt
+export APP_ENV=production
+export SECRET_KEY="<random panjang>"
+export DEFAULT_ADMIN_PASSWORD="<password awal kuat>"
+export SENARAN_DATABASE="/var/www/queue-stringing-system/antrian.db"
+export SESSION_COOKIE_SECURE=true
+export BEHIND_PROXY=true
+export TRUSTED_HOSTS="senaran.cvbjas.com,127.0.0.1,localhost"
+python init_db.py
+gunicorn --bind 127.0.0.1:8000 wsgi:application
+```
+
+Reverse proxy domain `senaran.cvbjas.com` diarahkan ke `http://127.0.0.1:8000`. Pastikan HTTPS aktif, port publik hanya `80/443`, dan service Gunicorn dikelola lewat systemd/supervisor agar otomatis hidup setelah reboot.
 
 ## Flow coba cepat
 
@@ -122,7 +151,7 @@ Catatan:
 7. Simpan antrian.
 8. Buka `Dashboard` untuk melihat jadwal slot dan daftar senaran hari ini.
 9. Klik `Panggil` dari `Daftar Antrian Hari Ini`.
-10. Buka `http://127.0.0.1:5000/layar-monitor` untuk Customer Display.
+10. Buka `http://127.0.0.1:5000/` untuk Customer Display.
 
 ## Catatan lokal
 
@@ -133,4 +162,4 @@ Catatan:
 - Nomor antrian reset per hari dengan format `MGA-001`, `MGA-002`.
 - Slot jadwal tersedia dari 14:00 sampai 20:00, kapasitas dasar 2 raket per jam.
 - Jika satu slot berisi 4 raket atau lebih, slot jam berikutnya otomatis terblokir.
-- Aplikasi ini belum disiapkan untuk deploy VPS dan tidak membutuhkan NGINX.
+- Untuk deploy VPS, jalankan lewat Gunicorn dan reverse proxy, bukan Flask development server.

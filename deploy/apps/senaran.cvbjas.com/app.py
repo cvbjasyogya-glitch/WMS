@@ -27,9 +27,11 @@ from flask import (
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 BASE_DIR = Path(__file__).resolve().parent
+DATABASE = Path(os.environ.get("SENARAN_DATABASE") or os.environ.get("DATABASE_PATH") or BASE_DIR / "antrian.db").resolve()
 
 
 def load_app_timezone():
@@ -38,9 +40,6 @@ def load_app_timezone():
         return ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
         return timezone(timedelta(hours=7), name="Asia/Jakarta")
-
-
-DATABASE = Path(os.environ.get("SENARAN_DATABASE", BASE_DIR / "antrian.db")).expanduser()
 
 BRANCHES = ["Mega Sports"]
 STATUSES = ["MENUNGGU", "DIPANGGIL", "DIPROSES", "SELESAI", "DIAMBIL", "BATAL"]
@@ -81,11 +80,25 @@ MONTH_LABELS = {
 }
 
 
+IS_PRODUCTION = os.environ.get("APP_ENV", os.environ.get("FLASK_ENV", "development")).lower() == "production"
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if IS_PRODUCTION and not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY wajib di-set saat APP_ENV=production.")
+
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-this-secret-key")
+app.config["SECRET_KEY"] = SECRET_KEY or "dev-only-change-this-secret-key"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", str(IS_PRODUCTION)).lower() == "true"
+app.config["PREFERRED_URL_SCHEME"] = "https" if app.config["SESSION_COOKIE_SECURE"] else "http"
+
+trusted_hosts = os.environ.get("TRUSTED_HOSTS", "")
+if trusted_hosts:
+    app.config["TRUSTED_HOSTS"] = [host.strip() for host in trusted_hosts.split(",") if host.strip()]
+
+if os.environ.get("BEHIND_PROXY", str(IS_PRODUCTION)).lower() == "true":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 logging.Formatter.converter = staticmethod(lambda timestamp: datetime.fromtimestamp(timestamp, APP_TIMEZONE).timetuple())
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s %(message)s")
@@ -717,9 +730,7 @@ def inject_globals():
 
 @app.route("/")
 def index():
-    if session.get("user_id"):
-        return redirect(url_for("dashboard"))
-    return redirect(url_for("login"))
+    return render_template("layar_monitor.html")
 
 
 @app.route("/login", methods=["GET", "POST"])

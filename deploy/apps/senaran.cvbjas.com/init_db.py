@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE = Path(os.environ.get("SENARAN_DATABASE", BASE_DIR / "antrian.db")).expanduser()
+DATABASE = Path(os.environ.get("SENARAN_DATABASE") or os.environ.get("DATABASE_PATH") or BASE_DIR / "antrian.db").resolve()
 
 
 SCHEMA = """
