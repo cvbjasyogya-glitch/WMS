@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#07111f" id="themeColorMeta">
+<title>OTP Login | ERP-CV.BJAS</title>
+{% set brand_logo_url = asset_url('brand/mataram-logo.png') %}
+{% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
+{% set login_hero_url = asset_url('brand/login-hero-crowd.jpeg') %}
+{% set dashboard_css_url = asset_url('css/dashboard.css') %}
+<link rel="icon" type="image/png" href="{{ brand_logo_192_url }}">
+<link rel="apple-touch-icon" href="{{ brand_logo_192_url }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script>
+(() => {
+    try {
+        const storedTheme = localStorage.getItem("wms-theme");
+        const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
+        document.documentElement.dataset.theme = theme;
+    } catch (error) {
+        document.documentElement.dataset.theme = "dark";
+    }
+})();
+</script>
+<link rel="stylesheet" href="{{ dashboard_css_url }}">
+</head>
+<body class="login-page minimal-shell browser-mode" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser">
+<main class="login-shell" data-login-shell="split-clean">
+    <section class="login-hero-panel" data-login-hero>
+        <div class="login-hero-media" aria-hidden="true">
+            <img src="{{ login_hero_url }}" alt="">
+        </div>
+        <div class="login-hero-scrim" aria-hidden="true"></div>
+    </section>
+
+    <section class="login-form-panel login-auth-panel">
+        <div class="login-panel-brand">
+            <div class="login-panel-brand-mark">
+                <img src="{{ brand_logo_url }}" alt="ERP-CV.BJAS logo">
+            </div>
+            <div class="login-panel-brand-copy">
+                <span>ERP-CV.BJAS</span>
+                <strong>Verifikasi Login</strong>
+            </div>
+        </div>
+
+        <div class="login-panel-copy">
+            <h1>Masukkan OTP</h1>
+            <p class="subcopy">Kode 5 digit sudah dikirim melalui {{ active_channel_label }} dan berlaku {{ ttl_minutes }} menit.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-stack">
+            {% for category, message in messages %}
+            <div class="msg {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('auth.portal_login_otp') }}" class="login-form-grid login-code-form">
+            <input type="hidden" name="action" value="verify_code">
+            <label>Kode OTP</label>
+            <div class="login-code-row">
+                <input type="text" name="otp_code" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="5 digit" autocomplete="one-time-code" spellcheck="false" required autofocus>
+                <button type="submit">Verifikasi</button>
+            </div>
+        </form>
+
+        <div class="login-secondary-stack">
+            {% if has_phone %}
+            <form method="POST" action="{{ url_for('auth.portal_login_otp') }}" class="login-form-grid login-secondary-form">
+                <input type="hidden" name="action" value="resend_whatsapp">
+                <button type="submit" class="ghost-button">Kirim ulang via WhatsApp {{ masked_phone }}</button>
+            </form>
+            {% endif %}
+            {% if has_email %}
+            <form method="POST" action="{{ url_for('auth.portal_login_otp') }}" class="login-form-grid login-secondary-form">
+                <input type="hidden" name="action" value="resend_email">
+                <button type="submit" class="ghost-button">Kirim ulang via email {{ masked_email }}</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <p class="login-footnote">Akun: {{ username }}. Setelah OTP valid, portal akan masuk otomatis.</p>
+    </section>
+</main>
+</body>
+</html>

@@ -1,4 +1,4 @@
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session
 from werkzeug.security import generate_password_hash
 
 from database import get_db, is_postgresql_backend
@@ -266,6 +266,30 @@ def _table_exists(db, table_name):
     return bool(row)
 
 
+def _ensure_admin_user_security_columns(db):
+    if is_postgresql_backend():
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_required INTEGER")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_code_hash TEXT")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_sent_at TIMESTAMP")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_expires_at TIMESTAMP")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_attempts INTEGER DEFAULT 0")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_channel TEXT")
+        return
+
+    columns = _table_columns(db, "users")
+    for column_name, definition in (
+        ("login_otp_required", "INTEGER"),
+        ("login_otp_code_hash", "TEXT"),
+        ("login_otp_sent_at", "TIMESTAMP"),
+        ("login_otp_expires_at", "TIMESTAMP"),
+        ("login_otp_attempts", "INTEGER DEFAULT 0"),
+        ("login_otp_channel", "TEXT"),
+    ):
+        if column_name not in columns:
+            db.execute(f"ALTER TABLE users ADD COLUMN {column_name} {definition}")
+            columns.add(column_name)
+
+
 def _prepare_user_delete_dependencies(db, user_id):
     for table_name, column_name, message in USER_DELETE_BLOCKING_REFERENCES:
         if not _table_exists(db, table_name):
@@ -521,6 +545,7 @@ def _build_notification_policy_sections(users):
 
 def _load_admin_context():
     db = get_db()
+    _ensure_admin_user_security_columns(db)
 
     users_raw = db.execute(
         """
@@ -532,6 +557,7 @@ def _load_admin_context():
             u.phone,
             u.notify_email,
             u.notify_whatsapp,
+            u.login_otp_required,
             u.warehouse_id,
             u.employee_id,
             w.name AS warehouse_name,
@@ -618,6 +644,15 @@ def _load_admin_context():
         ).fetchone()[0],
         "global_roles": sum(1 for user in users if not is_scoped_role(user["role"])),
         "scoped_roles": sum(1 for user in users if is_scoped_role(user["role"])),
+        "otp_required_users": sum(
+            1
+            for user in users
+            if (
+                bool(current_app.config.get("PORTAL_LOGIN_OTP_DEFAULT_REQUIRED", True))
+                if user.get("login_otp_required") is None
+                else bool(user.get("login_otp_required"))
+            )
+        ),
     }
 
     warehouse_summary = {
@@ -634,6 +669,7 @@ def _load_admin_context():
         "health": health,
         "role_guide": role_guide,
         "warehouse_summary": warehouse_summary,
+        "default_otp_required": bool(current_app.config.get("PORTAL_LOGIN_OTP_DEFAULT_REQUIRED", True)),
     }
 
 
@@ -903,6 +939,7 @@ def add_user():
     phone = (request.form.get("phone") or "").strip()
     notify_email = 1 if request.form.get("notify_email") == "on" else 0
     notify_whatsapp = 1 if request.form.get("notify_whatsapp") == "on" else 0
+    login_otp_required = 1 if request.form.get("login_otp_required") == "on" else 0
     warehouse_id = request.form.get("warehouse_id") or None
     employee_id = request.form.get("employee_id") or None
     if warehouse_id:
@@ -939,8 +976,8 @@ def add_user():
     try:
         db.execute(
             """
-            INSERT INTO users(username,password,role,email,phone,notify_email,notify_whatsapp,warehouse_id,employee_id)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            INSERT INTO users(username,password,role,email,phone,notify_email,notify_whatsapp,login_otp_required,warehouse_id,employee_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 username,
@@ -950,6 +987,7 @@ def add_user():
                 phone or None,
                 notify_email,
                 notify_whatsapp,
+                login_otp_required,
                 warehouse_id,
                 employee_id,
             ),
@@ -987,6 +1025,7 @@ def update_user(id):
     phone = (request.form.get("phone") or "").strip()
     notify_email = 1 if request.form.get("notify_email") == "on" else 0
     notify_whatsapp = 1 if request.form.get("notify_whatsapp") == "on" else 0
+    login_otp_required = 1 if request.form.get("login_otp_required") == "on" else 0
     warehouse_id = request.form.get("warehouse_id") or None
     employee_id = request.form.get("employee_id") or None
     if warehouse_id:
@@ -1016,7 +1055,7 @@ def update_user(id):
             db.execute(
                 """
                 UPDATE users
-                SET username=?, password=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, warehouse_id=?, employee_id=?
+                SET username=?, password=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, login_otp_required=?, warehouse_id=?, employee_id=?
                 WHERE id=?
                 """,
                 (
@@ -1027,6 +1066,7 @@ def update_user(id):
                     phone or None,
                     notify_email,
                     notify_whatsapp,
+                    login_otp_required,
                     warehouse_id,
                     employee_id,
                     id,
@@ -1045,7 +1085,7 @@ def update_user(id):
             db.execute(
                 """
                 UPDATE users
-                SET username=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, warehouse_id=?, employee_id=?
+                SET username=?, role=?, email=?, phone=?, notify_email=?, notify_whatsapp=?, login_otp_required=?, warehouse_id=?, employee_id=?
                 WHERE id=?
                 """,
                 (
@@ -1055,6 +1095,7 @@ def update_user(id):
                     phone or None,
                     notify_email,
                     notify_whatsapp,
+                    login_otp_required,
                     warehouse_id,
                     employee_id,
                     id,

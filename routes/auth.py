@@ -1,6 +1,7 @@
 import hashlib
 import re
 import secrets
+from html import escape
 from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, g, render_template, request, redirect, session, url_for, flash
@@ -9,10 +10,12 @@ from services.notification_service import create_web_notification, send_email, s
 from services.rbac import is_scoped_role, load_user_permission_override_snapshot, normalize_role
 from services.auth_security import (
     clear_login_failures,
+    generate_numeric_code,
     get_client_ip,
     get_login_throttle_state,
     get_user_by_email_verification_code,
     get_user_by_email_verification_token,
+    hash_user_email_verification_token,
     issue_user_email_verification_challenge,
     mark_user_email_verified,
     issue_password_reset_code,
@@ -28,6 +31,13 @@ from datetime import datetime, timedelta, timezone
 auth_bp = Blueprint("auth", __name__)
 
 
+def _ensure_sqlite_column(db, table_name, column_name, definition):
+    rows = db.execute(f"PRAGMA table_info({table_name})").fetchall()
+    existing = {row["name"] if hasattr(row, "keys") and "name" in row.keys() else row[1] for row in rows}
+    if column_name not in existing:
+        db.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
 def _ensure_portal_auth_schema(db):
     if getattr(g, "_portal_auth_schema_ready", False):
         return
@@ -41,6 +51,12 @@ def _ensure_portal_auth_schema(db):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_code_hash TEXT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_required INTEGER",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_code_hash TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_sent_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_expires_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_attempts INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_channel TEXT",
             "CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email)",
             "CREATE INDEX IF NOT EXISTS idx_users_email_verification ON users(email_verification_token_hash)",
             "CREATE INDEX IF NOT EXISTS idx_users_email_verification_code ON users(email_verification_code_hash)",
@@ -82,6 +98,22 @@ def _ensure_portal_auth_schema(db):
             """
         )
         db.execute("CREATE INDEX IF NOT EXISTS idx_user_login_devices_user ON user_login_devices(user_id, last_seen_at DESC)")
+        for column_name, definition in (
+            ("email", "TEXT"),
+            ("phone", "TEXT"),
+            ("email_verified_at", "TIMESTAMP"),
+            ("email_verification_token_hash", "TEXT"),
+            ("email_verification_code_hash", "TEXT"),
+            ("email_verification_sent_at", "TIMESTAMP"),
+            ("email_verification_expires_at", "TIMESTAMP"),
+            ("login_otp_required", "INTEGER"),
+            ("login_otp_code_hash", "TEXT"),
+            ("login_otp_sent_at", "TIMESTAMP"),
+            ("login_otp_expires_at", "TIMESTAMP"),
+            ("login_otp_attempts", "INTEGER DEFAULT 0"),
+            ("login_otp_channel", "TEXT"),
+        ):
+            _ensure_sqlite_column(db, "users", column_name, definition)
 
     g._portal_auth_schema_ready = True
 
@@ -221,6 +253,13 @@ def _get_pending_email_user(db):
 
 def _build_portal_verification_url(token):
     path = url_for("auth.verify_portal_email", token=token)
+    configured_base = _portal_public_base_url()
+    if configured_base:
+        return f"{configured_base}{path}"
+    return url_for("auth.verify_portal_email", token=token, _external=True)
+
+
+def _portal_public_base_url():
     configured_base = (
         (current_app.config.get("PORTAL_PUBLIC_BASE_URL") or "").strip().rstrip("/")
         or (
@@ -230,9 +269,17 @@ def _build_portal_verification_url(token):
         ).strip().rstrip("/")
         or (current_app.config.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     )
+    return configured_base
+
+
+def _build_portal_static_url(filename):
+    safe_filename = str(filename or "").strip().lstrip("/")
+    if not safe_filename:
+        return ""
+    configured_base = _portal_public_base_url()
     if configured_base:
-        return f"{configured_base}{path}"
-    return url_for("auth.verify_portal_email", token=token, _external=True)
+        return f"{configured_base}/static/{safe_filename}"
+    return url_for("static", filename=safe_filename, _external=True)
 
 
 def _issue_portal_verification_challenge(db, user):
@@ -305,6 +352,309 @@ def _send_portal_whatsapp_verification(db, user):
     if sent:
         return True, "Link verifikasi sudah dikirim ke WhatsApp terdaftar."
     return False, "Link WhatsApp belum terkirim. Cek konfigurasi WhatsApp atau kirim ulang lewat email."
+
+
+def _portal_login_otp_default_required():
+    return bool(current_app.config.get("PORTAL_LOGIN_OTP_DEFAULT_REQUIRED", True))
+
+
+def _user_login_otp_required(user):
+    raw_value = user.get("login_otp_required") if user else None
+    if raw_value is None:
+        return _portal_login_otp_default_required()
+    return _truthy(raw_value)
+
+
+def _normalize_portal_login_otp_code(value):
+    code = re.sub(r"\D+", "", str(value or ""))
+    return code if len(code) == 5 else ""
+
+
+def _portal_login_otp_ttl_minutes():
+    return max(1, int(current_app.config.get("PORTAL_LOGIN_OTP_TTL_MINUTES", 10)))
+
+
+def _portal_login_otp_session_minutes():
+    return max(1, int(current_app.config.get("PORTAL_LOGIN_OTP_SESSION_MINUTES", 10)))
+
+
+def _portal_login_otp_max_attempts():
+    return max(1, int(current_app.config.get("PORTAL_LOGIN_OTP_MAX_ATTEMPTS", 5)))
+
+
+def _login_otp_available_channels(user):
+    channels = []
+    if str(user.get("phone") or "").strip():
+        channels.append("whatsapp")
+    if _is_valid_email(user.get("email")):
+        channels.append("email")
+    return channels
+
+
+def _preferred_login_otp_channels(user, requested_channel=None):
+    available = _login_otp_available_channels(user)
+    if not available:
+        return []
+
+    preferred = []
+    requested = (requested_channel or "").strip().lower()
+    if requested in available:
+        preferred.append(requested)
+
+    default_channel = str(current_app.config.get("PORTAL_LOGIN_OTP_DEFAULT_CHANNEL") or "whatsapp").strip().lower()
+    if default_channel in available and default_channel not in preferred:
+        preferred.append(default_channel)
+
+    for channel in ("whatsapp", "email"):
+        if channel in available and channel not in preferred:
+            preferred.append(channel)
+
+    return preferred
+
+
+def _set_pending_login_otp_session(user, next_target=None, login_location=None):
+    safe_target = _safe_login_redirect_target(next_target) or ""
+    session.clear()
+    session["pending_login_otp_user_id"] = user["id"]
+    session["pending_login_otp_username"] = user["username"]
+    session["pending_login_otp_next"] = safe_target
+    session["pending_login_otp_started_at"] = datetime.now(timezone.utc).timestamp()
+    if login_location:
+        session["pending_login_otp_location"] = login_location
+
+
+def _get_pending_login_otp_user(db):
+    user_id = session.get("pending_login_otp_user_id")
+    started_at = session.get("pending_login_otp_started_at")
+    if not user_id or not started_at:
+        return None
+
+    try:
+        started_at = float(started_at)
+    except (TypeError, ValueError):
+        session.clear()
+        return None
+
+    if datetime.now(timezone.utc).timestamp() - started_at > _portal_login_otp_session_minutes() * 60:
+        session.clear()
+        return None
+
+    user = db.execute("SELECT * FROM users WHERE id=? LIMIT 1", (user_id,)).fetchone()
+    return dict(user) if user else None
+
+
+def _issue_portal_login_otp_challenge(db, user, channel):
+    code = generate_numeric_code(5)
+    code_hash = hash_user_email_verification_token(code)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=_portal_login_otp_ttl_minutes())
+    db.execute(
+        """
+        UPDATE users
+        SET login_otp_code_hash=?,
+            login_otp_sent_at=CURRENT_TIMESTAMP,
+            login_otp_expires_at=?,
+            login_otp_attempts=0,
+            login_otp_channel=?
+        WHERE id=?
+        """,
+        (
+            code_hash,
+            expires_at.strftime("%Y-%m-%d %H:%M:%S"),
+            channel,
+            user["id"],
+        ),
+    )
+    return code, expires_at
+
+
+def _format_portal_otp_expiry(expires_at):
+    month_labels = (
+        "Januari",
+        "Februari",
+        "Maret",
+        "April",
+        "Mei",
+        "Juni",
+        "Juli",
+        "Agustus",
+        "September",
+        "Oktober",
+        "November",
+        "Desember",
+    )
+    jakarta_tz = timezone(timedelta(hours=7))
+    if not expires_at:
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=_portal_login_otp_ttl_minutes())
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    local_expiry = expires_at.astimezone(jakarta_tz)
+    return (
+        f"{local_expiry.day} {month_labels[local_expiry.month - 1]} "
+        f"{local_expiry.year}, {local_expiry.strftime('%H:%M')} WIB"
+    )
+
+
+def _portal_login_otp_display_name(db, user):
+    employee_id = user.get("employee_id") if user else None
+    if employee_id:
+        try:
+            employee = db.execute(
+                "SELECT full_name FROM employees WHERE id=? LIMIT 1",
+                (employee_id,),
+            ).fetchone()
+            employee_name = str(employee["full_name"] or "").strip() if employee else ""
+            if employee_name:
+                return employee_name
+        except Exception:
+            pass
+    return str(user.get("username") or "User").strip() or "User"
+
+
+def _build_portal_login_otp_email(db, user, code, expires_at):
+    display_name = _portal_login_otp_display_name(db, user)
+    company_label = (current_app.config.get("STORE_NAME") or "CV BJAS").strip()
+    expiry_label = _format_portal_otp_expiry(expires_at)
+    logo_url = _build_portal_static_url("brand/mataram-logo.png")
+    safe_display_name = escape(display_name)
+    safe_company = escape(company_label)
+    safe_code = escape(code)
+    safe_expiry = escape(expiry_label)
+    safe_logo_url = escape(logo_url, quote=True)
+    subject = "Kode Verifikasi Login Portal CV BJAS"
+    text_body = (
+        f"Halo {display_name} ({company_label}),\n\n"
+        "Berikut adalah kode verifikasi Anda untuk login ke Portal CV BJAS:\n\n"
+        f"{code}\n\n"
+        f"Kode ini valid hingga {expiry_label} dan hanya bisa digunakan sekali.\n\n"
+        "Jika Anda tidak merasa melakukan login Portal CV BJAS, abaikan email ini dan segera lakukan reset password.\n\n"
+        "Best Regards,\n"
+        "CV BJAS Team"
+    )
+    html_body = f"""<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{escape(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Kode verifikasi login Portal CV BJAS: {safe_code}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f5f7fb;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;overflow:hidden;">
+          <tr>
+            <td style="padding:36px 42px 18px 42px;">
+              <img src="{safe_logo_url}" alt="CV BJAS" width="128" style="display:block;max-width:128px;height:auto;border:0;margin:0 0 24px 0;">
+              <div style="border-top:1px solid #edf0f5;padding-top:28px;">
+                <p style="font-size:17px;line-height:1.6;margin:0 0 22px 0;">Halo <strong>{safe_display_name} ({safe_company})</strong>,</p>
+                <p style="font-size:17px;line-height:1.6;margin:0 0 22px 0;">Berikut adalah kode verifikasi Anda untuk login ke Portal CV BJAS:</p>
+                <div style="font-size:56px;line-height:1;font-weight:800;letter-spacing:6px;color:#3578d8;margin:30px 0 30px 0;">{safe_code}</div>
+                <p style="font-size:16px;line-height:1.7;margin:0 0 22px 0;">Kode ini valid hingga <strong>{safe_expiry}</strong> dan hanya bisa digunakan sekali.</p>
+                <p style="font-size:16px;line-height:1.7;margin:0 0 28px 0;">Jika Anda tidak merasa melakukan login Portal CV BJAS, mohon abaikan email ini dan segera lakukan reset password.</p>
+                <p style="font-size:16px;line-height:1.6;margin:0;">Best Regards,<br>CV BJAS Team</p>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+    return subject, text_body, html_body
+
+
+def _clear_portal_login_otp(db, user_id):
+    db.execute(
+        """
+        UPDATE users
+        SET login_otp_code_hash=NULL,
+            login_otp_sent_at=NULL,
+            login_otp_expires_at=NULL,
+            login_otp_attempts=0,
+            login_otp_channel=NULL
+        WHERE id=?
+        """,
+        (user_id,),
+    )
+
+
+def _send_portal_login_otp(db, user, requested_channel=None):
+    user = dict(user)
+    channels = _preferred_login_otp_channels(user, requested_channel=requested_channel)
+    if not channels:
+        return False, "Akun ini wajib OTP, tetapi email atau WhatsApp belum terdaftar. Hubungi admin."
+
+    ttl_minutes = _portal_login_otp_ttl_minutes()
+    username = user.get("username") or "User"
+    subject = "Kode OTP Login Portal CV BJAS"
+
+    last_message = "Kode OTP belum terkirim. Cek konfigurasi email/WhatsApp."
+    for channel in channels:
+        code, expires_at = _issue_portal_login_otp_challenge(db, user, channel)
+        body = (
+            f"Halo {username},\n\n"
+            "Ada percobaan login ke Portal CV BJAS.\n"
+            f"Kode OTP kamu: {code}\n\n"
+            f"Kode berlaku {ttl_minutes} menit dan hanya untuk satu kali login.\n"
+            "Kalau ini bukan kamu, segera ganti password dan hubungi admin.\n\n"
+            "CV Berkah Jaya Abadi Sports"
+        )
+
+        try:
+            if channel == "whatsapp":
+                sent = send_whatsapp(user["phone"], f"*{subject}*\n\n{body}")
+                if sent:
+                    return True, f"Kode OTP sudah dikirim ke WhatsApp {_masked_phone(user.get('phone'))}."
+                last_message = "Kode OTP WhatsApp belum terkirim. Coba kirim via email atau cek konfigurasi WhatsApp."
+            else:
+                email_subject, email_body, email_html = _build_portal_login_otp_email(db, user, code, expires_at)
+                sent = send_email(user["email"], email_subject, email_body, html_body=email_html)
+                if sent:
+                    return True, f"Kode OTP sudah dikirim ke email {_masked_email(user.get('email'))}."
+                last_message = "Kode OTP email belum terkirim. Coba kirim via WhatsApp atau cek konfigurasi SMTP/Brevo."
+        except Exception as exc:
+            print("PORTAL LOGIN OTP SEND ERROR:", exc)
+            last_message = "Kode OTP belum terkirim karena layanan notifikasi bermasalah."
+
+    return False, last_message
+
+
+def _verify_portal_login_otp(db, user, submitted_code):
+    code = _normalize_portal_login_otp_code(submitted_code)
+    if not code:
+        return False, "Kode OTP harus 5 digit."
+
+    expires_at = _parse_db_timestamp(user.get("login_otp_expires_at"))
+    if not user.get("login_otp_code_hash") or expires_at is None or expires_at < datetime.now(timezone.utc):
+        return False, "Kode OTP sudah kedaluwarsa. Kirim ulang kode untuk lanjut."
+
+    expected_hash = hash_user_email_verification_token(code)
+    if expected_hash == user.get("login_otp_code_hash"):
+        _clear_portal_login_otp(db, user["id"])
+        return True, "OTP valid."
+
+    attempts = int(user.get("login_otp_attempts") or 0) + 1
+    db.execute(
+        "UPDATE users SET login_otp_attempts=? WHERE id=?",
+        (attempts, user["id"]),
+    )
+    remaining = _portal_login_otp_max_attempts() - attempts
+    if remaining <= 0:
+        _clear_portal_login_otp(db, user["id"])
+        session.clear()
+        return False, "Kode OTP salah terlalu banyak. Silakan login ulang."
+
+    return False, f"Kode OTP salah. Sisa percobaan {remaining} kali."
+
+
+def _format_otp_channel_label(channel):
+    if channel == "whatsapp":
+        return "WhatsApp"
+    if channel == "email":
+        return "Email"
+    return "kontak"
 
 
 def _email_used_by_other_user(db, email, user_id):
@@ -478,7 +828,7 @@ def _notify_new_portal_login_device(user, device_label, ip_address, login_locati
         print("NEW DEVICE WHATSAPP NOTIFICATION ERROR:", exc)
 
 
-def _remember_portal_login_device(db, user):
+def _remember_portal_login_device(db, user, login_location=None):
     if not current_app.config.get("PORTAL_NEW_DEVICE_NOTIFICATION_ENABLED", True):
         return None
 
@@ -490,7 +840,8 @@ def _remember_portal_login_device(db, user):
     user_agent = str(request.headers.get("User-Agent") or "").strip()[:500]
     device_label = _format_login_device_label(user_agent)
     ip_address = (get_client_ip() or "unknown").strip()[:80]
-    login_location = _get_portal_login_location_from_form()
+    if login_location is None:
+        login_location = _get_portal_login_location_from_form()
     user_id = user["id"]
 
     existing = db.execute(
@@ -542,7 +893,7 @@ def _remember_portal_login_device(db, user):
     return device_id
 
 
-def _complete_user_login(db, user, next_target=None):
+def _complete_user_login(db, user, next_target=None, login_location=None):
     session.clear()
 
     normalized_role = normalize_role(user["role"])
@@ -595,7 +946,7 @@ def _complete_user_login(db, user, next_target=None):
     default_target = url_for("dashboard.workspace_gateway")
     device_id = None
     try:
-        device_id = _remember_portal_login_device(db, user)
+        device_id = _remember_portal_login_device(db, user, login_location=login_location)
     except Exception as exc:
         print("PORTAL LOGIN DEVICE TRACKING ERROR:", exc)
 
@@ -670,7 +1021,6 @@ def login():
             return _redirect_to_login(next_target)
 
         clear_login_failures(db, identifier, client_ip)
-        record_login_attempt(db, identifier, client_ip, True)
 
         if _portal_email_login_required() and not _user_portal_email_ready(user):
             _set_pending_email_session(user, next_target)
@@ -681,9 +1031,78 @@ def login():
                 flash("Daftarkan email dulu untuk melanjutkan akses portal.", "info")
             return redirect(url_for("auth.portal_email_required"))
 
+        if _user_login_otp_required(user):
+            _set_pending_login_otp_session(
+                user,
+                next_target,
+                login_location=_get_portal_login_location_from_form(),
+            )
+            ok, message = _send_portal_login_otp(db, user)
+            flash(message, "success" if ok else "error")
+            return redirect(url_for("auth.portal_login_otp"))
+
+        record_login_attempt(db, identifier, client_ip, True)
         return _complete_user_login(db, user, next_target)
 
     return render_template("login.html", next_url=next_target or "")
+
+
+@auth_bp.route("/login/otp", methods=["GET", "POST"])
+def portal_login_otp():
+    db = get_db()
+    _ensure_portal_auth_schema(db)
+    user = _get_pending_login_otp_user(db)
+    if not user:
+        flash("Sesi OTP habis. Login ulang untuk melanjutkan.", "error")
+        return redirect(url_for("auth.login"))
+
+    next_target = _safe_login_redirect_target(session.get("pending_login_otp_next")) or ""
+    available_channels = _login_otp_available_channels(user)
+    if not _user_login_otp_required(user):
+        return _complete_user_login(
+            db,
+            user,
+            next_target,
+            login_location=session.get("pending_login_otp_location"),
+        )
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "verify_code").strip()
+
+        if action == "verify_code":
+            ok, message = _verify_portal_login_otp(db, user, request.form.get("otp_code"))
+            if ok:
+                identifier = normalize_identifier(user.get("email") or user.get("username"))
+                record_login_attempt(db, identifier, get_client_ip(), True)
+                login_location = session.get("pending_login_otp_location")
+                flash("Login berhasil.", "success")
+                return _complete_user_login(db, user, next_target, login_location=login_location)
+
+            flash(message, "error")
+            if "login ulang" in message.lower():
+                return redirect(url_for("auth.login"))
+            return redirect(url_for("auth.portal_login_otp"))
+
+        if action in {"resend_email", "resend_whatsapp"}:
+            requested_channel = "email" if action == "resend_email" else "whatsapp"
+            ok, message = _send_portal_login_otp(db, user, requested_channel=requested_channel)
+            flash(message, "success" if ok else "error")
+            return redirect(url_for("auth.portal_login_otp"))
+
+        flash("Aksi OTP tidak valid.", "error")
+        return redirect(url_for("auth.portal_login_otp"))
+
+    return render_template(
+        "login_otp_required.html",
+        username=user.get("username"),
+        masked_email=_masked_email(user.get("email")),
+        masked_phone=_masked_phone(user.get("phone")),
+        has_email="email" in available_channels,
+        has_phone="whatsapp" in available_channels,
+        active_channel_label=_format_otp_channel_label(user.get("login_otp_channel")),
+        next_url=next_target,
+        ttl_minutes=_portal_login_otp_ttl_minutes(),
+    )
 
 
 @auth_bp.route("/login/email-required", methods=["GET", "POST"])

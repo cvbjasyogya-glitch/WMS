@@ -136,6 +136,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             PASSWORD_MIN_LENGTH=8,
             PASSWORD_RESET_TTL_MINUTES=15,
             PORTAL_EMAIL_LOGIN_REQUIRED=False,
+            PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False,
         )
         self.client = self.app.test_client()
 
@@ -564,6 +565,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         phone=None,
         notify_email=1,
         notify_whatsapp=0,
+        login_otp_required=None,
     ):
         with self.app.app_context():
             db = get_db()
@@ -578,9 +580,10 @@ class WmsRoutesTestCase(unittest.TestCase):
                     email,
                     phone,
                     notify_email,
-                    notify_whatsapp
+                    notify_whatsapp,
+                    login_otp_required
                 )
-                VALUES (?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     username,
@@ -592,6 +595,7 @@ class WmsRoutesTestCase(unittest.TestCase):
                     phone,
                     notify_email,
                     notify_whatsapp,
+                    login_otp_required,
                 ),
             )
             db.commit()
@@ -8243,6 +8247,182 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(device_rows[-1]["label"], "Chrome di Android")
         self.assertEqual(device_rows[-1]["last_ip"], "203.0.113.7")
 
+    def test_portal_login_otp_required_sends_whatsapp_and_requires_code(self):
+        self.app.config.update(
+            PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False,
+            PORTAL_LOGIN_OTP_TTL_MINUTES=10,
+        )
+        self.create_user(
+            "otp_login_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="otp.login@example.com",
+            phone="6281234567890",
+            login_otp_required=1,
+        )
+
+        with patch("routes.auth.send_whatsapp", return_value=True) as mocked_whatsapp, \
+            patch("routes.auth.send_email") as mocked_email:
+            password_response = self.client.post(
+                "/login",
+                data={"username": "otp_login_user", "password": "pass1234"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(password_response.status_code, 302)
+        self.assertIn("/login/otp", password_response.headers["Location"])
+        mocked_whatsapp.assert_called_once()
+        mocked_email.assert_not_called()
+        self.assertEqual(mocked_whatsapp.call_args.args[0], "6281234567890")
+        whatsapp_message = mocked_whatsapp.call_args.args[1]
+        otp_line = next(
+            line.strip()
+            for line in whatsapp_message.splitlines()
+            if "kode otp kamu" in line.lower()
+        )
+        otp_code = otp_line.rsplit(":", 1)[1].strip()
+        self.assertTrue(otp_code.isdigit())
+        self.assertEqual(len(otp_code), 5)
+
+        with self.client.session_transaction() as sess:
+            self.assertNotIn("user_id", sess)
+            self.assertTrue(sess.get("pending_login_otp_user_id"))
+
+        otp_page = self.client.get("/login/otp")
+        self.assertEqual(otp_page.status_code, 200)
+        otp_html = otp_page.get_data(as_text=True)
+        self.assertIn("Masukkan OTP", otp_html)
+        self.assertIn("Kirim ulang via WhatsApp 6281***890", otp_html)
+        self.assertIn("Kirim ulang via email ot***n@example.com", otp_html)
+
+        verify_response = self.client.post(
+            "/login/otp",
+            data={"action": "verify_code", "otp_code": otp_code},
+            follow_redirects=False,
+        )
+        self.assertEqual(verify_response.status_code, 302)
+        self.assertIn("/workspace/", verify_response.headers["Location"])
+
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("username"), "otp_login_user")
+            self.assertEqual(sess.get("role"), "staff")
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute(
+                "SELECT login_otp_code_hash, login_otp_attempts FROM users WHERE username=?",
+                ("otp_login_user",),
+            ).fetchone()
+        self.assertIsNone(user["login_otp_code_hash"])
+        self.assertEqual(user["login_otp_attempts"], 0)
+
+    def test_portal_login_otp_email_uses_branded_code_layout(self):
+        self.app.config.update(
+            PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False,
+            PORTAL_LOGIN_OTP_TTL_MINUTES=10,
+            PORTAL_PUBLIC_BASE_URL="https://portal.test",
+            STORE_NAME="Mataram Sports",
+        )
+        self.create_user(
+            "otp_email_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="otp.email@example.com",
+            login_otp_required=1,
+        )
+
+        with patch("routes.auth.send_email", return_value=True) as mocked_email, \
+            patch("routes.auth.send_whatsapp") as mocked_whatsapp:
+            response = self.client.post(
+                "/login",
+                data={"username": "otp_email_user", "password": "pass1234"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/otp", response.headers["Location"])
+        mocked_whatsapp.assert_not_called()
+        mocked_email.assert_called_once()
+        self.assertEqual(mocked_email.call_args.args[0], "otp.email@example.com")
+        self.assertEqual(mocked_email.call_args.args[1], "Kode Verifikasi Login Portal CV BJAS")
+        email_body = mocked_email.call_args.args[2]
+        email_html = mocked_email.call_args.kwargs["html_body"]
+        otp_code = next(line.strip() for line in email_body.splitlines() if line.strip().isdigit())
+        self.assertEqual(len(otp_code), 5)
+        self.assertIn("Halo otp_email_user (Mataram Sports),", email_body)
+        self.assertIn("Kode ini valid hingga", email_body)
+        self.assertIn("Best Regards", email_body)
+        self.assertIn(f">{otp_code}</div>", email_html)
+        self.assertIn("font-size:56px", email_html)
+        self.assertIn("https://portal.test/static/brand/mataram-logo.png", email_html)
+
+    def test_admin_can_toggle_login_otp_per_user(self):
+        self.create_user("admin_otp_toggle", "pass1234", "super_admin")
+        self.create_user(
+            "staff_otp_toggle",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="staff.otp@example.com",
+            phone="6281234567890",
+            login_otp_required=1,
+        )
+        self.login("admin_otp_toggle", "pass1234")
+
+        with self.app.app_context():
+            db = get_db()
+            user_id = db.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("staff_otp_toggle",),
+            ).fetchone()["id"]
+
+        disable_response = self.client.post(
+            f"/admin/update_user/{user_id}",
+            data={
+                "username": "staff_otp_toggle",
+                "role": "staff",
+                "warehouse_id": "1",
+                "employee_id": "",
+                "email": "staff.otp@example.com",
+                "phone": "6281234567890",
+                "notify_email": "on",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(disable_response.status_code, 302)
+        with self.app.app_context():
+            db = get_db()
+            disabled = db.execute(
+                "SELECT login_otp_required FROM users WHERE id=?",
+                (user_id,),
+            ).fetchone()["login_otp_required"]
+        self.assertEqual(disabled, 0)
+
+        enable_response = self.client.post(
+            f"/admin/update_user/{user_id}",
+            data={
+                "username": "staff_otp_toggle",
+                "role": "staff",
+                "warehouse_id": "1",
+                "employee_id": "",
+                "email": "staff.otp@example.com",
+                "phone": "6281234567890",
+                "notify_email": "on",
+                "login_otp_required": "on",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(enable_response.status_code, 302)
+        with self.app.app_context():
+            db = get_db()
+            enabled = db.execute(
+                "SELECT login_otp_required FROM users WHERE id=?",
+                (user_id,),
+            ).fetchone()["login_otp_required"]
+        self.assertEqual(enabled, 1)
+
     def test_portal_login_forces_legacy_user_to_register_and_verify_email(self):
         self.app.config.update(
             PORTAL_EMAIL_LOGIN_REQUIRED=True,
@@ -8551,6 +8731,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(fake_db.committed)
         self.assertIn(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_code_hash TEXT",
+            fake_db.statements,
+        )
+        self.assertIn(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_required INTEGER",
+            fake_db.statements,
+        )
+        self.assertIn(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_code_hash TEXT",
             fake_db.statements,
         )
         self.assertIn(

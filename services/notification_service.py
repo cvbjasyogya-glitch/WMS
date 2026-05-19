@@ -972,7 +972,7 @@ def _send_web_push(db, subscription, payload):
         return False
 
 
-def send_email(recipient, subject, body):
+def send_email(recipient, subject, body, html_body=None):
     recipient = _normalize_recipient(recipient)
     host = os.getenv("SMTP_HOST")
     port = int(os.getenv("SMTP_PORT", "587"))
@@ -996,6 +996,8 @@ def send_email(recipient, subject, body):
         msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
         msg["To"] = recipient
         msg.set_content(body)
+        if html_body:
+            msg.add_alternative(html_body, subtype="html")
 
         if use_ssl:
             server = smtplib.SMTP_SSL(host, port, timeout=10)

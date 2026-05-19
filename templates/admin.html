@@ -91,6 +91,10 @@
         <p>User Scope Kosong</p>
         <h3>{{ health.unassigned_scoped_users }}</h3>
     </div>
+    <div class="card-mini">
+        <p>Wajib OTP Login</p>
+        <h3>{{ health.otp_required_users }}</h3>
+    </div>
 </div>
 
 <div class="meta-grid">
@@ -213,6 +217,10 @@
             <div>
                 <label><input type="checkbox" name="notify_whatsapp"> Notifikasi WhatsApp</label>
             </div>
+            <div>
+                <label><input type="checkbox" name="login_otp_required" {% if default_otp_required %}checked{% endif %}> Wajib OTP setiap login</label>
+                <small class="helper-text">Kode 5 digit dikirim ke WhatsApp atau email terdaftar setelah password benar.</small>
+            </div>
         </div>
         <div class="split-actions stack-gap-md">
             <button type="submit">Tambah User</button>
@@ -300,6 +308,11 @@
                     </div>
                     <div>
                         <label><input type="checkbox" name="notify_whatsapp" {% if u.notify_whatsapp is defined and u.notify_whatsapp %}checked{% endif %}> Notifikasi WhatsApp</label>
+                    </div>
+                    <div>
+                        {% set user_otp_required = default_otp_required if u.login_otp_required is not defined or u.login_otp_required is none else u.login_otp_required %}
+                        <label><input type="checkbox" name="login_otp_required" {% if user_otp_required %}checked{% endif %}> Wajib OTP setiap login</label>
+                        <small class="helper-text">Matikan hanya untuk akun perangkat internal yang benar-benar dipercaya.</small>
                     </div>
                     <div>
                         <label>Password Baru</label>
