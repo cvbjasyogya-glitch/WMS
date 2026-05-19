@@ -148,6 +148,11 @@ def _kirimi_first_config_value(*names, default=""):
 
 def _kirimi_send_endpoints(base_url):
     safe_base_url = str(base_url or "https://api.kirimi.id").strip().rstrip("/")
+    configured_url = _kirimi_first_config_value(
+        "KIRIMI_API_URL",
+        "KIRIMI_SEND_MESSAGE_URL",
+        "KIRIMI_ENDPOINT_URL",
+    )
     configured_path = _kirimi_first_config_value(
         "KIRIMI_SEND_MESSAGE_PATH",
         "KIRIMI_SEND_PATH",
@@ -159,6 +164,8 @@ def _kirimi_send_endpoints(base_url):
         "/v1/send-message",
     ]
     endpoints = []
+    if configured_url:
+        endpoints.append(configured_url.rstrip("/"))
     for candidate in fallback_paths:
         safe_candidate = str(candidate or "").strip()
         if not safe_candidate:
@@ -171,6 +178,20 @@ def _kirimi_send_endpoints(base_url):
         if endpoint_url not in endpoints:
             endpoints.append(endpoint_url)
     return endpoints
+
+
+def _kirimi_failure_error(response, raw_payload):
+    status_code = getattr(response, "status_code", "error")
+    if isinstance(raw_payload, dict):
+        detail = str(
+            raw_payload.get("message")
+            or raw_payload.get("error")
+            or raw_payload.get("detail")
+            or ""
+        ).strip()
+        if detail:
+            return f"kirimi_http_{status_code}: {detail[:160]}"
+    return f"kirimi_http_{status_code}"
 
 
 def _kirimi_warehouse_aliases(*, warehouse_id=None, warehouse_name=None):
@@ -271,7 +292,7 @@ def _send_via_kirimi(receiver, message, *, media_url=None, warehouse_id=None, wa
     last_failure = None
     endpoint_urls = _kirimi_send_endpoints(credentials["base_url"])
 
-    for endpoint_url in endpoint_urls:
+    for index, endpoint_url in enumerate(endpoint_urls):
         try:
             response = http_requests.post(
                 endpoint_url,
@@ -301,10 +322,10 @@ def _send_via_kirimi(receiver, message, *, media_url=None, warehouse_id=None, wa
                 "endpoint_url": endpoint_url,
                 "status_code": getattr(response, "status_code", None),
                 "response": raw_payload,
-                "error": f"kirimi_http_{getattr(response, 'status_code', 'error')}",
+                "error": _kirimi_failure_error(response, raw_payload),
             }
             last_failure = failure
-            if getattr(response, "status_code", None) == 404:
+            if getattr(response, "status_code", None) in {400, 404} and index < len(endpoint_urls) - 1:
                 continue
             return failure
 

@@ -6577,6 +6577,82 @@ class WmsRoutesTestCase(unittest.TestCase):
             "https://api.kirimi.id/v1/send-message",
         )
 
+    def test_send_whatsapp_text_honors_legacy_kirimi_api_url(self):
+        self.app.config.update(
+            KIRIMI_API_URL="https://api.kirimi.id/v1/send-message",
+            KIRIMI_BASE_URL="https://api.kirimi.id",
+            KIRIMI_USER_CODE="kirimi-global-user",
+            KIRIMI_SECRET="kirimi-global-secret",
+            KIRIMI_DEVICE_ID="D-GLOBAL",
+        )
+
+        class LegacyEndpointResponse:
+            ok = True
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"success": True, "message_id": "MSG-LEGACY-URL-001"}
+
+        mock_http = Mock()
+        mock_http.post.return_value = LegacyEndpointResponse()
+
+        with self.app.app_context(), patch.object(whatsapp_service, "http_requests", mock_http):
+            result = whatsapp_service.send_whatsapp_text("081230003333", "Halo legacy url")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_http.post.call_count, 1)
+        self.assertEqual(
+            mock_http.post.call_args.args[0],
+            "https://api.kirimi.id/v1/send-message",
+        )
+        self.assertEqual(mock_http.post.call_args.kwargs["json"]["receiver"], "6281230003333")
+
+    def test_send_whatsapp_text_retries_legacy_endpoint_after_fast_400(self):
+        self.app.config.update(
+            KIRIMI_BASE_URL="https://api.kirimi.id",
+            KIRIMI_USER_CODE="kirimi-global-user",
+            KIRIMI_SECRET="kirimi-global-secret",
+            KIRIMI_DEVICE_ID="D-GLOBAL",
+            KIRIMI_SEND_MESSAGE_PATH="/v1/send-message-fast",
+        )
+
+        class BadFastResponse:
+            ok = False
+            status_code = 400
+
+            @staticmethod
+            def json():
+                return {"success": False, "message": "bad request"}
+
+        class LegacyEndpointResponse:
+            ok = True
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"success": True, "message_id": "MSG-LEGACY-400-001"}
+
+        mock_http = Mock()
+        mock_http.post.side_effect = [
+            BadFastResponse(),
+            LegacyEndpointResponse(),
+        ]
+
+        with self.app.app_context(), patch.object(whatsapp_service, "http_requests", mock_http):
+            result = whatsapp_service.send_whatsapp_text("081230003333", "Halo fallback 400")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_http.post.call_count, 2)
+        self.assertEqual(
+            mock_http.post.call_args_list[0].args[0],
+            "https://api.kirimi.id/v1/send-message-fast",
+        )
+        self.assertEqual(
+            mock_http.post.call_args_list[1].args[0],
+            "https://api.kirimi.id/v1/send-message",
+        )
+
     def test_generate_pos_receipt_pdf_can_render_using_html_receipt_template(self):
         self.app.config.update(
             POS_RECEIPT_PDF_RENDERER="html",
