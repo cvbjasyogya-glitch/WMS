@@ -1017,8 +1017,10 @@ def send_email(recipient, subject, body, html_body=None):
         return False
 
 
-def send_whatsapp(target, message):
+def send_whatsapp(target, message, *, return_detail=False):
     result = send_whatsapp_text(target, message)
+    if return_detail:
+        return result
     return result.get("ok")
 
 

@@ -8356,6 +8356,99 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(all("Ref:" in message for message in messages))
         self.assertTrue(all("Dikirim:" in message for message in messages))
 
+    def test_portal_login_otp_sends_whatsapp_again_after_successful_login(self):
+        self.app.config.update(PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False)
+        self.create_user(
+            "otp_next_session_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            email="otp.next.session@example.com",
+            phone="6281234567890",
+            login_otp_required=1,
+        )
+
+        with patch("routes.auth.send_whatsapp", return_value=True) as mocked_whatsapp:
+            first_response = self.client.post(
+                "/login",
+                data={"username": "otp_next_session_user", "password": "pass1234"},
+                follow_redirects=False,
+            )
+            self.assertEqual(first_response.status_code, 302)
+            self.assertIn("/login/otp", first_response.headers["Location"])
+
+            first_message = mocked_whatsapp.call_args_list[0].args[1]
+            first_code_line = next(
+                line.strip()
+                for line in first_message.splitlines()
+                if "kode otp kamu" in line.lower()
+            )
+            first_code = first_code_line.rsplit(":", 1)[1].strip()
+            verify_response = self.client.post(
+                "/login/otp",
+                data={"action": "verify_code", "otp_code": first_code},
+                follow_redirects=False,
+            )
+            self.assertEqual(verify_response.status_code, 302)
+            self.assertIn("/workspace/", verify_response.headers["Location"])
+
+            self.client.get("/logout", follow_redirects=False)
+
+            second_response = self.client.post(
+                "/login",
+                data={"username": "otp_next_session_user", "password": "pass1234"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(second_response.status_code, 302)
+        self.assertIn("/login/otp", second_response.headers["Location"])
+        self.assertEqual(mocked_whatsapp.call_count, 2)
+        messages = [call.args[1] for call in mocked_whatsapp.call_args_list]
+        self.assertNotEqual(messages[0], messages[1])
+        self.assertTrue(all("Ref:" in message for message in messages))
+
+        with self.client.session_transaction() as sess:
+            self.assertNotIn("user_id", sess)
+            self.assertTrue(sess.get("pending_login_otp_user_id"))
+
+    def test_portal_login_otp_failed_whatsapp_does_not_mark_code_as_sent(self):
+        self.app.config.update(PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False)
+        self.create_user(
+            "otp_wa_fail_user",
+            "pass1234",
+            "staff",
+            warehouse_id=1,
+            phone="08952692591",
+            login_otp_required=1,
+        )
+
+        with patch(
+            "routes.auth.send_whatsapp",
+            return_value={"ok": False, "error": "kirimi_http_401", "provider": "kirimi"},
+        ):
+            response = self.client.post(
+                "/login",
+                data={"username": "otp_wa_fail_user", "password": "pass1234"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/otp", response.headers["Location"])
+        otp_page = self.client.get("/login/otp")
+        otp_html = otp_page.get_data(as_text=True)
+        self.assertIn("Kode OTP belum berhasil terkirim.", otp_html)
+        self.assertIn("Detail teknis: kirimi_http_401", otp_html)
+        self.assertNotIn("Kode 5 digit sudah dikirim melalui WhatsApp", otp_html)
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute(
+                "SELECT login_otp_code_hash, login_otp_channel FROM users WHERE username=?",
+                ("otp_wa_fail_user",),
+            ).fetchone()
+        self.assertIsNone(user["login_otp_code_hash"])
+        self.assertIsNone(user["login_otp_channel"])
+
     def test_portal_login_otp_email_uses_branded_code_layout(self):
         self.app.config.update(
             PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False,

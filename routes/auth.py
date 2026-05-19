@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, current_app, g, render_template, request, redirect, session, url_for, flash
 from database import get_db, is_postgresql_backend
 from services.notification_service import create_web_notification, send_email, send_whatsapp
+from services.whatsapp_service import record_whatsapp_delivery
 from services.rbac import is_scoped_role, load_user_permission_override_snapshot, normalize_role
 from services.auth_security import (
     clear_login_failures,
@@ -445,8 +446,12 @@ def _get_pending_login_otp_user(db):
 
 def _issue_portal_login_otp_challenge(db, user, channel):
     code = generate_numeric_code(5)
-    code_hash = hash_user_email_verification_token(code)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=_portal_login_otp_ttl_minutes())
+    return code, expires_at
+
+
+def _store_portal_login_otp_challenge(db, user, channel, code, expires_at):
+    code_hash = hash_user_email_verification_token(code)
     db.execute(
         """
         UPDATE users
@@ -464,7 +469,6 @@ def _issue_portal_login_otp_challenge(db, user, channel):
             user["id"],
         ),
     )
-    return code, expires_at
 
 
 def _format_portal_otp_expiry(expires_at):
@@ -580,6 +584,38 @@ def _clear_portal_login_otp(db, user_id):
     )
 
 
+def _normalize_portal_login_otp_delivery_result(delivery, target):
+    if isinstance(delivery, dict):
+        return delivery
+    return {
+        "ok": bool(delivery),
+        "provider": "portal_login_otp",
+        "receiver": target,
+        "error": "" if delivery else "whatsapp_send_failed",
+    }
+
+
+def _record_portal_login_otp_whatsapp_delivery(user, subject, message, delivery):
+    redacted_message = re.sub(
+        r"(Kode OTP kamu:\s*)\d{5}",
+        r"\1*****",
+        str(message or ""),
+        flags=re.IGNORECASE,
+    )
+    try:
+        record_whatsapp_delivery(
+            user.get("id"),
+            user.get("role") or "",
+            user.get("phone"),
+            subject,
+            redacted_message,
+            delivery,
+            channel="otp_wa",
+        )
+    except Exception as exc:
+        print("PORTAL LOGIN OTP WA LOG ERROR:", exc)
+
+
 def _send_portal_login_otp(db, user, requested_channel=None):
     user = dict(user)
     channels = _preferred_login_otp_channels(user, requested_channel=requested_channel)
@@ -608,14 +644,22 @@ def _send_portal_login_otp(db, user, requested_channel=None):
 
         try:
             if channel == "whatsapp":
-                sent = send_whatsapp(user["phone"], f"*{subject}*\n\n{body}")
+                delivery = send_whatsapp(user["phone"], f"*{subject}*\n\n{body}", return_detail=True)
+                delivery = _normalize_portal_login_otp_delivery_result(delivery, user.get("phone"))
+                _record_portal_login_otp_whatsapp_delivery(user, subject, body, delivery)
+                sent = delivery.get("ok")
                 if sent:
+                    _store_portal_login_otp_challenge(db, user, channel, code, expires_at)
                     return True, f"Kode OTP sudah dikirim ke WhatsApp {_masked_phone(user.get('phone'))}."
-                last_message = "Kode OTP WhatsApp belum terkirim. Coba kirim via email atau cek konfigurasi WhatsApp."
+                detail = ""
+                if delivery.get("error"):
+                    detail = f" Detail teknis: {delivery.get('error')}."
+                last_message = f"Kode OTP WhatsApp belum terkirim. Coba kirim via email atau cek konfigurasi WhatsApp.{detail}"
             else:
                 email_subject, email_body, email_html = _build_portal_login_otp_email(db, user, code, expires_at)
                 sent = send_email(user["email"], email_subject, email_body, html_body=email_html)
                 if sent:
+                    _store_portal_login_otp_challenge(db, user, channel, code, expires_at)
                     return True, f"Kode OTP sudah dikirim ke email {_masked_email(user.get('email'))}."
                 last_message = "Kode OTP email belum terkirim. Coba kirim via WhatsApp atau cek konfigurasi SMTP/Brevo."
         except Exception as exc:
@@ -1104,6 +1148,7 @@ def portal_login_otp():
         has_email="email" in available_channels,
         has_phone="whatsapp" in available_channels,
         active_channel_label=_format_otp_channel_label(user.get("login_otp_channel")),
+        has_active_otp=bool(user.get("login_otp_code_hash") and user.get("login_otp_channel")),
         next_url=next_target,
         ttl_minutes=_portal_login_otp_ttl_minutes(),
     )
