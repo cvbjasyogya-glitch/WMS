@@ -1811,6 +1811,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="manualUseGlobalDiscount"', invoice_html)
         self.assertIn('id="manualUseTax"', invoice_html)
         self.assertIn('id="manualLogoFile"', invoice_html)
+        self.assertIn('id="manualLogoStatus"', invoice_html)
+        self.assertIn("const setLogoFeedback = (message = \"\", state = \"\")", invoice_html)
+        self.assertNotIn('window.alert("File logo harus berupa gambar.")', invoice_html)
+        self.assertNotIn('window.alert("Ukuran logo maksimal 1 MB.")', invoice_html)
         self.assertIn("Klik atau seret logo", invoice_html)
         self.assertIn("data-preview-logo-slot", invoice_html)
         self.assertIn(".manual-logo-fallback[hidden] { display: none !important; }", invoice_html)
@@ -1972,6 +1976,27 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('crmPurchaseMemberSelectController?.sync("", { forceRemote: true, replaceInitial: true });', purchase_html)
         self.assertIn('remoteUrl: "/crm/options/customers"', purchase_html)
         self.assertIn('remoteUrl: "/crm/options/members"', purchase_html)
+        self.assertIn('id="crmPurchaseFormFeedback"', purchase_html)
+        self.assertIn("function setCrmPurchaseFormFeedback(message, state = \"error\")", purchase_html)
+        self.assertIn("function escapeCrmHtml(value)", purchase_html)
+        self.assertIn('data-crm-confirm-modal', purchase_html)
+        self.assertIn("function openCrmConfirmModal(form)", purchase_html)
+        self.assertIn("setupCrmConfirmForms();", purchase_html)
+        self.assertNotIn('alert("Pilih customer dulu.")', purchase_html)
+        self.assertNotIn('alert("Tanggal pembelian wajib diisi.")', purchase_html)
+        self.assertNotIn('alert("Tambahkan minimal satu item pembelian.")', purchase_html)
+
+        crm_template = (Path(__file__).resolve().parents[1] / "templates" / "crm.html").read_text(encoding="utf-8")
+        self.assertIn('data-crm-confirm="contact"', crm_template)
+        self.assertIn('data-crm-confirm="purchase"', crm_template)
+        self.assertIn('data-crm-confirm="member"', crm_template)
+        self.assertIn('data-crm-confirm="member-record"', crm_template)
+        self.assertNotIn("confirm('Hapus contact customer ini?')", crm_template)
+        self.assertNotIn("confirm('Hapus purchase record ini?')", crm_template)
+        self.assertNotIn("confirm('Hapus member ini?')", crm_template)
+        self.assertNotIn("confirm('Hapus record member ini?')", crm_template)
+        css_text = (Path(__file__).resolve().parents[1] / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertIn("body .crm-confirm-dialog", css_text)
 
         member_response = self.client.get("/crm/?tab=members")
         self.assertEqual(member_response.status_code, 200)
@@ -4465,6 +4490,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(attendance_response.status_code, 200)
         attendance_html = attendance_response.get_data(as_text=True)
         self.assertIn('aria-label="Absen"', attendance_html)
+        self.assertIn('data-attendance-submit-feedback', attendance_html)
+        self.assertIn('data-attendance-report-link', attendance_html)
+        self.assertIn('const setSubmitFeedback = (message = "", tone = "error")', attendance_html)
+        self.assertNotIn("window.alert(\"Sebelum check out, kirim report harian dulu.", attendance_html)
         self.assertNotIn('aria-label="Pengumuman"', attendance_html)
         self.assertNotIn('aria-label="Meeting Live"', attendance_html)
         self.assertNotIn('aria-label="Libur"', attendance_html)
@@ -9104,6 +9133,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('"serviceWorkerEnabled":false', normalized_html)
         self.assertNotIn('rel="manifest"', html)
         self.assertIn('/static/js/app_shell.js?v=', html)
+        app_shell_js = (Path(__file__).resolve().parents[1] / "static" / "js" / "app_shell.js").read_text(encoding="utf-8")
+        self.assertNotIn("window.alert", app_shell_js)
+        self.assertIn("console.warn(message)", app_shell_js)
 
     def test_login_page_disables_service_worker_by_default(self):
         response = self.client.get("/login")
@@ -9491,6 +9523,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Semua Notifikasi", notification_html)
         self.assertIn("data-notification-page-list", notification_html)
         self.assertIn("Hapus Semua", notification_html)
+        notification_js = (Path(__file__).resolve().parents[1] / "static" / "js" / "web_notifications.js").read_text(encoding="utf-8")
+        self.assertIn("function confirmDeleteAllNotifications()", notification_js)
+        self.assertIn("notification-confirm-backdrop", notification_js)
+        self.assertNotIn("window.confirm(\"Hapus semua notifikasi dari inbox?\")", notification_js)
+        css_text = (Path(__file__).resolve().parents[1] / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertIn("body .notification-confirm-dialog", css_text)
 
         notification_api = self.client.get("/notifications/api?filter=all&limit=10")
         self.assertEqual(notification_api.status_code, 200)
@@ -12701,6 +12739,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Chat Operasional Live", chat_html)
         self.assertIn("/static/notif.mp3", chat_html)
         self.assertIn("/static/js/chat_realtime.js", chat_html)
+        chat_page_js = (Path(__file__).resolve().parents[1] / "static" / "js" / "chat_page.js").read_text(encoding="utf-8")
+        self.assertIn("function showChatNotice(message)", chat_page_js)
+        self.assertNotIn("window.alert", chat_page_js)
 
         start_thread = self.client.post(
             "/chat/thread/start",
@@ -13390,6 +13431,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         chat_html = chat_page.get_data(as_text=True)
         self.assertIn("/static/js/chat_call.js", chat_html)
         self.assertIn('id="chatCallLayer"', chat_html)
+        chat_call_js = (Path(__file__).resolve().parents[1] / "static" / "js" / "chat_call.js").read_text(encoding="utf-8")
+        self.assertNotIn("window.alert", chat_call_js)
+        self.assertIn("console.warn(message)", chat_call_js)
 
         start_call = self.client.post(
             f"/chat/thread/{thread_id}/call/start",
@@ -28773,6 +28817,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Halaman Pengesahan Dokumen", list_html)
         self.assertIn("sop-cycle-count.pdf", list_html)
         self.assertIn('data-document-signature-root', list_html)
+        self.assertIn('data-document-signature-feedback', list_html)
+        self.assertNotIn('window.alert("Tanda tangan digital belum diisi.")', list_html)
 
         signature_data = (
             "data:image/png;base64,"
@@ -28883,6 +28929,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tanda Tangan Pengesahan", approval_html)
         self.assertIn(f'name="return_to" value="/hris/documents/approval/{document["id"]}"', approval_html)
         self.assertIn(f'action="/hris/documents/sign/{document["id"]}"', approval_html)
+        self.assertIn('data-document-signature-feedback', approval_html)
+        self.assertNotIn('window.alert("Tanda tangan digital belum diisi.")', approval_html)
 
         signature_data = (
             "data:image/png;base64,"
@@ -32157,6 +32205,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Notifikasi requester", html)
         self.assertIn("Setujui", html)
         self.assertIn("Tolak", html)
+        self.assertIn('data-approval-confirm="approve"', html)
+        self.assertIn('data-approval-confirm="reject"', html)
+        self.assertIn('data-approval-confirm-modal', html)
+        self.assertIn("Setujui Permintaan", html)
+        self.assertIn("Tolak Permintaan", html)
+        self.assertNotIn("confirm('Setujui permintaan ini?')", html)
+        self.assertNotIn("confirm('Tolak permintaan ini?')", html)
+
+        css_text = (Path(__file__).resolve().parents[1] / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertIn("body .approval-confirm-dialog", css_text)
 
     def test_rejected_approval_notifies_requester(self):
         self.create_user("leader_reject_requester", "pass1234", "leader", warehouse_id=1)
@@ -32410,6 +32468,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="stockBulkAdjustModal"', html)
         self.assertIn("function openStockBulkAdjustModal(selectedCount)", html)
         self.assertIn("async function bulkAdjust()", html)
+        self.assertIn("stockInlineMessage", html)
+        self.assertIn('title: "Ubah ke Non-Variant"', html)
+        self.assertNotIn("window.confirm", html)
+        self.assertNotIn("window.prompt", html)
+        self.assertNotIn("alert(", html)
+        self.assertNotIn("prompt(", html)
 
         bulk_start = html.index("async function bulkAdjust()")
         bulk_end = html.index('document.querySelectorAll("[data-stock-group-summary-row]")', bulk_start)
@@ -32440,6 +32504,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("window.prompt", destructive_script)
         self.assertNotIn("window.confirm", destructive_script)
         self.assertNotIn("alert(", destructive_script)
+
+    def test_legacy_products_template_uses_internal_action_modal(self):
+        template_text = (Path(__file__).resolve().parents[1] / "templates" / "produk.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="productActionModal"', template_text)
+        self.assertIn("function openProductActionModal(options = {})", template_text)
+        self.assertIn("async function bulkDelete()", template_text)
+        self.assertIn("async function deleteAllProducts()", template_text)
+        self.assertIn("async function undoLatestIpos4ImportFromProducts()", template_text)
+        self.assertNotIn("window.prompt", template_text)
+        self.assertNotIn("window.confirm", template_text)
+        self.assertNotIn("prompt(", template_text)
+        self.assertNotIn("confirm(", template_text)
+        self.assertNotIn("alert(", template_text)
 
     def test_add_product_rejects_invalid_initial_stock_warehouse(self):
         self.create_user("owner_invalid_stock_wh", "pass1234", "owner")
@@ -34278,6 +34356,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Warehouse System Control", html)
         self.assertIn("Tambah Gudang", html)
         self.assertIn("Daftar Gudang", html)
+        self.assertIn("data-warehouse-confirm", html)
+        self.assertIn("data-warehouse-confirm-modal", html)
+        self.assertIn("Hapus Gudang", html)
+        self.assertNotIn("confirm('Hapus gudang ini?')", html)
+        css_text = (Path(__file__).resolve().parents[1] / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+        self.assertIn("body .warehouse-confirm-dialog", css_text)
         self.assertNotIn("Tambah User", html)
 
     def test_owner_can_manage_notification_classification_from_admin_page(self):
@@ -34625,6 +34709,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('name="area"', html)
         self.assertNotIn('class="product_id"', html)
         self.assertNotIn('class="variant_id"', html)
+
+        script_path = os.path.join(self.app.root_path, "static", "js", "stock_opname.js")
+        with open(script_path, "r", encoding="utf-8") as script_file:
+            script = script_file.read()
+        self.assertIn("function confirmUnsavedChanges(message)", script)
+        self.assertIn("stock-opname-confirm-backdrop", script)
+        self.assertIn("Kembali cek draft", script)
+        self.assertNotIn("window.alert", script)
+        self.assertNotIn("window.confirm", script)
+
+        css_path = os.path.join(self.app.root_path, "static", "css", "dashboard.css")
+        with open(css_path, "r", encoding="utf-8") as css_file:
+            css = css_file.read()
+        self.assertIn("body .stock-opname-confirm-dialog", css)
 
     def test_stock_opname_page_switches_columns_based_on_selected_area(self):
         self.login()

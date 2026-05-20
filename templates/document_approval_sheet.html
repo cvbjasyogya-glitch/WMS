@@ -328,6 +328,18 @@
         line-height: 1.7;
         text-align: center;
     }
+    .document-approval-sign-feedback {
+        margin: 0;
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(248, 113, 113, 0.35);
+        background: rgba(254, 226, 226, 0.86);
+        color: #991b1b;
+        font-size: 13px;
+        line-height: 1.55;
+        text-align: center;
+    }
+    .document-approval-sign-feedback[hidden] { display: none !important; }
     .document-approval-sign-actions { display: grid; gap: 10px; }
     .document-approval-sign-actions .ghost-button,
     .document-approval-sign-actions button[type="submit"] {
@@ -537,6 +549,7 @@
                         <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>
                     </div>
                     <p class="document-approval-sign-help">Pengesahan digital akan memperbarui tanda tangan aktif pada dokumen ini. Gunakan tombol ulangi jika perlu membersihkan coretan dan menulis ulang tanda tangan dari awal.</p>
+                    <p class="document-approval-sign-feedback" data-document-signature-feedback hidden>Tanda tangan digital belum diisi.</p>
                     <div class="document-approval-sign-actions">
                         <button type="button" class="ghost-button" data-document-signature-clear>Ulangi Tanda Tangan</button>
                         <button type="submit" {% if not document.attachment_url %}disabled{% endif %}>Simpan Pengesahan</button>
@@ -566,6 +579,7 @@
             const form = root.closest("form");
             const input = form ? form.querySelector("[data-document-signature-input]") : null;
             const clearButton = form ? form.querySelector("[data-document-signature-clear]") : null;
+            const feedback = form ? form.querySelector("[data-document-signature-feedback]") : null;
             if (!canvas || !form || !input) {
                 return;
             }
@@ -617,6 +631,9 @@
                 }
                 input.value = canvas.toDataURL("image/png");
                 root.dataset.signatureReady = "1";
+                if (feedback) {
+                    feedback.hidden = true;
+                }
             };
 
             const startDrawing = function (event) {
@@ -661,6 +678,9 @@
                     input.value = "";
                     prepareCanvas("");
                     root.dataset.signatureReady = "0";
+                    if (feedback) {
+                        feedback.hidden = true;
+                    }
                 });
             }
 
@@ -669,7 +689,11 @@
                     return;
                 }
                 event.preventDefault();
-                window.alert("Tanda tangan digital belum diisi.");
+                if (feedback) {
+                    feedback.textContent = "Tanda tangan digital belum diisi. Tulis tanda tangan di area kanvas dulu, lalu simpan pengesahan.";
+                    feedback.hidden = false;
+                    feedback.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
             });
 
             window.addEventListener("resize", function () {

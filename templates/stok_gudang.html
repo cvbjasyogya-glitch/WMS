@@ -856,9 +856,17 @@ function notifyStockMessage(message, type = "info") {
         window.showToast(message);
         return;
     }
-    if (type === "error") {
-        alert(message);
+    let target = document.getElementById("stockInlineMessage");
+    if (!target) {
+        target = document.createElement("div");
+        target.id = "stockInlineMessage";
+        target.className = "flash info";
+        const anchor = document.querySelector(".stock-filter-surface") || document.querySelector(".wms-page-stack") || document.body;
+        anchor.prepend(target);
     }
+    target.textContent = message;
+    target.className = `flash ${type === "error" ? "error" : "success"}`;
+    target.hidden = false;
 }
 
 function formatRupiahNumber(value) {
@@ -1327,7 +1335,7 @@ async function submitStockInlineField(input, options = {}) {
 
     if (!value) {
         if (!silent) {
-            alert("Field tidak boleh kosong.");
+            notifyStockMessage("Field tidak boleh kosong.", "error");
         }
         return { ok: false, reason: "empty" };
     }
@@ -1399,7 +1407,8 @@ function adjustStock(button) {
     const qty = parseInt(input.value, 10);
 
     if (Number.isNaN(qty) || qty === 0) {
-        alert("Masukkan qty adjust yang valid.");
+        notifyStockMessage("Masukkan qty adjust yang valid.", "error");
+        input?.focus();
         return;
     }
 
@@ -2088,15 +2097,6 @@ function setManualProductMode(mode, options = {}) {
     const currentRows = options.preserveExisting === false ? [] : getVariantPayload();
 
     if (!hiddenInput) {
-        return false;
-    }
-
-    if (
-        safeMode === "non_variant"
-        && currentRows.length > 1
-        && !options.skipConfirm
-        && !window.confirm("Mode non-variant hanya menyimpan satu baris. Lanjutkan dan pakai baris pertama saja?")
-    ) {
         return false;
     }
 
@@ -3532,10 +3532,24 @@ document.getElementById("ipos4ImportForm")?.addEventListener("submit", submitIpo
 document.getElementById("ipos4ImportMode")?.addEventListener("change", updateIpos4ImportModeHint);
 updateIpos4ImportModeHint();
 document.querySelectorAll("[data-manual-product-mode-option]").forEach((button) => {
-    button.addEventListener("click", () => {
-        const applied = setManualProductMode(button.dataset.manualProductModeOption, {
+    button.addEventListener("click", async () => {
+        const nextMode = button.dataset.manualProductModeOption;
+        const currentRows = getVariantPayload();
+        if (nextMode === "non_variant" && currentRows.length > 1) {
+            const confirmation = await openProductActionModal({
+                title: "Ubah ke Non-Variant",
+                message: "Mode non-variant hanya menyimpan satu baris stok. Sistem akan memakai baris pertama dan mengabaikan baris variasi lain.",
+                confirmLabel: "Pakai Baris Pertama",
+                danger: false,
+            });
+            if (!confirmation) {
+                return;
+            }
+        }
+        const applied = setManualProductMode(nextMode, {
             preserveExisting: true,
-            openForm: true
+            openForm: true,
+            skipConfirm: true
         });
         if (applied) {
             closeManualProductModeModal();

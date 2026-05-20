@@ -6250,6 +6250,7 @@
                                 <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>
                             </div>
                             <p class="hris-document-sign-help">Gunakan mouse atau sentuhan layar untuk menggambar tanda tangan. Pastikan lampiran dokumen sudah diupload sebelum menyimpan pengesahan.</p>
+                            <p class="hris-document-sign-feedback" data-document-signature-feedback hidden>Tanda tangan digital belum diisi.</p>
                             <div class="split-actions">
                                 <button type="button" class="ghost-button" data-document-signature-clear>Ulangi Tanda Tangan</button>
                                 <button type="submit" {% if not document.attachment_url %}disabled{% endif %}>Simpan Pengesahan</button>
@@ -6425,6 +6426,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const form = root.closest("form");
             const input = form ? form.querySelector("[data-document-signature-input]") : null;
             const clearButton = form ? form.querySelector("[data-document-signature-clear]") : null;
+            const feedback = form ? form.querySelector("[data-document-signature-feedback]") : null;
             if (!canvas || !form || !input) {
                 return;
             }
@@ -6481,6 +6483,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
                 input.value = canvas.toDataURL("image/png");
                 root.dataset.signatureReady = "1";
+                if (feedback) {
+                    feedback.hidden = true;
+                }
             };
 
             const startDrawing = function (event) {
@@ -6524,6 +6529,9 @@ document.addEventListener("DOMContentLoaded", function () {
                     input.value = "";
                     prepareCanvas("");
                     root.dataset.signatureReady = "0";
+                    if (feedback) {
+                        feedback.hidden = true;
+                    }
                 });
             }
 
@@ -6532,7 +6540,11 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
                 event.preventDefault();
-                window.alert("Tanda tangan digital belum diisi.");
+                if (feedback) {
+                    feedback.textContent = "Tanda tangan digital belum diisi. Tulis tanda tangan di area kanvas dulu, lalu simpan pengesahan.";
+                    feedback.hidden = false;
+                    feedback.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
             });
 
             window.addEventListener("resize", function () {

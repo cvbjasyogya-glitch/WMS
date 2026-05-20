@@ -166,6 +166,52 @@
             .replace(/'/g, "&#39;");
     }
 
+    function confirmDeleteAllNotifications() {
+        return new Promise((resolve) => {
+            const backdrop = document.createElement("div");
+            backdrop.className = "notification-confirm-backdrop";
+            backdrop.innerHTML = `
+                <div class="notification-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="notificationConfirmTitle">
+                    <div>
+                        <strong id="notificationConfirmTitle">Hapus semua notifikasi?</strong>
+                        <p>Inbox notifikasi akan dikosongkan untuk akun ini. Aktivitas baru tetap akan muncul lagi setelahnya.</p>
+                    </div>
+                    <div class="notification-confirm-actions">
+                        <button type="button" class="ghost-button" data-notification-confirm-cancel>Batal</button>
+                        <button type="button" class="danger-button" data-notification-confirm-delete>Hapus Semua</button>
+                    </div>
+                </div>
+            `;
+
+            let settled = false;
+            const finish = (result) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                document.removeEventListener("keydown", handleKeydown);
+                backdrop.remove();
+                resolve(Boolean(result));
+            };
+            const handleKeydown = (event) => {
+                if (event.key === "Escape") {
+                    finish(false);
+                }
+            };
+
+            backdrop.addEventListener("click", (event) => {
+                if (event.target === backdrop) {
+                    finish(false);
+                }
+            });
+            backdrop.querySelector("[data-notification-confirm-cancel]")?.addEventListener("click", () => finish(false));
+            backdrop.querySelector("[data-notification-confirm-delete]")?.addEventListener("click", () => finish(true));
+            document.addEventListener("keydown", handleKeydown);
+            document.body.appendChild(backdrop);
+            backdrop.querySelector("[data-notification-confirm-cancel]")?.focus();
+        });
+    }
+
     function getCategory(category) {
         const normalized = String(category || "system").trim().toLowerCase();
         return categoryMeta[normalized] || categoryMeta.system;
@@ -834,7 +880,8 @@
 
     deleteAllButtons.forEach((button) => {
         button.addEventListener("click", async () => {
-            if (typeof window.confirm === "function" && !window.confirm("Hapus semua notifikasi dari inbox?")) {
+            const confirmed = await confirmDeleteAllNotifications();
+            if (!confirmed) {
                 return;
             }
 

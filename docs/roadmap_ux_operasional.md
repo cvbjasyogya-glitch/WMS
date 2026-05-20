@@ -128,6 +128,7 @@ Verifikasi yang harus dipertahankan:
 
 Progress eksekusi:
 - Checklist QA Android ditambah langkah `Force stop` dan `Clear storage` untuk user/build lama setelah migrasi domain ke `portal.cvbjas.com`.
+- App shell tidak lagi fallback ke `window.alert` saat toast belum tersedia; pesan teknis cukup dicatat ke console agar WebView/PWA tidak terblokir dialog browser.
 
 ## Batch 2 - Absensi, Jadwal, Report Harian/Live
 
@@ -161,6 +162,7 @@ Verifikasi yang harus dipertahankan:
 Progress eksekusi:
 - Quick action HRIS rekap absensi ditambahkan di dropdown shift/status. Klik kanan pada dropdown membuka menu cepat dan tetap memakai endpoint AJAX yang sama.
 - Quick override jadwal board (`Pagi`, `Siang`, `TS`, dan shift cepat lain) tidak lagi meminta confirm browser setiap klik; aksi langsung submit dengan toast agar HR tidak tersendat saat koreksi banyak tanggal. Confirm tetap dipertahankan untuk aksi hapus jadwal/live.
+- Portal absen tidak lagi memakai `alert()` lalu redirect paksa saat user mencoba check out sebelum report harian. Pesan tampil inline dengan tombol `Isi Report Harian`, sehingga user mobile tidak kehilangan konteks.
 
 ## Batch 3 - Recruitment Kandidat, Profil, Tes, HR Pipeline
 
@@ -227,6 +229,7 @@ Progress eksekusi:
 - Request Owner sekarang punya timeline status ringkas `Diajukan -> Diproses -> Selesai/Ditolak`.
 - Update status Request Owner memakai AJAX ketika browser mendukung, jadi owner/super admin tidak kehilangan posisi halaman setelah klik `Proses`, `Selesai`, atau `Tolak`.
 - Halaman Approval diberi alur ringkas agar user paham status kerja: `Diajukan -> Review -> Setujui/Tolak -> Notifikasi requester`.
+- Aksi `Setujui` dan `Tolak` di halaman Approval tidak lagi memakai confirm browser; konfirmasi memakai modal internal yang submit ke form existing setelah user yakin.
 - Request antar gudang dan Request Owner tidak lagi memakai `alert/confirm` browser untuk validasi batch; feedback tampil inline dan lewat toast.
 - Inbound dan outbound batch tidak lagi memakai `alert()` browser untuk validasi item kosong, qty salah, biaya modal salah, atau stok melebihi; pesan tampil inline dan data item dirender dengan escape HTML.
 - Transfer antar gudang tidak lagi memakai `alert()` browser saat validasi batch; error gudang, item kosong, dan stok melebihi tampil inline tanpa memutus konteks user.
@@ -234,6 +237,10 @@ Progress eksekusi:
 - POS Sales Log memakai input tanggal langsung di menu aksi, modal void internal, dan resend WA tanpa confirm browser. Aksi Hidden Archive sengaja tidak diubah.
 - Studio Produk pada workspace stok mulai memakai modal internal untuk aksi berisiko: undo import iPOS4, hapus produk terpilih, hapus satu produk, dan hapus semua produk. Dialog browser `prompt/confirm/alert` tidak lagi dipakai pada jalur destruktif produk ini.
 - Bulk adjust stok tidak lagi memakai `prompt()` browser untuk qty penyesuaian; qty masuk lewat modal internal dengan validasi inline.
+- Stok gudang tidak lagi memakai `alert/confirm/prompt` browser untuk validasi field kosong, adjust satu item, bulk adjust, dan perubahan mode produk ke non-variant. Pesan fallback tampil inline atau lewat toast.
+- Template legacy Master Produk juga dibersihkan dari `alert/confirm/prompt` browser dan memakai modal aksi internal yang sama, supaya tidak jadi sumber bug jika route lama dipakai lagi.
+- CRM tambah riwayat pembelian tidak lagi memakai `alert()` browser untuk customer kosong, tanggal kosong, atau batch item kosong. Pesan validasi tampil inline di form dan item batch dirender dengan escape HTML.
+- CRM contact, purchase record, member, dan record member tidak lagi memakai confirm browser saat hapus. Semua aksi hapus memakai modal internal yang tetap submit ke endpoint existing.
 
 ## Batch 5 - Admin, Permission, SMS Storage, Modul Pendukung
 
@@ -268,6 +275,9 @@ Progress eksekusi:
 - SMS Storage Home diberi aksi cepat HR: `Arsip hari ini`, `Cari kandidat`, dan `File TXT`, memakai search/index existing supaya ringan dan tidak menambah beban backend.
 - Permission admin diberi label dampak (`Dampak tinggi`, `Dampak operasional`, `Dampak ringan`) dan copy pendek agar super admin lebih sadar risiko saat grant/cabut akses.
 - SMS Storage folder baru, rename, pindah ke trash, hapus permanen, dan empty trash memakai dialog internal, bukan prompt/confirm browser.
+- Notification Center `Hapus Semua` tidak lagi memakai confirm browser; dialog internal menjelaskan inbox akan dikosongkan untuk akun ini dan aktivitas baru tetap muncul lagi.
+- Pengesahan dokumen HRIS dan lembar approval dokumen tidak lagi memakai `alert()` saat tanda tangan kosong; pesan tampil inline di bawah kanvas tanda tangan.
+- Admin gudang tidak lagi memakai confirm browser saat hapus gudang; dialog internal menjelaskan bahwa gudang yang masih punya stok tetap ditolak oleh backend.
 
 ## Pengecualian Saat Ini
 
@@ -276,6 +286,22 @@ Jangan patch dulu:
 - UI Barcode Studio
 - endpoint dan schema barcode di `routes/stock.py`, kecuali ada bug keamanan kritis
 - asset/domain `barcode.cvbjas.com`
+
+## Batch 6 - POS Print dan Dokumen Manual
+
+Progress eksekusi:
+- Invoice Manual POS tidak lagi memakai `alert()` browser saat file logo salah format atau terlalu besar. Validasi logo tampil inline di bawah uploader, dan preview tetap memakai draft yang sama.
+
+## Batch 7 - Chat Operasional
+
+Progress eksekusi:
+- Chat halaman penuh tidak lagi memakai `window.alert` untuk error buka pesan, pin chat, buka thread, buat grup, kirim pesan, ukuran sticker, atau ukuran lampiran. Semua pesan dialihkan ke toast aplikasi agar tidak memblokir kerja di mobile.
+- Chat Call tidak lagi fallback ke `window.alert` saat toast tidak tersedia; pesan teknis cukup masuk console agar call tidak terblokir dialog browser.
+
+## Batch 8 - Stock Opname
+
+Progress eksekusi:
+- Stock Opname tidak lagi memakai `window.alert` sebagai fallback error dan tidak lagi memakai `window.confirm` saat pindah halaman atau ganti filter dengan draft belum disimpan. Konfirmasi diganti dialog internal yang menjelaskan draft SO belum disimpan dan memberi pilihan kembali cek draft atau tetap lanjut.
 
 ## Urutan Eksekusi
 

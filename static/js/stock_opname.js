@@ -64,7 +64,7 @@
             return;
         }
         if (isError) {
-            window.alert(text);
+            console.warn(text);
         }
     }
 
@@ -75,6 +75,52 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
+    }
+
+    function confirmUnsavedChanges(message) {
+        return new Promise((resolve) => {
+            const backdrop = document.createElement("div");
+            backdrop.className = "stock-opname-confirm-backdrop";
+            backdrop.innerHTML = `
+                <div class="stock-opname-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="stockOpnameConfirmTitle">
+                    <div>
+                        <strong id="stockOpnameConfirmTitle">Draft SO belum disimpan</strong>
+                        <p>${escapeHtml(message)}</p>
+                    </div>
+                    <div class="stock-opname-confirm-actions">
+                        <button type="button" class="ghost-button" data-so-confirm-cancel>Kembali cek draft</button>
+                        <button type="button" data-so-confirm-continue>Tetap lanjut</button>
+                    </div>
+                </div>
+            `;
+
+            let finished = false;
+            const finish = (result) => {
+                if (finished) {
+                    return;
+                }
+                finished = true;
+                document.removeEventListener("keydown", handleKeydown);
+                backdrop.remove();
+                resolve(Boolean(result));
+            };
+            const handleKeydown = (event) => {
+                if (event.key === "Escape") {
+                    finish(false);
+                }
+            };
+
+            backdrop.addEventListener("click", (event) => {
+                if (event.target === backdrop) {
+                    finish(false);
+                }
+            });
+            backdrop.querySelector("[data-so-confirm-cancel]")?.addEventListener("click", () => finish(false));
+            backdrop.querySelector("[data-so-confirm-continue]")?.addEventListener("click", () => finish(true));
+            document.addEventListener("keydown", handleKeydown);
+            document.body.appendChild(backdrop);
+            backdrop.querySelector("[data-so-confirm-cancel]")?.focus();
+        });
     }
 
     async function readResponsePayload(response) {
@@ -515,7 +561,7 @@
             return;
         }
 
-        if (hasUnsavedChanges() && !window.confirm(messages.confirmPageChange)) {
+        if (hasUnsavedChanges() && !(await confirmUnsavedChanges(messages.confirmPageChange))) {
             return;
         }
 
@@ -594,13 +640,29 @@
         }
     }
 
-    function handleFilterSubmit(event) {
+    async function handleFilterSubmit(event) {
+        if (nodes.filterForm?.dataset.skipUnsavedConfirm === "1") {
+            delete nodes.filterForm.dataset.skipUnsavedConfirm;
+            return;
+        }
         state.search = String(nodes.searchInput?.value || "").trim();
         state.warehouseId = readInt(nodes.warehouseSelect?.value, state.warehouseId) || state.warehouseId;
         state.areaMode = String(nodes.areaModeSelect?.value || state.areaMode || "display").trim().toLowerCase() || "display";
         syncExportLinks();
-        if (hasUnsavedChanges() && !window.confirm(messages.confirmFilterChange)) {
+        if (hasUnsavedChanges()) {
             event.preventDefault();
+            const shouldContinue = await confirmUnsavedChanges(messages.confirmFilterChange);
+            if (!shouldContinue) {
+                return;
+            }
+            if (nodes.filterForm) {
+                nodes.filterForm.dataset.skipUnsavedConfirm = "1";
+                if (typeof nodes.filterForm.requestSubmit === "function") {
+                    nodes.filterForm.requestSubmit();
+                } else {
+                    nodes.filterForm.submit();
+                }
+            }
         }
     }
 

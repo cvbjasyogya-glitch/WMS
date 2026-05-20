@@ -116,6 +116,33 @@
 {% endif %}
 
 {% if can_full_manage_product_master %}
+<div class="picker-modal" id="productActionModal" hidden>
+    <div class="picker-modal-backdrop" data-product-action-cancel></div>
+    <div class="picker-modal-panel stock-edit-modal-panel" role="dialog" aria-modal="true" aria-labelledby="productActionModalTitle">
+        <div class="section-title">
+            <div>
+                <h2 id="productActionModalTitle">Konfirmasi Aksi Produk</h2>
+                <p id="productActionModalCopy">Periksa aksi sebelum melanjutkan.</p>
+            </div>
+            <button type="button" class="ghost-button" data-product-action-cancel>Tutup</button>
+        </div>
+        <form id="productActionModalForm" class="stock-edit-detail-form">
+            <div id="productActionModalPhraseWrap">
+                <label for="productActionModalInput" id="productActionModalInputLabel">Konfirmasi</label>
+                <input type="text" id="productActionModalInput" autocomplete="off">
+                <small id="productActionModalInputHelp" class="helper-text">Ketik frasa sesuai instruksi untuk melanjutkan.</small>
+            </div>
+            <div id="productActionModalError" class="helper-text stock-empty" role="alert" hidden></div>
+            <div class="split-actions stock-edit-modal-actions">
+                <button type="submit" class="danger-button" id="productActionModalSubmit">Lanjutkan</button>
+                <button type="button" class="ghost-button" data-product-action-cancel>Batal</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if can_full_manage_product_master %}
 <div id="formBox" class="form-box products-manual-box" style="display:none;" data-can-view-product-cost="{% if can_view_product_cost %}1{% else %}0{% endif %}">
     <div class="section-title">
         <div>
@@ -282,7 +309,7 @@ function notifyUser(message) {
         window.showToast(message);
         return;
     }
-    alert(message);
+    renderStatus("importStatus", message, "success");
 }
 
 function escapeProductPreviewHtml(value) {
@@ -304,6 +331,101 @@ function renderStatus(targetId, message, category = "success") {
     box.className = `flash ${category}`;
     box.textContent = message;
     target.appendChild(box);
+}
+
+let productActionModalResolver = null;
+
+function normalizeProductActionPhrase(value) {
+    return String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+function closeProductActionModal(payload = null) {
+    const modal = document.getElementById("productActionModal");
+    if (modal) {
+        modal.hidden = true;
+    }
+    const resolver = productActionModalResolver;
+    productActionModalResolver = null;
+    if (resolver) {
+        resolver(payload);
+    }
+}
+
+function openProductActionModal(options = {}) {
+    const modal = document.getElementById("productActionModal");
+    if (!modal) {
+        renderStatus("importStatus", options.fallbackMessage || "Dialog aksi produk belum siap. Refresh halaman lalu coba lagi.", "error");
+        return Promise.resolve(null);
+    }
+
+    const title = modal.querySelector("#productActionModalTitle");
+    const copy = modal.querySelector("#productActionModalCopy");
+    const phraseWrap = modal.querySelector("#productActionModalPhraseWrap");
+    const inputLabel = modal.querySelector("#productActionModalInputLabel");
+    const input = modal.querySelector("#productActionModalInput");
+    const inputHelp = modal.querySelector("#productActionModalInputHelp");
+    const errorBox = modal.querySelector("#productActionModalError");
+    const submitButton = modal.querySelector("#productActionModalSubmit");
+    const phrase = normalizeProductActionPhrase(options.confirmationPhrase || "");
+
+    if (title) title.textContent = options.title || "Konfirmasi Aksi Produk";
+    if (copy) copy.textContent = options.message || "Periksa aksi sebelum melanjutkan.";
+    if (inputLabel) inputLabel.textContent = options.inputLabel || "Konfirmasi";
+    if (inputHelp) {
+        inputHelp.textContent = phrase
+            ? `Ketik ${phrase} untuk melanjutkan.`
+            : "Tekan lanjutkan jika aksi sudah benar.";
+    }
+    if (input) {
+        input.value = "";
+        input.placeholder = options.inputPlaceholder || "";
+        input.required = Boolean(phrase);
+        input.dataset.confirmationPhrase = phrase;
+    }
+    if (phraseWrap) phraseWrap.hidden = !phrase;
+    if (errorBox) {
+        errorBox.textContent = "";
+        errorBox.hidden = true;
+    }
+    if (submitButton) {
+        submitButton.textContent = options.confirmLabel || "Lanjutkan";
+        submitButton.classList.toggle("danger-button", options.danger !== false);
+    }
+
+    modal.hidden = false;
+    window.requestAnimationFrame(() => {
+        if (phrase) {
+            input?.focus();
+        } else {
+            submitButton?.focus();
+        }
+    });
+
+    return new Promise((resolve) => {
+        productActionModalResolver = resolve;
+    });
+}
+
+function submitProductActionModal() {
+    const modal = document.getElementById("productActionModal");
+    if (!modal) return;
+
+    const input = modal.querySelector("#productActionModalInput");
+    const errorBox = modal.querySelector("#productActionModalError");
+    const expectedPhrase = normalizeProductActionPhrase(input?.dataset.confirmationPhrase || "");
+    const confirmationText = String(input?.value || "");
+
+    if (expectedPhrase && normalizeProductActionPhrase(confirmationText) !== expectedPhrase) {
+        if (errorBox) {
+            errorBox.textContent = "Konfirmasi tidak cocok. Aksi produk dibatalkan.";
+            errorBox.hidden = false;
+        }
+        input?.focus();
+        input?.select?.();
+        return;
+    }
+
+    closeProductActionModal({ confirmationText });
 }
 
 function bindCheckAllControl() {
@@ -761,21 +883,22 @@ async function undoLatestIpos4ImportFromProducts() {
         ? latestIpos4UndoImportClassic
         : await loadLatestIpos4UndoClassic();
     if (!latestImport || !latestImport.undo_available) {
-        alert("Belum ada import iPOS4 terakhir yang bisa di-undo dari halaman ini.");
+        renderStatus("importStatus", "Belum ada import iPOS4 terakhir yang bisa di-undo dari halaman ini.", "error");
         return;
     }
 
-    const confirmationText = window.prompt(
-        `Undo akan mengembalikan database ke kondisi sebelum import ${latestImport.source_dump_name || "iPOS4 terakhir"} pada ${latestImport.finished_at || "-"}. Semua perubahan setelah import itu ikut hilang. Ketik ${IPOS4_IMPORT_UNDO_CONFIRMATION} untuk melanjutkan.`
-    );
-    if (confirmationText === null) {
+    const confirmation = await openProductActionModal({
+        title: "Undo Import iPOS4",
+        message: `Database akan dikembalikan ke kondisi sebelum import ${latestImport.source_dump_name || "iPOS4 terakhir"} pada ${latestImport.finished_at || "-"}. Semua perubahan setelah import tersebut ikut hilang.`,
+        confirmationPhrase: IPOS4_IMPORT_UNDO_CONFIRMATION,
+        inputLabel: "Ketik frasa undo",
+        confirmLabel: "Jalankan Undo",
+        danger: true,
+    });
+    if (!confirmation) {
         return;
     }
-
-    if (String(confirmationText || "").trim().toUpperCase().replace(/\s+/g, " ") !== IPOS4_IMPORT_UNDO_CONFIRMATION) {
-        alert("Konfirmasi undo tidak cocok. Database tidak jadi dipulihkan.");
-        return;
-    }
+    const confirmationText = confirmation.confirmationText || IPOS4_IMPORT_UNDO_CONFIRMATION;
 
     renderStatus("importStatus", "Undo import iPOS4 sedang dijalankan. Mohon tunggu sampai selesai.", "success");
     setImportBusy(true);
@@ -822,14 +945,20 @@ async function undoLatestIpos4ImportFromProducts() {
     }
 }
 
-function bulkDelete() {
+async function bulkDelete() {
     const ids = Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => cb.value);
     if (ids.length === 0) {
-        alert("Pilih produk yang ingin dihapus terlebih dahulu.");
+        renderStatus("importStatus", "Pilih produk yang ingin dihapus terlebih dahulu.", "error");
         return;
     }
 
-    if (!confirm("Yakin ingin menghapus produk yang dipilih?")) return;
+    const confirmation = await openProductActionModal({
+        title: "Hapus Produk Terpilih",
+        message: `${ids.length} produk akan dihapus atau masuk approval sesuai role akun. Pastikan pilihan sudah benar.`,
+        confirmLabel: "Hapus Terpilih",
+        danger: true,
+    });
+    if (!confirmation) return;
 
     fetch("/products/bulk-delete", {
         method: "POST",
@@ -856,19 +985,25 @@ function bulkDelete() {
         const fallbackMessage = rawText
             ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
             : "";
-        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
+        renderStatus("importStatus", data.message || fallbackMessage || "Gagal menghapus produk.", "error");
     })
-    .catch(() => alert("Terjadi error saat menghapus data."));
+    .catch(() => renderStatus("importStatus", "Terjadi error saat menghapus data.", "error"));
 }
 
-function deleteSingleProduct(productId) {
+async function deleteSingleProduct(productId) {
     const normalizedId = Number(productId || 0);
     if (!normalizedId) {
-        alert("Produk yang ingin dihapus tidak valid.");
+        renderStatus("importStatus", "Produk yang ingin dihapus tidak valid.", "error");
         return;
     }
 
-    if (!confirm("Hapus produk ini?")) {
+    const confirmation = await openProductActionModal({
+        title: "Hapus Produk",
+        message: "Produk ini akan dihapus atau masuk approval sesuai role akun. Pastikan produk yang dipilih sudah benar.",
+        confirmLabel: "Hapus Produk",
+        danger: true,
+    });
+    if (!confirmation) {
         return;
     }
 
@@ -897,25 +1032,24 @@ function deleteSingleProduct(productId) {
         const fallbackMessage = rawText
             ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
             : "";
-        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
+        renderStatus("importStatus", data.message || fallbackMessage || "Gagal menghapus produk.", "error");
     })
-    .catch(() => alert("Terjadi error saat menghapus produk."));
+    .catch(() => renderStatus("importStatus", "Terjadi error saat menghapus produk.", "error"));
 }
 
-function deleteAllProducts() {
-    const confirmationText = window.prompt(
-        "Fitur ini akan menghapus seluruh master produk beserta stok dan variannya. Beberapa histori atau laporan yang masih terhubung ke master produk bisa ikut terdampak. Untuk akun admin, aksi ini hanya mengirim approval ke leader / super admin. Ketik HAPUS SEMUA PRODUK untuk melanjutkan."
-    );
-
-    if (confirmationText === null) {
+async function deleteAllProducts() {
+    const confirmation = await openProductActionModal({
+        title: "Hapus Semua Produk",
+        message: "Seluruh master produk beserta stok dan variannya akan diproses. Untuk akun admin, aksi ini hanya mengirim approval ke leader / super admin.",
+        confirmationPhrase: "HAPUS SEMUA PRODUK",
+        inputLabel: "Ketik frasa hapus semua",
+        confirmLabel: "Proses Hapus Semua",
+        danger: true,
+    });
+    if (!confirmation) {
         return;
     }
-
-    const normalizedConfirmation = String(confirmationText || "").trim().toUpperCase().replace(/\s+/g, " ");
-    if (normalizedConfirmation !== "HAPUS SEMUA PRODUK") {
-        alert("Konfirmasi tidak cocok. Penghapusan semua produk dibatalkan.");
-        return;
-    }
+    const confirmationText = confirmation.confirmationText || "HAPUS SEMUA PRODUK";
 
     fetch("/products/delete-all", {
         method: "POST",
@@ -936,7 +1070,7 @@ function deleteAllProducts() {
 
         if (res.ok && data.status === "success") {
             if (data.approval_status === "pending") {
-                alert(data.message || "Permintaan hapus produk sudah dikirim. Produk belum hilang karena masih menunggu approval leader / super admin.");
+                notifyUser(data.message || "Permintaan hapus produk sudah dikirim. Produk belum hilang karena masih menunggu approval leader / super admin.");
             } else {
                 notifyUser(data.message || "Semua produk berhasil diproses untuk dihapus.");
             }
@@ -946,9 +1080,9 @@ function deleteAllProducts() {
         const fallbackMessage = rawText
             ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
             : "";
-        alert(data.message || fallbackMessage || "Gagal menghapus semua produk.");
+        renderStatus("importStatus", data.message || fallbackMessage || "Gagal menghapus semua produk.", "error");
     })
-    .catch(() => alert("Terjadi error saat menghapus semua produk."));
+    .catch(() => renderStatus("importStatus", "Terjadi error saat menghapus semua produk.", "error"));
 }
 
 function buildPreviewTable(rows) {
@@ -971,7 +1105,7 @@ async function previewImport() {
     const file = fileInput.files[0];
 
     if (!file) {
-        alert("Pilih file import terlebih dahulu.");
+        renderStatus("importStatus", "Pilih file import terlebih dahulu.", "error");
         return;
     }
 
@@ -1083,6 +1217,19 @@ async function submitImport() {
         setImportBusy(false);
     }
 }
+
+document.querySelectorAll("[data-product-action-cancel]").forEach((node) => {
+    node.addEventListener("click", () => closeProductActionModal(null));
+});
+document.getElementById("productActionModalForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitProductActionModal();
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !document.getElementById("productActionModal")?.hidden) {
+        closeProductActionModal(null);
+    }
+});
 
 loadLatestIpos4UndoClassic();
 bindCheckAllControl();

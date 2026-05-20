@@ -226,6 +226,10 @@
                             <textarea name="note" rows="3" placeholder="Contoh: tugas event, GPS indoor, atau catatan check out." {% if portal_punch_mode == "complete" %}disabled{% endif %}></textarea>
                         </div>
                     </details>
+                    <div class="attendance-submit-feedback" data-attendance-submit-feedback hidden>
+                        <span data-attendance-submit-feedback-text></span>
+                        <a href="/laporan-harian/" class="ghost-button" data-attendance-report-link>Isi Report Harian</a>
+                    </div>
                     <div class="split-actions attendance-submit-row">
                         <button type="submit" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                             {% if portal_punch_mode == "complete" %}Absensi Hari Ini Lengkap{% else %}Simpan Absen{% endif %}
@@ -420,6 +424,9 @@
     const punchTimeDisplay = portal.querySelector("[data-punch-time-display]");
     const form = portal.querySelector("form");
     const submitButton = form.querySelector("button[type='submit']");
+    const submitFeedback = portal.querySelector("[data-attendance-submit-feedback]");
+    const submitFeedbackText = portal.querySelector("[data-attendance-submit-feedback-text]");
+    const submitReportLink = portal.querySelector("[data-attendance-report-link]");
     const employeeName = portal.dataset.employeeName || "";
     const warehouseName = portal.dataset.warehouseName || "";
     const todayDate = portal.dataset.todayDate || "";
@@ -1375,6 +1382,20 @@
         cameraStatus.dataset.state = tone;
     };
 
+    const setSubmitFeedback = (message = "", tone = "error") => {
+        if (!submitFeedback) {
+            return;
+        }
+        if (submitFeedbackText) {
+            submitFeedbackText.textContent = message;
+        }
+        submitFeedback.dataset.state = tone;
+        submitFeedback.hidden = !message;
+        if (submitReportLink) {
+            submitReportLink.href = dailyReportUrl;
+        }
+    };
+
     const toggleFallbackCapture = (visible) => {
         if (!fallbackButton) {
             return;
@@ -2016,10 +2037,11 @@
         const selectedPunchType = punchTypeSelect ? (punchTypeSelect.value || "check_in").trim().toLowerCase() : "check_in";
         if (selectedPunchType === "check_out" && dailyReportRequired && !dailyReportSubmitted) {
             event.preventDefault();
-            window.alert("Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.");
-            window.location.href = dailyReportUrl;
+            setSubmitFeedback("Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.");
+            submitFeedback?.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
         }
+        setSubmitFeedback("");
         if (!rawPhotoDataUrl) {
             event.preventDefault();
             setCameraState("Ambil foto dulu sebelum menyimpan absen.", "error");

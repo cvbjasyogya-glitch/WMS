@@ -306,8 +306,8 @@
                     <td class="crm-long-text">{{ customer.products_summary or "-" }}</td>
                     {% if can_manage_crm %}
                     <td>
-                        <form method="POST" action="/crm/customers/delete/{{ customer.id }}">
-                            <button type="submit" class="danger-button" onclick="return confirm('Hapus contact customer ini?')">Hapus</button>
+                        <form method="POST" action="/crm/customers/delete/{{ customer.id }}" data-crm-confirm="contact" data-crm-confirm-message="Hapus contact {{ customer.customer_name }}? Riwayat CRM yang terkait tetap mengikuti aturan backend saat ini.">
+                            <button type="submit" class="danger-button">Hapus</button>
                         </form>
                     </td>
                     {% endif %}
@@ -474,6 +474,7 @@
             </div>
 
             <div class="split-actions" style="margin-top:16px;">
+                <small id="crmPurchaseFormFeedback" class="helper-text ops-row-feedback" aria-live="polite"></small>
                 <button id="crmPurchaseSubmitButton" type="submit">Simpan Riwayat Pembelian</button>
             </div>
         </form>
@@ -546,7 +547,7 @@
                     <td class="crm-long-text">{{ purchase.note or "-" }}</td>
                     {% if can_manage_crm %}
                     <td>
-                        <form method="POST" action="/crm/purchases/delete/{{ purchase.id }}">
+                        <form method="POST" action="/crm/purchases/delete/{{ purchase.id }}" data-crm-confirm="purchase" data-crm-confirm-message="Hapus purchase record {{ purchase.invoice_no or '#' ~ purchase.id }}?">
                             <input type="hidden" name="tab" value="purchases">
                             <input type="hidden" name="search" value="{{ search }}">
                             {% if selected_warehouse %}
@@ -554,7 +555,7 @@
                             {% endif %}
                             <input type="hidden" name="page" value="{{ purchase_pagination.page if purchase_pagination else 1 }}">
                             <input type="hidden" name="page_size" value="{{ purchase_page_size }}">
-                            <button type="submit" class="danger-button" onclick="return confirm('Hapus purchase record ini?')">Hapus</button>
+                            <button type="submit" class="danger-button">Hapus</button>
                         </form>
                     </td>
                     {% endif %}
@@ -867,8 +868,8 @@
                     <td>{{ member.requested_by_staff_name or member.requested_by_staff_username or "-" }}</td>
                     {% if can_manage_crm %}
                     <td>
-                        <form method="POST" action="/crm/members/delete/{{ member.id }}">
-                            <button type="submit" class="danger-button" onclick="return confirm('Hapus member ini?')">Hapus</button>
+                        <form method="POST" action="/crm/members/delete/{{ member.id }}" data-crm-confirm="member" data-crm-confirm-message="Hapus member {{ member.member_code }}?">
+                            <button type="submit" class="danger-button">Hapus</button>
                         </form>
                     </td>
                     {% endif %}
@@ -945,8 +946,8 @@
                         {% if record.purchase_id %}
                         <span class="badge">Otomatis dari Pembelian</span>
                         {% else %}
-                        <form method="POST" action="/crm/member-records/delete/{{ record.id }}">
-                            <button type="submit" class="danger-button" onclick="return confirm('Hapus record member ini?')">Hapus</button>
+                        <form method="POST" action="/crm/member-records/delete/{{ record.id }}" data-crm-confirm="member-record" data-crm-confirm-message="Hapus record member {{ record.member_code }} tanggal {{ record.record_date }}?">
+                            <button type="submit" class="danger-button">Hapus</button>
                         </form>
                         {% endif %}
                     </td>
@@ -961,6 +962,19 @@
     </div>
     {% endif %}
 {% endif %}
+
+<div class="crm-confirm-backdrop" data-crm-confirm-modal hidden>
+    <div class="crm-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="crmConfirmTitle">
+        <div>
+            <strong id="crmConfirmTitle">Konfirmasi CRM</strong>
+            <p data-crm-confirm-message>Pastikan data sudah dicek sebelum lanjut.</p>
+        </div>
+        <div class="crm-confirm-actions">
+            <button type="button" class="ghost-button" data-crm-confirm-cancel>Batal</button>
+            <button type="button" class="danger-button" data-crm-confirm-submit>Hapus</button>
+        </div>
+    </div>
+</div>
 
 {% include "partials/item_picker_modal.html" %}
 {% endblock %}
@@ -980,6 +994,7 @@ const crmPurchaseTransactionHint = document.getElementById("crmPurchaseTransacti
 const crmPurchaseDate = document.getElementById("crmPurchaseDate");
 const crmPurchaseItemsJson = document.getElementById("crmPurchaseItemsJson");
 const crmPurchaseSubmitButton = document.getElementById("crmPurchaseSubmitButton");
+const crmPurchaseFormFeedback = document.getElementById("crmPurchaseFormFeedback");
 const crmPurchaseQueueBody = document.getElementById("crmPurchaseQueueBody");
 const crmPurchaseDraftDisplay = document.getElementById("crmPurchaseDraftDisplay");
 const crmPurchaseDraftMeta = document.getElementById("crmPurchaseDraftMeta");
@@ -1004,6 +1019,10 @@ const crmMemberRecordMemberSearchSummary = document.getElementById("crmMemberRec
 const crmMemberRecordServiceField = document.getElementById("crmMemberRecordServiceField");
 const crmMemberRecordRewardField = document.getElementById("crmMemberRecordRewardField");
 const crmMemberRecordBenefitField = document.getElementById("crmMemberRecordBenefitField");
+const crmConfirmModal = document.querySelector("[data-crm-confirm-modal]");
+const crmConfirmMessage = crmConfirmModal?.querySelector("[data-crm-confirm-message]");
+const crmConfirmCancel = crmConfirmModal?.querySelector("[data-crm-confirm-cancel]");
+const crmConfirmSubmit = crmConfirmModal?.querySelector("[data-crm-confirm-submit]");
 
 const crmPurchaseDraft = { product_id: 0, variant_id: 0, sku: "", name: "", variant_label: "", category: "", gtin: "", stock: 0 };
 const crmPurchaseItems = [];
@@ -1032,6 +1051,77 @@ const CRM_SMART_SELECT_REMOTE_DEBOUNCE_MS = 180;
 const CRM_SMART_SELECT_REMOTE_LIMIT = {{ crm_smart_select_limit|int }};
 const CRM_STRINGING_PROGRESS_MIN_AMOUNT = {{ stringing_progress_min_amount|default(75000)|tojson }};
 const CRM_PAGE_SELECTED_WAREHOUSE = String({{ (selected_warehouse or scoped_crm_warehouse or "")|tojson }});
+
+function escapeCrmHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function setCrmPurchaseFormFeedback(message, state = "error") {
+    if (!crmPurchaseFormFeedback) {
+        return;
+    }
+    crmPurchaseFormFeedback.textContent = message || "";
+    crmPurchaseFormFeedback.className = `helper-text ops-row-feedback ${state === "success" ? "stock-ok" : "stock-empty"}`;
+}
+
+let crmPendingConfirmForm = null;
+
+function closeCrmConfirmModal() {
+    if (!crmConfirmModal) {
+        return;
+    }
+    crmConfirmModal.hidden = true;
+    crmPendingConfirmForm = null;
+    document.removeEventListener("keydown", handleCrmConfirmKeydown);
+}
+
+function handleCrmConfirmKeydown(event) {
+    if (event.key === "Escape") {
+        closeCrmConfirmModal();
+    }
+}
+
+function openCrmConfirmModal(form) {
+    if (!crmConfirmModal) {
+        form.submit();
+        return;
+    }
+    crmPendingConfirmForm = form;
+    if (crmConfirmMessage) {
+        crmConfirmMessage.textContent = form.dataset.crmConfirmMessage || "Pastikan data sudah dicek sebelum lanjut.";
+    }
+    crmConfirmModal.hidden = false;
+    document.addEventListener("keydown", handleCrmConfirmKeydown);
+    crmConfirmCancel?.focus();
+}
+
+function setupCrmConfirmForms() {
+    if (!crmConfirmModal) {
+        return;
+    }
+    document.querySelectorAll("[data-crm-confirm]").forEach((form) => {
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            openCrmConfirmModal(form);
+        });
+    });
+    crmConfirmModal.addEventListener("click", (event) => {
+        if (event.target === crmConfirmModal) {
+            closeCrmConfirmModal();
+        }
+    });
+    crmConfirmCancel?.addEventListener("click", closeCrmConfirmModal);
+    crmConfirmSubmit?.addEventListener("click", () => {
+        const form = crmPendingConfirmForm;
+        closeCrmConfirmModal();
+        form?.submit();
+    });
+}
 
 function normalizeCrmSmartSelectValue(value) {
     return String(value || "")
@@ -1447,8 +1537,8 @@ function renderCrmPurchaseQueue() {
     crmPurchaseQueueBody.innerHTML = crmPurchaseItems.map((item, index) => `
         <tr>
             <td>${index + 1}</td>
-            <td><strong>${item.display_name}</strong><div class="helper-text">${item.variant_label} | Stok ref ${item.stock}</div></td>
-            <td>${item.qty}</td>
+            <td><strong>${escapeCrmHtml(item.display_name)}</strong><div class="helper-text">${escapeCrmHtml(item.variant_label)} | Stok ref ${escapeCrmHtml(item.stock)}</div></td>
+            <td>${escapeCrmHtml(item.qty)}</td>
             <td>${formatCrmCurrency(item.unit_price)}</td>
             <td>${formatCrmCurrency(item.line_total)}</td>
             <td><button type="button" class="danger-button" data-remove-index="${index}">Hapus</button></td>
@@ -1458,6 +1548,7 @@ function renderCrmPurchaseQueue() {
 
 function addCrmPurchaseItem() {
     if (!validateCrmPurchaseDraft()) return;
+    setCrmPurchaseFormFeedback("");
     const qty = Number(crmPurchaseDraftQty.value || 0);
     const unitPrice = Number(crmPurchaseDraftUnitPrice.value || 0);
     crmPurchaseItems.push({
@@ -1476,18 +1567,22 @@ function addCrmPurchaseItem() {
 
 function handleCrmPurchaseSubmit() {
     if (!crmPurchaseCustomer?.value) {
-        alert("Pilih customer dulu.");
+        setCrmPurchaseFormFeedback("Pilih customer dulu sebelum menyimpan riwayat pembelian.");
+        crmPurchaseCustomerSearch?.focus();
         return false;
     }
     if (!crmPurchaseDate?.value) {
-        alert("Tanggal pembelian wajib diisi.");
+        setCrmPurchaseFormFeedback("Tanggal pembelian wajib diisi.");
+        crmPurchaseDate?.focus();
         return false;
     }
     if (!crmPurchaseItems.length) {
-        alert("Tambahkan minimal satu item pembelian.");
+        setCrmPurchaseFormFeedback("Tambahkan minimal satu item pembelian ke batch transaksi.");
+        crmPurchaseDraftDisplay?.focus();
         return false;
     }
     crmPurchaseItemsJson.value = JSON.stringify(crmPurchaseItems);
+    setCrmPurchaseFormFeedback("Menyimpan riwayat pembelian...", "success");
     if (crmPurchaseSubmitButton) {
         crmPurchaseSubmitButton.textContent = "Menyimpan...";
         crmPurchaseSubmitButton.disabled = true;
@@ -1667,6 +1762,7 @@ syncCrmMemberRecordFormFields();
 syncCrmPurchaseLoyaltyHint();
 renderCrmPurchaseQueue();
 resetCrmPurchaseDraft();
+setupCrmConfirmForms();
 </script>
 {% endblock %}
 

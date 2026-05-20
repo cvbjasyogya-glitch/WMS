@@ -7680,6 +7680,53 @@ body #soFilterForm .ghost-button {
     border-color: rgba(10, 24, 42, 0.16);
 }
 
+body .stock-opname-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1300;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 8, 23, 0.64);
+    backdrop-filter: blur(8px);
+}
+
+body .stock-opname-confirm-dialog {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: linear-gradient(180deg, #0f1c2f, #0a1424);
+    color: #e5edf7;
+    box-shadow: 0 24px 70px rgba(2, 8, 23, 0.42);
+}
+
+body .stock-opname-confirm-dialog strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 1rem;
+    color: #f8fafc;
+}
+
+body .stock-opname-confirm-dialog p {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.8);
+    line-height: 1.55;
+}
+
+body .stock-opname-confirm-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+body .stock-opname-confirm-actions button {
+    min-width: 132px;
+}
+
 body .wms-page-stack {
     display: grid;
     gap: 20px;
@@ -14536,6 +14583,20 @@ body .hris-document-sign-help {
     color: var(--theme-helper-color, var(--text-soft));
 }
 
+body .hris-document-sign-feedback {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.22);
+    color: #fecaca;
+    line-height: 1.55;
+}
+
+body .hris-document-sign-feedback[hidden] {
+    display: none !important;
+}
+
 body .hris-document-preview-stage {
     overflow: hidden;
     border-radius: 24px;
@@ -16471,6 +16532,28 @@ body .attendance-camera-actions {
 
 body .attendance-submit-row {
     justify-content: flex-end;
+}
+
+body .attendance-submit-feedback {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.24);
+    color: #fee2e2;
+    font-size: 13px;
+}
+
+body .attendance-submit-feedback[hidden] {
+    display: none !important;
+}
+
+body .attendance-submit-feedback .ghost-button {
+    flex: 0 0 auto;
+    padding: 8px 12px;
 }
 
 body .attendance-optional-panel {
@@ -20059,6 +20142,186 @@ body .notification-center-empty {
     border: 1px dashed var(--line-strong);
     background: rgba(255, 255, 255, 0.03);
     color: var(--text-soft);
+}
+
+body .notification-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 8, 23, 0.66);
+    backdrop-filter: blur(8px);
+}
+
+body .notification-confirm-dialog {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: linear-gradient(180deg, #0f1d31, #0a1322);
+    color: #e5edf7;
+    box-shadow: 0 24px 70px rgba(2, 8, 23, 0.44);
+}
+
+body .notification-confirm-dialog strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #f8fafc;
+}
+
+body .notification-confirm-dialog p {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.78);
+    line-height: 1.55;
+}
+
+body .notification-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+body .approval-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1450;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 8, 23, 0.66);
+    backdrop-filter: blur(8px);
+}
+
+body .approval-confirm-backdrop[hidden] {
+    display: none !important;
+}
+
+body .approval-confirm-dialog {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: linear-gradient(180deg, #0f1d31, #0a1322);
+    color: #e5edf7;
+    box-shadow: 0 24px 70px rgba(2, 8, 23, 0.44);
+}
+
+body .approval-confirm-dialog strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #f8fafc;
+}
+
+body .approval-confirm-dialog p {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.78);
+    line-height: 1.55;
+}
+
+body .approval-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+body .crm-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1450;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 8, 23, 0.66);
+    backdrop-filter: blur(8px);
+}
+
+body .crm-confirm-backdrop[hidden] {
+    display: none !important;
+}
+
+body .crm-confirm-dialog {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: linear-gradient(180deg, #0f1d31, #0a1322);
+    color: #e5edf7;
+    box-shadow: 0 24px 70px rgba(2, 8, 23, 0.44);
+}
+
+body .crm-confirm-dialog strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #f8fafc;
+}
+
+body .crm-confirm-dialog p {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.78);
+    line-height: 1.55;
+}
+
+body .crm-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+body .warehouse-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1450;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 8, 23, 0.66);
+    backdrop-filter: blur(8px);
+}
+
+body .warehouse-confirm-backdrop[hidden] {
+    display: none !important;
+}
+
+body .warehouse-confirm-dialog {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: linear-gradient(180deg, #0f1d31, #0a1322);
+    color: #e5edf7;
+    box-shadow: 0 24px 70px rgba(2, 8, 23, 0.44);
+}
+
+body .warehouse-confirm-dialog strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #f8fafc;
+}
+
+body .warehouse-confirm-dialog p {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.78);
+    line-height: 1.55;
+}
+
+body .warehouse-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 body .notification-entry {

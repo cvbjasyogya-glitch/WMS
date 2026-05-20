@@ -89,7 +89,7 @@
             window.showToast(message);
             return;
         }
-        window.alert(message);
+        console.warn(message);
     }
 
     function shouldDeferReloadForServiceWorker() {

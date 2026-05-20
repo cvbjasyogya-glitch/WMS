@@ -49,6 +49,9 @@
     .manual-logo-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .manual-logo-meta small { color: rgba(148, 163, 184, 0.9); }
     .manual-logo-meta button { border-radius: 999px; padding: 7px 12px; }
+    .manual-logo-status { display: block; color: rgba(148, 163, 184, 0.92); }
+    .manual-logo-status.is-error { color: #fecaca; }
+    .manual-logo-status.is-success { color: #bbf7d0; }
     .manual-adjustment-card {
         display: grid;
         gap: 12px;
@@ -392,6 +395,7 @@
                             <small id="manualLogoFileLabel">Pakai logo default bisnis.</small>
                             <button type="button" class="ghost-button" id="manualLogoRemove" hidden>Hapus Logo</button>
                         </div>
+                        <small id="manualLogoStatus" class="manual-logo-status" aria-live="polite"></small>
                     </div>
                 </label>
             </div>
@@ -561,6 +565,7 @@
     const logoFileInput = document.getElementById("manualLogoFile");
     const logoPicker = document.getElementById("manualLogoPicker");
     const logoFileLabel = document.getElementById("manualLogoFileLabel");
+    const logoStatus = document.getElementById("manualLogoStatus");
     const logoRemoveButton = document.getElementById("manualLogoRemove");
     const previewLogo = document.querySelector("[data-preview-logo]");
     const previewLogoFallback = document.querySelector("[data-preview-logo-fallback]");
@@ -613,6 +618,14 @@
         if (previewLogoFallback) {
             previewLogoFallback.hidden = Boolean(activeLogoUrl);
         }
+    };
+
+    const setLogoFeedback = (message = "", state = "") => {
+        if (!logoStatus) {
+            return;
+        }
+        logoStatus.textContent = message;
+        logoStatus.className = `manual-logo-status${state ? ` is-${state}` : ""}`;
     };
 
     const updateLogoFieldState = (draft) => {
@@ -814,17 +827,24 @@
             return;
         }
         if (!String(file.type || "").startsWith("image/")) {
-            window.alert("File logo harus berupa gambar.");
+            setLogoFeedback("File logo harus berupa gambar PNG, JPG, WEBP, atau SVG.", "error");
+            if (logoFileInput) {
+                logoFileInput.value = "";
+            }
             return;
         }
         if (file.size > MAX_LOGO_FILE_BYTES) {
-            window.alert("Ukuran logo maksimal 1 MB.");
+            setLogoFeedback("Ukuran logo maksimal 1 MB. Kompres dulu lalu unggah ulang.", "error");
+            if (logoFileInput) {
+                logoFileInput.value = "";
+            }
             return;
         }
         const reader = new FileReader();
         reader.onload = () => {
             buildDraftFromForm.logoDataUrl = typeof reader.result === "string" ? reader.result : "";
             buildDraftFromForm.logoFilename = file.name || "logo";
+            setLogoFeedback("Logo siap dipakai di preview invoice.", "success");
             updatePreview();
         };
         reader.readAsDataURL(file);
@@ -863,6 +883,7 @@
             if (logoFileInput) {
                 logoFileInput.value = "";
             }
+            setLogoFeedback("");
             updatePreview();
         });
     }
