@@ -768,6 +768,132 @@ def _ensure_attendance_shift_override_schema(db):
     runtime_state[cache_key] = True
 
 
+def _ensure_document_records_schema(db):
+    runtime_state = current_app.extensions.setdefault("hris_document_runtime_state", {})
+    backend = "postgresql" if is_postgresql_backend(current_app.config) else "sqlite"
+    cache_key = f"schema_ready:{backend}"
+    if runtime_state.get(cache_key):
+        return
+
+    if backend == "postgresql":
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS document_records(
+                id SERIAL PRIMARY KEY,
+                warehouse_id INTEGER,
+                document_title TEXT,
+                document_code TEXT UNIQUE,
+                document_type TEXT DEFAULT 'other',
+                status TEXT DEFAULT 'draft',
+                effective_date TEXT,
+                review_date TEXT,
+                owner_name TEXT,
+                note TEXT,
+                attachment_name TEXT,
+                attachment_path TEXT,
+                attachment_mime TEXT,
+                attachment_size INTEGER DEFAULT 0,
+                signature_path TEXT,
+                signed_by INTEGER,
+                signed_at TIMESTAMP,
+                handled_by INTEGER,
+                handled_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS warehouse_id INTEGER",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS document_title TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS document_code TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS document_type TEXT DEFAULT 'other'",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS effective_date TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS review_date TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS owner_name TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS note TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS attachment_name TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS attachment_path TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS attachment_mime TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS attachment_size INTEGER DEFAULT 0",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS signature_path TEXT",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS signed_by INTEGER",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS signed_at TIMESTAMP",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS handled_by INTEGER",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS handled_at TIMESTAMP",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE document_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "CREATE INDEX IF NOT EXISTS idx_document_records_main ON document_records(warehouse_id, document_type, status, effective_date)",
+        ]
+        for statement in statements:
+            db.execute(statement)
+        _ensure_postgresql_id_sequence(db, "document_records")
+    else:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_records(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                warehouse_id INTEGER,
+                document_title TEXT,
+                document_code TEXT UNIQUE,
+                document_type TEXT DEFAULT 'other',
+                status TEXT DEFAULT 'draft',
+                effective_date TEXT,
+                review_date TEXT,
+                owner_name TEXT,
+                note TEXT,
+                attachment_name TEXT,
+                attachment_path TEXT,
+                attachment_mime TEXT,
+                attachment_size INTEGER DEFAULT 0,
+                signature_path TEXT,
+                signed_by INTEGER,
+                signed_at TEXT,
+                handled_by INTEGER,
+                handled_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        sqlite_columns = {
+            "warehouse_id": "INTEGER",
+            "document_title": "TEXT",
+            "document_code": "TEXT",
+            "document_type": "TEXT DEFAULT 'other'",
+            "status": "TEXT DEFAULT 'draft'",
+            "effective_date": "TEXT",
+            "review_date": "TEXT",
+            "owner_name": "TEXT",
+            "note": "TEXT",
+            "attachment_name": "TEXT",
+            "attachment_path": "TEXT",
+            "attachment_mime": "TEXT",
+            "attachment_size": "INTEGER DEFAULT 0",
+            "signature_path": "TEXT",
+            "signed_by": "INTEGER",
+            "signed_at": "TEXT",
+            "handled_by": "INTEGER",
+            "handled_at": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        }
+        existing_columns = _get_table_columns(db, "document_records")
+        for column_name, column_definition in sqlite_columns.items():
+            if column_name not in existing_columns:
+                db.execute(
+                    f"ALTER TABLE document_records ADD COLUMN {column_name} {column_definition}"
+                )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_records_main ON document_records(warehouse_id, document_type, status, effective_date)"
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        pass
+    runtime_state[cache_key] = True
+
+
 def can_view_hris_records(module_slug=None):
     role = session.get("role")
     if module_slug:
@@ -3651,6 +3777,7 @@ def _get_announcement_by_id(db, announcement_id):
 
 
 def _get_document_by_id(db, document_id):
+    _ensure_document_records_schema(db)
     scope_warehouse = get_hris_scope()
     query = """
         SELECT
@@ -8374,6 +8501,7 @@ def _fetch_announcements(db):
 
 
 def _fetch_documents(db):
+    _ensure_document_records_schema(db)
     search = (request.args.get("q") or "").strip()
     document_type = (request.args.get("document_type") or "all").strip().lower()
     status = (request.args.get("status") or "all").strip().lower()
@@ -13978,6 +14106,7 @@ def add_document():
         return redirect("/hris/documents")
 
     db = get_db()
+    _ensure_document_records_schema(db)
     warehouse_id = _resolve_employee_warehouse(db, request.form.get("warehouse_id"))
     document_title = (request.form.get("document_title") or "").strip()
     document_code = (request.form.get("document_code") or "").strip().upper()

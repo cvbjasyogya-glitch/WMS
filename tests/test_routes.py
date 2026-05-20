@@ -28891,6 +28891,85 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(document_count, 0)
 
+    def test_add_document_repairs_legacy_document_records_schema(self):
+        self.login_hr_user()
+
+        with self.app.app_context():
+            self.app.extensions.pop("hris_document_runtime_state", None)
+            db = get_db()
+            db.execute("DROP TABLE IF EXISTS document_records")
+            db.execute(
+                """
+                CREATE TABLE document_records(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    warehouse_id INTEGER,
+                    document_title TEXT,
+                    document_code TEXT,
+                    document_type TEXT DEFAULT 'other',
+                    status TEXT DEFAULT 'draft',
+                    effective_date TEXT,
+                    review_date TEXT,
+                    owner_name TEXT,
+                    note TEXT,
+                    attachment_name TEXT,
+                    attachment_path TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            db.commit()
+
+        create_response = self.client.post(
+            "/hris/documents/add",
+            data={
+                "warehouse_id": "1",
+                "document_title": "Form Pengesahan Dokumen Legacy",
+                "document_code": "DOC-LEGACY-001",
+                "document_type": "form",
+                "status": "active",
+                "effective_date": "2026-10-05",
+                "owner_name": "HR Manager",
+                "note": "Simulasi tabel document_records versi lama.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        with self.app.app_context():
+            db = get_db()
+            columns = {
+                row["name"]
+                for row in db.execute("PRAGMA table_info(document_records)").fetchall()
+            }
+            document = db.execute(
+                """
+                SELECT attachment_mime, attachment_size, signature_path,
+                       signed_by, handled_by, updated_at
+                FROM document_records
+                WHERE document_code=?
+                """,
+                ("DOC-LEGACY-001",),
+            ).fetchone()
+
+        self.assertTrue(
+            {
+                "attachment_mime",
+                "attachment_size",
+                "signature_path",
+                "signed_by",
+                "handled_by",
+                "handled_at",
+                "updated_at",
+            }.issubset(columns)
+        )
+        self.assertIsNotNone(document)
+        self.assertIsNone(document["attachment_mime"])
+        self.assertEqual(document["attachment_size"], 0)
+        self.assertIsNone(document["signature_path"])
+        self.assertIsNone(document["signed_by"])
+        self.assertIsNotNone(document["handled_by"])
+        self.assertIsNotNone(document["updated_at"])
+
     def test_document_approval_sheet_renders_and_sign_redirects_back(self):
         self.login_hr_user()
 
