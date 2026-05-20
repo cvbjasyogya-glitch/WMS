@@ -191,6 +191,8 @@
             </table>
         </div>
 
+        <div id="requestFormFeedback" class="flash warning ops-inline-feedback" role="alert" hidden></div>
+
         <div class="split-actions stack-gap-md">
             <button id="requestSubmitButton" type="submit">Buat Request</button>
         </div>
@@ -238,11 +240,11 @@
                     {% if r.status == "pending" and r.can_approve %}
                     <div class="table-action-stack">
                         <form method="POST" action="/request/approve/{{ r.id }}">
-                            <button type="submit" class="ghost-button" onclick="return confirm('Setujui request ini?')">Setujui</button>
+                            <button type="submit" class="ghost-button" data-request-confirm-submit="Setujui request ini?">Setujui</button>
                         </form>
                         <form method="POST" action="/request/reject/{{ r.id }}" class="table-action-row">
                             <input name="reason" placeholder="Alasan penolakan" class="approval-reason-input">
-                            <button type="submit" class="danger-button" onclick="return confirm('Tolak request ini?')">Tolak</button>
+                            <button type="submit" class="danger-button" data-request-confirm-submit="Tolak request ini?">Tolak</button>
                         </form>
                     </div>
                     {% else %}
@@ -288,6 +290,7 @@ const requestSummaryQty = document.getElementById("requestSummaryQty");
 const requestSummaryRisk = document.getElementById("requestSummaryRisk");
 const requestSummaryState = document.getElementById("requestSummaryState");
 const requestSummaryHelp = document.getElementById("requestSummaryHelp");
+const requestFormFeedback = document.getElementById("requestFormFeedback");
 
 const requestDraft = {
     product_id: 0,
@@ -313,6 +316,27 @@ function escapeHtml(value) {
 
 function isCustomRequestItem(item) {
     return String(item?.item_type || "").toLowerCase() === "custom";
+}
+
+function showRequestFeedback(message, target = null) {
+    const safeMessage = String(message || "Lengkapi data request terlebih dahulu.");
+    if (requestFormFeedback) {
+        requestFormFeedback.textContent = safeMessage;
+        requestFormFeedback.hidden = false;
+    }
+    if (typeof window.showToast === "function") {
+        window.showToast(safeMessage);
+    }
+    if (target && typeof target.focus === "function") {
+        target.focus({ preventScroll: false });
+    }
+}
+
+function clearRequestFeedback() {
+    if (requestFormFeedback) {
+        requestFormFeedback.textContent = "";
+        requestFormFeedback.hidden = true;
+    }
 }
 
 function renderRequestWorkspaceSummary() {
@@ -566,18 +590,18 @@ function renderRequestQueue() {
 
 function addRequestItem() {
     if (!requestDraft.product_id || !requestDraft.variant_id) {
-        alert("Pilih barang terlebih dahulu.");
+        showRequestFeedback("Pilih barang terlebih dahulu.", requestDraftDisplay);
         return;
     }
 
     if (!requestDraftQty.value) {
         validateRequestDraft();
-        alert("Isi qty request terlebih dahulu.");
+        showRequestFeedback("Isi qty request terlebih dahulu.", requestDraftQty);
         return;
     }
 
     if (!validateRequestDraft()) {
-        alert("Qty request masih belum valid.");
+        showRequestFeedback("Qty request masih belum valid.", requestDraftQty);
         return;
     }
 
@@ -596,17 +620,18 @@ function addRequestItem() {
 
     renderRequestQueue();
     resetRequestDraft();
+    clearRequestFeedback();
 }
 
 function addCustomRequestItem() {
     if (!(requestCustomName.value || "").trim() || !requestCustomQty.value) {
         validateCustomRequestDraft();
-        alert("Isi nama barang custom dan qty request terlebih dahulu.");
+        showRequestFeedback("Isi nama barang custom dan qty request terlebih dahulu.", requestCustomName);
         return;
     }
 
     if (!validateCustomRequestDraft()) {
-        alert("Data request custom masih belum valid.");
+        showRequestFeedback("Data request custom masih belum valid.", requestCustomQty);
         return;
     }
 
@@ -623,22 +648,23 @@ function addCustomRequestItem() {
 
     renderRequestQueue();
     resetCustomRequestDraft();
+    clearRequestFeedback();
 }
 
 function handleRequestSubmit() {
     if (!renderWarehouseValidation()) {
-        alert("Gudang asal dan tujuan tidak boleh sama.");
+        showRequestFeedback("Gudang asal dan tujuan tidak boleh sama.", requestTo);
         return false;
     }
 
     if (!requestItems.length) {
-        alert("Tambahkan minimal satu item request.");
+        showRequestFeedback("Tambahkan minimal satu item request.");
         return false;
     }
 
     for (const item of requestItems) {
         if (!isCustomRequestItem(item) && Number(item.qty) > Number(item.stock || 0)) {
-            alert(`Qty request untuk ${item.sku} - ${item.name} melebihi stok gudang asal.`);
+            showRequestFeedback(`Qty request untuk ${item.sku} - ${item.name} melebihi stok gudang asal.`);
             return false;
         }
     }
@@ -687,6 +713,29 @@ requestCustomName?.addEventListener("input", validateCustomRequestDraft);
 requestCustomVariant?.addEventListener("input", validateCustomRequestDraft);
 requestCustomNote?.addEventListener("input", validateCustomRequestDraft);
 requestCustomQty?.addEventListener("input", validateCustomRequestDraft);
+
+document.addEventListener("submit", (event) => {
+    const submitter = event.submitter;
+    if (!(submitter instanceof HTMLButtonElement) || !submitter.dataset.requestConfirmSubmit) {
+        return;
+    }
+    if (submitter.dataset.requestConfirmArmed === "1") {
+        return;
+    }
+
+    event.preventDefault();
+    const originalText = submitter.dataset.requestOriginalLabel || submitter.textContent || "Konfirmasi";
+    submitter.dataset.requestOriginalLabel = originalText;
+    submitter.dataset.requestConfirmArmed = "1";
+    submitter.textContent = "Klik lagi untuk konfirmasi";
+    showRequestFeedback(submitter.dataset.requestConfirmSubmit);
+    window.setTimeout(() => {
+        if (submitter.dataset.requestConfirmArmed === "1") {
+            submitter.dataset.requestConfirmArmed = "0";
+            submitter.textContent = submitter.dataset.requestOriginalLabel || originalText;
+        }
+    }, 4000);
+});
 
 requestQueueBody.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-index]");

@@ -68,6 +68,7 @@
 
     <form method="POST" onsubmit="return handleInboundSubmit()">
         <input type="hidden" name="items_json" id="inboundItemsJson">
+        <div id="inboundFormFeedback" class="flash warning ops-inline-feedback" role="alert" hidden></div>
 
         <div class="form-grid ops-config-grid">
             <div>
@@ -204,6 +205,7 @@ const inboundItemsJson = document.getElementById("inboundItemsJson");
 const inboundSubmitButton = document.getElementById("inboundSubmitButton");
 const inboundQueueBox = document.querySelector(".ops-queue-box");
 const inboundQueueBody = document.getElementById("inboundQueueBody");
+const inboundFormFeedback = document.getElementById("inboundFormFeedback");
 const inboundDraftDisplay = document.getElementById("inboundDraftDisplay");
 const inboundDraftMeta = document.getElementById("inboundDraftMeta");
 const inboundDraftStockValue = document.getElementById("inboundDraftStockValue");
@@ -234,6 +236,35 @@ const inboundDraft = {
 };
 
 const inboundItems = [];
+
+function escapeInboundHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function showInboundFeedback(message, type = "warning", focusTarget = null) {
+    if (!inboundFormFeedback) return;
+    const tone = type === "success" ? "success" : type === "error" ? "danger" : "warning";
+    inboundFormFeedback.textContent = message;
+    inboundFormFeedback.className = `flash ${tone} ops-inline-feedback`;
+    inboundFormFeedback.hidden = false;
+    if (type !== "success") {
+        inboundFormFeedback.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (focusTarget && typeof focusTarget.focus === "function") {
+        focusTarget.focus({ preventScroll: true });
+    }
+}
+
+function clearInboundFeedback() {
+    if (!inboundFormFeedback) return;
+    inboundFormFeedback.textContent = "";
+    inboundFormFeedback.hidden = true;
+}
 
 function getLocalToday() {
     const now = new Date();
@@ -457,30 +488,43 @@ function renderInboundQueue({ scrollToLatest = false } = {}) {
         return;
     }
 
-    inboundQueueBody.innerHTML = inboundItems.map((item, index) => `
+    inboundQueueBody.innerHTML = inboundItems.map((item, index) => {
+        const sku = escapeInboundHtml(item.sku || "-");
+        const name = escapeInboundHtml(item.name || "-");
+        const variantLabel = escapeInboundHtml(item.variant_label || "Default");
+        const category = escapeInboundHtml(item.category || "-");
+        const gtin = escapeInboundHtml(item.gtin || "-");
+        const stock = Number(item.stock || 0);
+        const qty = Number(item.qty || 0);
+        const cost = Number(item.cost || 0);
+        const expiry = escapeInboundHtml(item.expiry || "-");
+        const customDate = escapeInboundHtml(item.custom_date || "-");
+        const note = escapeInboundHtml(item.note || "-");
+        return `
         <tr>
             <td class="mono">${index + 1}</td>
             <td>
-                <strong>${item.sku} - ${item.name}</strong>
-                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+                <strong>${sku} - ${name}</strong>
+                <small class="helper-text">${variantLabel} | ${category} | GTIN ${gtin}</small>
             </td>
-            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
-            <td class="mono">${item.qty}</td>
-            <td class="mono">Rp ${formatCurrency(item.cost)}</td>
-            <td class="mono">${item.expiry || "-"}</td>
-            <td class="mono">${item.custom_date || "-"}</td>
-            <td>${item.note || "-"}</td>
+            <td><span class="badge ${stock <= 0 ? "red" : stock < 5 ? "orange" : "green"}">${stock}</span></td>
+            <td class="mono">${qty}</td>
+            <td class="mono">Rp ${formatCurrency(cost)}</td>
+            <td class="mono">${expiry}</td>
+            <td class="mono">${customDate}</td>
+            <td>${note}</td>
             <td>
                 <button
                     type="button"
                     class="ghost-button ops-remove-button"
                     data-remove-index="${index}"
                     title="Hapus item ini dari batch inbound"
-                    aria-label="Hapus ${item.sku} - ${item.name} dari batch inbound"
+                    aria-label="Hapus ${sku} - ${name} dari batch inbound"
                 >Hapus</button>
             </td>
         </tr>
-    `).join("");
+        `;
+    }).join("");
     renderInboundWorkspaceSummary();
 
     if (scrollToLatest) {
@@ -489,8 +533,10 @@ function renderInboundQueue({ scrollToLatest = false } = {}) {
 }
 
 function addInboundItem() {
+    clearInboundFeedback();
+
     if (!inboundDraft.product_id || !inboundDraft.variant_id) {
-        alert("Pilih barang terlebih dahulu.");
+        showInboundFeedback("Pilih barang terlebih dahulu dari daftar item atau scan barcode.", "warning", inboundDraftDisplay);
         return;
     }
 
@@ -498,12 +544,12 @@ function addInboundItem() {
     const cost = getInboundCurrencyValue(inboundDraftCost);
 
     if (!Number.isFinite(qty) || qty <= 0) {
-        alert("Qty masuk harus lebih dari 0.");
+        showInboundFeedback("Qty masuk harus lebih dari 0.", "warning", inboundDraftQty);
         return;
     }
 
     if (!Number.isFinite(cost) || cost < 0) {
-        alert("Biaya modal tidak valid.");
+        showInboundFeedback("Biaya modal tidak valid. Isi 0 jika tidak ada biaya modal.", "warning", inboundDraftCost);
         return;
     }
 
@@ -524,12 +570,15 @@ function addInboundItem() {
     });
 
     renderInboundQueue({ scrollToLatest: true });
+    showInboundFeedback("Item masuk ke batch inbound.", "success");
     resetInboundDraft();
 }
 
 function handleInboundSubmit() {
+    clearInboundFeedback();
+
     if (!inboundItems.length) {
-        alert("Tambahkan minimal satu item inbound.");
+        showInboundFeedback("Tambahkan minimal satu item inbound sebelum disimpan.", "warning", inboundDraftDisplay);
         return false;
     }
 

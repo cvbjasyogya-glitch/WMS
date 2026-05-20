@@ -77,6 +77,45 @@ ROLE_GUIDE = [
     },
 ]
 
+HIGH_IMPACT_PERMISSIONS = {
+    "view_admin",
+    "manage_product_master",
+    "approve_requests",
+    "approve_stock_ops",
+    "direct_stock_ops",
+    "direct_transfer",
+}
+OPERATIONAL_IMPACT_PERMISSIONS = {
+    "manage_crm",
+    "manage_pos",
+    "manage_chat",
+    "manage_schedule",
+    "request_stock_ops",
+    "request_transfer",
+    "view_wms",
+    "view_pos",
+    "view_crm",
+    "view_audit",
+    "view_approvals",
+}
+
+
+def _permission_impact_payload(permission_key):
+    if permission_key in HIGH_IMPACT_PERMISSIONS:
+        return {
+            "impact_label": "Dampak tinggi",
+            "impact_help": "Mengubah data penting, approval, atau akses sistem. Beri hanya ke user yang benar-benar dipercaya.",
+        }
+    if permission_key in OPERATIONAL_IMPACT_PERMISSIONS:
+        return {
+            "impact_label": "Dampak operasional",
+            "impact_help": "Membuka aksi kerja harian atau data sensitif tim. Cocok untuk role yang memang menjalankan modul ini.",
+        }
+    return {
+        "impact_label": "Dampak ringan",
+        "impact_help": "Akses baca atau portal mandiri. Tetap cek kebutuhan user sebelum memberi akses.",
+    }
+
 NOTIFICATION_ROLE_LABELS = {
     "owner": "Owner",
     "hr": "HR",
@@ -721,6 +760,7 @@ def _build_permission_admin_context(users):
                 permission_rows.append(
                     {
                         **permission,
+                        **_permission_impact_payload(permission_key),
                         "is_role_default": is_role_default,
                         "is_granted": is_granted,
                         "is_denied": is_denied,

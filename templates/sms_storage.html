@@ -298,6 +298,30 @@
             <div id="feedback-bar" class="feedback-bar hidden"></div>
 
             <section id="home-dashboard" class="home-dashboard{% if initial_path %} hidden{% endif %}">
+                <article class="workspace-card sms-hr-shortcuts" data-sms-hr-shortcuts>
+                    <div class="sidebar-section-head">
+                        <div>
+                            <p class="section-kicker">HR Storage</p>
+                            <strong>Aksi cepat arsip</strong>
+                        </div>
+                        <span class="surface-badge">HR</span>
+                    </div>
+                    <div class="sms-quick-actions">
+                        <button type="button" class="sms-quick-action" data-sms-quick-action="today">
+                            <strong>Arsip hari ini</strong>
+                            <span>Buka file terbaru</span>
+                        </button>
+                        <button type="button" class="sms-quick-action" data-sms-quick-action="candidate">
+                            <strong>Cari kandidat</strong>
+                            <span>Filter nama kandidat</span>
+                        </button>
+                        <button type="button" class="sms-quick-action" data-sms-quick-action="txt">
+                            <strong>File TXT</strong>
+                            <span>Temukan arsip rapi</span>
+                        </button>
+                    </div>
+                </article>
+
                 <article class="workspace-card">
                     <div class="sidebar-section-head">
                         <div>
@@ -490,6 +514,29 @@
                 <div class="move-dialog-actions">
                     <button type="button" class="action-btn" id="moveDialogCancelButton">Batal</button>
                     <button type="button" class="action-btn action-btn-primary" id="moveDialogSubmitButton">Pindahkan</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="sms-action-dialog" class="preview-dialog move-dialog sms-action-dialog">
+        <form method="dialog" class="preview-shell" id="smsActionDialogForm">
+            <div class="preview-head">
+                <div>
+                    <strong id="smsActionDialogTitle">Konfirmasi Aksi</strong>
+                    <div class="preview-meta" id="smsActionDialogSummary">Periksa detail aksi sebelum dilanjutkan.</div>
+                </div>
+                <button type="button" class="preview-close" id="smsActionDialogCloseButton" aria-label="Tutup">&times;</button>
+            </div>
+            <div class="preview-body">
+                <label class="sms-action-input-wrap" id="smsActionInputWrap" for="smsActionInput" hidden>
+                    <span id="smsActionInputLabel">Nama</span>
+                    <input id="smsActionInput" type="text" autocomplete="off">
+                    <small id="smsActionInputHelper" class="preview-meta">Isi nama yang mudah dicari kembali.</small>
+                </label>
+                <div id="smsActionDialogList" class="sms-action-dialog-list"></div>
+                <div class="move-dialog-actions">
+                    <button type="button" class="action-btn" id="smsActionDialogCancelButton">Batal</button>
+                    <button type="button" class="action-btn action-btn-primary" id="smsActionDialogSubmitButton">Lanjutkan</button>
                 </div>
             </div>
         </form>

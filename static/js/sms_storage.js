@@ -119,6 +119,7 @@
     homeFolderList: document.getElementById("home-folder-list"),
     homeSharedList: document.getElementById("home-shared-list"),
     homeShortcutList: document.getElementById("home-shortcut-list"),
+    quickActionButtons: Array.from(document.querySelectorAll("[data-sms-quick-action]")),
     dropzone: document.getElementById("dropzone"),
     folderCards: document.getElementById("folder-cards"),
     fileList: document.getElementById("file-list"),
@@ -145,6 +146,18 @@
     moveDialogCloseButton: document.getElementById("moveDialogCloseButton"),
     moveDialogCancelButton: document.getElementById("moveDialogCancelButton"),
     moveDialogSubmitButton: document.getElementById("moveDialogSubmitButton"),
+    actionDialog: document.getElementById("sms-action-dialog"),
+    actionDialogForm: document.getElementById("smsActionDialogForm"),
+    actionDialogTitle: document.getElementById("smsActionDialogTitle"),
+    actionDialogSummary: document.getElementById("smsActionDialogSummary"),
+    actionInputWrap: document.getElementById("smsActionInputWrap"),
+    actionInputLabel: document.getElementById("smsActionInputLabel"),
+    actionInput: document.getElementById("smsActionInput"),
+    actionInputHelper: document.getElementById("smsActionInputHelper"),
+    actionDialogList: document.getElementById("smsActionDialogList"),
+    actionDialogCloseButton: document.getElementById("smsActionDialogCloseButton"),
+    actionDialogCancelButton: document.getElementById("smsActionDialogCancelButton"),
+    actionDialogSubmitButton: document.getElementById("smsActionDialogSubmitButton"),
     queuePanel: document.getElementById("queue-panel"),
     queueSummary: document.getElementById("queue-summary"),
     queueList: document.getElementById("queue-list"),
@@ -163,6 +176,7 @@
   };
 
   const numberFormatter = new Intl.NumberFormat("id-ID");
+  let actionDialogResolver = null;
   const dateFormatter = new Intl.DateTimeFormat("id-ID", {
     timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
     day: "2-digit",
@@ -914,6 +928,28 @@
     refreshWorkspace().catch(handleError);
   }
 
+  function applyQuickStorageAction(action) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    if (normalizedAction === "candidate") {
+      state.search = "kandidat";
+      elements.searchInput.value = state.search;
+      setSection("all");
+      showFeedback("Menampilkan arsip yang cocok dengan kata kandidat.");
+      return;
+    }
+    if (normalizedAction === "txt") {
+      state.search = ".txt";
+      elements.searchInput.value = state.search;
+      setSection("all");
+      showFeedback("Menampilkan file TXT yang mudah dibaca HR.");
+      return;
+    }
+    state.search = "";
+    elements.searchInput.value = "";
+    setSection("recent");
+    showFeedback("Menampilkan arsip terbaru untuk dicek hari ini.");
+  }
+
   function navigateTo(pathValue) {
     if (state.section === "shared" && state.sharedContext.shareId) {
       state.sharedContext.currentPath = pathValue || "";
@@ -1140,11 +1176,103 @@
     }
   }
 
+  function closeActionDialog(payload = null) {
+    const resolver = actionDialogResolver;
+    actionDialogResolver = null;
+    if (elements.actionDialog?.open) {
+      elements.actionDialog.close();
+    } else {
+      elements.actionDialog?.removeAttribute("open");
+    }
+    if (resolver) {
+      resolver(payload);
+    }
+  }
+
+  function renderActionDialogItems(items = []) {
+    if (!elements.actionDialogList) return;
+    const safeItems = Array.isArray(items) ? items : [];
+    if (!safeItems.length) {
+      elements.actionDialogList.innerHTML = "";
+      elements.actionDialogList.hidden = true;
+      return;
+    }
+    elements.actionDialogList.hidden = false;
+    elements.actionDialogList.innerHTML = safeItems.slice(0, 8).map((item) => `
+      <div class="sms-action-dialog-item">
+        <strong>${escapeHtml(item.name || item.path || "Item")}</strong>
+        <span>${escapeHtml(item.kind === "folder" ? "Folder" : item.category || "File")}</span>
+      </div>
+    `).join("") + (
+      safeItems.length > 8
+        ? `<div class="sms-action-dialog-more">+${safeItems.length - 8} item lain</div>`
+        : ""
+    );
+  }
+
+  function openActionDialog(options = {}) {
+    const dialog = elements.actionDialog;
+    if (!dialog) {
+      showFeedback("Dialog aksi belum siap. Refresh halaman lalu coba lagi.", "error");
+      return Promise.resolve(null);
+    }
+
+    const requiresInput = Boolean(options.inputLabel);
+    elements.actionDialogTitle.textContent = options.title || "Konfirmasi Aksi";
+    elements.actionDialogSummary.textContent = options.summary || "Periksa detail aksi sebelum dilanjutkan.";
+    elements.actionInputWrap.hidden = !requiresInput;
+    elements.actionInputLabel.textContent = options.inputLabel || "Nama";
+    elements.actionInput.placeholder = options.inputPlaceholder || "";
+    elements.actionInput.value = options.inputValue || "";
+    elements.actionInputHelper.textContent = options.helper || "Pastikan data sudah benar sebelum lanjut.";
+    elements.actionDialogSubmitButton.textContent = options.confirmLabel || "Lanjutkan";
+    elements.actionDialogSubmitButton.classList.toggle("action-btn-danger", Boolean(options.danger));
+    elements.actionDialogSubmitButton.classList.toggle("action-btn-primary", !options.danger);
+    renderActionDialogItems(options.items || []);
+
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "open");
+    }
+    window.requestAnimationFrame(() => {
+      if (requiresInput) {
+        elements.actionInput.focus();
+        elements.actionInput.select();
+      } else {
+        elements.actionDialogSubmitButton.focus();
+      }
+    });
+
+    return new Promise((resolve) => {
+      actionDialogResolver = resolve;
+    });
+  }
+
+  function submitActionDialog() {
+    const inputVisible = !elements.actionInputWrap.hidden;
+    const value = String(elements.actionInput.value || "").trim();
+    if (inputVisible && !value) {
+      elements.actionInput.focus();
+      elements.actionInputHelper.textContent = "Field ini wajib diisi.";
+      return;
+    }
+    closeActionDialog({ value });
+  }
+
   async function createFolder() {
     if (!canMutateCurrentLocation()) {
       throw new Error("Folder baru hanya bisa dibuat di My Drive atau folder aktif.");
     }
-    const name = window.prompt("Nama folder baru:");
+    const result = await openActionDialog({
+      title: "Folder Baru",
+      summary: `Buat folder di ${state.currentPath || "My Drive"}.`,
+      inputLabel: "Nama folder",
+      inputPlaceholder: "Contoh: Recruitment Mei",
+      helper: "Pakai nama pendek yang mudah dicari lagi.",
+      confirmLabel: "Buat Folder"
+    });
+    const name = result?.value || "";
     if (!name) return;
     await requestJson(endpoints.folder, {
       method: "POST",
@@ -1360,7 +1488,16 @@
     if (item.shortcut) {
       throw new Error("Rename target asli dilakukan dari lokasi file aslinya, bukan dari view shortcuts.");
     }
-    const newName = window.prompt("Nama baru:", item.name || "");
+    const result = await openActionDialog({
+      title: "Rename Item",
+      summary: `Ubah nama ${item.kind === "folder" ? "folder" : "file"} "${item.name || "-"}".`,
+      inputLabel: "Nama baru",
+      inputValue: item.name || "",
+      inputPlaceholder: "Nama baru",
+      helper: "Nama baru tetap memakai lokasi folder yang sama.",
+      confirmLabel: "Simpan Nama"
+    });
+    const newName = result?.value || "";
     if (!newName || newName === item.name) return;
     await requestJson(endpoints.rename, {
       method: "POST",
@@ -1378,7 +1515,13 @@
     }
 
     if (isTrashView()) {
-      const confirmed = window.confirm(`Hapus permanen ${selected.length} item dari trash?`);
+      const confirmed = await openActionDialog({
+        title: "Hapus Permanen",
+        summary: `${selected.length} item akan dihapus permanen dari trash dan tidak bisa direstore dari sistem.`,
+        items: selected,
+        confirmLabel: "Hapus Permanen",
+        danger: true
+      });
       if (!confirmed) return;
       await requestJson(endpoints.deleteTrash, {
         method: "DELETE",
@@ -1394,7 +1537,13 @@
     const shortcutOnlyItems = selected.filter((item) => item.shortcut);
     const realItems = selected.filter((item) => !item.shortcut);
     if (shortcutOnlyItems.length && !realItems.length) {
-      const confirmedShortcutDelete = window.confirm(`Hapus ${shortcutOnlyItems.length} shortcut dari daftar?`);
+      const confirmedShortcutDelete = await openActionDialog({
+        title: "Hapus Shortcut",
+        summary: `${shortcutOnlyItems.length} shortcut akan dihapus dari daftar. File asli tetap aman.`,
+        items: shortcutOnlyItems,
+        confirmLabel: "Hapus Shortcut",
+        danger: true
+      });
       if (!confirmedShortcutDelete) return;
       await requestJson(endpoints.shortcuts, {
         method: "DELETE",
@@ -1407,11 +1556,15 @@
       return;
     }
 
-    const confirmed = window.confirm(
-      shortcutOnlyItems.length
-        ? `Pindahkan ${realItems.length} item ke trash dan hapus ${shortcutOnlyItems.length} shortcut?`
-        : `Pindahkan ${realItems.length} item ke trash?`
-    );
+    const confirmed = await openActionDialog({
+      title: "Pindahkan ke Trash",
+      summary: shortcutOnlyItems.length
+        ? `${realItems.length} item akan dipindahkan ke trash dan ${shortcutOnlyItems.length} shortcut akan dihapus dari daftar.`
+        : `${realItems.length} item akan dipindahkan ke trash.`,
+      items: selected,
+      confirmLabel: "Pindahkan ke Trash",
+      danger: true
+    });
     if (!confirmed) return;
     if (shortcutOnlyItems.length) {
       await requestJson(endpoints.shortcuts, {
@@ -1453,7 +1606,12 @@
     if (!isTrashView()) {
       throw new Error("Fitur ini hanya tersedia di Trash.");
     }
-    const confirmed = window.confirm("Kosongkan seluruh isi trash?");
+    const confirmed = await openActionDialog({
+      title: "Kosongkan Trash",
+      summary: "Semua item di trash akan dihapus permanen dan tidak bisa direstore dari sistem.",
+      confirmLabel: "Kosongkan Trash",
+      danger: true
+    });
     if (!confirmed) return;
     await requestJson(endpoints.emptyTrash, { method: "POST" });
     showFeedback("Trash berhasil dikosongkan.");
@@ -1649,6 +1807,9 @@
     elements.navShortcuts.addEventListener("click", () => setSection("shortcuts"));
     elements.navAll.addEventListener("click", () => setSection("all"));
     elements.navTrash.addEventListener("click", () => setSection("trash"));
+    elements.quickActionButtons.forEach((button) => {
+      button.addEventListener("click", () => applyQuickStorageAction(button.dataset.smsQuickAction));
+    });
     elements.sidebarUpload.addEventListener("click", () => elements.fileInput.click());
     elements.uploadBtn.addEventListener("click", () => elements.fileInput.click());
     elements.folderBtn.addEventListener("click", () => createFolder().catch(handleError));
@@ -1805,6 +1966,22 @@
     elements.moveDialogCancelButton.addEventListener("click", closeMoveDialog);
     elements.moveDialogCloseButton.addEventListener("click", closeMoveDialog);
     elements.moveDialogSubmitButton.addEventListener("click", () => submitMoveSelection().catch(handleError));
+    elements.actionDialogCancelButton.addEventListener("click", () => closeActionDialog(null));
+    elements.actionDialogCloseButton.addEventListener("click", () => closeActionDialog(null));
+    elements.actionDialogSubmitButton.addEventListener("click", submitActionDialog);
+    elements.actionDialogForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitActionDialog();
+    });
+    elements.actionDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeActionDialog(null);
+    });
+    elements.actionDialog.addEventListener("close", () => {
+      if (actionDialogResolver) {
+        closeActionDialog(null);
+      }
+    });
     elements.contextOpenBtn.addEventListener("click", () => {
       const item = getContextMenuItem();
       closeContextMenu();

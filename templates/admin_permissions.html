@@ -131,7 +131,9 @@
                                         {% else %}
                                         <span class="status-pill">Opsional</span>
                                         {% endif %}
+                                        <span class="status-pill">{{ permission.impact_label }}</span>
                                     </div>
+                                    <small class="helper-text">{{ permission.impact_help }}</small>
                                     <div class="stack-gap-sm">
                                         {% if permission.is_role_default %}
                                         <label>

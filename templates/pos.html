@@ -924,6 +924,18 @@ function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+function notifyPosInline(message, target = null) {
+    const safeMessage = String(message || "Lengkapi data kasir terlebih dahulu.");
+    if (typeof window.showToast === "function") {
+        window.showToast(safeMessage);
+    } else {
+        console.warn(safeMessage);
+    }
+    if (target && typeof target.focus === "function") {
+        target.focus({ preventScroll: false });
+    }
+}
+
 function normalizePosDebitBankName(value) {
     const safeValue = String(value || "").trim().replace(/\s+/g, " ");
     if (!safeValue) {
@@ -1021,8 +1033,7 @@ function closePosDebitBankModal() {
 function applyPosDebitBankSelection(bankName) {
     const resolvedBankName = normalizePosDebitBankName(bankName || posDebitBankCustomInput?.value || "");
     if (!resolvedBankName) {
-        alert("Pilih nama bank debit dulu.");
-        posDebitBankCustomInput?.focus();
+        notifyPosInline("Pilih nama bank debit dulu.", posDebitBankCustomInput);
         return;
     }
     if (posDebitBankState.modalMode === "split") {
@@ -2442,18 +2453,18 @@ function fillPosDraftFromItem(item) {
 
 function validatePosDraft(options = {}) {
     if (!posDraft.product_id || !posDraft.variant_id) {
-        alert("Pilih barang dulu.");
+        notifyPosInline("Pilih barang dulu.", posQuickSearch || posCatalogOpenButton);
         return false;
     }
 
     const qty = Number((options.qty ?? posDraftQty?.value) || 0);
     if (qty <= 0) {
-        alert("Qty wajib lebih dari 0.");
+        notifyPosInline("Qty wajib lebih dari 0.", posDraftQty);
         return false;
     }
 
     if (!posAllowNegativeStockTemp && qty > posDraft.stock) {
-        alert(`Qty melebihi stok. Stok saat ini ${posDraft.stock}.`);
+        notifyPosInline(`Qty melebihi stok. Stok saat ini ${posDraft.stock}.`, posDraftQty);
         return false;
     }
 
@@ -2474,7 +2485,7 @@ function addPosDraftToCart(options = {}) {
     if (existing) {
         const nextQty = Number(existing.qty) + qty;
         if (!posAllowNegativeStockTemp && nextQty > posDraft.stock) {
-            alert(`Qty total melebihi stok. Maksimal ${posDraft.stock}.`);
+            notifyPosInline(`Qty total melebihi stok. Maksimal ${posDraft.stock}.`, posQuickSearch || posCatalogOpenButton);
             return;
         }
         existing.qty = nextQty;
@@ -2732,7 +2743,7 @@ function applyPosEditingSaleToCart() {
 
 function checkoutPosTransaction() {
     if (!posCart.length) {
-        alert("Keranjang masih kosong.");
+        notifyPosInline("Keranjang masih kosong.", posQuickSearch || posCatalogOpenButton);
         return;
     }
 
@@ -2747,20 +2758,20 @@ function checkoutPosTransaction() {
     const splitMethodCount = new Set(splitPayments.map((row) => row.method)).size;
     if (isSplitPayment) {
         if (splitMethodCount < 2) {
-            alert("Split transaksi minimal harus memakai 2 metode pembayaran yang berbeda.");
+            notifyPosInline("Split transaksi minimal harus memakai 2 metode pembayaran yang berbeda.", posSplitPaymentPanel);
             return;
         }
         if (Math.abs(splitTotalAmount - totals.grandTotal) > 0.009) {
             if (splitTotalAmount < totals.grandTotal) {
-                alert(`Total split pembayaran masih kurang ${formatPosCurrency(totals.grandTotal - splitTotalAmount)}.`);
+                notifyPosInline(`Total split pembayaran masih kurang ${formatPosCurrency(totals.grandTotal - splitTotalAmount)}.`, posSplitPaymentPanel);
             } else {
-                alert(`Total split pembayaran kelebihan ${formatPosCurrency(splitTotalAmount - totals.grandTotal)}.`);
+                notifyPosInline(`Total split pembayaran kelebihan ${formatPosCurrency(splitTotalAmount - totals.grandTotal)}.`, posSplitPaymentPanel);
             }
             return;
         }
         const missingDebitSplit = splitPayments.find((row) => row.method === "debit" && !normalizePosDebitBankName(row.bank_name || ""));
         if (missingDebitSplit) {
-            alert("Pilih nama bank untuk semua split debit dulu.");
+            notifyPosInline("Pilih nama bank untuk semua split debit dulu.", posSplitPaymentPanel);
             const targetRow = (posSplitPaymentState.rows || []).find((row) => row.method === "debit" && !normalizePosDebitBankName(row.bank_name || ""));
             openPosDebitBankModal({ mode: "split", rowId: targetRow?.id || 0 });
             return;
@@ -2838,7 +2849,7 @@ function checkoutPosTransaction() {
         }
         const resolvedSaleDate = String(data.sale_date || posSaleDate || "");
         if (isEditingSale) {
-            window.alert(`${data.message}\nNo. Nota: ${data.receipt_no}`);
+            notifyPosInline(`${data.message} No. Nota: ${data.receipt_no}`);
             window.location.href = buildPosRuntimeUrl(
                 `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(resolvedSaleDate)}`
             );
@@ -2858,11 +2869,10 @@ function checkoutPosTransaction() {
         } else if (waStatus === "failed") {
             waInfoLine = `Status WA nota customer: gagal (${waError || "error tidak diketahui"}).`;
         }
-        const shouldPrintReceipt = posAutoPrintAfterCheckout
-            ? true
-            : window.confirm(
-                `${data.message}\nNo. Nota: ${data.receipt_no}\n${waInfoLine}\n\nCustomer minta nota cetak sekarang?`
-            );
+        const shouldPrintReceipt = Boolean(posAutoPrintAfterCheckout);
+        if (!shouldPrintReceipt) {
+            notifyPosInline(`${data.message} No. Nota: ${data.receipt_no}. ${waInfoLine} Cetak ulang bisa dibuka dari Log Penjualan.`);
+        }
         clearPendingPosCheckout();
         clearPosCheckoutDraft();
         if (shouldPrintReceipt && data.receipt_print_url) {
@@ -2874,7 +2884,7 @@ function checkoutPosTransaction() {
         );
     })
     .catch((error) => {
-        alert(
+        notifyPosInline(
             error.message
             || (isPosEditMode() ? "Edit transaksi gagal diproses." : "Checkout gagal diproses.")
         );
@@ -2892,6 +2902,118 @@ function checkoutPosTransaction() {
     });
 }
 
+let posVoidDialogResolve = null;
+
+function ensurePosVoidDialog() {
+    let dialog = document.getElementById("posVoidDialog");
+    if (dialog) {
+        return dialog;
+    }
+
+    dialog = document.createElement("div");
+    dialog.id = "posVoidDialog";
+    dialog.className = "picker-modal";
+    dialog.hidden = true;
+    dialog.innerHTML = `
+        <div class="picker-modal-backdrop" data-pos-void-cancel></div>
+        <div class="picker-modal-panel" role="dialog" aria-modal="true" aria-labelledby="posVoidDialogTitle">
+            <div class="section-title">
+                <div>
+                    <h2 id="posVoidDialogTitle">Void Barang</h2>
+                    <p id="posVoidDialogHelp">Isi qty yang akan divoid.</p>
+                </div>
+                <button type="button" class="ghost-button" data-pos-void-cancel>Tutup</button>
+            </div>
+            <div class="form-grid">
+                <div>
+                    <label for="posVoidQtyInput">Qty Void</label>
+                    <input type="number" id="posVoidQtyInput" min="1" step="1" inputmode="numeric">
+                    <small id="posVoidQtyHelp" class="helper-text">Maksimal mengikuti qty aktif item.</small>
+                </div>
+                <div>
+                    <label for="posVoidNoteInput">Catatan</label>
+                    <input type="text" id="posVoidNoteInput" placeholder="Opsional">
+                </div>
+            </div>
+            <div id="posVoidDialogError" class="helper-text stock-empty" role="alert" hidden></div>
+            <div class="split-actions picker-pagination">
+                <button type="button" class="danger-button" data-pos-void-submit>Proses Void</button>
+                <button type="button" class="ghost-button" data-pos-void-cancel>Batal</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(dialog);
+    dialog.querySelectorAll("[data-pos-void-cancel]").forEach((button) => {
+        button.addEventListener("click", () => closePosVoidDialog(null));
+    });
+    dialog.querySelector("[data-pos-void-submit]")?.addEventListener("click", () => {
+        const qtyInput = dialog.querySelector("#posVoidQtyInput");
+        const noteInput = dialog.querySelector("#posVoidNoteInput");
+        const errorBox = dialog.querySelector("#posVoidDialogError");
+        const maxQty = Number(qtyInput?.max || 0);
+        const voidQty = Number(qtyInput?.value || 0);
+        if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
+            if (errorBox) {
+                errorBox.textContent = `Qty void tidak valid. Maksimal ${maxQty}.`;
+                errorBox.hidden = false;
+            }
+            qtyInput?.focus();
+            return;
+        }
+        closePosVoidDialog({
+            voidQty,
+            voidNote: String(noteInput?.value || ""),
+        });
+    });
+    dialog.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closePosVoidDialog(null);
+        }
+    });
+    return dialog;
+}
+
+function closePosVoidDialog(payload) {
+    const dialog = document.getElementById("posVoidDialog");
+    if (dialog) {
+        dialog.hidden = true;
+    }
+    if (posVoidDialogResolve) {
+        posVoidDialogResolve(payload);
+        posVoidDialogResolve = null;
+    }
+}
+
+function requestPosVoidDetails(maxQty) {
+    const dialog = ensurePosVoidDialog();
+    const qtyInput = dialog.querySelector("#posVoidQtyInput");
+    const noteInput = dialog.querySelector("#posVoidNoteInput");
+    const helpText = dialog.querySelector("#posVoidQtyHelp");
+    const errorBox = dialog.querySelector("#posVoidDialogError");
+    if (qtyInput) {
+        qtyInput.max = String(maxQty);
+        qtyInput.value = String(maxQty);
+    }
+    if (noteInput) {
+        noteInput.value = "";
+    }
+    if (helpText) {
+        helpText.textContent = `Maksimal ${maxQty} qty aktif.`;
+    }
+    if (errorBox) {
+        errorBox.textContent = "";
+        errorBox.hidden = true;
+    }
+    dialog.hidden = false;
+    window.requestAnimationFrame(() => {
+        qtyInput?.focus();
+        qtyInput?.select();
+    });
+    return new Promise((resolve) => {
+        posVoidDialogResolve = resolve;
+    });
+}
+
 async function submitPosVoidRequest(button) {
     if (!(button instanceof HTMLButtonElement)) {
         return;
@@ -2903,18 +3025,12 @@ async function submitPosVoidRequest(button) {
         return;
     }
 
-    const requestedQty = window.prompt(`Void berapa qty? Maksimal ${maxQty}.`, String(maxQty));
-    if (requestedQty === null) {
+    const voidDetails = await requestPosVoidDetails(maxQty);
+    if (!voidDetails) {
         return;
     }
 
-    const voidQty = Number(requestedQty);
-    if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
-        window.alert(`Qty void tidak valid. Maksimal ${maxQty}.`);
-        return;
-    }
-
-    const voidNote = window.prompt("Catatan void opsional", "") ?? "";
+    const { voidQty, voidNote } = voidDetails;
     const originalText = button.textContent;
     button.disabled = true;
     button.textContent = "Memproses...";
@@ -2938,7 +3054,7 @@ async function submitPosVoidRequest(button) {
         if (typeof window.showToast === "function") {
             window.showToast(data.message || "Void item berhasil diproses.");
         } else {
-            window.alert(data.message || "Void item berhasil diproses.");
+            notifyPosInline(data.message || "Void item berhasil diproses.");
         }
         const nextActiveQty = Number(data.active_qty || 0);
         if (nextActiveQty <= 0) {
@@ -2949,7 +3065,7 @@ async function submitPosVoidRequest(button) {
             button.dataset.posVoidableQty = String(nextActiveQty);
         }
     } catch (error) {
-        window.alert(error.message || "Void item gagal diproses.");
+        notifyPosInline(error.message || "Void item gagal diproses.");
     } finally {
         if (Number(button.dataset.posVoidableQty || 0) > 0) {
             button.disabled = false;

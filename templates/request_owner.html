@@ -156,6 +156,8 @@
             </table>
         </div>
 
+        <div id="ownerRequestFormFeedback" class="flash warning ops-inline-feedback" role="alert" hidden></div>
+
         <div class="split-actions stack-gap-md">
             <button id="ownerRequestSubmitButton" type="submit">Kirim ke Owner</button>
         </div>
@@ -187,34 +189,45 @@
         </thead>
         <tbody>
             {% for r in requests %}
-            <tr>
+            <tr data-owner-request-row="{{ r.id }}">
                 <td class="mono">#{{ r.id }}</td>
                 <td>{{ r.product_name }}</td>
                 <td>{{ r.variant }}</td>
                 <td>{{ r.warehouse_name }}</td>
                 <td class="mono">{{ r.qty }}</td>
                 <td>{{ r.note or '-' }}</td>
-                <td><span class="badge {{ 'orange' if r.status == 'in_progress' else 'green' if r.status == 'done' else 'red' if r.status == 'rejected' else '' }}">{{ r.status }}</span></td>
+                <td data-owner-request-status-cell="{{ r.id }}">
+                    {% set owner_status_label = 'Diproses' if r.status == 'in_progress' else 'Selesai' if r.status == 'done' else 'Ditolak' if r.status == 'rejected' else 'Diajukan' %}
+                    <div class="ops-status-stack" data-owner-request-timeline data-owner-request-current="{{ r.status }}">
+                        <span data-owner-request-badge class="badge {{ 'orange' if r.status == 'in_progress' else 'green' if r.status == 'done' else 'red' if r.status == 'rejected' else '' }}">{{ owner_status_label }}</span>
+                        <div class="ops-status-flow" aria-label="Timeline request owner">
+                            <span data-owner-request-step="pending" class="ops-status-step {{ 'is-done' if r.status in ['pending', 'in_progress', 'done'] else '' }} {{ 'is-active' if r.status == 'pending' else '' }}">Diajukan</span>
+                            <span data-owner-request-step="in_progress" class="ops-status-step {{ 'is-done' if r.status in ['in_progress', 'done'] else '' }} {{ 'is-active' if r.status == 'in_progress' else '' }}">Diproses</span>
+                            <span data-owner-request-step="done" class="ops-status-step {{ 'is-done' if r.status == 'done' else '' }} {{ 'is-active' if r.status == 'done' else '' }}">Selesai</span>
+                            <span data-owner-request-step="rejected" class="ops-status-step {{ 'is-danger is-active' if r.status == 'rejected' else '' }}">Ditolak</span>
+                        </div>
+                    </div>
+                </td>
                 <td>{{ r.requester_name or '-' }}</td>
-                <td>
+                <td data-owner-request-actions-cell="{{ r.id }}">
                     {% if can_manage_owner_request and r.status == 'pending' %}
                     <div class="split-actions">
-                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                        <form method="POST" action="/request/owner/update/{{ r.id }}" data-owner-request-status-form>
                             <input type="hidden" name="status" value="in_progress">
                             <button type="submit" class="ghost-button">Proses</button>
                         </form>
-                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                        <form method="POST" action="/request/owner/update/{{ r.id }}" data-owner-request-status-form>
                             <input type="hidden" name="status" value="done">
                             <button type="submit">Selesai</button>
                         </form>
                     </div>
                     {% elif can_manage_owner_request and r.status == 'in_progress' %}
                     <div class="split-actions">
-                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                        <form method="POST" action="/request/owner/update/{{ r.id }}" data-owner-request-status-form>
                             <input type="hidden" name="status" value="done">
                             <button type="submit">Selesai</button>
                         </form>
-                        <form method="POST" action="/request/owner/update/{{ r.id }}">
+                        <form method="POST" action="/request/owner/update/{{ r.id }}" data-owner-request-status-form>
                             <input type="hidden" name="status" value="rejected">
                             <button type="submit" class="ghost-button">Tolak</button>
                         </form>
@@ -256,6 +269,20 @@ const ownerRequestSummaryQty = document.getElementById("ownerRequestSummaryQty")
 const ownerRequestSummaryRisk = document.getElementById("ownerRequestSummaryRisk");
 const ownerRequestSummaryState = document.getElementById("ownerRequestSummaryState");
 const ownerRequestSummaryHelp = document.getElementById("ownerRequestSummaryHelp");
+const ownerRequestFormFeedback = document.getElementById("ownerRequestFormFeedback");
+const ownerRequestCanManage = {{ can_manage_owner_request|tojson }};
+const ownerRequestStatusLabels = {
+    pending: "Diajukan",
+    in_progress: "Diproses",
+    done: "Selesai",
+    rejected: "Ditolak",
+};
+const ownerRequestBadgeClasses = {
+    pending: "",
+    in_progress: "orange",
+    done: "green",
+    rejected: "red",
+};
 
 const ownerRequestDraft = {
     product_id: 0,
@@ -277,6 +304,27 @@ function escapeOwnerRequestHtml(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+}
+
+function showOwnerRequestFeedback(message, target = null) {
+    const safeMessage = String(message || "Lengkapi data request owner terlebih dahulu.");
+    if (ownerRequestFormFeedback) {
+        ownerRequestFormFeedback.textContent = safeMessage;
+        ownerRequestFormFeedback.hidden = false;
+    }
+    if (typeof window.showToast === "function") {
+        window.showToast(safeMessage);
+    }
+    if (target && typeof target.focus === "function") {
+        target.focus({ preventScroll: false });
+    }
+}
+
+function clearOwnerRequestFeedback() {
+    if (ownerRequestFormFeedback) {
+        ownerRequestFormFeedback.textContent = "";
+        ownerRequestFormFeedback.hidden = true;
+    }
 }
 
 function hasOwnerRequestDraftSelection() {
@@ -461,12 +509,12 @@ function addOwnerRequestItem(options = {}) {
     const silent = Boolean(options.silent);
 
     if (!hasOwnerRequestDraftSelection()) {
-        if (!silent) alert("Pilih barang terlebih dahulu.");
+        if (!silent) showOwnerRequestFeedback("Pilih barang terlebih dahulu.", ownerRequestDraftDisplay);
         return false;
     }
 
     if (!validateOwnerRequestDraft(true)) {
-        if (!silent) alert("Isi qty request owner lebih dari 0.");
+        if (!silent) showOwnerRequestFeedback("Isi qty request owner lebih dari 0.", ownerRequestDraftQty);
         return false;
     }
 
@@ -485,25 +533,26 @@ function addOwnerRequestItem(options = {}) {
 
     renderOwnerRequestQueue();
     resetOwnerRequestDraft();
+    clearOwnerRequestFeedback();
     return true;
 }
 
 function handleOwnerRequestSubmit() {
     if (hasOwnerRequestDraftSelection() && ownerRequestDraftQty.value) {
         if (!addOwnerRequestItem({ silent: true })) {
-            alert("Qty request owner masih belum valid.");
+            showOwnerRequestFeedback("Qty request owner masih belum valid.", ownerRequestDraftQty);
             return false;
         }
     }
 
     if (!ownerRequestItems.length && hasOwnerRequestDraftSelection()) {
-        alert("Isi qty request owner lebih dari 0 sebelum dikirim.");
+        showOwnerRequestFeedback("Isi qty request owner lebih dari 0 sebelum dikirim.", ownerRequestDraftQty);
         validateOwnerRequestDraft(true);
         return false;
     }
 
     if (!ownerRequestItems.length) {
-        alert("Tambahkan minimal satu item request ke owner.");
+        showOwnerRequestFeedback("Tambahkan minimal satu item request ke owner.");
         return false;
     }
 
@@ -558,9 +607,118 @@ ownerRequestWarehouse?.addEventListener("change", async () => {
     renderOwnerRequestWorkspaceSummary();
 });
 
+function updateOwnerRequestTimeline(requestId, status) {
+    const statusCell = document.querySelector(`[data-owner-request-status-cell="${requestId}"]`);
+    if (!statusCell) return;
+
+    const badge = statusCell.querySelector("[data-owner-request-badge]");
+    if (badge) {
+        badge.textContent = ownerRequestStatusLabels[status] || status;
+        badge.className = `badge ${ownerRequestBadgeClasses[status] || ""}`.trim();
+    }
+
+    const timeline = statusCell.querySelector("[data-owner-request-timeline]");
+    if (timeline) {
+        timeline.dataset.ownerRequestCurrent = status;
+    }
+
+    const doneSteps = new Set(status === "done"
+        ? ["pending", "in_progress", "done"]
+        : status === "in_progress"
+            ? ["pending", "in_progress"]
+            : status === "pending"
+                ? ["pending"]
+                : []);
+
+    statusCell.querySelectorAll("[data-owner-request-step]").forEach((step) => {
+        const stepName = step.dataset.ownerRequestStep || "";
+        step.classList.toggle("is-done", doneSteps.has(stepName));
+        step.classList.toggle("is-active", stepName === status);
+        step.classList.toggle("is-danger", status === "rejected" && stepName === "rejected");
+    });
+}
+
+function buildOwnerRequestStatusForm(requestId, status, label, buttonClass = "") {
+    return `
+        <form method="POST" action="/request/owner/update/${Number(requestId)}" data-owner-request-status-form>
+            <input type="hidden" name="status" value="${status}">
+            <button type="submit" class="${buttonClass}">${label}</button>
+        </form>
+    `;
+}
+
+function updateOwnerRequestActions(requestId, status, handlerName) {
+    const actionsCell = document.querySelector(`[data-owner-request-actions-cell="${requestId}"]`);
+    if (!actionsCell || !ownerRequestCanManage) return;
+
+    if (status === "pending") {
+        actionsCell.innerHTML = `
+            <div class="split-actions">
+                ${buildOwnerRequestStatusForm(requestId, "in_progress", "Proses", "ghost-button")}
+                ${buildOwnerRequestStatusForm(requestId, "done", "Selesai")}
+            </div>
+        `;
+    } else if (status === "in_progress") {
+        actionsCell.innerHTML = `
+            <div class="split-actions">
+                ${buildOwnerRequestStatusForm(requestId, "done", "Selesai")}
+                ${buildOwnerRequestStatusForm(requestId, "rejected", "Tolak", "ghost-button")}
+            </div>
+        `;
+    } else {
+        actionsCell.innerHTML = `<span class="mono">${escapeOwnerRequestHtml(handlerName || "-")}</span>`;
+    }
+
+    bindOwnerRequestStatusForms(actionsCell);
+}
+
+function bindOwnerRequestStatusForms(root = document) {
+    root.querySelectorAll("[data-owner-request-status-form]").forEach((form) => {
+        if (form.dataset.ajaxBound === "1") return;
+        form.dataset.ajaxBound = "1";
+        form.addEventListener("submit", async (event) => {
+            if (!window.fetch) return;
+            event.preventDefault();
+
+            const button = form.querySelector("button[type='submit']");
+            const originalText = button ? button.textContent : "";
+            if (button) {
+                button.disabled = true;
+                button.textContent = "Menyimpan...";
+            }
+
+            try {
+                const response = await fetch(form.action, {
+                    method: "POST",
+                    body: new FormData(form),
+                    headers: {"X-Requested-With": "XMLHttpRequest"},
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || payload.status !== "success") {
+                    throw new Error(payload.message || "Gagal mengubah status request owner.");
+                }
+
+                const updatedRequest = payload.request || {};
+                updateOwnerRequestTimeline(updatedRequest.id, updatedRequest.status);
+                updateOwnerRequestActions(updatedRequest.id, updatedRequest.status, updatedRequest.handler_name);
+                if (window.showToast) {
+                    window.showToast(payload.message || "Status request owner diperbarui.", "success");
+                }
+            } catch (error) {
+                showOwnerRequestFeedback(error.message || "Gagal mengubah status request owner.");
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+        });
+    });
+}
+
 resetOwnerRequestDraft();
 renderOwnerRequestQueue();
 renderOwnerRequestWorkspaceSummary();
+bindOwnerRequestStatusForms();
 </script>
 {% endblock %}
 

@@ -1,6 +1,6 @@
 import json
 
-from flask import Blueprint, render_template, request, redirect, flash, session
+from flask import Blueprint, render_template, request, redirect, flash, session, jsonify
 from database import get_db
 from services.request_service import approve_request
 from services.event_notification_policy import get_event_notification_policy
@@ -388,6 +388,24 @@ def _get_locked_request_direction(db):
 
 def can_manage_owner_request():
     return session.get("role") in {"owner", "super_admin"}
+
+
+def _request_wants_json():
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+def _owner_request_response(ok, message, *, status_code=200, flash_category="success", payload=None):
+    if _request_wants_json():
+        response_payload = {
+            "status": "success" if ok else "error",
+            "message": message,
+        }
+        if payload:
+            response_payload.update(payload)
+        return jsonify(response_payload), status_code
+
+    flash(message, flash_category)
+    return redirect("/request/owner")
 
 
 def get_owner_request_scope():
@@ -841,8 +859,7 @@ def request_owner_barang():
 def update_owner_request(id):
 
     if not can_manage_owner_request():
-        flash("Tidak punya akses", "error")
-        return redirect("/request/owner")
+        return _owner_request_response(False, "Tidak punya akses", status_code=403, flash_category="error")
 
     status = (request.form.get("status") or "").strip().lower()
     allowed_statuses = {
@@ -852,8 +869,7 @@ def update_owner_request(id):
     }
 
     if status not in allowed_statuses:
-        flash("Status tidak valid", "error")
-        return redirect("/request/owner")
+        return _owner_request_response(False, "Status tidak valid", status_code=400, flash_category="error")
 
     db = get_db()
     owner_request = db.execute("""
@@ -863,8 +879,7 @@ def update_owner_request(id):
     """, (id,)).fetchone()
 
     if not owner_request:
-        flash("Request owner tidak ditemukan", "error")
-        return redirect("/request/owner")
+        return _owner_request_response(False, "Request owner tidak ditemukan", status_code=404, flash_category="error")
 
     try:
         db.execute("""
@@ -894,13 +909,22 @@ def update_owner_request(id):
         except Exception as exc:
             print("OWNER REQUEST USER NOTIFY ERROR:", exc)
 
-        flash(f"Request owner berhasil diubah menjadi {allowed_statuses[status]}", "success")
+        return _owner_request_response(
+            True,
+            f"Request owner berhasil diubah menjadi {allowed_statuses[status]}",
+            payload={
+                "request": {
+                    "id": id,
+                    "status": status,
+                    "status_label": allowed_statuses[status],
+                    "handler_name": session.get("username") or "-",
+                },
+            },
+        )
     except Exception as exc:
         db.rollback()
         print("OWNER REQUEST UPDATE ERROR:", exc)
-        flash("Gagal mengubah status request owner", "error")
-
-    return redirect("/request/owner")
+        return _owner_request_response(False, "Gagal mengubah status request owner", status_code=500, flash_category="error")
 
 
 # ==========================

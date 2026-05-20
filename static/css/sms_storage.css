@@ -803,6 +803,50 @@ input::placeholder {
   gap: 10px;
 }
 
+.sms-hr-shortcuts {
+  align-content: start;
+}
+
+.sms-quick-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.sms-quick-action {
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.98);
+  padding: 14px 16px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  color: var(--ink);
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.sms-quick-action:hover {
+  border-color: rgba(11, 87, 208, 0.24);
+  background: rgba(232, 240, 254, 0.92);
+  transform: translateY(-1px);
+}
+
+.sms-quick-action strong,
+.sms-quick-action span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sms-quick-action span {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
 .home-item-btn {
   width: 100%;
   border: 1px solid var(--line);
@@ -1298,6 +1342,65 @@ input::placeholder {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.sms-action-dialog {
+  width: min(560px, calc(100vw - 28px));
+}
+
+.sms-action-input-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.sms-action-input-wrap span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.sms-action-input-wrap input {
+  min-height: 46px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0 14px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.sms-action-dialog-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.sms-action-dialog-list[hidden] {
+  display: none;
+}
+
+.sms-action-dialog-item,
+.sms-action-dialog-more {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+}
+
+.sms-action-dialog-item strong,
+.sms-action-dialog-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sms-action-dialog-item span,
+.sms-action-dialog-more {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
 }
 
 @media (max-width: 1120px) {

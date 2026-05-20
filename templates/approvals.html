@@ -32,6 +32,12 @@
             <p>Review dan setujui atau tolak permintaan yang masuk.</p>
         </div>
     </div>
+    <div class="ops-status-flow approval-status-flow" data-approval-timeline aria-label="Alur approval">
+        <span class="ops-status-step is-done">Diajukan</span>
+        <span class="ops-status-step is-active">Review</span>
+        <span class="ops-status-step">Setujui / Tolak</span>
+        <span class="ops-status-step">Notifikasi requester</span>
+    </div>
 
     {% if approvals %}
     <table class="approval-queue-table">

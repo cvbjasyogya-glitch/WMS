@@ -990,6 +990,15 @@
         });
     }
 
+    function notifyScheduleAction(message) {
+        if (!message) {
+            return;
+        }
+        if (typeof window.showToast === "function") {
+            window.showToast(message);
+        }
+    }
+
     function openScheduleEntryEditor(source) {
         if (!scheduleEntryForm || !source) {
             return;
@@ -1058,14 +1067,12 @@
             return;
         }
         const label = `${source.dataset.scheduleEmployeeName || "Staf"} - ${source.dataset.scheduleDayLabel || ""}`.trim();
-        if (!window.confirm(`Override jadwal ${label} ke ${shiftLabel}?`)) {
-            return;
-        }
         setFormValue(scheduleEntryQuickOverrideForm, "employee_id", source.dataset.scheduleEmployeeId || "");
         setFormValue(scheduleEntryQuickOverrideForm, "shift_code", shiftCode);
         setFormValue(scheduleEntryQuickOverrideForm, "entry_start_date", source.dataset.scheduleDate || "");
         setFormValue(scheduleEntryQuickOverrideForm, "entry_end_date", source.dataset.scheduleDate || "");
         setFormValue(scheduleEntryQuickOverrideForm, "note", buildQuickOverrideNote(source, shiftLabel));
+        notifyScheduleAction(`Override ${label || "jadwal"} ke ${shiftLabel} diproses.`);
         scheduleEntryQuickOverrideForm.requestSubmit
             ? scheduleEntryQuickOverrideForm.requestSubmit()
             : scheduleEntryQuickOverrideForm.submit();

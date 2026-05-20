@@ -68,6 +68,7 @@
 
     <form method="POST" onsubmit="return handleOutboundSubmit()">
         <input type="hidden" name="items_json" id="outboundItemsJson">
+        <div id="outboundFormFeedback" class="flash warning ops-inline-feedback" role="alert" hidden></div>
 
         <div class="form-grid ops-config-grid">
             <div>
@@ -185,6 +186,7 @@ const outboundWarehouse = document.getElementById("warehouse");
 const outboundItemsJson = document.getElementById("outboundItemsJson");
 const outboundSubmitButton = document.getElementById("outboundSubmitButton");
 const outboundQueueBody = document.getElementById("outboundQueueBody");
+const outboundFormFeedback = document.getElementById("outboundFormFeedback");
 const outboundDraftDisplay = document.getElementById("outboundDraftDisplay");
 const outboundDraftMeta = document.getElementById("outboundDraftMeta");
 const outboundDraftStockValue = document.getElementById("outboundDraftStockValue");
@@ -213,6 +215,35 @@ const outboundDraft = {
 };
 
 const outboundItems = [];
+
+function escapeOutboundHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function showOutboundFeedback(message, type = "warning", focusTarget = null) {
+    if (!outboundFormFeedback) return;
+    const tone = type === "success" ? "success" : type === "error" ? "danger" : "warning";
+    outboundFormFeedback.textContent = message;
+    outboundFormFeedback.className = `flash ${tone} ops-inline-feedback`;
+    outboundFormFeedback.hidden = false;
+    if (type !== "success") {
+        outboundFormFeedback.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (focusTarget && typeof focusTarget.focus === "function") {
+        focusTarget.focus({ preventScroll: true });
+    }
+}
+
+function clearOutboundFeedback() {
+    if (!outboundFormFeedback) return;
+    outboundFormFeedback.textContent = "";
+    outboundFormFeedback.hidden = true;
+}
 
 function renderOutboundWorkspaceSummary() {
     const count = outboundItems.length;
@@ -420,35 +451,47 @@ function renderOutboundQueue() {
         return;
     }
 
-    outboundQueueBody.innerHTML = outboundItems.map((item, index) => `
+    outboundQueueBody.innerHTML = outboundItems.map((item, index) => {
+        const sku = escapeOutboundHtml(item.sku || "-");
+        const name = escapeOutboundHtml(item.name || "-");
+        const variantLabel = escapeOutboundHtml(item.variant_label || "Default");
+        const category = escapeOutboundHtml(item.category || "-");
+        const gtin = escapeOutboundHtml(item.gtin || "-");
+        const note = escapeOutboundHtml(item.note || "-");
+        const stock = Number(item.stock || 0);
+        const qty = Number(item.qty || 0);
+        return `
         <tr>
             <td class="mono">${index + 1}</td>
             <td>
-                <strong>${item.sku} - ${item.name}</strong>
-                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
+                <strong>${sku} - ${name}</strong>
+                <small class="helper-text">${variantLabel} | ${category} | GTIN ${gtin}</small>
             </td>
-            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
+            <td><span class="badge ${stock <= 0 ? "red" : stock < 5 ? "orange" : "green"}">${stock}</span></td>
             <td>
-                <span class="mono">${item.qty}</span>
-                ${item.qty > item.stock ? '<small class="helper-text stock-empty">Qty melebihi stok saat ini.</small>' : ''}
+                <span class="mono">${qty}</span>
+                ${qty > stock ? '<small class="helper-text stock-empty">Qty melebihi stok saat ini.</small>' : ''}
             </td>
-            <td>${item.note || "-"}</td>
+            <td>${note}</td>
             <td>
                 <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
             </td>
         </tr>
-    `).join("");
+        `;
+    }).join("");
     renderOutboundWorkspaceSummary();
 }
 
 function addOutboundItem() {
+    clearOutboundFeedback();
+
     if (!outboundDraft.product_id || !outboundDraft.variant_id) {
-        alert("Pilih barang terlebih dahulu.");
+        showOutboundFeedback("Pilih barang terlebih dahulu dari daftar item atau scan barcode.", "warning", outboundDraftDisplay);
         return;
     }
 
     if (!validateOutboundDraft()) {
-        alert("Qty keluar masih belum valid.");
+        showOutboundFeedback("Qty keluar masih belum valid. Cek stok tersedia dan jumlah keluar.", "warning", outboundDraftQty);
         return;
     }
 
@@ -466,18 +509,24 @@ function addOutboundItem() {
     });
 
     renderOutboundQueue();
+    showOutboundFeedback("Item masuk ke batch outbound.", "success");
     resetOutboundDraft();
 }
 
 function handleOutboundSubmit() {
+    clearOutboundFeedback();
+
     if (!outboundItems.length) {
-        alert("Tambahkan minimal satu item outbound.");
+        showOutboundFeedback("Tambahkan minimal satu item outbound sebelum disimpan.", "warning", outboundDraftDisplay);
         return false;
     }
 
     for (const item of outboundItems) {
         if (Number(item.qty) > Number(item.stock || 0)) {
-            alert(`Qty keluar untuk ${item.sku} - ${item.name} melebihi stok tersedia.`);
+            showOutboundFeedback(
+                `Qty keluar untuk ${item.sku || "-"} - ${item.name || "-"} melebihi stok tersedia.`,
+                "warning"
+            );
             return false;
         }
     }

@@ -1563,6 +1563,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn('<span class="pos-ipos-kicker">Produk Pilihan</span>', html)
         self.assertNotIn('<button type="button" class="pos-vintage-button is-primary" id="posAddItemButton">Tambah Item</button>', html)
         self.assertIn("function addPosItemDirectToCart(item, options = {})", html)
+        self.assertIn("function notifyPosInline(message, target = null)", html)
+        self.assertIn('dialog.id = "posVoidDialog";', html)
         self.assertIn("Barang yang dipilih dari quick search atau daftar item akan langsung masuk ke keranjang.", html)
 
     def test_pos_page_exposes_temp_negative_stock_toggle_in_js(self):
@@ -6030,6 +6032,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Kirim Ulang Nota WA", log_html)
         self.assertIn(f'data-sale-id="{sale_id}"', log_html)
         self.assertIn(f'data-receipt-no="{checkout_payload["receipt_no"]}"', log_html)
+        self.assertIn("function appendPosSalesContextDateForm", log_html)
+        self.assertIn("function requestPosSalesVoidDetails(maxQty)", log_html)
+        self.assertNotIn("function promptPosSaleDateUpdate", log_html)
 
         with patch(
             "routes.pos.send_whatsapp_document",
@@ -7840,6 +7845,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-sidebar-group="wms" open', html)
         self.assertIn('data-sidebar-subgroup="request" open', html)
         self.assertIn('href="/request/owner" class="active"', html)
+        self.assertIn('id="ownerRequestFormFeedback"', html)
+        self.assertIn('function showOwnerRequestFeedback(message, target = null)', html)
 
     def test_hr_role_hides_wms_sidebar_group(self):
         self.login_hr_user("hr_nav_only", "pass1234")
@@ -13782,6 +13789,12 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-schedule-override-shift-code="TS"', html)
         self.assertIn('data-schedule-source="leave"', html)
         self.assertIn('data-schedule-shift-code="OFF"', html)
+        quick_override_script = html[
+            html.index("function submitScheduleQuickOverride"):
+            html.index("function submitScheduleLiveDelete")
+        ]
+        self.assertIn("notifyScheduleAction", quick_override_script)
+        self.assertNotIn("window.confirm", quick_override_script)
 
         override_response = self.client.post(
             "/schedule/entry/save",
@@ -17686,8 +17699,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Shortcuts", html)
         self.assertIn("Trash", html)
         self.assertIn("Akses Cepat", html)
+        self.assertIn("HR Storage", html)
+        self.assertIn("Arsip hari ini", html)
+        self.assertIn("Cari kandidat", html)
+        self.assertIn("File TXT", html)
+        self.assertIn('data-sms-quick-action="candidate"', html)
+        self.assertIn('id="sms-action-dialog"', html)
         self.assertIn("500 MB", html)
         self.assertIn("window.SMS_STORAGE_BOOTSTRAP", html)
+        sms_js = (Path(__file__).resolve().parents[1] / "static" / "js" / "sms_storage.js").read_text(encoding="utf-8")
+        self.assertIn("function openActionDialog(options = {})", sms_js)
+        self.assertNotIn("window.prompt", sms_js)
+        self.assertNotIn("window.confirm", sms_js)
 
     def test_sms_storage_upload_enforces_total_per_user_quota(self):
         self.login_pos_user("sms_quota_user", role="super_admin")
@@ -30043,6 +30066,23 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(stock_rows[0]["qty"], 8)
         self.assertEqual(stock_rows[1]["qty"], 7)
 
+    def test_inbound_and_outbound_pages_use_inline_feedback_without_browser_alerts(self):
+        self.login()
+
+        for path, feedback_id, helper_name, escape_name in [
+            ("/inbound/", 'id="inboundFormFeedback"', "function showInboundFeedback", "function escapeInboundHtml"),
+            ("/outbound/", 'id="outboundFormFeedback"', "function showOutboundFeedback", "function escapeOutboundHtml"),
+        ]:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertIn(feedback_id, html)
+                self.assertIn(helper_name, html)
+                self.assertIn(escape_name, html)
+                self.assertNotIn("alert(", html)
+                self.assertNotIn("window.alert", html)
+
     def test_inbound_request_triggers_role_based_whatsapp_notification(self):
         self.create_user("admin_inbound_wa", "pass1234", "admin", warehouse_id=1)
         self.login("admin_inbound_wa", "pass1234")
@@ -30358,6 +30398,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('id="requestCustomVariant"', html)
         self.assertIn('id="requestCustomNote"', html)
         self.assertIn('id="requestCustomQty"', html)
+        self.assertIn('id="requestFormFeedback"', html)
+        self.assertIn('data-request-confirm-submit="Setujui request ini?"', html)
+        self.assertIn('function showRequestFeedback(message, target = null)', html)
         self.assertIn("Custom Non-WMS", html)
         self.assertIn("Raket Trial Display", html)
         self.assertIn("Masih menunggu master WMS", html)
@@ -30641,7 +30684,7 @@ class WmsRoutesTestCase(unittest.TestCase):
             db = get_db()
             request_rows = db.execute(
                 """
-                SELECT variant_id, warehouse_id, qty, note, status
+                SELECT id, variant_id, warehouse_id, qty, note, status
                 FROM owner_requests
                 WHERE product_id=?
                 ORDER BY variant_id
@@ -30668,6 +30711,37 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(notifications), 1)
         self.assertEqual(notifications[0]["role"], "owner")
         self.assertEqual(notifications[0]["recipient"], "owner_notify@example.com")
+
+        self.logout()
+        self.login("owner_notify", "pass1234")
+
+        owner_queue_page = self.client.get("/request/owner")
+        self.assertEqual(owner_queue_page.status_code, 200)
+        owner_queue_html = owner_queue_page.get_data(as_text=True)
+        self.assertIn("data-owner-request-timeline", owner_queue_html)
+        self.assertIn("data-owner-request-status-form", owner_queue_html)
+        self.assertIn("ownerRequestStatusLabels", owner_queue_html)
+        self.assertIn("Diajukan", owner_queue_html)
+
+        ajax_response = self.client.post(
+            f"/request/owner/update/{request_rows[0]['id']}",
+            data={"status": "in_progress"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+        self.assertEqual(ajax_response.status_code, 200)
+        ajax_payload = ajax_response.get_json()
+        self.assertEqual(ajax_payload["status"], "success")
+        self.assertEqual(ajax_payload["request"]["status"], "in_progress")
+        self.assertEqual(ajax_payload["request"]["status_label"], "Diproses")
+
+        with self.app.app_context():
+            db = get_db()
+            updated_status = db.execute(
+                "SELECT status FROM owner_requests WHERE id=?",
+                (request_rows[0]["id"],),
+            ).fetchone()["status"]
+        self.assertEqual(updated_status, "in_progress")
 
     def test_bulk_delete_product_cleans_related_wms_records(self):
         self.create_user("leader_product_delete", "pass1234", "leader", warehouse_id=1)
@@ -31253,6 +31327,20 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(len(request_rows), 2)
         self.assertEqual(request_rows[0]["status"], "approved")
         self.assertEqual(request_rows[1]["status"], "approved")
+
+    def test_transfer_page_uses_inline_feedback_without_browser_alerts(self):
+        self.login()
+
+        response = self.client.get("/transfers/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn('id="transferFormFeedback"', html)
+        self.assertIn("function showTransferFeedback", html)
+        self.assertIn("function escapeTransferHtml", html)
+        self.assertIn("Pilih barang terlebih dahulu dari daftar item atau scan barcode.", html)
+        self.assertNotIn("alert(", html)
+        self.assertNotIn("window.alert", html)
 
     def test_request_approval_updates_stock(self):
         self.create_user("leader_request", "pass1234", "leader", warehouse_id=2)
@@ -32065,6 +32153,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("approval-queue-table-box", html)
         self.assertIn("approval-queue-action-col", html)
         self.assertIn("approval-reason-input", html)
+        self.assertIn("data-approval-timeline", html)
+        self.assertIn("Notifikasi requester", html)
         self.assertIn("Setujui", html)
         self.assertIn("Tolak", html)
 
@@ -32309,6 +32399,47 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         self.assertIn('if (data.status === "pending") {', html)
         self.assertIn('notifyStockMessage(data.message || "Permintaan adjust stok berhasil dikirim.");', html)
+
+    def test_stock_bulk_adjust_uses_internal_qty_modal(self):
+        self.login()
+
+        response = self.client.get("/stock/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn('id="stockBulkAdjustModal"', html)
+        self.assertIn("function openStockBulkAdjustModal(selectedCount)", html)
+        self.assertIn("async function bulkAdjust()", html)
+
+        bulk_start = html.index("async function bulkAdjust()")
+        bulk_end = html.index('document.querySelectorAll("[data-stock-group-summary-row]")', bulk_start)
+        bulk_adjust_script = html[bulk_start:bulk_end]
+        self.assertIn("await openStockBulkAdjustModal", bulk_adjust_script)
+        self.assertNotIn("prompt(", bulk_adjust_script)
+        self.assertNotIn("alert(", bulk_adjust_script)
+
+    def test_product_studio_destructive_actions_use_internal_action_modal(self):
+        self.create_user("owner_product_action_modal", "pass1234", "owner")
+        self.login("owner_product_action_modal", "pass1234")
+
+        response = self.client.get("/stock/?workspace=products")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn('id="productActionModal"', html)
+        self.assertIn("function openProductActionModal(options = {})", html)
+        self.assertIn("async function bulkDelete()", html)
+        self.assertIn("async function deleteAllProducts()", html)
+        self.assertIn("async function undoLatestIpos4Import()", html)
+
+        destructive_script = html[
+            html.index("async function undoLatestIpos4Import()"):
+            html.index("function buildPreviewTable")
+        ]
+        self.assertIn("await openProductActionModal", destructive_script)
+        self.assertNotIn("window.prompt", destructive_script)
+        self.assertNotIn("window.confirm", destructive_script)
+        self.assertNotIn("alert(", destructive_script)
 
     def test_add_product_rejects_invalid_initial_stock_warehouse(self):
         self.create_user("owner_invalid_stock_wh", "pass1234", "owner")
@@ -34037,6 +34168,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Hak Akses Fitur", html)
         self.assertIn("Override Hak Akses Per User", html)
+        self.assertIn("Dampak tinggi", html)
+        self.assertIn("Dampak operasional", html)
+        self.assertIn("Dampak ringan", html)
 
     def test_owner_cannot_access_permission_admin_page(self):
         self.create_user("owner_permission_admin", "pass1234", "owner")

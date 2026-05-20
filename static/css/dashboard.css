@@ -6137,7 +6137,8 @@ body .pos-sales-context-form {
     margin-top: 4px;
 }
 
-body .pos-sales-context-form select {
+body .pos-sales-context-form select,
+body .pos-sales-context-form input[type="date"] {
     width: 100%;
     min-height: 40px;
     border-radius: 12px;
@@ -6179,7 +6180,8 @@ html[data-theme="light"] body .pos-sales-context-button:hover {
     color: #0b1d33;
 }
 
-html[data-theme="light"] body .pos-sales-context-form select {
+html[data-theme="light"] body .pos-sales-context-form select,
+html[data-theme="light"] body .pos-sales-context-form input[type="date"] {
     border-color: rgba(148, 163, 184, 0.28);
     background: rgba(255, 255, 255, 0.96);
     color: #12253c;
@@ -25869,3 +25871,63 @@ html[data-theme="dark"] body .ai-quick-actions button {
 }
 
 
+body .ops-status-stack {
+    display: grid;
+    gap: 8px;
+    min-width: 180px;
+}
+
+body .ops-status-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+body .approval-status-flow {
+    margin: 0 0 16px;
+}
+
+body .ops-status-step {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 4px 8px;
+    border: 1px solid var(--theme-border, rgba(148, 163, 184, 0.22));
+    border-radius: 999px;
+    color: var(--theme-muted, #94a3b8);
+    background: var(--theme-surface-subtle, rgba(148, 163, 184, 0.08));
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+body .ops-status-step.is-done,
+body .ops-status-step.is-active {
+    color: var(--theme-accent-strong, #1d4ed8);
+    border-color: rgba(59, 130, 246, 0.32);
+    background: rgba(59, 130, 246, 0.12);
+}
+
+body .ops-status-step.is-danger {
+    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.35);
+    background: rgba(248, 113, 113, 0.12);
+}
+
+@media (max-width: 720px) {
+    body .ops-status-stack {
+        min-width: 150px;
+    }
+
+    body .ops-status-flow {
+        gap: 4px;
+    }
+
+    body .ops-status-step {
+        min-height: 24px;
+        padding: 3px 7px;
+        font-size: 0.68rem;
+    }
+}
